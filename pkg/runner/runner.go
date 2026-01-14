@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -123,7 +125,13 @@ func (r *runner) RunAll(ctx context.Context) error {
 
 // RunInstance runs a single client instance through its lifecycle.
 func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstance) error {
-	log := r.log.WithField("instance", instance.ID)
+	// Generate a short random ID for this run.
+	runID := generateShortID()
+
+	log := r.log.WithFields(logrus.Fields{
+		"instance": instance.ID,
+		"run_id":   runID,
+	})
 	log.Info("Starting client instance")
 
 	// Get client spec.
@@ -200,14 +208,17 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		log.Info("Running init container")
 
 		initSpec := &docker.ContainerSpec{
-			Name:        fmt.Sprintf("init-%s", instance.ID),
+			Name:        fmt.Sprintf("benchmarkoor-%s-%s-init", runID, instance.ID),
 			Image:       imageName,
 			Command:     spec.InitCommand(),
 			Mounts:      mounts,
 			NetworkName: r.cfg.DockerNetwork,
 			Labels: map[string]string{
-				"benchmarkoor.instance": instance.ID,
-				"benchmarkoor.type":     "init",
+				"benchmarkoor.instance":   instance.ID,
+				"benchmarkoor.client":     instance.Client,
+				"benchmarkoor.run-id":     runID,
+				"benchmarkoor.type":       "init",
+				"benchmarkoor.managed-by": "benchmarkoor",
 			},
 		}
 
@@ -232,7 +243,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	// Build container spec.
 	containerSpec := &docker.ContainerSpec{
-		Name:        instance.ID,
+		Name:        fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID),
 		Image:       imageName,
 		Entrypoint:  instance.Entrypoint,
 		Command:     cmd,
@@ -240,8 +251,10 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		Mounts:      mounts,
 		NetworkName: r.cfg.DockerNetwork,
 		Labels: map[string]string{
-			"benchmarkoor.instance": instance.ID,
-			"benchmarkoor.client":   instance.Client,
+			"benchmarkoor.instance":   instance.ID,
+			"benchmarkoor.client":     instance.Client,
+			"benchmarkoor.run-id":     runID,
+			"benchmarkoor.managed-by": "benchmarkoor",
 		},
 	}
 
@@ -465,4 +478,15 @@ func (w *prefixedWriter) Write(p []byte) (n int, err error) {
 	}
 
 	return n, nil
+}
+
+// generateShortID generates a short random hex ID (8 characters).
+func generateShortID() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails.
+		return fmt.Sprintf("%08x", time.Now().UnixNano()&0xFFFFFFFF)
+	}
+
+	return hex.EncodeToString(b)
 }
