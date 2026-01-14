@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -165,22 +166,22 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		return fmt.Errorf("getting client spec: %w", err)
 	}
 
-	// Determine genesis URL.
-	genesisURL := instance.Genesis
-	if genesisURL == "" {
-		genesisURL = r.cfg.GenesisURLs[instance.Client]
+	// Determine genesis source (URL or local file path).
+	genesisSource := instance.Genesis
+	if genesisSource == "" {
+		genesisSource = r.cfg.GenesisURLs[instance.Client]
 	}
 
-	if genesisURL == "" {
-		return fmt.Errorf("no genesis URL configured for client %s", instance.Client)
+	if genesisSource == "" {
+		return fmt.Errorf("no genesis configured for client %s", instance.Client)
 	}
 
-	// Download genesis file.
-	log.WithField("url", genesisURL).Info("Downloading genesis file")
+	// Load genesis file (from URL or local path).
+	log.WithField("source", genesisSource).Info("Loading genesis file")
 
-	genesisContent, err := r.downloadFile(ctx, genesisURL)
+	genesisContent, err := r.loadFile(ctx, genesisSource)
 	if err != nil {
-		return fmt.Errorf("downloading genesis: %w", err)
+		return fmt.Errorf("loading genesis: %w", err)
 	}
 
 	// Determine image.
@@ -376,8 +377,19 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	return nil
 }
 
-// downloadFile downloads a file from a URL.
-func (r *runner) downloadFile(ctx context.Context, url string) ([]byte, error) {
+// loadFile loads content from a URL or local file path.
+func (r *runner) loadFile(ctx context.Context, source string) ([]byte, error) {
+	// Check if source is a URL.
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		return r.downloadFromURL(ctx, source)
+	}
+
+	// Treat as local file path.
+	return r.readFromFile(source)
+}
+
+// downloadFromURL downloads content from a URL.
+func (r *runner) downloadFromURL(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -396,6 +408,16 @@ func (r *runner) downloadFile(ctx context.Context, url string) ([]byte, error) {
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+
+	return data, nil
+}
+
+// readFromFile reads content from a local file.
+func (r *runner) readFromFile(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading file %s: %w", path, err)
 	}
 
 	return data, nil
