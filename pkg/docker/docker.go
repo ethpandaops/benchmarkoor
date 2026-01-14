@@ -32,7 +32,7 @@ type Manager interface {
 	RemoveContainer(ctx context.Context, containerID string) error
 
 	// Init container support.
-	RunInitContainer(ctx context.Context, spec *ContainerSpec) error
+	RunInitContainer(ctx context.Context, spec *ContainerSpec, stdout, stderr io.Writer) error
 
 	// Log streaming.
 	StreamLogs(ctx context.Context, containerID string, stdout, stderr io.Writer) error
@@ -235,7 +235,7 @@ func (m *manager) RemoveContainer(ctx context.Context, containerID string) error
 }
 
 // RunInitContainer runs an init container and waits for it to complete.
-func (m *manager) RunInitContainer(ctx context.Context, spec *ContainerSpec) error {
+func (m *manager) RunInitContainer(ctx context.Context, spec *ContainerSpec, stdout, stderr io.Writer) error {
 	log := m.log.WithField("init_container", spec.Name)
 
 	containerID, err := m.CreateContainer(ctx, spec)
@@ -251,6 +251,15 @@ func (m *manager) RunInitContainer(ctx context.Context, spec *ContainerSpec) err
 
 	if err := m.StartContainer(ctx, containerID); err != nil {
 		return fmt.Errorf("starting init container: %w", err)
+	}
+
+	// Stream logs in background if writers provided.
+	if stdout != nil || stderr != nil {
+		go func() {
+			if streamErr := m.StreamLogs(ctx, containerID, stdout, stderr); streamErr != nil {
+				log.WithError(streamErr).Debug("Init container log streaming ended")
+			}
+		}()
 	}
 
 	statusCh, errCh := m.client.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)

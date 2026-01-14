@@ -127,6 +127,13 @@ func (r *runner) RunAll(ctx context.Context) error {
 func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstance) error {
 	// Generate a short random ID for this run.
 	runID := generateShortID()
+	runTimestamp := time.Now().Unix()
+
+	// Create run results directory.
+	runResultsDir := filepath.Join(r.cfg.ResultsDir, fmt.Sprintf("%d_%s_%s", runTimestamp, runID, instance.ID))
+	if err := os.MkdirAll(runResultsDir, 0755); err != nil {
+		return fmt.Errorf("creating run results directory: %w", err)
+	}
 
 	log := r.log.WithFields(logrus.Fields{
 		"instance": instance.ID,
@@ -222,9 +229,29 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			},
 		}
 
-		if err := r.docker.RunInitContainer(ctx, initSpec); err != nil {
+		// Set up init container log streaming.
+		initLogFile := filepath.Join(runResultsDir, "container-init.log")
+
+		initFile, err := os.Create(initLogFile)
+		if err != nil {
+			return fmt.Errorf("creating init log file: %w", err)
+		}
+
+		var initStdout, initStderr io.Writer = initFile, initFile
+		if r.cfg.ClientLogsToStdout {
+			prefix := fmt.Sprintf("[%s-init] ", instance.ID)
+			prefixWriter := &prefixedWriter{prefix: prefix, writer: os.Stdout}
+			initStdout = io.MultiWriter(initFile, prefixWriter)
+			initStderr = io.MultiWriter(initFile, prefixWriter)
+		}
+
+		if err := r.docker.RunInitContainer(ctx, initSpec, initStdout, initStderr); err != nil {
+			initFile.Close()
+
 			return fmt.Errorf("running init container: %w", err)
 		}
+
+		initFile.Close()
 
 		log.Info("Init container completed")
 	}
@@ -280,7 +307,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	logCtx, logCancel := context.WithCancel(ctx)
 	defer logCancel()
 
-	logFile := filepath.Join(r.cfg.ResultsDir, fmt.Sprintf("container-%s.log", instance.ID))
+	logFile := filepath.Join(runResultsDir, "container.log")
 
 	r.wg.Add(1)
 
