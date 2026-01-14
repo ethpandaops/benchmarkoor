@@ -180,6 +180,7 @@ func (m *manager) CreateContainer(ctx context.Context, spec *ContainerSpec) (str
 
 	containerCfg := &container.Config{
 		Image:      spec.Image,
+		User:       "root",
 		Env:        env,
 		Labels:     spec.Labels,
 		Entrypoint: spec.Entrypoint,
