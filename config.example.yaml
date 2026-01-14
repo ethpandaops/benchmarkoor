@@ -2,6 +2,7 @@ global:
   log_level: info
   client_logs_to_stdout: true
   docker_network: benchmarkoor
+  cleanup_on_start: false
 
 benchmark:
   results_dir: ./results
@@ -21,7 +22,7 @@ client:
       reth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
 
   # Default images per client (used when 'image' is not specified):
-  #   geth:       ethpandaops/geth:latest
+  #   geth:       ethpandaops/geth:performance
   #   nethermind: ethpandaops/nethermind:performance
   #   besu:       ethpandaops/besu:performance
   #   erigon:     ethpandaops/erigon:performance
