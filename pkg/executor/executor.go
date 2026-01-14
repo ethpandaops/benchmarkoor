@@ -193,6 +193,18 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 	result.TotalDuration = time.Since(startTime)
 
+	// Generate and write the run result summary.
+	runResult, err := GenerateRunResult(opts.ResultsDir)
+	if err != nil {
+		e.log.WithError(err).Warn("Failed to generate run result")
+	} else {
+		if err := WriteRunResult(opts.ResultsDir, runResult); err != nil {
+			e.log.WithError(err).Warn("Failed to write run result")
+		} else {
+			e.log.WithField("tests_count", len(runResult.Tests)).Info("Run result written")
+		}
+	}
+
 	return result, nil
 }
 

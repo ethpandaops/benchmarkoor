@@ -30,6 +30,17 @@ type AggregatedStats struct {
 	Methods   map[string]*MethodStats `json:"Methods"`
 }
 
+// TestEntry contains the result entry for a single test in the run result.
+type TestEntry struct {
+	Dir        string           `json:"dir"`
+	Aggregated *AggregatedStats `json:"aggregated"`
+}
+
+// RunResult contains the aggregated results for all tests in a run.
+type RunResult struct {
+	Tests map[string]*TestEntry `json:"tests"`
+}
+
 // TestResult contains results for a single test file execution.
 type TestResult struct {
 	TestFile    string
@@ -167,6 +178,86 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 
 	if err := os.WriteFile(statsPath, statsJSON, 0644); err != nil {
 		return fmt.Errorf("writing stats file: %w", err)
+	}
+
+	return nil
+}
+
+// GenerateRunResult scans a results directory and builds a RunResult from all aggregated files.
+func GenerateRunResult(resultsDir string) (*RunResult, error) {
+	result := &RunResult{
+		Tests: make(map[string]*TestEntry),
+	}
+
+	// Walk the results directory looking for .times_aggregated.json files.
+	err := filepath.Walk(resultsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		// Only process aggregated stats files.
+		if !strings.HasSuffix(path, ".times_aggregated.json") {
+			return nil
+		}
+
+		// Read and parse the aggregated stats file.
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", path, err)
+		}
+
+		var stats AggregatedStats
+		if err := json.Unmarshal(data, &stats); err != nil {
+			return fmt.Errorf("parsing %s: %w", path, err)
+		}
+
+		// Extract relative path from resultsDir.
+		relPath, err := filepath.Rel(resultsDir, path)
+		if err != nil {
+			relPath = path
+		}
+
+		// Remove .times_aggregated.json suffix to get the test name.
+		testName := strings.TrimSuffix(relPath, ".times_aggregated.json")
+
+		// Extract directory (e.g., "000752/test.txt" -> dir is "000752").
+		dir := filepath.Dir(testName)
+		if dir == "." {
+			dir = ""
+		}
+
+		// Use just the filename as the test key.
+		testFile := filepath.Base(testName)
+
+		result.Tests[testFile] = &TestEntry{
+			Dir:        dir,
+			Aggregated: &stats,
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walking results directory: %w", err)
+	}
+
+	return result, nil
+}
+
+// WriteRunResult writes the run result to result.json in the results directory.
+func WriteRunResult(resultsDir string, result *RunResult) error {
+	resultPath := filepath.Join(resultsDir, "result.json")
+
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling run result: %w", err)
+	}
+
+	if err := os.WriteFile(resultPath, data, 0644); err != nil {
+		return fmt.Errorf("writing result.json: %w", err)
 	}
 
 	return nil
