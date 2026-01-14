@@ -1,0 +1,63 @@
+global:
+  log_level: info
+  client_logs_to_stdout: true
+  docker_network: benchmarkoor
+
+benchmark:
+  results_dir: ./results
+
+client:
+  config:
+    # JWT secret for Engine API authentication (optional, has a default)
+    jwt: "5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae"
+    # Genesis file URLs per client type
+    genesis:
+      besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
+      erigon: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      ethrex: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      geth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      nethermind: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/nethermind/zkevmgenesis.json
+      nimbus-el: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      reth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+
+  # Default images per client (used when 'image' is not specified):
+  #   geth:       ethpandaops/geth:latest
+  #   nethermind: ethpandaops/nethermind:performance
+  #   besu:       ethpandaops/besu:performance
+  #   erigon:     ethpandaops/erigon:performance
+  #   nimbus-el:  statusim/nimbus-eth1:performance
+  #   reth:       ethpandaops/reth:performance
+
+  instances:
+    - id: geth-latest
+      client: geth
+      # image: ethpandaops/geth:latest (default, can be omitted)
+      # pull_policy: always (default)
+      # Optional overrides:
+      # entrypoint: []
+      # command: []
+      # restart: never
+      # environment:
+      #   SOME_VAR: value
+      # genesis: <override-url>
+
+    # Example: running multiple clients
+    # - id: nethermind-latest
+    #   client: nethermind
+    #   # image: ethpandaops/nethermind:performance (default)
+
+    # - id: besu-latest
+    #   client: besu
+    #   # image: ethpandaops/besu:performance (default)
+
+    # - id: reth-latest
+    #   client: reth
+    #   # image: ethpandaops/reth:performance (default)
+
+    # - id: erigon-latest
+    #   client: erigon
+    #   # image: ethpandaops/erigon:performance (default)
+
+    # - id: nimbus-latest
+    #   client: nimbus-el
+    #   # image: statusim/nimbus-eth1:performance (default)

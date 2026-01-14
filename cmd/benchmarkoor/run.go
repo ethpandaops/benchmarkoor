@@ -1,0 +1,122 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/ethpandaops/benchmarkoor/pkg/client"
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/ethpandaops/benchmarkoor/pkg/runner"
+	"github.com/spf13/cobra"
+)
+
+var runCmd = &cobra.Command{
+	Use:   "run",
+	Short: "Run the benchmark",
+	Long:  `Start all configured client instances and run the benchmark.`,
+	RunE:  runBenchmark,
+}
+
+func init() {
+	rootCmd.AddCommand(runCmd)
+}
+
+func runBenchmark(cmd *cobra.Command, args []string) error {
+	if cfgFile == "" {
+		return fmt.Errorf("config file is required (use --config)")
+	}
+
+	// Load configuration.
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	// Validate configuration.
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("validating config: %w", err)
+	}
+
+	// Setup context with signal handling.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigCh
+		log.WithField("signal", sig).Info("Received shutdown signal")
+		cancel()
+	}()
+
+	// Create Docker manager.
+	dockerMgr, err := docker.NewManager(log)
+	if err != nil {
+		return fmt.Errorf("creating docker manager: %w", err)
+	}
+
+	if err := dockerMgr.Start(ctx); err != nil {
+		return fmt.Errorf("starting docker manager: %w", err)
+	}
+
+	defer func() {
+		if err := dockerMgr.Stop(); err != nil {
+			log.WithError(err).Warn("Failed to stop docker manager")
+		}
+	}()
+
+	// Create client registry.
+	registry := client.NewRegistry()
+
+	// Create runner.
+	runnerCfg := &runner.Config{
+		ResultsDir:         cfg.Benchmark.ResultsDir,
+		ClientLogsToStdout: cfg.Global.ClientLogsToStdout,
+		DockerNetwork:      cfg.Global.DockerNetwork,
+		JWT:                cfg.Client.Config.JWT,
+		GenesisURLs:        cfg.Client.Config.Genesis,
+	}
+
+	r := runner.NewRunner(log, runnerCfg, dockerMgr, registry)
+
+	if err := r.Start(ctx); err != nil {
+		return fmt.Errorf("starting runner: %w", err)
+	}
+
+	defer func() {
+		if err := r.Stop(); err != nil {
+			log.WithError(err).Warn("Failed to stop runner")
+		}
+	}()
+
+	// Run all configured instances.
+	for _, instance := range cfg.Client.Instances {
+		select {
+		case <-ctx.Done():
+			log.Info("Benchmark interrupted")
+
+			return ctx.Err()
+		default:
+		}
+
+		log.WithField("instance", instance.ID).Info("Running instance")
+
+		if err := r.RunInstance(ctx, &instance); err != nil {
+			log.WithError(err).WithField("instance", instance.ID).Error("Instance failed")
+
+			// Continue with next instance on failure.
+			continue
+		}
+
+		log.WithField("instance", instance.ID).Info("Instance completed successfully")
+	}
+
+	log.Info("Benchmark completed")
+
+	return nil
+}
