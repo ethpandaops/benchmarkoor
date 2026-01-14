@@ -16,6 +16,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/sirupsen/logrus"
 )
 
@@ -51,6 +52,7 @@ type Config struct {
 	GenesisURLs        map[string]string
 	ReadyTimeout       time.Duration
 	ReadyWaitAfter     time.Duration
+	TestFilter         string
 }
 
 // NewRunner creates a new runner instance.
@@ -59,6 +61,7 @@ func NewRunner(
 	cfg *Config,
 	dockerMgr docker.Manager,
 	registry client.Registry,
+	exec executor.Executor,
 ) Runner {
 	if cfg.ReadyTimeout == 0 {
 		cfg.ReadyTimeout = DefaultReadyTimeout
@@ -73,6 +76,7 @@ func NewRunner(
 		cfg:      cfg,
 		docker:   dockerMgr,
 		registry: registry,
+		executor: exec,
 		done:     make(chan struct{}),
 	}
 }
@@ -82,6 +86,7 @@ type runner struct {
 	cfg      *Config
 	docker   docker.Manager
 	registry client.Registry
+	executor executor.Executor
 	done     chan struct{}
 	wg       sync.WaitGroup
 }
@@ -371,6 +376,30 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		log.Info("Wait period complete")
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+
+	// Execute tests if executor is configured.
+	if r.executor != nil {
+		log.Info("Starting test execution")
+
+		execOpts := &executor.ExecuteOptions{
+			EngineEndpoint: fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort()),
+			JWT:            r.cfg.JWT,
+			ResultsDir:     runResultsDir,
+			Filter:         r.cfg.TestFilter,
+		}
+
+		result, err := r.executor.ExecuteTests(ctx, execOpts)
+		if err != nil {
+			log.WithError(err).Error("Test execution failed")
+		} else {
+			log.WithFields(logrus.Fields{
+				"total":    result.TotalTests,
+				"passed":   result.Passed,
+				"failed":   result.Failed,
+				"duration": result.TotalDuration,
+			}).Info("Test execution completed")
+		}
 	}
 
 	// Cleanup happens in defer.
