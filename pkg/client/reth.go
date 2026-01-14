@@ -70,3 +70,7 @@ func (s *rethSpec) EnginePort() int {
 func (s *rethSpec) MetricsPort() int {
 	return 8008
 }
+
+func (s *rethSpec) DefaultEnvironment() map[string]string {
+	return nil
+}

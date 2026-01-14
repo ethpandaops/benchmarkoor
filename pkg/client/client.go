@@ -51,6 +51,9 @@ type Spec interface {
 
 	// MetricsPort returns the metrics port.
 	MetricsPort() int
+
+	// DefaultEnvironment returns default environment variables for the client.
+	DefaultEnvironment() map[string]string
 }
 
 // Registry manages client specifications.

@@ -81,3 +81,7 @@ func (s *gethSpec) EnginePort() int {
 func (s *gethSpec) MetricsPort() int {
 	return 8008
 }
+
+func (s *gethSpec) DefaultEnvironment() map[string]string {
+	return nil
+}

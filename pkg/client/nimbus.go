@@ -68,3 +68,7 @@ func (s *nimbusSpec) EnginePort() int {
 func (s *nimbusSpec) MetricsPort() int {
 	return 8008
 }
+
+func (s *nimbusSpec) DefaultEnvironment() map[string]string {
+	return nil
+}

@@ -79,3 +79,7 @@ func (s *erigonSpec) EnginePort() int {
 func (s *erigonSpec) MetricsPort() int {
 	return 8008
 }
+
+func (s *erigonSpec) DefaultEnvironment() map[string]string {
+	return nil
+}

@@ -74,3 +74,7 @@ func (s *nethermindSpec) EnginePort() int {
 func (s *nethermindSpec) MetricsPort() int {
 	return 8008
 }
+
+func (s *nethermindSpec) DefaultEnvironment() map[string]string {
+	return nil
+}

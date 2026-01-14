@@ -76,3 +76,9 @@ func (s *besuSpec) EnginePort() int {
 func (s *besuSpec) MetricsPort() int {
 	return 8008
 }
+
+func (s *besuSpec) DefaultEnvironment() map[string]string {
+	return map[string]string{
+		"BESU_USER_NAME": "root",
+	}
+}
