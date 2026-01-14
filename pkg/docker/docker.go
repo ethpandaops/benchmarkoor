@@ -47,6 +47,10 @@ type Manager interface {
 	// Volume operations.
 	CreateVolume(ctx context.Context, name string, labels map[string]string) error
 	RemoveVolume(ctx context.Context, name string) error
+
+	// Cleanup operations.
+	ListContainers(ctx context.Context) ([]ContainerInfo, error)
+	ListVolumes(ctx context.Context) ([]VolumeInfo, error)
 }
 
 // ContainerSpec defines container configuration.
@@ -68,6 +72,19 @@ type Mount struct {
 	ReadOnly bool
 	Type     string // "bind", "volume", "tmpfs"
 	Content  []byte // For in-memory content to be written to a temp file
+}
+
+// ContainerInfo contains information about a container for cleanup.
+type ContainerInfo struct {
+	ID     string
+	Name   string
+	Labels map[string]string
+}
+
+// VolumeInfo contains information about a volume for cleanup.
+type VolumeInfo struct {
+	Name   string
+	Labels map[string]string
 }
 
 // NewManager creates a new Docker manager.
@@ -392,7 +409,61 @@ func (m *manager) RemoveVolume(ctx context.Context, name string) error {
 		return fmt.Errorf("removing volume %s: %w", name, err)
 	}
 
-	m.log.WithField("volume", name).Debug("Removed volume")
+	m.log.WithField("volume", name).Info("Removed volume")
 
 	return nil
+}
+
+// ListContainers returns all containers managed by benchmarkoor.
+func (m *manager) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
+	containers, err := m.client.ContainerList(ctx, container.ListOptions{
+		All: true,
+		Filters: filters.NewArgs(
+			filters.Arg("label", "benchmarkoor.managed-by=benchmarkoor"),
+		),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing containers: %w", err)
+	}
+
+	result := make([]ContainerInfo, 0, len(containers))
+	for _, c := range containers {
+		name := ""
+		if len(c.Names) > 0 {
+			name = c.Names[0]
+			if len(name) > 0 && name[0] == '/' {
+				name = name[1:]
+			}
+		}
+
+		result = append(result, ContainerInfo{
+			ID:     c.ID,
+			Name:   name,
+			Labels: c.Labels,
+		})
+	}
+
+	return result, nil
+}
+
+// ListVolumes returns all volumes managed by benchmarkoor.
+func (m *manager) ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
+	volumes, err := m.client.VolumeList(ctx, volume.ListOptions{
+		Filters: filters.NewArgs(
+			filters.Arg("label", "benchmarkoor.managed-by=benchmarkoor"),
+		),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing volumes: %w", err)
+	}
+
+	result := make([]VolumeInfo, 0, len(volumes.Volumes))
+	for _, v := range volumes.Volumes {
+		result = append(result, VolumeInfo{
+			Name:   v.Name,
+			Labels: v.Labels,
+		})
+	}
+
+	return result, nil
 }

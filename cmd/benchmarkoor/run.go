@@ -70,6 +70,15 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Perform cleanup on start if configured.
+	if cfg.Global.CleanupOnStart {
+		log.Info("Performing cleanup before start")
+
+		if err := performCleanup(ctx, dockerMgr, true); err != nil {
+			log.WithError(err).Warn("Cleanup failed")
+		}
+	}
+
 	// Create client registry.
 	registry := client.NewRegistry()
 

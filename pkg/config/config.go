@@ -37,6 +37,7 @@ type GlobalConfig struct {
 	LogLevel           string `yaml:"log_level"`
 	ClientLogsToStdout bool   `yaml:"client_logs_to_stdout"`
 	DockerNetwork      string `yaml:"docker_network"`
+	CleanupOnStart     bool   `yaml:"cleanup_on_start"`
 }
 
 // BenchmarkConfig contains benchmark-specific settings.
