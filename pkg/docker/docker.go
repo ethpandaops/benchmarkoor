@@ -11,6 +11,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/sirupsen/logrus"
@@ -42,6 +43,10 @@ type Manager interface {
 
 	// Container info.
 	GetContainerIP(ctx context.Context, containerID, networkName string) (string, error)
+
+	// Volume operations.
+	CreateVolume(ctx context.Context, name string, labels map[string]string) error
+	RemoveVolume(ctx context.Context, name string) error
 }
 
 // ContainerSpec defines container configuration.
@@ -363,4 +368,30 @@ func (m *manager) GetContainerIP(ctx context.Context, containerID, networkName s
 	}
 
 	return netSettings.IPAddress, nil
+}
+
+// CreateVolume creates a Docker volume with the given name and labels.
+func (m *manager) CreateVolume(ctx context.Context, name string, labels map[string]string) error {
+	_, err := m.client.VolumeCreate(ctx, volume.CreateOptions{
+		Name:   name,
+		Labels: labels,
+	})
+	if err != nil {
+		return fmt.Errorf("creating volume %s: %w", name, err)
+	}
+
+	m.log.WithField("volume", name).Debug("Created volume")
+
+	return nil
+}
+
+// RemoveVolume removes a Docker volume.
+func (m *manager) RemoveVolume(ctx context.Context, name string) error {
+	if err := m.client.VolumeRemove(ctx, name, true); err != nil {
+		return fmt.Errorf("removing volume %s: %w", name, err)
+	}
+
+	m.log.WithField("volume", name).Debug("Removed volume")
+
+	return nil
 }

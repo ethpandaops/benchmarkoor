@@ -135,6 +135,24 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		return fmt.Errorf("creating run results directory: %w", err)
 	}
 
+	// Create Docker volume for this run.
+	volumeName := fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID)
+	volumeLabels := map[string]string{
+		"benchmarkoor.instance":   instance.ID,
+		"benchmarkoor.client":     instance.Client,
+		"benchmarkoor.run-id":     runID,
+		"benchmarkoor.managed-by": "benchmarkoor",
+	}
+	if err := r.docker.CreateVolume(ctx, volumeName, volumeLabels); err != nil {
+		return fmt.Errorf("creating volume: %w", err)
+	}
+
+	defer func() {
+		if rmErr := r.docker.RemoveVolume(context.Background(), volumeName); rmErr != nil {
+			r.log.WithError(rmErr).Warn("Failed to remove volume")
+		}
+	}()
+
 	log := r.log.WithFields(logrus.Fields{
 		"instance": instance.ID,
 		"run_id":   runID,
@@ -196,6 +214,11 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	// Build container mounts.
 	mounts := []docker.Mount{
+		{
+			Type:   "volume",
+			Source: volumeName,
+			Target: "/data",
+		},
 		{
 			Type:     "bind",
 			Source:   genesisFile,
