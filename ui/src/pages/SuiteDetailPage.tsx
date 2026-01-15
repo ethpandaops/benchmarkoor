@@ -26,8 +26,11 @@ export function SuiteDetailPage() {
     status?: TestStatusFilter
     sortBy?: SortColumn
     sortDir?: SortDirection
+    expanded?: number
+    filesPage?: number
+    q?: string
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc' } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q } = search
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
@@ -126,7 +129,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab: newTab, client, image, status, sortBy, sortDir },
+      search: { tab: newTab, client, image, status, sortBy, sortDir, expanded: undefined, filesPage: undefined, q: undefined },
     })
   }
 
@@ -135,6 +138,30 @@ export function SuiteDetailPage() {
       to: '/suites/$suiteHash',
       params: { suiteHash },
       search: { tab, client, image, status, sortBy: newSortBy, sortDir: newSortDir },
+    })
+  }
+
+  const handleExpandedChange = (index: number | undefined) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, expanded: index, filesPage, q },
+    })
+  }
+
+  const handleFilesPageChange = (page: number) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, expanded, filesPage: page, q },
+    })
+  }
+
+  const handleSearchChange = (query: string | undefined) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, expanded: undefined, filesPage: 1, q: query || undefined },
     })
   }
 
@@ -249,12 +276,32 @@ export function SuiteDetailPage() {
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
             {suite.source.tests && <SuiteSource title="Source" source={suite.source.tests} />}
-            <TestFilesList files={suite.tests} suiteHash={suiteHash} type="tests" />
+            <TestFilesList
+              files={suite.tests}
+              suiteHash={suiteHash}
+              type="tests"
+              expandedIndex={expanded}
+              onExpandedChange={handleExpandedChange}
+              currentPage={filesPage}
+              onPageChange={handleFilesPageChange}
+              searchQuery={q}
+              onSearchChange={handleSearchChange}
+            />
           </TabPanel>
           {hasWarmup && (
             <TabPanel className="flex flex-col gap-4">
               {suite.source.warmup && <SuiteSource title="Source" source={suite.source.warmup} />}
-              <TestFilesList files={suite.warmup!} suiteHash={suiteHash} type="warmup" />
+              <TestFilesList
+                files={suite.warmup!}
+                suiteHash={suiteHash}
+                type="warmup"
+                expandedIndex={expanded}
+                onExpandedChange={handleExpandedChange}
+                currentPage={filesPage}
+                onPageChange={handleFilesPageChange}
+                searchQuery={q}
+                onSearchChange={handleSearchChange}
+              />
             </TabPanel>
           )}
         </TabPanels>
