@@ -2,7 +2,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo, useState, useEffect } from 'react'
 import { useIndex } from '@/api/hooks/useIndex'
 import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
-import { RunFilters } from '@/components/runs/RunFilters'
+import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
 import { Pagination } from '@/components/shared/Pagination'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -17,10 +17,12 @@ export function RunsPage() {
     page?: number
     pageSize?: number
     client?: string
+    image?: string
+    status?: TestStatusFilter
     sortBy?: SortColumn
     sortDir?: SortDirection
   }
-  const { page = 1, pageSize = DEFAULT_PAGE_SIZE, client, sortBy = 'timestamp', sortDir = 'desc' } = search
+  const { page = 1, pageSize = DEFAULT_PAGE_SIZE, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc' } = search
   const { data: index, isLoading, error, refetch } = useIndex()
   const [localPage, setLocalPage] = useState(page)
   const [localPageSize, setLocalPageSize] = useState(pageSize)
@@ -39,33 +41,54 @@ export function RunsPage() {
     return Array.from(clientSet).sort()
   }, [index])
 
+  const images = useMemo(() => {
+    if (!index) return []
+    const imageSet = new Set(index.entries.map((e) => e.instance.image))
+    return Array.from(imageSet).sort()
+  }, [index])
+
   const filteredEntries = useMemo(() => {
     if (!index) return []
-    if (!client) return index.entries
-    return index.entries.filter((e) => e.instance.client === client)
-  }, [index, client])
+    return index.entries.filter((e) => {
+      if (client && e.instance.client !== client) return false
+      if (image && e.instance.image !== image) return false
+      if (status === 'passing' && e.tests.fail > 0) return false
+      if (status === 'failing' && e.tests.fail === 0) return false
+      return true
+    })
+  }, [index, client, image, status])
 
   const totalPages = Math.ceil(filteredEntries.length / localPageSize)
   const paginatedEntries = filteredEntries.slice((localPage - 1) * localPageSize, localPage * localPageSize)
 
   const handlePageChange = (newPage: number) => {
     setLocalPage(newPage)
-    navigate({ to: '/runs', search: { page: newPage, pageSize: localPageSize, client, sortBy, sortDir } })
+    navigate({ to: '/runs', search: { page: newPage, pageSize: localPageSize, client, image, status, sortBy, sortDir } })
   }
 
   const handlePageSizeChange = (newSize: number) => {
     setLocalPageSize(newSize)
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: newSize, client, sortBy, sortDir } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: newSize, client, image, status, sortBy, sortDir } })
   }
 
   const handleClientChange = (newClient: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client: newClient, sortBy, sortDir } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client: newClient, image, status, sortBy, sortDir } })
+  }
+
+  const handleImageChange = (newImage: string | undefined) => {
+    setLocalPage(1)
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image: newImage, status, sortBy, sortDir } })
+  }
+
+  const handleStatusChange = (newStatus: TestStatusFilter) => {
+    setLocalPage(1)
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, status: newStatus, sortBy, sortDir } })
   }
 
   const handleSortChange = (newSortBy: SortColumn, newSortDir: SortDirection) => {
-    navigate({ to: '/runs', search: { page: localPage, pageSize: localPageSize, client, sortBy: newSortBy, sortDir: newSortDir } })
+    navigate({ to: '/runs', search: { page: localPage, pageSize: localPageSize, client, image, status, sortBy: newSortBy, sortDir: newSortDir } })
   }
 
   if (isLoading) {
@@ -84,7 +107,16 @@ export function RunsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">Benchmark Runs</h1>
-        <RunFilters clients={clients} selectedClient={client} onClientChange={handleClientChange} />
+        <RunFilters
+          clients={clients}
+          selectedClient={client}
+          onClientChange={handleClientChange}
+          images={images}
+          selectedImage={image}
+          onImageChange={handleImageChange}
+          selectedStatus={status}
+          onStatusChange={handleStatusChange}
+        />
       </div>
 
       {paginatedEntries.length === 0 ? (

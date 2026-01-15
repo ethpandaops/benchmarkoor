@@ -7,6 +7,7 @@ import { useIndex } from '@/api/hooks/useIndex'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList } from '@/components/suite-detail/TestFilesList'
 import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
+import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
@@ -20,26 +21,76 @@ export function SuiteDetailPage() {
   const navigate = useNavigate()
   const search = useSearch({ from: '/suites/$suiteHash' }) as {
     tab?: string
+    client?: string
+    image?: string
+    status?: TestStatusFilter
     sortBy?: SortColumn
     sortDir?: SortDirection
   }
-  const { tab, sortBy = 'timestamp', sortDir = 'desc' } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc' } = search
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
 
-  const suiteRuns = useMemo(() => {
+  const suiteRunsAll = useMemo(() => {
     if (!index) return []
     return index.entries.filter((entry) => entry.suite_hash === suiteHash)
   }, [index, suiteHash])
 
-  const totalRunsPages = Math.ceil(suiteRuns.length / runsPageSize)
-  const paginatedRuns = suiteRuns.slice((runsPage - 1) * runsPageSize, runsPage * runsPageSize)
+  const clients = useMemo(() => {
+    const clientSet = new Set(suiteRunsAll.map((e) => e.instance.client))
+    return Array.from(clientSet).sort()
+  }, [suiteRunsAll])
+
+  const images = useMemo(() => {
+    const imageSet = new Set(suiteRunsAll.map((e) => e.instance.image))
+    return Array.from(imageSet).sort()
+  }, [suiteRunsAll])
+
+  const filteredRuns = useMemo(() => {
+    return suiteRunsAll.filter((e) => {
+      if (client && e.instance.client !== client) return false
+      if (image && e.instance.image !== image) return false
+      if (status === 'passing' && e.tests.fail > 0) return false
+      if (status === 'failing' && e.tests.fail === 0) return false
+      return true
+    })
+  }, [suiteRunsAll, client, image, status])
+
+  const totalRunsPages = Math.ceil(filteredRuns.length / runsPageSize)
+  const paginatedRuns = filteredRuns.slice((runsPage - 1) * runsPageSize, runsPage * runsPageSize)
 
   const handleRunsPageSizeChange = (newSize: number) => {
     setRunsPageSize(newSize)
     setRunsPage(1)
+  }
+
+  const handleClientChange = (newClient: string | undefined) => {
+    setRunsPage(1)
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client: newClient, image, status, sortBy, sortDir },
+    })
+  }
+
+  const handleImageChange = (newImage: string | undefined) => {
+    setRunsPage(1)
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image: newImage, status, sortBy, sortDir },
+    })
+  }
+
+  const handleStatusChange = (newStatus: TestStatusFilter) => {
+    setRunsPage(1)
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status: newStatus, sortBy, sortDir },
+    })
   }
 
   if (isLoading) {
@@ -75,7 +126,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab: newTab, sortBy, sortDir },
+      search: { tab: newTab, client, image, status, sortBy, sortDir },
     })
   }
 
@@ -83,7 +134,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, sortBy: newSortBy, sortDir: newSortDir },
+      search: { tab, client, image, status, sortBy: newSortBy, sortDir: newSortDir },
     })
   }
 
@@ -120,7 +171,7 @@ export function SuiteDetailPage() {
               )
             }
           >
-            Runs ({suiteRuns.length})
+            Runs ({suiteRunsAll.length})
           </Tab>
           <Tab
             className={({ selected }) =>
@@ -151,33 +202,51 @@ export function SuiteDetailPage() {
         </TabList>
         <TabPanels className="mt-4">
           <TabPanel>
-            {suiteRuns.length === 0 ? (
+            {suiteRunsAll.length === 0 ? (
               <p className="py-8 text-center text-sm/6 text-gray-500 dark:text-gray-400">
                 No runs found for this suite.
               </p>
             ) : (
               <div className="flex flex-col gap-4">
-                <RunsTable entries={paginatedRuns} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} />
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
-                    <select
-                      value={runsPageSize}
-                      onChange={(e) => handleRunsPageSizeChange(Number(e.target.value))}
-                      className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                    >
-                      {PAGE_SIZE_OPTIONS.map((size) => (
-                        <option key={size} value={size}>
-                          {size}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
-                  </div>
-                  {totalRunsPages > 1 && (
-                    <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
-                  )}
-                </div>
+                <RunFilters
+                  clients={clients}
+                  selectedClient={client}
+                  onClientChange={handleClientChange}
+                  images={images}
+                  selectedImage={image}
+                  onImageChange={handleImageChange}
+                  selectedStatus={status}
+                  onStatusChange={handleStatusChange}
+                />
+                {filteredRuns.length === 0 ? (
+                  <p className="py-8 text-center text-sm/6 text-gray-500 dark:text-gray-400">
+                    No runs match the selected filters.
+                  </p>
+                ) : (
+                  <>
+                    <RunsTable entries={paginatedRuns} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
+                        <select
+                          value={runsPageSize}
+                          onChange={(e) => handleRunsPageSizeChange(Number(e.target.value))}
+                          className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                        >
+                          {PAGE_SIZE_OPTIONS.map((size) => (
+                            <option key={size} value={size}>
+                              {size}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
+                      </div>
+                      {totalRunsPages > 1 && (
+                        <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </TabPanel>

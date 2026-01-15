@@ -117,7 +117,7 @@ export function RunsTable({
               className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
             >
               <td className="whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400">
-                <span title={formatTimestamp(entry.timestamp)}>{formatRelativeTime(entry.timestamp)}</span>
+                <span title={formatRelativeTime(entry.timestamp)}>{formatTimestamp(entry.timestamp)}</span>
               </td>
               <td className="whitespace-nowrap px-6 py-4">
                 <ClientBadge client={entry.instance.client} />
