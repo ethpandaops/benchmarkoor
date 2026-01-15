@@ -1,18 +1,36 @@
+import { useMemo, useState } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
 import { useSuite } from '@/api/hooks/useSuite'
+import { useIndex } from '@/api/hooks/useIndex'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList } from '@/components/suite-detail/TestFilesList'
+import { RunsTable } from '@/components/runs/RunsTable'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
+import { Pagination } from '@/components/shared/Pagination'
+
+const PAGE_SIZE = 20
 
 export function SuiteDetailPage() {
   const { suiteHash } = useParams({ from: '/suites/$suiteHash' })
   const navigate = useNavigate()
   const search = useSearch({ from: '/suites/$suiteHash' }) as { tab?: string }
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
+  const { data: index } = useIndex()
+  const [runsPage, setRunsPage] = useState(1)
+
+  const suiteRuns = useMemo(() => {
+    if (!index) return []
+    return index.entries
+      .filter((entry) => entry.suite_hash === suiteHash)
+      .sort((a, b) => b.timestamp - a.timestamp)
+  }, [index, suiteHash])
+
+  const totalRunsPages = Math.ceil(suiteRuns.length / PAGE_SIZE)
+  const paginatedRuns = suiteRuns.slice((runsPage - 1) * PAGE_SIZE, runsPage * PAGE_SIZE)
 
   if (isLoading) {
     return <LoadingState message="Loading suite details..." />
@@ -27,10 +45,23 @@ export function SuiteDetailPage() {
   }
 
   const hasWarmup = suite.warmup && suite.warmup.length > 0
-  const tabIndex = search.tab === 'warmup' && hasWarmup ? 1 : 0
+  const warmupTabIndex = hasWarmup ? 2 : -1
+
+  const getTabIndex = () => {
+    if (search.tab === 'tests') return 1
+    if (search.tab === 'warmup' && hasWarmup) return warmupTabIndex
+    return 0 // runs is default
+  }
 
   const handleTabChange = (index: number) => {
-    const tab = index === 1 ? 'warmup' : 'tests'
+    let tab: string
+    if (index === 0) {
+      tab = 'runs'
+    } else if (index === 1) {
+      tab = 'tests'
+    } else {
+      tab = 'warmup'
+    }
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
@@ -59,8 +90,20 @@ export function SuiteDetailPage() {
         </div>
       </div>
 
-      <TabGroup selectedIndex={tabIndex} onChange={handleTabChange}>
+      <TabGroup selectedIndex={getTabIndex()} onChange={handleTabChange}>
         <TabList className="flex gap-1 rounded-sm bg-gray-100 p-1 dark:bg-gray-800">
+          <Tab
+            className={({ selected }) =>
+              clsx(
+                'rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                selected
+                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+              )
+            }
+          >
+            Runs ({suiteRuns.length})
+          </Tab>
           <Tab
             className={({ selected }) =>
               clsx(
@@ -89,6 +132,22 @@ export function SuiteDetailPage() {
           )}
         </TabList>
         <TabPanels className="mt-4">
+          <TabPanel>
+            {suiteRuns.length === 0 ? (
+              <p className="py-8 text-center text-sm/6 text-gray-500 dark:text-gray-400">
+                No runs found for this suite.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <RunsTable entries={paginatedRuns} showSuite={false} />
+                {totalRunsPages > 1 && (
+                  <div className="flex justify-center">
+                    <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
+                  </div>
+                )}
+              </div>
+            )}
+          </TabPanel>
           <TabPanel className="flex flex-col gap-4">
             {suite.source.tests && <SuiteSource title="Tests Source" source={suite.source.tests} />}
             <TestFilesList title="Tests" files={suite.tests} suiteHash={suiteHash} type="tests" />

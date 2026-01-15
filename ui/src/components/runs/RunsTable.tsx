@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import type { IndexEntry } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Badge } from '@/components/shared/Badge'
@@ -7,23 +7,28 @@ import { formatTimestamp, formatRelativeTime } from '@/utils/date'
 
 interface RunsTableProps {
   entries: IndexEntry[]
+  showSuite?: boolean
 }
 
-export function RunsTable({ entries }: RunsTableProps) {
+export function RunsTable({ entries, showSuite = true }: RunsTableProps) {
+  const navigate = useNavigate()
+
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
       <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
         <thead className="bg-gray-50 dark:bg-gray-900">
           <tr>
             <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Run ID
-            </th>
-            <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
               Client
             </th>
             <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Suite
+              Image
             </th>
+            {showSuite && (
+              <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Suite
+              </th>
+            )}
             <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
               Tests
             </th>
@@ -37,22 +42,22 @@ export function RunsTable({ entries }: RunsTableProps) {
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
           {entries.map((entry) => (
-            <tr key={entry.run_id} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50">
-              <td className="whitespace-nowrap px-6 py-4">
-                <Link
-                  to="/runs/$runId"
-                  params={{ runId: entry.run_id }}
-                  className="text-sm/6 font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                >
-                  {entry.run_id}
-                </Link>
-              </td>
+            <tr
+              key={entry.run_id}
+              onClick={() => navigate({ to: '/runs/$runId', params: { runId: entry.run_id } })}
+              className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
+            >
               <td className="whitespace-nowrap px-6 py-4">
                 <ClientBadge client={entry.instance.client} />
               </td>
-              <td className="whitespace-nowrap px-6 py-4 font-mono text-sm/6 text-gray-500 dark:text-gray-400">
-                {entry.suite_hash ?? '-'}
+              <td className="max-w-xs truncate px-6 py-4 font-mono text-sm/6 text-gray-500 dark:text-gray-400">
+                <span title={entry.instance.image}>{entry.instance.image}</span>
               </td>
+              {showSuite && (
+                <td className="whitespace-nowrap px-6 py-4 font-mono text-sm/6 text-gray-500 dark:text-gray-400">
+                  {entry.suite_hash ?? '-'}
+                </td>
+              )}
               <td className="whitespace-nowrap px-6 py-4">
                 <div className="flex items-center gap-2">
                   <Badge variant="success">{entry.tests.success} passed</Badge>

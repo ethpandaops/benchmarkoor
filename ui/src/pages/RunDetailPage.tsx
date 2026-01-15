@@ -47,10 +47,22 @@ export function RunDetailPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
-        <Link to="/runs" className="hover:text-gray-700 dark:hover:text-gray-300">
+        <Link to="/runs" search={{}} className="hover:text-gray-700 dark:hover:text-gray-300">
           Runs
         </Link>
         <span>/</span>
+        {config.suite_hash && (
+          <>
+            <Link
+              to="/suites/$suiteHash"
+              params={{ suiteHash: config.suite_hash }}
+              className="font-mono hover:text-gray-700 dark:hover:text-gray-300"
+            >
+              {config.suite_hash}
+            </Link>
+            <span>/</span>
+          </>
+        )}
         <span className="text-gray-900 dark:text-gray-100">{runId}</span>
       </div>
 
