@@ -1,10 +1,10 @@
-import { Link, useParams } from '@tanstack/react-router'
+import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
 import { SystemInfo } from '@/components/run-detail/SystemInfo'
 import { InstanceConfig } from '@/components/run-detail/InstanceConfig'
-import { TestsTable } from '@/components/run-detail/TestsTable'
+import { TestsTable, type TestSortColumn, type TestSortDirection } from '@/components/run-detail/TestsTable'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
@@ -15,12 +15,51 @@ import { formatTimestamp } from '@/utils/date'
 
 export function RunDetailPage() {
   const { runId } = useParams({ from: '/runs/$runId' })
+  const navigate = useNavigate()
+  const search = useSearch({ from: '/runs/$runId' }) as {
+    page?: number
+    pageSize?: number
+    sortBy?: TestSortColumn
+    sortDir?: TestSortDirection
+    q?: string
+    expanded?: string
+  }
+  const { page = 1, pageSize = 20, sortBy = 'order', sortDir = 'asc', q = '', expanded } = search
+
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
   const { data: suite } = useSuite(config?.suite_hash ?? '')
 
   const isLoading = configLoading || resultLoading
   const error = configError || resultError
+
+  const updateSearch = (updates: Partial<typeof search>) => {
+    navigate({
+      to: '/runs/$runId',
+      params: { runId },
+      search: { page, pageSize, sortBy, sortDir, q: q || undefined, expanded, ...updates },
+    })
+  }
+
+  const handlePageChange = (newPage: number) => {
+    updateSearch({ page: newPage })
+  }
+
+  const handlePageSizeChange = (newSize: number) => {
+    updateSearch({ pageSize: newSize, page: 1 })
+  }
+
+  const handleSortChange = (column: TestSortColumn, direction: TestSortDirection) => {
+    updateSearch({ sortBy: column, sortDir: direction })
+  }
+
+  const handleSearchChange = (query: string) => {
+    updateSearch({ q: query || undefined, page: 1 })
+  }
+
+  const handleExpandedChange = (testName: string | undefined) => {
+    updateSearch({ expanded: testName })
+  }
 
   if (isLoading) {
     return <LoadingState message="Loading run details..." />
@@ -92,7 +131,22 @@ export function RunDetailPage() {
 
       <SystemInfo system={config.system} />
       <InstanceConfig instance={config.instance} />
-      <TestsTable tests={result.tests} runId={runId} suiteTests={suite?.tests} />
+      <TestsTable
+        tests={result.tests}
+        runId={runId}
+        suiteTests={suite?.tests}
+        currentPage={page}
+        pageSize={pageSize}
+        sortBy={sortBy}
+        sortDir={sortDir}
+        searchQuery={q}
+        expandedTest={expanded}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
+        onSortChange={handleSortChange}
+        onSearchChange={handleSearchChange}
+        onExpandedChange={handleExpandedChange}
+      />
     </div>
   )
 }
