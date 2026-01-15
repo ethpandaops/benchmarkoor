@@ -9,6 +9,7 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Duration } from '@/components/shared/Duration'
+import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp } from '@/utils/date'
 
 export function RunDetailPage() {
@@ -56,8 +57,9 @@ export function RunDetailPage() {
             <Link
               to="/suites/$suiteHash"
               params={{ suiteHash: config.suite_hash }}
-              className="font-mono hover:text-gray-700 dark:hover:text-gray-300"
+              className="flex items-center gap-1.5 font-mono hover:text-gray-700 dark:hover:text-gray-300"
             >
+              <JDenticon value={config.suite_hash} size={16} className="shrink-0 rounded-xs" />
               {config.suite_hash}
             </Link>
             <span>/</span>

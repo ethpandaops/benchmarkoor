@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { useSuite } from '@/api/hooks/useSuite'
 import { Badge } from '@/components/shared/Badge'
+import { JDenticon } from '@/components/shared/JDenticon'
 import { SourceBadge } from '@/components/shared/SourceBadge'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
 
@@ -84,14 +85,17 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
         <span title={formatRelativeTime(suite.lastRun)}>{formatTimestamp(suite.lastRun)}</span>
       </td>
       <td className="whitespace-nowrap px-6 py-4">
-        <Link
-          to="/suites/$suiteHash"
-          params={{ suiteHash: suite.hash }}
-          onClick={(e) => e.stopPropagation()}
-          className="font-mono text-sm/6 font-medium text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
-        >
-          {suite.hash}
-        </Link>
+        <div className="flex items-center gap-2">
+          <JDenticon value={suite.hash} size={24} className="shrink-0 rounded-xs" />
+          <Link
+            to="/suites/$suiteHash"
+            params={{ suiteHash: suite.hash }}
+            onClick={(e) => e.stopPropagation()}
+            className="font-mono text-sm/6 font-medium text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            {suite.hash}
+          </Link>
+        </div>
       </td>
       <td className="whitespace-nowrap px-6 py-4">
         {suiteInfo?.source.tests ? (

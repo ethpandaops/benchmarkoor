@@ -11,6 +11,7 @@ import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
+import { JDenticon } from '@/components/shared/JDenticon'
 import { Pagination } from '@/components/shared/Pagination'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
@@ -176,7 +177,10 @@ export function SuiteDetailPage() {
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="font-mono text-2xl/8 font-bold text-gray-900 dark:text-gray-100">{suite.hash}</h1>
+        <div className="flex items-center gap-3">
+          <JDenticon value={suite.hash} size={40} className="shrink-0 rounded-xs" />
+          <h1 className="font-mono text-2xl/8 font-bold text-gray-900 dark:text-gray-100">{suite.hash}</h1>
+        </div>
         {suite.filter && <Badge variant="info">Filter: {suite.filter}</Badge>}
       </div>
 

@@ -5,6 +5,7 @@ import type { IndexEntry } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
+import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
 
 export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'tests'
@@ -134,14 +135,17 @@ export function RunsTable({
               {showSuite && (
                 <td className="whitespace-nowrap px-6 py-4 font-mono text-sm/6">
                   {entry.suite_hash ? (
-                    <Link
-                      to="/suites/$suiteHash"
-                      params={{ suiteHash: entry.suite_hash }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
-                    >
-                      {entry.suite_hash}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <JDenticon value={entry.suite_hash} size={20} className="shrink-0 rounded-xs" />
+                      <Link
+                        to="/suites/$suiteHash"
+                        params={{ suiteHash: entry.suite_hash }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                      >
+                        {entry.suite_hash}
+                      </Link>
+                    </div>
                   ) : (
                     <span className="text-gray-400 dark:text-gray-500">-</span>
                   )}
