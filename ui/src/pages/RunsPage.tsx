@@ -142,6 +142,26 @@ export function RunsPage() {
         />
       ) : (
         <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
+              <select
+                value={localPageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+              <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
+            </div>
+            {totalPages > 1 && (
+              <Pagination currentPage={localPage} totalPages={totalPages} onPageChange={handlePageChange} />
+            )}
+          </div>
           <RunsTable entries={paginatedEntries} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} showSuite />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">

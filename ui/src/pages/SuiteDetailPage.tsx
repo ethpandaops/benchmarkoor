@@ -309,6 +309,26 @@ export function SuiteDetailPage() {
                   </p>
                 ) : (
                   <>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
+                        <select
+                          value={runsPageSize}
+                          onChange={(e) => handleRunsPageSizeChange(Number(e.target.value))}
+                          className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                        >
+                          {PAGE_SIZE_OPTIONS.map((size) => (
+                            <option key={size} value={size}>
+                              {size}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
+                      </div>
+                      {totalRunsPages > 1 && (
+                        <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
+                      )}
+                    </div>
                     <RunsTable entries={paginatedRuns} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} />
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
