@@ -157,7 +157,7 @@ export function SuiteDetailPage() {
               </p>
             ) : (
               <div className="flex flex-col gap-4">
-                <RunsTable entries={paginatedRuns} showSuite={false} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} />
+                <RunsTable entries={paginatedRuns} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} />
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
