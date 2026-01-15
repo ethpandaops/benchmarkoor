@@ -69,12 +69,20 @@ type RunConfig struct {
 
 // SystemInfo contains system hardware and OS information.
 type SystemInfo struct {
-	OS            string  `json:"os"`
-	Platform      string  `json:"platform"`
-	Arch          string  `json:"arch"`
-	CPUModel      string  `json:"cpu_model"`
-	CPUCores      int     `json:"cpu_cores"`
-	MemoryTotalGB float64 `json:"memory_total_gb"`
+	Hostname           string  `json:"hostname"`
+	OS                 string  `json:"os"`
+	Platform           string  `json:"platform"`
+	PlatformVersion    string  `json:"platform_version"`
+	KernelVersion      string  `json:"kernel_version"`
+	Arch               string  `json:"arch"`
+	Virtualization     string  `json:"virtualization,omitempty"`
+	VirtualizationRole string  `json:"virtualization_role,omitempty"`
+	CPUVendor          string  `json:"cpu_vendor"`
+	CPUModel           string  `json:"cpu_model"`
+	CPUCores           int     `json:"cpu_cores"`
+	CPUMhz             float64 `json:"cpu_mhz"`
+	CPUCacheKB         int     `json:"cpu_cache_kb"`
+	MemoryTotalGB      float64 `json:"memory_total_gb"`
 }
 
 // ResolvedInstance contains the resolved configuration for a client instance.
@@ -524,13 +532,21 @@ func getSystemInfo() *SystemInfo {
 	info := &SystemInfo{}
 
 	if hostInfo, err := host.Info(); err == nil {
+		info.Hostname = hostInfo.Hostname
 		info.OS = hostInfo.OS
 		info.Platform = hostInfo.Platform
+		info.PlatformVersion = hostInfo.PlatformVersion
+		info.KernelVersion = hostInfo.KernelVersion
 		info.Arch = hostInfo.KernelArch
+		info.Virtualization = hostInfo.VirtualizationSystem
+		info.VirtualizationRole = hostInfo.VirtualizationRole
 	}
 
 	if cpuInfo, err := cpu.Info(); err == nil && len(cpuInfo) > 0 {
+		info.CPUVendor = cpuInfo[0].VendorID
 		info.CPUModel = cpuInfo[0].ModelName
+		info.CPUMhz = cpuInfo[0].Mhz
+		info.CPUCacheKB = int(cpuInfo[0].CacheSize)
 	}
 
 	if cores, err := cpu.Counts(false); err == nil {
