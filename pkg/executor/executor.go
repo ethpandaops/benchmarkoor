@@ -370,7 +370,7 @@ func (e *executor) executeRPC(ctx context.Context, endpoint, jwt, payload string
 		return "", elapsed, fmt.Errorf("reading response: %w", err)
 	}
 
-	return string(body), elapsed, nil
+	return strings.TrimSpace(string(body)), elapsed, nil
 }
 
 // rpcRequest is used to parse the method from a JSON-RPC request.
