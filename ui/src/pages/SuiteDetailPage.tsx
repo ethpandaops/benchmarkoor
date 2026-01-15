@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useIndex } from '@/api/hooks/useIndex'
+import { DurationChart, type XAxisMode } from '@/components/suite-detail/DurationChart'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList } from '@/components/suite-detail/TestFilesList'
 import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
@@ -30,12 +31,26 @@ export function SuiteDetailPage() {
     expanded?: number
     filesPage?: number
     q?: string
+    chartMode?: XAxisMode
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount' } = search
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [chartExpanded, setChartExpanded] = useState(true)
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return document.documentElement.classList.contains('dark')
+  })
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'))
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
 
   const suiteRunsAll = useMemo(() => {
     if (!index) return []
@@ -162,7 +177,22 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, expanded: undefined, filesPage: 1, q: query || undefined },
+      search: { tab, client, image, status, sortBy, sortDir, expanded: undefined, filesPage: 1, q: query || undefined, chartMode },
+    })
+  }
+
+  const handleChartModeChange = (mode: XAxisMode) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode },
+    })
+  }
+
+  const handleRunClick = (runId: string) => {
+    navigate({
+      to: '/runs/$runId',
+      params: { runId },
     })
   }
 
@@ -236,6 +266,33 @@ export function SuiteDetailPage() {
               </p>
             ) : (
               <div className="flex flex-col gap-4">
+                <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                  <button
+                    onClick={() => setChartExpanded(!chartExpanded)}
+                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
+                  >
+                    <svg
+                      className={clsx('size-4 text-gray-500 transition-transform', chartExpanded && 'rotate-90')}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    Duration
+                  </button>
+                  {chartExpanded && (
+                    <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                      <DurationChart
+                        runs={suiteRunsAll}
+                        isDark={isDark}
+                        xAxisMode={chartMode}
+                        onXAxisModeChange={handleChartModeChange}
+                        onRunClick={handleRunClick}
+                      />
+                    </div>
+                  )}
+                </div>
                 <RunFilters
                   clients={clients}
                   selectedClient={client}
