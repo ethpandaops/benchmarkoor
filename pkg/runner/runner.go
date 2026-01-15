@@ -135,8 +135,8 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	runID := generateShortID()
 	runTimestamp := time.Now().Unix()
 
-	// Create run results directory.
-	runResultsDir := filepath.Join(r.cfg.ResultsDir, fmt.Sprintf("%d_%s_%s", runTimestamp, runID, instance.ID))
+	// Create run results directory under runs/.
+	runResultsDir := filepath.Join(r.cfg.ResultsDir, "runs", fmt.Sprintf("%d_%s_%s", runTimestamp, runID, instance.ID))
 	if err := os.MkdirAll(runResultsDir, 0755); err != nil {
 		return fmt.Errorf("creating run results directory: %w", err)
 	}
