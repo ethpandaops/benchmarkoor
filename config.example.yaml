@@ -55,6 +55,8 @@ client:
       # Optional overrides:
       # entrypoint: []
       # command: []
+      # extra_args:  # Additional arguments appended to command
+      #   - --verbosity=5
       # restart: never
       # environment:
       #   SOME_VAR: value

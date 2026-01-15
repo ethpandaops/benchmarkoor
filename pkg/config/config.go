@@ -94,6 +94,7 @@ type ClientInstance struct {
 	Image       string            `yaml:"image,omitempty"`
 	Entrypoint  []string          `yaml:"entrypoint,omitempty"`
 	Command     []string          `yaml:"command,omitempty"`
+	ExtraArgs   []string          `yaml:"extra_args,omitempty"`
 	PullPolicy  string            `yaml:"pull_policy,omitempty"`
 	Restart     string            `yaml:"restart,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty"`

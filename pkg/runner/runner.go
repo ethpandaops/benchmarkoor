@@ -291,6 +291,11 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		cmd = spec.DefaultCommand()
 	}
 
+	// Append extra args if provided.
+	if len(instance.ExtraArgs) > 0 {
+		cmd = append(cmd, instance.ExtraArgs...)
+	}
+
 	// Build environment (default first, instance overrides).
 	env := make(map[string]string, len(spec.DefaultEnvironment())+len(instance.Environment))
 	for k, v := range spec.DefaultEnvironment() {
