@@ -6,31 +6,41 @@ import { useSuite } from '@/api/hooks/useSuite'
 import { useIndex } from '@/api/hooks/useIndex'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList } from '@/components/suite-detail/TestFilesList'
-import { RunsTable } from '@/components/runs/RunsTable'
+import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
 import { Pagination } from '@/components/shared/Pagination'
 
-const PAGE_SIZE = 20
+const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
+const DEFAULT_PAGE_SIZE = 100
 
 export function SuiteDetailPage() {
   const { suiteHash } = useParams({ from: '/suites/$suiteHash' })
   const navigate = useNavigate()
-  const search = useSearch({ from: '/suites/$suiteHash' }) as { tab?: string }
+  const search = useSearch({ from: '/suites/$suiteHash' }) as {
+    tab?: string
+    sortBy?: SortColumn
+    sortDir?: SortDirection
+  }
+  const { tab, sortBy = 'timestamp', sortDir = 'desc' } = search
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
+  const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
 
   const suiteRuns = useMemo(() => {
     if (!index) return []
-    return index.entries
-      .filter((entry) => entry.suite_hash === suiteHash)
-      .sort((a, b) => b.timestamp - a.timestamp)
+    return index.entries.filter((entry) => entry.suite_hash === suiteHash)
   }, [index, suiteHash])
 
-  const totalRunsPages = Math.ceil(suiteRuns.length / PAGE_SIZE)
-  const paginatedRuns = suiteRuns.slice((runsPage - 1) * PAGE_SIZE, runsPage * PAGE_SIZE)
+  const totalRunsPages = Math.ceil(suiteRuns.length / runsPageSize)
+  const paginatedRuns = suiteRuns.slice((runsPage - 1) * runsPageSize, runsPage * runsPageSize)
+
+  const handleRunsPageSizeChange = (newSize: number) => {
+    setRunsPageSize(newSize)
+    setRunsPage(1)
+  }
 
   if (isLoading) {
     return <LoadingState message="Loading suite details..." />
@@ -48,24 +58,32 @@ export function SuiteDetailPage() {
   const warmupTabIndex = hasWarmup ? 2 : -1
 
   const getTabIndex = () => {
-    if (search.tab === 'tests') return 1
-    if (search.tab === 'warmup' && hasWarmup) return warmupTabIndex
+    if (tab === 'tests') return 1
+    if (tab === 'warmup' && hasWarmup) return warmupTabIndex
     return 0 // runs is default
   }
 
   const handleTabChange = (index: number) => {
-    let tab: string
+    let newTab: string
     if (index === 0) {
-      tab = 'runs'
+      newTab = 'runs'
     } else if (index === 1) {
-      tab = 'tests'
+      newTab = 'tests'
     } else {
-      tab = 'warmup'
+      newTab = 'warmup'
     }
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab },
+      search: { tab: newTab, sortBy, sortDir },
+    })
+  }
+
+  const handleSortChange = (newSortBy: SortColumn, newSortDir: SortDirection) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, sortBy: newSortBy, sortDir: newSortDir },
     })
   }
 
@@ -139,12 +157,27 @@ export function SuiteDetailPage() {
               </p>
             ) : (
               <div className="flex flex-col gap-4">
-                <RunsTable entries={paginatedRuns} showSuite={false} />
-                {totalRunsPages > 1 && (
-                  <div className="flex justify-center">
-                    <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
+                <RunsTable entries={paginatedRuns} showSuite={false} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
+                    <select
+                      value={runsPageSize}
+                      onChange={(e) => handleRunsPageSizeChange(Number(e.target.value))}
+                      className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                    >
+                      {PAGE_SIZE_OPTIONS.map((size) => (
+                        <option key={size} value={size}>
+                          {size}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
                   </div>
-                )}
+                  {totalRunsPages > 1 && (
+                    <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
+                  )}
+                </div>
               </div>
             )}
           </TabPanel>
