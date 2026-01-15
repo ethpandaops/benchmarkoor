@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { useSuite } from '@/api/hooks/useSuite'
 import { Badge } from '@/components/shared/Badge'
@@ -84,9 +84,14 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
         <span title={formatRelativeTime(suite.lastRun)}>{formatTimestamp(suite.lastRun)}</span>
       </td>
       <td className="whitespace-nowrap px-6 py-4">
-        <span className="font-mono text-sm/6 font-medium text-blue-600 dark:text-blue-400">
+        <Link
+          to="/suites/$suiteHash"
+          params={{ suiteHash: suite.hash }}
+          onClick={(e) => e.stopPropagation()}
+          className="font-mono text-sm/6 font-medium text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+        >
           {suite.hash}
-        </span>
+        </Link>
       </td>
       <td className="whitespace-nowrap px-6 py-4">
         {suiteInfo?.source.tests ? (
