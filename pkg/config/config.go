@@ -42,8 +42,9 @@ type GlobalConfig struct {
 
 // BenchmarkConfig contains benchmark-specific settings.
 type BenchmarkConfig struct {
-	ResultsDir string      `yaml:"results_dir"`
-	Tests      TestsConfig `yaml:"tests,omitempty"`
+	ResultsDir           string      `yaml:"results_dir"`
+	GenerateResultsIndex bool        `yaml:"generate_results_index"`
+	Tests                TestsConfig `yaml:"tests,omitempty"`
 }
 
 // TestsConfig contains test execution settings.

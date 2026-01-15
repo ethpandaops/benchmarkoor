@@ -160,6 +160,20 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 
 	log.Info("Benchmark completed")
 
+	// Generate results index if configured.
+	if cfg.Benchmark.GenerateResultsIndex {
+		log.Info("Generating results index")
+
+		index, err := executor.GenerateIndex(cfg.Benchmark.ResultsDir)
+		if err != nil {
+			log.WithError(err).Warn("Failed to generate results index")
+		} else if err := executor.WriteIndex(cfg.Benchmark.ResultsDir, index); err != nil {
+			log.WithError(err).Warn("Failed to write results index")
+		} else {
+			log.WithField("entries", len(index.Entries)).Info("Results index generated")
+		}
+	}
+
 	return nil
 }
 
