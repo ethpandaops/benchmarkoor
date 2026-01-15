@@ -21,6 +21,8 @@ type Source interface {
 	Prepare(ctx context.Context) (testsPath, warmupPath string, err error)
 	// Cleanup removes any temporary resources.
 	Cleanup() error
+	// GetSourceInfo returns source information for the suite summary.
+	GetSourceInfo() (*SuiteSource, error)
 }
 
 // TestFile represents a single test file.
@@ -84,6 +86,11 @@ func (s *LocalSource) Prepare(_ context.Context) (string, string, error) {
 // Cleanup is a no-op for local sources.
 func (s *LocalSource) Cleanup() error {
 	return nil
+}
+
+// GetSourceInfo returns source information for the suite summary.
+func (s *LocalSource) GetSourceInfo() (*SuiteSource, error) {
+	return GetLocalSourceInfo(s.testsDir, s.warmupDir), nil
 }
 
 // GitSource clones/fetches from a git repository.
@@ -176,6 +183,11 @@ func (s *GitSource) prepareRepo(ctx context.Context, git *config.GitSource) (str
 // Cleanup is a no-op for git sources (we keep the cache).
 func (s *GitSource) Cleanup() error {
 	return nil
+}
+
+// GetSourceInfo returns source information for the suite summary.
+func (s *GitSource) GetSourceInfo() (*SuiteSource, error) {
+	return GetGitSourceInfo(s.testsGit, s.warmupGit, s.cacheDir)
 }
 
 // hashRepoURL creates a hash of the repository URL for caching.

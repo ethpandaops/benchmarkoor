@@ -94,9 +94,10 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		}
 
 		execCfg := &executor.Config{
-			Source:   &cfg.Benchmark.Tests.Source,
-			Filter:   cfg.Benchmark.Tests.Filter,
-			CacheDir: cacheDir,
+			Source:     &cfg.Benchmark.Tests.Source,
+			Filter:     cfg.Benchmark.Tests.Filter,
+			CacheDir:   cacheDir,
+			ResultsDir: cfg.Benchmark.ResultsDir,
 		}
 
 		exec = executor.NewExecutor(log, execCfg)

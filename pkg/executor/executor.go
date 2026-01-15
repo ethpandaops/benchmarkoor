@@ -42,9 +42,10 @@ type ExecutionResult struct {
 
 // Config for the executor.
 type Config struct {
-	Source   *config.SourceConfig
-	Filter   string
-	CacheDir string
+	Source     *config.SourceConfig
+	Filter     string
+	CacheDir   string
+	ResultsDir string
 }
 
 // NewExecutor creates a new executor instance.
@@ -61,6 +62,7 @@ type executor struct {
 	source     Source
 	testsPath  string
 	warmupPath string
+	suiteHash  string
 }
 
 // Ensure interface compliance.
@@ -88,6 +90,62 @@ func (e *executor) Start(ctx context.Context) error {
 		"tests_path":  testsPath,
 		"warmup_path": warmupPath,
 	}).Info("Test sources ready")
+
+	// Create suite output if results directory is configured.
+	if e.cfg.ResultsDir != "" {
+		if err := e.createSuiteOutput(); err != nil {
+			return fmt.Errorf("creating suite output: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// createSuiteOutput discovers tests, computes hash, and creates suite directory.
+func (e *executor) createSuiteOutput() error {
+	// Discover warmup tests.
+	warmupFiles, err := DiscoverTests(e.warmupPath, e.cfg.Filter, true)
+	if err != nil {
+		return fmt.Errorf("discovering warmup tests: %w", err)
+	}
+
+	// Discover test files.
+	testFiles, err := DiscoverTests(e.testsPath, e.cfg.Filter, false)
+	if err != nil {
+		return fmt.Errorf("discovering tests: %w", err)
+	}
+
+	// Compute suite hash from file contents.
+	hash, err := ComputeSuiteHash(warmupFiles, testFiles)
+	if err != nil {
+		return fmt.Errorf("computing suite hash: %w", err)
+	}
+
+	e.suiteHash = hash
+
+	// Get source information.
+	sourceInfo, err := e.source.GetSourceInfo()
+	if err != nil {
+		return fmt.Errorf("getting source info: %w", err)
+	}
+
+	// Build suite info.
+	suiteInfo := &SuiteInfo{
+		Hash:   hash,
+		Source: sourceInfo,
+		Filter: e.cfg.Filter,
+	}
+
+	// Create suite output directory.
+	if err := CreateSuiteOutput(e.cfg.ResultsDir, hash, suiteInfo, warmupFiles, testFiles); err != nil {
+		return fmt.Errorf("creating suite output: %w", err)
+	}
+
+	e.log.WithFields(logrus.Fields{
+		"hash":         hash,
+		"warmup_files": len(warmupFiles),
+		"test_files":   len(testFiles),
+	}).Info("Suite output created")
 
 	return nil
 }
@@ -198,6 +256,8 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	if err != nil {
 		e.log.WithError(err).Warn("Failed to generate run result")
 	} else {
+		runResult.SuiteHash = e.suiteHash
+
 		if err := WriteRunResult(opts.ResultsDir, runResult); err != nil {
 			e.log.WithError(err).Warn("Failed to write run result")
 		} else {
@@ -214,7 +274,8 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 	if err != nil {
 		return fmt.Errorf("opening test file: %w", err)
 	}
-	defer file.Close()
+
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	lineNum := 0
@@ -295,7 +356,8 @@ func (e *executor) executeRPC(ctx context.Context, endpoint, jwt, payload string
 	if err != nil {
 		return "", elapsed, fmt.Errorf("executing request: %w", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
