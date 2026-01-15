@@ -210,7 +210,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			default:
 			}
 
-			e.log.WithField("test", test.Name).Debug("Running warmup test")
+			e.log.WithField("test", test.Name).Info("Running warmup test")
 
 			if err := e.runTest(ctx, opts, test, nil); err != nil {
 				e.log.WithError(err).WithField("test", test.Name).Warn("Warmup test failed")
