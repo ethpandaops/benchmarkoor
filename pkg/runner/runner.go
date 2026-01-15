@@ -18,6 +18,9 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/host"
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/sirupsen/logrus"
 )
 
@@ -60,7 +63,18 @@ type Config struct {
 type RunConfig struct {
 	Timestamp time.Time         `json:"timestamp"`
 	SuiteHash string            `json:"suite_hash,omitempty"`
+	System    *SystemInfo       `json:"system"`
 	Instance  *ResolvedInstance `json:"instance"`
+}
+
+// SystemInfo contains system hardware and OS information.
+type SystemInfo struct {
+	OS            string  `json:"os"`
+	Platform      string  `json:"platform"`
+	Arch          string  `json:"arch"`
+	CPUModel      string  `json:"cpu_model"`
+	CPUCores      int     `json:"cpu_cores"`
+	MemoryTotalGB float64 `json:"memory_total_gb"`
 }
 
 // ResolvedInstance contains the resolved configuration for a client instance.
@@ -330,6 +344,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	// Write run configuration with resolved values.
 	runConfig := &RunConfig{
 		Timestamp: time.Unix(runTimestamp, 0).UTC(),
+		System:    getSystemInfo(),
 		Instance: &ResolvedInstance{
 			ID:          instance.ID,
 			Client:      instance.Client,
@@ -502,6 +517,31 @@ func (r *runner) readFromFile(path string) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// getSystemInfo gathers system hardware and OS information.
+func getSystemInfo() *SystemInfo {
+	info := &SystemInfo{}
+
+	if hostInfo, err := host.Info(); err == nil {
+		info.OS = hostInfo.OS
+		info.Platform = hostInfo.Platform
+		info.Arch = hostInfo.KernelArch
+	}
+
+	if cpuInfo, err := cpu.Info(); err == nil && len(cpuInfo) > 0 {
+		info.CPUModel = cpuInfo[0].ModelName
+	}
+
+	if cores, err := cpu.Counts(false); err == nil {
+		info.CPUCores = cores
+	}
+
+	if memInfo, err := mem.VirtualMemory(); err == nil {
+		info.MemoryTotalGB = float64(memInfo.Total) / (1024 * 1024 * 1024)
+	}
+
+	return info
 }
 
 // writeRunConfig writes the run configuration to config.json.
