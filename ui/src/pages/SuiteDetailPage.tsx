@@ -164,39 +164,42 @@ export function SuiteDetailPage() {
           <Tab
             className={({ selected }) =>
               clsx(
-                'rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                'flex items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
                 selected
                   ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                   : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
               )
             }
           >
-            Runs ({suiteRunsAll.length})
+            Runs
+            <Badge variant="info">{suiteRunsAll.length}</Badge>
           </Tab>
           <Tab
             className={({ selected }) =>
               clsx(
-                'rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                'flex items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
                 selected
                   ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                   : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
               )
             }
           >
-            Tests ({suite.tests.length})
+            Tests
+            <Badge variant="default">{suite.tests.length}</Badge>
           </Tab>
           {hasWarmup && (
             <Tab
               className={({ selected }) =>
                 clsx(
-                  'rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                  'flex items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
                   selected
                     ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                     : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
                 )
               }
             >
-              Warmup ({suite.warmup!.length})
+              Warmup
+              <Badge variant="warning">{suite.warmup!.length}</Badge>
             </Tab>
           )}
         </TabList>

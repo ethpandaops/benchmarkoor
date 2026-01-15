@@ -2,7 +2,7 @@ import { useState } from 'react'
 import clsx from 'clsx'
 
 interface CardProps {
-  title: string
+  title: React.ReactNode
   children: React.ReactNode
   collapsible?: boolean
   defaultCollapsed?: boolean
