@@ -2,6 +2,8 @@ import { createRouter, createRootRoute, createRoute, redirect, Outlet } from '@t
 import { Header } from '@/components/layout/Header'
 import { RunsPage } from '@/pages/RunsPage'
 import { RunDetailPage } from '@/pages/RunDetailPage'
+import { SuitesPage } from '@/pages/SuitesPage'
+import { SuiteDetailPage } from '@/pages/SuiteDetailPage'
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -34,6 +36,18 @@ const runDetailRoute = createRoute({
   component: RunDetailPage,
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, runsRoute, runDetailRoute])
+const suitesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/suites',
+  component: SuitesPage,
+})
+
+const suiteDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/suites/$suiteHash',
+  component: SuiteDetailPage,
+})
+
+const routeTree = rootRoute.addChildren([indexRoute, runsRoute, runDetailRoute, suitesRoute, suiteDetailRoute])
 
 export const router = createRouter({ routeTree })

@@ -23,6 +23,12 @@ export function Header() {
           >
             Runs
           </Link>
+          <Link
+            to="/suites"
+            className="text-sm/6 font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
+          >
+            Suites
+          </Link>
         </nav>
       </div>
     </header>
