@@ -63,7 +63,7 @@ type AggregatedStats struct {
 	Succeeded int                     `json:"success"`
 	Failed    int                     `json:"fail"`
 	TotalMsgs int                     `json:"msg_count"`
-	Methods   map[string]*MethodStats `json:"Methods"`
+	Methods   map[string]*MethodStats `json:"methods"`
 }
 
 // TestEntry contains the result entry for a single test in the run result.
