@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/runner"
 	"github.com/spf13/cobra"
 )
@@ -82,6 +84,36 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	// Create client registry.
 	registry := client.NewRegistry()
 
+	// Create executor if tests are configured.
+	var exec executor.Executor
+
+	if cfg.Benchmark.Tests.Source.IsConfigured() {
+		cacheDir, err := getExecutorCacheDir()
+		if err != nil {
+			return fmt.Errorf("getting cache directory: %w", err)
+		}
+
+		execCfg := &executor.Config{
+			Source:     &cfg.Benchmark.Tests.Source,
+			Filter:     cfg.Benchmark.Tests.Filter,
+			CacheDir:   cacheDir,
+			ResultsDir: cfg.Benchmark.ResultsDir,
+		}
+
+		exec = executor.NewExecutor(log, execCfg)
+		if err := exec.Start(ctx); err != nil {
+			return fmt.Errorf("starting executor: %w", err)
+		}
+
+		defer func() {
+			if err := exec.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop executor")
+			}
+		}()
+
+		log.Info("Test executor initialized")
+	}
+
 	// Create runner.
 	runnerCfg := &runner.Config{
 		ResultsDir:         cfg.Benchmark.ResultsDir,
@@ -89,9 +121,10 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		DockerNetwork:      cfg.Global.DockerNetwork,
 		JWT:                cfg.Client.Config.JWT,
 		GenesisURLs:        cfg.Client.Config.Genesis,
+		TestFilter:         cfg.Benchmark.Tests.Filter,
 	}
 
-	r := runner.NewRunner(log, runnerCfg, dockerMgr, registry)
+	r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec)
 
 	if err := r.Start(ctx); err != nil {
 		return fmt.Errorf("starting runner: %w", err)
@@ -127,5 +160,29 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 
 	log.Info("Benchmark completed")
 
+	// Generate results index if configured.
+	if cfg.Benchmark.GenerateResultsIndex {
+		log.Info("Generating results index")
+
+		index, err := executor.GenerateIndex(cfg.Benchmark.ResultsDir)
+		if err != nil {
+			log.WithError(err).Warn("Failed to generate results index")
+		} else if err := executor.WriteIndex(cfg.Benchmark.ResultsDir, index); err != nil {
+			log.WithError(err).Warn("Failed to write results index")
+		} else {
+			log.WithField("entries", len(index.Entries)).Info("Results index generated")
+		}
+	}
+
 	return nil
+}
+
+// getExecutorCacheDir returns the cache directory for the executor.
+func getExecutorCacheDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("getting home directory: %w", err)
+	}
+
+	return filepath.Join(homeDir, ".cache", "benchmarkoor"), nil
 }

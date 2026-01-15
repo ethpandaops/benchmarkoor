@@ -4,17 +4,23 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/ethpandaops/benchmarkoor/pkg/executor"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/host"
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/sirupsen/logrus"
 )
 
@@ -50,6 +56,47 @@ type Config struct {
 	GenesisURLs        map[string]string
 	ReadyTimeout       time.Duration
 	ReadyWaitAfter     time.Duration
+	TestFilter         string
+}
+
+// RunConfig contains configuration for a single test run.
+type RunConfig struct {
+	Timestamp int64             `json:"timestamp"`
+	SuiteHash string            `json:"suite_hash,omitempty"`
+	System    *SystemInfo       `json:"system"`
+	Instance  *ResolvedInstance `json:"instance"`
+}
+
+// SystemInfo contains system hardware and OS information.
+type SystemInfo struct {
+	Hostname           string  `json:"hostname"`
+	OS                 string  `json:"os"`
+	Platform           string  `json:"platform"`
+	PlatformVersion    string  `json:"platform_version"`
+	KernelVersion      string  `json:"kernel_version"`
+	Arch               string  `json:"arch"`
+	Virtualization     string  `json:"virtualization,omitempty"`
+	VirtualizationRole string  `json:"virtualization_role,omitempty"`
+	CPUVendor          string  `json:"cpu_vendor"`
+	CPUModel           string  `json:"cpu_model"`
+	CPUCores           int     `json:"cpu_cores"`
+	CPUMhz             float64 `json:"cpu_mhz"`
+	CPUCacheKB         int     `json:"cpu_cache_kb"`
+	MemoryTotalGB      float64 `json:"memory_total_gb"`
+}
+
+// ResolvedInstance contains the resolved configuration for a client instance.
+type ResolvedInstance struct {
+	ID          string            `json:"id"`
+	Client      string            `json:"client"`
+	Image       string            `json:"image"`
+	Entrypoint  []string          `json:"entrypoint,omitempty"`
+	Command     []string          `json:"command,omitempty"`
+	ExtraArgs   []string          `json:"extra_args,omitempty"`
+	PullPolicy  string            `json:"pull_policy"`
+	Restart     string            `json:"restart,omitempty"`
+	Environment map[string]string `json:"environment,omitempty"`
+	Genesis     string            `json:"genesis"`
 }
 
 // NewRunner creates a new runner instance.
@@ -58,6 +105,7 @@ func NewRunner(
 	cfg *Config,
 	dockerMgr docker.Manager,
 	registry client.Registry,
+	exec executor.Executor,
 ) Runner {
 	if cfg.ReadyTimeout == 0 {
 		cfg.ReadyTimeout = DefaultReadyTimeout
@@ -72,6 +120,7 @@ func NewRunner(
 		cfg:      cfg,
 		docker:   dockerMgr,
 		registry: registry,
+		executor: exec,
 		done:     make(chan struct{}),
 	}
 }
@@ -81,6 +130,7 @@ type runner struct {
 	cfg      *Config
 	docker   docker.Manager
 	registry client.Registry
+	executor executor.Executor
 	done     chan struct{}
 	wg       sync.WaitGroup
 }
@@ -129,8 +179,8 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	runID := generateShortID()
 	runTimestamp := time.Now().Unix()
 
-	// Create run results directory.
-	runResultsDir := filepath.Join(r.cfg.ResultsDir, fmt.Sprintf("%d_%s_%s", runTimestamp, runID, instance.ID))
+	// Create run results directory under runs/.
+	runResultsDir := filepath.Join(r.cfg.ResultsDir, "runs", fmt.Sprintf("%d_%s_%s", runTimestamp, runID, instance.ID))
 	if err := os.MkdirAll(runResultsDir, 0755); err != nil {
 		return fmt.Errorf("creating run results directory: %w", err)
 	}
@@ -165,22 +215,22 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		return fmt.Errorf("getting client spec: %w", err)
 	}
 
-	// Determine genesis URL.
-	genesisURL := instance.Genesis
-	if genesisURL == "" {
-		genesisURL = r.cfg.GenesisURLs[instance.Client]
+	// Determine genesis source (URL or local file path).
+	genesisSource := instance.Genesis
+	if genesisSource == "" {
+		genesisSource = r.cfg.GenesisURLs[instance.Client]
 	}
 
-	if genesisURL == "" {
-		return fmt.Errorf("no genesis URL configured for client %s", instance.Client)
+	if genesisSource == "" {
+		return fmt.Errorf("no genesis configured for client %s", instance.Client)
 	}
 
-	// Download genesis file.
-	log.WithField("url", genesisURL).Info("Downloading genesis file")
+	// Load genesis file (from URL or local path).
+	log.WithField("source", genesisSource).Info("Loading genesis file")
 
-	genesisContent, err := r.downloadFile(ctx, genesisURL)
+	genesisContent, err := r.loadFile(ctx, genesisSource)
 	if err != nil {
-		return fmt.Errorf("downloading genesis: %w", err)
+		return fmt.Errorf("loading genesis: %w", err)
 	}
 
 	// Determine image.
@@ -285,6 +335,11 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		cmd = spec.DefaultCommand()
 	}
 
+	// Append extra args if provided.
+	if len(instance.ExtraArgs) > 0 {
+		cmd = append(cmd, instance.ExtraArgs...)
+	}
+
 	// Build environment (default first, instance overrides).
 	env := make(map[string]string, len(spec.DefaultEnvironment())+len(instance.Environment))
 	for k, v := range spec.DefaultEnvironment() {
@@ -292,6 +347,32 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	}
 	for k, v := range instance.Environment {
 		env[k] = v
+	}
+
+	// Write run configuration with resolved values.
+	runConfig := &RunConfig{
+		Timestamp: runTimestamp,
+		System:    getSystemInfo(),
+		Instance: &ResolvedInstance{
+			ID:          instance.ID,
+			Client:      instance.Client,
+			Image:       imageName,
+			Entrypoint:  instance.Entrypoint,
+			Command:     cmd,
+			ExtraArgs:   instance.ExtraArgs,
+			PullPolicy:  instance.PullPolicy,
+			Restart:     instance.Restart,
+			Environment: env,
+			Genesis:     genesisSource,
+		},
+	}
+
+	if r.executor != nil {
+		runConfig.SuiteHash = r.executor.GetSuiteHash()
+	}
+
+	if err := writeRunConfig(runResultsDir, runConfig); err != nil {
+		log.WithError(err).Warn("Failed to write run config")
 	}
 
 	// Build container spec.
@@ -372,12 +453,47 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		return ctx.Err()
 	}
 
+	// Execute tests if executor is configured.
+	if r.executor != nil {
+		log.Info("Starting test execution")
+
+		execOpts := &executor.ExecuteOptions{
+			EngineEndpoint: fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort()),
+			JWT:            r.cfg.JWT,
+			ResultsDir:     runResultsDir,
+			Filter:         r.cfg.TestFilter,
+		}
+
+		result, err := r.executor.ExecuteTests(ctx, execOpts)
+		if err != nil {
+			log.WithError(err).Error("Test execution failed")
+		} else {
+			log.WithFields(logrus.Fields{
+				"total":    result.TotalTests,
+				"passed":   result.Passed,
+				"failed":   result.Failed,
+				"duration": result.TotalDuration,
+			}).Info("Test execution completed")
+		}
+	}
+
 	// Cleanup happens in defer.
 	return nil
 }
 
-// downloadFile downloads a file from a URL.
-func (r *runner) downloadFile(ctx context.Context, url string) ([]byte, error) {
+// loadFile loads content from a URL or local file path.
+func (r *runner) loadFile(ctx context.Context, source string) ([]byte, error) {
+	// Check if source is a URL.
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		return r.downloadFromURL(ctx, source)
+	}
+
+	// Treat as local file path.
+	return r.readFromFile(source)
+}
+
+// downloadFromURL downloads content from a URL.
+func (r *runner) downloadFromURL(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -399,6 +515,64 @@ func (r *runner) downloadFile(ctx context.Context, url string) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// readFromFile reads content from a local file.
+func (r *runner) readFromFile(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading file %s: %w", path, err)
+	}
+
+	return data, nil
+}
+
+// getSystemInfo gathers system hardware and OS information.
+func getSystemInfo() *SystemInfo {
+	info := &SystemInfo{}
+
+	if hostInfo, err := host.Info(); err == nil {
+		info.Hostname = hostInfo.Hostname
+		info.OS = hostInfo.OS
+		info.Platform = hostInfo.Platform
+		info.PlatformVersion = hostInfo.PlatformVersion
+		info.KernelVersion = hostInfo.KernelVersion
+		info.Arch = hostInfo.KernelArch
+		info.Virtualization = hostInfo.VirtualizationSystem
+		info.VirtualizationRole = hostInfo.VirtualizationRole
+	}
+
+	if cpuInfo, err := cpu.Info(); err == nil && len(cpuInfo) > 0 {
+		info.CPUVendor = cpuInfo[0].VendorID
+		info.CPUModel = cpuInfo[0].ModelName
+		info.CPUMhz = cpuInfo[0].Mhz
+		info.CPUCacheKB = int(cpuInfo[0].CacheSize)
+	}
+
+	if cores, err := cpu.Counts(false); err == nil {
+		info.CPUCores = cores
+	}
+
+	if memInfo, err := mem.VirtualMemory(); err == nil {
+		info.MemoryTotalGB = float64(memInfo.Total) / (1024 * 1024 * 1024)
+	}
+
+	return info
+}
+
+// writeRunConfig writes the run configuration to config.json.
+func writeRunConfig(resultsDir string, cfg *RunConfig) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling run config: %w", err)
+	}
+
+	configPath := filepath.Join(resultsDir, "config.json")
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("writing config.json: %w", err)
+	}
+
+	return nil
 }
 
 // streamLogs streams container logs to file and optionally stdout.

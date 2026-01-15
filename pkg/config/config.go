@@ -42,7 +42,38 @@ type GlobalConfig struct {
 
 // BenchmarkConfig contains benchmark-specific settings.
 type BenchmarkConfig struct {
-	ResultsDir string `yaml:"results_dir"`
+	ResultsDir           string      `yaml:"results_dir"`
+	GenerateResultsIndex bool        `yaml:"generate_results_index"`
+	Tests                TestsConfig `yaml:"tests,omitempty"`
+}
+
+// TestsConfig contains test execution settings.
+type TestsConfig struct {
+	Filter string       `yaml:"filter,omitempty"`
+	Source SourceConfig `yaml:"source,omitempty"`
+}
+
+// SourceConfig defines where to find test files.
+type SourceConfig struct {
+	// Local directory options.
+	TestsLocalDir       string `yaml:"tests_local_dir,omitempty"`
+	WarmupTestsLocalDir string `yaml:"warmup_tests_local_dir,omitempty"`
+
+	// Git repository options.
+	TestsGit  *GitSource `yaml:"tests_git,omitempty"`
+	WarmupGit *GitSource `yaml:"warmup_git,omitempty"`
+}
+
+// GitSource defines a git repository source for tests.
+type GitSource struct {
+	Repo      string `yaml:"repo"`
+	Version   string `yaml:"version"`
+	Directory string `yaml:"directory"`
+}
+
+// IsConfigured returns true if any test source is configured.
+func (s *SourceConfig) IsConfigured() bool {
+	return s.TestsLocalDir != "" || s.TestsGit != nil
 }
 
 // ClientConfig contains client configuration settings.
@@ -64,6 +95,7 @@ type ClientInstance struct {
 	Image       string            `yaml:"image,omitempty"`
 	Entrypoint  []string          `yaml:"entrypoint,omitempty"`
 	Command     []string          `yaml:"command,omitempty"`
+	ExtraArgs   []string          `yaml:"extra_args,omitempty"`
 	PullPolicy  string            `yaml:"pull_policy,omitempty"`
 	Restart     string            `yaml:"restart,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty"`
@@ -159,6 +191,60 @@ func (c *Config) Validate() error {
 		if dir != "." && dir != ".." {
 			if _, err := os.Stat(dir); os.IsNotExist(err) {
 				return fmt.Errorf("results directory parent %q does not exist", dir)
+			}
+		}
+	}
+
+	// Validate test source configuration.
+	if err := c.Benchmark.Tests.Source.Validate(); err != nil {
+		return fmt.Errorf("tests config: %w", err)
+	}
+
+	return nil
+}
+
+// Validate checks the source configuration for errors.
+func (s *SourceConfig) Validate() error {
+	// No source configured is valid (tests are optional).
+	if !s.IsConfigured() {
+		return nil
+	}
+
+	hasLocal := s.TestsLocalDir != ""
+	hasGit := s.TestsGit != nil
+
+	if hasLocal && hasGit {
+		return fmt.Errorf("cannot specify both tests_local_dir and tests_git")
+	}
+
+	if hasLocal {
+		if _, err := os.Stat(s.TestsLocalDir); os.IsNotExist(err) {
+			return fmt.Errorf("tests_local_dir %q does not exist", s.TestsLocalDir)
+		}
+
+		if s.WarmupTestsLocalDir != "" {
+			if _, err := os.Stat(s.WarmupTestsLocalDir); os.IsNotExist(err) {
+				return fmt.Errorf("warmup_tests_local_dir %q does not exist", s.WarmupTestsLocalDir)
+			}
+		}
+	}
+
+	if hasGit {
+		if s.TestsGit.Repo == "" {
+			return fmt.Errorf("tests_git.repo is required")
+		}
+
+		if s.TestsGit.Version == "" {
+			return fmt.Errorf("tests_git.version is required")
+		}
+
+		if s.WarmupGit != nil {
+			if s.WarmupGit.Repo == "" {
+				return fmt.Errorf("warmup_git.repo is required")
+			}
+
+			if s.WarmupGit.Version == "" {
+				return fmt.Errorf("warmup_git.version is required")
 			}
 		}
 	}
