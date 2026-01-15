@@ -38,8 +38,7 @@ type TestEntry struct {
 
 // RunResult contains the aggregated results for all tests in a run.
 type RunResult struct {
-	SuiteHash string                `json:"suite_hash,omitempty"`
-	Tests     map[string]*TestEntry `json:"tests"`
+	Tests map[string]*TestEntry `json:"tests"`
 }
 
 // TestResult contains results for a single test file execution.

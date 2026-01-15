@@ -22,6 +22,9 @@ type Executor interface {
 
 	// ExecuteTests runs all tests against the specified endpoint.
 	ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*ExecutionResult, error)
+
+	// GetSuiteHash returns the hash of the test suite.
+	GetSuiteHash() string
 }
 
 // ExecuteOptions contains options for test execution.
@@ -163,6 +166,11 @@ func (e *executor) Stop() error {
 	return nil
 }
 
+// GetSuiteHash returns the hash of the test suite.
+func (e *executor) GetSuiteHash() string {
+	return e.suiteHash
+}
+
 // ExecuteTests runs all tests against the specified Engine API endpoint.
 func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*ExecutionResult, error) {
 	startTime := time.Now()
@@ -256,8 +264,6 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	if err != nil {
 		e.log.WithError(err).Warn("Failed to generate run result")
 	} else {
-		runResult.SuiteHash = e.suiteHash
-
 		if err := WriteRunResult(opts.ResultsDir, runResult); err != nil {
 			e.log.WithError(err).Warn("Failed to write run result")
 		} else {

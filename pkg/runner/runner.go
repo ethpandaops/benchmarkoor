@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -53,6 +54,26 @@ type Config struct {
 	ReadyTimeout       time.Duration
 	ReadyWaitAfter     time.Duration
 	TestFilter         string
+}
+
+// RunConfig contains configuration for a single test run.
+type RunConfig struct {
+	SuiteHash string            `json:"suite_hash,omitempty"`
+	Instance  *ResolvedInstance `json:"instance"`
+}
+
+// ResolvedInstance contains the resolved configuration for a client instance.
+type ResolvedInstance struct {
+	ID          string            `json:"id"`
+	Client      string            `json:"client"`
+	Image       string            `json:"image"`
+	Entrypoint  []string          `json:"entrypoint,omitempty"`
+	Command     []string          `json:"command,omitempty"`
+	ExtraArgs   []string          `json:"extra_args,omitempty"`
+	PullPolicy  string            `json:"pull_policy"`
+	Restart     string            `json:"restart,omitempty"`
+	Environment map[string]string `json:"environment,omitempty"`
+	Genesis     string            `json:"genesis"`
 }
 
 // NewRunner creates a new runner instance.
@@ -305,6 +326,30 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		env[k] = v
 	}
 
+	// Write run configuration with resolved values.
+	runConfig := &RunConfig{
+		Instance: &ResolvedInstance{
+			ID:          instance.ID,
+			Client:      instance.Client,
+			Image:       imageName,
+			Entrypoint:  instance.Entrypoint,
+			Command:     cmd,
+			ExtraArgs:   instance.ExtraArgs,
+			PullPolicy:  instance.PullPolicy,
+			Restart:     instance.Restart,
+			Environment: env,
+			Genesis:     genesisSource,
+		},
+	}
+
+	if r.executor != nil {
+		runConfig.SuiteHash = r.executor.GetSuiteHash()
+	}
+
+	if err := writeRunConfig(runResultsDir, runConfig); err != nil {
+		log.WithError(err).Warn("Failed to write run config")
+	}
+
 	// Build container spec.
 	containerSpec := &docker.ContainerSpec{
 		Name:        fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID),
@@ -455,6 +500,21 @@ func (r *runner) readFromFile(path string) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// writeRunConfig writes the run configuration to config.json.
+func writeRunConfig(resultsDir string, cfg *RunConfig) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling run config: %w", err)
+	}
+
+	configPath := filepath.Join(resultsDir, "config.json")
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("writing config.json: %w", err)
+	}
+
+	return nil
 }
 
 // streamLogs streams container logs to file and optionally stdout.
