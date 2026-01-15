@@ -12,6 +12,9 @@ interface RunFiltersProps {
   onImageChange: (image: string | undefined) => void
   selectedStatus: TestStatusFilter
   onStatusChange: (status: TestStatusFilter) => void
+  suites?: string[]
+  selectedSuite?: string | undefined
+  onSuiteChange?: (suite: string | undefined) => void
 }
 
 function ChevronIcon() {
@@ -89,6 +92,9 @@ export function RunFilters({
   onImageChange,
   selectedStatus,
   onStatusChange,
+  suites,
+  selectedSuite,
+  onSuiteChange,
 }: RunFiltersProps) {
   const clientOptions = [{ value: '' as const, label: 'All clients' }, ...clients.map((c) => ({ value: c, label: c }))]
   const imageOptions = [{ value: '' as const, label: 'All images' }, ...images.map((i) => ({ value: i, label: i }))]
@@ -97,6 +103,7 @@ export function RunFilters({
     { value: 'passing', label: 'Passing only' },
     { value: 'failing', label: 'Has failures' },
   ]
+  const suiteOptions = suites ? [{ value: '' as const, label: 'All suites' }, ...suites.map((s) => ({ value: s, label: s }))] : []
 
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -115,6 +122,16 @@ export function RunFilters({
         allLabel="All images"
         width="w-64"
       />
+      {suites && onSuiteChange && (
+        <FilterDropdown
+          label="Suite"
+          value={selectedSuite ?? ''}
+          onChange={(v) => onSuiteChange(v || undefined)}
+          options={suiteOptions}
+          allLabel="All suites"
+          width="w-44"
+        />
+      )}
       <FilterDropdown
         label="Status"
         value={selectedStatus}

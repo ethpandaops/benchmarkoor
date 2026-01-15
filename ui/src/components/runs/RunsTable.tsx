@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import type { IndexEntry } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
@@ -7,7 +7,7 @@ import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
 
-export type SortColumn = 'timestamp' | 'client' | 'image' | 'duration' | 'tests'
+export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'tests'
 export type SortDirection = 'asc' | 'desc'
 
 interface RunsTableProps {
@@ -15,6 +15,7 @@ interface RunsTableProps {
   sortBy?: SortColumn
   sortDir?: SortDirection
   onSortChange?: (column: SortColumn, direction: SortDirection) => void
+  showSuite?: boolean
 }
 
 function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
@@ -63,6 +64,7 @@ export function RunsTable({
   sortBy = 'timestamp',
   sortDir = 'desc',
   onSortChange,
+  showSuite = false,
 }: RunsTableProps) {
   const navigate = useNavigate()
 
@@ -86,6 +88,9 @@ export function RunsTable({
         case 'image':
           comparison = a.instance.image.localeCompare(b.instance.image)
           break
+        case 'suite':
+          comparison = (a.suite_hash ?? '').localeCompare(b.suite_hash ?? '')
+          break
         case 'duration':
           comparison = a.tests.duration - b.tests.duration
           break
@@ -105,6 +110,7 @@ export function RunsTable({
             <SortableHeader label="Timestamp" column="timestamp" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Client" column="client" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Image" column="image" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+            {showSuite && <SortableHeader label="Suite" column="suite" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />}
             <SortableHeader label="Duration" column="duration" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Tests" column="tests" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
           </tr>
@@ -125,6 +131,22 @@ export function RunsTable({
               <td className="max-w-xs truncate px-6 py-4 font-mono text-sm/6 text-gray-500 dark:text-gray-400">
                 <span title={entry.instance.image}>{entry.instance.image}</span>
               </td>
+              {showSuite && (
+                <td className="whitespace-nowrap px-6 py-4 font-mono text-sm/6">
+                  {entry.suite_hash ? (
+                    <Link
+                      to="/suites/$suiteHash"
+                      params={{ suiteHash: entry.suite_hash }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      {entry.suite_hash}
+                    </Link>
+                  ) : (
+                    <span className="text-gray-400 dark:text-gray-500">-</span>
+                  )}
+                </td>
+              )}
               <td className="whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400">
                 <Duration nanoseconds={entry.tests.duration} />
               </td>
