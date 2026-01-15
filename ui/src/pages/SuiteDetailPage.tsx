@@ -219,7 +219,7 @@ export function SuiteDetailPage() {
           <Tab
             className={({ selected }) =>
               clsx(
-                'flex items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
                 selected
                   ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                   : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
@@ -232,7 +232,7 @@ export function SuiteDetailPage() {
           <Tab
             className={({ selected }) =>
               clsx(
-                'flex items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
                 selected
                   ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                   : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
@@ -246,7 +246,7 @@ export function SuiteDetailPage() {
             <Tab
               className={({ selected }) =>
                 clsx(
-                  'flex items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                  'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
                   selected
                     ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                     : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
@@ -254,7 +254,7 @@ export function SuiteDetailPage() {
               }
             >
               Warmup
-              <Badge variant="warning">{suite.warmup!.length}</Badge>
+              <Badge variant="default">{suite.warmup!.length}</Badge>
             </Tab>
           )}
         </TabList>
