@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import clsx from 'clsx'
-import type { TestEntry } from '@/api/types'
+import type { TestEntry, SuiteFile } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
@@ -9,14 +9,20 @@ import { MethodBreakdown } from './MethodBreakdown'
 interface TestsTableProps {
   tests: Record<string, TestEntry>
   runId: string
+  suiteTests?: SuiteFile[]
 }
 
 const PAGE_SIZE = 20
 
-export function TestsTable({ tests, runId }: TestsTableProps) {
+export function TestsTable({ tests, runId, suiteTests }: TestsTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [expandedTest, setExpandedTest] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+
+  const executionOrder = useMemo(() => {
+    if (!suiteTests) return new Map<string, number>()
+    return new Map(suiteTests.map((file, index) => [file.f, index + 1]))
+  }, [suiteTests])
 
   const sortedTests = useMemo(() => {
     let filtered = Object.entries(tests)
@@ -26,8 +32,16 @@ export function TestsTable({ tests, runId }: TestsTableProps) {
       filtered = filtered.filter(([name]) => name.toLowerCase().includes(query))
     }
 
+    if (executionOrder.size > 0) {
+      return filtered.sort(([a], [b]) => {
+        const orderA = executionOrder.get(a) ?? Infinity
+        const orderB = executionOrder.get(b) ?? Infinity
+        return orderA - orderB
+      })
+    }
+
     return filtered.sort(([a], [b]) => a.localeCompare(b))
-  }, [tests, searchQuery])
+  }, [tests, searchQuery, executionOrder])
 
   const totalPages = Math.ceil(sortedTests.length / PAGE_SIZE)
   const paginatedTests = sortedTests.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
@@ -59,6 +73,9 @@ export function TestsTable({ tests, runId }: TestsTableProps) {
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
               <th className="w-8 px-4 py-3"></th>
+              <th className="w-12 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                #
+              </th>
               <th className="px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Test
               </th>
@@ -97,6 +114,9 @@ export function TestsTable({ tests, runId }: TestsTableProps) {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm/6 font-medium text-gray-500 dark:text-gray-400">
+                    {executionOrder.get(testName) ?? '-'}
+                  </td>
                   <td className="max-w-md truncate px-4 py-3 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
                     <span title={testName}>{testName}</span>
                   </td>
@@ -117,7 +137,7 @@ export function TestsTable({ tests, runId }: TestsTableProps) {
                 </tr>
                 {expandedTest === testName && (
                   <tr key={`${testName}-expanded`}>
-                    <td colSpan={5} className="bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
+                    <td colSpan={6} className="bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
                       <MethodBreakdown
                         methods={entry.aggregated.methods}
                         runId={runId}

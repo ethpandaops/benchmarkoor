@@ -1,6 +1,7 @@
 import { Link, useParams } from '@tanstack/react-router'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
+import { useSuite } from '@/api/hooks/useSuite'
 import { SystemInfo } from '@/components/run-detail/SystemInfo'
 import { InstanceConfig } from '@/components/run-detail/InstanceConfig'
 import { TestsTable } from '@/components/run-detail/TestsTable'
@@ -16,6 +17,7 @@ export function RunDetailPage() {
   const { runId } = useParams({ from: '/runs/$runId' })
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
+  const { data: suite } = useSuite(config?.suite_hash ?? '')
 
   const isLoading = configLoading || resultLoading
   const error = configError || resultError
@@ -90,7 +92,7 @@ export function RunDetailPage() {
 
       <SystemInfo system={config.system} />
       <InstanceConfig instance={config.instance} />
-      <TestsTable tests={result.tests} runId={runId} />
+      <TestsTable tests={result.tests} runId={runId} suiteTests={suite?.tests} />
     </div>
   )
 }
