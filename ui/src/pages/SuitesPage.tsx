@@ -15,16 +15,22 @@ export function SuitesPage() {
   const suites = useMemo(() => {
     if (!index) return []
 
-    const suiteMap = new Map<string, number>()
+    const suiteMap = new Map<string, { runCount: number; lastRun: number }>()
     for (const entry of index.entries) {
       if (entry.suite_hash) {
-        suiteMap.set(entry.suite_hash, (suiteMap.get(entry.suite_hash) ?? 0) + 1)
+        const existing = suiteMap.get(entry.suite_hash)
+        if (existing) {
+          existing.runCount++
+          existing.lastRun = Math.max(existing.lastRun, entry.timestamp)
+        } else {
+          suiteMap.set(entry.suite_hash, { runCount: 1, lastRun: entry.timestamp })
+        }
       }
     }
 
     return Array.from(suiteMap.entries())
-      .map(([hash, runCount]) => ({ hash, runCount }))
-      .sort((a, b) => b.runCount - a.runCount)
+      .map(([hash, { runCount, lastRun }]) => ({ hash, runCount, lastRun }))
+      .sort((a, b) => b.lastRun - a.lastRun)
   }, [index])
 
   const totalPages = Math.ceil(suites.length / PAGE_SIZE)
