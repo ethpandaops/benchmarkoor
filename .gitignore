@@ -31,3 +31,9 @@ Thumbs.db
 # Project specific
 results/
 *.log
+.ai_plans
+config.yaml
+
+# UI
+ui/node_modules/
+ui/dist/

@@ -22,6 +22,9 @@ export function RunsTable({ entries }: RunsTableProps) {
               Client
             </th>
             <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Suite
+            </th>
+            <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
               Tests
             </th>
             <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -46,6 +49,9 @@ export function RunsTable({ entries }: RunsTableProps) {
               </td>
               <td className="whitespace-nowrap px-6 py-4">
                 <ClientBadge client={entry.instance.client} />
+              </td>
+              <td className="whitespace-nowrap px-6 py-4 font-mono text-sm/6 text-gray-500 dark:text-gray-400">
+                {entry.suite_hash ?? '-'}
               </td>
               <td className="whitespace-nowrap px-6 py-4">
                 <div className="flex items-center gap-2">
