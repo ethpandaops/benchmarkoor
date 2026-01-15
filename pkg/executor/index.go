@@ -18,7 +18,7 @@ type Index struct {
 // IndexEntry contains summary information for a single benchmark run.
 type IndexEntry struct {
 	RunID     string          `json:"run_id"`
-	Timestamp time.Time       `json:"timestamp"`
+	Timestamp int64           `json:"timestamp"`
 	SuiteHash string          `json:"suite_hash,omitempty"`
 	Instance  *IndexInstance  `json:"instance"`
 	Tests     *IndexTestStats `json:"tests"`
@@ -40,8 +40,8 @@ type IndexTestStats struct {
 
 // runConfigJSON is used to parse config.json files.
 type runConfigJSON struct {
-	Timestamp time.Time `json:"timestamp"`
-	SuiteHash string    `json:"suite_hash,omitempty"`
+	Timestamp int64  `json:"timestamp"`
+	SuiteHash string `json:"suite_hash,omitempty"`
 	Instance  struct {
 		ID     string `json:"id"`
 		Client string `json:"client"`
@@ -85,7 +85,7 @@ func GenerateIndex(resultsDir string) (*Index, error) {
 
 	// Sort entries by timestamp, newest first.
 	sort.Slice(indexEntries, func(i, j int) bool {
-		return indexEntries[i].Timestamp.After(indexEntries[j].Timestamp)
+		return indexEntries[i].Timestamp > indexEntries[j].Timestamp
 	})
 
 	return &Index{
@@ -141,9 +141,9 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 	}, nil
 }
 
-// WriteIndex writes the index to index.json in the results directory.
+// WriteIndex writes the index to index.json in the runs subdirectory.
 func WriteIndex(resultsDir string, index *Index) error {
-	indexPath := filepath.Join(resultsDir, "index.json")
+	indexPath := filepath.Join(resultsDir, "runs", "index.json")
 
 	data, err := json.MarshalIndent(index, "", "  ")
 	if err != nil {

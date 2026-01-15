@@ -61,7 +61,7 @@ type Config struct {
 
 // RunConfig contains configuration for a single test run.
 type RunConfig struct {
-	Timestamp time.Time         `json:"timestamp"`
+	Timestamp int64             `json:"timestamp"`
 	SuiteHash string            `json:"suite_hash,omitempty"`
 	System    *SystemInfo       `json:"system"`
 	Instance  *ResolvedInstance `json:"instance"`
@@ -351,7 +351,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	// Write run configuration with resolved values.
 	runConfig := &RunConfig{
-		Timestamp: time.Unix(runTimestamp, 0).UTC(),
+		Timestamp: runTimestamp,
 		System:    getSystemInfo(),
 		Instance: &ResolvedInstance{
 			ID:          instance.ID,
