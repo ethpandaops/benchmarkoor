@@ -149,14 +149,8 @@ export function SuiteDetailPage() {
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-2">
-          <h1 className="font-mono text-2xl/8 font-bold text-gray-900 dark:text-gray-100">{suite.hash}</h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {suite.filter && <Badge variant="info">Filter: {suite.filter}</Badge>}
-          <Badge variant="default">{suite.tests.length} tests</Badge>
-          {hasWarmup && <Badge variant="warning">{suite.warmup!.length} warmup</Badge>}
-        </div>
+        <h1 className="font-mono text-2xl/8 font-bold text-gray-900 dark:text-gray-100">{suite.hash}</h1>
+        {suite.filter && <Badge variant="info">Filter: {suite.filter}</Badge>}
       </div>
 
       <TabGroup selectedIndex={getTabIndex()} onChange={handleTabChange}>
@@ -254,13 +248,13 @@ export function SuiteDetailPage() {
             )}
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
-            {suite.source.tests && <SuiteSource title="Tests Source" source={suite.source.tests} />}
-            <TestFilesList title="Tests" files={suite.tests} suiteHash={suiteHash} type="tests" />
+            {suite.source.tests && <SuiteSource title="Source" source={suite.source.tests} />}
+            <TestFilesList files={suite.tests} suiteHash={suiteHash} type="tests" />
           </TabPanel>
           {hasWarmup && (
             <TabPanel className="flex flex-col gap-4">
-              {suite.source.warmup && <SuiteSource title="Warmup Source" source={suite.source.warmup} />}
-              <TestFilesList title="Warmup Tests" files={suite.warmup!} suiteHash={suiteHash} type="warmup" />
+              {suite.source.warmup && <SuiteSource title="Source" source={suite.source.warmup} />}
+              <TestFilesList files={suite.warmup!} suiteHash={suiteHash} type="warmup" />
             </TabPanel>
           )}
         </TabPanels>
