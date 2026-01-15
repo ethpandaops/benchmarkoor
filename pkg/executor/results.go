@@ -19,14 +19,50 @@ type MethodStats struct {
 	P95   int64 `json:"p95"`
 	P99   int64 `json:"p99"`
 	Mean  int64 `json:"mean"`
+	Last  int64 `json:"last"`
+}
+
+// MarshalJSON customizes JSON output based on Count.
+// If Count == 1, only count and last are included.
+// If Count > 1, all statistics are included.
+func (m *MethodStats) MarshalJSON() ([]byte, error) {
+	if m.Count == 1 {
+		return json.Marshal(struct {
+			Count int64 `json:"count"`
+			Last  int64 `json:"last"`
+		}{
+			Count: m.Count,
+			Last:  m.Last,
+		})
+	}
+
+	return json.Marshal(struct {
+		Count int64 `json:"count"`
+		Min   int64 `json:"min"`
+		Max   int64 `json:"max"`
+		P50   int64 `json:"p50"`
+		P95   int64 `json:"p95"`
+		P99   int64 `json:"p99"`
+		Mean  int64 `json:"mean"`
+		Last  int64 `json:"last"`
+	}{
+		Count: m.Count,
+		Min:   m.Min,
+		Max:   m.Max,
+		P50:   m.P50,
+		P95:   m.P95,
+		P99:   m.P99,
+		Mean:  m.Mean,
+		Last:  m.Last,
+	})
 }
 
 // AggregatedStats contains the full aggregated output.
 type AggregatedStats struct {
-	TotalTime int64                   `json:"TotalTime"`
-	Succeeded int                     `json:"Succeeded"`
-	Failed    int                     `json:"Failed"`
-	TotalMsgs int                     `json:"TotalMsgs"`
+	TotalTime int64                   `json:"time_total"`
+	Succeeded int                     `json:"success"`
+	Failed    int                     `json:"fail"`
+	TotalMsgs int                     `json:"msg_count"`
 	Methods   map[string]*MethodStats `json:"Methods"`
 }
 
@@ -118,6 +154,7 @@ func calculateMethodStats(times []int64) *MethodStats {
 		P95:   percentile(sorted, 95),
 		P99:   percentile(sorted, 99),
 		Mean:  sum / int64(len(times)),
+		Last:  times[len(times)-1],
 	}
 }
 
