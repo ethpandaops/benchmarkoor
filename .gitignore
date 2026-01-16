@@ -38,3 +38,5 @@ config.yaml
 /node_modules/
 /package.json
 /package-lock.json
+
+/data/

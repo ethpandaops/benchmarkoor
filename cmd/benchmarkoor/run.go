@@ -121,6 +121,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		DockerNetwork:      cfg.Global.DockerNetwork,
 		JWT:                cfg.Client.Config.JWT,
 		GenesisURLs:        cfg.Client.Config.Genesis,
+		DataDirs:           cfg.Client.DataDirs,
 		TestFilter:         cfg.Benchmark.Tests.Filter,
 	}
 

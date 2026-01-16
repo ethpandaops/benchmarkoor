@@ -76,10 +76,47 @@ func (s *SourceConfig) IsConfigured() bool {
 	return s.TestsLocalDir != "" || s.TestsGit != nil
 }
 
+// DefaultContainerDir is the default container mount path for data directories.
+const DefaultContainerDir = "/data"
+
+// DataDirConfig configures a pre-populated data directory for a client.
+type DataDirConfig struct {
+	SourceDir    string `yaml:"source_dir"`
+	ContainerDir string `yaml:"container_dir,omitempty"` // default: "/data"
+	Method       string `yaml:"method,omitempty"`        // default: "copy"
+}
+
+// Validate checks the datadir configuration for errors.
+func (d *DataDirConfig) Validate(prefix string) error {
+	if d.SourceDir == "" {
+		return fmt.Errorf("%s: source_dir is required", prefix)
+	}
+
+	info, err := os.Stat(d.SourceDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s: source_dir %q does not exist", prefix, d.SourceDir)
+		}
+
+		return fmt.Errorf("%s: checking source_dir: %w", prefix, err)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%s: source_dir %q is not a directory", prefix, d.SourceDir)
+	}
+
+	if d.Method != "" && d.Method != "copy" {
+		return fmt.Errorf("%s: invalid method %q, must be \"copy\"", prefix, d.Method)
+	}
+
+	return nil
+}
+
 // ClientConfig contains client configuration settings.
 type ClientConfig struct {
-	Config    ClientDefaults   `yaml:"config"`
-	Instances []ClientInstance `yaml:"instances"`
+	Config    ClientDefaults            `yaml:"config"`
+	DataDirs  map[string]*DataDirConfig `yaml:"datadirs,omitempty"`
+	Instances []ClientInstance          `yaml:"instances"`
 }
 
 // ClientDefaults contains default settings for all clients.
@@ -100,6 +137,7 @@ type ClientInstance struct {
 	Restart     string            `yaml:"restart,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty"`
 	Genesis     string            `yaml:"genesis,omitempty"`
+	DataDir     *DataDirConfig    `yaml:"datadir,omitempty"`
 }
 
 // Load reads and parses a configuration file from the given path.
@@ -141,9 +179,33 @@ func (c *Config) applyDefaults() {
 		c.Client.Config.Genesis = make(map[string]string, 6)
 	}
 
+	// Apply defaults to global datadirs.
+	for _, dd := range c.Client.DataDirs {
+		if dd != nil {
+			if dd.Method == "" {
+				dd.Method = "copy"
+			}
+
+			if dd.ContainerDir == "" {
+				dd.ContainerDir = DefaultContainerDir
+			}
+		}
+	}
+
 	for i := range c.Client.Instances {
 		if c.Client.Instances[i].PullPolicy == "" {
 			c.Client.Instances[i].PullPolicy = DefaultPullPolicy
+		}
+
+		// Apply defaults to instance-level datadir.
+		if c.Client.Instances[i].DataDir != nil {
+			if c.Client.Instances[i].DataDir.Method == "" {
+				c.Client.Instances[i].DataDir.Method = "copy"
+			}
+
+			if c.Client.Instances[i].DataDir.ContainerDir == "" {
+				c.Client.Instances[i].DataDir.ContainerDir = DefaultContainerDir
+			}
 		}
 	}
 }
@@ -182,6 +244,22 @@ func (c *Config) Validate() error {
 					instance.ID,
 					instance.Client,
 				)
+			}
+		}
+
+		// Validate instance-level datadir.
+		if instance.DataDir != nil {
+			if err := instance.DataDir.Validate(fmt.Sprintf("instance %q datadir", instance.ID)); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Validate global datadirs.
+	for client, dd := range c.Client.DataDirs {
+		if dd != nil {
+			if err := dd.Validate(fmt.Sprintf("client.datadirs.%s", client)); err != nil {
+				return err
 			}
 		}
 	}
