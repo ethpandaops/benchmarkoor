@@ -112,11 +112,11 @@ type MethodsAggregated struct {
 
 // AggregatedStats contains the full aggregated output.
 type AggregatedStats struct {
-	TotalTime int64              `json:"time_total"`
-	Succeeded int                `json:"success"`
-	Failed    int                `json:"fail"`
-	TotalMsgs int                `json:"msg_count"`
-	Methods   *MethodsAggregated `json:"methods"`
+	TotalTime   int64              `json:"time_total"`
+	Succeeded   int                `json:"success"`
+	Failed      int                `json:"fail"`
+	TotalMsgs   int                `json:"msg_count"`
+	MethodStats *MethodsAggregated `json:"method_stats"`
 }
 
 // TestEntry contains the result entry for a single test in the run result.
@@ -225,7 +225,7 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 		Succeeded: r.Succeeded,
 		Failed:    r.Failed,
 		TotalMsgs: len(r.Times),
-		Methods: &MethodsAggregated{
+		MethodStats: &MethodsAggregated{
 			Times:      make(map[string]*MethodStats, len(r.MethodTimes)),
 			MGasPerSec: make(map[string]*MethodStatsFloat, len(r.MethodMGasPerSec)),
 		},
@@ -236,11 +236,11 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 	}
 
 	for method, times := range r.MethodTimes {
-		stats.Methods.Times[method] = calculateMethodStats(times)
+		stats.MethodStats.Times[method] = calculateMethodStats(times)
 	}
 
 	for method, values := range r.MethodMGasPerSec {
-		stats.Methods.MGasPerSec[method] = calculateMethodStatsFloat(values)
+		stats.MethodStats.MGasPerSec[method] = calculateMethodStatsFloat(values)
 	}
 
 	return stats

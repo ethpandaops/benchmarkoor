@@ -80,7 +80,7 @@ export interface AggregatedStats {
   success: number
   fail: number
   msg_count: number
-  methods: MethodsAggregated
+  method_stats: MethodsAggregated
 }
 
 export interface MethodsAggregated {
