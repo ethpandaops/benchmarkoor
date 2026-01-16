@@ -179,8 +179,8 @@ export function TestsTable({
 
       {paginationControls}
 
-      <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+      <div className="overflow-x-auto rounded-sm bg-white shadow-xs dark:bg-gray-800">
+        <table className="min-w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
               <th className="w-8 px-4 py-3"></th>
@@ -193,13 +193,13 @@ export function TestsTable({
                 className="w-12"
               />
               <SortableHeader label="Test" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-              <th className="px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <th className="w-24 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Status
               </th>
-              <th className="px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <th className="w-28 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Total Time
               </th>
-              <th className="px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <th className="w-20 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Methods
               </th>
             </tr>
@@ -246,8 +246,10 @@ export function TestsTable({
                 </tr>
                 {expandedTest === testName && (
                   <tr key={`${testName}-expanded`}>
-                    <td colSpan={6} className="bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
-                      <MethodBreakdown methods={entry.aggregated.methods} runId={runId} suiteHash={suiteHash} testName={testName} dir={entry.dir} />
+                    <td colSpan={6} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
+                      <div className="overflow-x-auto">
+                        <MethodBreakdown methods={entry.aggregated.methods} runId={runId} suiteHash={suiteHash} testName={testName} dir={entry.dir} />
+                      </div>
                     </td>
                   </tr>
                 )}

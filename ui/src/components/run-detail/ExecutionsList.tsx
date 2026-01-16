@@ -39,7 +39,7 @@ function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
   const method = parseMethod(request)
 
   return (
-    <div className="border-b border-gray-200 last:border-b-0 dark:border-gray-700">
+    <div className="max-w-full overflow-hidden border-b border-gray-200 last:border-b-0 dark:border-gray-700">
       <button
         onClick={() => setExpanded(!expanded)}
         className={clsx(
@@ -65,25 +65,31 @@ function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
       </button>
 
       {expanded && (
-        <div className="flex flex-col gap-3 bg-gray-50 px-4 py-3 dark:bg-gray-900/50">
-          <div>
-            <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Request
-            </h5>
-            <pre className="overflow-x-auto rounded-xs bg-gray-100 p-3 font-mono text-xs/5 text-gray-800 dark:bg-gray-800 dark:text-gray-200">
-              {formatJson(request)}
-            </pre>
-          </div>
-          {response && (
+        <div className="bg-gray-50 px-4 py-3 dark:bg-gray-900/50">
+          <div className="flex flex-col gap-3">
             <div>
               <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Response
+                Request
               </h5>
-              <pre className="overflow-x-auto rounded-xs bg-gray-100 p-3 font-mono text-xs/5 text-gray-800 dark:bg-gray-800 dark:text-gray-200">
-                {formatJson(response)}
-              </pre>
+              <div className="w-0 min-w-full overflow-x-auto rounded-xs bg-gray-100 dark:bg-gray-800">
+                <pre className="w-fit p-3 font-mono text-xs/5 text-gray-800 dark:text-gray-200">
+                  {formatJson(request)}
+                </pre>
+              </div>
             </div>
-          )}
+            {response && (
+              <div>
+                <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Response
+                </h5>
+                <div className="w-0 min-w-full overflow-x-auto rounded-xs bg-gray-100 dark:bg-gray-800">
+                  <pre className="w-fit p-3 font-mono text-xs/5 text-gray-800 dark:text-gray-200">
+                    {formatJson(response)}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -111,7 +117,7 @@ export function ExecutionsList({ runId, suiteHash, testName, dir }: ExecutionsLi
   }
 
   return (
-    <div className="mt-4">
+    <div className="mt-4 max-w-full overflow-hidden">
       <h4 className="mb-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
         Executions ({requests.length})
       </h4>
