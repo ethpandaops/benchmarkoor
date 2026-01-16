@@ -122,6 +122,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		JWT:                cfg.Client.Config.JWT,
 		GenesisURLs:        cfg.Client.Config.Genesis,
 		DataDirs:           cfg.Client.DataDirs,
+		TmpDataDir:         cfg.Global.Directories.TmpDataDir,
 		TestFilter:         cfg.Benchmark.Tests.Filter,
 	}
 

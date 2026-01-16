@@ -3,6 +3,10 @@ global:
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
+  # Optional directory configurations.
+  # directories:
+  #   # Directory for temporary datadir copies (defaults to system temp).
+  #   tmp_datadir: /tmp/benchmarkoor
 
 benchmark:
   results_dir: ./results

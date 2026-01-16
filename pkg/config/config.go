@@ -34,10 +34,18 @@ type Config struct {
 
 // GlobalConfig contains global application settings.
 type GlobalConfig struct {
-	LogLevel           string `yaml:"log_level"`
-	ClientLogsToStdout bool   `yaml:"client_logs_to_stdout"`
-	DockerNetwork      string `yaml:"docker_network"`
-	CleanupOnStart     bool   `yaml:"cleanup_on_start"`
+	LogLevel           string            `yaml:"log_level"`
+	ClientLogsToStdout bool              `yaml:"client_logs_to_stdout"`
+	DockerNetwork      string            `yaml:"docker_network"`
+	CleanupOnStart     bool              `yaml:"cleanup_on_start"`
+	Directories        DirectoriesConfig `yaml:"directories,omitempty"`
+}
+
+// DirectoriesConfig contains directory path configurations.
+type DirectoriesConfig struct {
+	// TmpDataDir is the directory for temporary datadir copies.
+	// If empty, uses the system default temp directory.
+	TmpDataDir string `yaml:"tmp_datadir,omitempty"`
 }
 
 // BenchmarkConfig contains benchmark-specific settings.

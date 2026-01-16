@@ -56,6 +56,7 @@ type Config struct {
 	JWT                string
 	GenesisURLs        map[string]string
 	DataDirs           map[string]*config.DataDirConfig
+	TmpDataDir         string // Directory for temporary datadir copies (empty = system default)
 	ReadyTimeout       time.Duration
 	ReadyWaitAfter     time.Duration
 	TestFilter         string
@@ -243,7 +244,8 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		// Copy the source datadir to a temp location.
 		log.WithField("source", datadirCfg.SourceDir).Info("Using pre-populated data directory")
 
-		copiedDataDir, err := os.MkdirTemp("", "benchmarkoor-datadir-"+instance.ID+"-")
+		// Use configured temp directory or system default if empty.
+		copiedDataDir, err := os.MkdirTemp(r.cfg.TmpDataDir, "benchmarkoor-datadir-"+instance.ID+"-")
 		if err != nil {
 			return fmt.Errorf("creating temp datadir directory: %w", err)
 		}
