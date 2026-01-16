@@ -136,6 +136,7 @@ export function RunDetailPage() {
       <TestsTable
         tests={result.tests}
         runId={runId}
+        suiteHash={config.suite_hash}
         suiteTests={suite?.tests}
         currentPage={page}
         pageSize={pageSize}

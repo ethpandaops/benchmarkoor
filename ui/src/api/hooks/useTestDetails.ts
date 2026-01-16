@@ -43,3 +43,18 @@ export function useTestAggregated(runId: string, testName: string, dir?: string)
     enabled: !!runId && !!testName,
   })
 }
+
+export function useTestRequests(suiteHash: string, testName: string, dir?: string) {
+  const path = dir
+    ? `suites/${suiteHash}/tests/${dir}/${testName}`
+    : `suites/${suiteHash}/tests/${testName}`
+
+  return useQuery({
+    queryKey: ['suite', suiteHash, 'test', testName, 'requests', dir],
+    queryFn: async () => {
+      const text = await fetchText(path)
+      return text.trim().split('\n')
+    },
+    enabled: !!suiteHash && !!testName,
+  })
+}

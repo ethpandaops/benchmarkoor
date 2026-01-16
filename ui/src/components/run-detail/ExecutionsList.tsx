@@ -1,0 +1,131 @@
+import { useState } from 'react'
+import clsx from 'clsx'
+import { useTestRequests, useTestResponses, useTestTimes } from '@/api/hooks/useTestDetails'
+import { Duration } from '@/components/shared/Duration'
+
+interface ExecutionsListProps {
+  runId: string
+  suiteHash: string
+  testName: string
+  dir?: string
+}
+
+function parseMethod(request: string): string {
+  try {
+    const parsed = JSON.parse(request)
+    return parsed.method || 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+function formatJson(json: string): string {
+  try {
+    return JSON.stringify(JSON.parse(json), null, 2)
+  } catch {
+    return json
+  }
+}
+
+interface ExecutionRowProps {
+  index: number
+  request: string
+  response?: string
+  time?: number
+}
+
+function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
+  const [expanded, setExpanded] = useState(false)
+  const method = parseMethod(request)
+
+  return (
+    <div className="border-b border-gray-200 last:border-b-0 dark:border-gray-700">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className={clsx(
+          'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800',
+          expanded && 'bg-gray-100 dark:bg-gray-800',
+        )}
+      >
+        <svg
+          className={clsx('size-4 shrink-0 text-gray-400 transition-transform', expanded && 'rotate-90')}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="w-10 shrink-0 font-mono text-sm/6 text-gray-500 dark:text-gray-400">#{index}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-sm/6 text-gray-900 dark:text-gray-100">{method}</span>
+        {time !== undefined && (
+          <span className="shrink-0 text-sm/6 text-gray-500 dark:text-gray-400">
+            <Duration nanoseconds={time} />
+          </span>
+        )}
+      </button>
+
+      {expanded && (
+        <div className="flex flex-col gap-3 bg-gray-50 px-4 py-3 dark:bg-gray-900/50">
+          <div>
+            <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Request
+            </h5>
+            <pre className="overflow-x-auto rounded-xs bg-gray-100 p-3 font-mono text-xs/5 text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+              {formatJson(request)}
+            </pre>
+          </div>
+          {response && (
+            <div>
+              <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Response
+              </h5>
+              <pre className="overflow-x-auto rounded-xs bg-gray-100 p-3 font-mono text-xs/5 text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+                {formatJson(response)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function ExecutionsList({ runId, suiteHash, testName, dir }: ExecutionsListProps) {
+  const { data: requests, isLoading: requestsLoading, error: requestsError } = useTestRequests(suiteHash, testName, dir)
+  const { data: responses, isLoading: responsesLoading } = useTestResponses(runId, testName, dir)
+  const { data: times, isLoading: timesLoading } = useTestTimes(runId, testName, dir)
+
+  const isLoading = requestsLoading || responsesLoading || timesLoading
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-4">
+        <div className="size-5 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600" />
+        <span className="ml-2 text-sm/6 text-gray-500 dark:text-gray-400">Loading executions...</span>
+      </div>
+    )
+  }
+
+  if (requestsError || !requests) {
+    return <p className="py-2 text-sm/6 text-gray-500 dark:text-gray-400">No execution data available</p>
+  }
+
+  return (
+    <div className="mt-4">
+      <h4 className="mb-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+        Executions ({requests.length})
+      </h4>
+      <div className="overflow-hidden rounded-xs border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+        {requests.map((request, index) => (
+          <ExecutionRow
+            key={index}
+            index={index}
+            request={request}
+            response={responses?.[index]}
+            time={times?.[index]}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}

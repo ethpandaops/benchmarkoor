@@ -15,6 +15,7 @@ const DEFAULT_PAGE_SIZE = 20
 interface TestsTableProps {
   tests: Record<string, TestEntry>
   runId: string
+  suiteHash?: string
   suiteTests?: SuiteFile[]
   currentPage?: number
   pageSize?: number
@@ -74,6 +75,7 @@ function SortableHeader({
 export function TestsTable({
   tests,
   runId,
+  suiteHash,
   suiteTests,
   currentPage = 1,
   pageSize = DEFAULT_PAGE_SIZE,
@@ -245,7 +247,7 @@ export function TestsTable({
                 {expandedTest === testName && (
                   <tr key={`${testName}-expanded`}>
                     <td colSpan={6} className="bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
-                      <MethodBreakdown methods={entry.aggregated.methods} runId={runId} testName={testName} dir={entry.dir} />
+                      <MethodBreakdown methods={entry.aggregated.methods} runId={runId} suiteHash={suiteHash} testName={testName} dir={entry.dir} />
                     </td>
                   </tr>
                 )}
