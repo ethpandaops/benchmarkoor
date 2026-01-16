@@ -183,15 +183,18 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
       </div>
 
       {/* Legend */}
-      <div className="mt-4 flex items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
-        <span>Fast</span>
-        <div className="flex gap-0.5">
-          {DURATION_COLORS.map((color, i) => (
-            <div key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
-          ))}
-        </div>
-        <span>Slow</span>
-        <span className="ml-4">
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
+        <span>Older → Recent</span>
+        <span className="flex items-center gap-1">
+          <span>Fast</span>
+          <span className="flex gap-0.5">
+            {DURATION_COLORS.map((color, i) => (
+              <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
+            ))}
+          </span>
+          <span>Slow</span>
+        </span>
+        <span>
           <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-red-500" style={{ backgroundColor: DURATION_COLORS[2] }} />
           Has failures
         </span>
