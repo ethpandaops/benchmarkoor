@@ -114,6 +114,7 @@ export interface MethodStatsFloat {
 export interface ResultDetails {
   duration_ns: number[]
   status: number[] // 0=success, 1=fail
+  mgas_s: Record<string, number> // map of index -> MGas/s value
 }
 
 // summary.json per suite

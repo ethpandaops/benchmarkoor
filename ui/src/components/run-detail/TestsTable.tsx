@@ -4,7 +4,9 @@ import type { TestEntry, SuiteFile } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
-import { MethodBreakdown } from './MethodBreakdown'
+import { TimeBreakdown } from './TimeBreakdown'
+import { MGasBreakdown } from './MGasBreakdown'
+import { ExecutionsList } from './ExecutionsList'
 
 export type TestSortColumn = 'order' | 'name' | 'time'
 export type TestSortDirection = 'asc' | 'desc'
@@ -259,8 +261,12 @@ export function TestsTable({
                   {expandedTest === testKey && (
                     <tr key={`${testKey}-expanded`}>
                       <td colSpan={5} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
-                        <div className="overflow-x-auto">
-                          <MethodBreakdown methods={entry.aggregated.method_stats.times} runId={runId} suiteHash={suiteHash} testName={filename} dir={entry.dir} />
+                        <div className="flex flex-col gap-6 overflow-x-auto">
+                          <TimeBreakdown methods={entry.aggregated.method_stats.times} />
+                          <MGasBreakdown methods={entry.aggregated.method_stats.mgas_s} />
+                          {suiteHash && (
+                            <ExecutionsList runId={runId} suiteHash={suiteHash} testName={filename} dir={entry.dir} />
+                          )}
                         </div>
                       </td>
                     </tr>
