@@ -8,7 +8,7 @@ import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
 
-export type TestSortColumn = 'order' | 'name' | 'time' | 'mgas_min' | 'mgas_max' | 'mgas_p50'
+export type TestSortColumn = 'order' | 'name' | 'time' | 'mgas'
 export type TestSortDirection = 'asc' | 'desc'
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
@@ -79,32 +79,10 @@ function makeTestKey(filename: string, dir?: string): string {
   return dir ? `${dir}/${filename}` : filename
 }
 
-// Calculates average MGas/s stats across all methods
-function getMGasStats(mgas_s: Record<string, { last: number; min?: number; max?: number; p50?: number }>): {
-  min?: number
-  max?: number
-  p50?: number
-} {
-  const entries = Object.values(mgas_s)
-  if (entries.length === 0) return {}
-
-  const mins = entries.map((e) => e.min).filter((v): v is number => v !== undefined)
-  const maxs = entries.map((e) => e.max).filter((v): v is number => v !== undefined)
-  const p50s = entries.map((e) => e.p50).filter((v): v is number => v !== undefined)
-
-  // If we have stats, use them
-  if (mins.length > 0 || maxs.length > 0 || p50s.length > 0) {
-    return {
-      min: mins.length > 0 ? mins.reduce((a, b) => a + b, 0) / mins.length : undefined,
-      max: maxs.length > 0 ? maxs.reduce((a, b) => a + b, 0) / maxs.length : undefined,
-      p50: p50s.length > 0 ? p50s.reduce((a, b) => a + b, 0) / p50s.length : undefined,
-    }
-  }
-
-  // Fall back to average of "last" values if no stats available
-  const lasts = entries.map((e) => e.last)
-  const avgLast = lasts.reduce((a, b) => a + b, 0) / lasts.length
-  return { min: avgLast, max: avgLast, p50: avgLast }
+// Calculates MGas/s from gas_used_total and gas_used_time_total
+function calculateMGasPerSec(gasUsedTotal: number, gasUsedTimeTotal: number): number | undefined {
+  if (gasUsedTimeTotal <= 0 || gasUsedTotal <= 0) return undefined
+  return (gasUsedTotal * 1000) / gasUsedTimeTotal
 }
 
 export function TestsTable({
@@ -153,13 +131,10 @@ export function TestsTable({
         comparison = orderA - orderB
       } else if (sortBy === 'time') {
         comparison = entryA.aggregated.time_total - entryB.aggregated.time_total
-      } else if (sortBy === 'mgas_min' || sortBy === 'mgas_max' || sortBy === 'mgas_p50') {
-        const statsA = getMGasStats(entryA.aggregated.method_stats.mgas_s)
-        const statsB = getMGasStats(entryB.aggregated.method_stats.mgas_s)
-        const field = sortBy === 'mgas_min' ? 'min' : sortBy === 'mgas_max' ? 'max' : 'p50'
-        const valA = statsA[field] ?? -Infinity
-        const valB = statsB[field] ?? -Infinity
-        comparison = valA - valB
+      } else if (sortBy === 'mgas') {
+        const mgasA = calculateMGasPerSec(entryA.aggregated.gas_used_total, entryA.aggregated.gas_used_time_total) ?? -Infinity
+        const mgasB = calculateMGasPerSec(entryB.aggregated.gas_used_total, entryB.aggregated.gas_used_time_total) ?? -Infinity
+        comparison = mgasA - mgasB
       } else {
         comparison = a.localeCompare(b)
       }
@@ -239,9 +214,7 @@ export function TestsTable({
               />
               <SortableHeader label="Test" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
               <SortableHeader label="Total Time" column="time" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-28 text-right" />
-              <SortableHeader label="Min MGas/s" column="mgas_min" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-24 text-right" />
-              <SortableHeader label="Max MGas/s" column="mgas_max" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-24 text-right" />
-              <SortableHeader label="P50 MGas/s" column="mgas_p50" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-24 text-right" />
+              <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-24 text-right" />
               <th className="w-24 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Status
               </th>
@@ -289,22 +262,12 @@ export function TestsTable({
                     <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
                       <Duration nanoseconds={entry.aggregated.time_total} />
                     </td>
-                    {(() => {
-                      const mgasStats = getMGasStats(entry.aggregated.method_stats.mgas_s)
-                      return (
-                        <>
-                          <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                            {mgasStats.min !== undefined ? mgasStats.min.toFixed(2) : '-'}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                            {mgasStats.max !== undefined ? mgasStats.max.toFixed(2) : '-'}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                            {mgasStats.p50 !== undefined ? mgasStats.p50.toFixed(2) : '-'}
-                          </td>
-                        </>
-                      )
-                    })()}
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+                      {(() => {
+                        const mgas = calculateMGasPerSec(entry.aggregated.gas_used_total, entry.aggregated.gas_used_time_total)
+                        return mgas !== undefined ? mgas.toFixed(2) : '-'
+                      })()}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex items-center gap-2">
                         {entry.aggregated.success > 0 && <Badge variant="success">{entry.aggregated.success}</Badge>}
@@ -314,7 +277,7 @@ export function TestsTable({
                   </tr>
                   {expandedTest === testKey && (
                     <tr key={`${testKey}-expanded`}>
-                      <td colSpan={8} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
+                      <td colSpan={6} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
                         <div className="flex flex-col gap-6 overflow-x-auto">
                           <TimeBreakdown methods={entry.aggregated.method_stats.times} />
                           <MGasBreakdown methods={entry.aggregated.method_stats.mgas_s} />
