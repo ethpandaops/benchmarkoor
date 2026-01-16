@@ -117,8 +117,9 @@ export function TestsTable({
     return filtered.sort(([a, entryA], [b, entryB]) => {
       let comparison = 0
       if (sortBy === 'order') {
-        const orderA = executionOrder.get(makeTestKey(a, entryA.dir)) ?? Infinity
-        const orderB = executionOrder.get(makeTestKey(b, entryB.dir)) ?? Infinity
+        // a and b are already full paths (dir/filename or filename)
+        const orderA = executionOrder.get(a) ?? Infinity
+        const orderB = executionOrder.get(b) ?? Infinity
         comparison = orderA - orderB
       } else if (sortBy === 'time') {
         comparison = entryA.aggregated.time_total - entryB.aggregated.time_total
@@ -207,53 +208,66 @@ export function TestsTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {paginatedTests.map(([testName, entry]) => (
-              <>
-                <tr
-                  key={testName}
-                  onClick={() => toggleExpand(testName)}
-                  className={clsx(
-                    'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
-                    expandedTest === testName && 'bg-blue-50 dark:bg-blue-900/20',
-                  )}
-                >
-                  <td className="px-4 py-3">
-                    <svg
-                      className={clsx('size-4 text-gray-400 transition-transform', expandedTest === testName && 'rotate-90')}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm/6 font-medium text-gray-500 dark:text-gray-400">
-                    {executionOrder.get(makeTestKey(testName, entry.dir)) ?? '-'}
-                  </td>
-                  <td className="max-w-md truncate px-4 py-3 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
-                    <span title={testName}>{testName}</span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm/6 text-gray-500 dark:text-gray-400">
-                    <Duration nanoseconds={entry.aggregated.time_total} />
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      {entry.aggregated.success > 0 && <Badge variant="success">{entry.aggregated.success}</Badge>}
-                      {entry.aggregated.fail > 0 && <Badge variant="error">{entry.aggregated.fail}</Badge>}
-                    </div>
-                  </td>
-                </tr>
-                {expandedTest === testName && (
-                  <tr key={`${testName}-expanded`}>
-                    <td colSpan={5} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
-                      <div className="overflow-x-auto">
-                        <MethodBreakdown methods={entry.aggregated.methods} runId={runId} suiteHash={suiteHash} testName={testName} dir={entry.dir} />
+            {paginatedTests.map(([testKey, entry]) => {
+              // testKey is now dir/filename or just filename
+              // Extract just the filename for display
+              const filename = entry.dir ? testKey.slice(entry.dir.length + 1) : testKey
+
+              return (
+                <>
+                  <tr
+                    key={testKey}
+                    onClick={() => toggleExpand(testKey)}
+                    className={clsx(
+                      'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                      expandedTest === testKey && 'bg-blue-50 dark:bg-blue-900/20',
+                    )}
+                  >
+                    <td className="px-4 py-3">
+                      <svg
+                        className={clsx('size-4 text-gray-400 transition-transform', expandedTest === testKey && 'rotate-90')}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-sm/6 font-medium text-gray-500 dark:text-gray-400">
+                      {executionOrder.get(testKey) ?? '-'}
+                    </td>
+                    <td className="max-w-md px-4 py-3">
+                      <div className="truncate text-sm/6 font-medium text-gray-900 dark:text-gray-100" title={filename}>
+                        {filename}
+                      </div>
+                      {entry.dir && (
+                        <div className="truncate text-xs/5 text-gray-500 dark:text-gray-400" title={entry.dir}>
+                          {entry.dir}
+                        </div>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-sm/6 text-gray-500 dark:text-gray-400">
+                      <Duration nanoseconds={entry.aggregated.time_total} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        {entry.aggregated.success > 0 && <Badge variant="success">{entry.aggregated.success}</Badge>}
+                        {entry.aggregated.fail > 0 && <Badge variant="error">{entry.aggregated.fail}</Badge>}
                       </div>
                     </td>
                   </tr>
-                )}
-              </>
-            ))}
+                  {expandedTest === testKey && (
+                    <tr key={`${testKey}-expanded`}>
+                      <td colSpan={5} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
+                        <div className="overflow-x-auto">
+                          <MethodBreakdown methods={entry.aggregated.methods} runId={runId} suiteHash={suiteHash} testName={filename} dir={entry.dir} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              )
+            })}
           </tbody>
         </table>
       </div>

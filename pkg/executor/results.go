@@ -286,10 +286,16 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 			dir = ""
 		}
 
-		// Use just the filename as the test key.
+		// Use the filename as the test key.
 		testFile := filepath.Base(testName)
 
-		result.Tests[testFile] = &TestEntry{
+		// Use full path as map key to handle tests with same filename in different dirs.
+		testKey := testFile
+		if dir != "" {
+			testKey = dir + "/" + testFile
+		}
+
+		result.Tests[testKey] = &TestEntry{
 			Dir:        dir,
 			Aggregated: &stats,
 		}
