@@ -134,7 +134,6 @@ function ExecutionRow({ index, request, response, time, status, mgasPerSec }: Ex
         </svg>
         <span className="w-10 shrink-0 font-mono text-sm/6 text-gray-500 dark:text-gray-400">#{index}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-sm/6 text-gray-900 dark:text-gray-100">{method}</span>
-        <StatusIndicator status={status} />
         {mgasPerSec !== undefined && (
           <span className="shrink-0 text-sm/6 font-medium text-blue-600 dark:text-blue-400">
             {mgasPerSec.toFixed(2)} MGas/s
@@ -145,6 +144,7 @@ function ExecutionRow({ index, request, response, time, status, mgasPerSec }: Ex
             <Duration nanoseconds={time} />
           </span>
         )}
+        <StatusIndicator status={status} />
       </button>
 
       {expanded && (
