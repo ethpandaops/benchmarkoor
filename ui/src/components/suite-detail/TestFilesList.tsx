@@ -90,17 +90,52 @@ function FileContent({ suiteHash, type, file }: { suiteHash: string; type: 'test
     )
   }
 
+  const fullPath = file.d ? `${file.d}/${file.f}` : file.f
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between">
-          <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            Filename
-          </span>
-          <CopyButton text={file.f} label="filename" />
+      {file.d && (
+        <>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Directory
+              </span>
+              <CopyButton text={file.d} label="directory" />
+            </div>
+            <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.d}</div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Filename
+              </span>
+              <CopyButton text={file.f} label="filename" />
+            </div>
+            <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.f}</div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Full Path
+              </span>
+              <CopyButton text={fullPath} label="full path" />
+            </div>
+            <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{fullPath}</div>
+          </div>
+        </>
+      )}
+      {!file.d && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Filename
+            </span>
+            <CopyButton text={file.f} label="filename" />
+          </div>
+          <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.f}</div>
         </div>
-        <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.f}</div>
-      </div>
+      )}
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
           <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -154,7 +189,10 @@ export function TestFilesList({
 
   // Add original index to each file for stable numbering
   const indexedFiles = files.map((file, index) => ({ file, originalIndex: index + 1 }))
-  const filteredFiles = indexedFiles.filter(({ file }) => file.f.toLowerCase().includes(search.toLowerCase()))
+  const filteredFiles = indexedFiles.filter(({ file }) => {
+    const searchLower = search.toLowerCase()
+    return file.f.toLowerCase().includes(searchLower) || (file.d?.toLowerCase().includes(searchLower) ?? false)
+  })
 
   const totalPages = Math.ceil(filteredFiles.length / pageSize)
   const paginatedFiles = filteredFiles.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -219,7 +257,7 @@ export function TestFilesList({
             type="text"
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search by filename..."
+            placeholder="Search by filename or directory..."
             className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-4 text-sm/6 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
         </div>
@@ -232,6 +270,9 @@ export function TestFilesList({
               <th className="w-10 px-2 py-3"></th>
               <th className="w-16 px-2 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 #
+              </th>
+              <th className="w-48 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Directory
               </th>
               <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Filename
@@ -268,13 +309,16 @@ export function TestFilesList({
                     <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
                       {originalIndex}
                     </td>
+                    <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-500 dark:text-gray-400" title={file.d}>
+                      {file.d || '-'}
+                    </td>
                     <td className="truncate px-6 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100" title={file.f}>
                       {file.f}
                     </td>
                   </tr>
                   {isExpanded && (
                     <tr key={`${originalIndex}-content`}>
-                      <td colSpan={3} className="max-w-0 bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
+                      <td colSpan={4} className="max-w-0 bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
                         <FileContent suiteHash={suiteHash} type={type} file={file} />
                       </td>
                     </tr>

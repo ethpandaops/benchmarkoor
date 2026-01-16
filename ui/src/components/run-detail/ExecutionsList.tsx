@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import clsx from 'clsx'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useTestRequests, useTestResponses, useTestTimes } from '@/api/hooks/useTestDetails'
+import { useTestRequests, useTestResponses, useTestResultDetails } from '@/api/hooks/useTestDetails'
 import { Duration } from '@/components/shared/Duration'
 
 function useDarkMode() {
@@ -88,9 +88,29 @@ interface ExecutionRowProps {
   request: string
   response?: string
   time?: number
+  status?: number // 0=success, 1=fail
 }
 
-function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
+function StatusIndicator({ status }: { status?: number }) {
+  if (status === undefined) return null
+
+  const isSuccess = status === 0
+
+  return (
+    <span
+      className={clsx(
+        'shrink-0 rounded-full px-2 py-0.5 text-xs/5 font-medium',
+        isSuccess
+          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      )}
+    >
+      {isSuccess ? 'OK' : 'FAIL'}
+    </span>
+  )
+}
+
+function ExecutionRow({ index, request, response, time, status }: ExecutionRowProps) {
   const [expanded, setExpanded] = useState(false)
   const method = parseMethod(request)
 
@@ -113,6 +133,7 @@ function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
         </svg>
         <span className="w-10 shrink-0 font-mono text-sm/6 text-gray-500 dark:text-gray-400">#{index}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-sm/6 text-gray-900 dark:text-gray-100">{method}</span>
+        <StatusIndicator status={status} />
         {time !== undefined && (
           <span className="shrink-0 text-sm/6 text-gray-500 dark:text-gray-400">
             <Duration nanoseconds={time} />
@@ -157,9 +178,9 @@ function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
 export function ExecutionsList({ runId, suiteHash, testName, dir }: ExecutionsListProps) {
   const { data: requests, isLoading: requestsLoading, error: requestsError } = useTestRequests(suiteHash, testName, dir)
   const { data: responses, isLoading: responsesLoading } = useTestResponses(runId, testName, dir)
-  const { data: times, isLoading: timesLoading } = useTestTimes(runId, testName, dir)
+  const { data: resultDetails, isLoading: detailsLoading } = useTestResultDetails(runId, testName, dir)
 
-  const isLoading = requestsLoading || responsesLoading || timesLoading
+  const isLoading = requestsLoading || responsesLoading || detailsLoading
 
   if (isLoading) {
     return (
@@ -186,7 +207,8 @@ export function ExecutionsList({ runId, suiteHash, testName, dir }: ExecutionsLi
             index={index}
             request={request}
             response={responses?.[index]}
-            time={times?.[index]}
+            time={resultDetails?.duration_ns[index]}
+            status={resultDetails?.status[index]}
           />
         ))}
       </div>

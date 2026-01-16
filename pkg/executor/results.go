@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -82,9 +81,16 @@ type TestResult struct {
 	TestFile    string
 	Responses   []string
 	Times       []int64
+	Statuses    []int // 0=success, 1=fail
 	MethodTimes map[string][]int64
 	Succeeded   int
 	Failed      int
+}
+
+// ResultDetails contains per-call timing and status for JSON output.
+type ResultDetails struct {
+	DurationNS []int64 `json:"duration_ns"`
+	Status     []int   `json:"status"`
 }
 
 // NewTestResult creates a new TestResult.
@@ -93,6 +99,7 @@ func NewTestResult(testFile string) *TestResult {
 		TestFile:    testFile,
 		Responses:   make([]string, 0),
 		Times:       make([]int64, 0),
+		Statuses:    make([]int, 0),
 		MethodTimes: make(map[string][]int64),
 	}
 }
@@ -102,6 +109,13 @@ func (r *TestResult) AddResult(method, response string, elapsed int64, succeeded
 	r.Responses = append(r.Responses, response)
 	r.Times = append(r.Times, elapsed)
 	r.MethodTimes[method] = append(r.MethodTimes[method], elapsed)
+
+	status := 0
+	if !succeeded {
+		status = 1
+	}
+
+	r.Statuses = append(r.Statuses, status)
 
 	if succeeded {
 		r.Succeeded++
@@ -193,15 +207,20 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 		return fmt.Errorf("writing response file: %w", err)
 	}
 
-	// Write .times file.
-	timesPath := basePath + ".times"
-	timesContent := make([]string, len(result.Times))
-	for i, t := range result.Times {
-		timesContent[i] = strconv.FormatInt(t, 10)
+	// Write .result-details.json file (replaces .times).
+	detailsPath := basePath + ".result-details.json"
+	details := ResultDetails{
+		DurationNS: result.Times,
+		Status:     result.Statuses,
 	}
 
-	if err := os.WriteFile(timesPath, []byte(strings.Join(timesContent, "\n")+"\n"), 0644); err != nil {
-		return fmt.Errorf("writing times file: %w", err)
+	detailsJSON, err := json.MarshalIndent(details, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling result details: %w", err)
+	}
+
+	if err := os.WriteFile(detailsPath, detailsJSON, 0644); err != nil {
+		return fmt.Errorf("writing result details file: %w", err)
 	}
 
 	// Write .times_aggregated.json file.
@@ -267,10 +286,16 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 			dir = ""
 		}
 
-		// Use just the filename as the test key.
+		// Use the filename as the test key.
 		testFile := filepath.Base(testName)
 
-		result.Tests[testFile] = &TestEntry{
+		// Use full path as map key to handle tests with same filename in different dirs.
+		testKey := testFile
+		if dir != "" {
+			testKey = dir + "/" + testFile
+		}
+
+		result.Tests[testKey] = &TestEntry{
 			Dir:        dir,
 			Aggregated: &stats,
 		}
