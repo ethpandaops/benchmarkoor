@@ -5,7 +5,7 @@ import type { IndexEntry } from '@/api/types'
 import { formatTimestamp } from '@/utils/date'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 
-const MAX_RUNS_PER_CLIENT = 20
+const MAX_RUNS_PER_CLIENT = 30
 
 // 5-level discrete color scale (green to red)
 const DURATION_COLORS = [
