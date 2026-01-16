@@ -90,26 +90,50 @@ function FileContent({ suiteHash, type, file }: { suiteHash: string; type: 'test
     )
   }
 
+  const fullPath = file.d ? `${file.d}/${file.f}` : file.f
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between">
-          <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            Filename
-          </span>
-          <CopyButton text={file.f} label="filename" />
-        </div>
-        <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.f}</div>
-      </div>
       {file.d && (
+        <>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Directory
+              </span>
+              <CopyButton text={file.d} label="directory" />
+            </div>
+            <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.d}</div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Filename
+              </span>
+              <CopyButton text={file.f} label="filename" />
+            </div>
+            <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.f}</div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Full Path
+              </span>
+              <CopyButton text={fullPath} label="full path" />
+            </div>
+            <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{fullPath}</div>
+          </div>
+        </>
+      )}
+      {!file.d && (
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between">
             <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Directory
+              Filename
             </span>
-            <CopyButton text={file.d} label="directory" />
+            <CopyButton text={file.f} label="filename" />
           </div>
-          <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.d}</div>
+          <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.f}</div>
         </div>
       )}
       <div className="flex flex-col gap-1">
@@ -247,11 +271,11 @@ export function TestFilesList({
               <th className="w-16 px-2 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 #
               </th>
-              <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Filename
-              </th>
               <th className="w-48 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Directory
+              </th>
+              <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Filename
               </th>
             </tr>
           </thead>
@@ -285,11 +309,11 @@ export function TestFilesList({
                     <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
                       {originalIndex}
                     </td>
-                    <td className="truncate px-6 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100" title={file.f}>
-                      {file.f}
-                    </td>
                     <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-500 dark:text-gray-400" title={file.d}>
                       {file.d || '-'}
+                    </td>
+                    <td className="truncate px-6 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100" title={file.f}>
+                      {file.f}
                     </td>
                   </tr>
                   {isExpanded && (
