@@ -1,5 +1,6 @@
 import { createRouter, createRootRoute, createRoute, redirect, Outlet } from '@tanstack/react-router'
 import { Header } from '@/components/layout/Header'
+import { Footer } from '@/components/layout/Footer'
 import { RunsPage } from '@/pages/RunsPage'
 import { RunDetailPage } from '@/pages/RunDetailPage'
 import { SuitesPage } from '@/pages/SuitesPage'
@@ -7,11 +8,12 @@ import { SuiteDetailPage } from '@/pages/SuiteDetailPage'
 
 const rootRoute = createRootRoute({
   component: () => (
-    <div className="min-h-dvh bg-gray-50 dark:bg-gray-900">
+    <div className="flex min-h-dvh flex-col bg-gray-50 dark:bg-gray-900">
       <Header />
-      <main className="mx-auto max-w-7xl px-4 py-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">
         <Outlet />
       </main>
+      <Footer />
     </div>
   ),
 })
