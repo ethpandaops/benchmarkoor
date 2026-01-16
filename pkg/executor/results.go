@@ -6,10 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
-// MethodStats contains aggregated statistics for a single method.
+// MethodStats contains aggregated statistics for a single method (int64 values).
 type MethodStats struct {
 	Count int64 `json:"count"`
 	Min   int64 `json:"min"`
@@ -19,6 +20,18 @@ type MethodStats struct {
 	P99   int64 `json:"p99"`
 	Mean  int64 `json:"mean"`
 	Last  int64 `json:"last"`
+}
+
+// MethodStatsFloat contains aggregated statistics for a single method (float64 values).
+type MethodStatsFloat struct {
+	Count int64   `json:"count"`
+	Min   float64 `json:"min"`
+	Max   float64 `json:"max"`
+	P50   float64 `json:"p50"`
+	P95   float64 `json:"p95"`
+	P99   float64 `json:"p99"`
+	Mean  float64 `json:"mean"`
+	Last  float64 `json:"last"`
 }
 
 // MarshalJSON customizes JSON output based on Count.
@@ -56,13 +69,56 @@ func (m *MethodStats) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// MarshalJSON customizes JSON output based on Count.
+// If Count == 1, only count and last are included.
+// If Count > 1, all statistics are included.
+func (m *MethodStatsFloat) MarshalJSON() ([]byte, error) {
+	if m.Count == 1 {
+		return json.Marshal(struct {
+			Count int64   `json:"count"`
+			Last  float64 `json:"last"`
+		}{
+			Count: m.Count,
+			Last:  m.Last,
+		})
+	}
+
+	return json.Marshal(struct {
+		Count int64   `json:"count"`
+		Min   float64 `json:"min"`
+		Max   float64 `json:"max"`
+		P50   float64 `json:"p50"`
+		P95   float64 `json:"p95"`
+		P99   float64 `json:"p99"`
+		Mean  float64 `json:"mean"`
+		Last  float64 `json:"last"`
+	}{
+		Count: m.Count,
+		Min:   m.Min,
+		Max:   m.Max,
+		P50:   m.P50,
+		P95:   m.P95,
+		P99:   m.P99,
+		Mean:  m.Mean,
+		Last:  m.Last,
+	})
+}
+
+// MethodsAggregated contains aggregated stats for both times and MGas/s.
+type MethodsAggregated struct {
+	Times      map[string]*MethodStats      `json:"times"`
+	MGasPerSec map[string]*MethodStatsFloat `json:"mgas_s"`
+}
+
 // AggregatedStats contains the full aggregated output.
 type AggregatedStats struct {
-	TotalTime int64                   `json:"time_total"`
-	Succeeded int                     `json:"success"`
-	Failed    int                     `json:"fail"`
-	TotalMsgs int                     `json:"msg_count"`
-	Methods   map[string]*MethodStats `json:"methods"`
+	TotalTime        int64              `json:"time_total"`
+	GasUsedTotal     uint64             `json:"gas_used_total"`
+	GasUsedTimeTotal int64              `json:"gas_used_time_total"`
+	Succeeded        int                `json:"success"`
+	Failed           int                `json:"fail"`
+	TotalMsgs        int                `json:"msg_count"`
+	MethodStats      *MethodsAggregated `json:"method_stats"`
 }
 
 // TestEntry contains the result entry for a single test in the run result.
@@ -78,34 +134,45 @@ type RunResult struct {
 
 // TestResult contains results for a single test file execution.
 type TestResult struct {
-	TestFile    string
-	Responses   []string
-	Times       []int64
-	Statuses    []int // 0=success, 1=fail
-	MethodTimes map[string][]int64
-	Succeeded   int
-	Failed      int
+	TestFile         string
+	Responses        []string
+	Times            []int64
+	Statuses         []int // 0=success, 1=fail
+	MGasPerSec       map[int]float64
+	GasUsed          map[int]uint64
+	MethodTimes      map[string][]int64
+	MethodMGasPerSec map[string][]float64
+	Succeeded        int
+	Failed           int
 }
 
 // ResultDetails contains per-call timing and status for JSON output.
 type ResultDetails struct {
-	DurationNS []int64 `json:"duration_ns"`
-	Status     []int   `json:"status"`
+	DurationNS []int64         `json:"duration_ns"`
+	Status     []int           `json:"status"`
+	MGasPerSec map[int]float64 `json:"mgas_s"`
+	GasUsed    map[int]uint64  `json:"gas_used"`
 }
 
 // NewTestResult creates a new TestResult.
 func NewTestResult(testFile string) *TestResult {
 	return &TestResult{
-		TestFile:    testFile,
-		Responses:   make([]string, 0),
-		Times:       make([]int64, 0),
-		Statuses:    make([]int, 0),
-		MethodTimes: make(map[string][]int64),
+		TestFile:         testFile,
+		Responses:        make([]string, 0),
+		Times:            make([]int64, 0),
+		Statuses:         make([]int, 0),
+		MGasPerSec:       make(map[int]float64),
+		GasUsed:          make(map[int]uint64),
+		MethodTimes:      make(map[string][]int64),
+		MethodMGasPerSec: make(map[string][]float64),
 	}
 }
 
 // AddResult adds a single RPC call result.
-func (r *TestResult) AddResult(method, response string, elapsed int64, succeeded bool) {
+func (r *TestResult) AddResult(method, request, response string, elapsed int64, succeeded bool) {
+	// Get position before appending.
+	pos := len(r.Times)
+
 	r.Responses = append(r.Responses, response)
 	r.Times = append(r.Times, elapsed)
 	r.MethodTimes[method] = append(r.MethodTimes[method], elapsed)
@@ -117,11 +184,45 @@ func (r *TestResult) AddResult(method, response string, elapsed int64, succeeded
 
 	r.Statuses = append(r.Statuses, status)
 
+	// Calculate MGas/s for successful engine_newPayload calls.
+	if succeeded && strings.HasPrefix(method, "engine_newPayload") {
+		if gasUsed, err := extractGasUsed(request); err == nil && elapsed > 0 {
+			r.GasUsed[pos] = gasUsed
+			mgasPerSec := float64(gasUsed) * 1000 / float64(elapsed)
+			r.MGasPerSec[pos] = mgasPerSec
+			r.MethodMGasPerSec[method] = append(r.MethodMGasPerSec[method], mgasPerSec)
+		}
+	}
+
 	if succeeded {
 		r.Succeeded++
 	} else {
 		r.Failed++
 	}
+}
+
+// extractGasUsed extracts gasUsed from an engine_newPayload request.
+func extractGasUsed(request string) (uint64, error) {
+	var req struct {
+		Params []json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(request), &req); err != nil {
+		return 0, err
+	}
+
+	if len(req.Params) == 0 {
+		return 0, fmt.Errorf("no params")
+	}
+
+	var payload struct {
+		GasUsed string `json:"gasUsed"`
+	}
+	if err := json.Unmarshal(req.Params[0], &payload); err != nil {
+		return 0, err
+	}
+
+	// Parse hex string (0x prefixed).
+	return strconv.ParseUint(strings.TrimPrefix(payload.GasUsed, "0x"), 16, 64)
 }
 
 // CalculateStats computes aggregated statistics from the test result.
@@ -130,15 +231,30 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 		Succeeded: r.Succeeded,
 		Failed:    r.Failed,
 		TotalMsgs: len(r.Times),
-		Methods:   make(map[string]*MethodStats, len(r.MethodTimes)),
+		MethodStats: &MethodsAggregated{
+			Times:      make(map[string]*MethodStats, len(r.MethodTimes)),
+			MGasPerSec: make(map[string]*MethodStatsFloat, len(r.MethodMGasPerSec)),
+		},
 	}
 
 	for _, t := range r.Times {
 		stats.TotalTime += t
 	}
 
+	for idx, g := range r.GasUsed {
+		if g == 0 {
+			continue
+		}
+		stats.GasUsedTotal += g
+		stats.GasUsedTimeTotal += r.Times[idx]
+	}
+
 	for method, times := range r.MethodTimes {
-		stats.Methods[method] = calculateMethodStats(times)
+		stats.MethodStats.Times[method] = calculateMethodStats(times)
+	}
+
+	for method, values := range r.MethodMGasPerSec {
+		stats.MethodStats.MGasPerSec[method] = calculateMethodStatsFloat(values)
 	}
 
 	return stats
@@ -191,6 +307,53 @@ func percentile(sorted []int64, p int) int64 {
 	return sorted[idx]
 }
 
+// calculateMethodStatsFloat computes statistics for a single method (float64 values).
+func calculateMethodStatsFloat(values []float64) *MethodStatsFloat {
+	if len(values) == 0 {
+		return &MethodStatsFloat{}
+	}
+
+	// Sort values for percentile calculation.
+	sorted := make([]float64, len(values))
+	copy(sorted, values)
+	slices.Sort(sorted)
+
+	var sum float64
+	for _, v := range sorted {
+		sum += v
+	}
+
+	return &MethodStatsFloat{
+		Count: int64(len(values)),
+		Min:   sorted[0],
+		Max:   sorted[len(sorted)-1],
+		P50:   percentileFloat(sorted, 50),
+		P95:   percentileFloat(sorted, 95),
+		P99:   percentileFloat(sorted, 99),
+		Mean:  sum / float64(len(values)),
+		Last:  values[len(values)-1],
+	}
+}
+
+// percentileFloat calculates the p-th percentile from sorted float64 values.
+func percentileFloat(sorted []float64, p int) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+
+	if len(sorted) == 1 {
+		return sorted[0]
+	}
+
+	// Use nearest-rank method.
+	idx := (p * len(sorted)) / 100
+	if idx >= len(sorted) {
+		idx = len(sorted) - 1
+	}
+
+	return sorted[idx]
+}
+
 // WriteResults writes the three output files for a test.
 func WriteResults(resultDir, testName string, result *TestResult) error {
 	// Ensure the directory structure exists.
@@ -212,6 +375,8 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 	details := ResultDetails{
 		DurationNS: result.Times,
 		Status:     result.Statuses,
+		MGasPerSec: result.MGasPerSec,
+		GasUsed:    result.GasUsed,
 	}
 
 	detailsJSON, err := json.MarshalIndent(details, "", "  ")
@@ -223,9 +388,9 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 		return fmt.Errorf("writing result details file: %w", err)
 	}
 
-	// Write .times_aggregated.json file.
+	// Write .result-aggregated.json file.
 	stats := result.CalculateStats()
-	statsPath := basePath + ".times_aggregated.json"
+	statsPath := basePath + ".result-aggregated.json"
 
 	statsJSON, err := json.MarshalIndent(stats, "", "  ")
 	if err != nil {
@@ -245,7 +410,7 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 		Tests: make(map[string]*TestEntry),
 	}
 
-	// Walk the results directory looking for .times_aggregated.json files.
+	// Walk the results directory looking for .result-aggregated.json files.
 	err := filepath.Walk(resultsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -256,7 +421,7 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 		}
 
 		// Only process aggregated stats files.
-		if !strings.HasSuffix(path, ".times_aggregated.json") {
+		if !strings.HasSuffix(path, ".result-aggregated.json") {
 			return nil
 		}
 
@@ -277,8 +442,8 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 			relPath = path
 		}
 
-		// Remove .times_aggregated.json suffix to get the test name.
-		testName := strings.TrimSuffix(relPath, ".times_aggregated.json")
+		// Remove .result-aggregated.json suffix to get the test name.
+		testName := strings.TrimSuffix(relPath, ".result-aggregated.json")
 
 		// Extract directory (e.g., "000752/test.txt" -> dir is "000752").
 		dir := filepath.Dir(testName)

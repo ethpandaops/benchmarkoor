@@ -4,9 +4,11 @@ import type { TestEntry, SuiteFile } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
-import { MethodBreakdown } from './MethodBreakdown'
+import { TimeBreakdown } from './TimeBreakdown'
+import { MGasBreakdown } from './MGasBreakdown'
+import { ExecutionsList } from './ExecutionsList'
 
-export type TestSortColumn = 'order' | 'name' | 'time'
+export type TestSortColumn = 'order' | 'name' | 'time' | 'mgas'
 export type TestSortDirection = 'asc' | 'desc'
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
@@ -77,6 +79,12 @@ function makeTestKey(filename: string, dir?: string): string {
   return dir ? `${dir}/${filename}` : filename
 }
 
+// Calculates MGas/s from gas_used_total and gas_used_time_total
+function calculateMGasPerSec(gasUsedTotal: number, gasUsedTimeTotal: number): number | undefined {
+  if (gasUsedTimeTotal <= 0 || gasUsedTotal <= 0) return undefined
+  return (gasUsedTotal * 1000) / gasUsedTimeTotal
+}
+
 export function TestsTable({
   tests,
   runId,
@@ -123,6 +131,10 @@ export function TestsTable({
         comparison = orderA - orderB
       } else if (sortBy === 'time') {
         comparison = entryA.aggregated.time_total - entryB.aggregated.time_total
+      } else if (sortBy === 'mgas') {
+        const mgasA = calculateMGasPerSec(entryA.aggregated.gas_used_total, entryA.aggregated.gas_used_time_total) ?? -Infinity
+        const mgasB = calculateMGasPerSec(entryB.aggregated.gas_used_total, entryB.aggregated.gas_used_time_total) ?? -Infinity
+        comparison = mgasA - mgasB
       } else {
         comparison = a.localeCompare(b)
       }
@@ -201,7 +213,8 @@ export function TestsTable({
                 className="w-12"
               />
               <SortableHeader label="Test" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-              <SortableHeader label="Total Time" column="time" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-28" />
+              <SortableHeader label="Total Time" column="time" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-28 text-right" />
+              <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-24 text-right" />
               <th className="w-24 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Status
               </th>
@@ -246,8 +259,14 @@ export function TestsTable({
                         </div>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm/6 text-gray-500 dark:text-gray-400">
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
                       <Duration nanoseconds={entry.aggregated.time_total} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+                      {(() => {
+                        const mgas = calculateMGasPerSec(entry.aggregated.gas_used_total, entry.aggregated.gas_used_time_total)
+                        return mgas !== undefined ? mgas.toFixed(2) : '-'
+                      })()}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -258,9 +277,13 @@ export function TestsTable({
                   </tr>
                   {expandedTest === testKey && (
                     <tr key={`${testKey}-expanded`}>
-                      <td colSpan={5} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
-                        <div className="overflow-x-auto">
-                          <MethodBreakdown methods={entry.aggregated.methods} runId={runId} suiteHash={suiteHash} testName={filename} dir={entry.dir} />
+                      <td colSpan={6} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
+                        <div className="flex flex-col gap-6 overflow-x-auto">
+                          <TimeBreakdown methods={entry.aggregated.method_stats.times} />
+                          <MGasBreakdown methods={entry.aggregated.method_stats.mgas_s} />
+                          {suiteHash && (
+                            <ExecutionsList runId={runId} suiteHash={suiteHash} testName={filename} dir={entry.dir} />
+                          )}
                         </div>
                       </td>
                     </tr>

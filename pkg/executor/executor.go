@@ -312,7 +312,7 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 			}).WithError(err).Warn("Failed to parse JSON-RPC payload")
 
 			if result != nil {
-				result.AddResult("unknown", "", 0, false)
+				result.AddResult("unknown", line, "", 0, false)
 			}
 
 			continue
@@ -352,7 +352,7 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 		}
 
 		if result != nil {
-			result.AddResult(method, response, elapsed, succeeded)
+			result.AddResult(method, line, response, elapsed, succeeded)
 		}
 	}
 

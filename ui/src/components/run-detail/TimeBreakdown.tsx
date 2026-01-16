@@ -1,17 +1,12 @@
 import type { MethodStats } from '@/api/types'
 import { Duration } from '@/components/shared/Duration'
 import { formatNumber } from '@/utils/format'
-import { ExecutionsList } from './ExecutionsList'
 
-interface MethodBreakdownProps {
+interface TimeBreakdownProps {
   methods: Record<string, MethodStats>
-  runId: string
-  suiteHash?: string
-  testName: string
-  dir?: string
 }
 
-export function MethodBreakdown({ methods, runId, suiteHash, testName, dir }: MethodBreakdownProps) {
+export function TimeBreakdown({ methods }: TimeBreakdownProps) {
   const methodEntries = Object.entries(methods).sort(([a], [b]) => a.localeCompare(b))
 
   if (methodEntries.length === 0) {
@@ -20,7 +15,7 @@ export function MethodBreakdown({ methods, runId, suiteHash, testName, dir }: Me
 
   return (
     <div className="flex flex-col gap-4">
-      <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Method Breakdown</h4>
+      <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Time Breakdown</h4>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead>
@@ -105,10 +100,6 @@ export function MethodBreakdown({ methods, runId, suiteHash, testName, dir }: Me
           </tbody>
         </table>
       </div>
-
-      {suiteHash && (
-        <ExecutionsList runId={runId} suiteHash={suiteHash} testName={testName} dir={dir} />
-      )}
     </div>
   )
 }

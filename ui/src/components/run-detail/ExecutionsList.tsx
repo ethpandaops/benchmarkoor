@@ -89,6 +89,7 @@ interface ExecutionRowProps {
   response?: string
   time?: number
   status?: number // 0=success, 1=fail
+  mgasPerSec?: number
 }
 
 function StatusIndicator({ status }: { status?: number }) {
@@ -110,7 +111,7 @@ function StatusIndicator({ status }: { status?: number }) {
   )
 }
 
-function ExecutionRow({ index, request, response, time, status }: ExecutionRowProps) {
+function ExecutionRow({ index, request, response, time, status, mgasPerSec }: ExecutionRowProps) {
   const [expanded, setExpanded] = useState(false)
   const method = parseMethod(request)
 
@@ -133,12 +134,17 @@ function ExecutionRow({ index, request, response, time, status }: ExecutionRowPr
         </svg>
         <span className="w-10 shrink-0 font-mono text-sm/6 text-gray-500 dark:text-gray-400">#{index}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-sm/6 text-gray-900 dark:text-gray-100">{method}</span>
-        <StatusIndicator status={status} />
+        {mgasPerSec !== undefined && (
+          <span className="shrink-0 text-sm/6 font-medium text-blue-600 dark:text-blue-400">
+            {mgasPerSec.toFixed(2)} MGas/s
+          </span>
+        )}
         {time !== undefined && (
           <span className="shrink-0 text-sm/6 text-gray-500 dark:text-gray-400">
             <Duration nanoseconds={time} />
           </span>
         )}
+        <StatusIndicator status={status} />
       </button>
 
       {expanded && (
@@ -209,6 +215,7 @@ export function ExecutionsList({ runId, suiteHash, testName, dir }: ExecutionsLi
             response={responses?.[index]}
             time={resultDetails?.duration_ns[index]}
             status={resultDetails?.status[index]}
+            mgasPerSec={resultDetails?.mgas_s[String(index)]}
           />
         ))}
       </div>
