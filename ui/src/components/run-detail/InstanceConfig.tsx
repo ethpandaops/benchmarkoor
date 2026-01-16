@@ -74,6 +74,32 @@ export function InstanceConfig({ instance }: InstanceConfigProps) {
                 </dd>
               </div>
             )}
+
+            {instance.datadir && (
+              <div>
+                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Data Directory</dt>
+                <dd className="mt-1 overflow-x-auto rounded-sm bg-gray-100 p-2 dark:bg-gray-900">
+                  <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                    <div>
+                      <span className="text-gray-500 dark:text-gray-400">source: </span>
+                      {instance.datadir.source_dir}
+                    </div>
+                    {instance.datadir.container_dir && (
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">mount: </span>
+                        {instance.datadir.container_dir}
+                      </div>
+                    )}
+                    {instance.datadir.method && (
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">method: </span>
+                        {instance.datadir.method}
+                      </div>
+                    )}
+                  </div>
+                </dd>
+              </div>
+            )}
           </div>
         </div>
       )}

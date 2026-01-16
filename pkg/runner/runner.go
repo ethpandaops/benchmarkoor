@@ -16,6 +16,7 @@ import (
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -54,6 +55,8 @@ type Config struct {
 	DockerNetwork      string
 	JWT                string
 	GenesisURLs        map[string]string
+	DataDirs           map[string]*config.DataDirConfig
+	TmpDataDir         string // Directory for temporary datadir copies (empty = system default)
 	ReadyTimeout       time.Duration
 	ReadyWaitAfter     time.Duration
 	TestFilter         string
@@ -87,16 +90,17 @@ type SystemInfo struct {
 
 // ResolvedInstance contains the resolved configuration for a client instance.
 type ResolvedInstance struct {
-	ID          string            `json:"id"`
-	Client      string            `json:"client"`
-	Image       string            `json:"image"`
-	Entrypoint  []string          `json:"entrypoint,omitempty"`
-	Command     []string          `json:"command,omitempty"`
-	ExtraArgs   []string          `json:"extra_args,omitempty"`
-	PullPolicy  string            `json:"pull_policy"`
-	Restart     string            `json:"restart,omitempty"`
-	Environment map[string]string `json:"environment,omitempty"`
-	Genesis     string            `json:"genesis"`
+	ID          string                `json:"id"`
+	Client      string                `json:"client"`
+	Image       string                `json:"image"`
+	Entrypoint  []string              `json:"entrypoint,omitempty"`
+	Command     []string              `json:"command,omitempty"`
+	ExtraArgs   []string              `json:"extra_args,omitempty"`
+	PullPolicy  string                `json:"pull_policy"`
+	Restart     string                `json:"restart,omitempty"`
+	Environment map[string]string     `json:"environment,omitempty"`
+	Genesis     string                `json:"genesis"`
+	DataDir     *config.DataDirConfig `json:"datadir,omitempty"`
 }
 
 // NewRunner creates a new runner instance.
@@ -121,6 +125,7 @@ func NewRunner(
 		docker:   dockerMgr,
 		registry: registry,
 		executor: exec,
+		copier:   datadir.NewCopier(log),
 		done:     make(chan struct{}),
 	}
 }
@@ -131,6 +136,7 @@ type runner struct {
 	docker   docker.Manager
 	registry client.Registry
 	executor executor.Executor
+	copier   datadir.Copier
 	done     chan struct{}
 	wg       sync.WaitGroup
 }
@@ -173,6 +179,22 @@ func (r *runner) RunAll(ctx context.Context) error {
 	return nil
 }
 
+// resolveDataDir returns the datadir config for an instance.
+// Instance-level datadir takes precedence over global datadirs.
+func (r *runner) resolveDataDir(instance *config.ClientInstance) *config.DataDirConfig {
+	// Instance-level override takes precedence.
+	if instance.DataDir != nil {
+		return instance.DataDir
+	}
+
+	// Fall back to global datadir for this client type.
+	if r.cfg.DataDirs != nil {
+		return r.cfg.DataDirs[instance.Client]
+	}
+
+	return nil
+}
+
 // RunInstance runs a single client instance through its lifecycle.
 func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstance) error {
 	// Generate a short random ID for this run.
@@ -180,28 +202,13 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	runTimestamp := time.Now().Unix()
 
 	// Create run results directory under runs/.
-	runResultsDir := filepath.Join(r.cfg.ResultsDir, "runs", fmt.Sprintf("%d_%s_%s", runTimestamp, runID, instance.ID))
+	runResultsDir := filepath.Join(
+		r.cfg.ResultsDir, "runs",
+		fmt.Sprintf("%d_%s_%s", runTimestamp, runID, instance.ID),
+	)
 	if err := os.MkdirAll(runResultsDir, 0755); err != nil {
 		return fmt.Errorf("creating run results directory: %w", err)
 	}
-
-	// Create Docker volume for this run.
-	volumeName := fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID)
-	volumeLabels := map[string]string{
-		"benchmarkoor.instance":   instance.ID,
-		"benchmarkoor.client":     instance.Client,
-		"benchmarkoor.run-id":     runID,
-		"benchmarkoor.managed-by": "benchmarkoor",
-	}
-	if err := r.docker.CreateVolume(ctx, volumeName, volumeLabels); err != nil {
-		return fmt.Errorf("creating volume: %w", err)
-	}
-
-	defer func() {
-		if rmErr := r.docker.RemoveVolume(context.Background(), volumeName); rmErr != nil {
-			r.log.WithError(rmErr).Warn("Failed to remove volume")
-		}
-	}()
 
 	log := r.log.WithFields(logrus.Fields{
 		"instance": instance.ID,
@@ -213,6 +220,78 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	spec, err := r.registry.Get(client.ClientType(instance.Client))
 	if err != nil {
 		return fmt.Errorf("getting client spec: %w", err)
+	}
+
+	// Resolve datadir configuration.
+	datadirCfg := r.resolveDataDir(instance)
+	useDataDir := datadirCfg != nil
+
+	// Track cleanup functions.
+	var cleanupFuncs []func()
+
+	defer func() {
+		for _, cleanup := range cleanupFuncs {
+			cleanup()
+		}
+	}()
+
+	// Setup data directory: either Docker volume or copied datadir.
+	var dataMount docker.Mount
+
+	var volumeName string
+
+	if useDataDir {
+		// Copy the source datadir to a temp location.
+		log.WithField("source", datadirCfg.SourceDir).Info("Using pre-populated data directory")
+
+		// Use configured temp directory or system default if empty.
+		copiedDataDir, err := os.MkdirTemp(r.cfg.TmpDataDir, "benchmarkoor-datadir-"+instance.ID+"-")
+		if err != nil {
+			return fmt.Errorf("creating temp datadir directory: %w", err)
+		}
+
+		cleanupFuncs = append(cleanupFuncs, func() {
+			if rmErr := os.RemoveAll(copiedDataDir); rmErr != nil {
+				log.WithError(rmErr).Warn("Failed to remove copied datadir")
+			}
+		})
+
+		// Copy with progress reporting.
+		if err := r.copier.Copy(ctx, datadirCfg.SourceDir, copiedDataDir); err != nil {
+			return fmt.Errorf("copying datadir: %w", err)
+		}
+
+		// Use bind mount for the copied data.
+		dataMount = docker.Mount{
+			Type:   "bind",
+			Source: copiedDataDir,
+			Target: datadirCfg.ContainerDir,
+		}
+	} else {
+		// Create Docker volume for this run.
+		volumeName = fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID)
+		volumeLabels := map[string]string{
+			"benchmarkoor.instance":   instance.ID,
+			"benchmarkoor.client":     instance.Client,
+			"benchmarkoor.run-id":     runID,
+			"benchmarkoor.managed-by": "benchmarkoor",
+		}
+
+		if err := r.docker.CreateVolume(ctx, volumeName, volumeLabels); err != nil {
+			return fmt.Errorf("creating volume: %w", err)
+		}
+
+		cleanupFuncs = append(cleanupFuncs, func() {
+			if rmErr := r.docker.RemoveVolume(context.Background(), volumeName); rmErr != nil {
+				log.WithError(rmErr).Warn("Failed to remove volume")
+			}
+		})
+
+		dataMount = docker.Mount{
+			Type:   "volume",
+			Source: volumeName,
+			Target: spec.DataDir(),
+		}
 	}
 
 	// Determine genesis source (URL or local file path).
@@ -250,7 +329,11 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		return fmt.Errorf("creating temp directory: %w", err)
 	}
 
-	defer os.RemoveAll(tempDir)
+	cleanupFuncs = append(cleanupFuncs, func() {
+		if rmErr := os.RemoveAll(tempDir); rmErr != nil {
+			log.WithError(rmErr).Warn("Failed to remove temp directory")
+		}
+	})
 
 	genesisFile := filepath.Join(tempDir, "genesis.json")
 	if err := os.WriteFile(genesisFile, genesisContent, 0644); err != nil {
@@ -264,11 +347,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	// Build container mounts.
 	mounts := []docker.Mount{
-		{
-			Type:   "volume",
-			Source: volumeName,
-			Target: "/data",
-		},
+		dataMount,
 		{
 			Type:     "bind",
 			Source:   genesisFile,
@@ -283,8 +362,8 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		},
 	}
 
-	// Run init container if required.
-	if spec.RequiresInit() {
+	// Run init container if required (skip when using datadir).
+	if spec.RequiresInit() && !useDataDir {
 		log.Info("Running init container")
 
 		initSpec := &docker.ContainerSpec{
@@ -327,6 +406,8 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		initFile.Close()
 
 		log.Info("Init container completed")
+	} else if useDataDir {
+		log.Info("Skipping init container (using pre-populated datadir)")
 	}
 
 	// Determine command.
@@ -345,6 +426,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	for k, v := range spec.DefaultEnvironment() {
 		env[k] = v
 	}
+
 	for k, v := range instance.Environment {
 		env[k] = v
 	}
@@ -364,6 +446,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			Restart:     instance.Restart,
 			Environment: env,
 			Genesis:     genesisSource,
+			DataDir:     datadirCfg,
 		},
 	}
 
@@ -399,13 +482,13 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	}
 
 	// Ensure cleanup.
-	defer func() {
+	cleanupFuncs = append(cleanupFuncs, func() {
 		log.Info("Removing container")
 
 		if rmErr := r.docker.RemoveContainer(context.Background(), containerID); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove container")
 		}
-	}()
+	})
 
 	// Setup log streaming.
 	logCtx, logCancel := context.WithCancel(ctx)

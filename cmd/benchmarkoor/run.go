@@ -88,9 +88,14 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	var exec executor.Executor
 
 	if cfg.Benchmark.Tests.Source.IsConfigured() {
-		cacheDir, err := getExecutorCacheDir()
-		if err != nil {
-			return fmt.Errorf("getting cache directory: %w", err)
+		cacheDir := cfg.Global.Directories.TmpCacheDir
+		if cacheDir == "" {
+			var err error
+
+			cacheDir, err = getExecutorCacheDir()
+			if err != nil {
+				return fmt.Errorf("getting cache directory: %w", err)
+			}
 		}
 
 		execCfg := &executor.Config{
@@ -121,6 +126,8 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		DockerNetwork:      cfg.Global.DockerNetwork,
 		JWT:                cfg.Client.Config.JWT,
 		GenesisURLs:        cfg.Client.Config.Genesis,
+		DataDirs:           cfg.Client.DataDirs,
+		TmpDataDir:         cfg.Global.Directories.TmpDataDir,
 		TestFilter:         cfg.Benchmark.Tests.Filter,
 	}
 

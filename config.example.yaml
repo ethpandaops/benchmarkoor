@@ -3,6 +3,12 @@ global:
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
+  # Optional directory configurations.
+  # directories:
+  #   # Directory for temporary datadir copies (defaults to system temp).
+  #   tmp_datadir: /tmp/benchmarkoor
+  #   # Directory for executor cache - git clones, etc (defaults to ~/.cache/benchmarkoor).
+  #   tmp_cachedir: /tmp/benchmarkoor-cache
 
 benchmark:
   results_dir: ./results
@@ -47,6 +53,18 @@ client:
   #   nimbus-el:  statusim/nimbus-eth1:performance
   #   reth:       ethpandaops/reth:performance
 
+  # Optional: Pre-populated data directories per client type.
+  # When configured, the source directory is copied and mounted into the container,
+  # and the init container is skipped (data is already initialized).
+  # datadirs:
+  #   geth:
+  #     source_dir: ./data/snapshots/geth
+  #     container_dir: /data  # default, can be omitted
+  #     method: copy  # default, only option for now
+  #   reth:
+  #     source_dir: ./data/snapshots/reth
+  #     container_dir: /root/.local/share/reth
+
   instances:
     - id: geth-latest
       client: geth
@@ -61,6 +79,9 @@ client:
       # environment:
       #   SOME_VAR: value
       # genesis: <override-url>
+      # datadir:  # Instance-level datadir (overrides global datadirs)
+      #   source_dir: ./data/custom-snapshot
+      #   container_dir: /data
 
     # Example: running multiple clients
     # - id: nethermind-latest
