@@ -99,7 +99,7 @@ function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
       <button
         onClick={() => setExpanded(!expanded)}
         className={clsx(
-          'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800',
+          'flex w-full cursor-pointer items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800',
           expanded && 'bg-gray-100 dark:bg-gray-800',
         )}
       >
