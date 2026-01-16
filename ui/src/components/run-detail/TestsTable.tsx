@@ -72,6 +72,11 @@ function SortableHeader({
   )
 }
 
+// Creates a unique key for a test by combining directory and filename.
+function makeTestKey(filename: string, dir?: string): string {
+  return dir ? `${dir}/${filename}` : filename
+}
+
 export function TestsTable({
   tests,
   runId,
@@ -91,7 +96,7 @@ export function TestsTable({
 }: TestsTableProps) {
   const executionOrder = useMemo(() => {
     if (!suiteTests) return new Map<string, number>()
-    return new Map(suiteTests.map((file, index) => [file.f, index + 1]))
+    return new Map(suiteTests.map((file, index) => [makeTestKey(file.f, file.d), index + 1]))
   }, [suiteTests])
 
   const handleSort = (column: TestSortColumn) => {
@@ -112,8 +117,8 @@ export function TestsTable({
     return filtered.sort(([a, entryA], [b, entryB]) => {
       let comparison = 0
       if (sortBy === 'order') {
-        const orderA = executionOrder.get(a) ?? Infinity
-        const orderB = executionOrder.get(b) ?? Infinity
+        const orderA = executionOrder.get(makeTestKey(a, entryA.dir)) ?? Infinity
+        const orderB = executionOrder.get(makeTestKey(b, entryB.dir)) ?? Infinity
         comparison = orderA - orderB
       } else if (sortBy === 'time') {
         comparison = entryA.aggregated.time_total - entryB.aggregated.time_total
@@ -223,7 +228,7 @@ export function TestsTable({
                     </svg>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm/6 font-medium text-gray-500 dark:text-gray-400">
-                    {executionOrder.get(testName) ?? '-'}
+                    {executionOrder.get(makeTestKey(testName, entry.dir)) ?? '-'}
                   </td>
                   <td className="max-w-md truncate px-4 py-3 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
                     <span title={testName}>{testName}</span>
