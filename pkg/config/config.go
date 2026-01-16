@@ -46,6 +46,9 @@ type DirectoriesConfig struct {
 	// TmpDataDir is the directory for temporary datadir copies.
 	// If empty, uses the system default temp directory.
 	TmpDataDir string `yaml:"tmp_datadir,omitempty"`
+	// TmpCacheDir is the directory for executor cache (git clones, etc).
+	// If empty, uses ~/.cache/benchmarkoor.
+	TmpCacheDir string `yaml:"tmp_cachedir,omitempty"`
 }
 
 // BenchmarkConfig contains benchmark-specific settings.

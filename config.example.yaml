@@ -7,6 +7,8 @@ global:
   # directories:
   #   # Directory for temporary datadir copies (defaults to system temp).
   #   tmp_datadir: /tmp/benchmarkoor
+  #   # Directory for executor cache - git clones, etc (defaults to ~/.cache/benchmarkoor).
+  #   tmp_cachedir: /tmp/benchmarkoor-cache
 
 benchmark:
   results_dir: ./results
