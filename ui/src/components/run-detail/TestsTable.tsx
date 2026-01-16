@@ -6,7 +6,7 @@ import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
 import { MethodBreakdown } from './MethodBreakdown'
 
-export type TestSortColumn = 'order' | 'name'
+export type TestSortColumn = 'order' | 'name' | 'time'
 export type TestSortDirection = 'asc' | 'desc'
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
@@ -109,12 +109,14 @@ export function TestsTable({
       filtered = filtered.filter(([name]) => name.toLowerCase().includes(query))
     }
 
-    return filtered.sort(([a], [b]) => {
+    return filtered.sort(([a, entryA], [b, entryB]) => {
       let comparison = 0
       if (sortBy === 'order') {
         const orderA = executionOrder.get(a) ?? Infinity
         const orderB = executionOrder.get(b) ?? Infinity
         comparison = orderA - orderB
+      } else if (sortBy === 'time') {
+        comparison = entryA.aggregated.time_total - entryB.aggregated.time_total
       } else {
         comparison = a.localeCompare(b)
       }
@@ -193,9 +195,7 @@ export function TestsTable({
                 className="w-12"
               />
               <SortableHeader label="Test" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-              <th className="w-28 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Total Time
-              </th>
+              <SortableHeader label="Total Time" column="time" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-28" />
               <th className="w-24 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Status
               </th>
