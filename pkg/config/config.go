@@ -92,9 +92,9 @@ const DefaultContainerDir = "/data"
 
 // DataDirConfig configures a pre-populated data directory for a client.
 type DataDirConfig struct {
-	SourceDir    string `yaml:"source_dir"`
-	ContainerDir string `yaml:"container_dir,omitempty"` // default: "/data"
-	Method       string `yaml:"method,omitempty"`        // default: "copy"
+	SourceDir    string `yaml:"source_dir" json:"source_dir"`
+	ContainerDir string `yaml:"container_dir,omitempty" json:"container_dir,omitempty"`
+	Method       string `yaml:"method,omitempty" json:"method,omitempty"`
 }
 
 // Validate checks the datadir configuration for errors.
