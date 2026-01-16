@@ -54,16 +54,20 @@ client:
   #   reth:       ethpandaops/reth:performance
 
   # Optional: Pre-populated data directories per client type.
-  # When configured, the source directory is copied and mounted into the container,
+  # When configured, the source directory is prepared and mounted into the container,
   # and the init container is skipped (data is already initialized).
   # datadirs:
   #   geth:
   #     source_dir: ./data/snapshots/geth
   #     container_dir: /data  # default, can be omitted
-  #     method: copy  # default, only option for now
+  #     # Method for preparing the data directory:
+  #     #   copy      - copies the source directory (default, works everywhere)
+  #     #   overlayfs - uses Linux overlayfs for near-instant setup (requires root)
+  #     method: copy
   #   reth:
   #     source_dir: ./data/snapshots/reth
   #     container_dir: /root/.local/share/reth
+  #     method: overlayfs  # near-instant, requires root and Linux
 
   instances:
     - id: geth-latest

@@ -281,3 +281,64 @@ func formatBytes(bytes int64) string {
 
 	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
+
+// CopyProvider implements Provider using file copying.
+type CopyProvider interface {
+	Provider
+}
+
+// NewCopyProvider creates a new copy-based provider.
+func NewCopyProvider(log logrus.FieldLogger) CopyProvider {
+	return &copyProvider{
+		copier: NewCopier(log),
+		log:    log.WithField("component", "datadir-copy-provider"),
+	}
+}
+
+type copyProvider struct {
+	copier Copier
+	log    logrus.FieldLogger
+}
+
+// Ensure interface compliance.
+var _ CopyProvider = (*copyProvider)(nil)
+
+// Prepare copies the source directory to a temp location.
+func (p *copyProvider) Prepare(ctx context.Context, cfg *ProviderConfig) (*PreparedDir, error) {
+	// Create temp directory for the copy.
+	copyDir, err := os.MkdirTemp(cfg.TmpDir, "benchmarkoor-datadir-"+cfg.InstanceID+"-")
+	if err != nil {
+		return nil, fmt.Errorf("creating temp datadir directory: %w", err)
+	}
+
+	p.log.WithFields(logrus.Fields{
+		"source": cfg.SourceDir,
+		"dest":   copyDir,
+	}).Info("Copying data directory")
+
+	// Copy with progress reporting.
+	if err := p.copier.Copy(ctx, cfg.SourceDir, copyDir); err != nil {
+		// Cleanup on failure.
+		if rmErr := os.RemoveAll(copyDir); rmErr != nil {
+			p.log.WithError(rmErr).Warn("Failed to cleanup copy directory")
+		}
+
+		return nil, fmt.Errorf("copying datadir: %w", err)
+	}
+
+	// Return prepared directory with cleanup function.
+	return &PreparedDir{
+		MountPath: copyDir,
+		Cleanup: func() error {
+			p.log.WithField("path", copyDir).Info("Removing copied data directory")
+
+			if err := os.RemoveAll(copyDir); err != nil {
+				p.log.WithError(err).Warn("Failed to remove copied datadir")
+
+				return fmt.Errorf("removing copied datadir: %w", err)
+			}
+
+			return nil
+		},
+	}, nil
+}

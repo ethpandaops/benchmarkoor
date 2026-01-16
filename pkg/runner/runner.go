@@ -125,7 +125,6 @@ func NewRunner(
 		docker:   dockerMgr,
 		registry: registry,
 		executor: exec,
-		copier:   datadir.NewCopier(log),
 		done:     make(chan struct{}),
 	}
 }
@@ -136,7 +135,6 @@ type runner struct {
 	docker   docker.Manager
 	registry client.Registry
 	executor executor.Executor
-	copier   datadir.Copier
 	done     chan struct{}
 	wg       sync.WaitGroup
 }
@@ -241,30 +239,36 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	var volumeName string
 
 	if useDataDir {
-		// Copy the source datadir to a temp location.
-		log.WithField("source", datadirCfg.SourceDir).Info("Using pre-populated data directory")
+		log.WithFields(logrus.Fields{
+			"source": datadirCfg.SourceDir,
+			"method": datadirCfg.Method,
+		}).Info("Using pre-populated data directory")
 
-		// Use configured temp directory or system default if empty.
-		copiedDataDir, err := os.MkdirTemp(r.cfg.TmpDataDir, "benchmarkoor-datadir-"+instance.ID+"-")
+		// Create provider based on configured method.
+		provider, err := datadir.NewProvider(log, datadirCfg.Method)
 		if err != nil {
-			return fmt.Errorf("creating temp datadir directory: %w", err)
+			return fmt.Errorf("creating datadir provider: %w", err)
+		}
+
+		prepared, err := provider.Prepare(ctx, &datadir.ProviderConfig{
+			SourceDir:  datadirCfg.SourceDir,
+			InstanceID: instance.ID,
+			TmpDir:     r.cfg.TmpDataDir,
+		})
+		if err != nil {
+			return fmt.Errorf("preparing datadir: %w", err)
 		}
 
 		cleanupFuncs = append(cleanupFuncs, func() {
-			if rmErr := os.RemoveAll(copiedDataDir); rmErr != nil {
-				log.WithError(rmErr).Warn("Failed to remove copied datadir")
+			if cleanupErr := prepared.Cleanup(); cleanupErr != nil {
+				log.WithError(cleanupErr).Warn("Failed to cleanup datadir")
 			}
 		})
 
-		// Copy with progress reporting.
-		if err := r.copier.Copy(ctx, datadirCfg.SourceDir, copiedDataDir); err != nil {
-			return fmt.Errorf("copying datadir: %w", err)
-		}
-
-		// Use bind mount for the copied data.
+		// Use bind mount for the prepared data.
 		dataMount = docker.Mount{
 			Type:   "bind",
-			Source: copiedDataDir,
+			Source: prepared.MountPath,
 			Target: datadirCfg.ContainerDir,
 		}
 	} else {
