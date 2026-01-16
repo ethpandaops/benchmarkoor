@@ -31,6 +31,32 @@ function formatDurationMinSec(nanoseconds: number): string {
   return `${minutes}m ${remainingSeconds}s`
 }
 
+function formatDurationCompact(nanoseconds: number): string {
+  const seconds = nanoseconds / 1_000_000_000
+  if (seconds < 60) return `${seconds.toFixed(0)}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = Math.floor(seconds % 60)
+  return `${minutes}m${remainingSeconds}s`
+}
+
+function calculatePercentile(sortedValues: number[], percentile: number): number {
+  if (sortedValues.length === 0) return 0
+  const index = (percentile / 100) * (sortedValues.length - 1)
+  const lower = Math.floor(index)
+  const upper = Math.ceil(index)
+  if (lower === upper) return sortedValues[lower]
+  return sortedValues[lower] + (sortedValues[upper] - sortedValues[lower]) * (index - lower)
+}
+
+interface ClientStats {
+  min: number
+  max: number
+  mean: number
+  p95: number
+  p99: number
+  last: number
+}
+
 export type ColorNormalization = 'suite' | 'client'
 
 interface RunsHeatmapProps {
@@ -50,7 +76,7 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
   const navigate = useNavigate()
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
 
-  const { clientRuns, minDuration, maxDuration, clientMinMax, clients } = useMemo(() => {
+  const { clientRuns, minDuration, maxDuration, clientMinMax, clientStats, clients } = useMemo(() => {
     // Group runs by client
     const grouped: Record<string, IndexEntry[]> = {}
     for (const run of runs) {
@@ -59,21 +85,32 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
       grouped[client].push(run)
     }
 
-    // Sort each client's runs by timestamp (oldest first) and take last 20
+    // Sort each client's runs by timestamp (oldest first) and take last N
     const clientRuns: Record<string, IndexEntry[]> = {}
     const clientMinMax: Record<string, { min: number; max: number }> = {}
+    const clientStats: Record<string, ClientStats> = {}
     for (const [client, clientRunsAll] of Object.entries(grouped)) {
       const sorted = [...clientRunsAll].sort((a, b) => a.timestamp - b.timestamp)
       clientRuns[client] = sorted.slice(-MAX_RUNS_PER_CLIENT)
 
-      // Calculate per-client min/max
-      let min = Infinity
-      let max = -Infinity
-      for (const run of clientRuns[client]) {
-        min = Math.min(min, run.tests.duration)
-        max = Math.max(max, run.tests.duration)
+      // Calculate stats from displayed runs
+      const durations = clientRuns[client].map((r) => r.tests.duration)
+      const sortedDurations = [...durations].sort((a, b) => a - b)
+      const sum = durations.reduce((acc, d) => acc + d, 0)
+
+      clientMinMax[client] = {
+        min: sortedDurations[0],
+        max: sortedDurations[sortedDurations.length - 1],
       }
-      clientMinMax[client] = { min, max }
+
+      clientStats[client] = {
+        min: sortedDurations[0],
+        max: sortedDurations[sortedDurations.length - 1],
+        mean: sum / durations.length,
+        p95: calculatePercentile(sortedDurations, 95),
+        p99: calculatePercentile(sortedDurations, 99),
+        last: durations[durations.length - 1],
+      }
     }
 
     // Calculate min/max duration across all runs
@@ -87,7 +124,7 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
     // Sort clients alphabetically
     const clients = Object.keys(clientRuns).sort()
 
-    return { clientRuns, minDuration, maxDuration, clientMinMax, clients }
+    return { clientRuns, minDuration, maxDuration, clientMinMax, clientStats, clients }
   }, [runs])
 
   const getColorForRun = (run: IndexEntry) => {
@@ -124,9 +161,8 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
 
   return (
     <div className="relative">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Recent Runs by Client</h3>
-        {onColorNormalizationChange && (
+      {onColorNormalizationChange && (
+        <div className="mb-3 flex items-center justify-end">
           <div className="flex items-center gap-2">
             <span className="text-xs/5 text-gray-500 dark:text-gray-400">Colors:</span>
             <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
@@ -154,32 +190,56 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
               </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
       <div className="flex flex-col gap-2">
-        {clients.map((client) => (
-          <div key={client} className="flex items-center gap-3">
-            <div className="w-28 shrink-0">
-              <ClientBadge client={client} />
-            </div>
-            <div className="flex gap-1">
-              {clientRuns[client].map((run) => (
-                <button
-                  key={run.run_id}
-                  onClick={() => handleRunClick(run.run_id)}
-                  onMouseEnter={(e) => handleMouseEnter(run, e)}
-                  onMouseLeave={handleMouseLeave}
-                  className={clsx(
-                    'size-5 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                    run.tests.fail > 0 && 'ring-1 ring-red-500',
-                  )}
-                  style={{ backgroundColor: getColorForRun(run) }}
-                  title={`${formatTimestamp(run.timestamp)} - ${formatDurationMinSec(run.tests.duration)}`}
-                />
-              ))}
-            </div>
+        {/* Stats header */}
+        <div className="flex items-center gap-3">
+          <div className="w-28 shrink-0" />
+          <div className="flex-1" />
+          <div className="flex shrink-0 gap-3 border-l border-transparent pl-3 font-mono text-xs/5 font-medium text-gray-400 dark:text-gray-500">
+            <span className="w-10 text-center">Min</span>
+            <span className="w-10 text-center">Max</span>
+            <span className="w-10 text-center">P95</span>
+            <span className="w-10 text-center">P99</span>
+            <span className="w-10 text-center">Mean</span>
+            <span className="w-10 text-center">Last</span>
           </div>
-        ))}
+        </div>
+        {clients.map((client) => {
+          const stats = clientStats[client]
+          return (
+            <div key={client} className="flex items-center gap-3">
+              <div className="w-28 shrink-0">
+                <ClientBadge client={client} />
+              </div>
+              <div className="flex flex-1 gap-1">
+                {clientRuns[client].map((run) => (
+                  <button
+                    key={run.run_id}
+                    onClick={() => handleRunClick(run.run_id)}
+                    onMouseEnter={(e) => handleMouseEnter(run, e)}
+                    onMouseLeave={handleMouseLeave}
+                    className={clsx(
+                      'size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
+                      run.tests.fail > 0 && 'ring-1 ring-red-500',
+                    )}
+                    style={{ backgroundColor: getColorForRun(run) }}
+                    title={`${formatTimestamp(run.timestamp)} - ${formatDurationMinSec(run.tests.duration)}`}
+                  />
+                ))}
+              </div>
+              <div className="flex shrink-0 gap-3 border-l border-gray-200 pl-3 font-mono text-xs/5 text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                <span className="w-10 text-center">{formatDurationCompact(stats.min)}</span>
+                <span className="w-10 text-center">{formatDurationCompact(stats.max)}</span>
+                <span className="w-10 text-center">{formatDurationCompact(stats.p95)}</span>
+                <span className="w-10 text-center">{formatDurationCompact(stats.p99)}</span>
+                <span className="w-10 text-center">{formatDurationCompact(stats.mean)}</span>
+                <span className="w-10 text-center">{formatDurationCompact(stats.last)}</span>
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {/* Legend */}
