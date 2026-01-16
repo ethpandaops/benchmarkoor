@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useIndex } from '@/api/hooks/useIndex'
 import { DurationChart, type XAxisMode } from '@/components/suite-detail/DurationChart'
+import { MGasChart } from '@/components/suite-detail/MGasChart'
 import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/RunsHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList } from '@/components/suite-detail/TestFilesList'
@@ -33,15 +34,17 @@ export function SuiteDetailPage() {
     filesPage?: number
     q?: string
     chartMode?: XAxisMode
+    mgasChartMode?: XAxisMode
     heatmapColor?: ColorNormalization
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount', heatmapColor = 'suite' } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount', mgasChartMode = 'runCount', heatmapColor = 'suite' } = search
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [heatmapExpanded, setHeatmapExpanded] = useState(true)
   const [chartExpanded, setChartExpanded] = useState(true)
+  const [mgasChartExpanded, setMgasChartExpanded] = useState(true)
   const [isDark, setIsDark] = useState(() => {
     if (typeof window === 'undefined') return false
     return document.documentElement.classList.contains('dark')
@@ -188,7 +191,15 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, heatmapColor },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, mgasChartMode, heatmapColor },
+    })
+  }
+
+  const handleMgasChartModeChange = (mode: XAxisMode) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode: mode, heatmapColor },
     })
   }
 
@@ -298,32 +309,61 @@ export function SuiteDetailPage() {
                     </div>
                   )}
                 </div>
-                <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                  <button
-                    onClick={() => setChartExpanded(!chartExpanded)}
-                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-                  >
-                    <svg
-                      className={clsx('size-4 text-gray-500 transition-transform', chartExpanded && 'rotate-90')}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                    <button
+                      onClick={() => setChartExpanded(!chartExpanded)}
+                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
                     >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                    Duration Chart
-                  </button>
-                  {chartExpanded && (
-                    <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                      <DurationChart
-                        runs={suiteRunsAll}
-                        isDark={isDark}
-                        xAxisMode={chartMode}
-                        onXAxisModeChange={handleChartModeChange}
-                        onRunClick={handleRunClick}
-                      />
-                    </div>
-                  )}
+                      <svg
+                        className={clsx('size-4 text-gray-500 transition-transform', chartExpanded && 'rotate-90')}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      Duration Chart
+                    </button>
+                    {chartExpanded && (
+                      <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                        <DurationChart
+                          runs={suiteRunsAll}
+                          isDark={isDark}
+                          xAxisMode={chartMode}
+                          onXAxisModeChange={handleChartModeChange}
+                          onRunClick={handleRunClick}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                    <button
+                      onClick={() => setMgasChartExpanded(!mgasChartExpanded)}
+                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
+                    >
+                      <svg
+                        className={clsx('size-4 text-gray-500 transition-transform', mgasChartExpanded && 'rotate-90')}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      MGas/s Chart
+                    </button>
+                    {mgasChartExpanded && (
+                      <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                        <MGasChart
+                          runs={suiteRunsAll}
+                          isDark={isDark}
+                          xAxisMode={mgasChartMode}
+                          onXAxisModeChange={handleMgasChartModeChange}
+                          onRunClick={handleRunClick}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <RunFilters
                   clients={clients}
