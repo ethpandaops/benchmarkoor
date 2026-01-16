@@ -31,12 +31,9 @@ function formatDurationMinSec(nanoseconds: number): string {
   return `${minutes}m ${remainingSeconds}s`
 }
 
-function formatDurationCompact(nanoseconds: number): string {
-  const seconds = nanoseconds / 1_000_000_000
-  if (seconds < 60) return `${seconds.toFixed(0)}s`
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = Math.floor(seconds % 60)
-  return `${minutes}m${remainingSeconds}s`
+function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number | undefined {
+  if (gasUsedDuration <= 0 || gasUsed <= 0) return undefined
+  return (gasUsed * 1000) / gasUsedDuration
 }
 
 function calculatePercentile(sortedValues: number[], percentile: number): number {
@@ -49,12 +46,12 @@ function calculatePercentile(sortedValues: number[], percentile: number): number
 }
 
 interface ClientStats {
-  min: number
-  max: number
-  mean: number
-  p95: number
-  p99: number
-  last: number
+  min?: number
+  max?: number
+  mean?: number
+  p95?: number
+  p99?: number
+  last?: number
 }
 
 export type ColorNormalization = 'suite' | 'client'
@@ -93,23 +90,33 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
       const sorted = [...clientRunsAll].sort((a, b) => a.timestamp - b.timestamp)
       clientRuns[client] = sorted.slice(-MAX_RUNS_PER_CLIENT)
 
-      // Calculate stats from displayed runs
+      // Calculate duration stats for color normalization
       const durations = clientRuns[client].map((r) => r.tests.duration)
       const sortedDurations = [...durations].sort((a, b) => a - b)
-      const sum = durations.reduce((acc, d) => acc + d, 0)
 
       clientMinMax[client] = {
         min: sortedDurations[0],
         max: sortedDurations[sortedDurations.length - 1],
       }
 
-      clientStats[client] = {
-        min: sortedDurations[0],
-        max: sortedDurations[sortedDurations.length - 1],
-        mean: sum / durations.length,
-        p95: calculatePercentile(sortedDurations, 95),
-        p99: calculatePercentile(sortedDurations, 99),
-        last: durations[durations.length - 1],
+      // Calculate MGas/s stats from displayed runs
+      const mgasValues = clientRuns[client]
+        .map((r) => calculateMGasPerSec(r.tests.gas_used, r.tests.gas_used_duration))
+        .filter((v): v is number => v !== undefined)
+
+      if (mgasValues.length > 0) {
+        const sortedMgas = [...mgasValues].sort((a, b) => a - b)
+        const sum = mgasValues.reduce((acc, v) => acc + v, 0)
+        clientStats[client] = {
+          min: sortedMgas[0],
+          max: sortedMgas[sortedMgas.length - 1],
+          mean: sum / mgasValues.length,
+          p95: calculatePercentile(sortedMgas, 95),
+          p99: calculatePercentile(sortedMgas, 99),
+          last: mgasValues[mgasValues.length - 1],
+        }
+      } else {
+        clientStats[client] = {}
       }
     }
 
@@ -193,11 +200,12 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
         </div>
       )}
       <div className="flex flex-col gap-2">
-        {/* Stats header */}
+        {/* Stats header - MGas/s */}
         <div className="flex items-center gap-3">
           <div className="w-28 shrink-0" />
           <div className="flex-1" />
           <div className="flex shrink-0 gap-3 border-l border-transparent pl-3 font-mono text-xs/5 font-medium text-gray-400 dark:text-gray-500">
+            <span className="w-12 text-center text-[10px]">MGas/s</span>
             <span className="w-10 text-center">Min</span>
             <span className="w-10 text-center">Max</span>
             <span className="w-10 text-center">P95</span>
@@ -208,6 +216,7 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
         </div>
         {clients.map((client) => {
           const stats = clientStats[client]
+          const formatMgas = (v?: number) => (v !== undefined ? v.toFixed(1) : '-')
           return (
             <div key={client} className="flex items-center gap-3">
               <div className="w-28 shrink-0">
@@ -230,12 +239,13 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
                 ))}
               </div>
               <div className="flex shrink-0 gap-3 border-l border-gray-200 pl-3 font-mono text-xs/5 text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <span className="w-10 text-center">{formatDurationCompact(stats.min)}</span>
-                <span className="w-10 text-center">{formatDurationCompact(stats.max)}</span>
-                <span className="w-10 text-center">{formatDurationCompact(stats.p95)}</span>
-                <span className="w-10 text-center">{formatDurationCompact(stats.p99)}</span>
-                <span className="w-10 text-center">{formatDurationCompact(stats.mean)}</span>
-                <span className="w-10 text-center">{formatDurationCompact(stats.last)}</span>
+                <span className="w-12 text-center" />
+                <span className="w-10 text-center">{formatMgas(stats.min)}</span>
+                <span className="w-10 text-center">{formatMgas(stats.max)}</span>
+                <span className="w-10 text-center">{formatMgas(stats.p95)}</span>
+                <span className="w-10 text-center">{formatMgas(stats.p99)}</span>
+                <span className="w-10 text-center">{formatMgas(stats.mean)}</span>
+                <span className="w-10 text-center">{formatMgas(stats.last)}</span>
               </div>
             </div>
           )
@@ -277,6 +287,10 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
             <div className="font-medium">{tooltip.run.instance.client}</div>
             <div>{formatTimestamp(tooltip.run.timestamp)}</div>
             <div>Duration: {formatDurationMinSec(tooltip.run.tests.duration)}</div>
+            {(() => {
+              const mgas = calculateMGasPerSec(tooltip.run.tests.gas_used, tooltip.run.tests.gas_used_duration)
+              return mgas !== undefined ? <div>MGas/s: {mgas.toFixed(2)}</div> : null
+            })()}
             <div className="truncate text-gray-500 dark:text-gray-400" style={{ maxWidth: '200px' }}>
               {tooltip.run.instance.image}
             </div>
