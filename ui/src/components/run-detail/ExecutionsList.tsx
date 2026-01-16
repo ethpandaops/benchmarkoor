@@ -1,7 +1,23 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import clsx from 'clsx'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useTestRequests, useTestResponses, useTestTimes } from '@/api/hooks/useTestDetails'
 import { Duration } from '@/components/shared/Duration'
+
+function useDarkMode() {
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'))
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+
+  return isDark
+}
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -19,6 +35,27 @@ function CopyButton({ text }: { text: string }) {
     >
       {copied ? 'Copied!' : 'Copy'}
     </button>
+  )
+}
+
+function JsonBlock({ code }: { code: string }) {
+  const isDark = useDarkMode()
+
+  return (
+    <SyntaxHighlighter
+      language="json"
+      style={isDark ? oneDark : oneLight}
+      customStyle={{
+        margin: 0,
+        padding: '0.75rem',
+        fontSize: '0.75rem',
+        lineHeight: '1.25rem',
+        background: 'transparent',
+      }}
+      wrapLongLines={false}
+    >
+      {code}
+    </SyntaxHighlighter>
   )
 }
 
@@ -94,9 +131,7 @@ function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
                 <CopyButton text={formatJson(request)} />
               </div>
               <div className="w-0 min-w-full overflow-x-auto rounded-xs bg-gray-100 dark:bg-gray-800">
-                <pre className="w-fit p-3 font-mono text-xs/5 text-gray-800 dark:text-gray-200">
-                  {formatJson(request)}
-                </pre>
+                <JsonBlock code={formatJson(request)} />
               </div>
             </div>
             {response && (
@@ -108,9 +143,7 @@ function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
                   <CopyButton text={formatJson(response)} />
                 </div>
                 <div className="w-0 min-w-full overflow-x-auto rounded-xs bg-gray-100 dark:bg-gray-800">
-                  <pre className="w-fit p-3 font-mono text-xs/5 text-gray-800 dark:text-gray-200">
-                    {formatJson(response)}
-                  </pre>
+                  <JsonBlock code={formatJson(response)} />
                 </div>
               </div>
             )}
