@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
 	"github.com/sirupsen/logrus"
 )
 
@@ -54,8 +55,9 @@ type Config struct {
 // NewExecutor creates a new executor instance.
 func NewExecutor(log logrus.FieldLogger, cfg *Config) Executor {
 	return &executor{
-		log: log.WithField("component", "executor"),
-		cfg: cfg,
+		log:       log.WithField("component", "executor"),
+		cfg:       cfg,
+		validator: jsonrpc.DefaultValidator(),
 	}
 }
 
@@ -66,6 +68,7 @@ type executor struct {
 	testsPath  string
 	warmupPath string
 	suiteHash  string
+	validator  jsonrpc.Validator
 }
 
 // Ensure interface compliance.
@@ -325,6 +328,27 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 				"method": method,
 				"test":   test.Name,
 			}).WithError(err).Warn("RPC call failed")
+		}
+
+		// Validate response AFTER timing, BEFORE storing result.
+		if succeeded && e.validator != nil && response != "" {
+			if resp, parseErr := jsonrpc.Parse(response); parseErr != nil {
+				e.log.WithFields(logrus.Fields{
+					"line":   lineNum,
+					"method": method,
+					"test":   test.Name,
+				}).WithError(parseErr).Warn("Failed to parse JSON-RPC response")
+
+				succeeded = false
+			} else if validationErr := e.validator.Validate(method, resp); validationErr != nil {
+				e.log.WithFields(logrus.Fields{
+					"line":   lineNum,
+					"method": method,
+					"test":   test.Name,
+				}).WithError(validationErr).Warn("Response validation failed")
+
+				succeeded = false
+			}
 		}
 
 		if result != nil {
