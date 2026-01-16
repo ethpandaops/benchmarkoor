@@ -48,10 +48,10 @@ func (v *NewPayloadValidator) Validate(method string, resp *Response) error {
 	return nil
 }
 
-// ForkchoiceUpdatedValidator fails if engine_forkchoiceUpdated* responses don't have SUCCESS status.
+// ForkchoiceUpdatedValidator fails if engine_forkchoiceUpdated* responses don't have VALID status.
 type ForkchoiceUpdatedValidator struct{}
 
-// Validate checks if engine_forkchoiceUpdated responses have SUCCESS status.
+// Validate checks if engine_forkchoiceUpdated responses have VALID status.
 func (v *ForkchoiceUpdatedValidator) Validate(method string, resp *Response) error {
 	if !strings.HasPrefix(method, "engine_forkchoiceUpdated") {
 		return nil
@@ -62,8 +62,8 @@ func (v *ForkchoiceUpdatedValidator) Validate(method string, resp *Response) err
 		return fmt.Errorf("parsing forkchoiceUpdated result: %w", err)
 	}
 
-	if result.PayloadStatus.Status != "SUCCESS" {
-		errMsg := fmt.Sprintf("forkchoiceUpdated status is %s, expected SUCCESS",
+	if result.PayloadStatus.Status != "VALID" {
+		errMsg := fmt.Sprintf("forkchoiceUpdated status is %s, expected VALID",
 			result.PayloadStatus.Status)
 		if result.PayloadStatus.ValidationError != "" {
 			errMsg = fmt.Sprintf("%s: %s", errMsg, result.PayloadStatus.ValidationError)

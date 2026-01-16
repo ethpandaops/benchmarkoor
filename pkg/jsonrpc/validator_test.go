@@ -123,17 +123,10 @@ func TestForkchoiceUpdatedValidator_Validate(t *testing.T) {
 		errMsg   string
 	}{
 		{
-			name:     "success status",
+			name:     "valid status",
 			method:   "engine_forkchoiceUpdatedV3",
-			response: `{"jsonrpc":"2.0","id":1,"result":{"payloadStatus":{"status":"SUCCESS","latestValidHash":"0x123"}}}`,
+			response: `{"jsonrpc":"2.0","id":1,"result":{"payloadStatus":{"status":"VALID","latestValidHash":"0x123"}}}`,
 			wantErr:  false,
-		},
-		{
-			name:     "valid status fails",
-			method:   "engine_forkchoiceUpdatedV3",
-			response: `{"jsonrpc":"2.0","id":1,"result":{"payloadStatus":{"status":"VALID"}}}`,
-			wantErr:  true,
-			errMsg:   "VALID",
 		},
 		{
 			name:     "syncing status",
@@ -164,7 +157,7 @@ func TestForkchoiceUpdatedValidator_Validate(t *testing.T) {
 		{
 			name:     "with payloadId",
 			method:   "engine_forkchoiceUpdatedV3",
-			response: `{"jsonrpc":"2.0","id":1,"result":{"payloadStatus":{"status":"SUCCESS"},"payloadId":"0xabc"}}`,
+			response: `{"jsonrpc":"2.0","id":1,"result":{"payloadStatus":{"status":"VALID"},"payloadId":"0xabc"}}`,
 			wantErr:  false,
 		},
 	}
