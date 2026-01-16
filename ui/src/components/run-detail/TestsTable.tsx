@@ -133,17 +133,11 @@ export function TestsTable({
     if (onSearchChange) {
       onSearchChange(value)
     }
-    if (onPageChange) {
-      onPageChange(1)
-    }
   }
 
   const handlePageSizeChange = (newSize: number) => {
     if (onPageSizeChange) {
       onPageSizeChange(newSize)
-    }
-    if (onPageChange) {
-      onPageChange(1)
     }
   }
 

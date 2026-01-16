@@ -24,7 +24,9 @@ export function RunDetailPage() {
     q?: string
     expanded?: string
   }
-  const { page = 1, pageSize = 20, sortBy = 'order', sortDir = 'asc', q = '', expanded } = search
+  const page = Number(search.page) || 1
+  const pageSize = Number(search.pageSize) || 20
+  const { sortBy = 'order', sortDir = 'asc', q = '', expanded } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
