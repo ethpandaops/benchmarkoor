@@ -46,8 +46,8 @@ export function useTestResponses(runId: string, testName: string, dir?: string) 
 
 export function useTestAggregated(runId: string, testName: string, dir?: string) {
   const path = dir
-    ? `runs/${runId}/${dir}/${testName}.times_aggregated.json`
-    : `runs/${runId}/${testName}.times_aggregated.json`
+    ? `runs/${runId}/${dir}/${testName}.result-aggregated.json`
+    : `runs/${runId}/${testName}.result-aggregated.json`
 
   return useQuery({
     queryKey: ['run', runId, 'test', testName, 'aggregated'],

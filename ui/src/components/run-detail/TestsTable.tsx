@@ -260,7 +260,7 @@ export function TestsTable({
                     <tr key={`${testKey}-expanded`}>
                       <td colSpan={5} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
                         <div className="overflow-x-auto">
-                          <MethodBreakdown methods={entry.aggregated.methods} runId={runId} suiteHash={suiteHash} testName={filename} dir={entry.dir} />
+                          <MethodBreakdown methods={entry.aggregated.methods.times} runId={runId} suiteHash={suiteHash} testName={filename} dir={entry.dir} />
                         </div>
                       </td>
                     </tr>

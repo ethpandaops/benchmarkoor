@@ -80,10 +80,26 @@ export interface AggregatedStats {
   success: number
   fail: number
   msg_count: number
-  methods: Record<string, MethodStats>
+  methods: MethodsAggregated
+}
+
+export interface MethodsAggregated {
+  times: Record<string, MethodStats>
+  mgas_s: Record<string, MethodStatsFloat>
 }
 
 export interface MethodStats {
+  count: number
+  last: number
+  min?: number
+  max?: number
+  mean?: number
+  p50?: number
+  p95?: number
+  p99?: number
+}
+
+export interface MethodStatsFloat {
   count: number
   last: number
   min?: number
