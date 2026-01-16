@@ -77,6 +77,8 @@ export interface TestEntry {
 
 export interface AggregatedStats {
   time_total: number
+  gas_used_total: number
+  gas_used_time_total: number
   success: number
   fail: number
   msg_count: number
@@ -115,6 +117,7 @@ export interface ResultDetails {
   duration_ns: number[]
   status: number[] // 0=success, 1=fail
   mgas_s: Record<string, number> // map of index -> MGas/s value
+  gas_used: Record<string, number> // map of index -> gas used value
 }
 
 // summary.json per suite

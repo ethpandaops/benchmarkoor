@@ -112,11 +112,13 @@ type MethodsAggregated struct {
 
 // AggregatedStats contains the full aggregated output.
 type AggregatedStats struct {
-	TotalTime   int64              `json:"time_total"`
-	Succeeded   int                `json:"success"`
-	Failed      int                `json:"fail"`
-	TotalMsgs   int                `json:"msg_count"`
-	MethodStats *MethodsAggregated `json:"method_stats"`
+	TotalTime        int64              `json:"time_total"`
+	GasUsedTotal     uint64             `json:"gas_used_total"`
+	GasUsedTimeTotal int64              `json:"gas_used_time_total"`
+	Succeeded        int                `json:"success"`
+	Failed           int                `json:"fail"`
+	TotalMsgs        int                `json:"msg_count"`
+	MethodStats      *MethodsAggregated `json:"method_stats"`
 }
 
 // TestEntry contains the result entry for a single test in the run result.
@@ -137,6 +139,7 @@ type TestResult struct {
 	Times            []int64
 	Statuses         []int // 0=success, 1=fail
 	MGasPerSec       map[int]float64
+	GasUsed          map[int]uint64
 	MethodTimes      map[string][]int64
 	MethodMGasPerSec map[string][]float64
 	Succeeded        int
@@ -148,6 +151,7 @@ type ResultDetails struct {
 	DurationNS []int64         `json:"duration_ns"`
 	Status     []int           `json:"status"`
 	MGasPerSec map[int]float64 `json:"mgas_s"`
+	GasUsed    map[int]uint64  `json:"gas_used"`
 }
 
 // NewTestResult creates a new TestResult.
@@ -158,6 +162,7 @@ func NewTestResult(testFile string) *TestResult {
 		Times:            make([]int64, 0),
 		Statuses:         make([]int, 0),
 		MGasPerSec:       make(map[int]float64),
+		GasUsed:          make(map[int]uint64),
 		MethodTimes:      make(map[string][]int64),
 		MethodMGasPerSec: make(map[string][]float64),
 	}
@@ -182,6 +187,7 @@ func (r *TestResult) AddResult(method, request, response string, elapsed int64, 
 	// Calculate MGas/s for successful engine_newPayload calls.
 	if succeeded && strings.HasPrefix(method, "engine_newPayload") {
 		if gasUsed, err := extractGasUsed(request); err == nil && elapsed > 0 {
+			r.GasUsed[pos] = gasUsed
 			mgasPerSec := float64(gasUsed) * 1000 / float64(elapsed)
 			r.MGasPerSec[pos] = mgasPerSec
 			r.MethodMGasPerSec[method] = append(r.MethodMGasPerSec[method], mgasPerSec)
@@ -233,6 +239,14 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 
 	for _, t := range r.Times {
 		stats.TotalTime += t
+	}
+
+	for idx, g := range r.GasUsed {
+		if g == 0 {
+			continue
+		}
+		stats.GasUsedTotal += g
+		stats.GasUsedTimeTotal += r.Times[idx]
 	}
 
 	for method, times := range r.MethodTimes {
@@ -362,6 +376,7 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 		DurationNS: result.Times,
 		Status:     result.Statuses,
 		MGasPerSec: result.MGasPerSec,
+		GasUsed:    result.GasUsed,
 	}
 
 	detailsJSON, err := json.MarshalIndent(details, "", "  ")
