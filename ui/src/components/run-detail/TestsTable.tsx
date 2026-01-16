@@ -199,9 +199,6 @@ export function TestsTable({
               <th className="w-28 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Total Time
               </th>
-              <th className="w-20 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Methods
-              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -240,13 +237,10 @@ export function TestsTable({
                   <td className="whitespace-nowrap px-4 py-3 text-sm/6 text-gray-500 dark:text-gray-400">
                     <Duration nanoseconds={entry.aggregated.time_total} />
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm/6 text-gray-500 dark:text-gray-400">
-                    {Object.keys(entry.aggregated.methods).length}
-                  </td>
                 </tr>
                 {expandedTest === testName && (
                   <tr key={`${testName}-expanded`}>
-                    <td colSpan={6} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
+                    <td colSpan={5} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
                       <div className="overflow-x-auto">
                         <MethodBreakdown methods={entry.aggregated.methods} runId={runId} suiteHash={suiteHash} testName={testName} dir={entry.dir} />
                       </div>
