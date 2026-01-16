@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -82,6 +83,7 @@ type TestResult struct {
 	Responses   []string
 	Times       []int64
 	Statuses    []int // 0=success, 1=fail
+	MGasPerSec  map[int]float64
 	MethodTimes map[string][]int64
 	Succeeded   int
 	Failed      int
@@ -89,8 +91,9 @@ type TestResult struct {
 
 // ResultDetails contains per-call timing and status for JSON output.
 type ResultDetails struct {
-	DurationNS []int64 `json:"duration_ns"`
-	Status     []int   `json:"status"`
+	DurationNS []int64         `json:"duration_ns"`
+	Status     []int           `json:"status"`
+	MGasPerSec map[int]float64 `json:"mgas_s"`
 }
 
 // NewTestResult creates a new TestResult.
@@ -100,12 +103,16 @@ func NewTestResult(testFile string) *TestResult {
 		Responses:   make([]string, 0),
 		Times:       make([]int64, 0),
 		Statuses:    make([]int, 0),
+		MGasPerSec:  make(map[int]float64),
 		MethodTimes: make(map[string][]int64),
 	}
 }
 
 // AddResult adds a single RPC call result.
-func (r *TestResult) AddResult(method, response string, elapsed int64, succeeded bool) {
+func (r *TestResult) AddResult(method, request, response string, elapsed int64, succeeded bool) {
+	// Get position before appending.
+	pos := len(r.Times)
+
 	r.Responses = append(r.Responses, response)
 	r.Times = append(r.Times, elapsed)
 	r.MethodTimes[method] = append(r.MethodTimes[method], elapsed)
@@ -117,11 +124,42 @@ func (r *TestResult) AddResult(method, response string, elapsed int64, succeeded
 
 	r.Statuses = append(r.Statuses, status)
 
+	// Calculate MGas/s for successful engine_newPayload calls.
+	if succeeded && strings.HasPrefix(method, "engine_newPayload") {
+		if gasUsed, err := extractGasUsed(request); err == nil && elapsed > 0 {
+			r.MGasPerSec[pos] = float64(gasUsed) * 1000 / float64(elapsed)
+		}
+	}
+
 	if succeeded {
 		r.Succeeded++
 	} else {
 		r.Failed++
 	}
+}
+
+// extractGasUsed extracts gasUsed from an engine_newPayload request.
+func extractGasUsed(request string) (uint64, error) {
+	var req struct {
+		Params []json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(request), &req); err != nil {
+		return 0, err
+	}
+
+	if len(req.Params) == 0 {
+		return 0, fmt.Errorf("no params")
+	}
+
+	var payload struct {
+		GasUsed string `json:"gasUsed"`
+	}
+	if err := json.Unmarshal(req.Params[0], &payload); err != nil {
+		return 0, err
+	}
+
+	// Parse hex string (0x prefixed).
+	return strconv.ParseUint(strings.TrimPrefix(payload.GasUsed, "0x"), 16, 64)
 }
 
 // CalculateStats computes aggregated statistics from the test result.
@@ -212,6 +250,7 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 	details := ResultDetails{
 		DurationNS: result.Times,
 		Status:     result.Statuses,
+		MGasPerSec: result.MGasPerSec,
 	}
 
 	detailsJSON, err := json.MarshalIndent(details, "", "  ")
