@@ -127,29 +127,32 @@ export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColo
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Recent Runs by Client</h3>
         {onColorNormalizationChange && (
-          <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
-            <button
-              onClick={() => onColorNormalizationChange('suite')}
-              className={clsx(
-                'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                colorNormalization === 'suite'
-                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-              )}
-            >
-              Suite
-            </button>
-            <button
-              onClick={() => onColorNormalizationChange('client')}
-              className={clsx(
-                'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                colorNormalization === 'client'
-                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-              )}
-            >
-              Per Client
-            </button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Colors:</span>
+            <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
+              <button
+                onClick={() => onColorNormalizationChange('suite')}
+                className={clsx(
+                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                  colorNormalization === 'suite'
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                )}
+              >
+                Suite
+              </button>
+              <button
+                onClick={() => onColorNormalizationChange('client')}
+                className={clsx(
+                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                  colorNormalization === 'client'
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                )}
+              >
+                Per Client
+              </button>
+            </div>
           </div>
         )}
       </div>
