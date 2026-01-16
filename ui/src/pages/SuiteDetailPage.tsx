@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useIndex } from '@/api/hooks/useIndex'
 import { DurationChart, type XAxisMode } from '@/components/suite-detail/DurationChart'
-import { RunsHeatmap } from '@/components/suite-detail/RunsHeatmap'
+import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/RunsHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList } from '@/components/suite-detail/TestFilesList'
 import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
@@ -33,8 +33,9 @@ export function SuiteDetailPage() {
     filesPage?: number
     q?: string
     chartMode?: XAxisMode
+    heatmapColor?: ColorNormalization
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount' } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount', heatmapColor = 'suite' } = search
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
@@ -186,7 +187,15 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, heatmapColor },
+    })
+  }
+
+  const handleHeatmapColorChange = (mode: ColorNormalization) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, heatmapColor: mode },
     })
   }
 
@@ -268,7 +277,7 @@ export function SuiteDetailPage() {
             ) : (
               <div className="flex flex-col gap-4">
                 <div className="overflow-hidden rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-                  <RunsHeatmap runs={suiteRunsAll} isDark={isDark} />
+                  <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} />
                 </div>
                 <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
                   <button

@@ -31,9 +31,13 @@ function formatDurationMinSec(nanoseconds: number): string {
   return `${minutes}m ${remainingSeconds}s`
 }
 
+export type ColorNormalization = 'suite' | 'client'
+
 interface RunsHeatmapProps {
   runs: IndexEntry[]
   isDark: boolean
+  colorNormalization?: ColorNormalization
+  onColorNormalizationChange?: (mode: ColorNormalization) => void
 }
 
 interface TooltipData {
@@ -42,11 +46,11 @@ interface TooltipData {
   y: number
 }
 
-export function RunsHeatmap({ runs, isDark }: RunsHeatmapProps) {
+export function RunsHeatmap({ runs, isDark, colorNormalization = 'suite', onColorNormalizationChange }: RunsHeatmapProps) {
   const navigate = useNavigate()
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
 
-  const { clientRuns, minDuration, maxDuration, clients } = useMemo(() => {
+  const { clientRuns, minDuration, maxDuration, clientMinMax, clients } = useMemo(() => {
     // Group runs by client
     const grouped: Record<string, IndexEntry[]> = {}
     for (const run of runs) {
@@ -57,9 +61,19 @@ export function RunsHeatmap({ runs, isDark }: RunsHeatmapProps) {
 
     // Sort each client's runs by timestamp (oldest first) and take last 20
     const clientRuns: Record<string, IndexEntry[]> = {}
+    const clientMinMax: Record<string, { min: number; max: number }> = {}
     for (const [client, clientRunsAll] of Object.entries(grouped)) {
       const sorted = [...clientRunsAll].sort((a, b) => a.timestamp - b.timestamp)
       clientRuns[client] = sorted.slice(-MAX_RUNS_PER_CLIENT)
+
+      // Calculate per-client min/max
+      let min = Infinity
+      let max = -Infinity
+      for (const run of clientRuns[client]) {
+        min = Math.min(min, run.tests.duration)
+        max = Math.max(max, run.tests.duration)
+      }
+      clientMinMax[client] = { min, max }
     }
 
     // Calculate min/max duration across all runs
@@ -73,8 +87,16 @@ export function RunsHeatmap({ runs, isDark }: RunsHeatmapProps) {
     // Sort clients alphabetically
     const clients = Object.keys(clientRuns).sort()
 
-    return { clientRuns, minDuration, maxDuration, clients }
+    return { clientRuns, minDuration, maxDuration, clientMinMax, clients }
   }, [runs])
+
+  const getColorForRun = (run: IndexEntry) => {
+    if (colorNormalization === 'client') {
+      const { min, max } = clientMinMax[run.instance.client]
+      return getDurationColor(run.tests.duration, min, max)
+    }
+    return getDurationColor(run.tests.duration, minDuration, maxDuration)
+  }
 
   const handleRunClick = (runId: string) => {
     navigate({
@@ -102,7 +124,35 @@ export function RunsHeatmap({ runs, isDark }: RunsHeatmapProps) {
 
   return (
     <div className="relative">
-      <h3 className="mb-3 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Recent Runs by Client</h3>
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Recent Runs by Client</h3>
+        {onColorNormalizationChange && (
+          <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
+            <button
+              onClick={() => onColorNormalizationChange('suite')}
+              className={clsx(
+                'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                colorNormalization === 'suite'
+                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+              )}
+            >
+              Suite
+            </button>
+            <button
+              onClick={() => onColorNormalizationChange('client')}
+              className={clsx(
+                'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                colorNormalization === 'client'
+                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+              )}
+            >
+              Per Client
+            </button>
+          </div>
+        )}
+      </div>
       <div className="flex flex-col gap-2">
         {clients.map((client) => (
           <div key={client} className="flex items-center gap-3">
@@ -120,7 +170,7 @@ export function RunsHeatmap({ runs, isDark }: RunsHeatmapProps) {
                     'size-5 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
                     run.tests.fail > 0 && 'ring-1 ring-red-500',
                   )}
-                  style={{ backgroundColor: getDurationColor(run.tests.duration, minDuration, maxDuration) }}
+                  style={{ backgroundColor: getColorForRun(run) }}
                   title={`${formatTimestamp(run.timestamp)} - ${formatDurationMinSec(run.tests.duration)}`}
                 />
               ))}
