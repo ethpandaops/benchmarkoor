@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useIndex } from '@/api/hooks/useIndex'
 import { DurationChart, type XAxisMode } from '@/components/suite-detail/DurationChart'
+import { RunsHeatmap } from '@/components/suite-detail/RunsHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList } from '@/components/suite-detail/TestFilesList'
 import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
@@ -266,6 +267,9 @@ export function SuiteDetailPage() {
               </p>
             ) : (
               <div className="flex flex-col gap-4">
+                <div className="overflow-hidden rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+                  <RunsHeatmap runs={suiteRunsAll} isDark={isDark} />
+                </div>
                 <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
                   <button
                     onClick={() => setChartExpanded(!chartExpanded)}
@@ -279,7 +283,7 @@ export function SuiteDetailPage() {
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
-                    Duration
+                    Duration Chart
                   </button>
                   {chartExpanded && (
                     <div className="border-t border-gray-200 p-4 dark:border-gray-700">
