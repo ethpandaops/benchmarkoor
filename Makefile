@@ -1,4 +1,4 @@
-.PHONY: build clean test lint run help
+.PHONY: build clean test lint run run-ui help
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -63,3 +63,7 @@ run: build
 ## version: Show version
 version: build
 	./bin/$(BINARY_NAME) version
+
+## run-ui: Run the UI dev server
+run-ui:
+	npm run --prefix ui dev

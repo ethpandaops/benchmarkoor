@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-geth: oklch(0.65 0.15 250);
+  --color-reth: oklch(0.65 0.15 30);
+  --color-nethermind: oklch(0.65 0.15 290);
+  --color-besu: oklch(0.65 0.15 140);
+  --color-erigon: oklch(0.65 0.15 20);
+  --color-nimbus: oklch(0.65 0.15 80);
+}

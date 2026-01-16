@@ -31,3 +31,10 @@ Thumbs.db
 # Project specific
 results/
 *.log
+.ai_plans
+config.yaml
+
+# Root level npm (should only be in ui/)
+/node_modules/
+/package.json
+/package-lock.json
