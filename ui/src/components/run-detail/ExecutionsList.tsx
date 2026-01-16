@@ -1,7 +1,26 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import clsx from 'clsx'
 import { useTestRequests, useTestResponses, useTestTimes } from '@/api/hooks/useTestDetails'
 import { Duration } from '@/components/shared/Duration'
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(async () => {
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }, [text])
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="rounded-xs px-2 py-1 text-xs/5 font-medium text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+    >
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  )
+}
 
 interface ExecutionsListProps {
   runId: string
@@ -68,9 +87,12 @@ function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
         <div className="bg-gray-50 px-4 py-3 dark:bg-gray-900/50">
           <div className="flex flex-col gap-3">
             <div>
-              <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Request
-              </h5>
+              <div className="mb-1 flex items-center justify-between">
+                <h5 className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Request
+                </h5>
+                <CopyButton text={formatJson(request)} />
+              </div>
               <div className="w-0 min-w-full overflow-x-auto rounded-xs bg-gray-100 dark:bg-gray-800">
                 <pre className="w-fit p-3 font-mono text-xs/5 text-gray-800 dark:text-gray-200">
                   {formatJson(request)}
@@ -79,9 +101,12 @@ function ExecutionRow({ index, request, response, time }: ExecutionRowProps) {
             </div>
             {response && (
               <div>
-                <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  Response
-                </h5>
+                <div className="mb-1 flex items-center justify-between">
+                  <h5 className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                    Response
+                  </h5>
+                  <CopyButton text={formatJson(response)} />
+                </div>
                 <div className="w-0 min-w-full overflow-x-auto rounded-xs bg-gray-100 dark:bg-gray-800">
                   <pre className="w-fit p-3 font-mono text-xs/5 text-gray-800 dark:text-gray-200">
                     {formatJson(response)}
