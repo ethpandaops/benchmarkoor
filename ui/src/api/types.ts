@@ -17,6 +17,8 @@ export interface IndexEntry {
     success: number
     fail: number
     duration: number
+    gas_used: number
+    gas_used_duration: number
   }
 }
 

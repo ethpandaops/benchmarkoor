@@ -33,9 +33,11 @@ type IndexInstance struct {
 
 // IndexTestStats contains aggregated test statistics for the index.
 type IndexTestStats struct {
-	Success  int   `json:"success"`
-	Fail     int   `json:"fail"`
-	Duration int64 `json:"duration"`
+	Success         int    `json:"success"`
+	Fail            int    `json:"fail"`
+	Duration        int64  `json:"duration"`
+	GasUsed         uint64 `json:"gas_used"`
+	GasUsedDuration int64  `json:"gas_used_duration"`
 }
 
 // runConfigJSON is used to parse config.json files.
@@ -123,6 +125,8 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 					testStats.Success += test.Aggregated.Succeeded
 					testStats.Fail += test.Aggregated.Failed
 					testStats.Duration += test.Aggregated.TotalTime
+					testStats.GasUsed += test.Aggregated.GasUsedTotal
+					testStats.GasUsedDuration += test.Aggregated.GasUsedTimeTotal
 				}
 			}
 		}

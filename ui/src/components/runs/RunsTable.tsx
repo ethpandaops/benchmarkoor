@@ -8,7 +8,13 @@ import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
 
-export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'tests'
+// Calculates MGas/s from gas_used and gas_used_duration
+function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number | undefined {
+  if (gasUsedDuration <= 0 || gasUsed <= 0) return undefined
+  return (gasUsed * 1000) / gasUsedDuration
+}
+
+export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'mgas' | 'tests'
 export type SortDirection = 'asc' | 'desc'
 
 interface RunsTableProps {
@@ -95,6 +101,11 @@ export function RunsTable({
         case 'duration':
           comparison = a.tests.duration - b.tests.duration
           break
+        case 'mgas':
+          const mgasA = calculateMGasPerSec(a.tests.gas_used, a.tests.gas_used_duration) ?? -Infinity
+          const mgasB = calculateMGasPerSec(b.tests.gas_used, b.tests.gas_used_duration) ?? -Infinity
+          comparison = mgasA - mgasB
+          break
         case 'tests':
           comparison = a.tests.success - b.tests.success
           break
@@ -112,6 +123,7 @@ export function RunsTable({
             <SortableHeader label="Client" column="client" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Image" column="image" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             {showSuite && <SortableHeader label="Suite" column="suite" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />}
+            <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Duration" column="duration" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Tests" column="tests" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
           </tr>
@@ -151,7 +163,13 @@ export function RunsTable({
                   )}
                 </td>
               )}
-              <td className="whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400">
+              <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+                {(() => {
+                  const mgas = calculateMGasPerSec(entry.tests.gas_used, entry.tests.gas_used_duration)
+                  return mgas !== undefined ? mgas.toFixed(2) : '-'
+                })()}
+              </td>
+              <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
                 <Duration nanoseconds={entry.tests.duration} />
               </td>
               <td className="whitespace-nowrap px-6 py-4">
