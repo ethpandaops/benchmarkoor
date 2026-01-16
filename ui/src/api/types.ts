@@ -45,6 +45,12 @@ export interface SystemInfo {
   memory_total_gb: number
 }
 
+export interface DataDirConfig {
+  source_dir: string
+  container_dir?: string
+  method?: string
+}
+
 export interface InstanceConfig {
   id: string
   client: string
@@ -56,6 +62,7 @@ export interface InstanceConfig {
   restart?: string
   environment?: Record<string, string>
   genesis: string
+  datadir?: DataDirConfig
 }
 
 // result.json per run
