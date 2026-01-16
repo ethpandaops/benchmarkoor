@@ -34,11 +34,6 @@ results/
 .ai_plans
 config.yaml
 
-# UI
-ui/node_modules/
-ui/dist/
-ui/tsconfig.tsbuildinfo
-
 # Root level npm (should only be in ui/)
 /node_modules/
 /package.json
