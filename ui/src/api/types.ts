@@ -94,6 +94,12 @@ export interface MethodStats {
   p99?: number
 }
 
+// .result-details.json per test
+export interface ResultDetails {
+  duration_ns: number[]
+  status: number[] // 0=success, 1=fail
+}
+
 // summary.json per suite
 export interface SuiteInfo {
   hash: string

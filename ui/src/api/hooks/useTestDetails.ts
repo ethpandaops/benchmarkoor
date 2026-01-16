@@ -1,18 +1,30 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchText, fetchData } from '../client'
-import type { AggregatedStats } from '../types'
+import type { AggregatedStats, ResultDetails } from '../types'
 
 export function useTestTimes(runId: string, testName: string, dir?: string) {
   const path = dir
-    ? `runs/${runId}/${dir}/${testName}.times`
-    : `runs/${runId}/${testName}.times`
+    ? `runs/${runId}/${dir}/${testName}.result-details.json`
+    : `runs/${runId}/${testName}.result-details.json`
 
   return useQuery({
     queryKey: ['run', runId, 'test', testName, 'times'],
     queryFn: async () => {
-      const text = await fetchText(path)
-      return text.trim().split('\n').map(Number)
+      const details = await fetchData<ResultDetails>(path)
+      return details.duration_ns
     },
+    enabled: !!runId && !!testName,
+  })
+}
+
+export function useTestResultDetails(runId: string, testName: string, dir?: string) {
+  const path = dir
+    ? `runs/${runId}/${dir}/${testName}.result-details.json`
+    : `runs/${runId}/${testName}.result-details.json`
+
+  return useQuery({
+    queryKey: ['run', runId, 'test', testName, 'result-details'],
+    queryFn: () => fetchData<ResultDetails>(path),
     enabled: !!runId && !!testName,
   })
 }
