@@ -193,11 +193,11 @@ export function TestsTable({
                 className="w-12"
               />
               <SortableHeader label="Test" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-              <th className="w-24 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Status
-              </th>
               <th className="w-28 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Total Time
+              </th>
+              <th className="w-24 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Status
               </th>
             </tr>
           </thead>
@@ -228,14 +228,14 @@ export function TestsTable({
                   <td className="max-w-md truncate px-4 py-3 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
                     <span title={testName}>{testName}</span>
                   </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm/6 text-gray-500 dark:text-gray-400">
+                    <Duration nanoseconds={entry.aggregated.time_total} />
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex items-center gap-2">
                       {entry.aggregated.success > 0 && <Badge variant="success">{entry.aggregated.success}</Badge>}
                       {entry.aggregated.fail > 0 && <Badge variant="error">{entry.aggregated.fail}</Badge>}
                     </div>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm/6 text-gray-500 dark:text-gray-400">
-                    <Duration nanoseconds={entry.aggregated.time_total} />
                   </td>
                 </tr>
                 {expandedTest === testName && (
