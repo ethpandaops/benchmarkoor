@@ -6,3 +6,6 @@ dist/
 
 # TypeScript build info
 tsconfig.tsbuildinfo
+
+# Vite
+.vite/
