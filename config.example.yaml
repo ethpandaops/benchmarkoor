@@ -61,13 +61,18 @@ client:
   #     source_dir: ./data/snapshots/geth
   #     container_dir: /data  # default, can be omitted
   #     # Method for preparing the data directory:
-  #     #   copy      - copies the source directory (default, works everywhere)
-  #     #   overlayfs - uses Linux overlayfs for near-instant setup (requires root)
+  #     #   copy          - copies the source directory (default, works everywhere)
+  #     #   overlayfs     - uses Linux overlayfs for near-instant setup (requires root)
+  #     #   fuse-overlayfs - uses fuse-overlayfs for near-instant setup (no root required)
+  #     #                    Requires: apt install fuse-overlayfs (or equivalent)
+  #     #                    Requires: user_allow_other in /etc/fuse.conf if Docker runs as root
+  #     #                    WARNING: fuse-overlayfs is SLOW compared to overlayfs. You'll get
+  #     #                             3x Worse results.
   #     method: copy
   #   reth:
   #     source_dir: ./data/snapshots/reth
   #     container_dir: /root/.local/share/reth
-  #     method: overlayfs  # near-instant, requires root and Linux
+  #     method: fuse-overlayfs  # near-instant, no root required
 
   instances:
     - id: geth-latest
