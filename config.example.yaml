@@ -61,7 +61,7 @@ client:
   #     source_dir: ./data/snapshots/geth
   #     container_dir: /data  # default, can be omitted
   #     # Method for preparing the data directory:
-  #     #   copy          - copies the source directory (default, works everywhere)
+  #     #   copy          - parallel Go copy (default, works everywhere, has progress)
   #     #   overlayfs     - uses Linux overlayfs for near-instant setup (requires root)
   #     #   fuse-overlayfs - uses fuse-overlayfs for near-instant setup (no root required)
   #     #                    Requires: apt install fuse-overlayfs (or equivalent)

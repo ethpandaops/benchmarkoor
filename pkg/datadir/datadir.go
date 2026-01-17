@@ -6,51 +6,127 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
-// Copier copies data directories with progress reporting.
-type Copier interface {
-	// Copy copies the source directory to the destination with progress reporting.
-	Copy(ctx context.Context, src, dst string) error
+// CopyProvider implements Provider using parallel file copying.
+// It collects all files first, then uses multiple workers to copy them concurrently.
+type CopyProvider interface {
+	Provider
 }
 
-// NewCopier creates a new directory copier.
-func NewCopier(log logrus.FieldLogger) Copier {
-	return &copier{
-		log: log.WithField("component", "datadir-copier"),
+// NewCopyProvider creates a new parallel copy provider.
+func NewCopyProvider(log logrus.FieldLogger) CopyProvider {
+	return &copyProvider{
+		log:     log.WithField("component", "datadir-copy"),
+		workers: runtime.NumCPU(),
 	}
 }
 
-type copier struct {
-	log logrus.FieldLogger
+type copyProvider struct {
+	log     logrus.FieldLogger
+	workers int
 }
 
 // Ensure interface compliance.
-var _ Copier = (*copier)(nil)
+var _ CopyProvider = (*copyProvider)(nil)
 
-// Copy copies the source directory to the destination with progress reporting.
-func (c *copier) Copy(ctx context.Context, src, dst string) error {
-	// Calculate total size for progress reporting.
-	totalSize, err := c.calculateSize(src)
+// fileEntry represents a file to copy.
+type fileEntry struct {
+	srcPath  string
+	dstPath  string
+	size     int64
+	mode     os.FileMode
+	isDir    bool
+	dirMode  os.FileMode
+	linkDest string // For symlinks.
+}
+
+// Prepare copies the source directory to a temp location using parallel workers.
+func (p *copyProvider) Prepare(ctx context.Context, cfg *ProviderConfig) (*PreparedDir, error) {
+	// Create temp directory for the copy.
+	copyDir, err := os.MkdirTemp(cfg.TmpDir, "benchmarkoor-datadir-"+cfg.InstanceID+"-")
 	if err != nil {
-		return fmt.Errorf("calculating source size: %w", err)
+		return nil, fmt.Errorf("creating temp datadir directory: %w", err)
 	}
 
-	c.log.WithFields(logrus.Fields{
-		"src":        src,
-		"dst":        dst,
-		"total_size": formatBytes(totalSize),
-	}).Info("Starting directory copy")
+	p.log.WithFields(logrus.Fields{
+		"source":  cfg.SourceDir,
+		"dest":    copyDir,
+		"workers": p.workers,
+	}).Info("Copying data directory")
+
+	// Perform parallel copy.
+	if err := p.parallelCopy(ctx, cfg.SourceDir, copyDir); err != nil {
+		// Cleanup on failure.
+		if rmErr := os.RemoveAll(copyDir); rmErr != nil {
+			p.log.WithError(rmErr).Warn("Failed to cleanup copy directory")
+		}
+
+		return nil, fmt.Errorf("copying datadir: %w", err)
+	}
+
+	// Return prepared directory with cleanup function.
+	return &PreparedDir{
+		MountPath: copyDir,
+		Cleanup: func() error {
+			p.log.WithField("path", copyDir).Info("Removing copied data directory")
+
+			if err := os.RemoveAll(copyDir); err != nil {
+				p.log.WithError(err).Warn("Failed to remove copied datadir")
+
+				return fmt.Errorf("removing copied datadir: %w", err)
+			}
+
+			return nil
+		},
+	}, nil
+}
+
+// parallelCopy performs the parallel copy operation.
+func (p *copyProvider) parallelCopy(ctx context.Context, src, dst string) error {
+	// Collect all files and directories.
+	files, totalSize, err := p.collectFiles(src, dst)
+	if err != nil {
+		return fmt.Errorf("collecting files: %w", err)
+	}
+
+	p.log.WithFields(logrus.Fields{
+		"total_files": len(files),
+		"total_size":  formatBytes(totalSize),
+	}).Info("Starting copy")
+
+	// Create all directories first (must be sequential to ensure parent dirs exist).
+	for _, f := range files {
+		if f.isDir {
+			if err := os.MkdirAll(f.dstPath, f.dirMode); err != nil {
+				return fmt.Errorf("creating directory %s: %w", f.dstPath, err)
+			}
+		}
+	}
+
+	// Filter to only files and symlinks.
+	var fileEntries []fileEntry
+	for _, f := range files {
+		if !f.isDir {
+			fileEntries = append(fileEntries, f)
+		}
+	}
+
+	if len(fileEntries) == 0 {
+		p.log.Info("No files to copy")
+
+		return nil
+	}
 
 	// Track progress.
 	var copiedBytes atomic.Int64
-	var currentFile atomic.Value
-
-	currentFile.Store("")
+	var copiedFiles atomic.Int64
 
 	// Start progress reporter.
 	progressCtx, cancelProgress := context.WithCancel(ctx)
@@ -60,136 +136,137 @@ func (c *copier) Copy(ctx context.Context, src, dst string) error {
 
 	go func() {
 		defer close(progressDone)
-		c.reportProgress(progressCtx, totalSize, &copiedBytes, &currentFile)
+		p.reportProgress(progressCtx, totalSize, int64(len(fileEntries)), &copiedBytes, &copiedFiles)
 	}()
 
-	// Perform the copy.
-	if err := c.copyDir(ctx, src, dst, &copiedBytes, &currentFile); err != nil {
+	// Create worker pool using errgroup.
+	g, gctx := errgroup.WithContext(ctx)
+
+	// Create job channel.
+	jobs := make(chan fileEntry, len(fileEntries))
+
+	// Start workers.
+	for i := 0; i < p.workers; i++ {
+		g.Go(func() error {
+			for {
+				select {
+				case <-gctx.Done():
+					return gctx.Err()
+				case f, ok := <-jobs:
+					if !ok {
+						return nil
+					}
+
+					if err := p.copyEntry(gctx, f, &copiedBytes); err != nil {
+						return err
+					}
+
+					copiedFiles.Add(1)
+				}
+			}
+		})
+	}
+
+	// Send jobs.
+	for _, f := range fileEntries {
+		select {
+		case <-gctx.Done():
+			close(jobs)
+
+			return gctx.Err()
+		case jobs <- f:
+		}
+	}
+
+	close(jobs)
+
+	// Wait for all workers to finish.
+	if err := g.Wait(); err != nil {
 		cancelProgress()
 		<-progressDone
 
-		return fmt.Errorf("copying directory: %w", err)
+		return fmt.Errorf("copying files: %w", err)
 	}
 
-	// Stop progress reporter and wait for it to finish.
+	// Stop progress reporter.
 	cancelProgress()
 	<-progressDone
 
-	c.log.WithFields(logrus.Fields{
-		"copied": formatBytes(copiedBytes.Load()),
-	}).Info("Directory copy completed")
+	p.log.WithFields(logrus.Fields{
+		"copied_files": copiedFiles.Load(),
+		"copied_bytes": formatBytes(copiedBytes.Load()),
+	}).Info("Copy completed")
 
 	return nil
 }
 
-// calculateSize recursively calculates the total size of a directory.
-func (c *copier) calculateSize(path string) (int64, error) {
-	var size int64
+// collectFiles walks the source directory and collects all files and directories.
+func (p *copyProvider) collectFiles(src, dst string) ([]fileEntry, int64, error) {
+	var files []fileEntry
 
-	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+	var totalSize int64
+
+	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		if !info.IsDir() {
-			size += info.Size()
+		// Calculate relative path.
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return fmt.Errorf("getting relative path: %w", err)
 		}
+
+		dstPath := filepath.Join(dst, relPath)
+
+		entry := fileEntry{
+			srcPath: path,
+			dstPath: dstPath,
+			mode:    info.Mode(),
+		}
+
+		if info.IsDir() {
+			entry.isDir = true
+			entry.dirMode = info.Mode()
+		} else if info.Mode()&os.ModeSymlink != 0 {
+			// Handle symlinks.
+			linkDest, err := os.Readlink(path)
+			if err != nil {
+				return fmt.Errorf("reading symlink: %w", err)
+			}
+
+			entry.linkDest = linkDest
+		} else {
+			entry.size = info.Size()
+			totalSize += info.Size()
+		}
+
+		files = append(files, entry)
 
 		return nil
 	})
 
-	return size, err
+	return files, totalSize, err
 }
 
-// reportProgress logs copy progress every second.
-func (c *copier) reportProgress(
-	ctx context.Context,
-	totalSize int64,
-	copiedBytes *atomic.Int64,
-	currentFile *atomic.Value,
-) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			copied := copiedBytes.Load()
-			file := currentFile.Load().(string)
-
-			var percent float64
-			if totalSize > 0 {
-				percent = float64(copied) / float64(totalSize) * 100
-			}
-
-			c.log.WithFields(logrus.Fields{
-				"progress":     fmt.Sprintf("%.1f%%", percent),
-				"copied":       formatBytes(copied),
-				"total":        formatBytes(totalSize),
-				"current_file": filepath.Base(file),
-			}).Info("Copy progress")
-		}
+// copyEntry copies a single file entry (file or symlink).
+func (p *copyProvider) copyEntry(ctx context.Context, f fileEntry, copiedBytes *atomic.Int64) error {
+	if f.linkDest != "" {
+		// Create symlink.
+		return os.Symlink(f.linkDest, f.dstPath)
 	}
+
+	// Copy regular file.
+	return p.copyFile(ctx, f.srcPath, f.dstPath, f.mode, copiedBytes)
 }
 
-// copyDir recursively copies a directory.
-func (c *copier) copyDir(
+// copyFile copies a single file.
+func (p *copyProvider) copyFile(
 	ctx context.Context,
 	src, dst string,
+	mode os.FileMode,
 	copiedBytes *atomic.Int64,
-	currentFile *atomic.Value,
-) error {
-	srcInfo, err := os.Stat(src)
-	if err != nil {
-		return fmt.Errorf("stat source: %w", err)
-	}
-
-	// Create destination directory with same permissions.
-	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
-		return fmt.Errorf("creating destination directory: %w", err)
-	}
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return fmt.Errorf("reading source directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		// Check for cancellation.
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		if entry.IsDir() {
-			if err := c.copyDir(ctx, srcPath, dstPath, copiedBytes, currentFile); err != nil {
-				return err
-			}
-		} else {
-			if err := c.copyFile(ctx, srcPath, dstPath, copiedBytes, currentFile); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// copyFile copies a single file preserving permissions.
-func (c *copier) copyFile(
-	ctx context.Context,
-	src, dst string,
-	copiedBytes *atomic.Int64,
-	currentFile *atomic.Value,
 ) (err error) {
-	currentFile.Store(src)
-
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("opening source file: %w", err)
@@ -201,12 +278,7 @@ func (c *copier) copyFile(
 		}
 	}()
 
-	srcInfo, err := srcFile.Stat()
-	if err != nil {
-		return fmt.Errorf("stat source file: %w", err)
-	}
-
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return fmt.Errorf("creating destination file: %w", err)
 	}
@@ -224,7 +296,7 @@ func (c *copier) copyFile(
 	}
 
 	// Copy in chunks to allow cancellation checks.
-	buf := make([]byte, 32*1024) // 32KB buffer
+	buf := make([]byte, 64*1024) // 64KB buffer for better throughput.
 
 	for {
 		select {
@@ -250,6 +322,41 @@ func (c *copier) copyFile(
 	}
 
 	return nil
+}
+
+// reportProgress logs copy progress every second.
+func (p *copyProvider) reportProgress(
+	ctx context.Context,
+	totalSize int64,
+	totalFiles int64,
+	copiedBytes *atomic.Int64,
+	copiedFiles *atomic.Int64,
+) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			bytes := copiedBytes.Load()
+			files := copiedFiles.Load()
+
+			var percent float64
+			if totalSize > 0 {
+				percent = float64(bytes) / float64(totalSize) * 100
+			}
+
+			p.log.WithFields(logrus.Fields{
+				"progress":     fmt.Sprintf("%.1f%%", percent),
+				"copied_bytes": formatBytes(bytes),
+				"total_bytes":  formatBytes(totalSize),
+				"copied_files": files,
+				"total_files":  totalFiles,
+			}).Info("Copy progress")
+		}
+	}
 }
 
 // progressWriter wraps an io.Writer to track bytes written.
@@ -280,65 +387,4 @@ func formatBytes(bytes int64) string {
 	}
 
 	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-// CopyProvider implements Provider using file copying.
-type CopyProvider interface {
-	Provider
-}
-
-// NewCopyProvider creates a new copy-based provider.
-func NewCopyProvider(log logrus.FieldLogger) CopyProvider {
-	return &copyProvider{
-		copier: NewCopier(log),
-		log:    log.WithField("component", "datadir-copy-provider"),
-	}
-}
-
-type copyProvider struct {
-	copier Copier
-	log    logrus.FieldLogger
-}
-
-// Ensure interface compliance.
-var _ CopyProvider = (*copyProvider)(nil)
-
-// Prepare copies the source directory to a temp location.
-func (p *copyProvider) Prepare(ctx context.Context, cfg *ProviderConfig) (*PreparedDir, error) {
-	// Create temp directory for the copy.
-	copyDir, err := os.MkdirTemp(cfg.TmpDir, "benchmarkoor-datadir-"+cfg.InstanceID+"-")
-	if err != nil {
-		return nil, fmt.Errorf("creating temp datadir directory: %w", err)
-	}
-
-	p.log.WithFields(logrus.Fields{
-		"source": cfg.SourceDir,
-		"dest":   copyDir,
-	}).Info("Copying data directory")
-
-	// Copy with progress reporting.
-	if err := p.copier.Copy(ctx, cfg.SourceDir, copyDir); err != nil {
-		// Cleanup on failure.
-		if rmErr := os.RemoveAll(copyDir); rmErr != nil {
-			p.log.WithError(rmErr).Warn("Failed to cleanup copy directory")
-		}
-
-		return nil, fmt.Errorf("copying datadir: %w", err)
-	}
-
-	// Return prepared directory with cleanup function.
-	return &PreparedDir{
-		MountPath: copyDir,
-		Cleanup: func() error {
-			p.log.WithField("path", copyDir).Info("Removing copied data directory")
-
-			if err := os.RemoveAll(copyDir); err != nil {
-				p.log.WithError(err).Warn("Failed to remove copied datadir")
-
-				return fmt.Errorf("removing copied datadir: %w", err)
-			}
-
-			return nil
-		},
-	}, nil
 }
