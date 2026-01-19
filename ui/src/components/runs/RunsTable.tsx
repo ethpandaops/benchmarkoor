@@ -14,7 +14,7 @@ function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number |
   return (gasUsed * 1000) / gasUsedDuration
 }
 
-export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'mgas' | 'tests'
+export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'mgas' | 'failed' | 'passed'
 export type SortDirection = 'asc' | 'desc'
 
 interface RunsTableProps {
@@ -106,7 +106,10 @@ export function RunsTable({
           const mgasB = calculateMGasPerSec(b.tests.gas_used, b.tests.gas_used_duration) ?? -Infinity
           comparison = mgasA - mgasB
           break
-        case 'tests':
+        case 'failed':
+          comparison = a.tests.fail - b.tests.fail
+          break
+        case 'passed':
           comparison = a.tests.success - b.tests.success
           break
       }
@@ -125,7 +128,8 @@ export function RunsTable({
             {showSuite && <SortableHeader label="Suite" column="suite" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />}
             <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Duration" column="duration" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <SortableHeader label="Tests" column="tests" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+            <SortableHeader label="Failed" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+            <SortableHeader label="Passed" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -154,8 +158,9 @@ export function RunsTable({
                         params={{ suiteHash: entry.suite_hash }}
                         onClick={(e) => e.stopPropagation()}
                         className="text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                        title={entry.suite_hash}
                       >
-                        {entry.suite_hash}
+                        {entry.suite_hash.slice(0, 4)}
                       </Link>
                     </div>
                   ) : (
@@ -172,11 +177,11 @@ export function RunsTable({
               <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
                 <Duration nanoseconds={entry.tests.duration} />
               </td>
-              <td className="whitespace-nowrap px-6 py-4">
-                <div className="flex items-center gap-2">
-                  <Badge variant="success">{entry.tests.success} passed</Badge>
-                  {entry.tests.fail > 0 && <Badge variant="error">{entry.tests.fail} failed</Badge>}
-                </div>
+              <td className="whitespace-nowrap px-6 py-4 text-center">
+                {entry.tests.fail > 0 && <Badge variant="error">{entry.tests.fail}</Badge>}
+              </td>
+              <td className="whitespace-nowrap px-6 py-4 text-center">
+                <Badge variant="success">{entry.tests.success}</Badge>
               </td>
             </tr>
           ))}

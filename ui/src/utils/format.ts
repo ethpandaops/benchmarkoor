@@ -8,7 +8,17 @@ export function formatDuration(nanoseconds: number): string {
   if (nanoseconds < 1_000_000_000) {
     return `${(nanoseconds / 1_000_000).toFixed(2)}ms`
   }
-  return `${(nanoseconds / 1_000_000_000).toFixed(2)}s`
+  const totalSeconds = Math.floor(nanoseconds / 1_000_000_000)
+  if (totalSeconds < 60) {
+    return `${(nanoseconds / 1_000_000_000).toFixed(2)}s`
+  }
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) {
+    return `${hours}h${minutes}m${seconds}s`
+  }
+  return `${minutes}m${seconds}s`
 }
 
 export function formatNumber(num: number): string {

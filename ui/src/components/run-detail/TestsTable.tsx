@@ -8,7 +8,7 @@ import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
 
-export type TestSortColumn = 'order' | 'name' | 'time' | 'mgas'
+export type TestSortColumn = 'order' | 'name' | 'time' | 'mgas' | 'passed' | 'failed'
 export type TestSortDirection = 'asc' | 'desc'
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
@@ -135,6 +135,10 @@ export function TestsTable({
         const mgasA = calculateMGasPerSec(entryA.aggregated.gas_used_total, entryA.aggregated.gas_used_time_total) ?? -Infinity
         const mgasB = calculateMGasPerSec(entryB.aggregated.gas_used_total, entryB.aggregated.gas_used_time_total) ?? -Infinity
         comparison = mgasA - mgasB
+      } else if (sortBy === 'passed') {
+        comparison = entryA.aggregated.success - entryB.aggregated.success
+      } else if (sortBy === 'failed') {
+        comparison = entryA.aggregated.fail - entryB.aggregated.fail
       } else {
         comparison = a.localeCompare(b)
       }
@@ -215,9 +219,8 @@ export function TestsTable({
               <SortableHeader label="Test" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
               <SortableHeader label="Total Time" column="time" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-28 text-right" />
               <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-24 text-right" />
-              <th className="w-24 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Status
-              </th>
+              <SortableHeader label="Failed" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-16 text-center" />
+              <SortableHeader label="Passed" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-16 text-center" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -268,16 +271,16 @@ export function TestsTable({
                         return mgas !== undefined ? mgas.toFixed(2) : '-'
                       })()}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        {entry.aggregated.success > 0 && <Badge variant="success">{entry.aggregated.success}</Badge>}
-                        {entry.aggregated.fail > 0 && <Badge variant="error">{entry.aggregated.fail}</Badge>}
-                      </div>
+                    <td className="whitespace-nowrap px-4 py-3 text-center">
+                      {entry.aggregated.fail > 0 && <Badge variant="error">{entry.aggregated.fail}</Badge>}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-center">
+                      {entry.aggregated.success > 0 && <Badge variant="success">{entry.aggregated.success}</Badge>}
                     </td>
                   </tr>
                   {expandedTest === testKey && (
                     <tr key={`${testKey}-expanded`}>
-                      <td colSpan={6} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
+                      <td colSpan={7} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
                         <div className="flex flex-col gap-6 overflow-x-auto">
                           <TimeBreakdown methods={entry.aggregated.method_stats.times} />
                           <MGasBreakdown methods={entry.aggregated.method_stats.mgas_s} />
