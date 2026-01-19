@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
@@ -5,6 +6,7 @@ import { useSuite } from '@/api/hooks/useSuite'
 import { SystemInfo } from '@/components/run-detail/SystemInfo'
 import { InstanceConfig } from '@/components/run-detail/InstanceConfig'
 import { TestsTable, type TestSortColumn, type TestSortDirection } from '@/components/run-detail/TestsTable'
+import { TestHeatmap } from '@/components/run-detail/TestHeatmap'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { ClientBadge } from '@/components/shared/ClientBadge'
@@ -34,6 +36,19 @@ export function RunDetailPage() {
 
   const isLoading = configLoading || resultLoading
   const error = configError || resultError
+
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return document.documentElement.classList.contains('dark')
+  })
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'))
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
 
   const updateSearch = (updates: Partial<typeof search>) => {
     navigate({
@@ -182,6 +197,15 @@ export function RunDetailPage() {
             <Duration nanoseconds={totalDuration} />
           </p>
         </div>
+      </div>
+
+      <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+        <h3 className="mb-4 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Test Performance Heatmap</h3>
+        <TestHeatmap
+          tests={result.tests}
+          suiteTests={suite?.tests}
+          onTestClick={handleExpandedChange}
+        />
       </div>
 
       <SystemInfo system={config.system} />
