@@ -51,6 +51,13 @@ interface TestData {
   order: number
   mgasPerSec: number
   hasFail: boolean
+  noData: boolean
+}
+
+// Diagonal stripe pattern for tests without data
+const NO_DATA_STYLE = {
+  backgroundColor: '#374151',
+  backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, #1f2937 2px, #1f2937 4px)',
 }
 
 export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps) {
@@ -70,20 +77,22 @@ export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps
 
     for (const [testKey, entry] of Object.entries(tests)) {
       const mgasPerSec = calculateMGasPerSec(entry.aggregated.gas_used_total, entry.aggregated.gas_used_time_total)
-      if (mgasPerSec === undefined) continue
-
       const order = executionOrder.get(testKey) ?? Infinity
       const filename = entry.dir ? testKey.slice(entry.dir.length + 1) : testKey
+      const noData = mgasPerSec === undefined
 
-      minMgas = Math.min(minMgas, mgasPerSec)
-      maxMgas = Math.max(maxMgas, mgasPerSec)
+      if (!noData) {
+        minMgas = Math.min(minMgas, mgasPerSec)
+        maxMgas = Math.max(maxMgas, mgasPerSec)
+      }
 
       data.push({
         testKey,
         filename,
         order,
-        mgasPerSec,
+        mgasPerSec: mgasPerSec ?? 0,
         hasFail: entry.aggregated.fail > 0,
+        noData,
       })
     }
 
@@ -104,13 +113,14 @@ export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps
   }, [testData, sortMode])
 
   const histogramData = useMemo(() => {
-    if (testData.length === 0) return []
+    const testsWithData = testData.filter((t) => !t.noData)
+    if (testsWithData.length === 0) return []
 
     // Create bins based on threshold: 0, 0.25x, 0.5x, 0.75x, 1x, 1.25x, 1.5x, 1.75x, 2x, 2.5x, 3x+
     const binMultipliers = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
     const bins = Array(binMultipliers.length).fill(0)
 
-    for (const test of testData) {
+    for (const test of testsWithData) {
       const ratio = test.mgasPerSec / threshold
       let binIndex = binMultipliers.findIndex((m, i) => {
         const next = binMultipliers[i + 1]
@@ -249,7 +259,7 @@ export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps
                 'size-3 cursor-pointer rounded-xs transition-all hover:scale-150 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
                 test.hasFail && 'ring-1 ring-red-500',
               )}
-              style={{ backgroundColor: getColorByThreshold(test.mgasPerSec, threshold) }}
+              style={test.noData ? NO_DATA_STYLE : { backgroundColor: getColorByThreshold(test.mgasPerSec, threshold) }}
             />
           ))}
         </div>
@@ -292,6 +302,10 @@ export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps
         </span>
         <span className="text-gray-400 dark:text-gray-500">({threshold} MGas/s = yellow)</span>
         <span>
+          <span className="mr-1 inline-block size-3 rounded-xs" style={NO_DATA_STYLE} />
+          No data
+        </span>
+        <span>
           <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-red-500" style={{ backgroundColor: COLORS[2] }} />
           Has failures
         </span>
@@ -309,8 +323,9 @@ export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps
         >
           <div className="flex flex-col gap-1">
             <div className="font-medium">Test #{tooltip.test.order}</div>
-            <div>MGas/s: {tooltip.test.mgasPerSec.toFixed(2)}</div>
+            <div>MGas/s: {tooltip.test.noData ? 'No data' : tooltip.test.mgasPerSec.toFixed(2)}</div>
             <div className="max-w-48 truncate text-gray-500 dark:text-gray-400">{tooltip.test.filename}</div>
+            {tooltip.test.noData && <div className="text-gray-500 dark:text-gray-400">No gas usage data available</div>}
             {tooltip.test.hasFail && <div className="text-red-600 dark:text-red-400">Has failures</div>}
             <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
           </div>
