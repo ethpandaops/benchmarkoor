@@ -268,23 +268,43 @@ export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps
       {/* Histogram */}
       <div className="flex flex-col gap-1">
         <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution (by threshold multiples)</div>
-        <div className="flex h-16 items-end gap-1">
-          {histogramData.map((bin, i) => (
+        <div className="flex items-end gap-1">
+          <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
+            <span className="text-xs/5 font-medium text-red-600 dark:text-red-400">
+              {testData.filter((t) => !t.noData && t.mgasPerSec < threshold).length}
+            </span>
+            <span className="text-xs/5 text-gray-400 dark:text-gray-500">slow</span>
+          </div>
+          <div className="relative flex h-16 flex-1 items-end gap-1">
+            {histogramData.map((bin, i) => (
+              <div
+                key={i}
+                className="flex-1 rounded-t-xs transition-all hover:opacity-80"
+                style={{
+                  height: `${bin.height}%`,
+                  backgroundColor: bin.color,
+                  minHeight: bin.count > 0 ? '2px' : '0',
+                }}
+                title={`${bin.label} MGas/s: ${bin.count} tests`}
+              />
+            ))}
+            {/* Threshold line - positioned at bin index 4 (1x threshold) */}
             <div
-              key={i}
-              className="flex-1 rounded-t-xs transition-all hover:opacity-80"
-              style={{
-                height: `${bin.height}%`,
-                backgroundColor: bin.color,
-                minHeight: bin.count > 0 ? '2px' : '0',
-              }}
-              title={`${bin.label} MGas/s: ${bin.count} tests`}
+              className="absolute bottom-0 top-0 w-0.5 bg-black dark:bg-white"
+              style={{ left: `${(4 / 11) * 100}%` }}
+              title={`Threshold: ${threshold} MGas/s`}
             />
-          ))}
+          </div>
+          <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
+            <span className="text-xs/5 font-medium text-green-600 dark:text-green-400">
+              {testData.filter((t) => !t.noData && t.mgasPerSec >= threshold).length}
+            </span>
+            <span className="text-xs/5 text-gray-400 dark:text-gray-500">fast</span>
+          </div>
         </div>
-        <div className="flex justify-between text-xs/5 text-gray-400 dark:text-gray-500">
+        <div className="flex justify-between px-9 text-xs/5 text-gray-400 dark:text-gray-500">
           <span>0</span>
-          <span className="font-medium text-yellow-600 dark:text-yellow-400">{threshold} (threshold)</span>
+          <span className="font-medium text-yellow-600 dark:text-yellow-400">{threshold} MGas/s (threshold)</span>
           <span>{threshold * 3}+</span>
         </div>
       </div>
