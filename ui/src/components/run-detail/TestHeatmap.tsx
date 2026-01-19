@@ -1,13 +1,18 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import type { TestEntry, SuiteFile } from '@/api/types'
-import { formatNumber } from '@/utils/format'
+import { Modal } from '@/components/shared/Modal'
+import { TimeBreakdown } from './TimeBreakdown'
+import { MGasBreakdown } from './MGasBreakdown'
+import { ExecutionsList } from './ExecutionsList'
 
 export type SortMode = 'order' | 'mgas'
 
 interface TestHeatmapProps {
   tests: Record<string, TestEntry>
   suiteTests?: SuiteFile[]
+  runId: string
+  suiteHash?: string
   onTestClick?: (testName: string) => void
 }
 
@@ -22,8 +27,6 @@ const COLORS = [
 const MIN_THRESHOLD = 10
 const MAX_THRESHOLD = 1000
 const DEFAULT_THRESHOLD = 60
-
-const HISTOGRAM_BINS = 20
 
 function makeTestKey(filename: string, dir?: string): string {
   return dir ? `${dir}/${filename}` : filename
@@ -60,10 +63,11 @@ const NO_DATA_STYLE = {
   backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, #1f2937 2px, #1f2937 4px)',
 }
 
-export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps) {
+export function TestHeatmap({ tests, suiteTests, runId, suiteHash, onTestClick }: TestHeatmapProps) {
   const [sortMode, setSortMode] = useState<SortMode>('order')
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
   const [tooltip, setTooltip] = useState<{ test: TestData; x: number; y: number } | null>(null)
+  const [selectedTest, setSelectedTest] = useState<string | null>(null)
 
   const executionOrder = useMemo(() => {
     if (!suiteTests) return new Map<string, number>()
@@ -122,7 +126,7 @@ export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps
 
     for (const test of testsWithData) {
       const ratio = test.mgasPerSec / threshold
-      let binIndex = binMultipliers.findIndex((m, i) => {
+      let binIndex = binMultipliers.findIndex((_, i) => {
         const next = binMultipliers[i + 1]
         return next === undefined ? true : ratio < next
       })
@@ -252,7 +256,10 @@ export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps
           {sortedData.map((test) => (
             <button
               key={test.testKey}
-              onClick={() => onTestClick?.(test.testKey)}
+              onClick={() => {
+                setSelectedTest(test.testKey)
+                onTestClick?.(test.testKey)
+              }}
               onMouseEnter={(e) => handleMouseEnter(test, e)}
               onMouseLeave={handleMouseLeave}
               className={clsx(
@@ -350,6 +357,28 @@ export function TestHeatmap({ tests, suiteTests, onTestClick }: TestHeatmapProps
             <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
           </div>
         </div>
+      )}
+
+      {/* Test Detail Modal */}
+      {selectedTest && tests[selectedTest] && (
+        <Modal
+          isOpen={!!selectedTest}
+          onClose={() => setSelectedTest(null)}
+          title={`Test #${executionOrder.get(selectedTest) ?? '?'}: ${tests[selectedTest].dir ? selectedTest.slice(tests[selectedTest].dir!.length + 1) : selectedTest}`}
+        >
+          <div className="flex flex-col gap-6">
+            <TimeBreakdown methods={tests[selectedTest].aggregated.method_stats.times} />
+            <MGasBreakdown methods={tests[selectedTest].aggregated.method_stats.mgas_s} />
+            {suiteHash && (
+              <ExecutionsList
+                runId={runId}
+                suiteHash={suiteHash}
+                testName={tests[selectedTest].dir ? selectedTest.slice(tests[selectedTest].dir!.length + 1) : selectedTest}
+                dir={tests[selectedTest].dir}
+              />
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   )

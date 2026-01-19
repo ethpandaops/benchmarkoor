@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
@@ -36,19 +35,6 @@ export function RunDetailPage() {
 
   const isLoading = configLoading || resultLoading
   const error = configError || resultError
-
-  const [isDark, setIsDark] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return document.documentElement.classList.contains('dark')
-  })
-
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains('dark'))
-    })
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-    return () => observer.disconnect()
-  }, [])
 
   const updateSearch = (updates: Partial<typeof search>) => {
     navigate({
@@ -204,6 +190,8 @@ export function RunDetailPage() {
         <TestHeatmap
           tests={result.tests}
           suiteTests={suite?.tests}
+          runId={runId}
+          suiteHash={config.suite_hash}
           onTestClick={handleExpandedChange}
         />
       </div>
