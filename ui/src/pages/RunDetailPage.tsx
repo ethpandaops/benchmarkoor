@@ -7,11 +7,11 @@ import { InstanceConfig } from '@/components/run-detail/InstanceConfig'
 import { TestsTable, type TestSortColumn, type TestSortDirection } from '@/components/run-detail/TestsTable'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
-import { Badge } from '@/components/shared/Badge'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp } from '@/utils/date'
+import { formatNumber } from '@/utils/format'
 
 export function RunDetailPage() {
   const { runId } = useParams({ from: '/runs/$runId' })
@@ -84,9 +84,12 @@ export function RunDetailPage() {
   }
 
   const testCount = Object.keys(result.tests).length
-  const successCount = Object.values(result.tests).reduce((sum, t) => sum + t.aggregated.success, 0)
-  const failCount = Object.values(result.tests).reduce((sum, t) => sum + t.aggregated.fail, 0)
+  const passedTests = Object.values(result.tests).filter((t) => t.aggregated.fail === 0).length
+  const failedTests = Object.values(result.tests).filter((t) => t.aggregated.fail > 0).length
   const totalDuration = Object.values(result.tests).reduce((sum, t) => sum + t.aggregated.time_total, 0)
+  const totalGasUsed = Object.values(result.tests).reduce((sum, t) => sum + t.aggregated.gas_used_total, 0)
+  const totalGasUsedTime = Object.values(result.tests).reduce((sum, t) => sum + t.aggregated.gas_used_time_total, 0)
+  const mgasPerSec = totalGasUsedTime > 0 ? (totalGasUsed * 1000) / totalGasUsedTime : undefined
 
   return (
     <div className="flex flex-col gap-6">
@@ -111,23 +114,52 @@ export function RunDetailPage() {
         <span className="text-gray-900 dark:text-gray-100">{runId}</span>
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">{config.instance.id}</h1>
-            <ClientBadge client={config.instance.client} />
-          </div>
-          <p className="text-sm/6 text-gray-500 dark:text-gray-400">{formatTimestamp(config.timestamp)}</p>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">{config.instance.id}</h1>
+          <ClientBadge client={config.instance.client} />
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Badge variant="info">{testCount} tests</Badge>
-            <Badge variant="success">{successCount} passed</Badge>
-            {failCount > 0 && <Badge variant="error">{failCount} failed</Badge>}
-          </div>
-          <span className="text-sm/6 text-gray-500 dark:text-gray-400">
-            Total: <Duration nanoseconds={totalDuration} />
-          </span>
+        <p className="text-sm/6 text-gray-500 dark:text-gray-400">{formatTimestamp(config.timestamp)}</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+          <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Tests</p>
+          <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">{testCount}</p>
+        </div>
+        <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+          <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">
+            {failedTests > 0 ? 'Passed / Failed' : 'Passed'}
+          </p>
+          <p className="mt-1 flex items-center gap-2 text-2xl/8 font-semibold">
+            <span className="text-green-600 dark:text-green-400">{passedTests}</span>
+            {failedTests > 0 && (
+              <>
+                <span className="text-gray-400 dark:text-gray-500">/</span>
+                <span className="text-red-600 dark:text-red-400">{failedTests}</span>
+              </>
+            )}
+          </p>
+        </div>
+        <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+          <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">MGas/s</p>
+          <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
+            {mgasPerSec !== undefined ? mgasPerSec.toFixed(2) : '-'}
+          </p>
+          <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
+            <span title={`${formatNumber(totalGasUsed)} gas`}>
+              {totalGasUsed >= 1_000_000_000
+                ? `${(totalGasUsed / 1_000_000_000).toFixed(2)} GGas`
+                : `${(totalGasUsed / 1_000_000).toFixed(2)} MGas`}
+            </span>
+            {' '}in <Duration nanoseconds={totalGasUsedTime} />
+          </p>
+        </div>
+        <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+          <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Test Duration</p>
+          <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
+            <Duration nanoseconds={totalDuration} />
+          </p>
         </div>
       </div>
 
