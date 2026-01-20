@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
 import type { SuiteStats, SuiteFile } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
@@ -103,7 +103,6 @@ type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | 'avgMgas'
 
 export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_SIZE }: TestHeatmapProps) {
-  const navigate = useNavigate()
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<SortField>('avgMgas')
@@ -254,13 +253,6 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
     if (value >= MIN_THRESHOLD && value <= MAX_THRESHOLD) {
       setThreshold(value)
     }
-  }
-
-  const handleCellClick = (runId: string) => {
-    navigate({
-      to: '/runs/$runId',
-      params: { runId },
-    })
   }
 
   const handleMouseEnter = (test: ProcessedTest, client: string, run: RunData, event: React.MouseEvent) => {
@@ -485,12 +477,14 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
                                 )
                               }
                               return (
-                                <button
+                                <Link
                                   key={run.runId}
-                                  onClick={() => handleCellClick(run.runId)}
+                                  to="/runs/$runId"
+                                  params={{ runId: run.runId }}
+                                  search={{ testModal: test.name }}
                                   onMouseEnter={(e) => handleMouseEnter(test, client, run, e)}
                                   onMouseLeave={handleMouseLeave}
-                                  className="size-5 cursor-pointer rounded-xs border-2 transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500"
+                                  className="block size-5 rounded-xs border-2 transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500"
                                   style={{
                                     backgroundColor: getColorByThreshold(run.mgas, threshold),
                                     borderColor: getColorByNormalizedValue(run.mgas, test.minMgas, test.maxMgas),
@@ -556,9 +550,9 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
             transform: 'translate(-50%, -100%)',
           }}
         >
-          <div className="flex flex-col gap-1">
+          <div className="flex max-w-md flex-col gap-1">
             <div className="font-medium">{tooltip.client}</div>
-            <div className="max-w-xs truncate font-mono text-gray-500 dark:text-gray-400">{tooltip.testName}</div>
+            <div className="break-all font-mono text-gray-500 dark:text-gray-400">{tooltip.testName}</div>
             <div>{formatMGas(tooltip.run.mgas)}</div>
             <div className="text-gray-400 dark:text-gray-500">{formatTimestamp(tooltip.run.runStart)}</div>
             <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>

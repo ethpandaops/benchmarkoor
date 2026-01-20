@@ -313,29 +313,6 @@ export function SuiteDetailPage() {
                     </div>
                   )}
                 </div>
-                {suiteStats && Object.keys(suiteStats).length > 0 && (
-                  <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                    <button
-                      onClick={() => setSlowestTestsExpanded(!slowestTestsExpanded)}
-                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-                    >
-                      <svg
-                        className={clsx('size-4 text-gray-500 transition-transform', slowestTestsExpanded && 'rotate-90')}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                      Test Heatmap
-                    </button>
-                    {slowestTestsExpanded && (
-                      <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                        <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} />
-                      </div>
-                    )}
-                  </div>
-                )}
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                   <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
                     <button
@@ -392,6 +369,29 @@ export function SuiteDetailPage() {
                     )}
                   </div>
                 </div>
+                {suiteStats && Object.keys(suiteStats).length > 0 && (
+                  <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                    <button
+                      onClick={() => setSlowestTestsExpanded(!slowestTestsExpanded)}
+                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
+                    >
+                      <svg
+                        className={clsx('size-4 text-gray-500 transition-transform', slowestTestsExpanded && 'rotate-90')}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      Test Heatmap
+                    </button>
+                    {slowestTestsExpanded && (
+                      <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                        <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} />
+                      </div>
+                    )}
+                  </div>
+                )}
                 <RunFilters
                   clients={clients}
                   selectedClient={client}
