@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 )
+
+// maxFilenameLength is the maximum length for a filename before hashing.
+// Linux has a 255 byte limit; we use 200 to leave room for suffixes.
+const maxFilenameLength = 200
 
 // MethodStats contains aggregated statistics for a single method (int64 values).
 type MethodStats struct {
@@ -149,8 +155,9 @@ type AggregatedStats struct {
 
 // TestEntry contains the result entry for a single test in the run result.
 type TestEntry struct {
-	Dir        string           `json:"dir"`
-	Aggregated *AggregatedStats `json:"aggregated"`
+	Dir          string           `json:"dir"`
+	FilenameHash string           `json:"filename_hash,omitempty"`
+	Aggregated   *AggregatedStats `json:"aggregated"`
 }
 
 // RunResult contains the aggregated results for all tests in a run.
@@ -185,6 +192,10 @@ type ResultDetails struct {
 	MGasPerSec map[int]float64        `json:"mgas_s"`
 	GasUsed    map[int]uint64         `json:"gas_used"`
 	Resources  map[int]*ResourceDelta `json:"resources,omitempty"`
+	// OriginalTestName stores the original test name when using hashed filenames.
+	OriginalTestName string `json:"original_test_name,omitempty"`
+	// FilenameHash stores the truncated+hash filename when the original was too long.
+	FilenameHash string `json:"filename_hash,omitempty"`
 }
 
 // NewTestResult creates a new TestResult.
@@ -452,6 +463,30 @@ func percentileFloat(sorted []float64, p int) float64 {
 	return sorted[idx]
 }
 
+// hashFilename generates a SHA256 hash of the filename, returning first 16 hex chars.
+func hashFilename(filename string) string {
+	hash := sha256.Sum256([]byte(filename))
+
+	return hex.EncodeToString(hash[:8])
+}
+
+// getResultFilename returns the filename to use for result files.
+// If the original filename is too long, it returns a truncated version with hash suffix.
+// Returns (filename, hash, needsHash).
+func getResultFilename(testName string) (filename, hash string, needsHash bool) {
+	baseFilename := filepath.Base(testName)
+	if len(baseFilename) <= maxFilenameLength {
+		return baseFilename, "", false
+	}
+
+	hash = hashFilename(baseFilename)
+	// Truncate to leave room for underscore + 16-char hash
+	truncateLen := maxFilenameLength - 1 - len(hash)
+	truncated := baseFilename[:truncateLen]
+
+	return truncated + "_" + hash, hash, true
+}
+
 // WriteResults writes the three output files for a test.
 func WriteResults(resultDir, testName string, result *TestResult) error {
 	// Ensure the directory structure exists.
@@ -460,7 +495,9 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 		return fmt.Errorf("creating test result directory: %w", err)
 	}
 
-	basePath := filepath.Join(resultDir, testName)
+	// Determine filename (possibly truncated + hashed).
+	filename, _, needsHash := getResultFilename(testName)
+	basePath := filepath.Join(testDir, filename)
 
 	// Write .response file.
 	responsePath := basePath + ".response"
@@ -476,6 +513,12 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 		MGasPerSec: result.MGasPerSec,
 		GasUsed:    result.GasUsed,
 		Resources:  result.Resources,
+	}
+
+	// Store original test name and hashed filename if using truncated name.
+	if needsHash {
+		details.OriginalTestName = testName
+		details.FilenameHash = filename
 	}
 
 	detailsJSON, err := json.MarshalIndent(details, "", "  ")
@@ -544,6 +587,19 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 		// Remove .result-aggregated.json suffix to get the test name.
 		testName := strings.TrimSuffix(relPath, ".result-aggregated.json")
 
+		// Check if this file uses a hashed filename by reading the details file.
+		var filenameHash string
+
+		detailsPath := strings.TrimSuffix(path, ".result-aggregated.json") + ".result-details.json"
+		if detailsData, err := os.ReadFile(detailsPath); err == nil {
+			var details ResultDetails
+			if err := json.Unmarshal(detailsData, &details); err == nil && details.OriginalTestName != "" {
+				// Use the original test name stored in the details file.
+				testName = details.OriginalTestName
+				filenameHash = details.FilenameHash
+			}
+		}
+
 		// Extract directory (e.g., "000752/test.txt" -> dir is "000752").
 		dir := filepath.Dir(testName)
 		if dir == "." {
@@ -560,8 +616,9 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 		}
 
 		result.Tests[testKey] = &TestEntry{
-			Dir:        dir,
-			Aggregated: &stats,
+			Dir:          dir,
+			FilenameHash: filenameHash,
+			Aggregated:   &stats,
 		}
 
 		return nil

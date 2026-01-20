@@ -74,6 +74,7 @@ export interface RunResult {
 
 export interface TestEntry {
   dir: string
+  filename_hash?: string
   aggregated: AggregatedStats
 }
 
@@ -137,6 +138,8 @@ export interface ResultDetails {
   mgas_s: Record<string, number> // map of index -> MGas/s value
   gas_used: Record<string, number> // map of index -> gas used value
   resources?: Record<string, ResourceDelta> // map of index -> resource delta
+  original_test_name?: string // original test name when using hashed filenames
+  filename_hash?: string // truncated+hash filename when original was too long
 }
 
 // stats.json per suite
