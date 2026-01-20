@@ -8,7 +8,7 @@ import { TestsTable, type TestSortColumn, type TestSortDirection } from '@/compo
 import { TestHeatmap } from '@/components/run-detail/TestHeatmap'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
-import { ClientBadge } from '@/components/shared/ClientBadge'
+import { ClientStat } from '@/components/shared/ClientStat'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp } from '@/utils/date'
@@ -122,15 +122,8 @@ export function RunDetailPage() {
         <span className="text-gray-900 dark:text-gray-100">{runId}</span>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">{config.instance.id}</h1>
-          <ClientBadge client={config.instance.client} />
-        </div>
-        <p className="text-sm/6 text-gray-500 dark:text-gray-400">{formatTimestamp(config.timestamp)}</p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <ClientStat client={config.instance.client} runId={config.instance.id} />
         <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
           <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Tests</p>
           <p className="mt-1 flex items-center gap-2 text-2xl/8 font-semibold">
