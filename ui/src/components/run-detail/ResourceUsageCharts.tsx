@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { TestEntry } from '@/api/types'
 import { formatBytes } from '@/utils/format'
@@ -78,9 +78,24 @@ function StatCard({ label, value }: StatCardProps) {
 interface ChartSectionProps {
   title: string
   option: object
+  onZoom: (start: number, end: number) => void
 }
 
-function ChartSection({ title, option }: ChartSectionProps) {
+function ChartSection({ title, option, onZoom }: ChartSectionProps) {
+  const onEvents = useMemo(
+    () => ({
+      datazoom: (params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
+        // Handle both single and batch zoom events
+        if (params.batch && params.batch.length > 0) {
+          onZoom(params.batch[0].start, params.batch[0].end)
+        } else if (params.start !== undefined && params.end !== undefined) {
+          onZoom(params.start, params.end)
+        }
+      },
+    }),
+    [onZoom],
+  )
+
   return (
     <div className="rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
       <h4 className="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">{title}</h4>
@@ -88,6 +103,7 @@ function ChartSection({ title, option }: ChartSectionProps) {
         option={option}
         style={{ height: '200px', width: '100%' }}
         opts={{ renderer: 'svg' }}
+        onEvents={onEvents}
       />
     </div>
   )
@@ -95,6 +111,11 @@ function ChartSection({ title, option }: ChartSectionProps) {
 
 export function ResourceUsageCharts({ tests }: ResourceUsageChartsProps) {
   const isDark = useDarkMode()
+  const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
+
+  const handleZoom = useCallback((start: number, end: number) => {
+    setZoomRange({ start, end })
+  }, [])
 
   const { dataPoints, hasResourceData, summaryStats } = useMemo(() => {
     const points: ResourceDataPoint[] = []
@@ -194,8 +215,8 @@ export function ResourceUsageCharts({ tests }: ResourceUsageChartsProps) {
         {
           type: 'slider' as const,
           xAxisIndex: 0,
-          start: 0,
-          end: 100,
+          start: zoomRange.start,
+          end: zoomRange.end,
           height: 20,
           bottom: 5,
           borderColor: axisLineColor,
@@ -415,7 +436,7 @@ export function ResourceUsageCharts({ tests }: ResourceUsageChartsProps) {
     }
 
     return { cpuOption, memoryOption, diskBytesOption, diskOpsOption }
-  }, [dataPoints, isDark, summaryStats])
+  }, [dataPoints, isDark, summaryStats, zoomRange])
 
   if (!hasResourceData) {
     return null
@@ -437,10 +458,10 @@ export function ResourceUsageCharts({ tests }: ResourceUsageChartsProps) {
 
       {/* Charts Grid */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <ChartSection title="CPU Usage" option={chartOptions.cpuOption} />
-        <ChartSection title="Memory Delta" option={chartOptions.memoryOption} />
-        <ChartSection title="Disk I/O (Bytes)" option={chartOptions.diskBytesOption} />
-        <ChartSection title="Disk IOPS" option={chartOptions.diskOpsOption} />
+        <ChartSection title="CPU Usage" option={chartOptions.cpuOption} onZoom={handleZoom} />
+        <ChartSection title="Memory Delta" option={chartOptions.memoryOption} onZoom={handleZoom} />
+        <ChartSection title="Disk I/O (Bytes)" option={chartOptions.diskBytesOption} onZoom={handleZoom} />
+        <ChartSection title="Disk IOPS" option={chartOptions.diskOpsOption} onZoom={handleZoom} />
       </div>
 
       <p className="mt-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">
