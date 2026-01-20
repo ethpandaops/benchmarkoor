@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { TestEntry } from '@/api/types'
 import { formatBytes } from '@/utils/format'
@@ -19,6 +19,7 @@ function useDarkMode() {
 
 interface ResourceUsageChartsProps {
   tests: Record<string, TestEntry>
+  onTestClick?: (testName: string) => void
 }
 
 interface ResourceDataPoint {
@@ -79,9 +80,11 @@ interface ChartSectionProps {
   title: string
   option: object
   onZoom: (start: number, end: number) => void
+  onPointClick?: (testName: string) => void
+  highlightedTestRef: React.MutableRefObject<string | null>
 }
 
-function ChartSection({ title, option, onZoom }: ChartSectionProps) {
+function ChartSection({ title, option, onZoom, onPointClick, highlightedTestRef }: ChartSectionProps) {
   const onEvents = useMemo(
     () => ({
       datazoom: (params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
@@ -96,22 +99,31 @@ function ChartSection({ title, option, onZoom }: ChartSectionProps) {
     [onZoom],
   )
 
+  const handleContainerClick = useCallback(() => {
+    if (onPointClick && highlightedTestRef.current) {
+      onPointClick(highlightedTestRef.current)
+    }
+  }, [onPointClick, highlightedTestRef])
+
   return (
     <div className="rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
       <h4 className="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">{title}</h4>
-      <ReactECharts
-        option={option}
-        style={{ height: '200px', width: '100%' }}
-        opts={{ renderer: 'svg' }}
-        onEvents={onEvents}
-      />
+      <div onClick={handleContainerClick} style={{ cursor: onPointClick ? 'pointer' : 'default' }}>
+        <ReactECharts
+          option={option}
+          style={{ height: '200px', width: '100%' }}
+          opts={{ renderer: 'svg' }}
+          onEvents={onEvents}
+        />
+      </div>
     </div>
   )
 }
 
-export function ResourceUsageCharts({ tests }: ResourceUsageChartsProps) {
+export function ResourceUsageCharts({ tests, onTestClick }: ResourceUsageChartsProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
+  const highlightedTestRef = useRef<string | null>(null)
 
   const handleZoom = useCallback((start: number, end: number) => {
     setZoomRange({ start, end })
@@ -269,6 +281,8 @@ export function ResourceUsageCharts({ tests }: ResourceUsageChartsProps) {
         if (!params.length) return ''
         const testName = params[0].value[2]
         const testIndex = params[0].value[0]
+        // Track the highlighted test for click handling
+        highlightedTestRef.current = testName
         let content = `<strong>Test #${testIndex}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
         params.forEach((p) => {
           const value = p.value[1]
@@ -295,6 +309,8 @@ export function ResourceUsageCharts({ tests }: ResourceUsageChartsProps) {
         if (!params.length) return ''
         const testName = params[0].value[2]
         const testIndex = params[0].value[0]
+        // Track the highlighted test for click handling
+        highlightedTestRef.current = testName
         let content = `<strong>Test #${testIndex}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
         params.forEach((p) => {
           const value = p.value[1]
@@ -458,10 +474,10 @@ export function ResourceUsageCharts({ tests }: ResourceUsageChartsProps) {
 
       {/* Charts Grid */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <ChartSection title="CPU Usage" option={chartOptions.cpuOption} onZoom={handleZoom} />
-        <ChartSection title="Memory Delta" option={chartOptions.memoryOption} onZoom={handleZoom} />
-        <ChartSection title="Disk I/O (Bytes)" option={chartOptions.diskBytesOption} onZoom={handleZoom} />
-        <ChartSection title="Disk IOPS" option={chartOptions.diskOpsOption} onZoom={handleZoom} />
+        <ChartSection title="CPU Usage" option={chartOptions.cpuOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="Memory Delta" option={chartOptions.memoryOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="Disk I/O (Bytes)" option={chartOptions.diskBytesOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="Disk IOPS" option={chartOptions.diskOpsOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
       </div>
 
       <p className="mt-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">

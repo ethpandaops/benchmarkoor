@@ -285,7 +285,7 @@ export function RunDetailPage() {
         />
       </div>
 
-      <ResourceUsageCharts tests={result.tests} />
+      <ResourceUsageCharts tests={result.tests} onTestClick={handleTestModalChange} />
 
       <TestsTable
         tests={result.tests}
