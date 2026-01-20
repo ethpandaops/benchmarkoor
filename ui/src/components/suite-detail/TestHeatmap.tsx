@@ -7,7 +7,9 @@ import { Pagination } from '@/components/shared/Pagination'
 import { formatTimestamp } from '@/utils/date'
 
 const DEFAULT_PAGE_SIZE = 20
-const RUNS_PER_CLIENT = 4
+const DEFAULT_RUNS_PER_CLIENT = 5
+const RUNS_PER_CLIENT_OPTIONS = [5, 10, 15, 20] as const
+const BOXES_PER_ROW = 5
 const MIN_THRESHOLD = 10
 const MAX_THRESHOLD = 1000
 const DEFAULT_THRESHOLD = 60
@@ -56,11 +58,6 @@ function formatMGasCompact(mgas: number): string {
   return mgas.toFixed(1)
 }
 
-function truncateTestName(name: string, maxLength: number = 40): string {
-  if (name.length <= maxLength) return name
-  return '...' + name.slice(-(maxLength - 3))
-}
-
 interface RunData {
   runId: string
   mgas: number
@@ -73,7 +70,8 @@ interface ProcessedTest {
   avgMgas: number
   minMgas: number
   maxMgas: number // Per-test max for border color normalization
-  clientRuns: Record<string, RunData[]> // Most recent runs per client (up to RUNS_PER_CLIENT)
+  clientRuns: Record<string, RunData[]> // Most recent runs per client (up to runsPerClient)
+  clientAvgMgas: Record<string, number> // Average MGas/s per client for this test
 }
 
 interface TooltipData {
@@ -101,6 +99,7 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
   const [sortField, setSortField] = useState<SortField>('avgMgas')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
+  const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
 
   const { allTests, clients } = useMemo(() => {
     // Build lookup map from test path to 1-based index
@@ -142,6 +141,7 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
 
       // Sort by run_start (most recent first) and take top N for each client
       const clientRuns: Record<string, RunData[]> = {}
+      const clientAvgMgas: Record<string, number> = {}
       let totalMgas = 0
       let count = 0
       let minClientMgas = Infinity
@@ -151,16 +151,19 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
         if (runs.length === 0) continue
         // Sort by run_start descending (most recent first)
         runs.sort((a, b) => b.runStart - a.runStart)
-        const recentRuns = runs.slice(0, RUNS_PER_CLIENT)
+        const recentRuns = runs.slice(0, runsPerClient)
         clientRuns[client] = recentRuns
 
         // Calculate stats from recent runs
+        let clientTotal = 0
         for (const run of recentRuns) {
           totalMgas += run.mgas
+          clientTotal += run.mgas
           count++
           minClientMgas = Math.min(minClientMgas, run.mgas)
           maxClientMgas = Math.max(maxClientMgas, run.mgas)
         }
+        clientAvgMgas[client] = clientTotal / recentRuns.length
       }
 
       if (count === 0) continue
@@ -174,11 +177,12 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
         minMgas: minClientMgas,
         maxMgas: maxClientMgas,
         clientRuns,
+        clientAvgMgas,
       })
     }
 
     return { allTests: processedTests, clients }
-  }, [stats, testFiles])
+  }, [stats, testFiles, runsPerClient])
 
   // Sort and paginate
   const sortedTests = useMemo(() => {
@@ -254,34 +258,58 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
 
   return (
     <div className="relative flex flex-col gap-4">
-      {/* Threshold control */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
-        <input
-          type="range"
-          min={MIN_THRESHOLD}
-          max={MAX_THRESHOLD}
-          value={threshold}
-          onChange={(e) => handleThresholdChange(Number(e.target.value))}
-          className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
-        />
-        <input
-          type="number"
-          min={MIN_THRESHOLD}
-          max={MAX_THRESHOLD}
-          value={threshold}
-          onChange={(e) => handleThresholdChange(Number(e.target.value))}
-          className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-        />
-        <span className="text-xs/5 text-gray-500 dark:text-gray-400">MGas/s</span>
-        {threshold !== DEFAULT_THRESHOLD && (
-          <button
-            onClick={() => setThreshold(DEFAULT_THRESHOLD)}
-            className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-          >
-            Reset
-          </button>
-        )}
+      {/* Controls */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        {/* Threshold control */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
+          <input
+            type="range"
+            min={MIN_THRESHOLD}
+            max={MAX_THRESHOLD}
+            value={threshold}
+            onChange={(e) => handleThresholdChange(Number(e.target.value))}
+            className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+          />
+          <input
+            type="number"
+            min={MIN_THRESHOLD}
+            max={MAX_THRESHOLD}
+            value={threshold}
+            onChange={(e) => handleThresholdChange(Number(e.target.value))}
+            className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+          />
+          <span className="text-xs/5 text-gray-500 dark:text-gray-400">MGas/s</span>
+          {threshold !== DEFAULT_THRESHOLD && (
+            <button
+              onClick={() => setThreshold(DEFAULT_THRESHOLD)}
+              className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+
+        {/* Runs per client selector */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Runs per client:</span>
+          <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
+            {RUNS_PER_CLIENT_OPTIONS.map((option) => (
+              <button
+                key={option}
+                onClick={() => setRunsPerClient(option)}
+                className={clsx(
+                  'px-2 py-0.5 text-xs/5 transition-colors first:rounded-l-sm last:rounded-r-sm',
+                  option === runsPerClient
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+                )}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -305,9 +333,6 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
                     </svg>
                   )}
                 </button>
-              </th>
-              <th className="px-2 py-2 text-left font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                Test
               </th>
               {clients.map((client) => (
                 <th key={client} className="px-1 py-2 text-center">
@@ -340,62 +365,73 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
           <tbody>
             {paginatedTests.map((test) => (
               <tr key={test.name} className="border-t border-gray-200 dark:border-gray-700">
-                <td className="sticky left-0 z-10 bg-white px-2 py-1.5 text-right font-mono text-xs/5 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                  {test.testNumber ?? '-'}
-                </td>
                 <td
-                  className="max-w-xs truncate px-2 py-1.5 font-mono text-xs/5 text-gray-900 dark:text-gray-100"
+                  className="sticky left-0 z-10 bg-white px-2 py-1.5 text-right font-mono text-xs/5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
                   title={test.name}
                 >
-                  {truncateTestName(test.name)}
+                  {test.testNumber ?? '-'}
                 </td>
                 {clients.map((client) => {
                   const runs = test.clientRuns[client]
+                  const clientAvg = test.clientAvgMgas[client]
+                  const numRows = Math.ceil(runsPerClient / BOXES_PER_ROW)
                   if (!runs || runs.length === 0) {
                     return (
                       <td key={client} className="px-1 py-1.5 text-center">
-                        <div className="mx-auto flex justify-center gap-0.5">
-                          {Array.from({ length: RUNS_PER_CLIENT }).map((_, i) => (
-                            <div
-                              key={i}
-                              className="size-5 rounded-xs bg-gray-100 dark:bg-gray-700"
-                              title="No data"
-                            />
+                        <div className="flex flex-col items-center gap-0.5">
+                          {Array.from({ length: numRows }).map((_, rowIdx) => (
+                            <div key={rowIdx} className="flex justify-center gap-0.5">
+                              {Array.from({ length: BOXES_PER_ROW }).map((_, i) => (
+                                <div
+                                  key={i}
+                                  className="size-5 rounded-xs bg-gray-100 dark:bg-gray-700"
+                                  title="No data"
+                                />
+                              ))}
+                            </div>
                           ))}
+                          <span className="font-mono text-xs/4 text-gray-400 dark:text-gray-500">-</span>
                         </div>
                       </td>
                     )
                   }
                   return (
                     <td key={client} className="px-1 py-1.5 text-center">
-                      <div className="mx-auto flex justify-center gap-0.5">
-                        {/* Pad with empty slots if fewer than RUNS_PER_CLIENT */}
-                        {Array.from({ length: RUNS_PER_CLIENT }).map((_, i) => {
-                          const run = runs[i]
-                          if (!run) {
-                            return (
-                              <div
-                                key={i}
-                                className="size-5 rounded-xs bg-gray-100 dark:bg-gray-700"
-                                title="No data"
-                              />
-                            )
-                          }
-                          return (
-                            <button
-                              key={run.runId}
-                              onClick={() => handleCellClick(run.runId)}
-                              onMouseEnter={(e) => handleMouseEnter(test, client, run, e)}
-                              onMouseLeave={handleMouseLeave}
-                              className="size-5 cursor-pointer rounded-xs border-2 transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500"
-                              style={{
-                                backgroundColor: getColorByThreshold(run.mgas, threshold),
-                                borderColor: getColorByNormalizedValue(run.mgas, test.minMgas, test.maxMgas),
-                              }}
-                              title={formatMGas(run.mgas)}
-                            />
-                          )
-                        })}
+                      <div className="flex flex-col items-center gap-0.5">
+                        {Array.from({ length: numRows }).map((_, rowIdx) => (
+                          <div key={rowIdx} className="flex justify-center gap-0.5">
+                            {Array.from({ length: BOXES_PER_ROW }).map((_, colIdx) => {
+                              const i = rowIdx * BOXES_PER_ROW + colIdx
+                              const run = runs[i]
+                              if (!run) {
+                                return (
+                                  <div
+                                    key={colIdx}
+                                    className="size-5 rounded-xs bg-gray-100 dark:bg-gray-700"
+                                    title="No data"
+                                  />
+                                )
+                              }
+                              return (
+                                <button
+                                  key={run.runId}
+                                  onClick={() => handleCellClick(run.runId)}
+                                  onMouseEnter={(e) => handleMouseEnter(test, client, run, e)}
+                                  onMouseLeave={handleMouseLeave}
+                                  className="size-5 cursor-pointer rounded-xs border-2 transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500"
+                                  style={{
+                                    backgroundColor: getColorByThreshold(run.mgas, threshold),
+                                    borderColor: getColorByNormalizedValue(run.mgas, test.minMgas, test.maxMgas),
+                                  }}
+                                  title={formatMGas(run.mgas)}
+                                />
+                              )
+                            })}
+                          </div>
+                        ))}
+                        <span className="font-mono text-xs/4 text-gray-500 dark:text-gray-400">
+                          {formatMGasCompact(clientAvg)}
+                        </span>
                       </div>
                     </td>
                   )
@@ -427,7 +463,7 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
             No data
           </span>
           <span className="text-gray-400 dark:text-gray-500">
-            {allTests.length} tests · {RUNS_PER_CLIENT} most recent runs per client
+            {allTests.length} tests · {runsPerClient} most recent runs per client
           </span>
         </div>
         <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
