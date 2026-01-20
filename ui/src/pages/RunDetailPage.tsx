@@ -182,6 +182,12 @@ export function RunDetailPage() {
           <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
             <Duration nanoseconds={totalDuration} />
           </p>
+          <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
+            Started at
+          </p>
+          <p className="text-xs/5 text-gray-900 dark:text-gray-100">
+            {formatTimestamp(config.timestamp)}
+          </p>
         </div>
       </div>
 
