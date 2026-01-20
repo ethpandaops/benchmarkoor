@@ -3,10 +3,12 @@ import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
 import { useSuite } from '@/api/hooks/useSuite'
+import { useSuiteStats } from '@/api/hooks/useSuiteStats'
 import { useIndex } from '@/api/hooks/useIndex'
 import { DurationChart, type XAxisMode } from '@/components/suite-detail/DurationChart'
 import { MGasChart } from '@/components/suite-detail/MGasChart'
 import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/RunsHeatmap'
+import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList } from '@/components/suite-detail/TestFilesList'
 import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
@@ -39,10 +41,12 @@ export function SuiteDetailPage() {
   }
   const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount', mgasChartMode = 'runCount', heatmapColor = 'suite' } = search
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
+  const { data: suiteStats } = useSuiteStats(suiteHash)
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [heatmapExpanded, setHeatmapExpanded] = useState(true)
+  const [slowestTestsExpanded, setSlowestTestsExpanded] = useState(true)
   const [chartExpanded, setChartExpanded] = useState(true)
   const [mgasChartExpanded, setMgasChartExpanded] = useState(true)
   const [isDark, setIsDark] = useState(() => {
@@ -365,6 +369,29 @@ export function SuiteDetailPage() {
                     )}
                   </div>
                 </div>
+                {suiteStats && Object.keys(suiteStats).length > 0 && (
+                  <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                    <button
+                      onClick={() => setSlowestTestsExpanded(!slowestTestsExpanded)}
+                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
+                    >
+                      <svg
+                        className={clsx('size-4 text-gray-500 transition-transform', slowestTestsExpanded && 'rotate-90')}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      Test Heatmap
+                    </button>
+                    {slowestTestsExpanded && (
+                      <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                        <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} />
+                      </div>
+                    )}
+                  </div>
+                )}
                 <RunFilters
                   clients={clients}
                   selectedClient={client}
