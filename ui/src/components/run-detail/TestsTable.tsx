@@ -4,32 +4,29 @@ import type { TestEntry, SuiteFile } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
-import { TimeBreakdown } from './TimeBreakdown'
-import { MGasBreakdown } from './MGasBreakdown'
-import { ExecutionsList } from './ExecutionsList'
 
-export type TestSortColumn = 'order' | 'name' | 'time' | 'mgas'
+export type TestSortColumn = 'order' | 'name' | 'time' | 'mgas' | 'passed' | 'failed'
 export type TestSortDirection = 'asc' | 'desc'
+export type TestStatusFilter = 'all' | 'passed' | 'failed'
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 20
 
 interface TestsTableProps {
   tests: Record<string, TestEntry>
-  runId: string
-  suiteHash?: string
   suiteTests?: SuiteFile[]
   currentPage?: number
   pageSize?: number
   sortBy?: TestSortColumn
   sortDir?: TestSortDirection
   searchQuery?: string
-  expandedTest?: string
+  statusFilter?: TestStatusFilter
   onPageChange?: (page: number) => void
   onPageSizeChange?: (size: number) => void
   onSortChange?: (column: TestSortColumn, direction: TestSortDirection) => void
   onSearchChange?: (query: string) => void
-  onExpandedChange?: (testName: string | undefined) => void
+  onStatusFilterChange?: (status: TestStatusFilter) => void
+  onTestClick?: (testName: string) => void
 }
 
 function SortIcon({ direction, active }: { direction: TestSortDirection; active: boolean }) {
@@ -87,20 +84,19 @@ function calculateMGasPerSec(gasUsedTotal: number, gasUsedTimeTotal: number): nu
 
 export function TestsTable({
   tests,
-  runId,
-  suiteHash,
   suiteTests,
   currentPage = 1,
   pageSize = DEFAULT_PAGE_SIZE,
   sortBy = 'order',
   sortDir = 'asc',
   searchQuery = '',
-  expandedTest,
+  statusFilter = 'all',
   onPageChange,
   onPageSizeChange,
   onSortChange,
   onSearchChange,
-  onExpandedChange,
+  onStatusFilterChange,
+  onTestClick,
 }: TestsTableProps) {
   const executionOrder = useMemo(() => {
     if (!suiteTests) return new Map<string, number>()
@@ -122,6 +118,12 @@ export function TestsTable({
       filtered = filtered.filter(([name]) => name.toLowerCase().includes(query))
     }
 
+    if (statusFilter === 'passed') {
+      filtered = filtered.filter(([, entry]) => entry.aggregated.fail === 0)
+    } else if (statusFilter === 'failed') {
+      filtered = filtered.filter(([, entry]) => entry.aggregated.fail > 0)
+    }
+
     return filtered.sort(([a, entryA], [b, entryB]) => {
       let comparison = 0
       if (sortBy === 'order') {
@@ -135,21 +137,19 @@ export function TestsTable({
         const mgasA = calculateMGasPerSec(entryA.aggregated.gas_used_total, entryA.aggregated.gas_used_time_total) ?? -Infinity
         const mgasB = calculateMGasPerSec(entryB.aggregated.gas_used_total, entryB.aggregated.gas_used_time_total) ?? -Infinity
         comparison = mgasA - mgasB
+      } else if (sortBy === 'passed') {
+        comparison = entryA.aggregated.success - entryB.aggregated.success
+      } else if (sortBy === 'failed') {
+        comparison = entryA.aggregated.fail - entryB.aggregated.fail
       } else {
         comparison = a.localeCompare(b)
       }
       return sortDir === 'asc' ? comparison : -comparison
     })
-  }, [tests, searchQuery, executionOrder, sortBy, sortDir])
+  }, [tests, searchQuery, statusFilter, executionOrder, sortBy, sortDir])
 
   const totalPages = Math.ceil(sortedTests.length / pageSize)
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-
-  const toggleExpand = (testName: string) => {
-    if (onExpandedChange) {
-      onExpandedChange(expandedTest === testName ? undefined : testName)
-    }
-  }
 
   const handleSearchInput = (value: string) => {
     if (onSearchChange) {
@@ -186,15 +186,33 @@ export function TestsTable({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-lg/7 font-semibold text-gray-900 dark:text-gray-100">Tests ({sortedTests.length})</h2>
-        <input
-          type="text"
-          placeholder="Search tests..."
-          value={searchQuery}
-          onChange={(e) => handleSearchInput(e.target.value)}
-          className="w-64 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm/6 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-        />
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
+            {(['all', 'passed', 'failed'] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => onStatusFilterChange?.(status)}
+                className={clsx(
+                  'rounded-xs px-2 py-1 text-xs/5 font-medium capitalize transition-colors',
+                  statusFilter === status
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                )}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+          <input
+            type="text"
+            placeholder="Search tests..."
+            value={searchQuery}
+            onChange={(e) => handleSearchInput(e.target.value)}
+            className="w-64 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm/6 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+          />
+        </div>
       </div>
 
       {paginationControls}
@@ -203,7 +221,6 @@ export function TestsTable({
         <table className="min-w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
-              <th className="w-8 px-4 py-3"></th>
               <SortableHeader
                 label="#"
                 column="order"
@@ -215,9 +232,8 @@ export function TestsTable({
               <SortableHeader label="Test" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
               <SortableHeader label="Total Time" column="time" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-28 text-right" />
               <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-24 text-right" />
-              <th className="w-24 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Status
-              </th>
+              <SortableHeader label="Failed" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-16 text-center" />
+              <SortableHeader label="Passed" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-16 text-center" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -227,68 +243,40 @@ export function TestsTable({
               const filename = entry.dir ? testKey.slice(entry.dir.length + 1) : testKey
 
               return (
-                <>
-                  <tr
-                    key={testKey}
-                    onClick={() => toggleExpand(testKey)}
-                    className={clsx(
-                      'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
-                      expandedTest === testKey && 'bg-blue-50 dark:bg-blue-900/20',
+                <tr
+                  key={testKey}
+                  onClick={() => onTestClick?.(testKey)}
+                  className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                >
+                  <td className="whitespace-nowrap px-4 py-3 text-sm/6 font-medium text-gray-500 dark:text-gray-400">
+                    {executionOrder.get(testKey) ?? '-'}
+                  </td>
+                  <td className="max-w-md px-4 py-3">
+                    <div className="truncate text-sm/6 font-medium text-gray-900 dark:text-gray-100" title={filename}>
+                      {filename}
+                    </div>
+                    {entry.dir && (
+                      <div className="truncate text-xs/5 text-gray-500 dark:text-gray-400" title={entry.dir}>
+                        {entry.dir}
+                      </div>
                     )}
-                  >
-                    <td className="px-4 py-3">
-                      <svg
-                        className={clsx('size-4 text-gray-400 transition-transform', expandedTest === testKey && 'rotate-90')}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm/6 font-medium text-gray-500 dark:text-gray-400">
-                      {executionOrder.get(testKey) ?? '-'}
-                    </td>
-                    <td className="max-w-md px-4 py-3">
-                      <div className="truncate text-sm/6 font-medium text-gray-900 dark:text-gray-100" title={filename}>
-                        {filename}
-                      </div>
-                      {entry.dir && (
-                        <div className="truncate text-xs/5 text-gray-500 dark:text-gray-400" title={entry.dir}>
-                          {entry.dir}
-                        </div>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                      <Duration nanoseconds={entry.aggregated.time_total} />
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                      {(() => {
-                        const mgas = calculateMGasPerSec(entry.aggregated.gas_used_total, entry.aggregated.gas_used_time_total)
-                        return mgas !== undefined ? mgas.toFixed(2) : '-'
-                      })()}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        {entry.aggregated.success > 0 && <Badge variant="success">{entry.aggregated.success}</Badge>}
-                        {entry.aggregated.fail > 0 && <Badge variant="error">{entry.aggregated.fail}</Badge>}
-                      </div>
-                    </td>
-                  </tr>
-                  {expandedTest === testKey && (
-                    <tr key={`${testKey}-expanded`}>
-                      <td colSpan={6} className="overflow-hidden bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
-                        <div className="flex flex-col gap-6 overflow-x-auto">
-                          <TimeBreakdown methods={entry.aggregated.method_stats.times} />
-                          <MGasBreakdown methods={entry.aggregated.method_stats.mgas_s} />
-                          {suiteHash && (
-                            <ExecutionsList runId={runId} suiteHash={suiteHash} testName={filename} dir={entry.dir} />
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+                    <Duration nanoseconds={entry.aggregated.time_total} />
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+                    {(() => {
+                      const mgas = calculateMGasPerSec(entry.aggregated.gas_used_total, entry.aggregated.gas_used_time_total)
+                      return mgas !== undefined ? mgas.toFixed(2) : '-'
+                    })()}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-center">
+                    {entry.aggregated.fail > 0 && <Badge variant="error">{entry.aggregated.fail}</Badge>}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-center">
+                    {entry.aggregated.success > 0 && <Badge variant="success">{entry.aggregated.success}</Badge>}
+                  </td>
+                </tr>
               )
             })}
           </tbody>
