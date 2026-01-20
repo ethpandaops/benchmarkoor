@@ -122,6 +122,23 @@ export interface ResultDetails {
   gas_used: Record<string, number> // map of index -> gas used value
 }
 
+// stats.json per suite
+export interface SuiteStats {
+  [testName: string]: TestDurations
+}
+
+export interface TestDurations {
+  durations: RunDuration[]
+}
+
+export interface RunDuration {
+  id: string
+  client: string
+  gas_used: number
+  time_ns: number
+  run_start: number
+}
+
 // summary.json per suite
 export interface SuiteInfo {
   hash: string

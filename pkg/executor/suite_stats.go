@@ -18,16 +18,18 @@ type TestDurations struct {
 
 // RunDuration contains timing information for a single run of a test.
 type RunDuration struct {
-	ID      string `json:"id"`
-	Client  string `json:"client"`
-	GasUsed uint64 `json:"gas_used"`
-	Time    int64  `json:"time_ns"`
+	ID       string `json:"id"`
+	Client   string `json:"client"`
+	GasUsed  uint64 `json:"gas_used"`
+	Time     int64  `json:"time_ns"`
+	RunStart int64  `json:"run_start"`
 }
 
 // runInfo holds information about a run for grouping purposes.
 type runInfo struct {
-	runID  string
-	client string
+	runID     string
+	client    string
+	timestamp int64
 }
 
 // GenerateAllSuiteStats scans the results directory and generates stats for all suites.
@@ -75,8 +77,9 @@ func GenerateAllSuiteStats(resultsDir string) (map[string]*SuiteStats, error) {
 		}
 
 		suiteRuns[runConfig.SuiteHash] = append(suiteRuns[runConfig.SuiteHash], runInfo{
-			runID:  runID,
-			client: runConfig.Instance.Client,
+			runID:     runID,
+			client:    runConfig.Instance.Client,
+			timestamp: runConfig.Timestamp,
 		})
 	}
 
@@ -127,10 +130,11 @@ func buildSuiteStats(runsDir string, runs []runInfo) (*SuiteStats, error) {
 			}
 
 			stats[testName].Durations = append(stats[testName].Durations, &RunDuration{
-				ID:      run.runID,
-				Client:  run.client,
-				GasUsed: testEntry.Aggregated.GasUsedTotal,
-				Time:    testEntry.Aggregated.GasUsedTimeTotal,
+				ID:       run.runID,
+				Client:   run.client,
+				GasUsed:  testEntry.Aggregated.GasUsedTotal,
+				Time:     testEntry.Aggregated.GasUsedTimeTotal,
+				RunStart: run.timestamp,
 			})
 		}
 	}
