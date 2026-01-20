@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Link, useParams, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { fetchText } from '@/api/client'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -123,6 +125,203 @@ function DownloadButton({ content, filename }: { content: string; filename: stri
   )
 }
 
+// ANSI escape code pattern
+const ANSI_REGEX = /\x1b\[[0-9;]*m/g
+
+function hasAnsiCodes(content: string): boolean {
+  // Check first 10 lines for ANSI escape codes
+  const first10Lines = content.split('\n').slice(0, 10).join('\n')
+  return ANSI_REGEX.test(first10Lines)
+}
+
+function detectLanguage(content: string): string {
+  // Check first few lines to detect content type
+  const sample = content.slice(0, 2000)
+
+  // JSON detection
+  if (sample.trim().startsWith('{') || sample.trim().startsWith('[')) {
+    return 'json'
+  }
+
+  // YAML detection
+  if (/^[\w-]+:\s/m.test(sample)) {
+    return 'yaml'
+  }
+
+  // Default to bash for general log output (handles timestamps, log levels, etc.)
+  return 'bash'
+}
+
+// ANSI color code to CSS color mapping
+const ANSI_COLORS: Record<number, string> = {
+  30: '#1e1e1e', // black
+  31: '#e06c75', // red
+  32: '#98c379', // green
+  33: '#e5c07b', // yellow
+  34: '#61afef', // blue
+  35: '#c678dd', // magenta
+  36: '#56b6c2', // cyan
+  37: '#abb2bf', // white
+  90: '#5c6370', // bright black (gray)
+  91: '#e06c75', // bright red
+  92: '#98c379', // bright green
+  93: '#e5c07b', // bright yellow
+  94: '#61afef', // bright blue
+  95: '#c678dd', // bright magenta
+  96: '#56b6c2', // bright cyan
+  97: '#ffffff', // bright white
+}
+
+const ANSI_BG_COLORS: Record<number, string> = {
+  40: '#1e1e1e',
+  41: '#e06c75',
+  42: '#98c379',
+  43: '#e5c07b',
+  44: '#61afef',
+  45: '#c678dd',
+  46: '#56b6c2',
+  47: '#abb2bf',
+  100: '#5c6370',
+  101: '#e06c75',
+  102: '#98c379',
+  103: '#e5c07b',
+  104: '#61afef',
+  105: '#c678dd',
+  106: '#56b6c2',
+  107: '#ffffff',
+}
+
+interface AnsiStyle {
+  color?: string
+  backgroundColor?: string
+  fontWeight?: string
+  fontStyle?: string
+  textDecoration?: string
+}
+
+function parseAnsiCodes(codes: number[]): AnsiStyle {
+  const style: AnsiStyle = {}
+
+  for (const code of codes) {
+    if (code === 0) {
+      // Reset
+      return {}
+    } else if (code === 1) {
+      style.fontWeight = 'bold'
+    } else if (code === 3) {
+      style.fontStyle = 'italic'
+    } else if (code === 4) {
+      style.textDecoration = 'underline'
+    } else if (code >= 30 && code <= 37) {
+      style.color = ANSI_COLORS[code]
+    } else if (code >= 40 && code <= 47) {
+      style.backgroundColor = ANSI_BG_COLORS[code]
+    } else if (code >= 90 && code <= 97) {
+      style.color = ANSI_COLORS[code]
+    } else if (code >= 100 && code <= 107) {
+      style.backgroundColor = ANSI_BG_COLORS[code]
+    }
+  }
+
+  return style
+}
+
+function AnsiLine({ content }: { content: string }) {
+  if (!content) {
+    return <span>&nbsp;</span>
+  }
+
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+  let currentStyle: AnsiStyle = {}
+  let partKey = 0
+
+  // Reset regex lastIndex
+  const regex = /\x1b\[([0-9;]*)m/g
+  let match
+
+  while ((match = regex.exec(content)) !== null) {
+    // Add text before this escape code
+    if (match.index > lastIndex) {
+      const text = content.slice(lastIndex, match.index)
+      if (text) {
+        parts.push(
+          <span key={partKey++} style={currentStyle}>
+            {text}
+          </span>
+        )
+      }
+    }
+
+    // Parse the ANSI codes
+    const codesStr = match[1]
+    if (codesStr === '' || codesStr === '0') {
+      currentStyle = {}
+    } else {
+      const codes = codesStr.split(';').map(Number)
+      const newStyle = parseAnsiCodes(codes)
+      currentStyle = { ...currentStyle, ...newStyle }
+      // Reset if 0 is in the codes
+      if (codes.includes(0)) {
+        currentStyle = parseAnsiCodes(codes.filter((c) => c !== 0))
+      }
+    }
+
+    lastIndex = regex.lastIndex
+  }
+
+  // Add remaining text
+  if (lastIndex < content.length) {
+    const text = content.slice(lastIndex)
+    if (text) {
+      parts.push(
+        <span key={partKey++} style={currentStyle}>
+          {text}
+        </span>
+      )
+    }
+  }
+
+  return <>{parts.length > 0 ? parts : content}</>
+}
+
+function HighlightedLine({ content, language }: { content: string; language: string }) {
+  if (!content) {
+    return <span>&nbsp;</span>
+  }
+
+  return (
+    <SyntaxHighlighter
+      language={language}
+      style={oneDark}
+      customStyle={{
+        margin: 0,
+        padding: 0,
+        background: 'transparent',
+        fontSize: 'inherit',
+        lineHeight: 'inherit',
+      }}
+      codeTagProps={{
+        style: {
+          fontSize: 'inherit',
+          lineHeight: 'inherit',
+        },
+      }}
+      PreTag="span"
+      CodeTag="span"
+    >
+      {content}
+    </SyntaxHighlighter>
+  )
+}
+
+function LogLine({ content, language, useAnsi }: { content: string; language: string; useAnsi: boolean }) {
+  if (useAnsi) {
+    return <AnsiLine content={content} />
+  }
+  return <HighlightedLine content={content} language={language} />
+}
+
 export function LogViewerPage() {
   const { runId } = useParams({ from: '/runs/$runId/logs' })
   const navigate = useNavigate()
@@ -193,6 +392,9 @@ export function LogViewerPage() {
     [selectedLines, lastClickedLine, updateSelectedLines]
   )
 
+  const useAnsi = useMemo(() => logContent ? hasAnsiCodes(logContent) : false, [logContent])
+  const language = useMemo(() => logContent ? detectLanguage(logContent) : 'bash', [logContent])
+
   // Scroll to first selected line on initial load
   useEffect(() => {
     if (logContent && selectedLines.size > 0 && !hasScrolledRef.current) {
@@ -260,7 +462,7 @@ export function LogViewerPage() {
         <span className="font-mono text-gray-900 dark:text-gray-100">{filename}</span>
       </div>
 
-      <div className="overflow-hidden rounded-sm bg-gray-900 shadow-xs">
+      <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen overflow-hidden bg-gray-900 shadow-xs">
         <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
           <div className="flex items-center gap-3">
             <h3 className="font-mono text-sm/6 font-medium text-gray-100">{filename}</h3>
@@ -299,7 +501,7 @@ export function LogViewerPage() {
                       {lineNum}
                     </td>
                     <td className="whitespace-pre-wrap break-all py-0.5 pr-4 font-mono text-xs/5 text-gray-100">
-                      {line}
+                      <LogLine content={line} language={language} useAnsi={useAnsi} />
                     </td>
                   </tr>
                 )
