@@ -22,12 +22,11 @@ export function RunDetailPage() {
     sortBy?: TestSortColumn
     sortDir?: TestSortDirection
     q?: string
-    expanded?: string
     testModal?: string
   }
   const page = Number(search.page) || 1
   const pageSize = Number(search.pageSize) || 20
-  const { sortBy = 'order', sortDir = 'asc', q = '', expanded, testModal } = search
+  const { sortBy = 'order', sortDir = 'asc', q = '', testModal } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
@@ -40,7 +39,7 @@ export function RunDetailPage() {
     navigate({
       to: '/runs/$runId',
       params: { runId },
-      search: { page, pageSize, sortBy, sortDir, q: q || undefined, expanded, testModal, ...updates },
+      search: { page, pageSize, sortBy, sortDir, q: q || undefined, testModal, ...updates },
     })
   }
 
@@ -60,12 +59,8 @@ export function RunDetailPage() {
     updateSearch({ q: query || undefined, page: 1 })
   }
 
-  const handleExpandedChange = (testName: string | undefined) => {
-    updateSearch({ expanded: testName })
-  }
-
   const handleTestModalChange = (testName: string | undefined) => {
-    updateSearch({ testModal: testName, expanded: testName })
+    updateSearch({ testModal: testName })
   }
 
   if (isLoading) {
@@ -203,20 +198,17 @@ export function RunDetailPage() {
       <RunConfiguration instance={config.instance} system={config.system} />
       <TestsTable
         tests={result.tests}
-        runId={runId}
-        suiteHash={config.suite_hash}
         suiteTests={suite?.tests}
         currentPage={page}
         pageSize={pageSize}
         sortBy={sortBy}
         sortDir={sortDir}
         searchQuery={q}
-        expandedTest={expanded}
         onPageChange={handlePageChange}
         onPageSizeChange={handlePageSizeChange}
         onSortChange={handleSortChange}
         onSearchChange={handleSearchChange}
-        onExpandedChange={handleExpandedChange}
+        onTestClick={handleTestModalChange}
       />
     </div>
   )
