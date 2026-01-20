@@ -86,6 +86,8 @@ interface ChartSectionProps {
 }
 
 function ChartSection({ title, option, onZoom, onPointClick, highlightedTestRef }: ChartSectionProps) {
+  const mouseDownPos = useRef<{ x: number; y: number } | null>(null)
+
   const onEvents = useMemo(
     () => ({
       datazoom: (params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
@@ -100,16 +102,36 @@ function ChartSection({ title, option, onZoom, onPointClick, highlightedTestRef 
     [onZoom],
   )
 
-  const handleContainerClick = useCallback(() => {
-    if (onPointClick && highlightedTestRef.current) {
-      onPointClick(highlightedTestRef.current)
-    }
-  }, [onPointClick, highlightedTestRef])
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    mouseDownPos.current = { x: e.clientX, y: e.clientY }
+  }, [])
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      // Only trigger click if mouse didn't move (not a drag)
+      if (mouseDownPos.current) {
+        const dx = Math.abs(e.clientX - mouseDownPos.current.x)
+        const dy = Math.abs(e.clientY - mouseDownPos.current.y)
+        if (dx > 5 || dy > 5) {
+          // It was a drag, not a click
+          return
+        }
+      }
+      if (onPointClick && highlightedTestRef.current) {
+        onPointClick(highlightedTestRef.current)
+      }
+    },
+    [onPointClick, highlightedTestRef],
+  )
 
   return (
     <div className="rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
       <h4 className="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">{title}</h4>
-      <div onClick={handleContainerClick} style={{ cursor: onPointClick ? 'pointer' : 'default' }}>
+      <div
+        onMouseDown={handleMouseDown}
+        onClick={handleClick}
+        style={{ cursor: onPointClick ? 'pointer' : 'default' }}
+      >
         <ReactECharts
           option={option}
           style={{ height: '200px', width: '100%' }}
@@ -263,6 +285,15 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
             color: textColor,
           },
           labelFormatter: (value: number) => `#${Math.round(value)}`,
+        },
+        {
+          type: 'inside' as const,
+          xAxisIndex: 0,
+          start: zoomRange.start,
+          end: zoomRange.end,
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: false,
         },
       ],
     }
