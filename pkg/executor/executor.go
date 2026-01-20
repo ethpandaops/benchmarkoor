@@ -311,6 +311,8 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
+	// Increase buffer size to 50MB to handle large JSON-RPC payloads
+	scanner.Buffer(make([]byte, 64*1024), 50*1024*1024)
 	lineNum := 0
 
 	for scanner.Scan() {
