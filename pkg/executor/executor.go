@@ -11,8 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
+	"github.com/ethpandaops/benchmarkoor/pkg/stats"
 	"github.com/sirupsen/logrus"
 )
 
@@ -34,6 +36,8 @@ type ExecuteOptions struct {
 	JWT            string
 	ResultsDir     string
 	Filter         string
+	ContainerID    string         // Container ID for stats collection.
+	DockerClient   *client.Client // Docker client for fallback stats reader.
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -62,13 +66,14 @@ func NewExecutor(log logrus.FieldLogger, cfg *Config) Executor {
 }
 
 type executor struct {
-	log        logrus.FieldLogger
-	cfg        *Config
-	source     Source
-	testsPath  string
-	warmupPath string
-	suiteHash  string
-	validator  jsonrpc.Validator
+	log         logrus.FieldLogger
+	cfg         *Config
+	source      Source
+	testsPath   string
+	warmupPath  string
+	suiteHash   string
+	validator   jsonrpc.Validator
+	statsReader stats.Reader
 }
 
 // Ensure interface compliance.
@@ -177,6 +182,25 @@ func (e *executor) GetSuiteHash() string {
 // ExecuteTests runs all tests against the specified Engine API endpoint.
 func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*ExecutionResult, error) {
 	startTime := time.Now()
+
+	// Create stats reader if container ID is provided.
+	if opts.ContainerID != "" {
+		reader, err := stats.NewReader(e.log, opts.DockerClient, opts.ContainerID)
+		if err != nil {
+			e.log.WithError(err).Warn("Failed to create stats reader, continuing without resource metrics")
+		} else {
+			e.statsReader = reader
+			defer func() {
+				if closeErr := reader.Close(); closeErr != nil {
+					e.log.WithError(closeErr).Debug("Failed to close stats reader")
+				}
+
+				e.statsReader = nil
+			}()
+
+			e.log.WithField("type", reader.Type()).Info("Stats reader initialized")
+		}
+	}
 
 	// Combine filter from config and options.
 	filter := e.cfg.Filter
@@ -312,14 +336,14 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 			}).WithError(err).Warn("Failed to parse JSON-RPC payload")
 
 			if result != nil {
-				result.AddResult("unknown", line, "", 0, false)
+				result.AddResult("unknown", line, "", 0, false, nil)
 			}
 
 			continue
 		}
 
 		// Execute RPC call.
-		response, elapsed, err := e.executeRPC(ctx, opts.EngineEndpoint, opts.JWT, line)
+		response, elapsed, resourceDelta, err := e.executeRPC(ctx, opts.EngineEndpoint, opts.JWT, line)
 		succeeded := err == nil
 
 		if err != nil {
@@ -352,7 +376,7 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 		}
 
 		if result != nil {
-			result.AddResult(method, line, response, elapsed, succeeded)
+			result.AddResult(method, line, response, elapsed, succeeded, resourceDelta)
 		}
 	}
 
@@ -364,37 +388,65 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 }
 
 // executeRPC executes a single JSON-RPC call against the Engine API.
-func (e *executor) executeRPC(ctx context.Context, endpoint, jwt, payload string) (string, int64, error) {
+// Returns the response body, elapsed time in nanoseconds, resource delta, and error.
+func (e *executor) executeRPC(
+	ctx context.Context,
+	endpoint, jwt, payload string,
+) (string, int64, *ResourceDelta, error) {
 	token, err := GenerateJWTToken(jwt)
 	if err != nil {
-		return "", 0, fmt.Errorf("generating JWT: %w", err)
+		return "", 0, nil, fmt.Errorf("generating JWT: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
 		strings.NewReader(payload))
 	if err != nil {
-		return "", 0, fmt.Errorf("creating request: %w", err)
+		return "", 0, nil, fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
+	// Read stats BEFORE the request (if reader available).
+	var beforeStats *stats.Stats
+	if e.statsReader != nil {
+		beforeStats, _ = e.statsReader.ReadStats()
+	}
+
 	start := time.Now()
 	resp, err := http.DefaultClient.Do(req)
 	elapsed := time.Since(start).Nanoseconds()
 
+	// Read stats AFTER and compute delta.
+	var delta *ResourceDelta
+	if e.statsReader != nil && beforeStats != nil {
+		if afterStats, readErr := e.statsReader.ReadStats(); readErr == nil {
+			statsDelta := stats.ComputeDelta(beforeStats, afterStats)
+			if statsDelta != nil {
+				delta = &ResourceDelta{
+					MemoryDelta:    statsDelta.MemoryDelta,
+					CPUDeltaUsec:   statsDelta.CPUDeltaUsec,
+					DiskReadBytes:  statsDelta.DiskReadBytes,
+					DiskWriteBytes: statsDelta.DiskWriteBytes,
+					DiskReadOps:    statsDelta.DiskReadOps,
+					DiskWriteOps:   statsDelta.DiskWriteOps,
+				}
+			}
+		}
+	}
+
 	if err != nil {
-		return "", elapsed, fmt.Errorf("executing request: %w", err)
+		return "", elapsed, delta, fmt.Errorf("executing request: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", elapsed, fmt.Errorf("reading response: %w", err)
+		return "", elapsed, delta, fmt.Errorf("reading response: %w", err)
 	}
 
-	return strings.TrimSpace(string(body)), elapsed, nil
+	return strings.TrimSpace(string(body)), elapsed, delta, nil
 }
 
 // rpcRequest is used to parse the method from a JSON-RPC request.

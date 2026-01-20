@@ -104,21 +104,46 @@ func (m *MethodStatsFloat) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// ResourceDelta contains resource usage delta for a single RPC call.
+type ResourceDelta struct {
+	MemoryDelta    int64  `json:"memory_delta_bytes"`
+	CPUDeltaUsec   uint64 `json:"cpu_delta_usec"`
+	DiskReadBytes  uint64 `json:"disk_read_bytes"`
+	DiskWriteBytes uint64 `json:"disk_write_bytes"`
+	DiskReadOps    uint64 `json:"disk_read_iops"`
+	DiskWriteOps   uint64 `json:"disk_write_iops"`
+}
+
+// MethodResourceStats contains aggregated resource statistics for a method.
+type MethodResourceStats struct {
+	CPUUsec        *MethodStats `json:"cpu_usec,omitempty"`
+	DiskReadBytes  *MethodStats `json:"disk_read_bytes,omitempty"`
+	DiskWriteBytes *MethodStats `json:"disk_write_bytes,omitempty"`
+	DiskReadOps    *MethodStats `json:"disk_read_iops,omitempty"`
+	DiskWriteOps   *MethodStats `json:"disk_write_iops,omitempty"`
+}
+
 // MethodsAggregated contains aggregated stats for both times and MGas/s.
 type MethodsAggregated struct {
-	Times      map[string]*MethodStats      `json:"times"`
-	MGasPerSec map[string]*MethodStatsFloat `json:"mgas_s"`
+	Times      map[string]*MethodStats         `json:"times"`
+	MGasPerSec map[string]*MethodStatsFloat    `json:"mgas_s"`
+	Resources  map[string]*MethodResourceStats `json:"resources,omitempty"`
 }
 
 // AggregatedStats contains the full aggregated output.
 type AggregatedStats struct {
-	TotalTime        int64              `json:"time_total"`
-	GasUsedTotal     uint64             `json:"gas_used_total"`
-	GasUsedTimeTotal int64              `json:"gas_used_time_total"`
-	Succeeded        int                `json:"success"`
-	Failed           int                `json:"fail"`
-	TotalMsgs        int                `json:"msg_count"`
-	MethodStats      *MethodsAggregated `json:"method_stats"`
+	TotalTime         int64              `json:"time_total"`
+	GasUsedTotal      uint64             `json:"gas_used_total"`
+	GasUsedTimeTotal  int64              `json:"gas_used_time_total"`
+	Succeeded         int                `json:"success"`
+	Failed            int                `json:"fail"`
+	TotalMsgs         int                `json:"msg_count"`
+	TotalCPUUsec      uint64             `json:"cpu_usec_total,omitempty"`
+	TotalDiskRead     uint64             `json:"disk_read_total,omitempty"`
+	TotalDiskWrite    uint64             `json:"disk_write_total,omitempty"`
+	TotalDiskReadOps  uint64             `json:"disk_read_iops_total,omitempty"`
+	TotalDiskWriteOps uint64             `json:"disk_write_iops_total,omitempty"`
+	MethodStats       *MethodsAggregated `json:"method_stats"`
 }
 
 // TestEntry contains the result entry for a single test in the run result.
@@ -134,42 +159,60 @@ type RunResult struct {
 
 // TestResult contains results for a single test file execution.
 type TestResult struct {
-	TestFile         string
-	Responses        []string
-	Times            []int64
-	Statuses         []int // 0=success, 1=fail
-	MGasPerSec       map[int]float64
-	GasUsed          map[int]uint64
-	MethodTimes      map[string][]int64
-	MethodMGasPerSec map[string][]float64
-	Succeeded        int
-	Failed           int
+	TestFile             string
+	Responses            []string
+	Times                []int64
+	Statuses             []int // 0=success, 1=fail
+	MGasPerSec           map[int]float64
+	GasUsed              map[int]uint64
+	Resources            map[int]*ResourceDelta
+	MethodTimes          map[string][]int64
+	MethodMGasPerSec     map[string][]float64
+	MethodCPUUsec        map[string][]int64
+	MethodDiskReadBytes  map[string][]int64
+	MethodDiskWriteBytes map[string][]int64
+	MethodDiskReadOps    map[string][]int64
+	MethodDiskWriteOps   map[string][]int64
+	Succeeded            int
+	Failed               int
 }
 
 // ResultDetails contains per-call timing and status for JSON output.
 type ResultDetails struct {
-	DurationNS []int64         `json:"duration_ns"`
-	Status     []int           `json:"status"`
-	MGasPerSec map[int]float64 `json:"mgas_s"`
-	GasUsed    map[int]uint64  `json:"gas_used"`
+	DurationNS []int64                `json:"duration_ns"`
+	Status     []int                  `json:"status"`
+	MGasPerSec map[int]float64        `json:"mgas_s"`
+	GasUsed    map[int]uint64         `json:"gas_used"`
+	Resources  map[int]*ResourceDelta `json:"resources,omitempty"`
 }
 
 // NewTestResult creates a new TestResult.
 func NewTestResult(testFile string) *TestResult {
 	return &TestResult{
-		TestFile:         testFile,
-		Responses:        make([]string, 0),
-		Times:            make([]int64, 0),
-		Statuses:         make([]int, 0),
-		MGasPerSec:       make(map[int]float64),
-		GasUsed:          make(map[int]uint64),
-		MethodTimes:      make(map[string][]int64),
-		MethodMGasPerSec: make(map[string][]float64),
+		TestFile:             testFile,
+		Responses:            make([]string, 0),
+		Times:                make([]int64, 0),
+		Statuses:             make([]int, 0),
+		MGasPerSec:           make(map[int]float64),
+		GasUsed:              make(map[int]uint64),
+		Resources:            make(map[int]*ResourceDelta),
+		MethodTimes:          make(map[string][]int64),
+		MethodMGasPerSec:     make(map[string][]float64),
+		MethodCPUUsec:        make(map[string][]int64),
+		MethodDiskReadBytes:  make(map[string][]int64),
+		MethodDiskWriteBytes: make(map[string][]int64),
+		MethodDiskReadOps:    make(map[string][]int64),
+		MethodDiskWriteOps:   make(map[string][]int64),
 	}
 }
 
 // AddResult adds a single RPC call result.
-func (r *TestResult) AddResult(method, request, response string, elapsed int64, succeeded bool) {
+func (r *TestResult) AddResult(
+	method, request, response string,
+	elapsed int64,
+	succeeded bool,
+	resources *ResourceDelta,
+) {
 	// Get position before appending.
 	pos := len(r.Times)
 
@@ -183,6 +226,16 @@ func (r *TestResult) AddResult(method, request, response string, elapsed int64, 
 	}
 
 	r.Statuses = append(r.Statuses, status)
+
+	// Store resource delta if available.
+	if resources != nil {
+		r.Resources[pos] = resources
+		r.MethodCPUUsec[method] = append(r.MethodCPUUsec[method], int64(resources.CPUDeltaUsec))
+		r.MethodDiskReadBytes[method] = append(r.MethodDiskReadBytes[method], int64(resources.DiskReadBytes))
+		r.MethodDiskWriteBytes[method] = append(r.MethodDiskWriteBytes[method], int64(resources.DiskWriteBytes))
+		r.MethodDiskReadOps[method] = append(r.MethodDiskReadOps[method], int64(resources.DiskReadOps))
+		r.MethodDiskWriteOps[method] = append(r.MethodDiskWriteOps[method], int64(resources.DiskWriteOps))
+	}
 
 	// Calculate MGas/s for successful engine_newPayload calls.
 	if succeeded && strings.HasPrefix(method, "engine_newPayload") {
@@ -245,8 +298,20 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 		if g == 0 {
 			continue
 		}
+
 		stats.GasUsedTotal += g
 		stats.GasUsedTimeTotal += r.Times[idx]
+	}
+
+	// Aggregate resource metrics.
+	for _, res := range r.Resources {
+		if res != nil {
+			stats.TotalCPUUsec += res.CPUDeltaUsec
+			stats.TotalDiskRead += res.DiskReadBytes
+			stats.TotalDiskWrite += res.DiskWriteBytes
+			stats.TotalDiskReadOps += res.DiskReadOps
+			stats.TotalDiskWriteOps += res.DiskWriteOps
+		}
 	}
 
 	for method, times := range r.MethodTimes {
@@ -255,6 +320,37 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 
 	for method, values := range r.MethodMGasPerSec {
 		stats.MethodStats.MGasPerSec[method] = calculateMethodStatsFloat(values)
+	}
+
+	// Aggregate per-method resource stats.
+	if len(r.MethodCPUUsec) > 0 {
+		stats.MethodStats.Resources = make(map[string]*MethodResourceStats, len(r.MethodCPUUsec))
+
+		for method := range r.MethodCPUUsec {
+			resStats := &MethodResourceStats{}
+
+			if cpuUsec, ok := r.MethodCPUUsec[method]; ok && len(cpuUsec) > 0 {
+				resStats.CPUUsec = calculateMethodStats(cpuUsec)
+			}
+
+			if diskRead, ok := r.MethodDiskReadBytes[method]; ok && len(diskRead) > 0 {
+				resStats.DiskReadBytes = calculateMethodStats(diskRead)
+			}
+
+			if diskWrite, ok := r.MethodDiskWriteBytes[method]; ok && len(diskWrite) > 0 {
+				resStats.DiskWriteBytes = calculateMethodStats(diskWrite)
+			}
+
+			if readOps, ok := r.MethodDiskReadOps[method]; ok && len(readOps) > 0 {
+				resStats.DiskReadOps = calculateMethodStats(readOps)
+			}
+
+			if writeOps, ok := r.MethodDiskWriteOps[method]; ok && len(writeOps) > 0 {
+				resStats.DiskWriteOps = calculateMethodStats(writeOps)
+			}
+
+			stats.MethodStats.Resources[method] = resStats
+		}
 	}
 
 	return stats
@@ -377,6 +473,7 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 		Status:     result.Statuses,
 		MGasPerSec: result.MGasPerSec,
 		GasUsed:    result.GasUsed,
+		Resources:  result.Resources,
 	}
 
 	detailsJSON, err := json.MarshalIndent(details, "", "  ")

@@ -549,6 +549,8 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			JWT:            r.cfg.JWT,
 			ResultsDir:     runResultsDir,
 			Filter:         r.cfg.TestFilter,
+			ContainerID:    containerID,
+			DockerClient:   r.docker.GetClient(),
 		}
 
 		result, err := r.executor.ExecuteTests(ctx, execOpts)
