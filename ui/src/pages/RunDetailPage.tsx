@@ -2,8 +2,7 @@ import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
-import { SystemInfo } from '@/components/run-detail/SystemInfo'
-import { InstanceConfig } from '@/components/run-detail/InstanceConfig'
+import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
 import { TestsTable, type TestSortColumn, type TestSortDirection } from '@/components/run-detail/TestsTable'
 import { TestHeatmap } from '@/components/run-detail/TestHeatmap'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -195,10 +194,7 @@ export function RunDetailPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <InstanceConfig instance={config.instance} />
-        <SystemInfo system={config.system} />
-      </div>
+      <RunConfiguration instance={config.instance} system={config.system} />
       <TestsTable
         tests={result.tests}
         runId={runId}
