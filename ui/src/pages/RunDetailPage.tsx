@@ -195,8 +195,10 @@ export function RunDetailPage() {
         />
       </div>
 
-      <SystemInfo system={config.system} />
-      <InstanceConfig instance={config.instance} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <InstanceConfig instance={config.instance} />
+        <SystemInfo system={config.system} />
+      </div>
       <TestsTable
         tests={result.tests}
         runId={runId}
