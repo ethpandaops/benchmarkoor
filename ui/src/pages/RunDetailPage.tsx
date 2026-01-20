@@ -285,7 +285,11 @@ export function RunDetailPage() {
         />
       </div>
 
-      <ResourceUsageCharts tests={result.tests} onTestClick={handleTestModalChange} />
+      <ResourceUsageCharts
+        tests={result.tests}
+        onTestClick={handleTestModalChange}
+        resourceCollectionMethod={config.system_resource_collection_method}
+      />
 
       <TestsTable
         tests={result.tests}

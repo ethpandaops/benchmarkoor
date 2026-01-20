@@ -26,6 +26,7 @@ export interface IndexEntry {
 export interface RunConfig {
   timestamp: number
   suite_hash?: string
+  system_resource_collection_method?: string // "cgroupv2" or "dockerstats"
   system: SystemInfo
   instance: InstanceConfig
 }

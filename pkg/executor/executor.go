@@ -42,10 +42,11 @@ type ExecuteOptions struct {
 
 // ExecutionResult contains the overall execution summary.
 type ExecutionResult struct {
-	TotalTests    int
-	Passed        int
-	Failed        int
-	TotalDuration time.Duration
+	TotalTests      int
+	Passed          int
+	Failed          int
+	TotalDuration   time.Duration
+	StatsReaderType string // "cgroupv2", "dockerstats", or empty if not available
 }
 
 // Config for the executor.
@@ -250,6 +251,18 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	// Run actual tests with result collection.
 	result := &ExecutionResult{
 		TotalTests: len(tests),
+	}
+
+	// Set stats reader type if available.
+	if e.statsReader != nil {
+		switch e.statsReader.Type() {
+		case "cgroup":
+			result.StatsReaderType = "cgroupv2"
+		case "docker":
+			result.StatsReaderType = "dockerstats"
+		default:
+			result.StatsReaderType = e.statsReader.Type()
+		}
 	}
 
 	for _, test := range tests {

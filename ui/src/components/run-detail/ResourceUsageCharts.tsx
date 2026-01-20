@@ -20,6 +20,7 @@ function useDarkMode() {
 interface ResourceUsageChartsProps {
   tests: Record<string, TestEntry>
   onTestClick?: (testName: string) => void
+  resourceCollectionMethod?: string
 }
 
 interface ResourceDataPoint {
@@ -120,7 +121,7 @@ function ChartSection({ title, option, onZoom, onPointClick, highlightedTestRef 
   )
 }
 
-export function ResourceUsageCharts({ tests, onTestClick }: ResourceUsageChartsProps) {
+export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMethod }: ResourceUsageChartsProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const highlightedTestRef = useRef<string | null>(null)
@@ -460,7 +461,26 @@ export function ResourceUsageCharts({ tests, onTestClick }: ResourceUsageChartsP
 
   return (
     <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-      <h3 className="mb-4 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Resource Usage</h3>
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Resource Usage</h3>
+        {resourceCollectionMethod && (
+          <span className="text-xs/5 text-gray-500 dark:text-gray-400">
+            Collection via{' '}
+            <span
+              className="cursor-help rounded-xs bg-gray-100 px-1.5 py-0.5 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+              title={
+                resourceCollectionMethod === 'cgroupv2'
+                  ? 'Metrics collected directly from Linux cgroup v2 filesystem (low overhead, high precision)'
+                  : resourceCollectionMethod === 'dockerstats'
+                    ? 'Metrics collected via Docker Stats API (fallback when cgroup access is unavailable)'
+                    : undefined
+              }
+            >
+              {resourceCollectionMethod}
+            </span>
+          </span>
+        )}
+      </div>
 
       {/* Summary Stats Row */}
       <div className="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-6">

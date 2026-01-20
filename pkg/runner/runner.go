@@ -64,10 +64,11 @@ type Config struct {
 
 // RunConfig contains configuration for a single test run.
 type RunConfig struct {
-	Timestamp int64             `json:"timestamp"`
-	SuiteHash string            `json:"suite_hash,omitempty"`
-	System    *SystemInfo       `json:"system"`
-	Instance  *ResolvedInstance `json:"instance"`
+	Timestamp                      int64             `json:"timestamp"`
+	SuiteHash                      string            `json:"suite_hash,omitempty"`
+	SystemResourceCollectionMethod string            `json:"system_resource_collection_method,omitempty"`
+	System                         *SystemInfo       `json:"system"`
+	Instance                       *ResolvedInstance `json:"instance"`
 }
 
 // SystemInfo contains system hardware and OS information.
@@ -563,6 +564,14 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 				"failed":   result.Failed,
 				"duration": result.TotalDuration,
 			}).Info("Test execution completed")
+
+			// Update config with stats reader type if available.
+			if result.StatsReaderType != "" {
+				runConfig.SystemResourceCollectionMethod = result.StatsReaderType
+				if err := writeRunConfig(runResultsDir, runConfig); err != nil {
+					log.WithError(err).Warn("Failed to update run config with stats reader type")
+				}
+			}
 		}
 	}
 
