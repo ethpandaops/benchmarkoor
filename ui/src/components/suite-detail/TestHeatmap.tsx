@@ -7,6 +7,7 @@ import { Pagination } from '@/components/shared/Pagination'
 import { formatTimestamp } from '@/utils/date'
 
 const DEFAULT_PAGE_SIZE = 20
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
 const DEFAULT_RUNS_PER_CLIENT = 5
 const RUNS_PER_CLIENT_OPTIONS = [5, 10, 15, 20, 25] as const
 const BOXES_PER_ROW = 5
@@ -98,15 +99,15 @@ interface TestHeatmapProps {
   stats: SuiteStats
   testFiles?: SuiteFile[]
   isDark: boolean
-  pageSize?: number
 }
 
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | 'avgMgas'
 
-export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_SIZE }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [sortField, setSortField] = useState<SortField>('avgMgas')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
@@ -286,6 +287,11 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
     setCurrentPage(page)
   }
 
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size)
+    setCurrentPage(1) // Reset to first page when page size changes
+  }
+
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
@@ -401,6 +407,27 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
                   'px-2 py-0.5 text-xs/5 transition-colors first:rounded-l-sm last:rounded-r-sm',
                   !showClientStat && 'opacity-50',
                   option === statDisplay
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+                )}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Page size selector */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Per page:</span>
+          <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
+            {PAGE_SIZE_OPTIONS.map((option) => (
+              <button
+                key={option}
+                onClick={() => handlePageSizeChange(option)}
+                className={clsx(
+                  'px-2 py-0.5 text-xs/5 transition-colors first:rounded-l-sm last:rounded-r-sm',
+                  option === pageSize
                     ? 'bg-blue-500 text-white'
                     : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
                 )}
