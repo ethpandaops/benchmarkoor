@@ -113,7 +113,6 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
   const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
   const [statDisplay, setStatDisplay] = useState<StatDisplayType>('Avg')
   const [showClientStat, setShowClientStat] = useState(true)
-  const [distributionStat, setDistributionStat] = useState<DistributionStatType>('Avg')
   const [statColumnType, setStatColumnType] = useState<DistributionStatType>('Avg')
 
   const { allTests, clients } = useMemo(() => {
@@ -250,7 +249,7 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
     const bins = Array(binMultipliers.length).fill(0) as number[]
 
     for (const test of allTests) {
-      const statValue = distributionStat === 'Avg' ? test.avgMgas : test.minMgas
+      const statValue = statColumnType === 'Avg' ? test.avgMgas : test.minMgas
       const ratio = statValue / threshold
       let binIndex = binMultipliers.findIndex((_, i) => {
         const next = binMultipliers[i + 1]
@@ -278,10 +277,10 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
         color: getColorByThreshold(midpoint, threshold),
       }
     })
-  }, [allTests, threshold, distributionStat])
+  }, [allTests, threshold, statColumnType])
 
-  const slowCount = allTests.filter((t) => (distributionStat === 'Avg' ? t.avgMgas : t.minMgas) < threshold).length
-  const fastCount = allTests.filter((t) => (distributionStat === 'Avg' ? t.avgMgas : t.minMgas) >= threshold).length
+  const slowCount = allTests.filter((t) => (statColumnType === 'Avg' ? t.avgMgas : t.minMgas) < threshold).length
+  const fastCount = allTests.filter((t) => (statColumnType === 'Avg' ? t.avgMgas : t.minMgas) >= threshold).length
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
@@ -579,25 +578,7 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
       {/* Distribution Histogram */}
       {histogramData.length > 0 && (
         <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution by threshold</span>
-            <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
-              {DISTRIBUTION_STAT_OPTIONS.map((option) => (
-                <button
-                  key={option}
-                  onClick={() => setDistributionStat(option)}
-                  className={clsx(
-                    'px-2 py-0.5 text-xs/5 transition-colors first:rounded-l-sm last:rounded-r-sm',
-                    option === distributionStat
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
-                  )}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-          </div>
+          <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution by threshold</span>
           <div className="flex items-end gap-1">
             <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
               <span className="text-xs/5 font-medium text-red-600 dark:text-red-400">{slowCount}</span>
