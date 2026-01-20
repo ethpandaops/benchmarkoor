@@ -8,6 +8,9 @@ import { formatTimestamp } from '@/utils/date'
 
 const DEFAULT_PAGE_SIZE = 20
 const RUNS_PER_CLIENT = 4
+const MIN_THRESHOLD = 10
+const MAX_THRESHOLD = 1000
+const DEFAULT_THRESHOLD = 60
 
 // 5-level discrete color scale (green to red)
 const COLORS = [
@@ -18,13 +21,24 @@ const COLORS = [
   '#ef4444', // red - slow (low MGas/s)
 ]
 
-// For MGas/s, higher is better, so we reverse the color scale
+// For per-test normalization (border color)
 function getColorByNormalizedValue(value: number, min: number, max: number): string {
   if (max === min) return COLORS[2] // middle color if all same
   // Reverse: high values (fast) get green, low values (slow) get red
   const normalized = 1 - (value - min) / (max - min)
   const level = Math.min(4, Math.floor(normalized * 5))
   return COLORS[level]
+}
+
+// For global threshold-based coloring (fill color)
+function getColorByThreshold(value: number, threshold: number): string {
+  // Scale: threshold = yellow, >threshold = green, <threshold = red
+  const ratio = value / threshold
+  if (ratio >= 2) return COLORS[0] // Very fast - green
+  if (ratio >= 1.5) return COLORS[1] // Fast - lime
+  if (ratio >= 1) return COLORS[2] // At threshold - yellow
+  if (ratio >= 0.5) return COLORS[3] // Slow - orange
+  return COLORS[4] // Very slow - red
 }
 
 function calculateMGasPerSec(gasUsed: number, timeNs: number): number | undefined {
@@ -58,6 +72,7 @@ interface ProcessedTest {
   testNumber: number | undefined // 1-based index in suite's test list
   avgMgas: number
   minMgas: number
+  maxMgas: number // Per-test max for border color normalization
   clientRuns: Record<string, RunData[]> // Most recent runs per client (up to RUNS_PER_CLIENT)
 }
 
@@ -85,8 +100,9 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<SortField>('avgMgas')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
 
-  const { allTests, clients, minMgas, maxMgas } = useMemo(() => {
+  const { allTests, clients } = useMemo(() => {
     // Build lookup map from test path to 1-based index
     const testIndexMap = new Map<string, number>()
     if (testFiles) {
@@ -129,6 +145,7 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
       let totalMgas = 0
       let count = 0
       let minClientMgas = Infinity
+      let maxClientMgas = -Infinity
 
       for (const [client, runs] of Object.entries(clientRunsMap)) {
         if (runs.length === 0) continue
@@ -142,6 +159,7 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
           totalMgas += run.mgas
           count++
           minClientMgas = Math.min(minClientMgas, run.mgas)
+          maxClientMgas = Math.max(maxClientMgas, run.mgas)
         }
       }
 
@@ -154,26 +172,12 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
         testNumber: testIndexMap.get(testName),
         avgMgas,
         minMgas: minClientMgas,
+        maxMgas: maxClientMgas,
         clientRuns,
       })
     }
 
-    // Calculate min/max for color scaling across ALL tests for consistent colors
-    let minMgas = Infinity
-    let maxMgas = -Infinity
-    for (const test of processedTests) {
-      for (const runs of Object.values(test.clientRuns)) {
-        for (const run of runs) {
-          minMgas = Math.min(minMgas, run.mgas)
-          maxMgas = Math.max(maxMgas, run.mgas)
-        }
-      }
-    }
-
-    if (minMgas === Infinity) minMgas = 0
-    if (maxMgas === -Infinity) maxMgas = 0
-
-    return { allTests: processedTests, clients, minMgas, maxMgas }
+    return { allTests: processedTests, clients }
   }, [stats, testFiles])
 
   // Sort and paginate
@@ -212,6 +216,12 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
     setCurrentPage(1) // Reset to first page when sorting changes
   }
 
+  const handleThresholdChange = (value: number) => {
+    if (value >= MIN_THRESHOLD && value <= MAX_THRESHOLD) {
+      setThreshold(value)
+    }
+  }
+
   const handleCellClick = (runId: string) => {
     navigate({
       to: '/runs/$runId',
@@ -243,7 +253,37 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
   }
 
   return (
-    <div className="relative">
+    <div className="relative flex flex-col gap-4">
+      {/* Threshold control */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
+        <input
+          type="range"
+          min={MIN_THRESHOLD}
+          max={MAX_THRESHOLD}
+          value={threshold}
+          onChange={(e) => handleThresholdChange(Number(e.target.value))}
+          className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+        />
+        <input
+          type="number"
+          min={MIN_THRESHOLD}
+          max={MAX_THRESHOLD}
+          value={threshold}
+          onChange={(e) => handleThresholdChange(Number(e.target.value))}
+          className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+        />
+        <span className="text-xs/5 text-gray-500 dark:text-gray-400">MGas/s</span>
+        {threshold !== DEFAULT_THRESHOLD && (
+          <button
+            onClick={() => setThreshold(DEFAULT_THRESHOLD)}
+            className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm/6">
           <thead>
@@ -277,19 +317,22 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
               <th className="px-2 py-2 text-right">
                   <button
                     onClick={() => handleSort('avgMgas')}
-                    className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
+                    className="inline-flex flex-col items-end font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
                   >
-                    Avg
-                    {sortField === 'avgMgas' && (
-                      <svg
-                        className={clsx('size-4 transition-transform', sortDirection === 'desc' && 'rotate-180')}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                      </svg>
-                    )}
+                    <span className="inline-flex items-center gap-1">
+                      Avg
+                      {sortField === 'avgMgas' && (
+                        <svg
+                          className={clsx('size-4 transition-transform', sortDirection === 'desc' && 'rotate-180')}
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="text-xs font-normal text-gray-500 dark:text-gray-400">MGas/s</span>
                   </button>
                 </th>
             </tr>
@@ -344,8 +387,11 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
                               onClick={() => handleCellClick(run.runId)}
                               onMouseEnter={(e) => handleMouseEnter(test, client, run, e)}
                               onMouseLeave={handleMouseLeave}
-                              className="size-5 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500"
-                              style={{ backgroundColor: getColorByNormalizedValue(run.mgas, minMgas, maxMgas) }}
+                              className="size-5 cursor-pointer rounded-xs border-2 transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500"
+                              style={{
+                                backgroundColor: getColorByThreshold(run.mgas, threshold),
+                                borderColor: getColorByNormalizedValue(run.mgas, test.minMgas, test.maxMgas),
+                              }}
                               title={formatMGas(run.mgas)}
                             />
                           )
@@ -367,13 +413,14 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
           <span className="flex items-center gap-1">
-            <span>Fast</span>
+            <span>&gt;{threshold * 2}</span>
             <span className="flex gap-0.5">
               {COLORS.map((color, i) => (
                 <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
               ))}
             </span>
-            <span>Slow</span>
+            <span>&lt;{threshold / 2}</span>
+            <span className="text-gray-400 dark:text-gray-500">(fill: threshold, border: per-test)</span>
           </span>
           <span>
             <span className="mr-1 inline-block size-3 rounded-xs bg-gray-100 dark:bg-gray-700" />
