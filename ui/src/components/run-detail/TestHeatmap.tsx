@@ -5,6 +5,7 @@ import { Modal } from '@/components/shared/Modal'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
+import type { TestStatusFilter } from './TestsTable'
 
 export type SortMode = 'order' | 'mgas'
 
@@ -14,7 +15,13 @@ interface TestHeatmapProps {
   runId: string
   suiteHash?: string
   selectedTest?: string
+  statusFilter?: TestStatusFilter
+  searchQuery?: string
+  sortMode?: SortMode
+  threshold?: number
   onSelectedTestChange?: (testName: string | undefined) => void
+  onSortModeChange?: (mode: SortMode) => void
+  onThresholdChange?: (threshold: number) => void
 }
 
 const COLORS = [
@@ -103,11 +110,27 @@ export function TestHeatmap({
   runId,
   suiteHash,
   selectedTest,
+  statusFilter = 'all',
+  searchQuery = '',
+  sortMode: sortModeProp,
+  threshold: thresholdProp,
   onSelectedTestChange,
+  onSortModeChange,
+  onThresholdChange,
 }: TestHeatmapProps) {
-  const [sortMode, setSortMode] = useState<SortMode>('order')
-  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
+  const sortMode = sortModeProp ?? 'order'
+  const threshold = thresholdProp ?? DEFAULT_THRESHOLD
   const [tooltip, setTooltip] = useState<{ test: TestData; x: number; y: number } | null>(null)
+
+  const handleSortModeChange = (mode: SortMode) => {
+    onSortModeChange?.(mode)
+  }
+
+  const handleThresholdChange = (value: number) => {
+    if (value >= MIN_THRESHOLD && value <= MAX_THRESHOLD) {
+      onThresholdChange?.(value)
+    }
+  }
 
   const executionOrder = useMemo(() => {
     if (!suiteTests) return new Map<string, number>()
@@ -225,7 +248,7 @@ export function TestHeatmap({
             <span className="text-xs/5 text-gray-500 dark:text-gray-400">Sort by:</span>
             <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
               <button
-                onClick={() => setSortMode('order')}
+                onClick={() => handleSortModeChange('order')}
                 className={clsx(
                   'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
                   sortMode === 'order'
@@ -236,7 +259,7 @@ export function TestHeatmap({
                 Test #
               </button>
               <button
-                onClick={() => setSortMode('mgas')}
+                onClick={() => handleSortModeChange('mgas')}
                 className={clsx(
                   'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
                   sortMode === 'mgas'
@@ -255,7 +278,7 @@ export function TestHeatmap({
               min={MIN_THRESHOLD}
               max={MAX_THRESHOLD}
               value={threshold}
-              onChange={(e) => setThreshold(Number(e.target.value))}
+              onChange={(e) => handleThresholdChange(Number(e.target.value))}
               className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
             />
             <input
@@ -263,18 +286,13 @@ export function TestHeatmap({
               min={MIN_THRESHOLD}
               max={MAX_THRESHOLD}
               value={threshold}
-              onChange={(e) => {
-                const val = Number(e.target.value)
-                if (val >= MIN_THRESHOLD && val <= MAX_THRESHOLD) {
-                  setThreshold(val)
-                }
-              }}
+              onChange={(e) => handleThresholdChange(Number(e.target.value))}
               className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
             />
             <span className="text-xs/5 text-gray-500 dark:text-gray-400">MGas/s</span>
             {threshold !== DEFAULT_THRESHOLD && (
               <button
-                onClick={() => setThreshold(DEFAULT_THRESHOLD)}
+                onClick={() => handleThresholdChange(DEFAULT_THRESHOLD)}
                 className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 Reset
@@ -293,19 +311,30 @@ export function TestHeatmap({
           Tests {sortMode === 'order' ? '(by execution order)' : '(by MGas/s, slowest first)'}
         </div>
         <div className="flex flex-wrap gap-0.5">
-          {sortedData.map((test) => (
-            <button
-              key={test.testKey}
-              onClick={() => onSelectedTestChange?.(test.testKey)}
-              onMouseEnter={(e) => handleMouseEnter(test, e)}
-              onMouseLeave={handleMouseLeave}
-              className={clsx(
-                'size-3 cursor-pointer rounded-xs transition-all hover:scale-150 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                test.hasFail && 'ring-1 ring-red-500',
-              )}
-              style={test.noData ? NO_DATA_STYLE : { backgroundColor: getColorByThreshold(test.mgasPerSec, threshold) }}
-            />
-          ))}
+          {sortedData.map((test) => {
+            const matchesStatusFilter =
+              statusFilter === 'all' ||
+              (statusFilter === 'passed' && !test.hasFail) ||
+              (statusFilter === 'failed' && test.hasFail)
+            const matchesSearchQuery = !searchQuery || test.testKey.toLowerCase().includes(searchQuery.toLowerCase())
+            const matchesFilter = matchesStatusFilter && matchesSearchQuery
+            const baseStyle = test.noData ? NO_DATA_STYLE : { backgroundColor: getColorByThreshold(test.mgasPerSec, threshold) }
+            const style = matchesFilter ? baseStyle : { ...baseStyle, opacity: 0.2 }
+
+            return (
+              <button
+                key={test.testKey}
+                onClick={() => onSelectedTestChange?.(test.testKey)}
+                onMouseEnter={(e) => handleMouseEnter(test, e)}
+                onMouseLeave={handleMouseLeave}
+                className={clsx(
+                  'size-3 cursor-pointer rounded-xs transition-all hover:scale-150 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
+                  test.hasFail && 'ring-1 ring-red-500',
+                )}
+                style={style}
+              />
+            )
+          })}
         </div>
       </div>
 

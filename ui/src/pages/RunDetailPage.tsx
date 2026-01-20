@@ -4,7 +4,7 @@ import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
-import { TestHeatmap } from '@/components/run-detail/TestHeatmap'
+import { TestHeatmap, type SortMode } from '@/components/run-detail/TestHeatmap'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { ClientStat } from '@/components/shared/ClientStat'
@@ -24,10 +24,13 @@ export function RunDetailPage() {
     q?: string
     status?: TestStatusFilter
     testModal?: string
+    heatmapSort?: SortMode
+    heatmapThreshold?: number
   }
   const page = Number(search.page) || 1
   const pageSize = Number(search.pageSize) || 20
-  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal } = search
+  const heatmapThreshold = search.heatmapThreshold ? Number(search.heatmapThreshold) : undefined
+  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, heatmapSort } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
@@ -40,7 +43,18 @@ export function RunDetailPage() {
     navigate({
       to: '/runs/$runId',
       params: { runId },
-      search: { page, pageSize, sortBy, sortDir, q: q || undefined, status: status !== 'all' ? status : undefined, testModal, ...updates },
+      search: {
+        page,
+        pageSize,
+        sortBy,
+        sortDir,
+        q: q || undefined,
+        status: status !== 'all' ? status : undefined,
+        testModal,
+        heatmapSort,
+        heatmapThreshold,
+        ...updates,
+      },
     })
   }
 
@@ -66,6 +80,14 @@ export function RunDetailPage() {
 
   const handleTestModalChange = (testName: string | undefined) => {
     updateSearch({ testModal: testName })
+  }
+
+  const handleHeatmapSortChange = (mode: SortMode) => {
+    updateSearch({ heatmapSort: mode !== 'order' ? mode : undefined })
+  }
+
+  const handleHeatmapThresholdChange = (threshold: number) => {
+    updateSearch({ heatmapThreshold: threshold !== 60 ? threshold : undefined })
   }
 
   if (isLoading) {
@@ -188,19 +210,25 @@ export function RunDetailPage() {
         </div>
       </div>
 
+      <RunConfiguration instance={config.instance} system={config.system} />
+
       <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-        <h3 className="mb-4 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Test Performance Heatmap</h3>
+        <h3 className="mb-4 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Performance Heatmap</h3>
         <TestHeatmap
           tests={result.tests}
           suiteTests={suite?.tests}
           runId={runId}
           suiteHash={config.suite_hash}
           selectedTest={testModal}
+          statusFilter={status}
+          searchQuery={q}
+          sortMode={heatmapSort}
+          threshold={heatmapThreshold}
           onSelectedTestChange={handleTestModalChange}
+          onSortModeChange={handleHeatmapSortChange}
+          onThresholdChange={handleHeatmapThresholdChange}
         />
       </div>
-
-      <RunConfiguration instance={config.instance} system={config.system} />
       <TestsTable
         tests={result.tests}
         suiteTests={suite?.tests}
