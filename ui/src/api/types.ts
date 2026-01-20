@@ -85,6 +85,7 @@ export interface AggregatedStats {
   fail: number
   msg_count: number
   cpu_usec_total?: number
+  memory_delta_total?: number
   disk_read_total?: number
   disk_write_total?: number
   disk_read_iops_total?: number

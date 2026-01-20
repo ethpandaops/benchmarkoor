@@ -139,6 +139,7 @@ type AggregatedStats struct {
 	Failed            int                `json:"fail"`
 	TotalMsgs         int                `json:"msg_count"`
 	TotalCPUUsec      uint64             `json:"cpu_usec_total,omitempty"`
+	TotalMemoryDelta  int64              `json:"memory_delta_total,omitempty"`
 	TotalDiskRead     uint64             `json:"disk_read_total,omitempty"`
 	TotalDiskWrite    uint64             `json:"disk_write_total,omitempty"`
 	TotalDiskReadOps  uint64             `json:"disk_read_iops_total,omitempty"`
@@ -307,6 +308,7 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 	for _, res := range r.Resources {
 		if res != nil {
 			stats.TotalCPUUsec += res.CPUDeltaUsec
+			stats.TotalMemoryDelta += res.MemoryDelta
 			stats.TotalDiskRead += res.DiskReadBytes
 			stats.TotalDiskWrite += res.DiskWriteBytes
 			stats.TotalDiskReadOps += res.DiskReadOps
