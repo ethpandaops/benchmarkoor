@@ -181,6 +181,24 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Generate suite stats if configured.
+	if cfg.Benchmark.GenerateSuiteStats {
+		log.Info("Generating suite stats")
+
+		allStats, err := executor.GenerateAllSuiteStats(cfg.Benchmark.ResultsDir)
+		if err != nil {
+			log.WithError(err).Warn("Failed to generate suite stats")
+		} else {
+			for suiteHash, stats := range allStats {
+				if err := executor.WriteSuiteStats(cfg.Benchmark.ResultsDir, suiteHash, stats); err != nil {
+					log.WithError(err).WithField("suite", suiteHash).Warn("Failed to write suite stats")
+				}
+			}
+
+			log.WithField("suites", len(allStats)).Info("Suite stats generated")
+		}
+	}
+
 	return nil
 }
 

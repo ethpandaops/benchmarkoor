@@ -55,6 +55,7 @@ type DirectoriesConfig struct {
 type BenchmarkConfig struct {
 	ResultsDir           string      `yaml:"results_dir"`
 	GenerateResultsIndex bool        `yaml:"generate_results_index"`
+	GenerateSuiteStats   bool        `yaml:"generate_suite_stats"`
 	Tests                TestsConfig `yaml:"tests,omitempty"`
 }
 

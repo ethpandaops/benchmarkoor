@@ -12,6 +12,11 @@ global:
 
 benchmark:
   results_dir: ./results
+  # Optional: Generate index.json after benchmark (aggregates all run metadata).
+  # generate_results_index: true
+  # Optional: Generate stats.json per suite after benchmark (aggregates test durations
+  # across runs for the UI heatmap).
+  # generate_suite_stats: true
   # Optional test execution configuration.
   # tests:
   #   # Optional filter to run only tests matching this pattern.
