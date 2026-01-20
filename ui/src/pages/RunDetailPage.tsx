@@ -1,4 +1,6 @@
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import { fetchText } from '@/api/client'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
@@ -11,7 +13,7 @@ import { ClientStat } from '@/components/shared/ClientStat'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp } from '@/utils/date'
-import { formatNumber } from '@/utils/format'
+import { formatNumber, formatBytes } from '@/utils/format'
 
 export function RunDetailPage() {
   const { runId } = useParams({ from: '/runs/$runId' })
@@ -35,6 +37,11 @@ export function RunDetailPage() {
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
   const { data: suite } = useSuite(config?.suite_hash ?? '')
+  const { data: containerLog } = useQuery({
+    queryKey: ['run', runId, 'container-log'],
+    queryFn: () => fetchText(`runs/${runId}/container.log`),
+    enabled: !!runId,
+  })
 
   const isLoading = configLoading || resultLoading
   const error = configError || resultError
@@ -146,6 +153,53 @@ export function RunDetailPage() {
           </>
         )}
         <span className="text-gray-900 dark:text-gray-100">{runId}</span>
+        {containerLog && (
+          <div className="ml-auto flex items-center gap-3">
+            <Link
+              to="/runs/$runId/logs"
+              params={{ runId }}
+              search={{ file: 'container.log' }}
+              className="flex items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300"
+            >
+              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+              Container logs
+            </Link>
+            <span className="text-xs/5 text-gray-400 dark:text-gray-500">
+              {formatBytes(new TextEncoder().encode(containerLog).length)}
+            </span>
+            <button
+              onClick={() => {
+                const blob = new Blob([containerLog], { type: 'text/plain' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = 'container.log'
+                document.body.appendChild(a)
+                a.click()
+                document.body.removeChild(a)
+                URL.revokeObjectURL(url)
+              }}
+              className="flex items-center gap-1 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              title="Download container.log"
+            >
+              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
