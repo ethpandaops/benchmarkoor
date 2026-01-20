@@ -84,6 +84,11 @@ export interface AggregatedStats {
   success: number
   fail: number
   msg_count: number
+  cpu_usec_total?: number
+  disk_read_total?: number
+  disk_write_total?: number
+  disk_read_iops_total?: number
+  disk_write_iops_total?: number
   method_stats: MethodsAggregated
 }
 
@@ -114,12 +119,23 @@ export interface MethodStatsFloat {
   p99?: number
 }
 
+// Resource delta for a single RPC call
+export interface ResourceDelta {
+  memory_delta_bytes: number
+  cpu_delta_usec: number
+  disk_read_bytes: number
+  disk_write_bytes: number
+  disk_read_iops: number
+  disk_write_iops: number
+}
+
 // .result-details.json per test
 export interface ResultDetails {
   duration_ns: number[]
   status: number[] // 0=success, 1=fail
   mgas_s: Record<string, number> // map of index -> MGas/s value
   gas_used: Record<string, number> // map of index -> gas used value
+  resources?: Record<string, ResourceDelta> // map of index -> resource delta
 }
 
 // stats.json per suite
