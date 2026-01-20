@@ -13,7 +13,8 @@ interface TestHeatmapProps {
   suiteTests?: SuiteFile[]
   runId: string
   suiteHash?: string
-  onTestClick?: (testName: string) => void
+  selectedTest?: string
+  onSelectedTestChange?: (testName: string | undefined) => void
 }
 
 const COLORS = [
@@ -63,11 +64,17 @@ const NO_DATA_STYLE = {
   backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, #1f2937 2px, #1f2937 4px)',
 }
 
-export function TestHeatmap({ tests, suiteTests, runId, suiteHash, onTestClick }: TestHeatmapProps) {
+export function TestHeatmap({
+  tests,
+  suiteTests,
+  runId,
+  suiteHash,
+  selectedTest,
+  onSelectedTestChange,
+}: TestHeatmapProps) {
   const [sortMode, setSortMode] = useState<SortMode>('order')
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
   const [tooltip, setTooltip] = useState<{ test: TestData; x: number; y: number } | null>(null)
-  const [selectedTest, setSelectedTest] = useState<string | null>(null)
 
   const executionOrder = useMemo(() => {
     if (!suiteTests) return new Map<string, number>()
@@ -256,10 +263,7 @@ export function TestHeatmap({ tests, suiteTests, runId, suiteHash, onTestClick }
           {sortedData.map((test) => (
             <button
               key={test.testKey}
-              onClick={() => {
-                setSelectedTest(test.testKey)
-                onTestClick?.(test.testKey)
-              }}
+              onClick={() => onSelectedTestChange?.(test.testKey)}
               onMouseEnter={(e) => handleMouseEnter(test, e)}
               onMouseLeave={handleMouseLeave}
               className={clsx(
@@ -363,7 +367,7 @@ export function TestHeatmap({ tests, suiteTests, runId, suiteHash, onTestClick }
       {selectedTest && tests[selectedTest] && (
         <Modal
           isOpen={!!selectedTest}
-          onClose={() => setSelectedTest(null)}
+          onClose={() => onSelectedTestChange?.(undefined)}
           title={`Test #${executionOrder.get(selectedTest) ?? '?'}: ${tests[selectedTest].dir ? selectedTest.slice(tests[selectedTest].dir!.length + 1) : selectedTest}`}
         >
           <div className="flex flex-col gap-6">

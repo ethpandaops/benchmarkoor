@@ -23,10 +23,11 @@ export function RunDetailPage() {
     sortDir?: TestSortDirection
     q?: string
     expanded?: string
+    testModal?: string
   }
   const page = Number(search.page) || 1
   const pageSize = Number(search.pageSize) || 20
-  const { sortBy = 'order', sortDir = 'asc', q = '', expanded } = search
+  const { sortBy = 'order', sortDir = 'asc', q = '', expanded, testModal } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
@@ -39,7 +40,7 @@ export function RunDetailPage() {
     navigate({
       to: '/runs/$runId',
       params: { runId },
-      search: { page, pageSize, sortBy, sortDir, q: q || undefined, expanded, ...updates },
+      search: { page, pageSize, sortBy, sortDir, q: q || undefined, expanded, testModal, ...updates },
     })
   }
 
@@ -61,6 +62,10 @@ export function RunDetailPage() {
 
   const handleExpandedChange = (testName: string | undefined) => {
     updateSearch({ expanded: testName })
+  }
+
+  const handleTestModalChange = (testName: string | undefined) => {
+    updateSearch({ testModal: testName, expanded: testName })
   }
 
   if (isLoading) {
@@ -190,7 +195,8 @@ export function RunDetailPage() {
           suiteTests={suite?.tests}
           runId={runId}
           suiteHash={config.suite_hash}
-          onTestClick={handleExpandedChange}
+          selectedTest={testModal}
+          onSelectedTestChange={handleTestModalChange}
         />
       </div>
 
