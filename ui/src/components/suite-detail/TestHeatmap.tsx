@@ -8,8 +8,10 @@ import { formatTimestamp } from '@/utils/date'
 
 const DEFAULT_PAGE_SIZE = 20
 const DEFAULT_RUNS_PER_CLIENT = 5
-const RUNS_PER_CLIENT_OPTIONS = [5, 10, 15, 20] as const
+const RUNS_PER_CLIENT_OPTIONS = [5, 10, 15, 20, 25] as const
 const BOXES_PER_ROW = 5
+const STAT_DISPLAY_OPTIONS = ['Avg', 'Min', 'Max', 'Last'] as const
+type StatDisplayType = (typeof STAT_DISPLAY_OPTIONS)[number]
 const MIN_THRESHOLD = 10
 const MAX_THRESHOLD = 1000
 const DEFAULT_THRESHOLD = 60
@@ -64,14 +66,22 @@ interface RunData {
   runStart: number
 }
 
+interface ClientStats {
+  avg: number
+  min: number
+  max: number
+  last: number
+}
+
 interface ProcessedTest {
   name: string
   testNumber: number | undefined // 1-based index in suite's test list
   avgMgas: number
   minMgas: number
   maxMgas: number // Per-test max for border color normalization
+  lastMgas: number // Most recent run across all clients
   clientRuns: Record<string, RunData[]> // Most recent runs per client (up to runsPerClient)
-  clientAvgMgas: Record<string, number> // Average MGas/s per client for this test
+  clientStats: Record<string, ClientStats> // Stats per client for this test
 }
 
 interface TooltipData {
@@ -100,6 +110,8 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
   const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
+  const [statDisplay, setStatDisplay] = useState<StatDisplayType>('Avg')
+  const [showClientStat, setShowClientStat] = useState(true)
 
   const { allTests, clients } = useMemo(() => {
     // Build lookup map from test path to 1-based index
@@ -141,11 +153,13 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
 
       // Sort by run_start (most recent first) and take top N for each client
       const clientRuns: Record<string, RunData[]> = {}
-      const clientAvgMgas: Record<string, number> = {}
+      const clientStats: Record<string, ClientStats> = {}
       let totalMgas = 0
       let count = 0
       let minClientMgas = Infinity
       let maxClientMgas = -Infinity
+      let lastRunStart = -Infinity
+      let lastMgas = 0
 
       for (const [client, runs] of Object.entries(clientRunsMap)) {
         if (runs.length === 0) continue
@@ -154,16 +168,31 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
         const recentRuns = runs.slice(0, runsPerClient)
         clientRuns[client] = recentRuns
 
+        // Track the most recent run across all clients
+        if (recentRuns[0].runStart > lastRunStart) {
+          lastRunStart = recentRuns[0].runStart
+          lastMgas = recentRuns[0].mgas
+        }
+
         // Calculate stats from recent runs
         let clientTotal = 0
+        let clientMin = Infinity
+        let clientMax = -Infinity
         for (const run of recentRuns) {
           totalMgas += run.mgas
           clientTotal += run.mgas
           count++
           minClientMgas = Math.min(minClientMgas, run.mgas)
           maxClientMgas = Math.max(maxClientMgas, run.mgas)
+          clientMin = Math.min(clientMin, run.mgas)
+          clientMax = Math.max(clientMax, run.mgas)
         }
-        clientAvgMgas[client] = clientTotal / recentRuns.length
+        clientStats[client] = {
+          avg: clientTotal / recentRuns.length,
+          min: clientMin,
+          max: clientMax,
+          last: recentRuns[0].mgas, // Most recent run for this client
+        }
       }
 
       if (count === 0) continue
@@ -176,8 +205,9 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
         avgMgas,
         minMgas: minClientMgas,
         maxMgas: maxClientMgas,
+        lastMgas,
         clientRuns,
-        clientAvgMgas,
+        clientStats,
       })
     }
 
@@ -310,6 +340,37 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
             ))}
           </div>
         </div>
+
+        {/* Stat display selector */}
+        <div className="flex items-center gap-2">
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={showClientStat}
+              onChange={(e) => setShowClientStat(e.target.checked)}
+              className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+            />
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Client stat:</span>
+          </label>
+          <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
+            {STAT_DISPLAY_OPTIONS.map((option) => (
+              <button
+                key={option}
+                onClick={() => setStatDisplay(option)}
+                disabled={!showClientStat}
+                className={clsx(
+                  'px-2 py-0.5 text-xs/5 transition-colors first:rounded-l-sm last:rounded-r-sm',
+                  !showClientStat && 'opacity-50',
+                  option === statDisplay
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+                )}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -373,8 +434,17 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
                 </td>
                 {clients.map((client) => {
                   const runs = test.clientRuns[client]
-                  const clientAvg = test.clientAvgMgas[client]
+                  const stats = test.clientStats[client]
                   const numRows = Math.ceil(runsPerClient / BOXES_PER_ROW)
+                  const displayValue = stats
+                    ? statDisplay === 'Avg'
+                      ? stats.avg
+                      : statDisplay === 'Min'
+                        ? stats.min
+                        : statDisplay === 'Max'
+                          ? stats.max
+                          : stats.last
+                    : undefined
                   if (!runs || runs.length === 0) {
                     return (
                       <td key={client} className="px-1 py-1.5 text-center">
@@ -390,7 +460,9 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
                               ))}
                             </div>
                           ))}
-                          <span className="font-mono text-xs/4 text-gray-400 dark:text-gray-500">-</span>
+                          {showClientStat && (
+                            <span className="font-mono text-xs/4 text-gray-400 dark:text-gray-500">-</span>
+                          )}
                         </div>
                       </td>
                     )
@@ -429,9 +501,11 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
                             })}
                           </div>
                         ))}
-                        <span className="font-mono text-xs/4 text-gray-500 dark:text-gray-400">
-                          {formatMGasCompact(clientAvg)}
-                        </span>
+                        {showClientStat && (
+                          <span className="font-mono text-xs/4 text-gray-500 dark:text-gray-400">
+                            {displayValue !== undefined ? formatMGasCompact(displayValue) : '-'}
+                          </span>
+                        )}
                       </div>
                     </td>
                   )
