@@ -12,6 +12,8 @@ const RUNS_PER_CLIENT_OPTIONS = [5, 10, 15, 20, 25] as const
 const BOXES_PER_ROW = 5
 const STAT_DISPLAY_OPTIONS = ['Avg', 'Min', 'Max', 'Last'] as const
 type StatDisplayType = (typeof STAT_DISPLAY_OPTIONS)[number]
+const DISTRIBUTION_STAT_OPTIONS = ['Avg', 'Min'] as const
+type DistributionStatType = (typeof DISTRIBUTION_STAT_OPTIONS)[number]
 const MIN_THRESHOLD = 10
 const MAX_THRESHOLD = 1000
 const DEFAULT_THRESHOLD = 60
@@ -111,6 +113,8 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
   const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
   const [statDisplay, setStatDisplay] = useState<StatDisplayType>('Avg')
   const [showClientStat, setShowClientStat] = useState(true)
+  const [distributionStat, setDistributionStat] = useState<DistributionStatType>('Avg')
+  const [statColumnType, setStatColumnType] = useState<DistributionStatType>('Avg')
 
   const { allTests, clients } = useMemo(() => {
     // Build lookup map from test path to 1-based index
@@ -223,17 +227,61 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
         const bNum = b.testNumber ?? Infinity
         return sortDirection === 'asc' ? aNum - bNum : bNum - aNum
       }
-      // Sort by avgMgas
+      // Sort by selected stat column type
+      const aVal = statColumnType === 'Avg' ? a.avgMgas : a.minMgas
+      const bVal = statColumnType === 'Avg' ? b.avgMgas : b.minMgas
       if (sortDirection === 'asc') {
-        return a.avgMgas - b.avgMgas // Lowest first (slowest)
+        return aVal - bVal // Lowest first (slowest)
       }
-      return b.avgMgas - a.avgMgas // Highest first (fastest)
+      return bVal - aVal // Highest first (fastest)
     })
     return sorted
-  }, [allTests, sortField, sortDirection])
+  }, [allTests, sortField, sortDirection, statColumnType])
 
   const totalPages = Math.ceil(sortedTests.length / pageSize)
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  // Calculate histogram data for distribution graph
+  const histogramData = useMemo(() => {
+    if (allTests.length === 0) return []
+
+    // Create bins based on threshold: 0, 0.25x, 0.5x, 0.75x, 1x, 1.25x, 1.5x, 1.75x, 2x, 2.5x, 3x+
+    const binMultipliers = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+    const bins = Array(binMultipliers.length).fill(0) as number[]
+
+    for (const test of allTests) {
+      const statValue = distributionStat === 'Avg' ? test.avgMgas : test.minMgas
+      const ratio = statValue / threshold
+      let binIndex = binMultipliers.findIndex((_, i) => {
+        const next = binMultipliers[i + 1]
+        return next === undefined ? true : ratio < next
+      })
+      if (binIndex === -1) binIndex = binMultipliers.length - 1
+      bins[binIndex]++
+    }
+
+    const maxCount = Math.max(...bins)
+    const logMax = Math.log10(maxCount + 1)
+    return bins.map((count, i) => {
+      const rangeStart = binMultipliers[i] * threshold
+      const rangeEnd = binMultipliers[i + 1] !== undefined ? binMultipliers[i + 1] * threshold : Infinity
+      const midpoint =
+        binMultipliers[i + 1] !== undefined
+          ? ((binMultipliers[i] + binMultipliers[i + 1]) / 2) * threshold
+          : binMultipliers[i] * 1.25 * threshold
+      return {
+        count,
+        height: maxCount > 0 ? (Math.log10(count + 1) / logMax) * 100 : 0,
+        rangeStart,
+        rangeEnd,
+        label: binMultipliers[i + 1] !== undefined ? `${rangeStart.toFixed(0)}-${rangeEnd.toFixed(0)}` : `${rangeStart.toFixed(0)}+`,
+        color: getColorByThreshold(midpoint, threshold),
+      }
+    })
+  }, [allTests, threshold, distributionStat])
+
+  const slowCount = allTests.filter((t) => (distributionStat === 'Avg' ? t.avgMgas : t.minMgas) < threshold).length
+  const fastCount = allTests.filter((t) => (distributionStat === 'Avg' ? t.avgMgas : t.minMgas) >= threshold).length
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
@@ -393,26 +441,41 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
                 </th>
               ))}
               <th className="px-2 py-2 text-right">
+                <div className="flex flex-col items-end gap-1">
+                  <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
+                    {DISTRIBUTION_STAT_OPTIONS.map((option) => (
+                      <button
+                        key={option}
+                        onClick={() => setStatColumnType(option)}
+                        className={clsx(
+                          'px-1.5 py-0.5 text-xs/4 transition-colors first:rounded-l-sm last:rounded-r-sm',
+                          option === statColumnType
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+                        )}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
                   <button
                     onClick={() => handleSort('avgMgas')}
-                    className="inline-flex flex-col items-end font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
+                    className="inline-flex items-center gap-1 text-xs font-normal text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                   >
-                    <span className="inline-flex items-center gap-1">
-                      Avg
-                      {sortField === 'avgMgas' && (
-                        <svg
-                          className={clsx('size-4 transition-transform', sortDirection === 'desc' && 'rotate-180')}
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                        </svg>
-                      )}
-                    </span>
-                    <span className="text-xs font-normal text-gray-500 dark:text-gray-400">MGas/s</span>
+                    MGas/s
+                    {sortField === 'avgMgas' && (
+                      <svg
+                        className={clsx('size-3 transition-transform', sortDirection === 'desc' && 'rotate-180')}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                      </svg>
+                    )}
                   </button>
-                </th>
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -505,13 +568,73 @@ export function TestHeatmap({ stats, testFiles, isDark, pageSize = DEFAULT_PAGE_
                   )
                 })}
                 <td className="px-2 py-1.5 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
-                  {formatMGasCompact(test.avgMgas)}
+                  {formatMGasCompact(statColumnType === 'Avg' ? test.avgMgas : test.minMgas)}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Distribution Histogram */}
+      {histogramData.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution by threshold</span>
+            <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
+              {DISTRIBUTION_STAT_OPTIONS.map((option) => (
+                <button
+                  key={option}
+                  onClick={() => setDistributionStat(option)}
+                  className={clsx(
+                    'px-2 py-0.5 text-xs/5 transition-colors first:rounded-l-sm last:rounded-r-sm',
+                    option === distributionStat
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+                  )}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-end gap-1">
+            <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
+              <span className="text-xs/5 font-medium text-red-600 dark:text-red-400">{slowCount}</span>
+              <span className="text-xs/5 text-gray-400 dark:text-gray-500">slow</span>
+            </div>
+            <div className="relative flex h-16 flex-1 items-end gap-1">
+              {histogramData.map((bin, i) => (
+                <div
+                  key={i}
+                  className="flex-1 rounded-t-xs transition-all hover:opacity-80"
+                  style={{
+                    height: `${bin.height}%`,
+                    backgroundColor: bin.color,
+                    minHeight: bin.count > 0 ? '2px' : '0',
+                  }}
+                  title={`${bin.label} MGas/s: ${bin.count} tests`}
+                />
+              ))}
+              {/* Threshold line - positioned at bin index 4 (1x threshold) */}
+              <div
+                className="absolute bottom-0 top-0 w-0.5 bg-black dark:bg-white"
+                style={{ left: `${(4 / 11) * 100}%` }}
+                title={`Threshold: ${threshold} MGas/s`}
+              />
+            </div>
+            <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
+              <span className="text-xs/5 font-medium text-green-600 dark:text-green-400">{fastCount}</span>
+              <span className="text-xs/5 text-gray-400 dark:text-gray-500">fast</span>
+            </div>
+          </div>
+          <div className="flex justify-between px-9 text-xs/5 text-gray-400 dark:text-gray-500">
+            <span>0</span>
+            <span className="font-medium text-yellow-600 dark:text-yellow-400">{threshold} MGas/s (threshold)</span>
+            <span>{threshold * 3}+</span>
+          </div>
+        </div>
+      )}
 
       {/* Legend and pagination */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
