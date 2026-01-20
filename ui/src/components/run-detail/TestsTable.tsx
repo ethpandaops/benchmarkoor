@@ -7,6 +7,7 @@ import { Pagination } from '@/components/shared/Pagination'
 
 export type TestSortColumn = 'order' | 'name' | 'time' | 'mgas' | 'passed' | 'failed'
 export type TestSortDirection = 'asc' | 'desc'
+export type TestStatusFilter = 'all' | 'passed' | 'failed'
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 20
@@ -19,10 +20,12 @@ interface TestsTableProps {
   sortBy?: TestSortColumn
   sortDir?: TestSortDirection
   searchQuery?: string
+  statusFilter?: TestStatusFilter
   onPageChange?: (page: number) => void
   onPageSizeChange?: (size: number) => void
   onSortChange?: (column: TestSortColumn, direction: TestSortDirection) => void
   onSearchChange?: (query: string) => void
+  onStatusFilterChange?: (status: TestStatusFilter) => void
   onTestClick?: (testName: string) => void
 }
 
@@ -87,10 +90,12 @@ export function TestsTable({
   sortBy = 'order',
   sortDir = 'asc',
   searchQuery = '',
+  statusFilter = 'all',
   onPageChange,
   onPageSizeChange,
   onSortChange,
   onSearchChange,
+  onStatusFilterChange,
   onTestClick,
 }: TestsTableProps) {
   const executionOrder = useMemo(() => {
@@ -111,6 +116,12 @@ export function TestsTable({
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(([name]) => name.toLowerCase().includes(query))
+    }
+
+    if (statusFilter === 'passed') {
+      filtered = filtered.filter(([, entry]) => entry.aggregated.fail === 0)
+    } else if (statusFilter === 'failed') {
+      filtered = filtered.filter(([, entry]) => entry.aggregated.fail > 0)
     }
 
     return filtered.sort(([a, entryA], [b, entryB]) => {
@@ -135,7 +146,7 @@ export function TestsTable({
       }
       return sortDir === 'asc' ? comparison : -comparison
     })
-  }, [tests, searchQuery, executionOrder, sortBy, sortDir])
+  }, [tests, searchQuery, statusFilter, executionOrder, sortBy, sortDir])
 
   const totalPages = Math.ceil(sortedTests.length / pageSize)
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -175,15 +186,33 @@ export function TestsTable({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-lg/7 font-semibold text-gray-900 dark:text-gray-100">Tests ({sortedTests.length})</h2>
-        <input
-          type="text"
-          placeholder="Search tests..."
-          value={searchQuery}
-          onChange={(e) => handleSearchInput(e.target.value)}
-          className="w-64 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm/6 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-        />
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
+            {(['all', 'passed', 'failed'] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => onStatusFilterChange?.(status)}
+                className={clsx(
+                  'rounded-xs px-2 py-1 text-xs/5 font-medium capitalize transition-colors',
+                  statusFilter === status
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                )}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+          <input
+            type="text"
+            placeholder="Search tests..."
+            value={searchQuery}
+            onChange={(e) => handleSearchInput(e.target.value)}
+            className="w-64 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm/6 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+          />
+        </div>
       </div>
 
       {paginationControls}

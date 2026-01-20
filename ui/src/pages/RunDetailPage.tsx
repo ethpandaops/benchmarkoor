@@ -3,7 +3,7 @@ import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
-import { TestsTable, type TestSortColumn, type TestSortDirection } from '@/components/run-detail/TestsTable'
+import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
 import { TestHeatmap } from '@/components/run-detail/TestHeatmap'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -22,11 +22,12 @@ export function RunDetailPage() {
     sortBy?: TestSortColumn
     sortDir?: TestSortDirection
     q?: string
+    status?: TestStatusFilter
     testModal?: string
   }
   const page = Number(search.page) || 1
   const pageSize = Number(search.pageSize) || 20
-  const { sortBy = 'order', sortDir = 'asc', q = '', testModal } = search
+  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
@@ -39,7 +40,7 @@ export function RunDetailPage() {
     navigate({
       to: '/runs/$runId',
       params: { runId },
-      search: { page, pageSize, sortBy, sortDir, q: q || undefined, testModal, ...updates },
+      search: { page, pageSize, sortBy, sortDir, q: q || undefined, status: status !== 'all' ? status : undefined, testModal, ...updates },
     })
   }
 
@@ -57,6 +58,10 @@ export function RunDetailPage() {
 
   const handleSearchChange = (query: string) => {
     updateSearch({ q: query || undefined, page: 1 })
+  }
+
+  const handleStatusFilterChange = (newStatus: TestStatusFilter) => {
+    updateSearch({ status: newStatus !== 'all' ? newStatus : undefined, page: 1 })
   }
 
   const handleTestModalChange = (testName: string | undefined) => {
@@ -204,10 +209,12 @@ export function RunDetailPage() {
         sortBy={sortBy}
         sortDir={sortDir}
         searchQuery={q}
+        statusFilter={status}
         onPageChange={handlePageChange}
         onPageSizeChange={handlePageSizeChange}
         onSortChange={handleSortChange}
         onSearchChange={handleSearchChange}
+        onStatusFilterChange={handleStatusFilterChange}
         onTestClick={handleTestModalChange}
       />
     </div>
