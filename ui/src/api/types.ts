@@ -19,6 +19,7 @@ export interface IndexEntry {
     duration: number
     gas_used: number
     gas_used_duration: number
+    resource_totals?: ResourceTotals
   }
 }
 
@@ -79,6 +80,15 @@ export interface TestEntry {
   aggregated: AggregatedStats
 }
 
+export interface ResourceTotals {
+  cpu_usec: number
+  memory_delta_bytes: number
+  disk_read_bytes: number
+  disk_write_bytes: number
+  disk_read_iops: number
+  disk_write_iops: number
+}
+
 export interface AggregatedStats {
   time_total: number
   gas_used_total: number
@@ -86,12 +96,7 @@ export interface AggregatedStats {
   success: number
   fail: number
   msg_count: number
-  cpu_usec_total?: number
-  memory_delta_total?: number
-  disk_read_total?: number
-  disk_write_total?: number
-  disk_read_iops_total?: number
-  disk_write_iops_total?: number
+  resource_totals?: ResourceTotals
   method_stats: MethodsAggregated
 }
 

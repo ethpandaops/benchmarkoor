@@ -136,21 +136,26 @@ type MethodsAggregated struct {
 	Resources  map[string]*MethodResourceStats `json:"resources,omitempty"`
 }
 
+// ResourceTotals contains aggregated resource usage metrics.
+type ResourceTotals struct {
+	CPUUsec        uint64 `json:"cpu_usec"`
+	MemoryDelta    int64  `json:"memory_delta_bytes"`
+	DiskReadBytes  uint64 `json:"disk_read_bytes"`
+	DiskWriteBytes uint64 `json:"disk_write_bytes"`
+	DiskReadIOPS   uint64 `json:"disk_read_iops"`
+	DiskWriteIOPS  uint64 `json:"disk_write_iops"`
+}
+
 // AggregatedStats contains the full aggregated output.
 type AggregatedStats struct {
-	TotalTime         int64              `json:"time_total"`
-	GasUsedTotal      uint64             `json:"gas_used_total"`
-	GasUsedTimeTotal  int64              `json:"gas_used_time_total"`
-	Succeeded         int                `json:"success"`
-	Failed            int                `json:"fail"`
-	TotalMsgs         int                `json:"msg_count"`
-	TotalCPUUsec      uint64             `json:"cpu_usec_total,omitempty"`
-	TotalMemoryDelta  int64              `json:"memory_delta_total,omitempty"`
-	TotalDiskRead     uint64             `json:"disk_read_total,omitempty"`
-	TotalDiskWrite    uint64             `json:"disk_write_total,omitempty"`
-	TotalDiskReadOps  uint64             `json:"disk_read_iops_total,omitempty"`
-	TotalDiskWriteOps uint64             `json:"disk_write_iops_total,omitempty"`
-	MethodStats       *MethodsAggregated `json:"method_stats"`
+	TotalTime        int64              `json:"time_total"`
+	GasUsedTotal     uint64             `json:"gas_used_total"`
+	GasUsedTimeTotal int64              `json:"gas_used_time_total"`
+	Succeeded        int                `json:"success"`
+	Failed           int                `json:"fail"`
+	TotalMsgs        int                `json:"msg_count"`
+	ResourceTotals   *ResourceTotals    `json:"resource_totals,omitempty"`
+	MethodStats      *MethodsAggregated `json:"method_stats"`
 }
 
 // TestEntry contains the result entry for a single test in the run result.
@@ -316,15 +321,19 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 	}
 
 	// Aggregate resource metrics.
-	for _, res := range r.Resources {
-		if res != nil {
-			stats.TotalCPUUsec += res.CPUDeltaUsec
-			stats.TotalMemoryDelta += res.MemoryDelta
-			stats.TotalDiskRead += res.DiskReadBytes
-			stats.TotalDiskWrite += res.DiskWriteBytes
-			stats.TotalDiskReadOps += res.DiskReadOps
-			stats.TotalDiskWriteOps += res.DiskWriteOps
+	if len(r.Resources) > 0 {
+		resourceTotals := &ResourceTotals{}
+		for _, res := range r.Resources {
+			if res != nil {
+				resourceTotals.CPUUsec += res.CPUDeltaUsec
+				resourceTotals.MemoryDelta += res.MemoryDelta
+				resourceTotals.DiskReadBytes += res.DiskReadBytes
+				resourceTotals.DiskWriteBytes += res.DiskWriteBytes
+				resourceTotals.DiskReadIOPS += res.DiskReadOps
+				resourceTotals.DiskWriteIOPS += res.DiskWriteOps
+			}
 		}
+		stats.ResourceTotals = resourceTotals
 	}
 
 	for method, times := range r.MethodTimes {

@@ -172,20 +172,15 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
     })
 
     sortedTests.forEach(([testName, test], index) => {
-      const agg = test.aggregated
-      if (
-        agg.cpu_usec_total !== undefined ||
-        agg.memory_delta_total !== undefined ||
-        agg.disk_read_total !== undefined ||
-        agg.disk_write_total !== undefined
-      ) {
+      const res = test.aggregated.resource_totals
+      if (res) {
         hasData = true
-        const cpuUsec = agg.cpu_usec_total ?? 0
-        const memoryDelta = agg.memory_delta_total ?? 0
-        const diskRead = agg.disk_read_total ?? 0
-        const diskWrite = agg.disk_write_total ?? 0
-        const diskReadOps = agg.disk_read_iops_total ?? 0
-        const diskWriteOps = agg.disk_write_iops_total ?? 0
+        const cpuUsec = res.cpu_usec ?? 0
+        const memoryDelta = res.memory_delta_bytes ?? 0
+        const diskRead = res.disk_read_bytes ?? 0
+        const diskWrite = res.disk_write_bytes ?? 0
+        const diskReadOps = res.disk_read_iops ?? 0
+        const diskWriteOps = res.disk_write_iops ?? 0
 
         points.push({
           testIndex: index + 1,
