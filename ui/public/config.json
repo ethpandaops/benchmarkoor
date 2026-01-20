@@ -1,5 +1,5 @@
 {
-  "dataSource": "../results",
+  "dataSource": "/results",
   "title": "Benchmarkoor Results",
   "refreshInterval": 0
 }

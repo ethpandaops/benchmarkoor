@@ -12,12 +12,12 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
   try {
     const response = await fetch('/config.json')
     if (!response.ok) {
-      return { dataSource: './results' }
+      return { dataSource: '/results' }
     }
     cachedConfig = await response.json()
     return cachedConfig!
   } catch {
-    return { dataSource: './results' }
+    return { dataSource: '/results' }
   }
 }
 
