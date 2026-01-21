@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"os"
 	"strings"
 	"time"
@@ -358,8 +359,15 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 		}
 
 		// Execute RPC call.
-		response, elapsed, resourceDelta, err := e.executeRPC(ctx, opts.EngineEndpoint, opts.JWT, line)
+		response, duration, fullDuration, resourceDelta, err := e.executeRPC(ctx, opts.EngineEndpoint, opts.JWT, line)
 		succeeded := err == nil
+
+		e.log.WithFields(logrus.Fields{
+			"method":        method,
+			"duration":      time.Duration(duration),
+			"full_duration": time.Duration(fullDuration),
+			"overhead":      time.Duration(fullDuration - duration),
+		}).Info("RPC call completed")
 
 		if err != nil {
 			e.log.WithFields(logrus.Fields{
@@ -391,7 +399,7 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 		}
 
 		if result != nil {
-			result.AddResult(method, line, response, elapsed, succeeded, resourceDelta)
+			result.AddResult(method, line, response, duration, succeeded, resourceDelta)
 		}
 	}
 
@@ -403,24 +411,39 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 }
 
 // executeRPC executes a single JSON-RPC call against the Engine API.
-// Returns the response body, elapsed time in nanoseconds, resource delta, and error.
+// Returns the response body, duration (server time), full duration (total round-trip),
+// resource delta, and error.
 func (e *executor) executeRPC(
 	ctx context.Context,
 	endpoint, jwt, payload string,
-) (string, int64, *ResourceDelta, error) {
+) (string, int64, int64, *ResourceDelta, error) {
 	token, err := GenerateJWTToken(jwt)
 	if err != nil {
-		return "", 0, nil, fmt.Errorf("generating JWT: %w", err)
+		return "", 0, 0, nil, fmt.Errorf("generating JWT: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
 		strings.NewReader(payload))
 	if err != nil {
-		return "", 0, nil, fmt.Errorf("creating request: %w", err)
+		return "", 0, 0, nil, fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
+
+	// Set up httptrace to measure server time (request written → first response byte).
+	var wroteRequest, gotFirstByte time.Time
+
+	trace := &httptrace.ClientTrace{
+		WroteRequest: func(_ httptrace.WroteRequestInfo) {
+			wroteRequest = time.Now()
+		},
+		GotFirstResponseByte: func() {
+			gotFirstByte = time.Now()
+		},
+	}
+
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 
 	// Read stats BEFORE the request (if reader available).
 	var beforeStats *stats.Stats
@@ -430,7 +453,13 @@ func (e *executor) executeRPC(
 
 	start := time.Now()
 	resp, err := http.DefaultClient.Do(req)
-	elapsed := time.Since(start).Nanoseconds()
+	fullDuration := time.Since(start).Nanoseconds()
+
+	// Calculate server time (duration from request written to first response byte).
+	var duration int64
+	if !wroteRequest.IsZero() && !gotFirstByte.IsZero() {
+		duration = gotFirstByte.Sub(wroteRequest).Nanoseconds()
+	}
 
 	// Read stats AFTER and compute delta.
 	var delta *ResourceDelta
@@ -451,17 +480,17 @@ func (e *executor) executeRPC(
 	}
 
 	if err != nil {
-		return "", elapsed, delta, fmt.Errorf("executing request: %w", err)
+		return "", duration, fullDuration, delta, fmt.Errorf("executing request: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", elapsed, delta, fmt.Errorf("reading response: %w", err)
+		return "", duration, fullDuration, delta, fmt.Errorf("reading response: %w", err)
 	}
 
-	return strings.TrimSpace(string(body)), elapsed, delta, nil
+	return strings.TrimSpace(string(body)), duration, fullDuration, delta, nil
 }
 
 // rpcRequest is used to parse the method from a JSON-RPC request.
