@@ -156,6 +156,7 @@ export function DurationChart({
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
+        appendToBody: true,
         backgroundColor: isDark ? '#1f2937' : '#ffffff',
         borderColor: isDark ? '#374151' : '#e5e7eb',
         textStyle: {
