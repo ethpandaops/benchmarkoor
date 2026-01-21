@@ -1,0 +1,25 @@
+services:
+  benchmarkoor:
+    image: ethpandaops/benchmarkoor:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./config.yaml:/app/config.yaml:ro
+      - ./results:/app/results
+    working_dir: /app
+    command: ["run", "--config", "/app/config.yaml"]
+    network_mode: host
+
+  ui:
+    image: ethpandaops/benchmarkoor-ui:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    ports:
+      - "8080:80"
+    volumes:
+      - ./results:/usr/share/nginx/html/results:ro
+    depends_on:
+      - benchmarkoor

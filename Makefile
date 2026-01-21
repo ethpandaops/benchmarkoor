@@ -1,4 +1,4 @@
-.PHONY: build clean test lint run run-ui help docker-build docker-build-core docker-build-ui
+.PHONY: build clean test lint run run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -93,3 +93,11 @@ docker-build-ui:
 		-t $(DOCKER_IMAGE_UI):$(DOCKER_TAG) \
 		-t $(DOCKER_IMAGE_UI):latest \
 		-f Dockerfile.ui .
+
+## docker-up: Start services with docker-compose
+docker-up:
+	docker compose up -d
+
+## docker-down: Stop services with docker-compose
+docker-down:
+	docker compose down
