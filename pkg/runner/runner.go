@@ -57,6 +57,7 @@ type Config struct {
 	GenesisURLs        map[string]string
 	DataDirs           map[string]*config.DataDirConfig
 	TmpDataDir         string // Directory for temporary datadir copies (empty = system default)
+	TmpCacheDir        string // Directory for temporary cache files (empty = system default)
 	ReadyTimeout       time.Duration
 	ReadyWaitAfter     time.Duration
 	TestFilter         string
@@ -355,7 +356,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	}
 
 	// Create temp files for genesis and JWT.
-	tempDir, err := os.MkdirTemp("", "benchmarkoor-"+instance.ID+"-")
+	tempDir, err := os.MkdirTemp(r.cfg.TmpCacheDir, "benchmarkoor-"+instance.ID+"-")
 	if err != nil {
 		return fmt.Errorf("creating temp directory: %w", err)
 	}
