@@ -91,17 +91,18 @@ type SystemInfo struct {
 
 // ResolvedInstance contains the resolved configuration for a client instance.
 type ResolvedInstance struct {
-	ID          string                `json:"id"`
-	Client      string                `json:"client"`
-	Image       string                `json:"image"`
-	Entrypoint  []string              `json:"entrypoint,omitempty"`
-	Command     []string              `json:"command,omitempty"`
-	ExtraArgs   []string              `json:"extra_args,omitempty"`
-	PullPolicy  string                `json:"pull_policy"`
-	Restart     string                `json:"restart,omitempty"`
-	Environment map[string]string     `json:"environment,omitempty"`
-	Genesis     string                `json:"genesis"`
-	DataDir     *config.DataDirConfig `json:"datadir,omitempty"`
+	ID            string                `json:"id"`
+	Client        string                `json:"client"`
+	Image         string                `json:"image"`
+	Entrypoint    []string              `json:"entrypoint,omitempty"`
+	Command       []string              `json:"command,omitempty"`
+	ExtraArgs     []string              `json:"extra_args,omitempty"`
+	PullPolicy    string                `json:"pull_policy"`
+	Restart       string                `json:"restart,omitempty"`
+	Environment   map[string]string     `json:"environment,omitempty"`
+	Genesis       string                `json:"genesis"`
+	DataDir       *config.DataDirConfig `json:"datadir,omitempty"`
+	ClientVersion string                `json:"client_version,omitempty"`
 }
 
 // NewRunner creates a new runner instance.
@@ -543,11 +544,19 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	log.WithField("ip", containerIP).Debug("Container IP address")
 
 	// Wait for RPC to be ready.
-	if err := r.waitForRPC(ctx, containerIP, spec.RPCPort()); err != nil {
+	clientVersion, err := r.waitForRPC(ctx, containerIP, spec.RPCPort())
+	if err != nil {
 		return fmt.Errorf("waiting for RPC: %w", err)
 	}
 
-	log.Info("RPC endpoint ready")
+	log.WithField("version", clientVersion).Info("RPC endpoint ready")
+
+	// Update config with client version.
+	runConfig.Instance.ClientVersion = clientVersion
+
+	if err := writeRunConfig(runResultsDir, runConfig); err != nil {
+		log.WithError(err).Warn("Failed to update run config with client version")
+	}
 
 	// Wait additional time.
 	select {
@@ -709,13 +718,12 @@ func (r *runner) streamLogs(ctx context.Context, instanceID, containerID, logPat
 	return r.docker.StreamLogs(ctx, containerID, stdout, stderr)
 }
 
-// waitForRPC waits for the RPC endpoint to be ready.
-func (r *runner) waitForRPC(ctx context.Context, host string, port int) error {
+// waitForRPC waits for the RPC endpoint to be ready and returns the client version.
+func (r *runner) waitForRPC(ctx context.Context, host string, port int) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.cfg.ReadyTimeout)
 	defer cancel()
 
 	url := fmt.Sprintf("http://%s:%d", host, port)
-	body := `{"jsonrpc":"2.0","method":"web3_clientVersion","params":[],"id":1}`
 
 	ticker := time.NewTicker(DefaultHealthCheckInterval)
 	defer ticker.Stop()
@@ -723,65 +731,53 @@ func (r *runner) waitForRPC(ctx context.Context, host string, port int) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for RPC: %w", ctx.Err())
+			return "", fmt.Errorf("timeout waiting for RPC: %w", ctx.Err())
 		case <-ticker.C:
-			if r.checkRPCHealth(ctx, url, body) {
-				return nil
+			if version, ok := r.checkRPCHealth(ctx, url); ok {
+				return version, nil
 			}
 		}
 	}
 }
 
-// checkRPCHealth performs a single RPC health check.
-func (r *runner) checkRPCHealth(ctx context.Context, url, body string) bool {
+// checkRPCHealth performs a single RPC health check and returns the client version on success.
+func (r *runner) checkRPCHealth(ctx context.Context, url string) (string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		return false
-	}
+	body := `{"jsonrpc":"2.0","method":"web3_clientVersion","params":[],"id":1}`
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Body = io.NopCloser(io.NopCloser(io.Reader(nil)))
-
-	// Create proper request with body.
-	req, err = http.NewRequestWithContext(ctx, http.MethodPost, url,
-		io.NopCloser(ioStringReader(body)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
 	if err != nil {
-		return false
+		return "", false
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false
+		return "", false
 	}
 	defer resp.Body.Close()
 
-	return resp.StatusCode == http.StatusOK
-}
-
-// ioStringReader returns a reader for a string.
-func ioStringReader(s string) io.Reader {
-	return &stringReader{s: s}
-}
-
-type stringReader struct {
-	s string
-	i int
-}
-
-func (r *stringReader) Read(p []byte) (n int, err error) {
-	if r.i >= len(r.s) {
-		return 0, io.EOF
+	if resp.StatusCode != http.StatusOK {
+		return "", false
 	}
 
-	n = copy(p, r.s[r.i:])
-	r.i += n
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", false
+	}
 
-	return n, nil
+	var rpcResp struct {
+		Result string `json:"result"`
+	}
+
+	if err := json.Unmarshal(respBody, &rpcResp); err != nil {
+		return "", false
+	}
+
+	return rpcResp.Result, true
 }
 
 // prefixedWriter adds a prefix to each line written.
