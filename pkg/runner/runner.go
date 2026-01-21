@@ -94,6 +94,7 @@ type ResolvedInstance struct {
 	ID            string                `json:"id"`
 	Client        string                `json:"client"`
 	Image         string                `json:"image"`
+	ImageSHA256   string                `json:"image_sha256,omitempty"`
 	Entrypoint    []string              `json:"entrypoint,omitempty"`
 	Command       []string              `json:"command,omitempty"`
 	ExtraArgs     []string              `json:"extra_args,omitempty"`
@@ -345,6 +346,14 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		return fmt.Errorf("pulling image: %w", err)
 	}
 
+	// Get image digest.
+	imageDigest, err := r.docker.GetImageDigest(ctx, imageName)
+	if err != nil {
+		log.WithError(err).Warn("Failed to get image digest")
+	} else {
+		log.WithField("digest", imageDigest).Debug("Got image digest")
+	}
+
 	// Create temp files for genesis and JWT.
 	tempDir, err := os.MkdirTemp("", "benchmarkoor-"+instance.ID+"-")
 	if err != nil {
@@ -461,6 +470,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			ID:          instance.ID,
 			Client:      instance.Client,
 			Image:       imageName,
+			ImageSHA256: imageDigest,
 			Entrypoint:  instance.Entrypoint,
 			Command:     cmd,
 			ExtraArgs:   instance.ExtraArgs,

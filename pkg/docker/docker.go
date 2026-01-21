@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/docker/docker/api/types/container"
@@ -40,6 +41,7 @@ type Manager interface {
 
 	// Image operations.
 	PullImage(ctx context.Context, imageName string, policy string) error
+	GetImageDigest(ctx context.Context, imageName string) (string, error)
 
 	// Container info.
 	GetContainerIP(ctx context.Context, containerID, networkName string) (string, error)
@@ -370,6 +372,28 @@ func (m *manager) PullImage(ctx context.Context, imageName string, policy string
 	log.Info("Image pulled successfully")
 
 	return nil
+}
+
+// GetImageDigest returns the SHA256 digest of an image (just the "sha256:..." portion).
+func (m *manager) GetImageDigest(ctx context.Context, imageName string) (string, error) {
+	inspect, _, err := m.client.ImageInspectWithRaw(ctx, imageName)
+	if err != nil {
+		return "", fmt.Errorf("inspecting image: %w", err)
+	}
+
+	// RepoDigests contains "image@sha256:hash" format.
+	// Extract just the "sha256:..." portion.
+	if len(inspect.RepoDigests) > 0 {
+		digest := inspect.RepoDigests[0]
+		if idx := strings.Index(digest, "sha256:"); idx != -1 {
+			return digest[idx:], nil
+		}
+
+		return digest, nil
+	}
+
+	// Fallback to image ID (already in sha256:... format).
+	return inspect.ID, nil
 }
 
 // GetContainerIP returns the IP address of a container in the specified network.
