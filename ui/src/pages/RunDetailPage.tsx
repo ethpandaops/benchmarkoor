@@ -43,6 +43,11 @@ export function RunDetailPage() {
     queryFn: () => fetchText(`runs/${runId}/container.log`),
     enabled: !!runId,
   })
+  const { data: benchmarkoorLog } = useQuery({
+    queryKey: ['run', runId, 'benchmarkoor-log'],
+    queryFn: () => fetchText(`runs/${runId}/benchmarkoor.log`),
+    enabled: !!runId,
+  })
 
   const isLoading = configLoading || resultLoading
   const error = configError || resultError
@@ -154,51 +159,88 @@ export function RunDetailPage() {
           </>
         )}
         <span className="text-gray-900 dark:text-gray-100">{runId}</span>
-        {containerLog && (
-          <div className="ml-auto flex items-center gap-3">
-            <Link
-              to="/runs/$runId/logs"
-              params={{ runId }}
-              search={{ file: 'container.log' }}
-              className="flex items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300"
-            >
-              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-              Container logs
-            </Link>
-            <span className="text-xs/5 text-gray-400 dark:text-gray-500">
-              {formatBytes(new TextEncoder().encode(containerLog).length)}
-            </span>
-            <button
-              onClick={() => {
-                const blob = new Blob([containerLog], { type: 'text/plain' })
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement('a')
-                a.href = url
-                a.download = 'container.log'
-                document.body.appendChild(a)
-                a.click()
-                document.body.removeChild(a)
-                URL.revokeObjectURL(url)
-              }}
-              className="flex items-center gap-1 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-              title="Download container.log"
-            >
-              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
-            </button>
+        {(containerLog || benchmarkoorLog) && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="font-medium text-gray-900 dark:text-gray-100">Logs:</span>
+            {benchmarkoorLog && (
+              <>
+                <Link
+                  to="/runs/$runId/logs"
+                  params={{ runId }}
+                  search={{ file: 'benchmarkoor.log' }}
+                  className="hover:text-gray-700 dark:hover:text-gray-300"
+                >
+                  Benchmarkoor
+                </Link>
+                <span className="text-xs text-gray-400 dark:text-gray-500">
+                  ({formatBytes(new TextEncoder().encode(benchmarkoorLog).length)})
+                </span>
+                <button
+                  onClick={() => {
+                    const blob = new Blob([benchmarkoorLog], { type: 'text/plain' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = 'benchmarkoor.log'
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    URL.revokeObjectURL(url)
+                  }}
+                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                  title="Download benchmarkoor.log"
+                >
+                  <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                    />
+                  </svg>
+                </button>
+              </>
+            )}
+            {benchmarkoorLog && containerLog && <span className="text-gray-300 dark:text-gray-600">|</span>}
+            {containerLog && (
+              <>
+                <Link
+                  to="/runs/$runId/logs"
+                  params={{ runId }}
+                  search={{ file: 'container.log' }}
+                  className="hover:text-gray-700 dark:hover:text-gray-300"
+                >
+                  Client
+                </Link>
+                <span className="text-xs text-gray-400 dark:text-gray-500">
+                  ({formatBytes(new TextEncoder().encode(containerLog).length)})
+                </span>
+                <button
+                  onClick={() => {
+                    const blob = new Blob([containerLog], { type: 'text/plain' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = 'container.log'
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    URL.revokeObjectURL(url)
+                  }}
+                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                  title="Download container.log"
+                >
+                  <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                    />
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>

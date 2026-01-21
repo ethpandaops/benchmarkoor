@@ -106,7 +106,7 @@ type ResolvedInstance struct {
 
 // NewRunner creates a new runner instance.
 func NewRunner(
-	log logrus.FieldLogger,
+	log *logrus.Logger,
 	cfg *Config,
 	dockerMgr docker.Manager,
 	registry client.Registry,
@@ -121,6 +121,7 @@ func NewRunner(
 	}
 
 	return &runner{
+		logger:   log,
 		log:      log.WithField("component", "runner"),
 		cfg:      cfg,
 		docker:   dockerMgr,
@@ -131,7 +132,8 @@ func NewRunner(
 }
 
 type runner struct {
-	log      logrus.FieldLogger
+	logger   *logrus.Logger     // The actual logger (for hook management)
+	log      logrus.FieldLogger // The field logger (for logging with fields)
 	cfg      *Config
 	docker   docker.Manager
 	registry client.Registry
@@ -208,6 +210,20 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	if err := os.MkdirAll(runResultsDir, 0755); err != nil {
 		return fmt.Errorf("creating run results directory: %w", err)
 	}
+
+	// Setup benchmarkoor log file for this run.
+	benchmarkoorLogFile, err := os.Create(filepath.Join(runResultsDir, "benchmarkoor.log"))
+	if err != nil {
+		return fmt.Errorf("creating benchmarkoor log file: %w", err)
+	}
+	defer benchmarkoorLogFile.Close()
+
+	logHook := &fileHook{
+		writer:    benchmarkoorLogFile,
+		formatter: r.logger.Formatter,
+	}
+	r.logger.AddHook(logHook)
+	defer r.removeHook(logHook)
 
 	log := r.log.WithFields(logrus.Fields{
 		"instance": instance.ID,
@@ -803,6 +819,42 @@ func (w *prefixedWriter) Write(p []byte) (n int, err error) {
 	}
 
 	return n, nil
+}
+
+// fileHook writes log entries to a file.
+type fileHook struct {
+	writer    io.Writer
+	formatter logrus.Formatter
+}
+
+func (h *fileHook) Levels() []logrus.Level {
+	return logrus.AllLevels
+}
+
+func (h *fileHook) Fire(entry *logrus.Entry) error {
+	line, err := h.formatter.Format(entry)
+	if err != nil {
+		return err
+	}
+
+	_, err = h.writer.Write(line)
+
+	return err
+}
+
+// removeHook removes a hook from the logger.
+func (r *runner) removeHook(hook logrus.Hook) {
+	for level, hooks := range r.logger.Hooks {
+		filtered := make([]logrus.Hook, 0, len(hooks))
+
+		for _, h := range hooks {
+			if h != hook {
+				filtered = append(filtered, h)
+			}
+		}
+
+		r.logger.Hooks[level] = filtered
+	}
 }
 
 // generateShortID generates a short random hex ID (8 characters).
