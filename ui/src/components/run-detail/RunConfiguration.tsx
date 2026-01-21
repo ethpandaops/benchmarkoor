@@ -90,6 +90,32 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                 </dd>
               </div>
 
+              {instance.image_sha256 && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Image SHA256</dt>
+                  <dd className="mt-1 flex items-center gap-2">
+                    <span className="font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                      {instance.image_sha256.length > 20
+                        ? `${instance.image_sha256.slice(0, 20)}...`
+                        : instance.image_sha256}
+                    </span>
+                    <CopyButton text={instance.image_sha256} />
+                  </dd>
+                </div>
+              )}
+
+              {instance.client_version && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Client Version</dt>
+                  <dd className="mt-1 flex items-center gap-2">
+                    <span className="font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                      {instance.client_version}
+                    </span>
+                    <CopyButton text={instance.client_version} />
+                  </dd>
+                </div>
+              )}
+
               {instance.genesis && (
                 <div>
                   <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis</dt>
