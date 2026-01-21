@@ -1,0 +1,40 @@
+global:
+  log_level: info
+  client_logs_to_stdout: false
+  docker_network: benchmarkoor
+  cleanup_on_start: false
+
+benchmark:
+  results_dir: ./results
+  generate_results_index: true
+  generate_suite_stats: true
+  tests:
+    filter: "bn128"
+    source:
+      tests_git:
+        repo: https://github.com/NethermindEth/gas-benchmarks.git
+        version: main
+        directory: eest_tests/testing
+
+client:
+  config:
+    genesis:
+      besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
+      erigon: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      ethrex: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      geth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      nethermind: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/nethermind/zkevmgenesis.json
+      nimbus-el: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      reth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+
+  instances:
+    - id: nethermind
+      client: nethermind
+    #- id: geth
+    #  client: geth
+    #- id: reth
+    #  client: reth
+    #- id: erigon
+    #  client: erigon
+    #- id: besu
+    #  client: besu

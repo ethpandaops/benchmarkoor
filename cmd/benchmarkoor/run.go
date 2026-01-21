@@ -128,6 +128,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		GenesisURLs:        cfg.Client.Config.Genesis,
 		DataDirs:           cfg.Client.DataDirs,
 		TmpDataDir:         cfg.Global.Directories.TmpDataDir,
+		TmpCacheDir:        cfg.Global.Directories.TmpCacheDir,
 		TestFilter:         cfg.Benchmark.Tests.Filter,
 	}
 

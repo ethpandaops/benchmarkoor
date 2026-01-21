@@ -1,4 +1,4 @@
-.PHONY: build clean test lint run run-ui help
+.PHONY: build clean test lint run run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -67,3 +67,37 @@ version: build
 ## run-ui: Run the UI dev server
 run-ui:
 	npm run --prefix ui dev
+
+# Docker variables
+DOCKER_REGISTRY?=ethpandaops
+DOCKER_IMAGE_CORE?=$(DOCKER_REGISTRY)/benchmarkoor
+DOCKER_IMAGE_UI?=$(DOCKER_REGISTRY)/benchmarkoor-ui
+DOCKER_TAG?=$(VERSION)
+
+## docker-build: Build all Docker images
+docker-build: docker-build-core docker-build-ui
+
+## docker-build-core: Build the core Docker image
+docker-build-core:
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg DATE=$(DATE) \
+		-t $(DOCKER_IMAGE_CORE):$(DOCKER_TAG) \
+		-t $(DOCKER_IMAGE_CORE):latest \
+		-f Dockerfile .
+
+## docker-build-ui: Build the UI Docker image
+docker-build-ui:
+	docker build \
+		-t $(DOCKER_IMAGE_UI):$(DOCKER_TAG) \
+		-t $(DOCKER_IMAGE_UI):latest \
+		-f Dockerfile.ui .
+
+## docker-up: Start services with docker-compose
+docker-up:
+	docker compose up -d --build
+
+## docker-down: Stop services with docker-compose
+docker-down:
+	docker compose down
