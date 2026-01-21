@@ -51,6 +51,9 @@ type Manager interface {
 	// Cleanup operations.
 	ListContainers(ctx context.Context) ([]ContainerInfo, error)
 	ListVolumes(ctx context.Context) ([]VolumeInfo, error)
+
+	// GetClient returns the underlying Docker client for direct API access.
+	GetClient() *client.Client
 }
 
 // ContainerSpec defines container configuration.
@@ -466,4 +469,9 @@ func (m *manager) ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 	}
 
 	return result, nil
+}
+
+// GetClient returns the underlying Docker client for direct API access.
+func (m *manager) GetClient() *client.Client {
+	return m.client
 }

@@ -64,6 +64,7 @@ interface ExecutionsListProps {
   suiteHash: string
   testName: string
   dir?: string
+  filenameHash?: string
 }
 
 function parseMethod(request: string): string {
@@ -181,10 +182,10 @@ function ExecutionRow({ index, request, response, time, status, mgasPerSec }: Ex
   )
 }
 
-export function ExecutionsList({ runId, suiteHash, testName, dir }: ExecutionsListProps) {
+export function ExecutionsList({ runId, suiteHash, testName, dir, filenameHash }: ExecutionsListProps) {
   const { data: requests, isLoading: requestsLoading, error: requestsError } = useTestRequests(suiteHash, testName, dir)
-  const { data: responses, isLoading: responsesLoading } = useTestResponses(runId, testName, dir)
-  const { data: resultDetails, isLoading: detailsLoading } = useTestResultDetails(runId, testName, dir)
+  const { data: responses, isLoading: responsesLoading } = useTestResponses(runId, testName, dir, filenameHash)
+  const { data: resultDetails, isLoading: detailsLoading } = useTestResultDetails(runId, testName, dir, filenameHash)
 
   const isLoading = requestsLoading || responsesLoading || detailsLoading
 

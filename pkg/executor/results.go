@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 )
+
+// maxFilenameLength is the maximum length for a filename before hashing.
+// Linux has a 255 byte limit; we use 200 to leave room for suffixes.
+const maxFilenameLength = 200
 
 // MethodStats contains aggregated statistics for a single method (int64 values).
 type MethodStats struct {
@@ -104,10 +110,40 @@ func (m *MethodStatsFloat) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// ResourceDelta contains resource usage delta for a single RPC call.
+type ResourceDelta struct {
+	MemoryDelta    int64  `json:"memory_delta_bytes"`
+	CPUDeltaUsec   uint64 `json:"cpu_delta_usec"`
+	DiskReadBytes  uint64 `json:"disk_read_bytes"`
+	DiskWriteBytes uint64 `json:"disk_write_bytes"`
+	DiskReadOps    uint64 `json:"disk_read_iops"`
+	DiskWriteOps   uint64 `json:"disk_write_iops"`
+}
+
+// MethodResourceStats contains aggregated resource statistics for a method.
+type MethodResourceStats struct {
+	CPUUsec        *MethodStats `json:"cpu_usec,omitempty"`
+	DiskReadBytes  *MethodStats `json:"disk_read_bytes,omitempty"`
+	DiskWriteBytes *MethodStats `json:"disk_write_bytes,omitempty"`
+	DiskReadOps    *MethodStats `json:"disk_read_iops,omitempty"`
+	DiskWriteOps   *MethodStats `json:"disk_write_iops,omitempty"`
+}
+
 // MethodsAggregated contains aggregated stats for both times and MGas/s.
 type MethodsAggregated struct {
-	Times      map[string]*MethodStats      `json:"times"`
-	MGasPerSec map[string]*MethodStatsFloat `json:"mgas_s"`
+	Times      map[string]*MethodStats         `json:"times"`
+	MGasPerSec map[string]*MethodStatsFloat    `json:"mgas_s"`
+	Resources  map[string]*MethodResourceStats `json:"resources,omitempty"`
+}
+
+// ResourceTotals contains aggregated resource usage metrics.
+type ResourceTotals struct {
+	CPUUsec        uint64 `json:"cpu_usec"`
+	MemoryDelta    int64  `json:"memory_delta_bytes"`
+	DiskReadBytes  uint64 `json:"disk_read_bytes"`
+	DiskWriteBytes uint64 `json:"disk_write_bytes"`
+	DiskReadIOPS   uint64 `json:"disk_read_iops"`
+	DiskWriteIOPS  uint64 `json:"disk_write_iops"`
 }
 
 // AggregatedStats contains the full aggregated output.
@@ -118,13 +154,15 @@ type AggregatedStats struct {
 	Succeeded        int                `json:"success"`
 	Failed           int                `json:"fail"`
 	TotalMsgs        int                `json:"msg_count"`
+	ResourceTotals   *ResourceTotals    `json:"resource_totals,omitempty"`
 	MethodStats      *MethodsAggregated `json:"method_stats"`
 }
 
 // TestEntry contains the result entry for a single test in the run result.
 type TestEntry struct {
-	Dir        string           `json:"dir"`
-	Aggregated *AggregatedStats `json:"aggregated"`
+	Dir          string           `json:"dir"`
+	FilenameHash string           `json:"filename_hash,omitempty"`
+	Aggregated   *AggregatedStats `json:"aggregated"`
 }
 
 // RunResult contains the aggregated results for all tests in a run.
@@ -134,42 +172,64 @@ type RunResult struct {
 
 // TestResult contains results for a single test file execution.
 type TestResult struct {
-	TestFile         string
-	Responses        []string
-	Times            []int64
-	Statuses         []int // 0=success, 1=fail
-	MGasPerSec       map[int]float64
-	GasUsed          map[int]uint64
-	MethodTimes      map[string][]int64
-	MethodMGasPerSec map[string][]float64
-	Succeeded        int
-	Failed           int
+	TestFile             string
+	Responses            []string
+	Times                []int64
+	Statuses             []int // 0=success, 1=fail
+	MGasPerSec           map[int]float64
+	GasUsed              map[int]uint64
+	Resources            map[int]*ResourceDelta
+	MethodTimes          map[string][]int64
+	MethodMGasPerSec     map[string][]float64
+	MethodCPUUsec        map[string][]int64
+	MethodDiskReadBytes  map[string][]int64
+	MethodDiskWriteBytes map[string][]int64
+	MethodDiskReadOps    map[string][]int64
+	MethodDiskWriteOps   map[string][]int64
+	Succeeded            int
+	Failed               int
 }
 
 // ResultDetails contains per-call timing and status for JSON output.
 type ResultDetails struct {
-	DurationNS []int64         `json:"duration_ns"`
-	Status     []int           `json:"status"`
-	MGasPerSec map[int]float64 `json:"mgas_s"`
-	GasUsed    map[int]uint64  `json:"gas_used"`
+	DurationNS []int64                `json:"duration_ns"`
+	Status     []int                  `json:"status"`
+	MGasPerSec map[int]float64        `json:"mgas_s"`
+	GasUsed    map[int]uint64         `json:"gas_used"`
+	Resources  map[int]*ResourceDelta `json:"resources,omitempty"`
+	// OriginalTestName stores the original test name when using hashed filenames.
+	OriginalTestName string `json:"original_test_name,omitempty"`
+	// FilenameHash stores the truncated+hash filename when the original was too long.
+	FilenameHash string `json:"filename_hash,omitempty"`
 }
 
 // NewTestResult creates a new TestResult.
 func NewTestResult(testFile string) *TestResult {
 	return &TestResult{
-		TestFile:         testFile,
-		Responses:        make([]string, 0),
-		Times:            make([]int64, 0),
-		Statuses:         make([]int, 0),
-		MGasPerSec:       make(map[int]float64),
-		GasUsed:          make(map[int]uint64),
-		MethodTimes:      make(map[string][]int64),
-		MethodMGasPerSec: make(map[string][]float64),
+		TestFile:             testFile,
+		Responses:            make([]string, 0),
+		Times:                make([]int64, 0),
+		Statuses:             make([]int, 0),
+		MGasPerSec:           make(map[int]float64),
+		GasUsed:              make(map[int]uint64),
+		Resources:            make(map[int]*ResourceDelta),
+		MethodTimes:          make(map[string][]int64),
+		MethodMGasPerSec:     make(map[string][]float64),
+		MethodCPUUsec:        make(map[string][]int64),
+		MethodDiskReadBytes:  make(map[string][]int64),
+		MethodDiskWriteBytes: make(map[string][]int64),
+		MethodDiskReadOps:    make(map[string][]int64),
+		MethodDiskWriteOps:   make(map[string][]int64),
 	}
 }
 
 // AddResult adds a single RPC call result.
-func (r *TestResult) AddResult(method, request, response string, elapsed int64, succeeded bool) {
+func (r *TestResult) AddResult(
+	method, request, response string,
+	elapsed int64,
+	succeeded bool,
+	resources *ResourceDelta,
+) {
 	// Get position before appending.
 	pos := len(r.Times)
 
@@ -183,6 +243,16 @@ func (r *TestResult) AddResult(method, request, response string, elapsed int64, 
 	}
 
 	r.Statuses = append(r.Statuses, status)
+
+	// Store resource delta if available.
+	if resources != nil {
+		r.Resources[pos] = resources
+		r.MethodCPUUsec[method] = append(r.MethodCPUUsec[method], int64(resources.CPUDeltaUsec))
+		r.MethodDiskReadBytes[method] = append(r.MethodDiskReadBytes[method], int64(resources.DiskReadBytes))
+		r.MethodDiskWriteBytes[method] = append(r.MethodDiskWriteBytes[method], int64(resources.DiskWriteBytes))
+		r.MethodDiskReadOps[method] = append(r.MethodDiskReadOps[method], int64(resources.DiskReadOps))
+		r.MethodDiskWriteOps[method] = append(r.MethodDiskWriteOps[method], int64(resources.DiskWriteOps))
+	}
 
 	// Calculate MGas/s for successful engine_newPayload calls.
 	if succeeded && strings.HasPrefix(method, "engine_newPayload") {
@@ -245,8 +315,25 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 		if g == 0 {
 			continue
 		}
+
 		stats.GasUsedTotal += g
 		stats.GasUsedTimeTotal += r.Times[idx]
+	}
+
+	// Aggregate resource metrics.
+	if len(r.Resources) > 0 {
+		resourceTotals := &ResourceTotals{}
+		for _, res := range r.Resources {
+			if res != nil {
+				resourceTotals.CPUUsec += res.CPUDeltaUsec
+				resourceTotals.MemoryDelta += res.MemoryDelta
+				resourceTotals.DiskReadBytes += res.DiskReadBytes
+				resourceTotals.DiskWriteBytes += res.DiskWriteBytes
+				resourceTotals.DiskReadIOPS += res.DiskReadOps
+				resourceTotals.DiskWriteIOPS += res.DiskWriteOps
+			}
+		}
+		stats.ResourceTotals = resourceTotals
 	}
 
 	for method, times := range r.MethodTimes {
@@ -255,6 +342,37 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 
 	for method, values := range r.MethodMGasPerSec {
 		stats.MethodStats.MGasPerSec[method] = calculateMethodStatsFloat(values)
+	}
+
+	// Aggregate per-method resource stats.
+	if len(r.MethodCPUUsec) > 0 {
+		stats.MethodStats.Resources = make(map[string]*MethodResourceStats, len(r.MethodCPUUsec))
+
+		for method := range r.MethodCPUUsec {
+			resStats := &MethodResourceStats{}
+
+			if cpuUsec, ok := r.MethodCPUUsec[method]; ok && len(cpuUsec) > 0 {
+				resStats.CPUUsec = calculateMethodStats(cpuUsec)
+			}
+
+			if diskRead, ok := r.MethodDiskReadBytes[method]; ok && len(diskRead) > 0 {
+				resStats.DiskReadBytes = calculateMethodStats(diskRead)
+			}
+
+			if diskWrite, ok := r.MethodDiskWriteBytes[method]; ok && len(diskWrite) > 0 {
+				resStats.DiskWriteBytes = calculateMethodStats(diskWrite)
+			}
+
+			if readOps, ok := r.MethodDiskReadOps[method]; ok && len(readOps) > 0 {
+				resStats.DiskReadOps = calculateMethodStats(readOps)
+			}
+
+			if writeOps, ok := r.MethodDiskWriteOps[method]; ok && len(writeOps) > 0 {
+				resStats.DiskWriteOps = calculateMethodStats(writeOps)
+			}
+
+			stats.MethodStats.Resources[method] = resStats
+		}
 	}
 
 	return stats
@@ -354,6 +472,30 @@ func percentileFloat(sorted []float64, p int) float64 {
 	return sorted[idx]
 }
 
+// hashFilename generates a SHA256 hash of the filename, returning first 16 hex chars.
+func hashFilename(filename string) string {
+	hash := sha256.Sum256([]byte(filename))
+
+	return hex.EncodeToString(hash[:8])
+}
+
+// getResultFilename returns the filename to use for result files.
+// If the original filename is too long, it returns a truncated version with hash suffix.
+// Returns (filename, hash, needsHash).
+func getResultFilename(testName string) (filename, hash string, needsHash bool) {
+	baseFilename := filepath.Base(testName)
+	if len(baseFilename) <= maxFilenameLength {
+		return baseFilename, "", false
+	}
+
+	hash = hashFilename(baseFilename)
+	// Truncate to leave room for underscore + 16-char hash
+	truncateLen := maxFilenameLength - 1 - len(hash)
+	truncated := baseFilename[:truncateLen]
+
+	return truncated + "_" + hash, hash, true
+}
+
 // WriteResults writes the three output files for a test.
 func WriteResults(resultDir, testName string, result *TestResult) error {
 	// Ensure the directory structure exists.
@@ -362,7 +504,9 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 		return fmt.Errorf("creating test result directory: %w", err)
 	}
 
-	basePath := filepath.Join(resultDir, testName)
+	// Determine filename (possibly truncated + hashed).
+	filename, _, needsHash := getResultFilename(testName)
+	basePath := filepath.Join(testDir, filename)
 
 	// Write .response file.
 	responsePath := basePath + ".response"
@@ -377,6 +521,13 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 		Status:     result.Statuses,
 		MGasPerSec: result.MGasPerSec,
 		GasUsed:    result.GasUsed,
+		Resources:  result.Resources,
+	}
+
+	// Store original test name and hashed filename if using truncated name.
+	if needsHash {
+		details.OriginalTestName = testName
+		details.FilenameHash = filename
 	}
 
 	detailsJSON, err := json.MarshalIndent(details, "", "  ")
@@ -445,6 +596,19 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 		// Remove .result-aggregated.json suffix to get the test name.
 		testName := strings.TrimSuffix(relPath, ".result-aggregated.json")
 
+		// Check if this file uses a hashed filename by reading the details file.
+		var filenameHash string
+
+		detailsPath := strings.TrimSuffix(path, ".result-aggregated.json") + ".result-details.json"
+		if detailsData, err := os.ReadFile(detailsPath); err == nil {
+			var details ResultDetails
+			if err := json.Unmarshal(detailsData, &details); err == nil && details.OriginalTestName != "" {
+				// Use the original test name stored in the details file.
+				testName = details.OriginalTestName
+				filenameHash = details.FilenameHash
+			}
+		}
+
 		// Extract directory (e.g., "000752/test.txt" -> dir is "000752").
 		dir := filepath.Dir(testName)
 		if dir == "." {
@@ -461,8 +625,9 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 		}
 
 		result.Tests[testKey] = &TestEntry{
-			Dir:        dir,
-			Aggregated: &stats,
+			Dir:          dir,
+			FilenameHash: filenameHash,
+			Aggregated:   &stats,
 		}
 
 		return nil

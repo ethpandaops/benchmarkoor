@@ -2,10 +2,21 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchText, fetchData } from '../client'
 import type { AggregatedStats, ResultDetails } from '../types'
 
-export function useTestTimes(runId: string, testName: string, dir?: string) {
+// Helper to get the filename for result files (uses hash if provided, otherwise testName)
+function getResultFilename(testName: string, filenameHash?: string): string {
+  return filenameHash || testName
+}
+
+export function useTestTimes(
+  runId: string,
+  testName: string,
+  dir?: string,
+  filenameHash?: string
+) {
+  const filename = getResultFilename(testName, filenameHash)
   const path = dir
-    ? `runs/${runId}/${dir}/${testName}.result-details.json`
-    : `runs/${runId}/${testName}.result-details.json`
+    ? `runs/${runId}/${dir}/${filename}.result-details.json`
+    : `runs/${runId}/${filename}.result-details.json`
 
   return useQuery({
     queryKey: ['run', runId, 'test', testName, 'times'],
@@ -17,10 +28,16 @@ export function useTestTimes(runId: string, testName: string, dir?: string) {
   })
 }
 
-export function useTestResultDetails(runId: string, testName: string, dir?: string) {
+export function useTestResultDetails(
+  runId: string,
+  testName: string,
+  dir?: string,
+  filenameHash?: string
+) {
+  const filename = getResultFilename(testName, filenameHash)
   const path = dir
-    ? `runs/${runId}/${dir}/${testName}.result-details.json`
-    : `runs/${runId}/${testName}.result-details.json`
+    ? `runs/${runId}/${dir}/${filename}.result-details.json`
+    : `runs/${runId}/${filename}.result-details.json`
 
   return useQuery({
     queryKey: ['run', runId, 'test', testName, 'result-details'],
@@ -29,10 +46,16 @@ export function useTestResultDetails(runId: string, testName: string, dir?: stri
   })
 }
 
-export function useTestResponses(runId: string, testName: string, dir?: string) {
+export function useTestResponses(
+  runId: string,
+  testName: string,
+  dir?: string,
+  filenameHash?: string
+) {
+  const filename = getResultFilename(testName, filenameHash)
   const path = dir
-    ? `runs/${runId}/${dir}/${testName}.response`
-    : `runs/${runId}/${testName}.response`
+    ? `runs/${runId}/${dir}/${filename}.response`
+    : `runs/${runId}/${filename}.response`
 
   return useQuery({
     queryKey: ['run', runId, 'test', testName, 'responses'],
@@ -44,10 +67,16 @@ export function useTestResponses(runId: string, testName: string, dir?: string) 
   })
 }
 
-export function useTestAggregated(runId: string, testName: string, dir?: string) {
+export function useTestAggregated(
+  runId: string,
+  testName: string,
+  dir?: string,
+  filenameHash?: string
+) {
+  const filename = getResultFilename(testName, filenameHash)
   const path = dir
-    ? `runs/${runId}/${dir}/${testName}.result-aggregated.json`
-    : `runs/${runId}/${testName}.result-aggregated.json`
+    ? `runs/${runId}/${dir}/${filename}.result-aggregated.json`
+    : `runs/${runId}/${filename}.result-aggregated.json`
 
   return useQuery({
     queryKey: ['run', runId, 'test', testName, 'aggregated'],

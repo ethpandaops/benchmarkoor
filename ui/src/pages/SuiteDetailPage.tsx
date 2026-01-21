@@ -7,6 +7,7 @@ import { useSuiteStats } from '@/api/hooks/useSuiteStats'
 import { useIndex } from '@/api/hooks/useIndex'
 import { DurationChart, type XAxisMode } from '@/components/suite-detail/DurationChart'
 import { MGasChart } from '@/components/suite-detail/MGasChart'
+import { ResourceCharts } from '@/components/suite-detail/ResourceCharts'
 import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/RunsHeatmap'
 import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
@@ -37,9 +38,10 @@ export function SuiteDetailPage() {
     q?: string
     chartMode?: XAxisMode
     mgasChartMode?: XAxisMode
+    resourceChartMode?: XAxisMode
     heatmapColor?: ColorNormalization
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount', mgasChartMode = 'runCount', heatmapColor = 'suite' } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount', mgasChartMode = 'runCount', resourceChartMode = 'runCount', heatmapColor = 'suite' } = search
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: suiteStats } = useSuiteStats(suiteHash)
   const { data: index } = useIndex()
@@ -49,6 +51,7 @@ export function SuiteDetailPage() {
   const [slowestTestsExpanded, setSlowestTestsExpanded] = useState(true)
   const [chartExpanded, setChartExpanded] = useState(true)
   const [mgasChartExpanded, setMgasChartExpanded] = useState(true)
+  const [resourceChartsExpanded, setResourceChartsExpanded] = useState(true)
   const [isDark, setIsDark] = useState(() => {
     if (typeof window === 'undefined') return false
     return document.documentElement.classList.contains('dark')
@@ -195,7 +198,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, mgasChartMode, heatmapColor },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, mgasChartMode, resourceChartMode, heatmapColor },
     })
   }
 
@@ -203,7 +206,15 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode: mode, heatmapColor },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode: mode, resourceChartMode, heatmapColor },
+    })
+  }
+
+  const handleResourceChartModeChange = (mode: XAxisMode) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode, resourceChartMode: mode, heatmapColor },
     })
   }
 
@@ -211,7 +222,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, heatmapColor: mode },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode, resourceChartMode, heatmapColor: mode },
     })
   }
 
@@ -368,6 +379,33 @@ export function SuiteDetailPage() {
                       </div>
                     )}
                   </div>
+                </div>
+                <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                  <button
+                    onClick={() => setResourceChartsExpanded(!resourceChartsExpanded)}
+                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
+                  >
+                    <svg
+                      className={clsx('size-4 text-gray-500 transition-transform', resourceChartsExpanded && 'rotate-90')}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    Resource Usage
+                  </button>
+                  {resourceChartsExpanded && (
+                    <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                      <ResourceCharts
+                        runs={suiteRunsAll}
+                        isDark={isDark}
+                        xAxisMode={resourceChartMode}
+                        onXAxisModeChange={handleResourceChartModeChange}
+                        onRunClick={handleRunClick}
+                      />
+                    </div>
+                  )}
                 </div>
                 {suiteStats && Object.keys(suiteStats).length > 0 && (
                   <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">

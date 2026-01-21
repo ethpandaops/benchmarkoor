@@ -462,6 +462,7 @@ export function TestHeatmap({
                   suiteHash={suiteHash}
                   testName={filename}
                   dir={entry.dir}
+                  filenameHash={entry.filename_hash}
                 />
               )}
             </div>

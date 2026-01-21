@@ -19,6 +19,7 @@ export interface IndexEntry {
     duration: number
     gas_used: number
     gas_used_duration: number
+    resource_totals?: ResourceTotals
   }
 }
 
@@ -26,6 +27,7 @@ export interface IndexEntry {
 export interface RunConfig {
   timestamp: number
   suite_hash?: string
+  system_resource_collection_method?: string // "cgroupv2" or "dockerstats"
   system: SystemInfo
   instance: InstanceConfig
 }
@@ -74,7 +76,17 @@ export interface RunResult {
 
 export interface TestEntry {
   dir: string
+  filename_hash?: string
   aggregated: AggregatedStats
+}
+
+export interface ResourceTotals {
+  cpu_usec: number
+  memory_delta_bytes: number
+  disk_read_bytes: number
+  disk_write_bytes: number
+  disk_read_iops: number
+  disk_write_iops: number
 }
 
 export interface AggregatedStats {
@@ -84,6 +96,7 @@ export interface AggregatedStats {
   success: number
   fail: number
   msg_count: number
+  resource_totals?: ResourceTotals
   method_stats: MethodsAggregated
 }
 
@@ -114,12 +127,25 @@ export interface MethodStatsFloat {
   p99?: number
 }
 
+// Resource delta for a single RPC call
+export interface ResourceDelta {
+  memory_delta_bytes: number
+  cpu_delta_usec: number
+  disk_read_bytes: number
+  disk_write_bytes: number
+  disk_read_iops: number
+  disk_write_iops: number
+}
+
 // .result-details.json per test
 export interface ResultDetails {
   duration_ns: number[]
   status: number[] // 0=success, 1=fail
   mgas_s: Record<string, number> // map of index -> MGas/s value
   gas_used: Record<string, number> // map of index -> gas used value
+  resources?: Record<string, ResourceDelta> // map of index -> resource delta
+  original_test_name?: string // original test name when using hashed filenames
+  filename_hash?: string // truncated+hash filename when original was too long
 }
 
 // stats.json per suite

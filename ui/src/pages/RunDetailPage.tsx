@@ -5,6 +5,7 @@ import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
+import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts'
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
 import { TestHeatmap, type SortMode } from '@/components/run-detail/TestHeatmap'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -283,6 +284,13 @@ export function RunDetailPage() {
           onThresholdChange={handleHeatmapThresholdChange}
         />
       </div>
+
+      <ResourceUsageCharts
+        tests={result.tests}
+        onTestClick={handleTestModalChange}
+        resourceCollectionMethod={config.system_resource_collection_method}
+      />
+
       <TestsTable
         tests={result.tests}
         suiteTests={suite?.tests}
