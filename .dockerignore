@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+bin/
+ui/dist/
+ui/node_modules/
+
+# Results and data
+results/
+data/
+
+# Local config files
+config.yaml
+config.*.yaml
+!config.example.yaml
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test and coverage
+coverage.out
+coverage.html
+
+# Misc
+*.log
+.ai_plans/
