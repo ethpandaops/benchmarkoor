@@ -30,6 +30,7 @@ Thumbs.db
 
 # Project specific
 results/
+tmp/
 *.log
 .ai_plans
 config.yaml

@@ -10,6 +10,7 @@ ui/node_modules/
 # Results and data
 results/
 data/
+tmp/
 
 # Local config files
 config.yaml
