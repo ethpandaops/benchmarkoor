@@ -60,8 +60,9 @@ export function MGasChart({
     }
   }
 
-  const chartData = useMemo(() => {
+  const { clientGroups: chartData, maxRunIndex } = useMemo(() => {
     const clientGroups = new Map<string, DataPoint[]>()
+    let maxRunIndex = 1
 
     for (const run of runs) {
       const mgasPerSec = calculateMGasPerSec(run.tests.gas_used, run.tests.gas_used_duration)
@@ -83,13 +84,16 @@ export function MGasChart({
     for (const [, data] of clientGroups) {
       data.sort((a, b) => a.timestamp - b.timestamp)
       const total = data.length
+      if (total > maxRunIndex) {
+        maxRunIndex = total
+      }
       data.forEach((d, i) => {
         // Run #1 = most recent, Run #N = oldest
         d.runIndex = total - i
       })
     }
 
-    return clientGroups
+    return { clientGroups, maxRunIndex }
   }, [runs])
 
   const series = useMemo(() => {
@@ -144,6 +148,7 @@ export function MGasChart({
             },
             inverse: true,
             min: 1,
+            max: maxRunIndex,
             minInterval: 1,
             axisLabel: {
               color: textColor,
@@ -232,7 +237,7 @@ export function MGasChart({
       },
       series,
     }
-  }, [series, isDark, xAxisMode])
+  }, [series, isDark, xAxisMode, maxRunIndex])
 
   const handleChartClick = (params: { value?: [number, number, number, string, string] }) => {
     if (params.value && onRunClick) {
