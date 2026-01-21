@@ -1,19 +1,21 @@
 services:
   benchmarkoor:
-    image: ethpandaops/benchmarkoor:latest
+    image: ethpandaops/benchmarkoor:dev
     build:
       context: .
       dockerfile: Dockerfile
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./config.yaml:/app/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config.example.docker.yaml:/app/config.yaml:ro
+      - /tmp:/tmp
       - ./results:/app/results
     working_dir: /app
     command: ["run", "--config", "/app/config.yaml"]
     network_mode: host
 
   ui:
-    image: ethpandaops/benchmarkoor-ui:latest
+    image: ethpandaops/benchmarkoor-ui:dev
     build:
       context: .
       dockerfile: Dockerfile.ui
