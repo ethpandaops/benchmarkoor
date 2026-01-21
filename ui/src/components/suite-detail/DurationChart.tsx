@@ -155,24 +155,34 @@ export function DurationChart({
     return {
       backgroundColor: 'transparent',
       tooltip: {
-        trigger: 'item',
+        trigger: 'axis',
         backgroundColor: isDark ? '#1f2937' : '#ffffff',
         borderColor: isDark ? '#374151' : '#e5e7eb',
         textStyle: {
           color: textColor,
         },
-        formatter: (params: { seriesName: string; color: string; value: [number, number, number, string, string] }) => {
-          const [xVal, duration, extraVal, , image] = params.value
-          const date =
-            xAxisMode === 'time' ? new Date(xVal).toLocaleString() : new Date(extraVal).toLocaleString()
+        formatter: (params: Array<{ seriesName: string; color: string; value: [number, number, number, string, string] }>) => {
+          if (!params || params.length === 0) return ''
+          const first = params[0]
+          const [xVal, , extraVal] = first.value
+          const date = xAxisMode === 'time' ? new Date(xVal).toLocaleString() : new Date(extraVal).toLocaleString()
           const runNum = xAxisMode === 'time' ? extraVal : xVal
-          const durationStr = formatDuration(duration)
-          return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${params.color};margin-right:6px;"></span><strong>${params.seriesName}</strong><br/>
-                  Run #${runNum}<br/>
-                  ${date}<br/>
-                  Duration: ${durationStr}<br/>
-                  <span style="color: ${isDark ? '#9ca3af' : '#6b7280'}; font-size: 11px;">Image: ${image}</span><br/>
-                  <span style="color: ${isDark ? '#60a5fa' : '#3b82f6'}; font-size: 11px;">Click to view details</span>`
+
+          let html = `<div style="margin-bottom: 4px;"><strong>Run #${runNum}</strong></div>`
+          html += `<div style="margin-bottom: 8px; color: ${isDark ? '#9ca3af' : '#6b7280'}; font-size: 11px;">${date}</div>`
+
+          for (const p of params) {
+            const [, duration, , , image] = p.value
+            const durationStr = formatDuration(duration)
+            html += `<div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">`
+            html += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};"></span>`
+            html += `<strong>${p.seriesName}:</strong> ${durationStr}`
+            html += `</div>`
+            html += `<div style="color: ${isDark ? '#9ca3af' : '#6b7280'}; font-size: 10px; margin-left: 16px; margin-bottom: 6px;">Image: ${image}</div>`
+          }
+
+          html += `<div style="color: ${isDark ? '#60a5fa' : '#3b82f6'}; font-size: 11px; margin-top: 4px;">Click to view details</div>`
+          return html
         },
       },
       legend: {
