@@ -4,6 +4,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=${PWD}/tmp/data
+      - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=${PWD}/tmp/cache
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config.example.docker.yaml:/app/config.yaml:ro

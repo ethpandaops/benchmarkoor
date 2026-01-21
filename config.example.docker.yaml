@@ -3,9 +3,7 @@ global:
   client_logs_to_stdout: false
   docker_network: benchmarkoor
   cleanup_on_start: false
-  directories:
-    tmp_datadir: /home/rafael/code/ethpandaops/benchmarkoor/tmp/data
-    tmp_cachedir: /home/rafael/code/ethpandaops/benchmarkoor/tmp/cache
+
 benchmark:
   results_dir: ./results
   generate_results_index: true
