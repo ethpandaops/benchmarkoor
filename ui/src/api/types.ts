@@ -59,6 +59,7 @@ export interface InstanceConfig {
   id: string
   client: string
   image: string
+  image_sha256?: string
   entrypoint?: string[]
   command?: string[]
   extra_args?: string[]
@@ -67,6 +68,7 @@ export interface InstanceConfig {
   environment?: Record<string, string>
   genesis: string
   datadir?: DataDirConfig
+  client_version?: string
 }
 
 // result.json per run
