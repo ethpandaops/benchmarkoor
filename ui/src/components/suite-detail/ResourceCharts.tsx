@@ -85,8 +85,9 @@ interface SingleChartProps {
 }
 
 function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChartProps) {
-  const chartData = useMemo(() => {
+  const { clientGroups: chartData, maxRunIndex } = useMemo(() => {
     const clientGroups = new Map<string, DataPoint[]>()
+    let maxRunIndex = 1
 
     for (const run of runs) {
       const resourceTotals = run.tests.resource_totals
@@ -111,12 +112,15 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
     for (const [, data] of clientGroups) {
       data.sort((a, b) => a.timestamp - b.timestamp)
       const total = data.length
+      if (total > maxRunIndex) {
+        maxRunIndex = total
+      }
       data.forEach((d, i) => {
         d.runIndex = total - i
       })
     }
 
-    return clientGroups
+    return { clientGroups, maxRunIndex }
   }, [runs, metric.key])
 
   const series = useMemo(() => {
@@ -161,6 +165,7 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
             type: 'value' as const,
             inverse: true,
             min: 1,
+            max: maxRunIndex,
             minInterval: 1,
             axisLabel: {
               color: textColor,
@@ -219,7 +224,7 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
       },
       series,
     }
-  }, [series, isDark, xAxisMode, metric])
+  }, [series, isDark, xAxisMode, metric, maxRunIndex])
 
   const handleChartClick = (params: { value?: [number, number, number, string, string] }) => {
     if (params.value && onRunClick) {
