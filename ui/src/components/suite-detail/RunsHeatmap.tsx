@@ -5,6 +5,11 @@ import { type IndexEntry, type IndexStepType, getIndexAggregatedStats, ALL_INDEX
 import { formatTimestamp } from '@/utils/date'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 
+// Check if run completed successfully (no status = completed for backward compat)
+function isRunCompleted(run: IndexEntry): boolean {
+  return !run.status || run.status === 'completed'
+}
+
 const MAX_RUNS_PER_CLIENT = 30
 
 // 5-level discrete color scale (green to red for duration, reversed for MGas/s)
@@ -360,6 +365,7 @@ export function RunsHeatmap({
               <div className="flex flex-1 gap-1">
                 {clientRuns[client].map((run) => {
                   const runStats = getIndexAggregatedStats(run, stepFilter)
+                  const completed = isRunCompleted(run)
                   return (
                     <button
                       key={run.run_id}
@@ -367,12 +373,19 @@ export function RunsHeatmap({
                       onMouseEnter={(e) => handleMouseEnter(run, e)}
                       onMouseLeave={handleMouseLeave}
                       className={clsx(
-                        'size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                        runStats.fail > 0 && 'ring-1 ring-red-500',
+                        'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
+                        runStats.fail > 0 && completed && 'ring-1 ring-red-500',
+                        !completed && 'ring-2 ring-red-600 dark:ring-red-500',
                       )}
-                      style={{ backgroundColor: getColorForRun(run) }}
-                      title={`${formatTimestamp(run.timestamp)} - ${formatDurationMinSec(runStats.duration)}`}
-                    />
+                      style={{ backgroundColor: completed ? getColorForRun(run) : '#6b7280' }}
+                      title={`${formatTimestamp(run.timestamp)} - ${completed ? formatDurationMinSec(runStats.duration) : run.status}`}
+                    >
+                      {!completed && (
+                        <svg className="absolute inset-0 size-5 text-red-600 dark:text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M4 4l12 12M4 16L16 4" stroke="currentColor" strokeWidth="2" fill="none" />
+                        </svg>
+                      )}
+                    </button>
                   )
                 })}
               </div>
@@ -405,6 +418,14 @@ export function RunsHeatmap({
           <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-red-500" style={{ backgroundColor: COLORS[2] }} />
           Has failures
         </span>
+        <span className="flex items-center gap-1">
+          <span className="relative inline-block size-3 rounded-xs bg-gray-500 ring-2 ring-red-600">
+            <svg className="absolute inset-0 size-3 text-red-600" viewBox="0 0 12 12">
+              <path d="M2 2l8 8M2 10L10 2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            </svg>
+          </span>
+          Interrupted
+        </span>
       </div>
 
       {/* Tooltip */}
@@ -422,10 +443,24 @@ export function RunsHeatmap({
         >
           {(() => {
             const tooltipStats = getIndexAggregatedStats(tooltip.run, stepFilter)
+            const completed = isRunCompleted(tooltip.run)
             return (
               <div className="flex flex-col gap-1">
                 <div className="font-medium">{tooltip.run.instance.client}</div>
                 <div>{formatTimestamp(tooltip.run.timestamp)}</div>
+                {!completed && (
+                  <div className="flex items-center gap-1 font-medium text-red-600 dark:text-red-400">
+                    <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    {tooltip.run.status === 'container_died' ? 'Container Died' : 'Cancelled'}
+                  </div>
+                )}
+                {tooltip.run.termination_reason && (
+                  <div className="text-red-500 dark:text-red-400" style={{ maxWidth: '200px' }}>
+                    {tooltip.run.termination_reason}
+                  </div>
+                )}
                 <div>Duration: {formatDurationMinSec(tooltipStats.duration)}</div>
                 {(() => {
                   const mgas = calculateMGasPerSec(tooltipStats.gasUsed, tooltipStats.gasUsedDuration)

@@ -385,7 +385,7 @@ export function SuiteDetailPage() {
                   </button>
                   {heatmapExpanded && (
                     <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                      <RunsHeatmap runs={completedRuns} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} />
+                      <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} />
                     </div>
                   )}
                 </div>
