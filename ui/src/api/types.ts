@@ -217,6 +217,5 @@ export interface SourceInfo {
 }
 
 export interface SuiteFile {
-  f: string
-  d?: string
+  og_path: string
 }

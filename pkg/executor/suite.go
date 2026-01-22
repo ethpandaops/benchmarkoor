@@ -51,8 +51,7 @@ type SourceStepsGlobs struct {
 
 // SuiteFile represents a file in the suite output.
 type SuiteFile struct {
-	F string `json:"f"`           // filename
-	D string `json:"d,omitempty"` // directory (omit if empty)
+	OgPath string `json:"og_path"` // original relative path
 }
 
 // SuiteTest represents a test with its optional steps in the suite output.
@@ -138,7 +137,7 @@ func CreateSuiteOutput(
 		}
 
 		for _, f := range prepared.PreRunSteps {
-			suiteFile, err := copyStepFile(preRunDir, f)
+			suiteFile, err := copyPreRunStepFile(preRunDir, f)
 			if err != nil {
 				return fmt.Errorf("copying pre-run step: %w", err)
 			}
@@ -147,57 +146,21 @@ func CreateSuiteOutput(
 		}
 	}
 
-	// Determine which step types are present.
-	hasSetup := false
-	hasTest := false
-	hasCleanup := false
-
-	for _, test := range prepared.Tests {
-		if test.Setup != nil {
-			hasSetup = true
-		}
-
-		if test.Test != nil {
-			hasTest = true
-		}
-
-		if test.Cleanup != nil {
-			hasCleanup = true
-		}
-	}
-
-	// Create step directories as needed.
-	var setupDir, testDir, cleanupDir string
-
-	if hasSetup {
-		setupDir = filepath.Join(suiteDir, "setup")
-		if err := os.MkdirAll(setupDir, 0755); err != nil {
-			return fmt.Errorf("creating setup dir: %w", err)
-		}
-	}
-
-	if hasTest {
-		testDir = filepath.Join(suiteDir, "test")
-		if err := os.MkdirAll(testDir, 0755); err != nil {
-			return fmt.Errorf("creating test dir: %w", err)
-		}
-	}
-
-	if hasCleanup {
-		cleanupDir = filepath.Join(suiteDir, "cleanup")
-		if err := os.MkdirAll(cleanupDir, 0755); err != nil {
-			return fmt.Errorf("creating cleanup dir: %w", err)
-		}
-	}
-
 	// Copy test files and build SuiteTest entries.
+	// New structure: <suite_dir>/<test_name>/{setup,test,cleanup}.request
 	for _, test := range prepared.Tests {
 		suiteTest := SuiteTest{
 			Name: test.Name,
 		}
 
+		// Create test directory.
+		testDir := filepath.Join(suiteDir, test.Name)
+		if err := os.MkdirAll(testDir, 0755); err != nil {
+			return fmt.Errorf("creating test dir for %s: %w", test.Name, err)
+		}
+
 		if test.Setup != nil {
-			suiteFile, err := copyStepFile(setupDir, test.Setup)
+			suiteFile, err := copyTestStepFile(testDir, "setup", test.Setup)
 			if err != nil {
 				return fmt.Errorf("copying setup file: %w", err)
 			}
@@ -206,7 +169,7 @@ func CreateSuiteOutput(
 		}
 
 		if test.Test != nil {
-			suiteFile, err := copyStepFile(testDir, test.Test)
+			suiteFile, err := copyTestStepFile(testDir, "test", test.Test)
 			if err != nil {
 				return fmt.Errorf("copying test file: %w", err)
 			}
@@ -215,7 +178,7 @@ func CreateSuiteOutput(
 		}
 
 		if test.Cleanup != nil {
-			suiteFile, err := copyStepFile(cleanupDir, test.Cleanup)
+			suiteFile, err := copyTestStepFile(testDir, "cleanup", test.Cleanup)
 			if err != nil {
 				return fmt.Errorf("copying cleanup file: %w", err)
 			}
@@ -241,22 +204,48 @@ func CreateSuiteOutput(
 	return nil
 }
 
-// copyStepFile copies a step file to the suite directory and returns its SuiteFile info.
-func copyStepFile(baseDir string, file *StepFile) (*SuiteFile, error) {
+// copyTestStepFile copies a test step file to the test directory with a standardized name.
+// Files are stored as <test_dir>/<step_type>.request (e.g., setup.request, test.request, cleanup.request).
+func copyTestStepFile(testDir, stepType string, file *StepFile) (*SuiteFile, error) {
+	srcFile, err := os.Open(file.Path)
+	if err != nil {
+		return nil, fmt.Errorf("opening source: %w", err)
+	}
+
+	defer func() { _ = srcFile.Close() }()
+
+	dstPath := filepath.Join(testDir, stepType+".request")
+
+	dstFile, err := os.Create(dstPath)
+	if err != nil {
+		return nil, fmt.Errorf("creating destination: %w", err)
+	}
+
+	defer func() { _ = dstFile.Close() }()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return nil, fmt.Errorf("copying content: %w", err)
+	}
+
+	return &SuiteFile{OgPath: file.Name}, nil
+}
+
+// copyPreRunStepFile copies a pre-run step file preserving its original directory structure.
+// Files are stored as pre_run_steps/<original_path>.
+func copyPreRunStepFile(preRunDir string, file *StepFile) (*SuiteFile, error) {
 	// Extract directory component from the relative name.
 	dir := filepath.Dir(file.Name)
 	filename := filepath.Base(file.Name)
 
 	// Create subdirectory if needed.
-	targetDir := baseDir
+	targetDir := preRunDir
 	if dir != "." && dir != "" {
-		targetDir = filepath.Join(baseDir, dir)
+		targetDir = filepath.Join(preRunDir, dir)
 		if err := os.MkdirAll(targetDir, 0755); err != nil {
 			return nil, fmt.Errorf("creating subdir: %w", err)
 		}
 	}
 
-	// Copy the file.
 	srcFile, err := os.Open(file.Path)
 	if err != nil {
 		return nil, fmt.Errorf("opening source: %w", err)
@@ -277,12 +266,7 @@ func copyStepFile(baseDir string, file *StepFile) (*SuiteFile, error) {
 		return nil, fmt.Errorf("copying content: %w", err)
 	}
 
-	suiteFile := &SuiteFile{F: filename}
-	if dir != "." && dir != "" {
-		suiteFile.D = dir
-	}
-
-	return suiteFile, nil
+	return &SuiteFile{OgPath: file.Name}, nil
 }
 
 // GetGitCommitSHA retrieves the current commit SHA from a git repository.
