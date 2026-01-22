@@ -516,14 +516,42 @@ export function TestHeatmap({
                   <MGasBreakdown methods={stats.method_stats.mgas_s} />
                 </>
               )}
-              {suiteHash && (
-                <ExecutionsList
-                  runId={runId}
-                  suiteHash={suiteHash}
-                  testName={selectedTest}
-                  dir={entry.dir}
-                  filenameHash={entry.filename_hash}
-                />
+              {suiteHash && entry.steps && (
+                <div className="flex flex-col gap-6">
+                  {entry.steps.setup && (
+                    <div>
+                      <h4 className="mb-2 text-sm/6 font-semibold text-gray-900 dark:text-gray-100">Setup Step</h4>
+                      <ExecutionsList
+                        runId={runId}
+                        suiteHash={suiteHash}
+                        testName={selectedTest}
+                        stepType="setup"
+                      />
+                    </div>
+                  )}
+                  {entry.steps.test && (
+                    <div>
+                      <h4 className="mb-2 text-sm/6 font-semibold text-gray-900 dark:text-gray-100">Test Step</h4>
+                      <ExecutionsList
+                        runId={runId}
+                        suiteHash={suiteHash}
+                        testName={selectedTest}
+                        stepType="test"
+                      />
+                    </div>
+                  )}
+                  {entry.steps.cleanup && (
+                    <div>
+                      <h4 className="mb-2 text-sm/6 font-semibold text-gray-900 dark:text-gray-100">Cleanup Step</h4>
+                      <ExecutionsList
+                        runId={runId}
+                        suiteHash={suiteHash}
+                        testName={selectedTest}
+                        stepType="cleanup"
+                      />
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </Modal>
