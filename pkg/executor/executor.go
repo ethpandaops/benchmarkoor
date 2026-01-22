@@ -247,7 +247,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 		// Run setup step if present.
 		if test.Setup != nil {
-			log.Debug("Running setup step")
+			log.Info("Running setup step")
 
 			setupResult := NewTestResult(test.Name)
 
@@ -264,7 +264,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 		// Run test step if present.
 		if test.Test != nil {
-			log.Debug("Running test step")
+			log.Info("Running test step")
 
 			testResult := NewTestResult(test.Name)
 
@@ -281,7 +281,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 		// Run cleanup step if present.
 		if test.Cleanup != nil {
-			log.Debug("Running cleanup step")
+			log.Info("Running cleanup step")
 
 			cleanupResult := NewTestResult(test.Name)
 
@@ -374,7 +374,7 @@ func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *
 			"duration":      time.Duration(duration),
 			"full_duration": time.Duration(fullDuration),
 			"overhead":      time.Duration(fullDuration - duration),
-		}).Debug("RPC call completed")
+		}).Info("RPC call completed")
 
 		if err != nil {
 			e.log.WithFields(logrus.Fields{
