@@ -7,6 +7,7 @@ import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
 import type { TestStatusFilter } from './TestsTable'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
+import { formatDuration } from '@/utils/format'
 
 // Aggregate stats from selected steps of a test entry
 function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
@@ -161,6 +162,8 @@ interface TestData {
   filename: string
   order: number
   mgasPerSec: number
+  gasUsedTotal: number
+  gasUsedTimeTotal: number
   hasFail: boolean
   noData: boolean
 }
@@ -229,6 +232,8 @@ export function TestHeatmap({
         filename: testName,
         order,
         mgasPerSec: mgasPerSec ?? 0,
+        gasUsedTotal: statsFiltered?.gas_used_total ?? 0,
+        gasUsedTimeTotal: statsFiltered?.gas_used_time_total ?? 0,
         hasFail: statsAll ? statsAll.fail > 0 : false,
         noData,
       })
@@ -488,6 +493,12 @@ export function TestHeatmap({
           <div className="flex flex-col gap-1">
             <div className="font-medium">Test #{tooltip.test.order}</div>
             <div>MGas/s: {tooltip.test.noData ? 'No data' : tooltip.test.mgasPerSec.toFixed(2)}</div>
+            {!tooltip.test.noData && (
+              <>
+                <div>Gas used: {(tooltip.test.gasUsedTotal / 1_000_000).toFixed(2)} MGas</div>
+                <div>Gas time: {formatDuration(tooltip.test.gasUsedTimeTotal)}</div>
+              </>
+            )}
             <div className="text-gray-500 dark:text-gray-400">Based on steps: {stepFilter.join(', ')}</div>
             <div className="max-w-48 truncate text-gray-500 dark:text-gray-400">{tooltip.test.filename}</div>
             {tooltip.test.noData && <div className="text-gray-500 dark:text-gray-400">No gas usage data available</div>}
