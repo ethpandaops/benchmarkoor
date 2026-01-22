@@ -436,6 +436,7 @@ export function RunDetailPage() {
           onSelectedTestChange={handleTestModalChange}
           onSortModeChange={handleHeatmapSortChange}
           onThresholdChange={handleHeatmapThresholdChange}
+          onSearchChange={handleSearchChange}
         />
       </div>
 

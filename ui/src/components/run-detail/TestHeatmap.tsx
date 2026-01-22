@@ -94,6 +94,7 @@ interface TestHeatmapProps {
   onSelectedTestChange?: (testName: string | undefined) => void
   onSortModeChange?: (mode: SortMode) => void
   onThresholdChange?: (threshold: number) => void
+  onSearchChange?: (query: string) => void
 }
 
 const COLORS = [
@@ -188,6 +189,7 @@ export function TestHeatmap({
   onSelectedTestChange,
   onSortModeChange,
   onThresholdChange,
+  onSearchChange,
 }: TestHeatmapProps) {
   const sortMode = sortModeProp ?? 'order'
   const threshold = thresholdProp ?? DEFAULT_THRESHOLD
@@ -375,6 +377,13 @@ export function TestHeatmap({
               </button>
             )}
           </div>
+          <input
+            type="text"
+            placeholder="Search tests..."
+            value={searchQuery}
+            onChange={(e) => onSearchChange?.(e.target.value)}
+            className="w-48 rounded-sm border border-gray-300 bg-white px-2 py-1 text-xs/5 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+          />
         </div>
         <div className="text-xs/5 text-gray-500 dark:text-gray-400">
           {testData.length} tests | {minMgas.toFixed(1)} - {maxMgas.toFixed(1)} MGas/s
