@@ -70,7 +70,17 @@ type RunConfig struct {
 	SystemResourceCollectionMethod string            `json:"system_resource_collection_method,omitempty"`
 	System                         *SystemInfo       `json:"system"`
 	Instance                       *ResolvedInstance `json:"instance"`
+	Status                         string            `json:"status,omitempty"`
+	TerminationReason              string            `json:"termination_reason,omitempty"`
+	ContainerExitCode              *int64            `json:"container_exit_code,omitempty"`
 }
+
+// Run status constants.
+const (
+	RunStatusCompleted     = "completed"
+	RunStatusContainerDied = "container_died"
+	RunStatusCancelled     = "cancelled"
+)
 
 // SystemInfo contains system hardware and OS information.
 type SystemInfo struct {
@@ -546,6 +556,40 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	log.Info("Container started")
 
+	// Start container death monitoring.
+	// Create a child context for execution that gets cancelled when container dies.
+	execCtx, execCancel := context.WithCancel(ctx)
+	defer execCancel()
+
+	var containerDied bool
+	var containerExitCode *int64
+	var mu sync.Mutex
+
+	containerExitCh, containerErrCh := r.docker.WaitForContainerExit(ctx, containerID)
+
+	r.wg.Add(1)
+
+	go func() {
+		defer r.wg.Done()
+
+		select {
+		case exitCode := <-containerExitCh:
+			mu.Lock()
+			containerDied = true
+			containerExitCode = &exitCode
+			mu.Unlock()
+
+			log.WithField("exit_code", exitCode).Warn("Container exited unexpectedly")
+			execCancel() // Cancel test execution context.
+		case err := <-containerErrCh:
+			if err != nil && err != context.Canceled {
+				log.WithError(err).Warn("Container wait error")
+			}
+		case <-r.done:
+			// Runner is stopping.
+		}
+	}()
+
 	// Get container IP for health checks.
 	containerIP, err := r.docker.GetContainerIP(ctx, containerID, r.cfg.DockerNetwork)
 	if err != nil {
@@ -590,7 +634,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			DockerClient:   r.docker.GetClient(),
 		}
 
-		result, err := r.executor.ExecuteTests(ctx, execOpts)
+		result, err := r.executor.ExecuteTests(execCtx, execOpts)
 		if err != nil {
 			log.WithError(err).Error("Test execution failed")
 		} else {
@@ -604,11 +648,36 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			// Update config with stats reader type if available.
 			if result.StatsReaderType != "" {
 				runConfig.SystemResourceCollectionMethod = result.StatsReaderType
-				if err := writeRunConfig(runResultsDir, runConfig); err != nil {
-					log.WithError(err).Warn("Failed to update run config with stats reader type")
-				}
+			}
+
+			// Propagate container death info from executor result.
+			if result.ContainerDied {
+				mu.Lock()
+				containerDied = true
+				mu.Unlock()
 			}
 		}
+	}
+
+	// Determine final run status.
+	mu.Lock()
+	if containerDied {
+		runConfig.Status = RunStatusContainerDied
+		runConfig.TerminationReason = "container exited during test execution"
+		runConfig.ContainerExitCode = containerExitCode
+	} else if ctx.Err() != nil {
+		runConfig.Status = RunStatusCancelled
+		runConfig.TerminationReason = "run was cancelled"
+	} else {
+		runConfig.Status = RunStatusCompleted
+	}
+	mu.Unlock()
+
+	// Write final config with status.
+	if err := writeRunConfig(runResultsDir, runConfig); err != nil {
+		log.WithError(err).Warn("Failed to write final run config with status")
+	} else {
+		log.WithField("status", runConfig.Status).Info("Run completed")
 	}
 
 	// Cleanup happens in defer.

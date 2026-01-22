@@ -43,11 +43,13 @@ type ExecuteOptions struct {
 
 // ExecutionResult contains the overall execution summary.
 type ExecutionResult struct {
-	TotalTests      int
-	Passed          int
-	Failed          int
-	TotalDuration   time.Duration
-	StatsReaderType string // "cgroupv2", "dockerstats", or empty if not available
+	TotalTests        int
+	Passed            int
+	Failed            int
+	TotalDuration     time.Duration
+	StatsReaderType   string // "cgroupv2", "dockerstats", or empty if not available
+	ContainerDied     bool   // true if container exited during execution
+	TerminationReason string // reason for early termination, if any
 }
 
 // Config for the executor.
@@ -168,6 +170,8 @@ func (e *executor) GetSuiteHash() string {
 }
 
 // ExecuteTests runs all tests against the specified Engine API endpoint.
+// If the context is cancelled (e.g., due to container death), execution stops
+// but partial results are still written.
 func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*ExecutionResult, error) {
 	startTime := time.Now()
 
@@ -195,6 +199,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		"tests":         len(e.prepared.Tests),
 	}).Info("Starting test execution")
 
+	// Track if execution was interrupted.
+	var interrupted bool
+	var interruptReason string
+
 	// Run pre-run steps first.
 	if len(e.prepared.PreRunSteps) > 0 {
 		e.log.Info("Running pre-run steps")
@@ -202,7 +210,12 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		for _, step := range e.prepared.PreRunSteps {
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				interrupted = true
+				interruptReason = "context cancelled during pre-run steps"
+
+				e.log.Warn("Execution interrupted during pre-run steps")
+
+				goto writeResults
 			default:
 			}
 
@@ -212,6 +225,14 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			preRunResult := NewTestResult(step.Name)
 			if err := e.runStepFile(ctx, opts, step, preRunResult); err != nil {
 				log.WithError(err).Warn("Pre-run step failed")
+
+				// Check if the failure was due to context cancellation.
+				if ctx.Err() != nil {
+					interrupted = true
+					interruptReason = "context cancelled during pre-run step execution"
+
+					goto writeResults
+				}
 			} else {
 				if err := WriteStepResults(opts.ResultsDir, step.Name, StepTypePreRun, preRunResult); err != nil {
 					log.WithError(err).Warn("Failed to write pre-run step results")
@@ -223,26 +244,15 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	}
 
 	// Run actual tests with result collection.
-	result := &ExecutionResult{
-		TotalTests: len(e.prepared.Tests),
-	}
-
-	// Set stats reader type if available.
-	if e.statsReader != nil {
-		switch e.statsReader.Type() {
-		case "cgroup":
-			result.StatsReaderType = "cgroupv2"
-		case "docker":
-			result.StatsReaderType = "dockerstats"
-		default:
-			result.StatsReaderType = e.statsReader.Type()
-		}
-	}
-
 	for _, test := range e.prepared.Tests {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			interrupted = true
+			interruptReason = "context cancelled between tests"
+
+			e.log.Warn("Execution interrupted between tests")
+
+			goto writeResults
 		default:
 		}
 
@@ -260,6 +270,14 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			if err := e.runStepFile(ctx, opts, test.Setup, setupResult); err != nil {
 				log.WithError(err).Error("Setup step failed")
 				testPassed = false
+
+				// Check if the failure was due to context cancellation.
+				if ctx.Err() != nil {
+					interrupted = true
+					interruptReason = "context cancelled during setup step"
+
+					goto writeResults
+				}
 			} else {
 				// Write setup results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeSetup, setupResult); err != nil {
@@ -277,6 +295,14 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			if err := e.runStepFile(ctx, opts, test.Test, testResult); err != nil {
 				log.WithError(err).Error("Test step failed")
 				testPassed = false
+
+				// Check if the failure was due to context cancellation.
+				if ctx.Err() != nil {
+					interrupted = true
+					interruptReason = "context cancelled during test step"
+
+					goto writeResults
+				}
 			} else {
 				// Write test results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeTest, testResult); err != nil {
@@ -294,6 +320,14 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			if err := e.runStepFile(ctx, opts, test.Cleanup, cleanupResult); err != nil {
 				log.WithError(err).Error("Cleanup step failed")
 				testPassed = false
+
+				// Check if the failure was due to context cancellation.
+				if ctx.Err() != nil {
+					interrupted = true
+					interruptReason = "context cancelled during cleanup step"
+
+					goto writeResults
+				}
 			} else {
 				// Write cleanup results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeCleanup, cleanupResult); err != nil {
@@ -304,25 +338,74 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 		if testPassed {
 			log.Info("Test completed successfully")
-			result.Passed++
 		} else {
 			log.Warn("Test completed with failures")
-			result.Failed++
 		}
 	}
 
-	result.TotalDuration = time.Since(startTime)
+writeResults:
+	// Build execution result.
+	result := &ExecutionResult{
+		TotalTests:        len(e.prepared.Tests),
+		TotalDuration:     time.Since(startTime),
+		ContainerDied:     interrupted,
+		TerminationReason: interruptReason,
+	}
 
-	// Generate and write the run result summary.
+	// Set stats reader type if available.
+	if e.statsReader != nil {
+		switch e.statsReader.Type() {
+		case "cgroup":
+			result.StatsReaderType = "cgroupv2"
+		case "docker":
+			result.StatsReaderType = "dockerstats"
+		default:
+			result.StatsReaderType = e.statsReader.Type()
+		}
+	}
+
+	// Count passed/failed from whatever results were written.
+	// We scan the results directory to count actual test outcomes.
 	runResult, err := GenerateRunResult(opts.ResultsDir)
 	if err != nil {
 		e.log.WithError(err).Warn("Failed to generate run result")
 	} else {
+		// Count passed/failed tests from the generated result.
+		for _, test := range runResult.Tests {
+			passed := true
+			if test.Steps != nil {
+				if test.Steps.Setup != nil && test.Steps.Setup.Aggregated.Failed > 0 {
+					passed = false
+				}
+
+				if test.Steps.Test != nil && test.Steps.Test.Aggregated.Failed > 0 {
+					passed = false
+				}
+
+				if test.Steps.Cleanup != nil && test.Steps.Cleanup.Aggregated.Failed > 0 {
+					passed = false
+				}
+			}
+
+			if passed {
+				result.Passed++
+			} else {
+				result.Failed++
+			}
+		}
+
 		if err := WriteRunResult(opts.ResultsDir, runResult); err != nil {
 			e.log.WithError(err).Warn("Failed to write run result")
 		} else {
-			e.log.WithField("tests_count", len(runResult.Tests)).Info("Run result written")
+			e.log.WithFields(logrus.Fields{
+				"tests_count": len(runResult.Tests),
+				"interrupted": interrupted,
+			}).Info("Run result written")
 		}
+	}
+
+	if interrupted {
+		e.log.WithField("reason", interruptReason).Warn("Test execution was interrupted")
 	}
 
 	return result, nil

@@ -56,6 +56,10 @@ type Manager interface {
 
 	// GetClient returns the underlying Docker client for direct API access.
 	GetClient() *client.Client
+
+	// WaitForContainerExit returns channels that signal when a container exits.
+	// The statusCh receives the exit code, errCh receives any wait errors.
+	WaitForContainerExit(ctx context.Context, containerID string) (<-chan int64, <-chan error)
 }
 
 // ContainerSpec defines container configuration.
@@ -498,4 +502,34 @@ func (m *manager) ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 // GetClient returns the underlying Docker client for direct API access.
 func (m *manager) GetClient() *client.Client {
 	return m.client
+}
+
+// WaitForContainerExit returns channels that signal when a container exits.
+// The statusCh receives the exit code, errCh receives any wait errors.
+func (m *manager) WaitForContainerExit(
+	ctx context.Context,
+	containerID string,
+) (<-chan int64, <-chan error) {
+	statusCh := make(chan int64, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(statusCh)
+		defer close(errCh)
+
+		waitStatusCh, waitErrCh := m.client.ContainerWait(
+			ctx, containerID, container.WaitConditionNotRunning,
+		)
+
+		select {
+		case status := <-waitStatusCh:
+			statusCh <- status.StatusCode
+		case err := <-waitErrCh:
+			errCh <- err
+		case <-ctx.Done():
+			errCh <- ctx.Err()
+		}
+	}()
+
+	return statusCh, errCh
 }

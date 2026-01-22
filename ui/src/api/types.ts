@@ -4,6 +4,9 @@ export interface Index {
   entries: IndexEntry[]
 }
 
+// Run status type
+export type RunStatus = 'completed' | 'container_died' | 'cancelled'
+
 export interface IndexEntry {
   run_id: string
   timestamp: number
@@ -20,6 +23,8 @@ export interface IndexEntry {
       cleanup?: IndexStepStats
     }
   }
+  status?: RunStatus
+  termination_reason?: string
 }
 
 export interface IndexStepStats {
@@ -113,6 +118,9 @@ export interface RunConfig {
   system_resource_collection_method?: string // "cgroupv2" or "dockerstats"
   system: SystemInfo
   instance: InstanceConfig
+  status?: RunStatus
+  termination_reason?: string
+  container_exit_code?: number
 }
 
 export interface SystemInfo {
