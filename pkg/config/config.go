@@ -68,25 +68,36 @@ type TestsConfig struct {
 
 // SourceConfig defines where to find test files.
 type SourceConfig struct {
-	// Local directory options.
-	TestsLocalDir       string `yaml:"tests_local_dir,omitempty" mapstructure:"tests_local_dir"`
-	WarmupTestsLocalDir string `yaml:"warmup_tests_local_dir,omitempty" mapstructure:"warmup_tests_local_dir"`
-
-	// Git repository options.
-	TestsGit  *GitSource `yaml:"tests_git,omitempty" mapstructure:"tests_git"`
-	WarmupGit *GitSource `yaml:"warmup_git,omitempty" mapstructure:"warmup_git"`
+	// New unified source options.
+	Git   *GitSourceV2   `yaml:"git,omitempty" mapstructure:"git"`
+	Local *LocalSourceV2 `yaml:"local,omitempty" mapstructure:"local"`
 }
 
-// GitSource defines a git repository source for tests.
-type GitSource struct {
-	Repo      string `yaml:"repo" mapstructure:"repo"`
-	Version   string `yaml:"version" mapstructure:"version"`
-	Directory string `yaml:"directory" mapstructure:"directory"`
+// GitSourceV2 defines a git repository source for tests with step-based structure.
+type GitSourceV2 struct {
+	Repo        string       `yaml:"repo" mapstructure:"repo"`
+	Version     string       `yaml:"version" mapstructure:"version"`
+	PreRunSteps []string     `yaml:"pre_run_steps,omitempty" mapstructure:"pre_run_steps"`
+	Steps       *StepsConfig `yaml:"steps,omitempty" mapstructure:"steps"`
+}
+
+// LocalSourceV2 defines a local directory source for tests with step-based structure.
+type LocalSourceV2 struct {
+	BaseDir     string       `yaml:"base_dir" mapstructure:"base_dir"`
+	PreRunSteps []string     `yaml:"pre_run_steps,omitempty" mapstructure:"pre_run_steps"`
+	Steps       *StepsConfig `yaml:"steps,omitempty" mapstructure:"steps"`
+}
+
+// StepsConfig defines glob patterns for each step type.
+type StepsConfig struct {
+	Setup   []string `yaml:"setup,omitempty" mapstructure:"setup"`
+	Test    []string `yaml:"test,omitempty" mapstructure:"test"`
+	Cleanup []string `yaml:"cleanup,omitempty" mapstructure:"cleanup"`
 }
 
 // IsConfigured returns true if any test source is configured.
 func (s *SourceConfig) IsConfigured() bool {
-	return s.TestsLocalDir != "" || s.TestsGit != nil
+	return s.Git != nil || s.Local != nil
 }
 
 // DefaultContainerDir is the default container mount path for data directories.
@@ -341,42 +352,27 @@ func (s *SourceConfig) Validate() error {
 		return nil
 	}
 
-	hasLocal := s.TestsLocalDir != ""
-	hasGit := s.TestsGit != nil
-
-	if hasLocal && hasGit {
-		return fmt.Errorf("cannot specify both tests_local_dir and tests_git")
+	if s.Git != nil && s.Local != nil {
+		return fmt.Errorf("cannot specify both git and local source")
 	}
 
-	if hasLocal {
-		if _, err := os.Stat(s.TestsLocalDir); os.IsNotExist(err) {
-			return fmt.Errorf("tests_local_dir %q does not exist", s.TestsLocalDir)
+	if s.Git != nil {
+		if s.Git.Repo == "" {
+			return fmt.Errorf("git.repo is required")
 		}
 
-		if s.WarmupTestsLocalDir != "" {
-			if _, err := os.Stat(s.WarmupTestsLocalDir); os.IsNotExist(err) {
-				return fmt.Errorf("warmup_tests_local_dir %q does not exist", s.WarmupTestsLocalDir)
-			}
+		if s.Git.Version == "" {
+			return fmt.Errorf("git.version is required")
 		}
 	}
 
-	if hasGit {
-		if s.TestsGit.Repo == "" {
-			return fmt.Errorf("tests_git.repo is required")
+	if s.Local != nil {
+		if s.Local.BaseDir == "" {
+			return fmt.Errorf("local.base_dir is required")
 		}
 
-		if s.TestsGit.Version == "" {
-			return fmt.Errorf("tests_git.version is required")
-		}
-
-		if s.WarmupGit != nil {
-			if s.WarmupGit.Repo == "" {
-				return fmt.Errorf("warmup_git.repo is required")
-			}
-
-			if s.WarmupGit.Version == "" {
-				return fmt.Errorf("warmup_git.version is required")
-			}
+		if _, err := os.Stat(s.Local.BaseDir); os.IsNotExist(err) {
+			return fmt.Errorf("local.base_dir %q does not exist", s.Local.BaseDir)
 		}
 	}
 

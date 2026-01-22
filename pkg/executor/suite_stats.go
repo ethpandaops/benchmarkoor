@@ -119,8 +119,23 @@ func buildSuiteStats(runsDir string, runs []runInfo) (*SuiteStats, error) {
 		}
 
 		for testName, testEntry := range runResult.Tests {
-			if testEntry.Aggregated == nil {
+			if testEntry.Steps == nil {
 				continue
+			}
+
+			// Aggregate stats from all steps.
+			var totalGasUsed uint64
+
+			var totalGasUsedTime int64
+
+			steps := []*StepResult{testEntry.Steps.Setup, testEntry.Steps.Test, testEntry.Steps.Cleanup}
+			for _, step := range steps {
+				if step == nil || step.Aggregated == nil {
+					continue
+				}
+
+				totalGasUsed += step.Aggregated.GasUsedTotal
+				totalGasUsedTime += step.Aggregated.GasUsedTimeTotal
 			}
 
 			if stats[testName] == nil {
@@ -132,8 +147,8 @@ func buildSuiteStats(runsDir string, runs []runInfo) (*SuiteStats, error) {
 			stats[testName].Durations = append(stats[testName].Durations, &RunDuration{
 				ID:       run.runID,
 				Client:   run.client,
-				GasUsed:  testEntry.Aggregated.GasUsedTotal,
-				Time:     testEntry.Aggregated.GasUsedTimeTotal,
+				GasUsed:  totalGasUsed,
+				Time:     totalGasUsedTime,
 				RunStart: run.timestamp,
 			})
 		}

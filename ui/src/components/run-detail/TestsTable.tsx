@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import clsx from 'clsx'
-import type { TestEntry, SuiteFile } from '@/api/types'
+import type { TestEntry, SuiteTest, AggregatedStats } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
@@ -12,9 +12,45 @@ export type TestStatusFilter = 'all' | 'passed' | 'failed'
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 20
 
+// Aggregate stats from all steps of a test entry
+function getAggregatedStats(entry: TestEntry): AggregatedStats | undefined {
+  if (!entry.steps) return undefined
+
+  const steps = [entry.steps.setup, entry.steps.test, entry.steps.cleanup].filter((s) => s?.aggregated)
+
+  if (steps.length === 0) return undefined
+
+  // Sum up stats from all steps
+  let timeTotal = 0
+  let gasUsedTotal = 0
+  let gasUsedTimeTotal = 0
+  let success = 0
+  let fail = 0
+
+  for (const step of steps) {
+    if (step?.aggregated) {
+      timeTotal += step.aggregated.time_total
+      gasUsedTotal += step.aggregated.gas_used_total
+      gasUsedTimeTotal += step.aggregated.gas_used_time_total
+      success += step.aggregated.success
+      fail += step.aggregated.fail
+    }
+  }
+
+  return {
+    time_total: timeTotal,
+    gas_used_total: gasUsedTotal,
+    gas_used_time_total: gasUsedTimeTotal,
+    success,
+    fail,
+    msg_count: 0,
+    method_stats: { times: {}, mgas_s: {} },
+  }
+}
+
 interface TestsTableProps {
   tests: Record<string, TestEntry>
-  suiteTests?: SuiteFile[]
+  suiteTests?: SuiteTest[]
   currentPage?: number
   pageSize?: number
   sortBy?: TestSortColumn
@@ -71,10 +107,6 @@ function SortableHeader({
   )
 }
 
-// Creates a unique key for a test by combining directory and filename.
-function makeTestKey(filename: string, dir?: string): string {
-  return dir ? `${dir}/${filename}` : filename
-}
 
 // Calculates MGas/s from gas_used_total and gas_used_time_total
 function calculateMGasPerSec(gasUsedTotal: number, gasUsedTimeTotal: number): number | undefined {
@@ -100,7 +132,7 @@ export function TestsTable({
 }: TestsTableProps) {
   const executionOrder = useMemo(() => {
     if (!suiteTests) return new Map<string, number>()
-    return new Map(suiteTests.map((file, index) => [makeTestKey(file.f, file.d), index + 1]))
+    return new Map(suiteTests.map((test, index) => [test.name, index + 1]))
   }, [suiteTests])
 
   const handleSort = (column: TestSortColumn) => {
@@ -119,28 +151,37 @@ export function TestsTable({
     }
 
     if (statusFilter === 'passed') {
-      filtered = filtered.filter(([, entry]) => entry.aggregated.fail === 0)
+      filtered = filtered.filter(([, entry]) => {
+        const stats = getAggregatedStats(entry)
+        return stats ? stats.fail === 0 : false
+      })
     } else if (statusFilter === 'failed') {
-      filtered = filtered.filter(([, entry]) => entry.aggregated.fail > 0)
+      filtered = filtered.filter(([, entry]) => {
+        const stats = getAggregatedStats(entry)
+        return stats ? stats.fail > 0 : false
+      })
     }
 
     return filtered.sort(([a, entryA], [b, entryB]) => {
       let comparison = 0
+      const statsA = getAggregatedStats(entryA)
+      const statsB = getAggregatedStats(entryB)
+
       if (sortBy === 'order') {
-        // a and b are already full paths (dir/filename or filename)
+        // a and b are test names
         const orderA = executionOrder.get(a) ?? Infinity
         const orderB = executionOrder.get(b) ?? Infinity
         comparison = orderA - orderB
       } else if (sortBy === 'time') {
-        comparison = entryA.aggregated.time_total - entryB.aggregated.time_total
+        comparison = (statsA?.time_total ?? 0) - (statsB?.time_total ?? 0)
       } else if (sortBy === 'mgas') {
-        const mgasA = calculateMGasPerSec(entryA.aggregated.gas_used_total, entryA.aggregated.gas_used_time_total) ?? -Infinity
-        const mgasB = calculateMGasPerSec(entryB.aggregated.gas_used_total, entryB.aggregated.gas_used_time_total) ?? -Infinity
+        const mgasA = statsA ? calculateMGasPerSec(statsA.gas_used_total, statsA.gas_used_time_total) ?? -Infinity : -Infinity
+        const mgasB = statsB ? calculateMGasPerSec(statsB.gas_used_total, statsB.gas_used_time_total) ?? -Infinity : -Infinity
         comparison = mgasA - mgasB
       } else if (sortBy === 'passed') {
-        comparison = entryA.aggregated.success - entryB.aggregated.success
+        comparison = (statsA?.success ?? 0) - (statsB?.success ?? 0)
       } else if (sortBy === 'failed') {
-        comparison = entryA.aggregated.fail - entryB.aggregated.fail
+        comparison = (statsA?.fail ?? 0) - (statsB?.fail ?? 0)
       } else {
         comparison = a.localeCompare(b)
       }
@@ -237,23 +278,21 @@ export function TestsTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {paginatedTests.map(([testKey, entry]) => {
-              // testKey is now dir/filename or just filename
-              // Extract just the filename for display
-              const filename = entry.dir ? testKey.slice(entry.dir.length + 1) : testKey
+            {paginatedTests.map(([testName, entry]) => {
+              const stats = getAggregatedStats(entry)
 
               return (
                 <tr
-                  key={testKey}
-                  onClick={() => onTestClick?.(testKey)}
+                  key={testName}
+                  onClick={() => onTestClick?.(testName)}
                   className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-sm/6 font-medium text-gray-500 dark:text-gray-400">
-                    {executionOrder.get(testKey) ?? '-'}
+                    {executionOrder.get(testName) ?? '-'}
                   </td>
                   <td className="max-w-md px-4 py-3">
-                    <div className="truncate text-sm/6 font-medium text-gray-900 dark:text-gray-100" title={filename}>
-                      {filename}
+                    <div className="truncate text-sm/6 font-medium text-gray-900 dark:text-gray-100" title={testName}>
+                      {testName}
                     </div>
                     {entry.dir && (
                       <div className="truncate text-xs/5 text-gray-500 dark:text-gray-400" title={entry.dir}>
@@ -262,19 +301,20 @@ export function TestsTable({
                     )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                    <Duration nanoseconds={entry.aggregated.time_total} />
+                    {stats ? <Duration nanoseconds={stats.time_total} /> : '-'}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
                     {(() => {
-                      const mgas = calculateMGasPerSec(entry.aggregated.gas_used_total, entry.aggregated.gas_used_time_total)
+                      if (!stats) return '-'
+                      const mgas = calculateMGasPerSec(stats.gas_used_total, stats.gas_used_time_total)
                       return mgas !== undefined ? mgas.toFixed(2) : '-'
                     })()}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-center">
-                    {entry.aggregated.fail > 0 && <Badge variant="error">{entry.aggregated.fail}</Badge>}
+                    {stats && stats.fail > 0 && <Badge variant="error">{stats.fail}</Badge>}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-center">
-                    {entry.aggregated.success > 0 && <Badge variant="success">{entry.aggregated.success}</Badge>}
+                    {stats && stats.success > 0 && <Badge variant="success">{stats.success}</Badge>}
                   </td>
                 </tr>
               )

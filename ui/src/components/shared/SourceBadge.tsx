@@ -40,9 +40,9 @@ function getGitHubUrl(repo: string, sha?: string, directory?: string): string {
 
 export function SourceBadge({ source, label }: SourceBadgeProps) {
   if (source.git) {
-    const url = getGitHubUrl(source.git.repo, source.git.sha, source.git.directory)
+    const url = getGitHubUrl(source.git.repo, source.git.sha)
     const shortSha = source.git.sha.slice(0, 7)
-    const tooltip = `${source.git.repo}${source.git.directory ? `/${source.git.directory}` : ''} @ ${shortSha}`
+    const tooltip = `${source.git.repo} @ ${shortSha}`
 
     return (
       <a
@@ -58,10 +58,10 @@ export function SourceBadge({ source, label }: SourceBadgeProps) {
     )
   }
 
-  if (source.local_dir) {
+  if (source.local) {
     return (
       <span
-        title={source.local_dir}
+        title={source.local.base_dir}
         className="inline-flex items-center gap-1.5 text-gray-600 dark:text-gray-400"
       >
         <FolderIcon className="size-4" />

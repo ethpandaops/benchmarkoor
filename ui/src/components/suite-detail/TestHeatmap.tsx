@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
-import type { SuiteStats, SuiteFile } from '@/api/types'
+import type { SuiteStats, SuiteTest } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Pagination } from '@/components/shared/Pagination'
 import { formatTimestamp } from '@/utils/date'
@@ -97,7 +97,7 @@ interface TooltipData {
 
 interface TestHeatmapProps {
   stats: SuiteStats
-  testFiles?: SuiteFile[]
+  testFiles?: SuiteTest[]
   isDark: boolean
 }
 
@@ -117,12 +117,11 @@ export function TestHeatmap({ stats, testFiles, isDark }: TestHeatmapProps) {
   const [statColumnType, setStatColumnType] = useState<DistributionStatType>('Avg')
 
   const { allTests, clients } = useMemo(() => {
-    // Build lookup map from test path to 1-based index
+    // Build lookup map from test name to 1-based index
     const testIndexMap = new Map<string, number>()
     if (testFiles) {
-      testFiles.forEach((file, index) => {
-        const path = file.d ? `${file.d}/${file.f}` : file.f
-        testIndexMap.set(path, index + 1)
+      testFiles.forEach((test, index) => {
+        testIndexMap.set(test.name, index + 1)
       })
     }
 

@@ -137,12 +137,12 @@ export function SuiteDetailPage() {
     return <ErrorState message="Suite not found" />
   }
 
-  const hasWarmup = suite.warmup && suite.warmup.length > 0
-  const warmupTabIndex = hasWarmup ? 2 : -1
+  const hasPreRunSteps = suite.pre_run_steps && suite.pre_run_steps.length > 0
+  const preRunStepsTabIndex = hasPreRunSteps ? 2 : -1
 
   const getTabIndex = () => {
     if (tab === 'tests') return 1
-    if (tab === 'warmup' && hasWarmup) return warmupTabIndex
+    if (tab === 'pre_run_steps' && hasPreRunSteps) return preRunStepsTabIndex
     return 0 // runs is default
   }
 
@@ -153,7 +153,7 @@ export function SuiteDetailPage() {
     } else if (index === 1) {
       newTab = 'tests'
     } else {
-      newTab = 'warmup'
+      newTab = 'pre_run_steps'
     }
     navigate({
       to: '/suites/$suiteHash',
@@ -279,7 +279,7 @@ export function SuiteDetailPage() {
             Tests
             <Badge variant="default">{suite.tests.length}</Badge>
           </Tab>
-          {hasWarmup && (
+          {hasPreRunSteps && (
             <Tab
               className={({ selected }) =>
                 clsx(
@@ -290,8 +290,8 @@ export function SuiteDetailPage() {
                 )
               }
             >
-              Warmup
-              <Badge variant="default">{suite.warmup!.length}</Badge>
+              Pre-Run Steps
+              <Badge variant="default">{suite.pre_run_steps!.length}</Badge>
             </Tab>
           )}
         </TabList>
@@ -493,9 +493,9 @@ export function SuiteDetailPage() {
             )}
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
-            {suite.source.tests && <SuiteSource title="Source" source={suite.source.tests} />}
+            <SuiteSource title="Source" source={suite.source} />
             <TestFilesList
-              files={suite.tests}
+              tests={suite.tests}
               suiteHash={suiteHash}
               type="tests"
               expandedIndex={expanded}
@@ -506,13 +506,13 @@ export function SuiteDetailPage() {
               onSearchChange={handleSearchChange}
             />
           </TabPanel>
-          {hasWarmup && (
+          {hasPreRunSteps && (
             <TabPanel className="flex flex-col gap-4">
-              {suite.source.warmup && <SuiteSource title="Source" source={suite.source.warmup} />}
+              <SuiteSource title="Source" source={suite.source} />
               <TestFilesList
-                files={suite.warmup!}
+                files={suite.pre_run_steps!}
                 suiteHash={suiteHash}
-                type="warmup"
+                type="pre_run_steps"
                 expandedIndex={expanded}
                 onExpandedChange={handleExpandedChange}
                 currentPage={filesPage}

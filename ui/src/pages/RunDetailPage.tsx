@@ -1,6 +1,7 @@
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchText } from '@/api/client'
+import type { TestEntry, AggregatedStats } from '@/api/types'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
@@ -15,6 +16,52 @@ import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
+
+// Aggregate stats from all steps of a test entry
+function getAggregatedStats(entry: TestEntry): AggregatedStats | undefined {
+  if (!entry.steps) return undefined
+
+  const steps = [entry.steps.setup, entry.steps.test, entry.steps.cleanup].filter((s) => s?.aggregated)
+
+  if (steps.length === 0) return undefined
+
+  let timeTotal = 0
+  let gasUsedTotal = 0
+  let gasUsedTimeTotal = 0
+  let success = 0
+  let fail = 0
+  let msgCount = 0
+  const times: Record<string, { count: number; last: number }> = {}
+
+  for (const step of steps) {
+    if (step?.aggregated) {
+      timeTotal += step.aggregated.time_total
+      gasUsedTotal += step.aggregated.gas_used_total
+      gasUsedTimeTotal += step.aggregated.gas_used_time_total
+      success += step.aggregated.success
+      fail += step.aggregated.fail
+      msgCount += step.aggregated.msg_count
+
+      for (const [method, stats] of Object.entries(step.aggregated.method_stats.times)) {
+        if (!times[method]) {
+          times[method] = { count: 0, last: 0 }
+        }
+        times[method].count += stats.count
+        times[method].last = stats.last
+      }
+    }
+  }
+
+  return {
+    time_total: timeTotal,
+    gas_used_total: gasUsedTotal,
+    gas_used_time_total: gasUsedTimeTotal,
+    success,
+    fail,
+    msg_count: msgCount,
+    method_stats: { times, mgas_s: {} },
+  }
+}
 
 export function RunDetailPage() {
   const { runId } = useParams({ from: '/runs/$runId' })
@@ -124,15 +171,16 @@ export function RunDetailPage() {
   }
 
   const testCount = Object.keys(result.tests).length
-  const passedTests = Object.values(result.tests).filter((t) => t.aggregated.fail === 0).length
-  const failedTests = Object.values(result.tests).filter((t) => t.aggregated.fail > 0).length
-  const totalDuration = Object.values(result.tests).reduce((sum, t) => sum + t.aggregated.time_total, 0)
-  const totalGasUsed = Object.values(result.tests).reduce((sum, t) => sum + t.aggregated.gas_used_total, 0)
-  const totalGasUsedTime = Object.values(result.tests).reduce((sum, t) => sum + t.aggregated.gas_used_time_total, 0)
+  const aggregatedStats = Object.values(result.tests).map((t) => getAggregatedStats(t)).filter((s): s is AggregatedStats => s !== undefined)
+  const passedTests = aggregatedStats.filter((s) => s.fail === 0).length
+  const failedTests = aggregatedStats.filter((s) => s.fail > 0).length
+  const totalDuration = aggregatedStats.reduce((sum, s) => sum + s.time_total, 0)
+  const totalGasUsed = aggregatedStats.reduce((sum, s) => sum + s.gas_used_total, 0)
+  const totalGasUsedTime = aggregatedStats.reduce((sum, s) => sum + s.gas_used_time_total, 0)
   const mgasPerSec = totalGasUsedTime > 0 ? (totalGasUsed * 1000) / totalGasUsedTime : undefined
-  const totalMsgCount = Object.values(result.tests).reduce((sum, t) => sum + t.aggregated.msg_count, 0)
-  const methodCounts = Object.values(result.tests).reduce<Record<string, number>>((acc, t) => {
-    Object.entries(t.aggregated.method_stats.times).forEach(([method, stats]) => {
+  const totalMsgCount = aggregatedStats.reduce((sum, s) => sum + s.msg_count, 0)
+  const methodCounts = aggregatedStats.reduce<Record<string, number>>((acc, s) => {
+    Object.entries(s.method_stats.times).forEach(([method, stats]) => {
       acc[method] = (acc[method] ?? 0) + stats.count
     })
     return acc

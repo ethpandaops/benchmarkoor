@@ -1,17 +1,77 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import type { TestEntry, SuiteFile } from '@/api/types'
+import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated } from '@/api/types'
 import { Modal } from '@/components/shared/Modal'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
 import type { TestStatusFilter } from './TestsTable'
 
+// Aggregate stats from all steps of a test entry
+function getAggregatedStats(entry: TestEntry): AggregatedStats | undefined {
+  if (!entry.steps) return undefined
+
+  const steps = [entry.steps.setup, entry.steps.test, entry.steps.cleanup].filter((s) => s?.aggregated)
+
+  if (steps.length === 0) return undefined
+
+  // Sum up stats from all steps
+  let timeTotal = 0
+  let gasUsedTotal = 0
+  let gasUsedTimeTotal = 0
+  let success = 0
+  let fail = 0
+
+  // Merge method stats from all steps
+  const mergedTimes: Record<string, { count: number; last: number; min?: number; max?: number; mean?: number; p50?: number; p95?: number; p99?: number }> = {}
+  const mergedMgasS: Record<string, { count: number; last: number; min?: number; max?: number; mean?: number; p50?: number; p95?: number; p99?: number }> = {}
+
+  for (const step of steps) {
+    if (step?.aggregated) {
+      timeTotal += step.aggregated.time_total
+      gasUsedTotal += step.aggregated.gas_used_total
+      gasUsedTimeTotal += step.aggregated.gas_used_time_total
+      success += step.aggregated.success
+      fail += step.aggregated.fail
+
+      // Merge times
+      for (const [method, stats] of Object.entries(step.aggregated.method_stats.times)) {
+        if (!mergedTimes[method]) {
+          mergedTimes[method] = { ...stats }
+        } else {
+          mergedTimes[method].count += stats.count
+          mergedTimes[method].last = stats.last
+        }
+      }
+
+      // Merge mgas_s
+      for (const [method, stats] of Object.entries(step.aggregated.method_stats.mgas_s)) {
+        if (!mergedMgasS[method]) {
+          mergedMgasS[method] = { ...stats }
+        } else {
+          mergedMgasS[method].count += stats.count
+          mergedMgasS[method].last = stats.last
+        }
+      }
+    }
+  }
+
+  return {
+    time_total: timeTotal,
+    gas_used_total: gasUsedTotal,
+    gas_used_time_total: gasUsedTimeTotal,
+    success,
+    fail,
+    msg_count: 0,
+    method_stats: { times: mergedTimes, mgas_s: mergedMgasS } as MethodsAggregated,
+  }
+}
+
 export type SortMode = 'order' | 'mgas'
 
 interface TestHeatmapProps {
   tests: Record<string, TestEntry>
-  suiteTests?: SuiteFile[]
+  suiteTests?: SuiteTest[]
   runId: string
   suiteHash?: string
   selectedTest?: string
@@ -35,10 +95,6 @@ const COLORS = [
 const MIN_THRESHOLD = 10
 const MAX_THRESHOLD = 1000
 const DEFAULT_THRESHOLD = 60
-
-function makeTestKey(filename: string, dir?: string): string {
-  return dir ? `${dir}/${filename}` : filename
-}
 
 function calculateMGasPerSec(gasUsedTotal: number, gasUsedTimeTotal: number): number | undefined {
   if (gasUsedTimeTotal <= 0 || gasUsedTotal <= 0) return undefined
@@ -134,7 +190,7 @@ export function TestHeatmap({
 
   const executionOrder = useMemo(() => {
     if (!suiteTests) return new Map<string, number>()
-    return new Map(suiteTests.map((file, index) => [makeTestKey(file.f, file.d), index + 1]))
+    return new Map(suiteTests.map((test, index) => [test.name, index + 1]))
   }, [suiteTests])
 
   const { testData, minMgas, maxMgas } = useMemo(() => {
@@ -142,10 +198,10 @@ export function TestHeatmap({
     let minMgas = Infinity
     let maxMgas = -Infinity
 
-    for (const [testKey, entry] of Object.entries(tests)) {
-      const mgasPerSec = calculateMGasPerSec(entry.aggregated.gas_used_total, entry.aggregated.gas_used_time_total)
-      const order = executionOrder.get(testKey) ?? Infinity
-      const filename = entry.dir ? testKey.slice(entry.dir.length + 1) : testKey
+    for (const [testName, entry] of Object.entries(tests)) {
+      const stats = getAggregatedStats(entry)
+      const mgasPerSec = stats ? calculateMGasPerSec(stats.gas_used_total, stats.gas_used_time_total) : undefined
+      const order = executionOrder.get(testName) ?? Infinity
       const noData = mgasPerSec === undefined
 
       if (!noData) {
@@ -154,11 +210,11 @@ export function TestHeatmap({
       }
 
       data.push({
-        testKey,
-        filename,
+        testKey: testName,
+        filename: testName,
         order,
         mgasPerSec: mgasPerSec ?? 0,
-        hasFail: entry.aggregated.fail > 0,
+        hasFail: stats ? stats.fail > 0 : false,
         noData,
       })
     }
@@ -428,7 +484,7 @@ export function TestHeatmap({
       {/* Test Detail Modal */}
       {selectedTest && tests[selectedTest] && (() => {
         const entry = tests[selectedTest]
-        const filename = entry.dir ? selectedTest.slice(entry.dir.length + 1) : selectedTest
+        const stats = getAggregatedStats(entry)
         return (
           <Modal
             isOpen={!!selectedTest}
@@ -438,10 +494,10 @@ export function TestHeatmap({
             <div className="flex flex-col gap-6">
               <div className="flex flex-col gap-2">
                 <div>
-                  <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">File Name</div>
+                  <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Test Name</div>
                   <div className="flex items-center gap-2 text-sm/6 text-gray-900 dark:text-gray-100">
-                    <span>{filename}</span>
-                    <CopyButton text={filename} />
+                    <span>{selectedTest}</span>
+                    <CopyButton text={selectedTest} />
                   </div>
                 </div>
                 {entry.dir && (
@@ -454,13 +510,17 @@ export function TestHeatmap({
                   </div>
                 )}
               </div>
-              <TimeBreakdown methods={entry.aggregated.method_stats.times} />
-              <MGasBreakdown methods={entry.aggregated.method_stats.mgas_s} />
+              {stats && (
+                <>
+                  <TimeBreakdown methods={stats.method_stats.times} />
+                  <MGasBreakdown methods={stats.method_stats.mgas_s} />
+                </>
+              )}
               {suiteHash && (
                 <ExecutionsList
                   runId={runId}
                   suiteHash={suiteHash}
-                  testName={filename}
+                  testName={selectedTest}
                   dir={entry.dir}
                   filenameHash={entry.filename_hash}
                 />

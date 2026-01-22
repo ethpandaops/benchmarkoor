@@ -1,7 +1,45 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { TestEntry } from '@/api/types'
+import type { TestEntry, ResourceTotals } from '@/api/types'
 import { formatBytes } from '@/utils/format'
+
+// Get aggregated resource totals from all steps of a test entry
+function getResourceTotals(entry: TestEntry): ResourceTotals | undefined {
+  if (!entry.steps) return undefined
+
+  const steps = [entry.steps.setup, entry.steps.test, entry.steps.cleanup].filter((s) => s?.aggregated?.resource_totals)
+
+  if (steps.length === 0) return undefined
+
+  // Sum up resource totals from all steps
+  let cpuUsec = 0
+  let memoryDelta = 0
+  let diskRead = 0
+  let diskWrite = 0
+  let diskReadOps = 0
+  let diskWriteOps = 0
+
+  for (const step of steps) {
+    if (step?.aggregated?.resource_totals) {
+      const res = step.aggregated.resource_totals
+      cpuUsec += res.cpu_usec ?? 0
+      memoryDelta += res.memory_delta_bytes ?? 0
+      diskRead += res.disk_read_bytes ?? 0
+      diskWrite += res.disk_write_bytes ?? 0
+      diskReadOps += res.disk_read_iops ?? 0
+      diskWriteOps += res.disk_write_iops ?? 0
+    }
+  }
+
+  return {
+    cpu_usec: cpuUsec,
+    memory_delta_bytes: memoryDelta,
+    disk_read_bytes: diskRead,
+    disk_write_bytes: diskWrite,
+    disk_read_iops: diskReadOps,
+    disk_write_iops: diskWriteOps,
+  }
+}
 
 function useDarkMode() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
@@ -172,7 +210,7 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
     })
 
     sortedTests.forEach(([testName, test], index) => {
-      const res = test.aggregated.resource_totals
+      const res = getResourceTotals(test)
       if (res) {
         hasData = true
         const cpuUsec = res.cpu_usec ?? 0

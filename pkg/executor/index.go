@@ -125,21 +125,31 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 			hasResources := false
 
 			for _, test := range runResult.Tests {
-				if test.Aggregated != nil {
-					testStats.Success += test.Aggregated.Succeeded
-					testStats.Fail += test.Aggregated.Failed
-					testStats.Duration += test.Aggregated.TotalTime
-					testStats.GasUsed += test.Aggregated.GasUsedTotal
-					testStats.GasUsedDuration += test.Aggregated.GasUsedTimeTotal
+				if test.Steps == nil {
+					continue
+				}
 
-					if test.Aggregated.ResourceTotals != nil {
+				// Aggregate stats from all steps.
+				steps := []*StepResult{test.Steps.Setup, test.Steps.Test, test.Steps.Cleanup}
+				for _, step := range steps {
+					if step == nil || step.Aggregated == nil {
+						continue
+					}
+
+					testStats.Success += step.Aggregated.Succeeded
+					testStats.Fail += step.Aggregated.Failed
+					testStats.Duration += step.Aggregated.TotalTime
+					testStats.GasUsed += step.Aggregated.GasUsedTotal
+					testStats.GasUsedDuration += step.Aggregated.GasUsedTimeTotal
+
+					if step.Aggregated.ResourceTotals != nil {
 						hasResources = true
-						resourceTotals.CPUUsec += test.Aggregated.ResourceTotals.CPUUsec
-						resourceTotals.MemoryDelta += test.Aggregated.ResourceTotals.MemoryDelta
-						resourceTotals.DiskReadBytes += test.Aggregated.ResourceTotals.DiskReadBytes
-						resourceTotals.DiskWriteBytes += test.Aggregated.ResourceTotals.DiskWriteBytes
-						resourceTotals.DiskReadIOPS += test.Aggregated.ResourceTotals.DiskReadIOPS
-						resourceTotals.DiskWriteIOPS += test.Aggregated.ResourceTotals.DiskWriteIOPS
+						resourceTotals.CPUUsec += step.Aggregated.ResourceTotals.CPUUsec
+						resourceTotals.MemoryDelta += step.Aggregated.ResourceTotals.MemoryDelta
+						resourceTotals.DiskReadBytes += step.Aggregated.ResourceTotals.DiskReadBytes
+						resourceTotals.DiskWriteBytes += step.Aggregated.ResourceTotals.DiskWriteBytes
+						resourceTotals.DiskReadIOPS += step.Aggregated.ResourceTotals.DiskReadIOPS
+						resourceTotals.DiskWriteIOPS += step.Aggregated.ResourceTotals.DiskWriteIOPS
 					}
 				}
 			}

@@ -32,7 +32,7 @@ function getGitHubUrl(repo: string, sha?: string, directory?: string): string {
 
 export function SuiteSource({ title, source }: SuiteSourceProps) {
   if (source.git) {
-    const gitUrl = getGitHubUrl(source.git.repo, source.git.sha, source.git.directory)
+    const gitUrl = getGitHubUrl(source.git.repo, source.git.sha)
 
     return (
       <Card title={title} collapsible>
@@ -46,12 +46,6 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
               <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Version</dt>
               <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.git.version}</dd>
             </div>
-            {source.git.directory && (
-              <div>
-                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Directory</dt>
-                <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.git.directory}</dd>
-              </div>
-            )}
             <div>
               <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Commit SHA</dt>
               <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.git.sha}</dd>
@@ -71,12 +65,12 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
     )
   }
 
-  if (source.local_dir) {
+  if (source.local) {
     return (
       <Card title={title} collapsible>
         <div>
           <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Local Directory</dt>
-          <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.local_dir}</dd>
+          <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.local.base_dir}</dd>
         </div>
       </Card>
     )

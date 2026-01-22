@@ -76,10 +76,20 @@ export interface RunResult {
   tests: Record<string, TestEntry>
 }
 
+export interface StepResult {
+  aggregated: AggregatedStats
+}
+
+export interface StepsResult {
+  setup?: StepResult
+  test?: StepResult
+  cleanup?: StepResult
+}
+
 export interface TestEntry {
   dir: string
   filename_hash?: string
-  aggregated: AggregatedStats
+  steps?: StepsResult
 }
 
 export interface ResourceTotals {
@@ -170,23 +180,40 @@ export interface RunDuration {
 // summary.json per suite
 export interface SuiteInfo {
   hash: string
-  source: {
-    tests: SourceInfo
-    warmup?: SourceInfo
-  }
+  source: SourceInfo
   filter?: string
-  warmup?: SuiteFile[]
-  tests: SuiteFile[]
+  pre_run_steps?: SuiteFile[]
+  tests: SuiteTest[]
+}
+
+export interface SuiteTest {
+  name: string
+  setup?: SuiteFile
+  test?: SuiteFile
+  cleanup?: SuiteFile
 }
 
 export interface SourceInfo {
   git?: {
     repo: string
     version: string
-    directory?: string
     sha: string
+    pre_run_steps?: string[]
+    steps?: {
+      setup?: string[]
+      test?: string[]
+      cleanup?: string[]
+    }
   }
-  local_dir?: string
+  local?: {
+    base_dir: string
+    pre_run_steps?: string[]
+    steps?: {
+      setup?: string[]
+      test?: string[]
+      cleanup?: string[]
+    }
+  }
 }
 
 export interface SuiteFile {

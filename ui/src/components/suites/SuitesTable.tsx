@@ -98,9 +98,9 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
         </div>
       </td>
       <td className="whitespace-nowrap px-6 py-4">
-        {suiteInfo?.source.tests ? (
+        {suiteInfo?.source ? (
           <div className="flex items-center gap-2">
-            <SourceBadge source={suiteInfo.source.tests} />
+            <SourceBadge source={suiteInfo.source} />
             <Badge variant="default">{suiteInfo.tests.length}</Badge>
           </div>
         ) : (
@@ -108,11 +108,8 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
         )}
       </td>
       <td className="whitespace-nowrap px-6 py-4">
-        {suiteInfo?.source.warmup && suiteInfo.warmup ? (
-          <div className="flex items-center gap-2">
-            <SourceBadge source={suiteInfo.source.warmup} />
-            <Badge variant="default">{suiteInfo.warmup.length}</Badge>
-          </div>
+        {suiteInfo?.pre_run_steps && suiteInfo.pre_run_steps.length > 0 ? (
+          <Badge variant="default">{suiteInfo.pre_run_steps.length}</Badge>
         ) : (
           <span className="text-gray-400 dark:text-gray-500">-</span>
         )}
@@ -169,8 +166,8 @@ export function SuitesTable({
           <tr>
             <SortableHeader label="Last Run" column="lastRun" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Suite Hash" column="hash" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <StaticHeader label="Tests Source" />
-            <StaticHeader label="Warmup Source" />
+            <StaticHeader label="Source" />
+            <StaticHeader label="Pre-Run Steps" />
             <StaticHeader label="Filter" />
             <SortableHeader label="Runs" column="runs" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
           </tr>
