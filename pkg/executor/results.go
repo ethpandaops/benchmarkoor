@@ -1,8 +1,6 @@
 package executor
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,10 +9,6 @@ import (
 	"strconv"
 	"strings"
 )
-
-// maxFilenameLength is the maximum length for a filename before hashing.
-// Linux has a 255 byte limit; we use 200 to leave room for suffixes.
-const maxFilenameLength = 200
 
 // MethodStats contains aggregated statistics for a single method (int64 values).
 type MethodStats struct {
@@ -158,16 +152,29 @@ type AggregatedStats struct {
 	MethodStats      *MethodsAggregated `json:"method_stats"`
 }
 
+// StepResult contains the result for a single step.
+type StepResult struct {
+	Aggregated *AggregatedStats `json:"aggregated"`
+}
+
+// StepsResult contains results for all steps of a test.
+type StepsResult struct {
+	Setup   *StepResult `json:"setup,omitempty"`
+	Test    *StepResult `json:"test,omitempty"`
+	Cleanup *StepResult `json:"cleanup,omitempty"`
+}
+
 // TestEntry contains the result entry for a single test in the run result.
 type TestEntry struct {
-	Dir          string           `json:"dir"`
-	FilenameHash string           `json:"filename_hash,omitempty"`
-	Aggregated   *AggregatedStats `json:"aggregated"`
+	Dir          string       `json:"dir"`
+	FilenameHash string       `json:"filename_hash,omitempty"`
+	Steps        *StepsResult `json:"steps,omitempty"`
 }
 
 // RunResult contains the aggregated results for all tests in a run.
 type RunResult struct {
-	Tests map[string]*TestEntry `json:"tests"`
+	PreRunSteps map[string]*StepResult `json:"pre_run_steps,omitempty"`
+	Tests       map[string]*TestEntry  `json:"tests"`
 }
 
 // TestResult contains results for a single test file execution.
@@ -472,41 +479,17 @@ func percentileFloat(sorted []float64, p int) float64 {
 	return sorted[idx]
 }
 
-// hashFilename generates a SHA256 hash of the filename, returning first 16 hex chars.
-func hashFilename(filename string) string {
-	hash := sha256.Sum256([]byte(filename))
-
-	return hex.EncodeToString(hash[:8])
-}
-
-// getResultFilename returns the filename to use for result files.
-// If the original filename is too long, it returns a truncated version with hash suffix.
-// Returns (filename, hash, needsHash).
-func getResultFilename(testName string) (filename, hash string, needsHash bool) {
-	baseFilename := filepath.Base(testName)
-	if len(baseFilename) <= maxFilenameLength {
-		return baseFilename, "", false
-	}
-
-	hash = hashFilename(baseFilename)
-	// Truncate to leave room for underscore + 16-char hash
-	truncateLen := maxFilenameLength - 1 - len(hash)
-	truncated := baseFilename[:truncateLen]
-
-	return truncated + "_" + hash, hash, true
-}
-
-// WriteResults writes the three output files for a test.
-func WriteResults(resultDir, testName string, result *TestResult) error {
-	// Ensure the directory structure exists.
-	testDir := filepath.Dir(filepath.Join(resultDir, testName))
+// WriteStepResults writes the three output files for a test step.
+// Files are written to: resultDir/testName/{stepType}.{response,result-details.json,result-aggregated.json}
+func WriteStepResults(resultDir, testName string, stepType StepType, result *TestResult) error {
+	// Ensure the test directory exists.
+	testDir := filepath.Join(resultDir, testName)
 	if err := os.MkdirAll(testDir, 0755); err != nil {
 		return fmt.Errorf("creating test result directory: %w", err)
 	}
 
-	// Determine filename (possibly truncated + hashed).
-	filename, _, needsHash := getResultFilename(testName)
-	basePath := filepath.Join(testDir, filename)
+	// Base path is the step type (e.g., "setup", "test", "cleanup").
+	basePath := filepath.Join(testDir, string(stepType))
 
 	// Write .response file.
 	responsePath := basePath + ".response"
@@ -514,7 +497,7 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 		return fmt.Errorf("writing response file: %w", err)
 	}
 
-	// Write .result-details.json file (replaces .times).
+	// Write .result-details.json file.
 	detailsPath := basePath + ".result-details.json"
 	details := ResultDetails{
 		DurationNS: result.Times,
@@ -522,12 +505,6 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 		MGasPerSec: result.MGasPerSec,
 		GasUsed:    result.GasUsed,
 		Resources:  result.Resources,
-	}
-
-	// Store original test name and hashed filename if using truncated name.
-	if needsHash {
-		details.OriginalTestName = testName
-		details.FilenameHash = filename
 	}
 
 	detailsJSON, err := json.MarshalIndent(details, "", "  ")
@@ -556,9 +533,11 @@ func WriteResults(resultDir, testName string, result *TestResult) error {
 }
 
 // GenerateRunResult scans a results directory and builds a RunResult from all aggregated files.
+// Results are organized by test name with setup/test/cleanup steps, and pre-run steps separately.
 func GenerateRunResult(resultsDir string) (*RunResult, error) {
 	result := &RunResult{
-		Tests: make(map[string]*TestEntry),
+		PreRunSteps: make(map[string]*StepResult),
+		Tests:       make(map[string]*TestEntry),
 	}
 
 	// Walk the results directory looking for .result-aggregated.json files.
@@ -593,47 +572,76 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 			relPath = path
 		}
 
-		// Remove .result-aggregated.json suffix to get the test name.
-		testName := strings.TrimSuffix(relPath, ".result-aggregated.json")
+		// Remove .result-aggregated.json suffix to get the base path.
+		basePath := strings.TrimSuffix(relPath, ".result-aggregated.json")
 
-		// Check if this file uses a hashed filename by reading the details file.
-		var filenameHash string
+		// Check if this is a step-based result (e.g., "testname/setup", "testname/test", "testname/cleanup").
+		dir := filepath.Dir(basePath)
+		filename := filepath.Base(basePath)
 
-		detailsPath := strings.TrimSuffix(path, ".result-aggregated.json") + ".result-details.json"
-		if detailsData, err := os.ReadFile(detailsPath); err == nil {
-			var details ResultDetails
-			if err := json.Unmarshal(detailsData, &details); err == nil && details.OriginalTestName != "" {
-				// Use the original test name stored in the details file.
-				testName = details.OriginalTestName
-				filenameHash = details.FilenameHash
+		// Determine if this is a step type.
+		var stepType StepType
+
+		switch filename {
+		case string(StepTypeSetup):
+			stepType = StepTypeSetup
+		case string(StepTypeTest):
+			stepType = StepTypeTest
+		case string(StepTypeCleanup):
+			stepType = StepTypeCleanup
+		case string(StepTypePreRun):
+			stepType = StepTypePreRun
+		default:
+			// Not a step-based result, skip it.
+			return nil
+		}
+
+		// The test name is the directory containing the step files.
+		testName := dir
+		if testName == "." {
+			testName = ""
+		}
+
+		// Set the step result.
+		stepResult := &StepResult{
+			Aggregated: &stats,
+		}
+
+		// Handle pre-run steps separately.
+		if stepType == StepTypePreRun {
+			result.PreRunSteps[testName] = stepResult
+
+			return nil
+		}
+
+		// Get or create the test entry.
+		entry, ok := result.Tests[testName]
+		if !ok {
+			entry = &TestEntry{
+				Dir:   "",
+				Steps: &StepsResult{},
 			}
+			result.Tests[testName] = entry
 		}
 
-		// Extract directory (e.g., "000752/test.txt" -> dir is "000752").
-		dir := filepath.Dir(testName)
-		if dir == "." {
-			dir = ""
-		}
-
-		// Use the filename as the test key.
-		testFile := filepath.Base(testName)
-
-		// Use full path as map key to handle tests with same filename in different dirs.
-		testKey := testFile
-		if dir != "" {
-			testKey = dir + "/" + testFile
-		}
-
-		result.Tests[testKey] = &TestEntry{
-			Dir:          dir,
-			FilenameHash: filenameHash,
-			Aggregated:   &stats,
+		switch stepType {
+		case StepTypeSetup:
+			entry.Steps.Setup = stepResult
+		case StepTypeTest:
+			entry.Steps.Test = stepResult
+		case StepTypeCleanup:
+			entry.Steps.Cleanup = stepResult
 		}
 
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("walking results directory: %w", err)
+	}
+
+	// Set PreRunSteps to nil if empty so omitempty works.
+	if len(result.PreRunSteps) == 0 {
+		result.PreRunSteps = nil
 	}
 
 	return result, nil

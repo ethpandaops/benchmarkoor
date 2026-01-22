@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import clsx from 'clsx'
-import type { IndexEntry } from '@/api/types'
+import type { IndexEntry, ResourceTotals } from '@/api/types'
 import { formatBytes } from '@/utils/format'
 
 export type XAxisMode = 'time' | 'runCount'
@@ -60,6 +60,35 @@ function formatOps(ops: number): string {
 
 type MetricKey = 'cpu_usec' | 'memory_delta_bytes' | 'disk_read_bytes' | 'disk_write_bytes' | 'disk_read_iops' | 'disk_write_iops'
 
+// Aggregates resource totals from all steps (setup, test, cleanup)
+function getAggregatedResourceTotals(entry: IndexEntry): ResourceTotals | undefined {
+  const steps = entry.tests.steps
+  let hasData = false
+  const totals: ResourceTotals = {
+    cpu_usec: 0,
+    memory_delta_bytes: 0,
+    disk_read_bytes: 0,
+    disk_write_bytes: 0,
+    disk_read_iops: 0,
+    disk_write_iops: 0,
+  }
+
+  const stepList = [steps.setup, steps.test, steps.cleanup]
+  for (const step of stepList) {
+    if (step?.resource_totals) {
+      hasData = true
+      totals.cpu_usec += step.resource_totals.cpu_usec
+      totals.memory_delta_bytes += step.resource_totals.memory_delta_bytes
+      totals.disk_read_bytes += step.resource_totals.disk_read_bytes
+      totals.disk_write_bytes += step.resource_totals.disk_write_bytes
+      totals.disk_read_iops += step.resource_totals.disk_read_iops
+      totals.disk_write_iops += step.resource_totals.disk_write_iops
+    }
+  }
+
+  return hasData ? totals : undefined
+}
+
 interface MetricConfig {
   key: MetricKey
   label: string
@@ -90,7 +119,7 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
     let maxRunIndex = 1
 
     for (const run of runs) {
-      const resourceTotals = run.tests.resource_totals
+      const resourceTotals = getAggregatedResourceTotals(run)
       if (!resourceTotals) continue
 
       const value = resourceTotals[metric.key]
@@ -283,7 +312,7 @@ export function ResourceCharts({
   }
 
   const hasResourceData = useMemo(() => {
-    return runs.some((run) => run.tests.resource_totals)
+    return runs.some((run) => getAggregatedResourceTotals(run) !== undefined)
   }, [runs])
 
   if (!hasResourceData) {

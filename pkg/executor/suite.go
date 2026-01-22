@@ -9,61 +9,101 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"github.com/ethpandaops/benchmarkoor/pkg/config"
 )
 
 // SuiteInfo contains information about a test suite.
 type SuiteInfo struct {
-	Hash   string       `json:"hash"`
-	Source *SuiteSource `json:"source"`
-	Filter string       `json:"filter,omitempty"`
-	Warmup []SuiteFile  `json:"warmup,omitempty"`
-	Tests  []SuiteFile  `json:"tests"`
+	Hash        string       `json:"hash"`
+	Source      *SuiteSource `json:"source"`
+	Filter      string       `json:"filter,omitempty"`
+	PreRunSteps []SuiteFile  `json:"pre_run_steps,omitempty"`
+	Tests       []SuiteTest  `json:"tests"`
 }
 
-// SuiteSource contains source information for tests and warmup.
+// SuiteSource contains source information for the suite.
 type SuiteSource struct {
-	Tests  *SourceInfo `json:"tests"`
-	Warmup *SourceInfo `json:"warmup,omitempty"`
+	Git   *GitSourceInfo   `json:"git,omitempty"`
+	Local *LocalSourceInfo `json:"local,omitempty"`
 }
 
-// SourceInfo describes where test files came from.
-type SourceInfo struct {
-	Git      *GitInfo `json:"git,omitempty"`
-	LocalDir string   `json:"local_dir,omitempty"`
+// GitSourceInfo contains git repository source information.
+type GitSourceInfo struct {
+	Repo        string            `json:"repo"`
+	Version     string            `json:"version"`
+	SHA         string            `json:"sha"`
+	PreRunSteps []string          `json:"pre_run_steps,omitempty"`
+	Steps       *SourceStepsGlobs `json:"steps,omitempty"`
 }
 
-// GitInfo contains git repository information.
-type GitInfo struct {
-	Repo      string `json:"repo"`
-	Version   string `json:"version"`
-	Directory string `json:"directory,omitempty"`
-	SHA       string `json:"sha"`
+// LocalSourceInfo contains local directory source information.
+type LocalSourceInfo struct {
+	BaseDir     string            `json:"base_dir"`
+	PreRunSteps []string          `json:"pre_run_steps,omitempty"`
+	Steps       *SourceStepsGlobs `json:"steps,omitempty"`
+}
+
+// SourceStepsGlobs contains the glob patterns used to discover test steps.
+type SourceStepsGlobs struct {
+	Setup   []string `json:"setup,omitempty"`
+	Test    []string `json:"test,omitempty"`
+	Cleanup []string `json:"cleanup,omitempty"`
 }
 
 // SuiteFile represents a file in the suite output.
 type SuiteFile struct {
-	F string `json:"f"`           // filename
-	D string `json:"d,omitempty"` // directory (omit if empty)
+	OgPath string `json:"og_path"` // original relative path
+}
+
+// SuiteTest represents a test with its optional steps in the suite output.
+type SuiteTest struct {
+	Name    string     `json:"name"`
+	Setup   *SuiteFile `json:"setup,omitempty"`
+	Test    *SuiteFile `json:"test,omitempty"`
+	Cleanup *SuiteFile `json:"cleanup,omitempty"`
 }
 
 // ComputeSuiteHash computes a hash of all test file contents.
-func ComputeSuiteHash(warmupFiles, testFiles []TestFile) (string, error) {
+func ComputeSuiteHash(prepared *PreparedSource) (string, error) {
 	h := sha256.New()
 
-	// Process warmup files first, then test files.
-	allFiles := make([]TestFile, 0, len(warmupFiles)+len(testFiles))
-	allFiles = append(allFiles, warmupFiles...)
-	allFiles = append(allFiles, testFiles...)
-
-	for _, f := range allFiles {
+	// Hash pre-run steps first.
+	for _, f := range prepared.PreRunSteps {
 		content, err := os.ReadFile(f.Path)
 		if err != nil {
-			return "", fmt.Errorf("reading file %s: %w", f.Path, err)
+			return "", fmt.Errorf("reading pre-run step %s: %w", f.Path, err)
 		}
 
 		h.Write(content)
+	}
+
+	// Hash all test step files.
+	for _, test := range prepared.Tests {
+		if test.Setup != nil {
+			content, err := os.ReadFile(test.Setup.Path)
+			if err != nil {
+				return "", fmt.Errorf("reading setup file %s: %w", test.Setup.Path, err)
+			}
+
+			h.Write(content)
+		}
+
+		if test.Test != nil {
+			content, err := os.ReadFile(test.Test.Path)
+			if err != nil {
+				return "", fmt.Errorf("reading test file %s: %w", test.Test.Path, err)
+			}
+
+			h.Write(content)
+		}
+
+		if test.Cleanup != nil {
+			content, err := os.ReadFile(test.Cleanup.Path)
+			if err != nil {
+				return "", fmt.Errorf("reading cleanup file %s: %w", test.Cleanup.Path, err)
+			}
+
+			h.Write(content)
+		}
 	}
 
 	// Use first 16 characters of the hash.
@@ -74,7 +114,7 @@ func ComputeSuiteHash(warmupFiles, testFiles []TestFile) (string, error) {
 func CreateSuiteOutput(
 	resultsDir, hash string,
 	info *SuiteInfo,
-	warmupFiles, testFiles []TestFile,
+	prepared *PreparedSource,
 ) error {
 	suiteDir := filepath.Join(resultsDir, "suites", hash)
 
@@ -84,38 +124,63 @@ func CreateSuiteOutput(
 		return nil
 	}
 
-	// Create suite directories.
-	warmupDir := filepath.Join(suiteDir, "warmup")
-	testsDir := filepath.Join(suiteDir, "tests")
-
-	if len(warmupFiles) > 0 {
-		if err := os.MkdirAll(warmupDir, 0755); err != nil {
-			return fmt.Errorf("creating warmup dir: %w", err)
-		}
+	// Create suite directory.
+	if err := os.MkdirAll(suiteDir, 0755); err != nil {
+		return fmt.Errorf("creating suite dir: %w", err)
 	}
 
-	if err := os.MkdirAll(testsDir, 0755); err != nil {
-		return fmt.Errorf("creating tests dir: %w", err)
-	}
-
-	// Copy warmup files.
-	for i := range warmupFiles {
-		suiteFile, err := copyTestFile(warmupDir, &warmupFiles[i])
+	// Copy pre-run steps.
+	// Structure: <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
+	for _, f := range prepared.PreRunSteps {
+		suiteFile, err := copyPreRunStepFile(suiteDir, f)
 		if err != nil {
-			return fmt.Errorf("copying warmup file: %w", err)
+			return fmt.Errorf("copying pre-run step: %w", err)
 		}
 
-		info.Warmup = append(info.Warmup, *suiteFile)
+		info.PreRunSteps = append(info.PreRunSteps, *suiteFile)
 	}
 
-	// Copy test files.
-	for i := range testFiles {
-		suiteFile, err := copyTestFile(testsDir, &testFiles[i])
-		if err != nil {
-			return fmt.Errorf("copying test file: %w", err)
+	// Copy test files and build SuiteTest entries.
+	// New structure: <suite_dir>/<test_name>/{setup,test,cleanup}.request
+	for _, test := range prepared.Tests {
+		suiteTest := SuiteTest{
+			Name: test.Name,
 		}
 
-		info.Tests = append(info.Tests, *suiteFile)
+		// Create test directory.
+		testDir := filepath.Join(suiteDir, test.Name)
+		if err := os.MkdirAll(testDir, 0755); err != nil {
+			return fmt.Errorf("creating test dir for %s: %w", test.Name, err)
+		}
+
+		if test.Setup != nil {
+			suiteFile, err := copyTestStepFile(testDir, "setup", test.Setup)
+			if err != nil {
+				return fmt.Errorf("copying setup file: %w", err)
+			}
+
+			suiteTest.Setup = suiteFile
+		}
+
+		if test.Test != nil {
+			suiteFile, err := copyTestStepFile(testDir, "test", test.Test)
+			if err != nil {
+				return fmt.Errorf("copying test file: %w", err)
+			}
+
+			suiteTest.Test = suiteFile
+		}
+
+		if test.Cleanup != nil {
+			suiteFile, err := copyTestStepFile(testDir, "cleanup", test.Cleanup)
+			if err != nil {
+				return fmt.Errorf("copying cleanup file: %w", err)
+			}
+
+			suiteTest.Cleanup = suiteFile
+		}
+
+		info.Tests = append(info.Tests, suiteTest)
 	}
 
 	// Write summary.json.
@@ -133,22 +198,9 @@ func CreateSuiteOutput(
 	return nil
 }
 
-// copyTestFile copies a test file to the suite directory and returns its SuiteFile info.
-func copyTestFile(baseDir string, file *TestFile) (*SuiteFile, error) {
-	// Extract directory component from the relative name.
-	dir := filepath.Dir(file.Name)
-	filename := filepath.Base(file.Name)
-
-	// Create subdirectory if needed.
-	targetDir := baseDir
-	if dir != "." && dir != "" {
-		targetDir = filepath.Join(baseDir, dir)
-		if err := os.MkdirAll(targetDir, 0755); err != nil {
-			return nil, fmt.Errorf("creating subdir: %w", err)
-		}
-	}
-
-	// Copy the file.
+// copyTestStepFile copies a test step file to the test directory with a standardized name.
+// Files are stored as <test_dir>/<step_type>.request (e.g., setup.request, test.request, cleanup.request).
+func copyTestStepFile(testDir, stepType string, file *StepFile) (*SuiteFile, error) {
 	srcFile, err := os.Open(file.Path)
 	if err != nil {
 		return nil, fmt.Errorf("opening source: %w", err)
@@ -156,7 +208,7 @@ func copyTestFile(baseDir string, file *TestFile) (*SuiteFile, error) {
 
 	defer func() { _ = srcFile.Close() }()
 
-	dstPath := filepath.Join(targetDir, filename)
+	dstPath := filepath.Join(testDir, stepType+".request")
 
 	dstFile, err := os.Create(dstPath)
 	if err != nil {
@@ -169,12 +221,39 @@ func copyTestFile(baseDir string, file *TestFile) (*SuiteFile, error) {
 		return nil, fmt.Errorf("copying content: %w", err)
 	}
 
-	suiteFile := &SuiteFile{F: filename}
-	if dir != "." && dir != "" {
-		suiteFile.D = dir
+	return &SuiteFile{OgPath: file.Name}, nil
+}
+
+// copyPreRunStepFile copies a pre-run step file to the suite directory.
+// Files are stored as <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
+func copyPreRunStepFile(suiteDir string, file *StepFile) (*SuiteFile, error) {
+	// Create step directory using the step name (relative path).
+	stepDir := filepath.Join(suiteDir, file.Name)
+	if err := os.MkdirAll(stepDir, 0755); err != nil {
+		return nil, fmt.Errorf("creating step dir: %w", err)
 	}
 
-	return suiteFile, nil
+	srcFile, err := os.Open(file.Path)
+	if err != nil {
+		return nil, fmt.Errorf("opening source: %w", err)
+	}
+
+	defer func() { _ = srcFile.Close() }()
+
+	dstPath := filepath.Join(stepDir, "pre_run.request")
+
+	dstFile, err := os.Create(dstPath)
+	if err != nil {
+		return nil, fmt.Errorf("creating destination: %w", err)
+	}
+
+	defer func() { _ = dstFile.Close() }()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return nil, fmt.Errorf("copying content: %w", err)
+	}
+
+	return &SuiteFile{OgPath: file.Name}, nil
 }
 
 // GetGitCommitSHA retrieves the current commit SHA from a git repository.
@@ -193,62 +272,4 @@ func GetGitCommitSHA(repoPath string) (string, error) {
 	}
 
 	return sha, nil
-}
-
-// GetLocalSourceInfo creates SourceInfo for a LocalSource.
-func GetLocalSourceInfo(testsDir, warmupDir string) *SuiteSource {
-	source := &SuiteSource{
-		Tests: &SourceInfo{
-			LocalDir: testsDir,
-		},
-	}
-
-	if warmupDir != "" {
-		source.Warmup = &SourceInfo{
-			LocalDir: warmupDir,
-		}
-	}
-
-	return source
-}
-
-// GetGitSourceInfo creates SourceInfo for a GitSource.
-func GetGitSourceInfo(testsGit, warmupGit *config.GitSource, cacheDir string) (*SuiteSource, error) {
-	testsRepoPath := filepath.Join(cacheDir, hashRepoURL(testsGit.Repo))
-
-	testsSHA, err := GetGitCommitSHA(testsRepoPath)
-	if err != nil {
-		return nil, fmt.Errorf("getting tests commit SHA: %w", err)
-	}
-
-	source := &SuiteSource{
-		Tests: &SourceInfo{
-			Git: &GitInfo{
-				Repo:      testsGit.Repo,
-				Version:   testsGit.Version,
-				Directory: testsGit.Directory,
-				SHA:       testsSHA,
-			},
-		},
-	}
-
-	if warmupGit != nil {
-		warmupRepoPath := filepath.Join(cacheDir, hashRepoURL(warmupGit.Repo))
-
-		warmupSHA, err := GetGitCommitSHA(warmupRepoPath)
-		if err != nil {
-			return nil, fmt.Errorf("getting warmup commit SHA: %w", err)
-		}
-
-		source.Warmup = &SourceInfo{
-			Git: &GitInfo{
-				Repo:      warmupGit.Repo,
-				Version:   warmupGit.Version,
-				Directory: warmupGit.Directory,
-				SHA:       warmupSHA,
-			},
-		}
-	}
-
-	return source, nil
 }

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
-import type { IndexEntry } from '@/api/types'
+import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, getIndexAggregatedStats } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
@@ -14,6 +14,7 @@ function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number |
   return (gasUsed * 1000) / gasUsedDuration
 }
 
+
 export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'mgas' | 'failed' | 'passed'
 export type SortDirection = 'asc' | 'desc'
 
@@ -23,6 +24,7 @@ interface RunsTableProps {
   sortDir?: SortDirection
   onSortChange?: (column: SortColumn, direction: SortDirection) => void
   showSuite?: boolean
+  stepFilter?: IndexStepType[]
 }
 
 function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
@@ -72,6 +74,7 @@ export function RunsTable({
   sortDir = 'desc',
   onSortChange,
   showSuite = false,
+  stepFilter = ALL_INDEX_STEP_TYPES,
 }: RunsTableProps) {
   const navigate = useNavigate()
 
@@ -85,6 +88,8 @@ export function RunsTable({
   const sortedEntries = useMemo(() => {
     return [...entries].sort((a, b) => {
       let comparison = 0
+      const statsA = getIndexAggregatedStats(a, stepFilter)
+      const statsB = getIndexAggregatedStats(b, stepFilter)
       switch (sortBy) {
         case 'timestamp':
           comparison = a.timestamp - b.timestamp
@@ -99,23 +104,23 @@ export function RunsTable({
           comparison = (a.suite_hash ?? '').localeCompare(b.suite_hash ?? '')
           break
         case 'duration':
-          comparison = a.tests.duration - b.tests.duration
+          comparison = statsA.duration - statsB.duration
           break
         case 'mgas':
-          const mgasA = calculateMGasPerSec(a.tests.gas_used, a.tests.gas_used_duration) ?? -Infinity
-          const mgasB = calculateMGasPerSec(b.tests.gas_used, b.tests.gas_used_duration) ?? -Infinity
+          const mgasA = calculateMGasPerSec(statsA.gasUsed, statsA.gasUsedDuration) ?? -Infinity
+          const mgasB = calculateMGasPerSec(statsB.gasUsed, statsB.gasUsedDuration) ?? -Infinity
           comparison = mgasA - mgasB
           break
         case 'failed':
-          comparison = a.tests.fail - b.tests.fail
+          comparison = statsA.fail - statsB.fail
           break
         case 'passed':
-          comparison = a.tests.success - b.tests.success
+          comparison = statsA.success - statsB.success
           break
       }
       return sortDir === 'asc' ? comparison : -comparison
     })
-  }, [entries, sortBy, sortDir])
+  }, [entries, sortBy, sortDir, stepFilter])
 
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
@@ -168,21 +173,28 @@ export function RunsTable({
                   )}
                 </td>
               )}
-              <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                {(() => {
-                  const mgas = calculateMGasPerSec(entry.tests.gas_used, entry.tests.gas_used_duration)
-                  return mgas !== undefined ? mgas.toFixed(2) : '-'
-                })()}
-              </td>
-              <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                <Duration nanoseconds={entry.tests.duration} />
-              </td>
-              <td className="whitespace-nowrap px-6 py-4 text-center">
-                {entry.tests.fail > 0 && <Badge variant="error">{entry.tests.fail}</Badge>}
-              </td>
-              <td className="whitespace-nowrap px-6 py-4 text-center">
-                <Badge variant="success">{entry.tests.success}</Badge>
-              </td>
+              {(() => {
+                const stats = getIndexAggregatedStats(entry, stepFilter)
+                return (
+                  <>
+                    <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+                      {(() => {
+                        const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
+                        return mgas !== undefined ? mgas.toFixed(2) : '-'
+                      })()}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+                      <Duration nanoseconds={stats.duration} />
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-center">
+                      {stats.fail > 0 && <Badge variant="error">{stats.fail}</Badge>}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-center">
+                      <Badge variant="success">{stats.success}</Badge>
+                    </td>
+                  </>
+                )
+              })()}
             </tr>
           ))}
         </tbody>

@@ -22,19 +22,36 @@ benchmark:
   #   # Optional filter to run only tests matching this pattern.
   #   filter: ""
   #   source:
-  #     # Option 1: Local directory.
-  #     # tests_local_dir: ./benchmark-tests/tests
-  #     # warmup_tests_local_dir: ./benchmark-tests/warmup
+  #     # Option 1: Local directory source.
+  #     # local:
+  #     #   base_dir: ./benchmark-tests
+  #     #   # Optional: Pre-run steps executed before tests (glob patterns).
+  #     #   pre_run_steps:
+  #     #     - "warmup/*.txt"
+  #     #   # Test step patterns (glob patterns for setup/test/cleanup phases).
+  #     #   steps:
+  #     #     setup:
+  #     #       - "tests/setup/*.txt"
+  #     #     test:
+  #     #       - "tests/test/*.txt"
+  #     #     cleanup:
+  #     #       - "tests/cleanup/*.txt"
   #
-  #     # Option 2: Git repository.
-  #     # tests_git:
-  #     #   repo: https://github.com/NethermindEth/gas-benchmarks.git
+  #     # Option 2: Git repository source.
+  #     # git:
+  #     #   repo: https://github.com/example/gas-benchmarks.git
   #     #   version: main  # branch, tag, or commit hash
-  #     #   directory: eest_tests/testing
-  #     # warmup_git:
-  #     #   repo: https://github.com/NethermindEth/gas-benchmarks.git
-  #     #   version: main
-  #     #   directory: warmup_tests/
+  #     #   # Optional: Pre-run steps executed before tests (glob patterns).
+  #     #   pre_run_steps:
+  #     #     - "funding/*.txt"
+  #     #   # Test step patterns (glob patterns for setup/test/cleanup phases).
+  #     #   steps:
+  #     #     setup:
+  #     #       - "tests/setup/*.txt"
+  #     #     test:
+  #     #       - "tests/test/*.txt"
+  #     #     cleanup:
+  #     #       - "tests/cleanup/*.txt"
 
 client:
   config:

@@ -1,15 +1,19 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import clsx from 'clsx'
-import type { SuiteFile } from '@/api/types'
+import type { SuiteFile, SuiteTest } from '@/api/types'
 import { fetchText } from '@/api/client'
 import { Pagination } from '@/components/shared/Pagination'
 import { Spinner } from '@/components/shared/Spinner'
+import { Badge } from '@/components/shared/Badge'
 
 interface TestFilesListProps {
-  files: SuiteFile[]
+  // For pre_run_steps - simple file list
+  files?: SuiteFile[]
+  // For tests - tests with steps
+  tests?: SuiteTest[]
   suiteHash: string
-  type: 'tests' | 'warmup'
+  type: 'tests' | 'pre_run_steps'
   expandedIndex?: number
   onExpandedChange?: (index: number | undefined) => void
   currentPage?: number
@@ -63,13 +67,26 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   )
 }
 
-function FileContent({ suiteHash, type, file }: { suiteHash: string; type: 'tests' | 'warmup'; file: SuiteFile }) {
-  const path = file.d
-    ? `suites/${suiteHash}/${type}/${file.d}/${file.f}`
-    : `suites/${suiteHash}/${type}/${file.f}`
+// For pre-run steps: path is suites/${suiteHash}/pre_run_steps/${file.og_path}
+// For test steps: path is suites/${suiteHash}/${testName}/${stepType}.request
+function FileContent({
+  suiteHash,
+  stepType,
+  file,
+  testName,
+}: {
+  suiteHash: string
+  stepType: string
+  file: SuiteFile
+  testName?: string
+}) {
+  // Build path based on whether this is a test step or pre-run step
+  const path = testName
+    ? `suites/${suiteHash}/${testName}/${stepType}.request`
+    : `suites/${suiteHash}/${stepType}/${file.og_path}`
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['suite', suiteHash, type, file.d, file.f],
+    queryKey: ['suite', suiteHash, stepType, testName, file.og_path],
     queryFn: () => fetchText(path),
   })
 
@@ -90,52 +107,17 @@ function FileContent({ suiteHash, type, file }: { suiteHash: string; type: 'test
     )
   }
 
-  const fullPath = file.d ? `${file.d}/${file.f}` : file.f
-
   return (
     <div className="flex flex-col gap-4">
-      {file.d && (
-        <>
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Directory
-              </span>
-              <CopyButton text={file.d} label="directory" />
-            </div>
-            <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.d}</div>
-          </div>
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Filename
-              </span>
-              <CopyButton text={file.f} label="filename" />
-            </div>
-            <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.f}</div>
-          </div>
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Full Path
-              </span>
-              <CopyButton text={fullPath} label="full path" />
-            </div>
-            <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{fullPath}</div>
-          </div>
-        </>
-      )}
-      {!file.d && (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between">
-            <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Filename
-            </span>
-            <CopyButton text={file.f} label="filename" />
-          </div>
-          <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.f}</div>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            Original Path
+          </span>
+          <CopyButton text={file.og_path} label="path" />
         </div>
-      )}
+        <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.og_path}</div>
+      </div>
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
           <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -172,8 +154,36 @@ function SearchIcon({ className }: { className?: string }) {
   )
 }
 
+// Component for displaying test steps content (for tests with setup/test/cleanup)
+function TestStepsContent({ suiteHash, test }: { suiteHash: string; test: SuiteTest }) {
+  const steps = [
+    { key: 'setup', label: 'Setup', file: test.setup },
+    { key: 'test', label: 'Test', file: test.test },
+    { key: 'cleanup', label: 'Cleanup', file: test.cleanup },
+  ].filter((s) => s.file) as { key: string; label: string; file: SuiteFile }[]
+
+  if (steps.length === 0) {
+    return <div className="p-4 text-sm/6 text-gray-500">No step files available</div>
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {steps.map(({ key, label, file }) => (
+        <div key={key} className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <Badge variant="default">{label}</Badge>
+            <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{file.og_path}</span>
+          </div>
+          <FileContent suiteHash={suiteHash} stepType={key} file={file} testName={test.name} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function TestFilesList({
   files,
+  tests,
   suiteHash,
   type,
   expandedIndex,
@@ -187,15 +197,27 @@ export function TestFilesList({
   const currentPage = controlledPage ?? 1
   const search = searchQuery ?? ''
 
-  // Add original index to each file for stable numbering
-  const indexedFiles = files.map((file, index) => ({ file, originalIndex: index + 1 }))
-  const filteredFiles = indexedFiles.filter(({ file }) => {
-    const searchLower = search.toLowerCase()
-    return file.f.toLowerCase().includes(searchLower) || (file.d?.toLowerCase().includes(searchLower) ?? false)
-  })
+  // For pre_run_steps, use files; for tests, use tests
+  const isPreRunSteps = type === 'pre_run_steps'
+  const itemCount = isPreRunSteps ? (files?.length ?? 0) : (tests?.length ?? 0)
 
-  const totalPages = Math.ceil(filteredFiles.length / pageSize)
-  const paginatedFiles = filteredFiles.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  // Filter and index items
+  const filteredItems = isPreRunSteps
+    ? (files ?? [])
+        .map((file, index) => ({ file, originalIndex: index + 1 }))
+        .filter(({ file }) => {
+          const searchLower = search.toLowerCase()
+          return file.og_path.toLowerCase().includes(searchLower)
+        })
+    : (tests ?? [])
+        .map((test, index) => ({ test, originalIndex: index + 1 }))
+        .filter(({ test }) => {
+          const searchLower = search.toLowerCase()
+          return test.name.toLowerCase().includes(searchLower)
+        })
+
+  const totalPages = Math.ceil(filteredItems.length / pageSize)
+  const paginatedItems = filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const setCurrentPage = (page: number) => {
     if (onPageChange) {
@@ -224,7 +246,7 @@ export function TestFilesList({
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2">
         <span className="text-sm/6 text-gray-500 dark:text-gray-400">
-          {search ? `${filteredFiles.length} of ${files.length}` : files.length} files
+          {search ? `${filteredItems.length} of ${itemCount}` : itemCount} {isPreRunSteps ? 'files' : 'tests'}
         </span>
         <span className="text-gray-300 dark:text-gray-600">|</span>
         <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
@@ -248,6 +270,102 @@ export function TestFilesList({
     </div>
   )
 
+  // Render for pre_run_steps (simple file list)
+  if (isPreRunSteps) {
+    const fileItems = paginatedItems as { file: SuiteFile; originalIndex: number }[]
+
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1">
+            <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search by path..."
+              className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-4 text-sm/6 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+            />
+          </div>
+        </div>
+        {filteredItems.length > 0 && <PaginationControls />}
+        <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
+          <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
+            <thead className="bg-gray-50 dark:bg-gray-900">
+              <tr>
+                <th className="w-10 px-2 py-3"></th>
+                <th className="w-16 px-2 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  #
+                </th>
+                <th className="px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Path
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {fileItems.map(({ file, originalIndex }) => {
+                const isExpanded = expandedIndex === originalIndex
+
+                return (
+                  <>
+                    <tr
+                      key={originalIndex}
+                      onClick={() => toggleExpand(originalIndex)}
+                      className={clsx(
+                        'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                        isExpanded && 'bg-blue-50 dark:bg-blue-900/20',
+                      )}
+                    >
+                      <td className="px-2 py-2">
+                        <svg
+                          className={clsx(
+                            'size-3.5 text-gray-400 transition-transform',
+                            isExpanded && 'rotate-90',
+                          )}
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
+                        {originalIndex}
+                      </td>
+                      <td
+                        className="truncate px-4 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100"
+                        title={file.og_path}
+                      >
+                        {file.og_path}
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr key={`${originalIndex}-content`}>
+                        <td colSpan={3} className="max-w-0 bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
+                          <FileContent suiteHash={suiteHash} stepType="pre_run_steps" file={file} />
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                )
+              })}
+            </tbody>
+          </table>
+          {filteredItems.length === 0 && (
+            <div className="py-8 text-center text-sm/6 text-gray-500 dark:text-gray-400">
+              {search ? `No files matching "${search}"` : 'No files found'}
+            </div>
+          )}
+        </div>
+
+        {filteredItems.length > 0 && <PaginationControls />}
+      </div>
+    )
+  }
+
+  // Render for tests (tests with steps)
+  const testItems = paginatedItems as { test: SuiteTest; originalIndex: number }[]
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-4">
@@ -257,12 +375,12 @@ export function TestFilesList({
             type="text"
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search by filename or directory..."
+            placeholder="Search by test name..."
             className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-4 text-sm/6 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
         </div>
       </div>
-      {filteredFiles.length > 0 && <PaginationControls />}
+      {filteredItems.length > 0 && <PaginationControls />}
       <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
         <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
@@ -271,16 +389,16 @@ export function TestFilesList({
               <th className="w-16 px-2 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 #
               </th>
-              <th className="w-48 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Directory
+              <th className="px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Test Name
               </th>
-              <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Filename
+              <th className="w-48 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Steps
               </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {paginatedFiles.map(({ file, originalIndex }) => {
+            {testItems.map(({ test, originalIndex }) => {
               const isExpanded = expandedIndex === originalIndex
 
               return (
@@ -309,17 +427,21 @@ export function TestFilesList({
                     <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
                       {originalIndex}
                     </td>
-                    <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-500 dark:text-gray-400" title={file.d}>
-                      {file.d || '-'}
+                    <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100" title={test.name}>
+                      {test.name}
                     </td>
-                    <td className="truncate px-6 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100" title={file.f}>
-                      {file.f}
+                    <td className="px-4 py-2">
+                      <div className="flex gap-1">
+                        {test.setup && <Badge variant="default">Setup</Badge>}
+                        {test.test && <Badge variant="default">Test</Badge>}
+                        {test.cleanup && <Badge variant="default">Cleanup</Badge>}
+                      </div>
                     </td>
                   </tr>
                   {isExpanded && (
                     <tr key={`${originalIndex}-content`}>
                       <td colSpan={4} className="max-w-0 bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
-                        <FileContent suiteHash={suiteHash} type={type} file={file} />
+                        <TestStepsContent suiteHash={suiteHash} test={test} />
                       </td>
                     </tr>
                   )}
@@ -328,14 +450,14 @@ export function TestFilesList({
             })}
           </tbody>
         </table>
-        {filteredFiles.length === 0 && (
+        {filteredItems.length === 0 && (
           <div className="py-8 text-center text-sm/6 text-gray-500 dark:text-gray-400">
-            {search ? `No files matching "${search}"` : 'No files found'}
+            {search ? `No tests matching "${search}"` : 'No tests found'}
           </div>
         )}
       </div>
 
-      {filteredFiles.length > 0 && <PaginationControls />}
+      {filteredItems.length > 0 && <PaginationControls />}
     </div>
   )
 }

@@ -15,39 +15,63 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// StepType represents the type of step being executed.
+type StepType string
+
+const (
+	StepTypeSetup   StepType = "setup"
+	StepTypeTest    StepType = "test"
+	StepTypeCleanup StepType = "cleanup"
+	StepTypePreRun  StepType = "pre_run"
+)
+
+// StepFile represents a single step file.
+type StepFile struct {
+	Path string // Full absolute path
+	Name string // Relative path from base
+}
+
+// TestWithSteps represents a test with its optional setup/test/cleanup steps.
+type TestWithSteps struct {
+	Name    string    // Common test name (e.g., "abc.txt")
+	Setup   *StepFile // Optional setup step
+	Test    *StepFile // Optional test step
+	Cleanup *StepFile // Optional cleanup step
+}
+
+// PreparedSource contains the prepared test source with all discovered tests.
+type PreparedSource struct {
+	BasePath    string
+	PreRunSteps []*StepFile
+	Tests       []*TestWithSteps
+}
+
 // Source provides test files from local or git sources.
 type Source interface {
-	// Prepare ensures test files are available and returns the paths.
-	Prepare(ctx context.Context) (testsPath, warmupPath string, err error)
+	// Prepare ensures test files are available and returns the prepared source.
+	Prepare(ctx context.Context) (*PreparedSource, error)
 	// Cleanup removes any temporary resources.
 	Cleanup() error
 	// GetSourceInfo returns source information for the suite summary.
 	GetSourceInfo() (*SuiteSource, error)
 }
 
-// TestFile represents a single test file.
-type TestFile struct {
-	Path     string
-	Name     string
-	IsWarmup bool
-}
-
 // NewSource creates a Source from the configuration.
-func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir string) Source {
-	if cfg.TestsLocalDir != "" {
+func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir string, filter string) Source {
+	if cfg.Local != nil {
 		return &LocalSource{
-			log:       log.WithField("source", "local"),
-			testsDir:  cfg.TestsLocalDir,
-			warmupDir: cfg.WarmupTestsLocalDir,
+			log:    log.WithField("source", "local"),
+			cfg:    cfg.Local,
+			filter: filter,
 		}
 	}
 
-	if cfg.TestsGit != nil {
+	if cfg.Git != nil {
 		return &GitSource{
-			log:       log.WithField("source", "git"),
-			testsGit:  cfg.TestsGit,
-			warmupGit: cfg.WarmupGit,
-			cacheDir:  cacheDir,
+			log:      log.WithField("source", "git"),
+			cfg:      cfg.Git,
+			cacheDir: cacheDir,
+			filter:   filter,
 		}
 	}
 
@@ -56,31 +80,27 @@ func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir string
 
 // LocalSource reads tests from a local directory.
 type LocalSource struct {
-	log       logrus.FieldLogger
-	testsDir  string
-	warmupDir string
+	log      logrus.FieldLogger
+	cfg      *config.LocalSourceV2
+	filter   string
+	basePath string
 }
 
-// Prepare validates that the local directories exist and returns the paths.
-func (s *LocalSource) Prepare(_ context.Context) (string, string, error) {
-	if _, err := os.Stat(s.testsDir); os.IsNotExist(err) {
-		return "", "", fmt.Errorf("tests directory %q does not exist", s.testsDir)
+// Prepare validates that the local directory exists and discovers tests.
+func (s *LocalSource) Prepare(_ context.Context) (*PreparedSource, error) {
+	if _, err := os.Stat(s.cfg.BaseDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("base directory %q does not exist", s.cfg.BaseDir)
 	}
 
-	s.log.WithField("path", s.testsDir).Info("Using local test directory")
+	s.basePath = s.cfg.BaseDir
+	s.log.WithField("path", s.basePath).Info("Using local test directory")
 
-	warmupPath := ""
-	if s.warmupDir != "" {
-		if _, err := os.Stat(s.warmupDir); os.IsNotExist(err) {
-			return "", "", fmt.Errorf("warmup directory %q does not exist", s.warmupDir)
-		}
+	return s.discoverTests()
+}
 
-		warmupPath = s.warmupDir
-
-		s.log.WithField("path", s.warmupDir).Info("Using local warmup directory")
-	}
-
-	return s.testsDir, warmupPath, nil
+// discoverTests discovers all tests from the local source.
+func (s *LocalSource) discoverTests() (*PreparedSource, error) {
+	return discoverTestsFromConfig(s.basePath, s.cfg.PreRunSteps, s.cfg.Steps, s.filter, s.log)
 }
 
 // Cleanup is a no-op for local sources.
@@ -90,43 +110,51 @@ func (s *LocalSource) Cleanup() error {
 
 // GetSourceInfo returns source information for the suite summary.
 func (s *LocalSource) GetSourceInfo() (*SuiteSource, error) {
-	return GetLocalSourceInfo(s.testsDir, s.warmupDir), nil
+	local := &LocalSourceInfo{
+		BaseDir:     s.basePath,
+		PreRunSteps: s.cfg.PreRunSteps,
+	}
+
+	if s.cfg.Steps != nil {
+		local.Steps = &SourceStepsGlobs{
+			Setup:   s.cfg.Steps.Setup,
+			Test:    s.cfg.Steps.Test,
+			Cleanup: s.cfg.Steps.Cleanup,
+		}
+	}
+
+	return &SuiteSource{Local: local}, nil
 }
 
 // GitSource clones/fetches from a git repository.
 type GitSource struct {
-	log       logrus.FieldLogger
-	testsGit  *config.GitSource
-	warmupGit *config.GitSource
-	cacheDir  string
+	log      logrus.FieldLogger
+	cfg      *config.GitSourceV2
+	cacheDir string
+	filter   string
+	basePath string
 }
 
-// Prepare clones or updates the git repository and returns the test paths.
-func (s *GitSource) Prepare(ctx context.Context) (string, string, error) {
-	testsPath, err := s.prepareRepo(ctx, s.testsGit)
+// Prepare clones or updates the git repository and discovers tests.
+func (s *GitSource) Prepare(ctx context.Context) (*PreparedSource, error) {
+	basePath, err := s.prepareRepo(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("preparing tests repo: %w", err)
+		return nil, fmt.Errorf("preparing git repo: %w", err)
 	}
 
-	warmupPath := ""
-	if s.warmupGit != nil {
-		warmupPath, err = s.prepareRepo(ctx, s.warmupGit)
-		if err != nil {
-			return "", "", fmt.Errorf("preparing warmup repo: %w", err)
-		}
-	}
+	s.basePath = basePath
 
-	return testsPath, warmupPath, nil
+	return s.discoverTests()
 }
 
-// prepareRepo clones or updates a single git repository.
-func (s *GitSource) prepareRepo(ctx context.Context, git *config.GitSource) (string, error) {
-	repoHash := hashRepoURL(git.Repo)
+// prepareRepo clones or updates the git repository.
+func (s *GitSource) prepareRepo(ctx context.Context) (string, error) {
+	repoHash := hashRepoURL(s.cfg.Repo)
 	localPath := filepath.Join(s.cacheDir, repoHash)
 
 	log := s.log.WithFields(logrus.Fields{
-		"repo":    git.Repo,
-		"version": git.Version,
+		"repo":    s.cfg.Repo,
+		"version": s.cfg.Version,
 		"path":    localPath,
 	})
 
@@ -140,9 +168,9 @@ func (s *GitSource) prepareRepo(ctx context.Context, git *config.GitSource) (str
 		// Shallow clone with specific branch/tag.
 		cmd := exec.CommandContext(ctx, "git", "clone",
 			"--depth=1",
-			"--branch", git.Version,
+			"--branch", s.cfg.Version,
 			"--single-branch",
-			git.Repo, localPath)
+			s.cfg.Repo, localPath)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
@@ -154,7 +182,7 @@ func (s *GitSource) prepareRepo(ctx context.Context, git *config.GitSource) (str
 
 		// Fetch the specific version.
 		cmd := exec.CommandContext(ctx, "git", "-C", localPath, "fetch",
-			"--depth=1", "origin", git.Version)
+			"--depth=1", "origin", s.cfg.Version)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
@@ -172,12 +200,12 @@ func (s *GitSource) prepareRepo(ctx context.Context, git *config.GitSource) (str
 		}
 	}
 
-	// Return the path to the specific directory within the repo.
-	if git.Directory != "" {
-		return filepath.Join(localPath, git.Directory), nil
-	}
-
 	return localPath, nil
+}
+
+// discoverTests discovers all tests from the git source.
+func (s *GitSource) discoverTests() (*PreparedSource, error) {
+	return discoverTestsFromConfig(s.basePath, s.cfg.PreRunSteps, s.cfg.Steps, s.filter, s.log)
 }
 
 // Cleanup is a no-op for git sources (we keep the cache).
@@ -187,7 +215,27 @@ func (s *GitSource) Cleanup() error {
 
 // GetSourceInfo returns source information for the suite summary.
 func (s *GitSource) GetSourceInfo() (*SuiteSource, error) {
-	return GetGitSourceInfo(s.testsGit, s.warmupGit, s.cacheDir)
+	sha, err := GetGitCommitSHA(s.basePath)
+	if err != nil {
+		return nil, fmt.Errorf("getting commit SHA: %w", err)
+	}
+
+	git := &GitSourceInfo{
+		Repo:        s.cfg.Repo,
+		Version:     s.cfg.Version,
+		SHA:         sha,
+		PreRunSteps: s.cfg.PreRunSteps,
+	}
+
+	if s.cfg.Steps != nil {
+		git.Steps = &SourceStepsGlobs{
+			Setup:   s.cfg.Steps.Setup,
+			Test:    s.cfg.Steps.Test,
+			Cleanup: s.cfg.Steps.Cleanup,
+		}
+	}
+
+	return &SuiteSource{Git: git}, nil
 }
 
 // hashRepoURL creates a hash of the repository URL for caching.
@@ -197,54 +245,246 @@ func hashRepoURL(url string) string {
 	return hex.EncodeToString(hash[:8])
 }
 
-// DiscoverTests finds all test files in the given path, sorted by path.
-func DiscoverTests(basePath, filter string, isWarmup bool) ([]TestFile, error) {
-	if basePath == "" {
-		return nil, nil
+// discoverTestsFromConfig discovers tests based on the configuration.
+func discoverTestsFromConfig(
+	basePath string,
+	preRunStepPatterns []string,
+	steps *config.StepsConfig,
+	filter string,
+	log logrus.FieldLogger,
+) (*PreparedSource, error) {
+	result := &PreparedSource{
+		BasePath:    basePath,
+		PreRunSteps: make([]*StepFile, 0),
+		Tests:       make([]*TestWithSteps, 0),
 	}
 
-	var tests []TestFile
-
-	err := filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
+	// Discover pre-run steps in config order.
+	// Patterns are processed in the order they appear in the config.
+	// Within each pattern, filepath.Glob returns files in lexicographic order.
+	for _, pattern := range preRunStepPatterns {
+		files, _, err := expandGlobPattern(basePath, pattern, filter)
 		if err != nil {
-			return err
+			return nil, fmt.Errorf("expanding pre_run_steps pattern %q: %w", pattern, err)
+		}
+
+		result.PreRunSteps = append(result.PreRunSteps, files...)
+	}
+
+	log.WithField("count", len(result.PreRunSteps)).Debug("Discovered pre-run steps")
+
+	// If no steps config, return with just pre-run steps.
+	if steps == nil {
+		return result, nil
+	}
+
+	// Discover files for each step type.
+	setupFiles, setupPrefixes, err := expandGlobPatterns(basePath, steps.Setup, filter)
+	if err != nil {
+		return nil, fmt.Errorf("expanding setup patterns: %w", err)
+	}
+
+	testFiles, testPrefixes, err := expandGlobPatterns(basePath, steps.Test, filter)
+	if err != nil {
+		return nil, fmt.Errorf("expanding test patterns: %w", err)
+	}
+
+	cleanupFiles, cleanupPrefixes, err := expandGlobPatterns(basePath, steps.Cleanup, filter)
+	if err != nil {
+		return nil, fmt.Errorf("expanding cleanup patterns: %w", err)
+	}
+
+	log.WithFields(logrus.Fields{
+		"setup_files":   len(setupFiles),
+		"test_files":    len(testFiles),
+		"cleanup_files": len(cleanupFiles),
+	}).Debug("Discovered step files")
+
+	// Group files by matching key (relative path after stripping static prefix).
+	result.Tests = groupTestsByFilename(
+		setupFiles, setupPrefixes,
+		testFiles, testPrefixes,
+		cleanupFiles, cleanupPrefixes,
+	)
+
+	log.WithField("count", len(result.Tests)).Info("Discovered tests with steps")
+
+	return result, nil
+}
+
+// expandGlobPatterns expands multiple glob patterns and returns unique files
+// along with the collected static prefixes from all patterns.
+func expandGlobPatterns(basePath string, patterns []string, filter string) ([]*StepFile, []string, error) {
+	seen := make(map[string]struct{}, len(patterns)*10)
+	result := make([]*StepFile, 0, len(patterns)*10)
+	prefixes := make([]string, 0, len(patterns))
+
+	for _, pattern := range patterns {
+		files, staticPrefix, err := expandGlobPattern(basePath, pattern, filter)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if staticPrefix != "" {
+			prefixes = append(prefixes, staticPrefix)
+		}
+
+		for _, f := range files {
+			if _, ok := seen[f.Path]; !ok {
+				seen[f.Path] = struct{}{}
+				result = append(result, f)
+			}
+		}
+	}
+
+	return result, prefixes, nil
+}
+
+// expandGlobPattern expands a single glob pattern and returns matching files
+// along with the static prefix extracted from the pattern.
+func expandGlobPattern(basePath, pattern, filter string) ([]*StepFile, string, error) {
+	fullPattern := filepath.Join(basePath, pattern)
+	staticPrefix := extractStaticPrefix(pattern)
+
+	matches, err := filepath.Glob(fullPattern)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
+	}
+
+	result := make([]*StepFile, 0, len(matches))
+
+	for _, match := range matches {
+		// Skip directories.
+		info, err := os.Stat(match)
+		if err != nil {
+			continue
 		}
 
 		if info.IsDir() {
-			return nil
+			continue
 		}
 
 		// Only include .txt files.
-		if !strings.HasSuffix(path, ".txt") {
-			return nil
+		if !strings.HasSuffix(match, ".txt") {
+			continue
 		}
 
 		// Apply filter if provided.
-		if filter != "" && !strings.Contains(path, filter) {
-			return nil
+		if filter != "" && !strings.Contains(match, filter) {
+			continue
 		}
 
-		relPath, err := filepath.Rel(basePath, path)
+		relPath, err := filepath.Rel(basePath, match)
 		if err != nil {
-			relPath = path
+			relPath = match
 		}
 
-		tests = append(tests, TestFile{
-			Path:     path,
-			Name:     relPath,
-			IsWarmup: isWarmup,
+		result = append(result, &StepFile{
+			Path: match,
+			Name: relPath,
 		})
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walking directory: %w", err)
 	}
 
-	// Sort by path to ensure consistent ordering.
-	sort.Slice(tests, func(i, j int) bool {
-		return tests[i].Name < tests[j].Name
-	})
+	return result, staticPrefix, nil
+}
 
-	return tests, nil
+// groupTestsByFilename groups step files by their matching key.
+// The matching key is derived by stripping the static prefix from the file path,
+// allowing files in different directories with the same relative path to be matched.
+// For example: "stateful_tests/setup/001/abc.txt" with prefix "stateful_tests/setup/"
+// produces key "001/abc.txt".
+func groupTestsByFilename(
+	setupFiles []*StepFile, setupPrefixes []string,
+	testFiles []*StepFile, testPrefixes []string,
+	cleanupFiles []*StepFile, cleanupPrefixes []string,
+) []*TestWithSteps {
+	// Build maps of matching key -> StepFile for each step type.
+	setupByKey := make(map[string]*StepFile, len(setupFiles))
+	for _, f := range setupFiles {
+		key := findMatchingKey(f.Name, setupPrefixes)
+		setupByKey[key] = f
+	}
+
+	testByKey := make(map[string]*StepFile, len(testFiles))
+	for _, f := range testFiles {
+		key := findMatchingKey(f.Name, testPrefixes)
+		testByKey[key] = f
+	}
+
+	cleanupByKey := make(map[string]*StepFile, len(cleanupFiles))
+	for _, f := range cleanupFiles {
+		key := findMatchingKey(f.Name, cleanupPrefixes)
+		cleanupByKey[key] = f
+	}
+
+	// Collect all unique matching keys.
+	allKeys := make(map[string]struct{}, len(setupFiles)+len(testFiles)+len(cleanupFiles))
+	for key := range setupByKey {
+		allKeys[key] = struct{}{}
+	}
+
+	for key := range testByKey {
+		allKeys[key] = struct{}{}
+	}
+
+	for key := range cleanupByKey {
+		allKeys[key] = struct{}{}
+	}
+
+	// Create sorted list of keys.
+	keys := make([]string, 0, len(allKeys))
+	for key := range allKeys {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+
+	// Build TestWithSteps for each unique matching key.
+	tests := make([]*TestWithSteps, 0, len(keys))
+
+	for _, key := range keys {
+		test := &TestWithSteps{
+			Name:    key,
+			Setup:   setupByKey[key],
+			Test:    testByKey[key],
+			Cleanup: cleanupByKey[key],
+		}
+		tests = append(tests, test)
+	}
+
+	return tests
+}
+
+// extractStaticPrefix extracts the static prefix from a glob pattern.
+// The static prefix is the path before the first wildcard character (*, ?, [).
+// For example: "stateful_tests/setup/*/*" -> "stateful_tests/setup/"
+func extractStaticPrefix(pattern string) string {
+	for i, c := range pattern {
+		if c == '*' || c == '?' || c == '[' {
+			prefix := pattern[:i]
+			lastSep := strings.LastIndex(prefix, string(filepath.Separator))
+
+			if lastSep == -1 {
+				return ""
+			}
+
+			return prefix[:lastSep+1]
+		}
+	}
+
+	// No wildcard found, return directory portion with trailing separator.
+	return filepath.Dir(pattern) + string(filepath.Separator)
+}
+
+// findMatchingKey extracts the matching key from a file path given static prefixes.
+// It strips the first matching prefix to produce a key for matching files across step types.
+// Falls back to filepath.Base() if no prefix matches.
+func findMatchingKey(filePath string, prefixes []string) string {
+	for _, prefix := range prefixes {
+		if prefix != "" && strings.HasPrefix(filePath, prefix) {
+			return filePath[len(prefix):]
+		}
+	}
+
+	return filepath.Base(filePath)
 }

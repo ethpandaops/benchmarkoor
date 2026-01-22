@@ -2,63 +2,26 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchText, fetchData } from '../client'
 import type { AggregatedStats, ResultDetails } from '../types'
 
-// Helper to get the filename for result files (uses hash if provided, otherwise testName)
-function getResultFilename(testName: string, filenameHash?: string): string {
-  return filenameHash || testName
-}
+// Step types for test execution
+export type StepType = 'setup' | 'test' | 'cleanup' | 'pre_run'
 
-export function useTestTimes(
-  runId: string,
-  testName: string,
-  dir?: string,
-  filenameHash?: string
-) {
-  const filename = getResultFilename(testName, filenameHash)
-  const path = dir
-    ? `runs/${runId}/${dir}/${filename}.result-details.json`
-    : `runs/${runId}/${filename}.result-details.json`
+export function useTestResultDetails(runId: string, testName: string, stepType: StepType) {
+  // Path: runs/{runId}/{testName}/{stepType}.result-details.json
+  const path = `runs/${runId}/${testName}/${stepType}.result-details.json`
 
   return useQuery({
-    queryKey: ['run', runId, 'test', testName, 'times'],
-    queryFn: async () => {
-      const details = await fetchData<ResultDetails>(path)
-      return details.duration_ns
-    },
-    enabled: !!runId && !!testName,
-  })
-}
-
-export function useTestResultDetails(
-  runId: string,
-  testName: string,
-  dir?: string,
-  filenameHash?: string
-) {
-  const filename = getResultFilename(testName, filenameHash)
-  const path = dir
-    ? `runs/${runId}/${dir}/${filename}.result-details.json`
-    : `runs/${runId}/${filename}.result-details.json`
-
-  return useQuery({
-    queryKey: ['run', runId, 'test', testName, 'result-details'],
+    queryKey: ['run', runId, 'test', testName, 'step', stepType, 'result-details'],
     queryFn: () => fetchData<ResultDetails>(path),
     enabled: !!runId && !!testName,
   })
 }
 
-export function useTestResponses(
-  runId: string,
-  testName: string,
-  dir?: string,
-  filenameHash?: string
-) {
-  const filename = getResultFilename(testName, filenameHash)
-  const path = dir
-    ? `runs/${runId}/${dir}/${filename}.response`
-    : `runs/${runId}/${filename}.response`
+export function useTestResponses(runId: string, testName: string, stepType: StepType) {
+  // Path: runs/{runId}/{testName}/{stepType}.response
+  const path = `runs/${runId}/${testName}/${stepType}.response`
 
   return useQuery({
-    queryKey: ['run', runId, 'test', testName, 'responses'],
+    queryKey: ['run', runId, 'test', testName, 'step', stepType, 'responses'],
     queryFn: async () => {
       const text = await fetchText(path)
       return text.trim().split('\n')
@@ -67,31 +30,23 @@ export function useTestResponses(
   })
 }
 
-export function useTestAggregated(
-  runId: string,
-  testName: string,
-  dir?: string,
-  filenameHash?: string
-) {
-  const filename = getResultFilename(testName, filenameHash)
-  const path = dir
-    ? `runs/${runId}/${dir}/${filename}.result-aggregated.json`
-    : `runs/${runId}/${filename}.result-aggregated.json`
+export function useTestAggregated(runId: string, testName: string, stepType: StepType) {
+  // Path: runs/{runId}/{testName}/{stepType}.result-aggregated.json
+  const path = `runs/${runId}/${testName}/${stepType}.result-aggregated.json`
 
   return useQuery({
-    queryKey: ['run', runId, 'test', testName, 'aggregated'],
+    queryKey: ['run', runId, 'test', testName, 'step', stepType, 'aggregated'],
     queryFn: () => fetchData<AggregatedStats>(path),
     enabled: !!runId && !!testName,
   })
 }
 
-export function useTestRequests(suiteHash: string, testName: string, dir?: string) {
-  const path = dir
-    ? `suites/${suiteHash}/tests/${dir}/${testName}`
-    : `suites/${suiteHash}/tests/${testName}`
+export function useTestRequests(suiteHash: string, testName: string, stepType: StepType) {
+  // Path: suites/{suiteHash}/{testName}/{stepType}.request
+  const path = `suites/${suiteHash}/${testName}/${stepType}.request`
 
   return useQuery({
-    queryKey: ['suite', suiteHash, 'test', testName, 'requests', dir],
+    queryKey: ['suite', suiteHash, 'test', testName, 'step', stepType, 'requests'],
     queryFn: async () => {
       const text = await fetchText(path)
       return text.trim().split('\n')

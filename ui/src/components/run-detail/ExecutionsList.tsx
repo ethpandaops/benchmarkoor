@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import clsx from 'clsx'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useTestRequests, useTestResponses, useTestResultDetails } from '@/api/hooks/useTestDetails'
+import { useTestRequests, useTestResponses, useTestResultDetails, type StepType } from '@/api/hooks/useTestDetails'
 import { Duration } from '@/components/shared/Duration'
 
 function useDarkMode() {
@@ -63,8 +63,7 @@ interface ExecutionsListProps {
   runId: string
   suiteHash: string
   testName: string
-  dir?: string
-  filenameHash?: string
+  stepType: StepType
 }
 
 function parseMethod(request: string): string {
@@ -182,10 +181,10 @@ function ExecutionRow({ index, request, response, time, status, mgasPerSec }: Ex
   )
 }
 
-export function ExecutionsList({ runId, suiteHash, testName, dir, filenameHash }: ExecutionsListProps) {
-  const { data: requests, isLoading: requestsLoading, error: requestsError } = useTestRequests(suiteHash, testName, dir)
-  const { data: responses, isLoading: responsesLoading } = useTestResponses(runId, testName, dir, filenameHash)
-  const { data: resultDetails, isLoading: detailsLoading } = useTestResultDetails(runId, testName, dir, filenameHash)
+export function ExecutionsList({ runId, suiteHash, testName, stepType }: ExecutionsListProps) {
+  const { data: requests, isLoading: requestsLoading, error: requestsError } = useTestRequests(suiteHash, testName, stepType)
+  const { data: responses, isLoading: responsesLoading } = useTestResponses(runId, testName, stepType)
+  const { data: resultDetails, isLoading: detailsLoading } = useTestResultDetails(runId, testName, stepType)
 
   const isLoading = requestsLoading || responsesLoading || detailsLoading
 

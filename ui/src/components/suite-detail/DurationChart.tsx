@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import clsx from 'clsx'
-import type { IndexEntry } from '@/api/types'
+import { type IndexEntry, type IndexStepType, getIndexAggregatedStats, ALL_INDEX_STEP_TYPES } from '@/api/types'
 
 export type XAxisMode = 'time' | 'runCount'
 
@@ -11,6 +11,7 @@ interface DurationChartProps {
   xAxisMode?: XAxisMode
   onXAxisModeChange?: (mode: XAxisMode) => void
   onRunClick?: (runId: string) => void
+  stepFilter?: IndexStepType[]
 }
 
 interface DataPoint {
@@ -52,6 +53,7 @@ export function DurationChart({
   xAxisMode: controlledMode,
   onXAxisModeChange,
   onRunClick,
+  stepFilter = ALL_INDEX_STEP_TYPES,
 }: DurationChartProps) {
   const [internalMode, setInternalMode] = useState<XAxisMode>('runCount')
   const xAxisMode = controlledMode ?? internalMode
@@ -70,12 +72,13 @@ export function DurationChart({
 
     for (const run of runs) {
       const client = run.instance.client
+      const stats = getIndexAggregatedStats(run, stepFilter)
       if (!clientGroups.has(client)) {
         clientGroups.set(client, [])
       }
       clientGroups.get(client)!.push({
         timestamp: run.timestamp * 1000,
-        duration: run.tests.duration / 1e9,
+        duration: stats.duration / 1e9,
         runIndex: 0,
         runId: run.run_id,
         image: run.instance.image,
@@ -95,7 +98,7 @@ export function DurationChart({
     }
 
     return { clientGroups, maxRunIndex }
-  }, [runs])
+  }, [runs, stepFilter])
 
   const series = useMemo(() => {
     return Array.from(chartData.entries()).map(([client, data]) => ({

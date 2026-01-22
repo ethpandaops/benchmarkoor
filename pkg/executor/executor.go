@@ -71,8 +71,7 @@ type executor struct {
 	log         logrus.FieldLogger
 	cfg         *Config
 	source      Source
-	testsPath   string
-	warmupPath  string
+	prepared    *PreparedSource
 	suiteHash   string
 	validator   jsonrpc.Validator
 	statsReader stats.Reader
@@ -83,25 +82,24 @@ var _ Executor = (*executor)(nil)
 
 // Start initializes the executor and prepares test sources.
 func (e *executor) Start(ctx context.Context) error {
-	e.source = NewSource(e.log, e.cfg.Source, e.cfg.CacheDir)
+	e.source = NewSource(e.log, e.cfg.Source, e.cfg.CacheDir, e.cfg.Filter)
 	if e.source == nil {
 		return fmt.Errorf("no test source configured")
 	}
 
-	// Prepare source early (clone git or verify local dirs).
+	// Prepare source early (clone git or verify local dirs, discover tests).
 	e.log.Info("Preparing test sources")
 
-	testsPath, warmupPath, err := e.source.Prepare(ctx)
+	prepared, err := e.source.Prepare(ctx)
 	if err != nil {
 		return fmt.Errorf("preparing source: %w", err)
 	}
 
-	e.testsPath = testsPath
-	e.warmupPath = warmupPath
+	e.prepared = prepared
 
 	e.log.WithFields(logrus.Fields{
-		"tests_path":  testsPath,
-		"warmup_path": warmupPath,
+		"pre_run_steps": len(prepared.PreRunSteps),
+		"tests":         len(prepared.Tests),
 	}).Info("Test sources ready")
 
 	// Create suite output if results directory is configured.
@@ -114,22 +112,10 @@ func (e *executor) Start(ctx context.Context) error {
 	return nil
 }
 
-// createSuiteOutput discovers tests, computes hash, and creates suite directory.
+// createSuiteOutput computes hash and creates suite directory.
 func (e *executor) createSuiteOutput() error {
-	// Discover warmup tests.
-	warmupFiles, err := DiscoverTests(e.warmupPath, e.cfg.Filter, true)
-	if err != nil {
-		return fmt.Errorf("discovering warmup tests: %w", err)
-	}
-
-	// Discover test files.
-	testFiles, err := DiscoverTests(e.testsPath, e.cfg.Filter, false)
-	if err != nil {
-		return fmt.Errorf("discovering tests: %w", err)
-	}
-
 	// Compute suite hash from file contents.
-	hash, err := ComputeSuiteHash(warmupFiles, testFiles)
+	hash, err := ComputeSuiteHash(e.prepared)
 	if err != nil {
 		return fmt.Errorf("computing suite hash: %w", err)
 	}
@@ -150,14 +136,14 @@ func (e *executor) createSuiteOutput() error {
 	}
 
 	// Create suite output directory.
-	if err := CreateSuiteOutput(e.cfg.ResultsDir, hash, suiteInfo, warmupFiles, testFiles); err != nil {
+	if err := CreateSuiteOutput(e.cfg.ResultsDir, hash, suiteInfo, e.prepared); err != nil {
 		return fmt.Errorf("creating suite output: %w", err)
 	}
 
 	e.log.WithFields(logrus.Fields{
-		"hash":         hash,
-		"warmup_files": len(warmupFiles),
-		"test_files":   len(testFiles),
+		"hash":          hash,
+		"pre_run_steps": len(e.prepared.PreRunSteps),
+		"tests":         len(e.prepared.Tests),
 	}).Info("Suite output created")
 
 	return nil
@@ -204,54 +190,41 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		}
 	}
 
-	// Combine filter from config and options.
-	filter := e.cfg.Filter
-	if opts.Filter != "" {
-		filter = opts.Filter
-	}
-
-	// Discover warmup tests.
-	warmupTests, err := DiscoverTests(e.warmupPath, filter, true)
-	if err != nil {
-		return nil, fmt.Errorf("discovering warmup tests: %w", err)
-	}
-
-	// Discover actual tests.
-	tests, err := DiscoverTests(e.testsPath, filter, false)
-	if err != nil {
-		return nil, fmt.Errorf("discovering tests: %w", err)
-	}
-
 	e.log.WithFields(logrus.Fields{
-		"warmup_tests": len(warmupTests),
-		"tests":        len(tests),
-		"filter":       filter,
-	}).Info("Discovered tests")
+		"pre_run_steps": len(e.prepared.PreRunSteps),
+		"tests":         len(e.prepared.Tests),
+	}).Info("Starting test execution")
 
-	// Run warmup tests first (no output).
-	if len(warmupTests) > 0 {
-		e.log.Info("Running warmup tests")
+	// Run pre-run steps first.
+	if len(e.prepared.PreRunSteps) > 0 {
+		e.log.Info("Running pre-run steps")
 
-		for _, test := range warmupTests {
+		for _, step := range e.prepared.PreRunSteps {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			default:
 			}
 
-			e.log.WithField("test", test.Name).Info("Running warmup test")
+			log := e.log.WithField("step", step.Name)
+			log.Info("Running pre-run step")
 
-			if err := e.runTest(ctx, opts, test, nil); err != nil {
-				e.log.WithError(err).WithField("test", test.Name).Warn("Warmup test failed")
+			preRunResult := NewTestResult(step.Name)
+			if err := e.runStepFile(ctx, opts, step, preRunResult); err != nil {
+				log.WithError(err).Warn("Pre-run step failed")
+			} else {
+				if err := WriteStepResults(opts.ResultsDir, step.Name, StepTypePreRun, preRunResult); err != nil {
+					log.WithError(err).Warn("Failed to write pre-run step results")
+				}
 			}
 		}
 
-		e.log.Info("Warmup tests completed")
+		e.log.Info("Pre-run steps completed")
 	}
 
 	// Run actual tests with result collection.
 	result := &ExecutionResult{
-		TotalTests: len(tests),
+		TotalTests: len(e.prepared.Tests),
 	}
 
 	// Set stats reader type if available.
@@ -266,7 +239,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		}
 	}
 
-	for _, test := range tests {
+	for _, test := range e.prepared.Tests {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -276,26 +249,66 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		log := e.log.WithField("test", test.Name)
 		log.Info("Running test")
 
-		testResult := NewTestResult(test.Name)
+		testPassed := true
 
-		if err := e.runTest(ctx, opts, test, testResult); err != nil {
-			log.WithError(err).Error("Test failed")
+		// Run setup step if present.
+		if test.Setup != nil {
+			log.Info("Running setup step")
+
+			setupResult := NewTestResult(test.Name)
+
+			if err := e.runStepFile(ctx, opts, test.Setup, setupResult); err != nil {
+				log.WithError(err).Error("Setup step failed")
+				testPassed = false
+			} else {
+				// Write setup results.
+				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeSetup, setupResult); err != nil {
+					log.WithError(err).Warn("Failed to write setup results")
+				}
+			}
+		}
+
+		// Run test step if present.
+		if test.Test != nil {
+			log.Info("Running test step")
+
+			testResult := NewTestResult(test.Name)
+
+			if err := e.runStepFile(ctx, opts, test.Test, testResult); err != nil {
+				log.WithError(err).Error("Test step failed")
+				testPassed = false
+			} else {
+				// Write test results.
+				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeTest, testResult); err != nil {
+					log.WithError(err).Warn("Failed to write test results")
+				}
+			}
+		}
+
+		// Run cleanup step if present.
+		if test.Cleanup != nil {
+			log.Info("Running cleanup step")
+
+			cleanupResult := NewTestResult(test.Name)
+
+			if err := e.runStepFile(ctx, opts, test.Cleanup, cleanupResult); err != nil {
+				log.WithError(err).Error("Cleanup step failed")
+				testPassed = false
+			} else {
+				// Write cleanup results.
+				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeCleanup, cleanupResult); err != nil {
+					log.WithError(err).Warn("Failed to write cleanup results")
+				}
+			}
+		}
+
+		if testPassed {
+			log.Info("Test completed successfully")
+			result.Passed++
+		} else {
+			log.Warn("Test completed with failures")
 			result.Failed++
-
-			continue
 		}
-
-		// Write output files.
-		if err := WriteResults(opts.ResultsDir, test.Name, testResult); err != nil {
-			log.WithError(err).Warn("Failed to write results")
-		}
-
-		log.WithFields(logrus.Fields{
-			"succeeded": testResult.Succeeded,
-			"failed":    testResult.Failed,
-		}).Info("Test completed")
-
-		result.Passed++
 	}
 
 	result.TotalDuration = time.Since(startTime)
@@ -315,11 +328,11 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	return result, nil
 }
 
-// runTest executes a single test file.
-func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestFile, result *TestResult) error {
-	file, err := os.Open(test.Path)
+// runStepFile executes a single step file.
+func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *StepFile, result *TestResult) error {
+	file, err := os.Open(step.Path)
 	if err != nil {
-		return fmt.Errorf("opening test file: %w", err)
+		return fmt.Errorf("opening step file: %w", err)
 	}
 
 	defer func() { _ = file.Close() }()
@@ -348,7 +361,7 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 		if err != nil {
 			e.log.WithFields(logrus.Fields{
 				"line": lineNum,
-				"test": test.Name,
+				"step": step.Name,
 			}).WithError(err).Warn("Failed to parse JSON-RPC payload")
 
 			if result != nil {
@@ -373,7 +386,7 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 			e.log.WithFields(logrus.Fields{
 				"line":   lineNum,
 				"method": method,
-				"test":   test.Name,
+				"step":   step.Name,
 			}).WithError(err).Warn("RPC call failed")
 		}
 
@@ -383,7 +396,7 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 				e.log.WithFields(logrus.Fields{
 					"line":   lineNum,
 					"method": method,
-					"test":   test.Name,
+					"step":   step.Name,
 				}).WithError(parseErr).Warn("Failed to parse JSON-RPC response")
 
 				succeeded = false
@@ -391,7 +404,7 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 				e.log.WithFields(logrus.Fields{
 					"line":   lineNum,
 					"method": method,
-					"test":   test.Name,
+					"step":   step.Name,
 				}).WithError(validationErr).Warn("Response validation failed")
 
 				succeeded = false
@@ -404,7 +417,7 @@ func (e *executor) runTest(ctx context.Context, opts *ExecuteOptions, test TestF
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("reading test file: %w", err)
+		return fmt.Errorf("reading step file: %w", err)
 	}
 
 	return nil

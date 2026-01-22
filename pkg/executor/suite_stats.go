@@ -18,11 +18,25 @@ type TestDurations struct {
 
 // RunDuration contains timing information for a single run of a test.
 type RunDuration struct {
-	ID       string `json:"id"`
-	Client   string `json:"client"`
-	GasUsed  uint64 `json:"gas_used"`
-	Time     int64  `json:"time_ns"`
-	RunStart int64  `json:"run_start"`
+	ID       string                 `json:"id"`
+	Client   string                 `json:"client"`
+	GasUsed  uint64                 `json:"gas_used"`
+	Time     int64                  `json:"time_ns"`
+	RunStart int64                  `json:"run_start"`
+	Steps    *RunDurationStepsStats `json:"steps,omitempty"`
+}
+
+// RunDurationStepsStats contains per-step gas and time data.
+type RunDurationStepsStats struct {
+	Setup   *RunDurationStepStats `json:"setup,omitempty"`
+	Test    *RunDurationStepStats `json:"test,omitempty"`
+	Cleanup *RunDurationStepStats `json:"cleanup,omitempty"`
+}
+
+// RunDurationStepStats contains gas and time data for a single step.
+type RunDurationStepStats struct {
+	GasUsed uint64 `json:"gas_used"`
+	Time    int64  `json:"time_ns"`
 }
 
 // runInfo holds information about a run for grouping purposes.
@@ -119,8 +133,42 @@ func buildSuiteStats(runsDir string, runs []runInfo) (*SuiteStats, error) {
 		}
 
 		for testName, testEntry := range runResult.Tests {
-			if testEntry.Aggregated == nil {
+			if testEntry.Steps == nil {
 				continue
+			}
+
+			// Aggregate stats from all steps.
+			var totalGasUsed uint64
+			var totalGasUsedTime int64
+
+			// Build per-step stats.
+			stepsStats := &RunDurationStepsStats{}
+
+			if testEntry.Steps.Setup != nil && testEntry.Steps.Setup.Aggregated != nil {
+				stepsStats.Setup = &RunDurationStepStats{
+					GasUsed: testEntry.Steps.Setup.Aggregated.GasUsedTotal,
+					Time:    testEntry.Steps.Setup.Aggregated.GasUsedTimeTotal,
+				}
+				totalGasUsed += testEntry.Steps.Setup.Aggregated.GasUsedTotal
+				totalGasUsedTime += testEntry.Steps.Setup.Aggregated.GasUsedTimeTotal
+			}
+
+			if testEntry.Steps.Test != nil && testEntry.Steps.Test.Aggregated != nil {
+				stepsStats.Test = &RunDurationStepStats{
+					GasUsed: testEntry.Steps.Test.Aggregated.GasUsedTotal,
+					Time:    testEntry.Steps.Test.Aggregated.GasUsedTimeTotal,
+				}
+				totalGasUsed += testEntry.Steps.Test.Aggregated.GasUsedTotal
+				totalGasUsedTime += testEntry.Steps.Test.Aggregated.GasUsedTimeTotal
+			}
+
+			if testEntry.Steps.Cleanup != nil && testEntry.Steps.Cleanup.Aggregated != nil {
+				stepsStats.Cleanup = &RunDurationStepStats{
+					GasUsed: testEntry.Steps.Cleanup.Aggregated.GasUsedTotal,
+					Time:    testEntry.Steps.Cleanup.Aggregated.GasUsedTimeTotal,
+				}
+				totalGasUsed += testEntry.Steps.Cleanup.Aggregated.GasUsedTotal
+				totalGasUsedTime += testEntry.Steps.Cleanup.Aggregated.GasUsedTimeTotal
 			}
 
 			if stats[testName] == nil {
@@ -132,9 +180,10 @@ func buildSuiteStats(runsDir string, runs []runInfo) (*SuiteStats, error) {
 			stats[testName].Durations = append(stats[testName].Durations, &RunDuration{
 				ID:       run.runID,
 				Client:   run.client,
-				GasUsed:  testEntry.Aggregated.GasUsedTotal,
-				Time:     testEntry.Aggregated.GasUsedTimeTotal,
+				GasUsed:  totalGasUsed,
+				Time:     totalGasUsedTime,
 				RunStart: run.timestamp,
+				Steps:    stepsStats,
 			})
 		}
 	}

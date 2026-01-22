@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
-import type { SuiteStats, SuiteFile } from '@/api/types'
+import { type SuiteStats, type SuiteTest, type IndexStepType, ALL_INDEX_STEP_TYPES, getRunDurationAggregatedStats } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Pagination } from '@/components/shared/Pagination'
 import { formatTimestamp } from '@/utils/date'
@@ -97,14 +97,15 @@ interface TooltipData {
 
 interface TestHeatmapProps {
   stats: SuiteStats
-  testFiles?: SuiteFile[]
+  testFiles?: SuiteTest[]
   isDark: boolean
+  stepFilter?: IndexStepType[]
 }
 
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | 'avgMgas'
 
-export function TestHeatmap({ stats, testFiles, isDark }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_STEP_TYPES }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -117,12 +118,11 @@ export function TestHeatmap({ stats, testFiles, isDark }: TestHeatmapProps) {
   const [statColumnType, setStatColumnType] = useState<DistributionStatType>('Avg')
 
   const { allTests, clients } = useMemo(() => {
-    // Build lookup map from test path to 1-based index
+    // Build lookup map from test name to 1-based index
     const testIndexMap = new Map<string, number>()
     if (testFiles) {
-      testFiles.forEach((file, index) => {
-        const path = file.d ? `${file.d}/${file.f}` : file.f
-        testIndexMap.set(path, index + 1)
+      testFiles.forEach((test, index) => {
+        testIndexMap.set(test.name, index + 1)
       })
     }
 
@@ -141,7 +141,8 @@ export function TestHeatmap({ stats, testFiles, isDark }: TestHeatmapProps) {
       // Group durations by client
       const clientRunsMap: Record<string, RunData[]> = {}
       for (const duration of testDurations.durations) {
-        const mgas = calculateMGasPerSec(duration.gas_used, duration.time_ns)
+        const { gasUsed, timeNs } = getRunDurationAggregatedStats(duration, stepFilter)
+        const mgas = calculateMGasPerSec(gasUsed, timeNs)
         if (mgas === undefined) continue
 
         if (!clientRunsMap[duration.client]) {
@@ -215,7 +216,7 @@ export function TestHeatmap({ stats, testFiles, isDark }: TestHeatmapProps) {
     }
 
     return { allTests: processedTests, clients }
-  }, [stats, testFiles, runsPerClient])
+  }, [stats, testFiles, runsPerClient, stepFilter])
 
   // Sort and paginate
   const sortedTests = useMemo(() => {

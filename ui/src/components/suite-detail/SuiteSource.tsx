@@ -6,6 +6,87 @@ interface SuiteSourceProps {
   source: SourceInfo
 }
 
+interface StepsGlobs {
+  setup?: string[]
+  test?: string[]
+  cleanup?: string[]
+}
+
+function StepsInfo({ steps, preRunSteps }: { steps?: StepsGlobs; preRunSteps?: string[] }) {
+  const hasSteps = steps && (steps.setup?.length || steps.test?.length || steps.cleanup?.length)
+  const hasPreRunSteps = preRunSteps && preRunSteps.length > 0
+
+  if (!hasSteps && !hasPreRunSteps) return null
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-gray-200 pt-4 dark:border-gray-700">
+      <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Test Discovery Patterns</dt>
+      <dd className="flex flex-col gap-2">
+        {hasPreRunSteps && (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Pre-Run Steps</span>
+            <div className="flex flex-wrap gap-1">
+              {preRunSteps!.map((pattern, i) => (
+                <code
+                  key={i}
+                  className="rounded-xs bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+                >
+                  {pattern}
+                </code>
+              ))}
+            </div>
+          </div>
+        )}
+        {steps?.setup && steps.setup.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Setup</span>
+            <div className="flex flex-wrap gap-1">
+              {steps.setup.map((pattern, i) => (
+                <code
+                  key={i}
+                  className="rounded-xs bg-blue-50 px-1.5 py-0.5 font-mono text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                >
+                  {pattern}
+                </code>
+              ))}
+            </div>
+          </div>
+        )}
+        {steps?.test && steps.test.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Test</span>
+            <div className="flex flex-wrap gap-1">
+              {steps.test.map((pattern, i) => (
+                <code
+                  key={i}
+                  className="rounded-xs bg-green-50 px-1.5 py-0.5 font-mono text-xs text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                >
+                  {pattern}
+                </code>
+              ))}
+            </div>
+          </div>
+        )}
+        {steps?.cleanup && steps.cleanup.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Cleanup</span>
+            <div className="flex flex-wrap gap-1">
+              {steps.cleanup.map((pattern, i) => (
+                <code
+                  key={i}
+                  className="rounded-xs bg-orange-50 px-1.5 py-0.5 font-mono text-xs text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
+                >
+                  {pattern}
+                </code>
+              ))}
+            </div>
+          </div>
+        )}
+      </dd>
+    </div>
+  )
+}
+
 function GitHubIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -32,7 +113,7 @@ function getGitHubUrl(repo: string, sha?: string, directory?: string): string {
 
 export function SuiteSource({ title, source }: SuiteSourceProps) {
   if (source.git) {
-    const gitUrl = getGitHubUrl(source.git.repo, source.git.sha, source.git.directory)
+    const gitUrl = getGitHubUrl(source.git.repo, source.git.sha)
 
     return (
       <Card title={title} collapsible>
@@ -46,17 +127,12 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
               <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Version</dt>
               <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.git.version}</dd>
             </div>
-            {source.git.directory && (
-              <div>
-                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Directory</dt>
-                <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.git.directory}</dd>
-              </div>
-            )}
             <div>
               <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Commit SHA</dt>
               <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.git.sha}</dd>
             </div>
           </dl>
+          <StepsInfo steps={source.git.steps} preRunSteps={source.git.pre_run_steps} />
           <a
             href={gitUrl}
             target="_blank"
@@ -71,12 +147,15 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
     )
   }
 
-  if (source.local_dir) {
+  if (source.local) {
     return (
       <Card title={title} collapsible>
-        <div>
-          <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Local Directory</dt>
-          <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.local_dir}</dd>
+        <div className="flex flex-col gap-4">
+          <div>
+            <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Local Directory</dt>
+            <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.local.base_dir}</dd>
+          </div>
+          <StepsInfo steps={source.local.steps} preRunSteps={source.local.pre_run_steps} />
         </div>
       </Card>
     )
