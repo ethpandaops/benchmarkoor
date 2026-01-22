@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
-import type { SuiteStats, SuiteTest } from '@/api/types'
+import { type SuiteStats, type SuiteTest, type IndexStepType, ALL_INDEX_STEP_TYPES, getRunDurationAggregatedStats } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Pagination } from '@/components/shared/Pagination'
 import { formatTimestamp } from '@/utils/date'
@@ -99,12 +99,13 @@ interface TestHeatmapProps {
   stats: SuiteStats
   testFiles?: SuiteTest[]
   isDark: boolean
+  stepFilter?: IndexStepType[]
 }
 
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | 'avgMgas'
 
-export function TestHeatmap({ stats, testFiles, isDark }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_STEP_TYPES }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -140,7 +141,8 @@ export function TestHeatmap({ stats, testFiles, isDark }: TestHeatmapProps) {
       // Group durations by client
       const clientRunsMap: Record<string, RunData[]> = {}
       for (const duration of testDurations.durations) {
-        const mgas = calculateMGasPerSec(duration.gas_used, duration.time_ns)
+        const { gasUsed, timeNs } = getRunDurationAggregatedStats(duration, stepFilter)
+        const mgas = calculateMGasPerSec(gasUsed, timeNs)
         if (mgas === undefined) continue
 
         if (!clientRunsMap[duration.client]) {
@@ -214,7 +216,7 @@ export function TestHeatmap({ stats, testFiles, isDark }: TestHeatmapProps) {
     }
 
     return { allTests: processedTests, clients }
-  }, [stats, testFiles, runsPerClient])
+  }, [stats, testFiles, runsPerClient, stepFilter])
 
   // Sort and paginate
   const sortedTests = useMemo(() => {
