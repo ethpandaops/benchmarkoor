@@ -258,7 +258,9 @@ func discoverTestsFromConfig(
 		Tests:       make([]*TestWithSteps, 0),
 	}
 
-	// Discover pre-run steps.
+	// Discover pre-run steps in config order.
+	// Patterns are processed in the order they appear in the config.
+	// Within each pattern, filepath.Glob returns files in lexicographic order.
 	for _, pattern := range preRunStepPatterns {
 		files, err := expandGlobPattern(basePath, pattern, filter)
 		if err != nil {
@@ -267,11 +269,6 @@ func discoverTestsFromConfig(
 
 		result.PreRunSteps = append(result.PreRunSteps, files...)
 	}
-
-	// Sort pre-run steps by name.
-	sort.Slice(result.PreRunSteps, func(i, j int) bool {
-		return result.PreRunSteps[i].Name < result.PreRunSteps[j].Name
-	})
 
 	log.WithField("count", len(result.PreRunSteps)).Debug("Discovered pre-run steps")
 
