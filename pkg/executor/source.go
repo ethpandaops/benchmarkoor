@@ -262,7 +262,7 @@ func discoverTestsFromConfig(
 	// Patterns are processed in the order they appear in the config.
 	// Within each pattern, filepath.Glob returns files in lexicographic order.
 	for _, pattern := range preRunStepPatterns {
-		files, err := expandGlobPattern(basePath, pattern, filter)
+		files, _, err := expandGlobPattern(basePath, pattern, filter)
 		if err != nil {
 			return nil, fmt.Errorf("expanding pre_run_steps pattern %q: %w", pattern, err)
 		}
@@ -278,17 +278,17 @@ func discoverTestsFromConfig(
 	}
 
 	// Discover files for each step type.
-	setupFiles, err := expandGlobPatterns(basePath, steps.Setup, filter)
+	setupFiles, setupPrefixes, err := expandGlobPatterns(basePath, steps.Setup, filter)
 	if err != nil {
 		return nil, fmt.Errorf("expanding setup patterns: %w", err)
 	}
 
-	testFiles, err := expandGlobPatterns(basePath, steps.Test, filter)
+	testFiles, testPrefixes, err := expandGlobPatterns(basePath, steps.Test, filter)
 	if err != nil {
 		return nil, fmt.Errorf("expanding test patterns: %w", err)
 	}
 
-	cleanupFiles, err := expandGlobPatterns(basePath, steps.Cleanup, filter)
+	cleanupFiles, cleanupPrefixes, err := expandGlobPatterns(basePath, steps.Cleanup, filter)
 	if err != nil {
 		return nil, fmt.Errorf("expanding cleanup patterns: %w", err)
 	}
@@ -299,23 +299,33 @@ func discoverTestsFromConfig(
 		"cleanup_files": len(cleanupFiles),
 	}).Debug("Discovered step files")
 
-	// Group files by base filename.
-	result.Tests = groupTestsByFilename(setupFiles, testFiles, cleanupFiles)
+	// Group files by matching key (relative path after stripping static prefix).
+	result.Tests = groupTestsByFilename(
+		setupFiles, setupPrefixes,
+		testFiles, testPrefixes,
+		cleanupFiles, cleanupPrefixes,
+	)
 
 	log.WithField("count", len(result.Tests)).Info("Discovered tests with steps")
 
 	return result, nil
 }
 
-// expandGlobPatterns expands multiple glob patterns and returns unique files.
-func expandGlobPatterns(basePath string, patterns []string, filter string) ([]*StepFile, error) {
+// expandGlobPatterns expands multiple glob patterns and returns unique files
+// along with the collected static prefixes from all patterns.
+func expandGlobPatterns(basePath string, patterns []string, filter string) ([]*StepFile, []string, error) {
 	seen := make(map[string]struct{}, len(patterns)*10)
 	result := make([]*StepFile, 0, len(patterns)*10)
+	prefixes := make([]string, 0, len(patterns))
 
 	for _, pattern := range patterns {
-		files, err := expandGlobPattern(basePath, pattern, filter)
+		files, staticPrefix, err := expandGlobPattern(basePath, pattern, filter)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+
+		if staticPrefix != "" {
+			prefixes = append(prefixes, staticPrefix)
 		}
 
 		for _, f := range files {
@@ -326,16 +336,18 @@ func expandGlobPatterns(basePath string, patterns []string, filter string) ([]*S
 		}
 	}
 
-	return result, nil
+	return result, prefixes, nil
 }
 
-// expandGlobPattern expands a single glob pattern and returns matching files.
-func expandGlobPattern(basePath, pattern, filter string) ([]*StepFile, error) {
+// expandGlobPattern expands a single glob pattern and returns matching files
+// along with the static prefix extracted from the pattern.
+func expandGlobPattern(basePath, pattern, filter string) ([]*StepFile, string, error) {
 	fullPattern := filepath.Join(basePath, pattern)
+	staticPrefix := extractStaticPrefix(pattern)
 
 	matches, err := filepath.Glob(fullPattern)
 	if err != nil {
-		return nil, fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
+		return nil, "", fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
 	}
 
 	result := make([]*StepFile, 0, len(matches))
@@ -372,67 +384,106 @@ func expandGlobPattern(basePath, pattern, filter string) ([]*StepFile, error) {
 		})
 	}
 
-	return result, nil
+	return result, staticPrefix, nil
 }
 
-// groupTestsByFilename groups step files by their base filename.
-// Files are matched across setup/test/cleanup directories by their filename.
+// groupTestsByFilename groups step files by their matching key.
+// The matching key is derived by stripping the static prefix from the file path,
+// allowing files in different directories with the same relative path to be matched.
+// For example: "stateful_tests/setup/001/abc.txt" with prefix "stateful_tests/setup/"
+// produces key "001/abc.txt".
 func groupTestsByFilename(
-	setupFiles, testFiles, cleanupFiles []*StepFile,
+	setupFiles []*StepFile, setupPrefixes []string,
+	testFiles []*StepFile, testPrefixes []string,
+	cleanupFiles []*StepFile, cleanupPrefixes []string,
 ) []*TestWithSteps {
-	// Build maps of filename -> StepFile for each step type.
-	setupByName := make(map[string]*StepFile, len(setupFiles))
+	// Build maps of matching key -> StepFile for each step type.
+	setupByKey := make(map[string]*StepFile, len(setupFiles))
 	for _, f := range setupFiles {
-		name := filepath.Base(f.Name)
-		setupByName[name] = f
+		key := findMatchingKey(f.Name, setupPrefixes)
+		setupByKey[key] = f
 	}
 
-	testByName := make(map[string]*StepFile, len(testFiles))
+	testByKey := make(map[string]*StepFile, len(testFiles))
 	for _, f := range testFiles {
-		name := filepath.Base(f.Name)
-		testByName[name] = f
+		key := findMatchingKey(f.Name, testPrefixes)
+		testByKey[key] = f
 	}
 
-	cleanupByName := make(map[string]*StepFile, len(cleanupFiles))
+	cleanupByKey := make(map[string]*StepFile, len(cleanupFiles))
 	for _, f := range cleanupFiles {
-		name := filepath.Base(f.Name)
-		cleanupByName[name] = f
+		key := findMatchingKey(f.Name, cleanupPrefixes)
+		cleanupByKey[key] = f
 	}
 
-	// Collect all unique filenames.
-	allNames := make(map[string]struct{}, len(setupFiles)+len(testFiles)+len(cleanupFiles))
-	for name := range setupByName {
-		allNames[name] = struct{}{}
+	// Collect all unique matching keys.
+	allKeys := make(map[string]struct{}, len(setupFiles)+len(testFiles)+len(cleanupFiles))
+	for key := range setupByKey {
+		allKeys[key] = struct{}{}
 	}
 
-	for name := range testByName {
-		allNames[name] = struct{}{}
+	for key := range testByKey {
+		allKeys[key] = struct{}{}
 	}
 
-	for name := range cleanupByName {
-		allNames[name] = struct{}{}
+	for key := range cleanupByKey {
+		allKeys[key] = struct{}{}
 	}
 
-	// Create sorted list of names.
-	names := make([]string, 0, len(allNames))
-	for name := range allNames {
-		names = append(names, name)
+	// Create sorted list of keys.
+	keys := make([]string, 0, len(allKeys))
+	for key := range allKeys {
+		keys = append(keys, key)
 	}
 
-	sort.Strings(names)
+	sort.Strings(keys)
 
-	// Build TestWithSteps for each unique filename.
-	tests := make([]*TestWithSteps, 0, len(names))
+	// Build TestWithSteps for each unique matching key.
+	tests := make([]*TestWithSteps, 0, len(keys))
 
-	for _, name := range names {
+	for _, key := range keys {
 		test := &TestWithSteps{
-			Name:    name,
-			Setup:   setupByName[name],
-			Test:    testByName[name],
-			Cleanup: cleanupByName[name],
+			Name:    key,
+			Setup:   setupByKey[key],
+			Test:    testByKey[key],
+			Cleanup: cleanupByKey[key],
 		}
 		tests = append(tests, test)
 	}
 
 	return tests
+}
+
+// extractStaticPrefix extracts the static prefix from a glob pattern.
+// The static prefix is the path before the first wildcard character (*, ?, [).
+// For example: "stateful_tests/setup/*/*" -> "stateful_tests/setup/"
+func extractStaticPrefix(pattern string) string {
+	for i, c := range pattern {
+		if c == '*' || c == '?' || c == '[' {
+			prefix := pattern[:i]
+			lastSep := strings.LastIndex(prefix, string(filepath.Separator))
+
+			if lastSep == -1 {
+				return ""
+			}
+
+			return prefix[:lastSep+1]
+		}
+	}
+
+	// No wildcard found, return directory portion with trailing separator.
+	return filepath.Dir(pattern) + string(filepath.Separator)
+}
+
+// findMatchingKey extracts the matching key from a file path given static prefixes.
+// It strips the first matching prefix to produce a key for matching files across step types.
+// Falls back to filepath.Base() if no prefix matches.
+func findMatchingKey(filePath string, prefixes []string) string {
+	for _, prefix := range prefixes {
+		if prefix != "" && strings.HasPrefix(filePath, prefix) {
+			return filePath[len(prefix):]
+		}
+	}
+
+	return filepath.Base(filePath)
 }
