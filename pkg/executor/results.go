@@ -173,7 +173,8 @@ type TestEntry struct {
 
 // RunResult contains the aggregated results for all tests in a run.
 type RunResult struct {
-	Tests map[string]*TestEntry `json:"tests"`
+	PreRunSteps map[string]*StepResult `json:"pre_run_steps,omitempty"`
+	Tests       map[string]*TestEntry  `json:"tests"`
 }
 
 // TestResult contains results for a single test file execution.
@@ -532,10 +533,11 @@ func WriteStepResults(resultDir, testName string, stepType StepType, result *Tes
 }
 
 // GenerateRunResult scans a results directory and builds a RunResult from all aggregated files.
-// Results are organized by test name with setup/test/cleanup steps.
+// Results are organized by test name with setup/test/cleanup steps, and pre-run steps separately.
 func GenerateRunResult(resultsDir string) (*RunResult, error) {
 	result := &RunResult{
-		Tests: make(map[string]*TestEntry),
+		PreRunSteps: make(map[string]*StepResult),
+		Tests:       make(map[string]*TestEntry),
 	}
 
 	// Walk the results directory looking for .result-aggregated.json files.
@@ -587,6 +589,8 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 			stepType = StepTypeTest
 		case string(StepTypeCleanup):
 			stepType = StepTypeCleanup
+		case string(StepTypePreRun):
+			stepType = StepTypePreRun
 		default:
 			// Not a step-based result, skip it.
 			return nil
@@ -598,6 +602,18 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 			testName = ""
 		}
 
+		// Set the step result.
+		stepResult := &StepResult{
+			Aggregated: &stats,
+		}
+
+		// Handle pre-run steps separately.
+		if stepType == StepTypePreRun {
+			result.PreRunSteps[testName] = stepResult
+
+			return nil
+		}
+
 		// Get or create the test entry.
 		entry, ok := result.Tests[testName]
 		if !ok {
@@ -606,11 +622,6 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 				Steps: &StepsResult{},
 			}
 			result.Tests[testName] = entry
-		}
-
-		// Set the step result.
-		stepResult := &StepResult{
-			Aggregated: &stats,
 		}
 
 		switch stepType {
@@ -626,6 +637,11 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("walking results directory: %w", err)
+	}
+
+	// Set PreRunSteps to nil if empty so omitempty works.
+	if len(result.PreRunSteps) == 0 {
+		result.PreRunSteps = nil
 	}
 
 	return result, nil

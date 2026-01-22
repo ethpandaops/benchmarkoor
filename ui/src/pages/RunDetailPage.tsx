@@ -8,6 +8,7 @@ import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
 import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts'
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
+import { PreRunStepsTable } from '@/components/run-detail/PreRunStepsTable'
 import { TestHeatmap, type SortMode } from '@/components/run-detail/TestHeatmap'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -445,6 +446,15 @@ export function RunDetailPage() {
         onTestClick={handleTestModalChange}
         resourceCollectionMethod={config.system_resource_collection_method}
       />
+
+      {result.pre_run_steps && Object.keys(result.pre_run_steps).length > 0 && (
+        <PreRunStepsTable
+          preRunSteps={result.pre_run_steps}
+          suitePreRunSteps={suite?.pre_run_steps}
+          runId={runId}
+          suiteHash={config.suite_hash}
+        />
+      )}
 
       <TestsTable
         tests={result.tests}

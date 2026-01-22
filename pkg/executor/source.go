@@ -22,6 +22,7 @@ const (
 	StepTypeSetup   StepType = "setup"
 	StepTypeTest    StepType = "test"
 	StepTypeCleanup StepType = "cleanup"
+	StepTypePreRun  StepType = "pre_run"
 )
 
 // StepFile represents a single step file.

@@ -195,7 +195,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		"tests":         len(e.prepared.Tests),
 	}).Info("Starting test execution")
 
-	// Run pre-run steps first (no output).
+	// Run pre-run steps first.
 	if len(e.prepared.PreRunSteps) > 0 {
 		e.log.Info("Running pre-run steps")
 
@@ -206,10 +206,16 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			default:
 			}
 
-			e.log.WithField("step", step.Name).Info("Running pre-run step")
+			log := e.log.WithField("step", step.Name)
+			log.Info("Running pre-run step")
 
-			if err := e.runStepFile(ctx, opts, step, nil); err != nil {
-				e.log.WithError(err).WithField("step", step.Name).Warn("Pre-run step failed")
+			preRunResult := NewTestResult(step.Name)
+			if err := e.runStepFile(ctx, opts, step, preRunResult); err != nil {
+				log.WithError(err).Warn("Pre-run step failed")
+			} else {
+				if err := WriteStepResults(opts.ResultsDir, step.Name, StepTypePreRun, preRunResult); err != nil {
+					log.WithError(err).Warn("Failed to write pre-run step results")
+				}
 			}
 		}
 

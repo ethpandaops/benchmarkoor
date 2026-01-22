@@ -156,6 +156,7 @@ export interface InstanceConfig {
 
 // result.json per run
 export interface RunResult {
+  pre_run_steps?: Record<string, StepResult>
   tests: Record<string, TestEntry>
 }
 

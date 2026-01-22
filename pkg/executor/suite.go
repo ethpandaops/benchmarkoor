@@ -130,20 +130,14 @@ func CreateSuiteOutput(
 	}
 
 	// Copy pre-run steps.
-	if len(prepared.PreRunSteps) > 0 {
-		preRunDir := filepath.Join(suiteDir, "pre_run_steps")
-		if err := os.MkdirAll(preRunDir, 0755); err != nil {
-			return fmt.Errorf("creating pre_run_steps dir: %w", err)
+	// Structure: <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
+	for _, f := range prepared.PreRunSteps {
+		suiteFile, err := copyPreRunStepFile(suiteDir, f)
+		if err != nil {
+			return fmt.Errorf("copying pre-run step: %w", err)
 		}
 
-		for _, f := range prepared.PreRunSteps {
-			suiteFile, err := copyPreRunStepFile(preRunDir, f)
-			if err != nil {
-				return fmt.Errorf("copying pre-run step: %w", err)
-			}
-
-			info.PreRunSteps = append(info.PreRunSteps, *suiteFile)
-		}
+		info.PreRunSteps = append(info.PreRunSteps, *suiteFile)
 	}
 
 	// Copy test files and build SuiteTest entries.
@@ -230,20 +224,13 @@ func copyTestStepFile(testDir, stepType string, file *StepFile) (*SuiteFile, err
 	return &SuiteFile{OgPath: file.Name}, nil
 }
 
-// copyPreRunStepFile copies a pre-run step file preserving its original directory structure.
-// Files are stored as pre_run_steps/<original_path>.
-func copyPreRunStepFile(preRunDir string, file *StepFile) (*SuiteFile, error) {
-	// Extract directory component from the relative name.
-	dir := filepath.Dir(file.Name)
-	filename := filepath.Base(file.Name)
-
-	// Create subdirectory if needed.
-	targetDir := preRunDir
-	if dir != "." && dir != "" {
-		targetDir = filepath.Join(preRunDir, dir)
-		if err := os.MkdirAll(targetDir, 0755); err != nil {
-			return nil, fmt.Errorf("creating subdir: %w", err)
-		}
+// copyPreRunStepFile copies a pre-run step file to the suite directory.
+// Files are stored as <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
+func copyPreRunStepFile(suiteDir string, file *StepFile) (*SuiteFile, error) {
+	// Create step directory using the step name (relative path).
+	stepDir := filepath.Join(suiteDir, file.Name)
+	if err := os.MkdirAll(stepDir, 0755); err != nil {
+		return nil, fmt.Errorf("creating step dir: %w", err)
 	}
 
 	srcFile, err := os.Open(file.Path)
@@ -253,7 +240,7 @@ func copyPreRunStepFile(preRunDir string, file *StepFile) (*SuiteFile, error) {
 
 	defer func() { _ = srcFile.Close() }()
 
-	dstPath := filepath.Join(targetDir, filename)
+	dstPath := filepath.Join(stepDir, "pre_run.request")
 
 	dstFile, err := os.Create(dstPath)
 	if err != nil {

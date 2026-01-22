@@ -3,7 +3,7 @@ import { fetchText, fetchData } from '../client'
 import type { AggregatedStats, ResultDetails } from '../types'
 
 // Step types for test execution
-export type StepType = 'setup' | 'test' | 'cleanup'
+export type StepType = 'setup' | 'test' | 'cleanup' | 'pre_run'
 
 export function useTestResultDetails(runId: string, testName: string, stepType: StepType) {
   // Path: runs/{runId}/{testName}/{stepType}.result-details.json
