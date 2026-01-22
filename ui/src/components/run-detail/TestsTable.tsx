@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import clsx from 'clsx'
-import type { TestEntry, SuiteTest, AggregatedStats } from '@/api/types'
+import type { TestEntry, SuiteTest, AggregatedStats, StepResult } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
+import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 
 export type TestSortColumn = 'order' | 'name' | 'time' | 'mgas' | 'passed' | 'failed'
 export type TestSortDirection = 'asc' | 'desc'
@@ -12,11 +13,20 @@ export type TestStatusFilter = 'all' | 'passed' | 'failed'
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
 const DEFAULT_PAGE_SIZE = 20
 
-// Aggregate stats from all steps of a test entry
-function getAggregatedStats(entry: TestEntry): AggregatedStats | undefined {
+// Aggregate stats from selected steps of a test entry
+function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
   if (!entry.steps) return undefined
 
-  const steps = [entry.steps.setup, entry.steps.test, entry.steps.cleanup].filter((s) => s?.aggregated)
+  // Build array of steps based on filter
+  const stepMap: Record<StepTypeOption, StepResult | undefined> = {
+    setup: entry.steps.setup,
+    test: entry.steps.test,
+    cleanup: entry.steps.cleanup,
+  }
+
+  const steps = stepFilter
+    .map((type) => stepMap[type])
+    .filter((s): s is StepResult => s?.aggregated !== undefined)
 
   if (steps.length === 0) return undefined
 
@@ -57,6 +67,7 @@ interface TestsTableProps {
   sortDir?: TestSortDirection
   searchQuery?: string
   statusFilter?: TestStatusFilter
+  stepFilter?: StepTypeOption[]
   onPageChange?: (page: number) => void
   onPageSizeChange?: (size: number) => void
   onSortChange?: (column: TestSortColumn, direction: TestSortDirection) => void
@@ -123,6 +134,7 @@ export function TestsTable({
   sortDir = 'asc',
   searchQuery = '',
   statusFilter = 'all',
+  stepFilter = ALL_STEP_TYPES,
   onPageChange,
   onPageSizeChange,
   onSortChange,
@@ -150,22 +162,26 @@ export function TestsTable({
       filtered = filtered.filter(([name]) => name.toLowerCase().includes(query))
     }
 
+    // Status filter always uses all steps
     if (statusFilter === 'passed') {
       filtered = filtered.filter(([, entry]) => {
-        const stats = getAggregatedStats(entry)
+        const stats = getAggregatedStats(entry, ALL_STEP_TYPES)
         return stats ? stats.fail === 0 : false
       })
     } else if (statusFilter === 'failed') {
       filtered = filtered.filter(([, entry]) => {
-        const stats = getAggregatedStats(entry)
+        const stats = getAggregatedStats(entry, ALL_STEP_TYPES)
         return stats ? stats.fail > 0 : false
       })
     }
 
     return filtered.sort(([a, entryA], [b, entryB]) => {
       let comparison = 0
-      const statsA = getAggregatedStats(entryA)
-      const statsB = getAggregatedStats(entryB)
+      // Use stepFilter for time/mgas, ALL_STEP_TYPES for passed/failed
+      const statsFiltered_A = getAggregatedStats(entryA, stepFilter)
+      const statsFiltered_B = getAggregatedStats(entryB, stepFilter)
+      const statsAll_A = getAggregatedStats(entryA, ALL_STEP_TYPES)
+      const statsAll_B = getAggregatedStats(entryB, ALL_STEP_TYPES)
 
       if (sortBy === 'order') {
         // a and b are test names
@@ -173,21 +189,21 @@ export function TestsTable({
         const orderB = executionOrder.get(b) ?? Infinity
         comparison = orderA - orderB
       } else if (sortBy === 'time') {
-        comparison = (statsA?.time_total ?? 0) - (statsB?.time_total ?? 0)
+        comparison = (statsFiltered_A?.time_total ?? 0) - (statsFiltered_B?.time_total ?? 0)
       } else if (sortBy === 'mgas') {
-        const mgasA = statsA ? calculateMGasPerSec(statsA.gas_used_total, statsA.gas_used_time_total) ?? -Infinity : -Infinity
-        const mgasB = statsB ? calculateMGasPerSec(statsB.gas_used_total, statsB.gas_used_time_total) ?? -Infinity : -Infinity
+        const mgasA = statsFiltered_A ? calculateMGasPerSec(statsFiltered_A.gas_used_total, statsFiltered_A.gas_used_time_total) ?? -Infinity : -Infinity
+        const mgasB = statsFiltered_B ? calculateMGasPerSec(statsFiltered_B.gas_used_total, statsFiltered_B.gas_used_time_total) ?? -Infinity : -Infinity
         comparison = mgasA - mgasB
       } else if (sortBy === 'passed') {
-        comparison = (statsA?.success ?? 0) - (statsB?.success ?? 0)
+        comparison = (statsAll_A?.success ?? 0) - (statsAll_B?.success ?? 0)
       } else if (sortBy === 'failed') {
-        comparison = (statsA?.fail ?? 0) - (statsB?.fail ?? 0)
+        comparison = (statsAll_A?.fail ?? 0) - (statsAll_B?.fail ?? 0)
       } else {
         comparison = a.localeCompare(b)
       }
       return sortDir === 'asc' ? comparison : -comparison
     })
-  }, [tests, searchQuery, statusFilter, executionOrder, sortBy, sortDir])
+  }, [tests, searchQuery, statusFilter, stepFilter, executionOrder, sortBy, sortDir])
 
   const totalPages = Math.ceil(sortedTests.length / pageSize)
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -279,7 +295,10 @@ export function TestsTable({
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {paginatedTests.map(([testName, entry]) => {
-              const stats = getAggregatedStats(entry)
+              // Use stepFilter for time/mgas columns
+              const statsFiltered = getAggregatedStats(entry, stepFilter)
+              // Use all steps for passed/failed columns
+              const statsAll = getAggregatedStats(entry, ALL_STEP_TYPES)
 
               return (
                 <tr
@@ -300,21 +319,27 @@ export function TestsTable({
                       </div>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                    {stats ? <Duration nanoseconds={stats.time_total} /> : '-'}
+                  <td
+                    className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400"
+                    title={`Based on steps: ${stepFilter.join(', ')}`}
+                  >
+                    {statsFiltered ? <Duration nanoseconds={statsFiltered.time_total} /> : '-'}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+                  <td
+                    className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400"
+                    title={`Based on steps: ${stepFilter.join(', ')}`}
+                  >
                     {(() => {
-                      if (!stats) return '-'
-                      const mgas = calculateMGasPerSec(stats.gas_used_total, stats.gas_used_time_total)
+                      if (!statsFiltered) return '-'
+                      const mgas = calculateMGasPerSec(statsFiltered.gas_used_total, statsFiltered.gas_used_time_total)
                       return mgas !== undefined ? mgas.toFixed(2) : '-'
                     })()}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-center">
-                    {stats && stats.fail > 0 && <Badge variant="error">{stats.fail}</Badge>}
+                    {statsAll && statsAll.fail > 0 && <Badge variant="error">{statsAll.fail}</Badge>}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-center">
-                    {stats && stats.success > 0 && <Badge variant="success">{stats.success}</Badge>}
+                    {statsAll && statsAll.success > 0 && <Badge variant="success">{statsAll.success}</Badge>}
                   </td>
                 </tr>
               )

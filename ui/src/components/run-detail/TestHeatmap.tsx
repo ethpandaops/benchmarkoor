@@ -1,17 +1,27 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated } from '@/api/types'
+import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated, StepResult } from '@/api/types'
 import { Modal } from '@/components/shared/Modal'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
 import type { TestStatusFilter } from './TestsTable'
+import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 
-// Aggregate stats from all steps of a test entry
-function getAggregatedStats(entry: TestEntry): AggregatedStats | undefined {
+// Aggregate stats from selected steps of a test entry
+function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
   if (!entry.steps) return undefined
 
-  const steps = [entry.steps.setup, entry.steps.test, entry.steps.cleanup].filter((s) => s?.aggregated)
+  // Build array of steps based on filter
+  const stepMap: Record<StepTypeOption, StepResult | undefined> = {
+    setup: entry.steps.setup,
+    test: entry.steps.test,
+    cleanup: entry.steps.cleanup,
+  }
+
+  const steps = stepFilter
+    .map((type) => stepMap[type])
+    .filter((s): s is StepResult => s?.aggregated !== undefined)
 
   if (steps.length === 0) return undefined
 
@@ -79,6 +89,7 @@ interface TestHeatmapProps {
   searchQuery?: string
   sortMode?: SortMode
   threshold?: number
+  stepFilter?: StepTypeOption[]
   onSelectedTestChange?: (testName: string | undefined) => void
   onSortModeChange?: (mode: SortMode) => void
   onThresholdChange?: (threshold: number) => void
@@ -170,6 +181,7 @@ export function TestHeatmap({
   searchQuery = '',
   sortMode: sortModeProp,
   threshold: thresholdProp,
+  stepFilter = ALL_STEP_TYPES,
   onSelectedTestChange,
   onSortModeChange,
   onThresholdChange,
@@ -199,8 +211,11 @@ export function TestHeatmap({
     let maxMgas = -Infinity
 
     for (const [testName, entry] of Object.entries(tests)) {
-      const stats = getAggregatedStats(entry)
-      const mgasPerSec = stats ? calculateMGasPerSec(stats.gas_used_total, stats.gas_used_time_total) : undefined
+      // Use stepFilter for MGas/s calculation
+      const statsFiltered = getAggregatedStats(entry, stepFilter)
+      // Use all steps for hasFail indicator
+      const statsAll = getAggregatedStats(entry, ALL_STEP_TYPES)
+      const mgasPerSec = statsFiltered ? calculateMGasPerSec(statsFiltered.gas_used_total, statsFiltered.gas_used_time_total) : undefined
       const order = executionOrder.get(testName) ?? Infinity
       const noData = mgasPerSec === undefined
 
@@ -214,7 +229,7 @@ export function TestHeatmap({
         filename: testName,
         order,
         mgasPerSec: mgasPerSec ?? 0,
-        hasFail: stats ? stats.fail > 0 : false,
+        hasFail: statsAll ? statsAll.fail > 0 : false,
         noData,
       })
     }
@@ -223,7 +238,7 @@ export function TestHeatmap({
     if (maxMgas === -Infinity) maxMgas = 0
 
     return { testData: data, minMgas, maxMgas }
-  }, [tests, executionOrder])
+  }, [tests, executionOrder, stepFilter])
 
   const sortedData = useMemo(() => {
     const sorted = [...testData]
@@ -473,6 +488,7 @@ export function TestHeatmap({
           <div className="flex flex-col gap-1">
             <div className="font-medium">Test #{tooltip.test.order}</div>
             <div>MGas/s: {tooltip.test.noData ? 'No data' : tooltip.test.mgasPerSec.toFixed(2)}</div>
+            <div className="text-gray-500 dark:text-gray-400">Based on steps: {stepFilter.join(', ')}</div>
             <div className="max-w-48 truncate text-gray-500 dark:text-gray-400">{tooltip.test.filename}</div>
             {tooltip.test.noData && <div className="text-gray-500 dark:text-gray-400">No gas usage data available</div>}
             {tooltip.test.hasFail && <div className="text-red-600 dark:text-red-400">Has failures</div>}
@@ -484,7 +500,7 @@ export function TestHeatmap({
       {/* Test Detail Modal */}
       {selectedTest && tests[selectedTest] && (() => {
         const entry = tests[selectedTest]
-        const stats = getAggregatedStats(entry)
+        const stats = getAggregatedStats(entry, stepFilter)
         return (
           <Modal
             isOpen={!!selectedTest}

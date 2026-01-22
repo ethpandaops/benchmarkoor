@@ -1,7 +1,7 @@
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchText } from '@/api/client'
-import type { TestEntry, AggregatedStats } from '@/api/types'
+import type { TestEntry, AggregatedStats, StepResult } from '@/api/types'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
@@ -17,11 +17,25 @@ import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
 
-// Aggregate stats from all steps of a test entry
-function getAggregatedStats(entry: TestEntry): AggregatedStats | undefined {
+// Step types that can be included in MGas/s calculation
+export type StepTypeOption = 'setup' | 'test' | 'cleanup'
+export const ALL_STEP_TYPES: StepTypeOption[] = ['setup', 'test', 'cleanup']
+export const DEFAULT_STEP_FILTER: StepTypeOption[] = ['test']
+
+// Aggregate stats from selected steps of a test entry
+export function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
   if (!entry.steps) return undefined
 
-  const steps = [entry.steps.setup, entry.steps.test, entry.steps.cleanup].filter((s) => s?.aggregated)
+  // Build array of steps based on filter
+  const stepMap: Record<StepTypeOption, StepResult | undefined> = {
+    setup: entry.steps.setup,
+    test: entry.steps.test,
+    cleanup: entry.steps.cleanup,
+  }
+
+  const steps = stepFilter
+    .map((type) => stepMap[type])
+    .filter((s): s is StepResult => s?.aggregated !== undefined)
 
   if (steps.length === 0) return undefined
 
@@ -63,6 +77,23 @@ function getAggregatedStats(entry: TestEntry): AggregatedStats | undefined {
   }
 }
 
+// Parse step filter from URL (comma-separated string) or use default
+function parseStepFilter(param: string | undefined): StepTypeOption[] {
+  if (!param) return DEFAULT_STEP_FILTER
+  const steps = param.split(',').filter((s): s is StepTypeOption => ALL_STEP_TYPES.includes(s as StepTypeOption))
+  return steps.length > 0 ? steps : DEFAULT_STEP_FILTER
+}
+
+// Serialize step filter to URL param (undefined if default)
+function serializeStepFilter(steps: StepTypeOption[]): string | undefined {
+  const sorted = [...steps].sort()
+  const defaultSorted = [...DEFAULT_STEP_FILTER].sort()
+  if (sorted.length === defaultSorted.length && sorted.every((s, i) => s === defaultSorted[i])) {
+    return undefined
+  }
+  return steps.join(',')
+}
+
 export function RunDetailPage() {
   const { runId } = useParams({ from: '/runs/$runId' })
   const navigate = useNavigate()
@@ -76,10 +107,12 @@ export function RunDetailPage() {
     testModal?: string
     heatmapSort?: SortMode
     heatmapThreshold?: number
+    steps?: string
   }
   const page = Number(search.page) || 1
   const pageSize = Number(search.pageSize) || 20
   const heatmapThreshold = search.heatmapThreshold ? Number(search.heatmapThreshold) : undefined
+  const stepFilter = parseStepFilter(search.steps)
   const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, heatmapSort } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
@@ -113,6 +146,7 @@ export function RunDetailPage() {
         testModal,
         heatmapSort,
         heatmapThreshold,
+        steps: serializeStepFilter(stepFilter),
         ...updates,
       },
     })
@@ -150,6 +184,10 @@ export function RunDetailPage() {
     updateSearch({ heatmapThreshold: threshold !== 60 ? threshold : undefined })
   }
 
+  const handleStepFilterChange = (steps: StepTypeOption[]) => {
+    updateSearch({ steps: serializeStepFilter(steps) })
+  }
+
   if (isLoading) {
     return <LoadingState message="Loading run details..." />
   }
@@ -171,7 +209,7 @@ export function RunDetailPage() {
   }
 
   const testCount = Object.keys(result.tests).length
-  const aggregatedStats = Object.values(result.tests).map((t) => getAggregatedStats(t)).filter((s): s is AggregatedStats => s !== undefined)
+  const aggregatedStats = Object.values(result.tests).map((t) => getAggregatedStats(t, stepFilter)).filter((s): s is AggregatedStats => s !== undefined)
   const passedTests = aggregatedStats.filter((s) => s.fail === 0).length
   const failedTests = aggregatedStats.filter((s) => s.fail > 0).length
   const totalDuration = aggregatedStats.reduce((sum, s) => sum + s.time_total, 0)
@@ -310,7 +348,32 @@ export function RunDetailPage() {
           </p>
         </div>
         <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-          <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">MGas/s</p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">MGas/s</p>
+            <div className="flex items-center gap-1">
+              {ALL_STEP_TYPES.map((step) => (
+                <button
+                  key={step}
+                  onClick={() => {
+                    const newFilter = stepFilter.includes(step)
+                      ? stepFilter.filter((s) => s !== step)
+                      : [...stepFilter, step]
+                    if (newFilter.length > 0) {
+                      handleStepFilterChange(newFilter)
+                    }
+                  }}
+                  className={`rounded-xs px-1.5 py-0.5 text-xs font-medium transition-colors ${
+                    stepFilter.includes(step)
+                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                      : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
+                  }`}
+                  title={`${stepFilter.includes(step) ? 'Exclude' : 'Include'} ${step} step in MGas/s calculation`}
+                >
+                  {step.charAt(0).toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
           <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
             {mgasPerSec !== undefined ? mgasPerSec.toFixed(2) : '-'}
           </p>
@@ -369,6 +432,7 @@ export function RunDetailPage() {
           searchQuery={q}
           sortMode={heatmapSort}
           threshold={heatmapThreshold}
+          stepFilter={stepFilter}
           onSelectedTestChange={handleTestModalChange}
           onSortModeChange={handleHeatmapSortChange}
           onThresholdChange={handleHeatmapThresholdChange}
@@ -390,6 +454,7 @@ export function RunDetailPage() {
         sortDir={sortDir}
         searchQuery={q}
         statusFilter={status}
+        stepFilter={stepFilter}
         onPageChange={handlePageChange}
         onPageSizeChange={handlePageSizeChange}
         onSortChange={handleSortChange}
