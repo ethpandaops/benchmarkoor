@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
-import type { IndexEntry } from '@/api/types'
+import { type IndexEntry, type IndexStepType, getIndexAggregatedStats, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { formatTimestamp } from '@/utils/date'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 
@@ -73,6 +73,7 @@ interface RunsHeatmapProps {
   onColorNormalizationChange?: (mode: ColorNormalization) => void
   metricMode?: MetricMode
   onMetricModeChange?: (mode: MetricMode) => void
+  stepFilter?: IndexStepType[]
 }
 
 interface TooltipData {
@@ -88,6 +89,7 @@ export function RunsHeatmap({
   onColorNormalizationChange,
   metricMode: controlledMetricMode,
   onMetricModeChange,
+  stepFilter = ALL_INDEX_STEP_TYPES,
 }: RunsHeatmapProps) {
   const navigate = useNavigate()
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
@@ -134,7 +136,7 @@ export function RunsHeatmap({
       clientRuns[client] = sorted.slice(-MAX_RUNS_PER_CLIENT)
 
       // Calculate duration stats
-      const durations = clientRuns[client].map((r) => r.tests.duration)
+      const durations = clientRuns[client].map((r) => getIndexAggregatedStats(r, stepFilter).duration)
       const sortedDurations = [...durations].sort((a, b) => a - b)
       const durationSum = durations.reduce((acc, d) => acc + d, 0)
 
@@ -154,7 +156,10 @@ export function RunsHeatmap({
 
       // Calculate MGas/s stats
       const mgasValues = clientRuns[client]
-        .map((r) => calculateMGasPerSec(r.tests.gas_used, r.tests.gas_used_duration))
+        .map((r) => {
+          const stats = getIndexAggregatedStats(r, stepFilter)
+          return calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
+        })
         .filter((v): v is number => v !== undefined)
 
       if (mgasValues.length > 0) {
@@ -187,10 +192,11 @@ export function RunsHeatmap({
     let maxMgas = -Infinity
 
     for (const run of runs) {
-      minDuration = Math.min(minDuration, run.tests.duration)
-      maxDuration = Math.max(maxDuration, run.tests.duration)
+      const stats = getIndexAggregatedStats(run, stepFilter)
+      minDuration = Math.min(minDuration, stats.duration)
+      maxDuration = Math.max(maxDuration, stats.duration)
 
-      const mgas = calculateMGasPerSec(run.tests.gas_used, run.tests.gas_used_duration)
+      const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
       if (mgas !== undefined) {
         minMgas = Math.min(minMgas, mgas)
         maxMgas = Math.max(maxMgas, mgas)
@@ -215,11 +221,12 @@ export function RunsHeatmap({
       clientMgasStats,
       clients,
     }
-  }, [runs])
+  }, [runs, stepFilter])
 
   const getColorForRun = (run: IndexEntry) => {
+    const stats = getIndexAggregatedStats(run, stepFilter)
     if (metricMode === 'mgas') {
-      const mgas = calculateMGasPerSec(run.tests.gas_used, run.tests.gas_used_duration)
+      const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
       if (mgas === undefined) return COLORS[2] // middle color if no data
 
       if (colorNormalization === 'client') {
@@ -230,9 +237,9 @@ export function RunsHeatmap({
     } else {
       if (colorNormalization === 'client') {
         const { min, max } = clientDurationMinMax[run.instance.client]
-        return getColorByNormalizedValue(run.tests.duration, min, max, false)
+        return getColorByNormalizedValue(stats.duration, min, max, false)
       }
-      return getColorByNormalizedValue(run.tests.duration, minDuration, maxDuration, false)
+      return getColorByNormalizedValue(stats.duration, minDuration, maxDuration, false)
     }
   }
 
@@ -351,20 +358,23 @@ export function RunsHeatmap({
                 <ClientBadge client={client} />
               </div>
               <div className="flex flex-1 gap-1">
-                {clientRuns[client].map((run) => (
-                  <button
-                    key={run.run_id}
-                    onClick={() => handleRunClick(run.run_id)}
-                    onMouseEnter={(e) => handleMouseEnter(run, e)}
-                    onMouseLeave={handleMouseLeave}
-                    className={clsx(
-                      'size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                      run.tests.fail > 0 && 'ring-1 ring-red-500',
-                    )}
-                    style={{ backgroundColor: getColorForRun(run) }}
-                    title={`${formatTimestamp(run.timestamp)} - ${formatDurationMinSec(run.tests.duration)}`}
-                  />
-                ))}
+                {clientRuns[client].map((run) => {
+                  const runStats = getIndexAggregatedStats(run, stepFilter)
+                  return (
+                    <button
+                      key={run.run_id}
+                      onClick={() => handleRunClick(run.run_id)}
+                      onMouseEnter={(e) => handleMouseEnter(run, e)}
+                      onMouseLeave={handleMouseLeave}
+                      className={clsx(
+                        'size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
+                        runStats.fail > 0 && 'ring-1 ring-red-500',
+                      )}
+                      style={{ backgroundColor: getColorForRun(run) }}
+                      title={`${formatTimestamp(run.timestamp)} - ${formatDurationMinSec(runStats.duration)}`}
+                    />
+                  )
+                })}
               </div>
               <div className="flex shrink-0 gap-3 border-l border-gray-200 pl-3 font-mono text-xs/5 text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <span className="w-10 text-center">{formatValue(stats.min)}</span>
@@ -410,25 +420,30 @@ export function RunsHeatmap({
             transform: 'translate(-50%, -100%)',
           }}
         >
-          <div className="flex flex-col gap-1">
-            <div className="font-medium">{tooltip.run.instance.client}</div>
-            <div>{formatTimestamp(tooltip.run.timestamp)}</div>
-            <div>Duration: {formatDurationMinSec(tooltip.run.tests.duration)}</div>
-            {(() => {
-              const mgas = calculateMGasPerSec(tooltip.run.tests.gas_used, tooltip.run.tests.gas_used_duration)
-              return mgas !== undefined ? <div>MGas/s: {mgas.toFixed(2)}</div> : null
-            })()}
-            <div className="truncate text-gray-500 dark:text-gray-400" style={{ maxWidth: '200px' }}>
-              {tooltip.run.instance.image}
-            </div>
-            <div className="flex gap-2">
-              <span className="text-green-600 dark:text-green-400">{tooltip.run.tests.success} passed</span>
-              {tooltip.run.tests.fail > 0 && (
-                <span className="text-red-600 dark:text-red-400">{tooltip.run.tests.fail} failed</span>
-              )}
-            </div>
-            <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
-          </div>
+          {(() => {
+            const tooltipStats = getIndexAggregatedStats(tooltip.run, stepFilter)
+            return (
+              <div className="flex flex-col gap-1">
+                <div className="font-medium">{tooltip.run.instance.client}</div>
+                <div>{formatTimestamp(tooltip.run.timestamp)}</div>
+                <div>Duration: {formatDurationMinSec(tooltipStats.duration)}</div>
+                {(() => {
+                  const mgas = calculateMGasPerSec(tooltipStats.gasUsed, tooltipStats.gasUsedDuration)
+                  return mgas !== undefined ? <div>MGas/s: {mgas.toFixed(2)}</div> : null
+                })()}
+                <div className="truncate text-gray-500 dark:text-gray-400" style={{ maxWidth: '200px' }}>
+                  {tooltip.run.instance.image}
+                </div>
+                <div className="flex gap-2">
+                  <span className="text-green-600 dark:text-green-400">{tooltipStats.success} passed</span>
+                  {tooltipStats.fail > 0 && (
+                    <span className="text-red-600 dark:text-red-400">{tooltipStats.fail} failed</span>
+                  )}
+                </div>
+                <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>

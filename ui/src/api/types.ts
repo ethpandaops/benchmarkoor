@@ -14,13 +14,96 @@ export interface IndexEntry {
     image: string
   }
   tests: {
-    success: number
-    fail: number
-    duration: number
-    gas_used: number
-    gas_used_duration: number
-    resource_totals?: ResourceTotals
+    steps: {
+      setup?: IndexStepStats
+      test?: IndexStepStats
+      cleanup?: IndexStepStats
+    }
   }
+}
+
+export interface IndexStepStats {
+  success: number
+  fail: number
+  duration: number
+  gas_used: number
+  gas_used_duration: number
+  resource_totals?: ResourceTotals
+}
+
+// Step types that can be included in metric calculations
+export type IndexStepType = 'setup' | 'test' | 'cleanup'
+export const ALL_INDEX_STEP_TYPES: IndexStepType[] = ['setup', 'test', 'cleanup']
+export const DEFAULT_INDEX_STEP_FILTER: IndexStepType[] = ['test']
+
+// Aggregates stats from selected steps (setup, test, cleanup) of an index entry
+export function getIndexAggregatedStats(
+  entry: IndexEntry,
+  stepFilter: IndexStepType[] = ALL_INDEX_STEP_TYPES
+): { success: number; fail: number; duration: number; gasUsed: number; gasUsedDuration: number } {
+  const steps = entry.tests.steps
+  let success = 0
+  let fail = 0
+  let duration = 0
+  let gasUsed = 0
+  let gasUsedDuration = 0
+
+  if (stepFilter.includes('setup') && steps.setup) {
+    success += steps.setup.success
+    fail += steps.setup.fail
+    duration += steps.setup.duration
+    gasUsed += steps.setup.gas_used
+    gasUsedDuration += steps.setup.gas_used_duration
+  }
+
+  if (stepFilter.includes('test') && steps.test) {
+    success += steps.test.success
+    fail += steps.test.fail
+    duration += steps.test.duration
+    gasUsed += steps.test.gas_used
+    gasUsedDuration += steps.test.gas_used_duration
+  }
+
+  if (stepFilter.includes('cleanup') && steps.cleanup) {
+    success += steps.cleanup.success
+    fail += steps.cleanup.fail
+    duration += steps.cleanup.duration
+    gasUsed += steps.cleanup.gas_used
+    gasUsedDuration += steps.cleanup.gas_used_duration
+  }
+
+  return { success, fail, duration, gasUsed, gasUsedDuration }
+}
+
+// Aggregates gas and time from selected steps of a RunDuration entry
+export function getRunDurationAggregatedStats(
+  duration: RunDuration,
+  stepFilter: IndexStepType[] = ALL_INDEX_STEP_TYPES
+): { gasUsed: number; timeNs: number } {
+  // If no steps data, fall back to the total values
+  if (!duration.steps) {
+    return { gasUsed: duration.gas_used, timeNs: duration.time_ns }
+  }
+
+  let gasUsed = 0
+  let timeNs = 0
+
+  if (stepFilter.includes('setup') && duration.steps.setup) {
+    gasUsed += duration.steps.setup.gas_used
+    timeNs += duration.steps.setup.time_ns
+  }
+
+  if (stepFilter.includes('test') && duration.steps.test) {
+    gasUsed += duration.steps.test.gas_used
+    timeNs += duration.steps.test.time_ns
+  }
+
+  if (stepFilter.includes('cleanup') && duration.steps.cleanup) {
+    gasUsed += duration.steps.cleanup.gas_used
+    timeNs += duration.steps.cleanup.time_ns
+  }
+
+  return { gasUsed, timeNs }
 }
 
 // config.json per run
@@ -175,6 +258,18 @@ export interface RunDuration {
   gas_used: number
   time_ns: number
   run_start: number
+  steps?: RunDurationStepsStats
+}
+
+export interface RunDurationStepsStats {
+  setup?: RunDurationStepStats
+  test?: RunDurationStepStats
+  cleanup?: RunDurationStepStats
+}
+
+export interface RunDurationStepStats {
+  gas_used: number
+  time_ns: number
 }
 
 // summary.json per suite

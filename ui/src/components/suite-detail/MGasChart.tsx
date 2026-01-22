@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import clsx from 'clsx'
-import type { IndexEntry } from '@/api/types'
+import { type IndexEntry, type IndexStepType, getIndexAggregatedStats, ALL_INDEX_STEP_TYPES } from '@/api/types'
 
 export type XAxisMode = 'time' | 'runCount'
 
@@ -11,6 +11,7 @@ interface MGasChartProps {
   xAxisMode?: XAxisMode
   onXAxisModeChange?: (mode: XAxisMode) => void
   onRunClick?: (runId: string) => void
+  stepFilter?: IndexStepType[]
 }
 
 interface DataPoint {
@@ -48,6 +49,7 @@ export function MGasChart({
   xAxisMode: controlledMode,
   onXAxisModeChange,
   onRunClick,
+  stepFilter = ALL_INDEX_STEP_TYPES,
 }: MGasChartProps) {
   const [internalMode, setInternalMode] = useState<XAxisMode>('runCount')
   const xAxisMode = controlledMode ?? internalMode
@@ -65,7 +67,8 @@ export function MGasChart({
     let maxRunIndex = 1
 
     for (const run of runs) {
-      const mgasPerSec = calculateMGasPerSec(run.tests.gas_used, run.tests.gas_used_duration)
+      const stats = getIndexAggregatedStats(run, stepFilter)
+      const mgasPerSec = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
       if (mgasPerSec === undefined) continue
 
       const client = run.instance.client
@@ -94,7 +97,7 @@ export function MGasChart({
     }
 
     return { clientGroups, maxRunIndex }
-  }, [runs])
+  }, [runs, stepFilter])
 
   const series = useMemo(() => {
     return Array.from(chartData.entries()).map(([client, data]) => ({

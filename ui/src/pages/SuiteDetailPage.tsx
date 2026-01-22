@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
+import { getIndexAggregatedStats, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
 import { useIndex } from '@/api/hooks/useIndex'
@@ -23,6 +24,23 @@ import { Pagination } from '@/components/shared/Pagination'
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
 const DEFAULT_PAGE_SIZE = 100
 
+// Parse step filter from URL (comma-separated string) or use default
+function parseStepFilter(param: string | undefined): IndexStepType[] {
+  if (!param) return DEFAULT_INDEX_STEP_FILTER
+  const steps = param.split(',').filter((s): s is IndexStepType => ALL_INDEX_STEP_TYPES.includes(s as IndexStepType))
+  return steps.length > 0 ? steps : DEFAULT_INDEX_STEP_FILTER
+}
+
+// Serialize step filter to URL param (undefined if default)
+function serializeStepFilter(steps: IndexStepType[]): string | undefined {
+  const sorted = [...steps].sort()
+  const defaultSorted = [...DEFAULT_INDEX_STEP_FILTER].sort()
+  if (sorted.length === defaultSorted.length && sorted.every((s, i) => s === defaultSorted[i])) {
+    return undefined
+  }
+  return steps.join(',')
+}
+
 export function SuiteDetailPage() {
   const { suiteHash } = useParams({ from: '/suites/$suiteHash' })
   const navigate = useNavigate()
@@ -40,8 +58,10 @@ export function SuiteDetailPage() {
     mgasChartMode?: XAxisMode
     resourceChartMode?: XAxisMode
     heatmapColor?: ColorNormalization
+    steps?: string
   }
   const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount', mgasChartMode = 'runCount', resourceChartMode = 'runCount', heatmapColor = 'suite' } = search
+  const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: suiteStats } = useSuiteStats(suiteHash)
   const { data: index } = useIndex()
@@ -84,8 +104,9 @@ export function SuiteDetailPage() {
     return suiteRunsAll.filter((e) => {
       if (client && e.instance.client !== client) return false
       if (image && e.instance.image !== image) return false
-      if (status === 'passing' && e.tests.fail > 0) return false
-      if (status === 'failing' && e.tests.fail === 0) return false
+      const stats = getIndexAggregatedStats(e)
+      if (status === 'passing' && stats.fail > 0) return false
+      if (status === 'failing' && stats.fail === 0) return false
       return true
     })
   }, [suiteRunsAll, client, image, status])
@@ -103,7 +124,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client: newClient, image, status, sortBy, sortDir },
+      search: { tab, client: newClient, image, status, sortBy, sortDir, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -112,7 +133,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image: newImage, status, sortBy, sortDir },
+      search: { tab, client, image: newImage, status, sortBy, sortDir, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -121,7 +142,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status: newStatus, sortBy, sortDir },
+      search: { tab, client, image, status: newStatus, sortBy, sortDir, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -166,7 +187,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy: newSortBy, sortDir: newSortDir },
+      search: { tab, client, image, status, sortBy: newSortBy, sortDir: newSortDir, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -174,7 +195,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, expanded: index, filesPage, q },
+      search: { tab, client, image, status, sortBy, sortDir, expanded: index, filesPage, q, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -182,7 +203,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, expanded, filesPage: page, q },
+      search: { tab, client, image, status, sortBy, sortDir, expanded, filesPage: page, q, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -190,7 +211,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, expanded: undefined, filesPage: 1, q: query || undefined, chartMode },
+      search: { tab, client, image, status, sortBy, sortDir, expanded: undefined, filesPage: 1, q: query || undefined, chartMode, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -198,7 +219,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, mgasChartMode, resourceChartMode, heatmapColor },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, mgasChartMode, resourceChartMode, heatmapColor, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -206,7 +227,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode: mode, resourceChartMode, heatmapColor },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode: mode, resourceChartMode, heatmapColor, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -214,7 +235,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode, resourceChartMode: mode, heatmapColor },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode, resourceChartMode: mode, heatmapColor, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -222,7 +243,15 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode, resourceChartMode, heatmapColor: mode },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode, resourceChartMode, heatmapColor: mode, steps: serializeStepFilter(stepFilter) },
+    })
+  }
+
+  const handleStepFilterChange = (steps: IndexStepType[]) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode, resourceChartMode, heatmapColor, steps: serializeStepFilter(steps) },
     })
   }
 
@@ -303,6 +332,36 @@ export function SuiteDetailPage() {
               </p>
             ) : (
               <div className="flex flex-col gap-4">
+                {/* Step Filter Control */}
+                <div className="flex items-center gap-3 rounded-sm bg-white p-3 shadow-xs dark:bg-gray-800">
+                  <span className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">Metric steps:</span>
+                  <div className="flex items-center gap-1">
+                    {ALL_INDEX_STEP_TYPES.map((step) => (
+                      <button
+                        key={step}
+                        onClick={() => {
+                          const newFilter = stepFilter.includes(step)
+                            ? stepFilter.filter((s) => s !== step)
+                            : [...stepFilter, step]
+                          if (newFilter.length > 0) {
+                            handleStepFilterChange(newFilter)
+                          }
+                        }}
+                        className={`rounded-sm px-2.5 py-1 text-xs font-medium capitalize transition-colors ${
+                          stepFilter.includes(step)
+                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                            : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
+                        }`}
+                        title={`${stepFilter.includes(step) ? 'Exclude' : 'Include'} ${step} step in metric calculations`}
+                      >
+                        {step}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    (affects Duration, MGas/s calculations)
+                  </span>
+                </div>
                 <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
                   <button
                     onClick={() => setHeatmapExpanded(!heatmapExpanded)}
@@ -320,7 +379,7 @@ export function SuiteDetailPage() {
                   </button>
                   {heatmapExpanded && (
                     <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                      <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} />
+                      <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} />
                     </div>
                   )}
                 </div>
@@ -348,6 +407,7 @@ export function SuiteDetailPage() {
                           xAxisMode={chartMode}
                           onXAxisModeChange={handleChartModeChange}
                           onRunClick={handleRunClick}
+                          stepFilter={stepFilter}
                         />
                       </div>
                     )}
@@ -375,6 +435,7 @@ export function SuiteDetailPage() {
                           xAxisMode={mgasChartMode}
                           onXAxisModeChange={handleMgasChartModeChange}
                           onRunClick={handleRunClick}
+                          stepFilter={stepFilter}
                         />
                       </div>
                     )}
@@ -425,7 +486,7 @@ export function SuiteDetailPage() {
                     </button>
                     {slowestTestsExpanded && (
                       <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                        <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} />
+                        <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} stepFilter={stepFilter} />
                       </div>
                     )}
                   </div>
@@ -466,7 +527,7 @@ export function SuiteDetailPage() {
                         <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
                       )}
                     </div>
-                    <RunsTable entries={paginatedRuns} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} />
+                    <RunsTable entries={paginatedRuns} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} stepFilter={stepFilter} />
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
