@@ -90,6 +90,12 @@ export function SuiteDetailPage() {
     return index.entries.filter((entry) => entry.suite_hash === suiteHash)
   }, [index, suiteHash])
 
+  // Filter to only completed runs for metrics (exclude container_died, cancelled)
+  // Runs without status are considered completed (backward compatibility)
+  const completedRuns = useMemo(() => {
+    return suiteRunsAll.filter((entry) => !entry.status || entry.status === 'completed')
+  }, [suiteRunsAll])
+
   const clients = useMemo(() => {
     const clientSet = new Set(suiteRunsAll.map((e) => e.instance.client))
     return Array.from(clientSet).sort()
@@ -379,7 +385,7 @@ export function SuiteDetailPage() {
                   </button>
                   {heatmapExpanded && (
                     <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                      <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} />
+                      <RunsHeatmap runs={completedRuns} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} />
                     </div>
                   )}
                 </div>
@@ -402,7 +408,7 @@ export function SuiteDetailPage() {
                     {chartExpanded && (
                       <div className="border-t border-gray-200 p-4 dark:border-gray-700">
                         <DurationChart
-                          runs={suiteRunsAll}
+                          runs={completedRuns}
                           isDark={isDark}
                           xAxisMode={chartMode}
                           onXAxisModeChange={handleChartModeChange}
@@ -430,7 +436,7 @@ export function SuiteDetailPage() {
                     {mgasChartExpanded && (
                       <div className="border-t border-gray-200 p-4 dark:border-gray-700">
                         <MGasChart
-                          runs={suiteRunsAll}
+                          runs={completedRuns}
                           isDark={isDark}
                           xAxisMode={mgasChartMode}
                           onXAxisModeChange={handleMgasChartModeChange}
@@ -459,7 +465,7 @@ export function SuiteDetailPage() {
                   {resourceChartsExpanded && (
                     <div className="border-t border-gray-200 p-4 dark:border-gray-700">
                       <ResourceCharts
-                        runs={suiteRunsAll}
+                        runs={completedRuns}
                         isDark={isDark}
                         xAxisMode={resourceChartMode}
                         onXAxisModeChange={handleResourceChartModeChange}
