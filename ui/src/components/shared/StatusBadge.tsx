@@ -4,6 +4,7 @@ import type { RunStatus } from '@/api/types'
 interface StatusBadgeProps {
   status?: RunStatus
   showCompleted?: boolean
+  compact?: boolean
   className?: string
 }
 
@@ -42,13 +43,28 @@ const statusConfig: Record<RunStatus, { label: string; className: string; icon: 
   },
 }
 
-export function StatusBadge({ status, showCompleted = false, className }: StatusBadgeProps) {
+export function StatusBadge({ status, showCompleted = false, compact = false, className }: StatusBadgeProps) {
   // If no status or completed and we don't want to show completed, return null
   if (!status || (status === 'completed' && !showCompleted)) {
     return null
   }
 
   const config = statusConfig[status]
+
+  if (compact) {
+    return (
+      <span
+        className={clsx(
+          'inline-flex items-center rounded-sm p-1',
+          config.className,
+          className,
+        )}
+        title={config.label}
+      >
+        {config.icon}
+      </span>
+    )
+  }
 
   return (
     <span

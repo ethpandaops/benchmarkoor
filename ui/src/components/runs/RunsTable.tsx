@@ -152,7 +152,7 @@ export function RunsTable({
               <td className="whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400">
                 <div className="flex items-center gap-2">
                   <span title={formatRelativeTime(entry.timestamp)}>{formatTimestamp(entry.timestamp)}</span>
-                  <StatusBadge status={entry.status} />
+                  <StatusBadge status={entry.status} compact />
                 </div>
               </td>
               <td className="whitespace-nowrap px-6 py-4">
