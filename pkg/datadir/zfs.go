@@ -350,3 +350,101 @@ func (p *zfsProvider) cleanup(cloneDataset, snapshotName string) error {
 
 	return nil
 }
+
+// ZFSOrphanedResource represents an orphaned ZFS resource created by benchmarkoor.
+type ZFSOrphanedResource struct {
+	Name string // Full resource name (dataset or snapshot)
+	Type string // "clone" or "snapshot"
+}
+
+// ListOrphanedZFSResources finds ZFS clones and snapshots created by benchmarkoor.
+// These may be left behind if the process was killed before cleanup.
+func ListOrphanedZFSResources(ctx context.Context) ([]ZFSOrphanedResource, error) {
+	// List all ZFS filesystems and snapshots.
+	//nolint:gosec // Command args are controlled by the application.
+	cmd := exec.CommandContext(ctx, "zfs", "list", "-t", "all", "-H", "-o", "name,type")
+
+	output, err := cmd.Output()
+	if err != nil {
+		// If zfs command doesn't exist or fails, return empty list (ZFS not available).
+		return nil, nil //nolint:nilerr // ZFS not available is not an error.
+	}
+
+	var resources []ZFSOrphanedResource
+
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 {
+			continue
+		}
+
+		name := fields[0]
+		resourceType := fields[1]
+
+		// Check for benchmarkoor clones (filesystem type with benchmarkoor-clone in name).
+		if resourceType == "filesystem" && strings.Contains(name, "/benchmarkoor-clone-") {
+			resources = append(resources, ZFSOrphanedResource{
+				Name: name,
+				Type: "clone",
+			})
+		}
+
+		// Check for benchmarkoor snapshots.
+		if resourceType == "snapshot" && strings.Contains(name, "@benchmarkoor-") {
+			resources = append(resources, ZFSOrphanedResource{
+				Name: name,
+				Type: "snapshot",
+			})
+		}
+	}
+
+	return resources, scanner.Err()
+}
+
+// CleanupOrphanedZFSResources removes orphaned ZFS clones and snapshots.
+// Clones must be destroyed before their parent snapshots.
+func CleanupOrphanedZFSResources(ctx context.Context, log logrus.FieldLogger, resources []ZFSOrphanedResource) error {
+	// Separate clones and snapshots - clones must be destroyed first.
+	var clones, snapshots []ZFSOrphanedResource
+
+	for _, r := range resources {
+		if r.Type == "clone" {
+			clones = append(clones, r)
+		} else {
+			snapshots = append(snapshots, r)
+		}
+	}
+
+	// Destroy clones first.
+	for _, clone := range clones {
+		log.WithField("clone", clone.Name).Info("Destroying orphaned ZFS clone")
+
+		//nolint:gosec // Command args are controlled by the application.
+		cmd := exec.CommandContext(ctx, "zfs", "destroy", clone.Name)
+
+		if output, err := cmd.CombinedOutput(); err != nil {
+			log.WithError(err).WithFields(logrus.Fields{
+				"clone":  clone.Name,
+				"output": string(output),
+			}).Warn("Failed to destroy orphaned ZFS clone")
+		}
+	}
+
+	// Then destroy snapshots.
+	for _, snapshot := range snapshots {
+		log.WithField("snapshot", snapshot.Name).Info("Destroying orphaned ZFS snapshot")
+
+		//nolint:gosec // Command args are controlled by the application.
+		cmd := exec.CommandContext(ctx, "zfs", "destroy", snapshot.Name)
+
+		if output, err := cmd.CombinedOutput(); err != nil {
+			log.WithError(err).WithFields(logrus.Fields{
+				"snapshot": snapshot.Name,
+				"output":   string(output),
+			}).Warn("Failed to destroy orphaned ZFS snapshot")
+		}
+	}
+
+	return nil
+}

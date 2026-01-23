@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/spf13/cobra"
 )
@@ -15,9 +16,12 @@ var forceCleanup bool
 
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
-	Short: "Remove dangling benchmarkoor containers and volumes",
-	Long: `Remove all Docker containers and volumes created by benchmarkoor.
-This is useful for cleaning up after failed runs or interrupted benchmarks.`,
+	Short: "Remove dangling benchmarkoor containers, volumes, and ZFS resources",
+	Long: `Remove all Docker containers, volumes, and ZFS clones/snapshots created by benchmarkoor.
+This is useful for cleaning up after failed runs or interrupted benchmarks.
+
+ZFS resources (clones and snapshots) may be left behind if the process was killed
+before normal cleanup could occur. This command will find and remove them.`,
 	RunE: runCleanup,
 }
 
@@ -62,7 +66,13 @@ func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) e
 		return fmt.Errorf("listing volumes: %w", err)
 	}
 
-	if len(containers) == 0 && len(volumes) == 0 {
+	// List orphaned ZFS resources.
+	zfsResources, err := datadir.ListOrphanedZFSResources(ctx)
+	if err != nil {
+		log.WithError(err).Warn("Failed to list ZFS resources")
+	}
+
+	if len(containers) == 0 && len(volumes) == 0 && len(zfsResources) == 0 {
 		log.Info("No benchmarkoor resources found")
 
 		return nil
@@ -82,6 +92,14 @@ func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) e
 
 		for _, v := range volumes {
 			fmt.Printf("  - %s\n", v.Name)
+		}
+	}
+
+	if len(zfsResources) > 0 {
+		fmt.Printf("\nZFS resources to be removed (%d):\n", len(zfsResources))
+
+		for _, r := range zfsResources {
+			fmt.Printf("  - %s (%s)\n", r.Name, r.Type)
 		}
 	}
 
@@ -121,6 +139,13 @@ func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) e
 
 		if err := dockerMgr.RemoveVolume(ctx, v.Name); err != nil {
 			log.WithError(err).WithField("volume", v.Name).Warn("Failed to remove volume")
+		}
+	}
+
+	// Remove ZFS resources (clones first, then snapshots).
+	if len(zfsResources) > 0 {
+		if err := datadir.CleanupOrphanedZFSResources(ctx, log, zfsResources); err != nil {
+			log.WithError(err).Warn("Failed to cleanup ZFS resources")
 		}
 	}
 
