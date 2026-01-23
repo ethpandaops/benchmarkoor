@@ -406,7 +406,7 @@ var validClients = map[string]struct{}{
 	"nethermind": {},
 	"besu":       {},
 	"erigon":     {},
-	"nimbus-el":  {},
+	"nimbus":     {},
 	"reth":       {},
 }
 

@@ -13,7 +13,7 @@ const (
 	ClientNethermind ClientType = "nethermind"
 	ClientBesu       ClientType = "besu"
 	ClientErigon     ClientType = "erigon"
-	ClientNimbusEL   ClientType = "nimbus-el"
+	ClientNimbus     ClientType = "nimbus"
 	ClientReth       ClientType = "reth"
 )
 
