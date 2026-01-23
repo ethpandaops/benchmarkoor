@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -148,23 +149,25 @@ type ClientConfig struct {
 
 // ClientDefaults contains default settings for all clients.
 type ClientDefaults struct {
-	JWT     string            `yaml:"jwt" mapstructure:"jwt"`
-	Genesis map[string]string `yaml:"genesis" mapstructure:"genesis"`
+	JWT              string            `yaml:"jwt" mapstructure:"jwt"`
+	Genesis          map[string]string `yaml:"genesis" mapstructure:"genesis"`
+	DropMemoryCaches string            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
 type ClientInstance struct {
-	ID          string            `yaml:"id" mapstructure:"id"`
-	Client      string            `yaml:"client" mapstructure:"client"`
-	Image       string            `yaml:"image,omitempty" mapstructure:"image"`
-	Entrypoint  []string          `yaml:"entrypoint,omitempty" mapstructure:"entrypoint"`
-	Command     []string          `yaml:"command,omitempty" mapstructure:"command"`
-	ExtraArgs   []string          `yaml:"extra_args,omitempty" mapstructure:"extra_args"`
-	PullPolicy  string            `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
-	Restart     string            `yaml:"restart,omitempty" mapstructure:"restart"`
-	Environment map[string]string `yaml:"environment,omitempty" mapstructure:"environment"`
-	Genesis     string            `yaml:"genesis,omitempty" mapstructure:"genesis"`
-	DataDir     *DataDirConfig    `yaml:"datadir,omitempty" mapstructure:"datadir"`
+	ID               string            `yaml:"id" mapstructure:"id"`
+	Client           string            `yaml:"client" mapstructure:"client"`
+	Image            string            `yaml:"image,omitempty" mapstructure:"image"`
+	Entrypoint       []string          `yaml:"entrypoint,omitempty" mapstructure:"entrypoint"`
+	Command          []string          `yaml:"command,omitempty" mapstructure:"command"`
+	ExtraArgs        []string          `yaml:"extra_args,omitempty" mapstructure:"extra_args"`
+	PullPolicy       string            `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
+	Restart          string            `yaml:"restart,omitempty" mapstructure:"restart"`
+	Environment      map[string]string `yaml:"environment,omitempty" mapstructure:"environment"`
+	Genesis          string            `yaml:"genesis,omitempty" mapstructure:"genesis"`
+	DataDir          *DataDirConfig    `yaml:"datadir,omitempty" mapstructure:"datadir"`
+	DropMemoryCaches string            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
 }
 
 // Load reads and parses configuration files from the given paths.
@@ -362,6 +365,11 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("tests config: %w", err)
 	}
 
+	// Validate drop_memory_caches settings.
+	if err := c.validateDropMemoryCaches(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -409,6 +417,14 @@ var validClients = map[string]struct{}{
 	"reth":       {},
 }
 
+// validDropMemoryCachesValues contains valid values for drop_memory_caches.
+var validDropMemoryCachesValues = map[string]bool{
+	"":         true, // Unset (inherits or disabled)
+	"disabled": true, // Explicitly disabled (default)
+	"tests":    true, // Between tests
+	"steps":    true, // Between all steps
+}
+
 // isValidClient checks if the given client type is supported.
 func isValidClient(client string) bool {
 	_, ok := validClients[client]
@@ -423,4 +439,59 @@ func (c *Config) GetGenesisURL(instance *ClientInstance) string {
 	}
 
 	return c.Client.Config.Genesis[instance.Client]
+}
+
+// GetDropMemoryCaches returns the drop_memory_caches setting for an instance.
+// Instance-level setting takes precedence over global default.
+// Returns empty string if neither is set (disabled).
+func (c *Config) GetDropMemoryCaches(instance *ClientInstance) string {
+	if instance.DropMemoryCaches != "" {
+		return instance.DropMemoryCaches
+	}
+
+	return c.Client.Config.DropMemoryCaches
+}
+
+// validateDropMemoryCaches validates drop_memory_caches settings and checks permissions.
+func (c *Config) validateDropMemoryCaches() error {
+	// Check all instances for valid values and if feature is enabled.
+	enabled := false
+
+	for _, instance := range c.Client.Instances {
+		value := c.GetDropMemoryCaches(&instance)
+
+		if !validDropMemoryCachesValues[value] {
+			return fmt.Errorf("instance %q: invalid drop_memory_caches value %q (must be \"disabled\", \"tests\", or \"steps\")",
+				instance.ID, value)
+		}
+
+		if value != "" && value != "disabled" {
+			enabled = true
+		}
+	}
+
+	if !enabled {
+		return nil
+	}
+
+	// Check OS - drop_memory_caches is Linux-only.
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("drop_memory_caches is only supported on Linux (current OS: %s)", runtime.GOOS)
+	}
+
+	// Verify write access to /proc/sys/vm/drop_caches.
+	const dropCachesPath = "/proc/sys/vm/drop_caches"
+
+	file, err := os.OpenFile(dropCachesPath, os.O_WRONLY, 0)
+	if err != nil {
+		if os.IsPermission(err) {
+			return fmt.Errorf("drop_memory_caches is enabled but no write permission to %s (requires root)", dropCachesPath)
+		}
+
+		return fmt.Errorf("drop_memory_caches: cannot access %s: %w", dropCachesPath, err)
+	}
+
+	_ = file.Close()
+
+	return nil
 }

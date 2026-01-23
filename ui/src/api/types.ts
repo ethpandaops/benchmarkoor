@@ -160,6 +160,7 @@ export interface InstanceConfig {
   genesis: string
   datadir?: DataDirConfig
   client_version?: string
+  drop_memory_caches?: string
 }
 
 // result.json per run

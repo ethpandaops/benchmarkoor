@@ -64,6 +64,7 @@ type Config struct {
 	ReadyTimeout       time.Duration
 	ReadyWaitAfter     time.Duration
 	TestFilter         string
+	FullConfig         *config.Config // Full config for resolving per-instance settings
 }
 
 // RunConfig contains configuration for a single test run.
@@ -105,19 +106,20 @@ type SystemInfo struct {
 
 // ResolvedInstance contains the resolved configuration for a client instance.
 type ResolvedInstance struct {
-	ID            string                `json:"id"`
-	Client        string                `json:"client"`
-	Image         string                `json:"image"`
-	ImageSHA256   string                `json:"image_sha256,omitempty"`
-	Entrypoint    []string              `json:"entrypoint,omitempty"`
-	Command       []string              `json:"command,omitempty"`
-	ExtraArgs     []string              `json:"extra_args,omitempty"`
-	PullPolicy    string                `json:"pull_policy"`
-	Restart       string                `json:"restart,omitempty"`
-	Environment   map[string]string     `json:"environment,omitempty"`
-	Genesis       string                `json:"genesis"`
-	DataDir       *config.DataDirConfig `json:"datadir,omitempty"`
-	ClientVersion string                `json:"client_version,omitempty"`
+	ID               string                `json:"id"`
+	Client           string                `json:"client"`
+	Image            string                `json:"image"`
+	ImageSHA256      string                `json:"image_sha256,omitempty"`
+	Entrypoint       []string              `json:"entrypoint,omitempty"`
+	Command          []string              `json:"command,omitempty"`
+	ExtraArgs        []string              `json:"extra_args,omitempty"`
+	PullPolicy       string                `json:"pull_policy"`
+	Restart          string                `json:"restart,omitempty"`
+	Environment      map[string]string     `json:"environment,omitempty"`
+	Genesis          string                `json:"genesis"`
+	DataDir          *config.DataDirConfig `json:"datadir,omitempty"`
+	ClientVersion    string                `json:"client_version,omitempty"`
+	DropMemoryCaches string                `json:"drop_memory_caches,omitempty"`
 }
 
 // NewRunner creates a new runner instance.
@@ -510,23 +512,30 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		env[k] = v
 	}
 
+	// Resolve drop_memory_caches setting.
+	var dropMemoryCaches string
+	if r.cfg.FullConfig != nil {
+		dropMemoryCaches = r.cfg.FullConfig.GetDropMemoryCaches(instance)
+	}
+
 	// Write run configuration with resolved values.
 	runConfig := &RunConfig{
 		Timestamp: runTimestamp,
 		System:    getSystemInfo(),
 		Instance: &ResolvedInstance{
-			ID:          instance.ID,
-			Client:      instance.Client,
-			Image:       imageName,
-			ImageSHA256: imageDigest,
-			Entrypoint:  instance.Entrypoint,
-			Command:     cmd,
-			ExtraArgs:   instance.ExtraArgs,
-			PullPolicy:  instance.PullPolicy,
-			Restart:     instance.Restart,
-			Environment: env,
-			Genesis:     genesisSource,
-			DataDir:     datadirCfg,
+			ID:               instance.ID,
+			Client:           instance.Client,
+			Image:            imageName,
+			ImageSHA256:      imageDigest,
+			Entrypoint:       instance.Entrypoint,
+			Command:          cmd,
+			ExtraArgs:        instance.ExtraArgs,
+			PullPolicy:       instance.PullPolicy,
+			Restart:          instance.Restart,
+			Environment:      env,
+			Genesis:          genesisSource,
+			DataDir:          datadirCfg,
+			DropMemoryCaches: dropMemoryCaches,
 		},
 	}
 
@@ -676,12 +685,13 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		log.Info("Starting test execution")
 
 		execOpts := &executor.ExecuteOptions{
-			EngineEndpoint: fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort()),
-			JWT:            r.cfg.JWT,
-			ResultsDir:     runResultsDir,
-			Filter:         r.cfg.TestFilter,
-			ContainerID:    containerID,
-			DockerClient:   r.docker.GetClient(),
+			EngineEndpoint:   fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort()),
+			JWT:              r.cfg.JWT,
+			ResultsDir:       runResultsDir,
+			Filter:           r.cfg.TestFilter,
+			ContainerID:      containerID,
+			DockerClient:     r.docker.GetClient(),
+			DropMemoryCaches: dropMemoryCaches,
 		}
 
 		result, err := r.executor.ExecuteTests(execCtx, execOpts)

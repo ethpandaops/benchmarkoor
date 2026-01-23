@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -34,12 +35,13 @@ type Executor interface {
 
 // ExecuteOptions contains options for test execution.
 type ExecuteOptions struct {
-	EngineEndpoint string
-	JWT            string
-	ResultsDir     string
-	Filter         string
-	ContainerID    string         // Container ID for stats collection.
-	DockerClient   *client.Client // Docker client for fallback stats reader.
+	EngineEndpoint   string
+	JWT              string
+	ResultsDir       string
+	Filter           string
+	ContainerID      string         // Container ID for stats collection.
+	DockerClient     *client.Client // Docker client for fallback stats reader.
+	DropMemoryCaches string         // "tests", "steps", or "" (disabled).
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -206,6 +208,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	var interrupted bool
 	var interruptReason string
 
+	// Determine cache dropping behavior.
+	dropBetweenTests := opts.DropMemoryCaches == "tests" || opts.DropMemoryCaches == "steps"
+	dropBetweenSteps := opts.DropMemoryCaches == "steps"
+
 	// Run pre-run steps first.
 	if len(e.prepared.PreRunSteps) > 0 {
 		e.log.Info("Running pre-run steps")
@@ -247,7 +253,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	}
 
 	// Run actual tests with result collection.
-	for _, test := range e.prepared.Tests {
+	for i, test := range e.prepared.Tests {
 		select {
 		case <-ctx.Done():
 			interrupted = true
@@ -257,6 +263,13 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 			goto writeResults
 		default:
+		}
+
+		// Drop caches between tests (not before first test).
+		if dropBetweenTests && i > 0 {
+			if err := e.dropMemoryCaches(); err != nil {
+				e.log.WithError(err).Warn("Failed to drop memory caches between tests")
+			}
 		}
 
 		log := e.log.WithField("test", test.Name)
@@ -289,6 +302,13 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			}
 		}
 
+		// Drop caches between setup and test.
+		if dropBetweenSteps && test.Setup != nil && test.Test != nil {
+			if err := e.dropMemoryCaches(); err != nil {
+				e.log.WithError(err).Warn("Failed to drop memory caches before test step")
+			}
+		}
+
 		// Run test step if present.
 		if test.Test != nil {
 			log.Info("Running test step")
@@ -311,6 +331,13 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeTest, testResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write test results")
 				}
+			}
+		}
+
+		// Drop caches between test and cleanup.
+		if dropBetweenSteps && test.Test != nil && test.Cleanup != nil {
+			if err := e.dropMemoryCaches(); err != nil {
+				e.log.WithError(err).Warn("Failed to drop memory caches before cleanup step")
 			}
 		}
 
@@ -609,4 +636,21 @@ func extractMethod(payload string) (string, error) {
 	}
 
 	return req.Method, nil
+}
+
+// dropMemoryCaches syncs filesystem and drops Linux memory caches.
+func (e *executor) dropMemoryCaches() error {
+	// Sync to flush pending writes to disk.
+	if err := exec.Command("sync").Run(); err != nil {
+		return fmt.Errorf("sync failed: %w", err)
+	}
+
+	// Drop all caches (3 = pagecache + dentries + inodes).
+	if err := os.WriteFile("/proc/sys/vm/drop_caches", []byte("3"), 0); err != nil {
+		return fmt.Errorf("drop_caches: %w", err)
+	}
+
+	e.log.Debug("Dropped memory caches")
+
+	return nil
 }

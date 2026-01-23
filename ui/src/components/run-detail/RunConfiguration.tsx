@@ -180,6 +180,25 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                   </dd>
                 </div>
               )}
+
+              {instance.drop_memory_caches && instance.drop_memory_caches !== 'disabled' && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Drop Memory Caches</dt>
+                  <dd className="mt-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                        {instance.drop_memory_caches}
+                      </span>
+                      <CopyButton text={instance.drop_memory_caches} />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {instance.drop_memory_caches === 'tests'
+                        ? 'Clears Linux page cache between tests for consistent benchmark results.'
+                        : 'Clears Linux page cache between each step (setup → test → cleanup) for consistent benchmark results.'}
+                    </p>
+                  </dd>
+                </div>
+              )}
             </div>
           </div>
 
