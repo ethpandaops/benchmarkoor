@@ -43,6 +43,14 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validating config: %w", err)
 	}
 
+	// Add blue emoji prefix to benchmarkoor logs when client logs go to stdout.
+	if cfg.Global.ClientLogsToStdout {
+		log.SetFormatter(&prefixedFormatter{
+			prefix:    "🔵 ",
+			formatter: log.Formatter,
+		})
+	}
+
 	// Setup context with signal handling.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

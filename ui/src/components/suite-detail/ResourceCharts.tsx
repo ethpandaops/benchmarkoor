@@ -28,7 +28,7 @@ const CLIENT_COLORS: Record<string, string> = {
   nethermind: '#a855f7',
   besu: '#22c55e',
   erigon: '#ef4444',
-  'nimbus-el': '#eab308',
+  nimbus: '#eab308',
 }
 
 const DEFAULT_COLOR = '#6b7280'

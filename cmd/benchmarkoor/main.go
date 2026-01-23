@@ -9,6 +9,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// prefixedFormatter wraps a logrus formatter and adds a prefix to each line.
+type prefixedFormatter struct {
+	prefix    string
+	formatter logrus.Formatter
+}
+
+func (f *prefixedFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	formatted, err := f.formatter.Format(entry)
+	if err != nil {
+		return nil, err
+	}
+
+	return append([]byte(f.prefix), formatted...), nil
+}
+
 var (
 	// Version information set at build time.
 	version = "dev"

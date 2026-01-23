@@ -71,7 +71,7 @@ client:
       ethrex: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
       geth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
       nethermind: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/nethermind/zkevmgenesis.json
-      nimbus-el: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      nimbus: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
       reth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
 
   # Default images per client (used when 'image' is not specified):
@@ -79,7 +79,7 @@ client:
   #   nethermind: ethpandaops/nethermind:performance
   #   besu:       ethpandaops/besu:performance
   #   erigon:     ethpandaops/erigon:performance
-  #   nimbus-el:  statusim/nimbus-eth1:performance
+  #   nimbus:     statusim/nimbus-eth1:performance
   #   reth:       ethpandaops/reth:performance
 
   # Optional: Pre-populated data directories per client type.
@@ -139,5 +139,5 @@ client:
     #   # image: ethpandaops/erigon:performance (default)
 
     # - id: nimbus-latest
-    #   client: nimbus-el
+    #   client: nimbus
     #   # image: statusim/nimbus-eth1:performance (default)

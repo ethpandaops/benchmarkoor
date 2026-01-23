@@ -29,7 +29,7 @@ export const clientColors: Record<string, { bg: string; text: string; darkBg: st
     darkBg: 'dark:bg-red-900/50',
     darkText: 'dark:text-red-200',
   },
-  'nimbus-el': {
+  nimbus: {
     bg: 'bg-yellow-100',
     text: 'text-yellow-800',
     darkBg: 'dark:bg-yellow-900/50',

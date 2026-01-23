@@ -2,7 +2,7 @@ package client
 
 type nimbusSpec struct{}
 
-// NewNimbusSpec creates a new Nimbus-EL client specification.
+// NewNimbusSpec creates a new Nimbus client specification.
 func NewNimbusSpec() Spec {
 	return &nimbusSpec{}
 }
@@ -11,7 +11,7 @@ func NewNimbusSpec() Spec {
 var _ Spec = (*nimbusSpec)(nil)
 
 func (s *nimbusSpec) Type() ClientType {
-	return ClientNimbusEL
+	return ClientNimbus
 }
 
 func (s *nimbusSpec) DefaultImage() string {
