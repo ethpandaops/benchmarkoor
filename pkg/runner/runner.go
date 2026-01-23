@@ -684,6 +684,12 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	if r.executor != nil {
 		log.Info("Starting test execution")
 
+		// Resolve drop caches path.
+		var dropCachesPath string
+		if r.cfg.FullConfig != nil {
+			dropCachesPath = r.cfg.FullConfig.GetDropCachesPath()
+		}
+
 		execOpts := &executor.ExecuteOptions{
 			EngineEndpoint:   fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort()),
 			JWT:              r.cfg.JWT,
@@ -692,6 +698,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			ContainerID:      containerID,
 			DockerClient:     r.docker.GetClient(),
 			DropMemoryCaches: dropMemoryCaches,
+			DropCachesPath:   dropCachesPath,
 		}
 
 		result, err := r.executor.ExecuteTests(execCtx, execOpts)

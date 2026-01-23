@@ -25,6 +25,9 @@ const (
 
 	// DefaultPullPolicy is the default image pull policy.
 	DefaultPullPolicy = "always"
+
+	// DefaultDropCachesPath is the default path to the Linux drop_caches file.
+	DefaultDropCachesPath = "/proc/sys/vm/drop_caches"
 )
 
 // Config is the root configuration for benchmarkoor.
@@ -41,6 +44,7 @@ type GlobalConfig struct {
 	DockerNetwork      string            `yaml:"docker_network" mapstructure:"docker_network"`
 	CleanupOnStart     bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
 	Directories        DirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
+	DropCachesPath     string            `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
 }
 
 // DirectoriesConfig contains directory path configurations.
@@ -452,6 +456,16 @@ func (c *Config) GetDropMemoryCaches(instance *ClientInstance) string {
 	return c.Client.Config.DropMemoryCaches
 }
 
+// GetDropCachesPath returns the path to the drop_caches file.
+// Returns the configured path or the default (/proc/sys/vm/drop_caches).
+func (c *Config) GetDropCachesPath() string {
+	if c.Global.DropCachesPath != "" {
+		return c.Global.DropCachesPath
+	}
+
+	return DefaultDropCachesPath
+}
+
 // validateDropMemoryCaches validates drop_memory_caches settings and checks permissions.
 func (c *Config) validateDropMemoryCaches() error {
 	// Check all instances for valid values and if feature is enabled.
@@ -474,14 +488,14 @@ func (c *Config) validateDropMemoryCaches() error {
 		return nil
 	}
 
-	// Check OS - drop_memory_caches is Linux-only.
-	if runtime.GOOS != "linux" {
+	dropCachesPath := c.GetDropCachesPath()
+
+	// Check OS - drop_memory_caches is Linux-only (skip if custom path is configured).
+	if c.Global.DropCachesPath == "" && runtime.GOOS != "linux" {
 		return fmt.Errorf("drop_memory_caches is only supported on Linux (current OS: %s)", runtime.GOOS)
 	}
 
-	// Verify write access to /proc/sys/vm/drop_caches.
-	const dropCachesPath = "/proc/sys/vm/drop_caches"
-
+	// Verify write access to drop_caches file.
 	file, err := os.OpenFile(dropCachesPath, os.O_WRONLY, 0)
 	if err != nil {
 		if os.IsPermission(err) {

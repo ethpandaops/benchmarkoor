@@ -42,6 +42,7 @@ type ExecuteOptions struct {
 	ContainerID      string         // Container ID for stats collection.
 	DockerClient     *client.Client // Docker client for fallback stats reader.
 	DropMemoryCaches string         // "tests", "steps", or "" (disabled).
+	DropCachesPath   string         // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -211,6 +212,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	// Determine cache dropping behavior.
 	dropBetweenTests := opts.DropMemoryCaches == "tests" || opts.DropMemoryCaches == "steps"
 	dropBetweenSteps := opts.DropMemoryCaches == "steps"
+	dropCachesPath := opts.DropCachesPath
 
 	// Run pre-run steps first.
 	if len(e.prepared.PreRunSteps) > 0 {
@@ -267,7 +269,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 		// Drop caches between tests (not before first test).
 		if dropBetweenTests && i > 0 {
-			if err := e.dropMemoryCaches(); err != nil {
+			if err := e.dropMemoryCaches(dropCachesPath); err != nil {
 				e.log.WithError(err).Warn("Failed to drop memory caches between tests")
 			}
 		}
@@ -304,7 +306,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 		// Drop caches between setup and test.
 		if dropBetweenSteps && test.Setup != nil && test.Test != nil {
-			if err := e.dropMemoryCaches(); err != nil {
+			if err := e.dropMemoryCaches(dropCachesPath); err != nil {
 				e.log.WithError(err).Warn("Failed to drop memory caches before test step")
 			}
 		}
@@ -336,7 +338,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 		// Drop caches between test and cleanup.
 		if dropBetweenSteps && test.Test != nil && test.Cleanup != nil {
-			if err := e.dropMemoryCaches(); err != nil {
+			if err := e.dropMemoryCaches(dropCachesPath); err != nil {
 				e.log.WithError(err).Warn("Failed to drop memory caches before cleanup step")
 			}
 		}
@@ -639,14 +641,14 @@ func extractMethod(payload string) (string, error) {
 }
 
 // dropMemoryCaches syncs filesystem and drops Linux memory caches.
-func (e *executor) dropMemoryCaches() error {
+func (e *executor) dropMemoryCaches(path string) error {
 	// Sync to flush pending writes to disk.
 	if err := exec.Command("sync").Run(); err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}
 
 	// Drop all caches (3 = pagecache + dentries + inodes).
-	if err := os.WriteFile("/proc/sys/vm/drop_caches", []byte("3"), 0); err != nil {
+	if err := os.WriteFile(path, []byte("3"), 0); err != nil {
 		return fmt.Errorf("drop_caches: %w", err)
 	}
 

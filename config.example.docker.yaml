@@ -3,6 +3,7 @@ global:
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
+  drop_caches_path: /host_drop_caches
 
 benchmark:
   results_dir: ./results
@@ -24,6 +25,7 @@ benchmark:
 
 client:
   config:
+    drop_memory_caches: "steps"
     genesis:
       besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
       erigon: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
