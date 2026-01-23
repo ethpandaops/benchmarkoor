@@ -333,6 +333,12 @@ export function RunDetailPage() {
         )}
       </div>
 
+      <StatusAlert
+        status={config.status}
+        terminationReason={config.termination_reason}
+        containerExitCode={config.container_exit_code}
+      />
+
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <ClientStat client={config.instance.client} runId={config.instance.id} />
         <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
@@ -419,12 +425,6 @@ export function RunDetailPage() {
           </p>
         </div>
       </div>
-
-      <StatusAlert
-        status={config.status}
-        terminationReason={config.termination_reason}
-        containerExitCode={config.container_exit_code}
-      />
 
       <RunConfiguration instance={config.instance} system={config.system} />
 
