@@ -435,10 +435,11 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 		var initStdout, initStderr io.Writer = initFile, initFile
 		if r.cfg.ClientLogsToStdout {
-			prefix := fmt.Sprintf("[%s-init] ", instance.ID)
-			prefixWriter := &prefixedWriter{prefix: prefix, writer: os.Stdout}
-			initStdout = io.MultiWriter(initFile, prefixWriter)
-			initStderr = io.MultiWriter(initFile, prefixWriter)
+			prefix := fmt.Sprintf("🟣 [%s-init] ", instance.ID)
+			stdoutPrefixWriter := &prefixedWriter{prefix: prefix, writer: os.Stdout}
+			logFilePrefixWriter := &prefixedWriter{prefix: prefix, writer: benchmarkoorLogFile}
+			initStdout = io.MultiWriter(initFile, stdoutPrefixWriter, logFilePrefixWriter)
+			initStderr = io.MultiWriter(initFile, stdoutPrefixWriter, logFilePrefixWriter)
 		}
 
 		if err := r.docker.RunInitContainer(ctx, initSpec, initStdout, initStderr); err != nil {
@@ -546,7 +547,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	go func() {
 		defer r.wg.Done()
 
-		if err := r.streamLogs(logCtx, instance.ID, containerID, logFile); err != nil {
+		if err := r.streamLogs(logCtx, instance.ID, containerID, logFile, benchmarkoorLogFile); err != nil {
 			log.WithError(err).Warn("Log streaming error")
 		}
 	}()
@@ -780,8 +781,12 @@ func writeRunConfig(resultsDir string, cfg *RunConfig) error {
 	return nil
 }
 
-// streamLogs streams container logs to file and optionally stdout.
-func (r *runner) streamLogs(ctx context.Context, instanceID, containerID, logPath string) error {
+// streamLogs streams container logs to file and optionally stdout/benchmarkoor log.
+func (r *runner) streamLogs(
+	ctx context.Context,
+	instanceID, containerID, logPath string,
+	benchmarkoorLog io.Writer,
+) error {
 	file, err := os.Create(logPath)
 	if err != nil {
 		return fmt.Errorf("creating log file: %w", err)
@@ -791,10 +796,11 @@ func (r *runner) streamLogs(ctx context.Context, instanceID, containerID, logPat
 	var stdout, stderr io.Writer = file, file
 
 	if r.cfg.ClientLogsToStdout {
-		prefix := fmt.Sprintf("[%s] ", instanceID)
-		prefixWriter := &prefixedWriter{prefix: prefix, writer: os.Stdout}
-		stdout = io.MultiWriter(file, prefixWriter)
-		stderr = io.MultiWriter(file, prefixWriter)
+		prefix := fmt.Sprintf("🟣 [%s] ", instanceID)
+		stdoutPrefixWriter := &prefixedWriter{prefix: prefix, writer: os.Stdout}
+		logFilePrefixWriter := &prefixedWriter{prefix: prefix, writer: benchmarkoorLog}
+		stdout = io.MultiWriter(file, stdoutPrefixWriter, logFilePrefixWriter)
+		stderr = io.MultiWriter(file, stdoutPrefixWriter, logFilePrefixWriter)
 	}
 
 	return r.docker.StreamLogs(ctx, containerID, stdout, stderr)
