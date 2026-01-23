@@ -1,17 +1,23 @@
+# Environment variables can be used anywhere in the config using ${VAR} or $VAR syntax.
+# Example: ${MY_SECRET} or ${DATA_DIR:-/default/path} (with default value).
+#
+# Multiple config files can be merged with: --config base.yaml --config overrides.yaml
+# Later files override earlier ones.
+
 global:
-  log_level: info
+  log_level: ${LOG_LEVEL:-info}
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
   # Optional directory configurations.
   # directories:
   #   # Directory for temporary datadir copies (defaults to system temp).
-  #   tmp_datadir: /tmp/benchmarkoor
+  #   tmp_datadir: ${TMP_DIR:-/tmp}/benchmarkoor
   #   # Directory for executor cache - git clones, etc (defaults to ~/.cache/benchmarkoor).
-  #   tmp_cachedir: /tmp/benchmarkoor-cache
+  #   tmp_cachedir: ${TMP_DIR:-/tmp}/benchmarkoor-cache
 
 benchmark:
-  results_dir: ./results
+  results_dir: ${RESULTS_DIR:-./results}
   # Optional: Generate index.json after benchmark (aggregates all run metadata).
   # generate_results_index: true
   # Optional: Generate stats.json per suite after benchmark (aggregates test durations
@@ -55,8 +61,9 @@ benchmark:
 
 client:
   config:
-    # JWT secret for Engine API authentication (optional, has a default)
-    jwt: "5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae"
+    # JWT secret for Engine API authentication (optional, has a default).
+    # Can be set via environment variable for security.
+    jwt: ${JWT_SECRET:-5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae}
     # Genesis file URLs per client type
     genesis:
       besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
@@ -99,7 +106,7 @@ client:
   instances:
     - id: geth-latest
       client: geth
-      # image: ethpandaops/geth:latest (default, can be omitted)
+      # image: ${GETH_IMAGE:-ethpandaops/geth:performance}
       # pull_policy: always (default)
       # Optional overrides:
       # entrypoint: []
@@ -108,10 +115,10 @@ client:
       #   - --verbosity=5
       # restart: never
       # environment:
-      #   SOME_VAR: value
+      #   SOME_VAR: ${MY_ENV_VAR}
       # genesis: <override-url>
       # datadir:  # Instance-level datadir (overrides global datadirs)
-      #   source_dir: ./data/custom-snapshot
+      #   source_dir: ${DATA_SNAPSHOTS_DIR}/geth
       #   container_dir: /data
 
     # Example: running multiple clients
