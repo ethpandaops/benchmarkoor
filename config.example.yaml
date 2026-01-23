@@ -112,18 +112,28 @@ client:
   #     source_dir: ./data/snapshots/geth
   #     container_dir: /data  # default, can be omitted
   #     # Method for preparing the data directory:
-  #     #   copy          - parallel Go copy (default, works everywhere, has progress)
-  #     #   overlayfs     - uses Linux overlayfs for near-instant setup (requires root)
+  #     #   copy           - parallel Go copy (default, works everywhere, has progress)
+  #     #   overlayfs      - uses Linux overlayfs for near-instant setup (requires root)
   #     #   fuse-overlayfs - uses fuse-overlayfs for near-instant setup (no root required)
   #     #                    Requires: apt install fuse-overlayfs (or equivalent)
   #     #                    Requires: user_allow_other in /etc/fuse.conf if Docker runs as root
   #     #                    WARNING: fuse-overlayfs is SLOW compared to overlayfs. You'll get
   #     #                             3x Worse results.
+  #     #   zfs            - uses ZFS snapshots and clones for near-instant, copy-on-write setup
+  #     #                    Requires: source_dir must be on a ZFS filesystem
+  #     #                    Requires: root access OR ZFS delegations configured:
+  #     #                      zfs allow -u <user> clone,create,destroy,mount,snapshot <dataset>
+  #     #                    The dataset is auto-detected from the source_dir mount point.
   #     method: copy
   #   reth:
   #     source_dir: ./data/snapshots/reth
   #     container_dir: /root/.local/share/reth
   #     method: fuse-overlayfs  # near-instant, no root required
+  #   # Example: ZFS-backed data directory
+  #   # nethermind:
+  #   #   source_dir: /tank/benchmarkoor/nethermind-snapshot  # Must be on ZFS
+  #   #   container_dir: /nethermind/data
+  #   #   method: zfs  # near-instant via ZFS clones
 
   instances:
     - id: geth-latest

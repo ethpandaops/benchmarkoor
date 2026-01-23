@@ -27,7 +27,7 @@ type PreparedDir struct {
 }
 
 // NewProvider creates a new Provider based on the method.
-// Supported methods: "copy" (default), "overlayfs", "fuse-overlayfs".
+// Supported methods: "copy" (default), "overlayfs", "fuse-overlayfs", "zfs".
 func NewProvider(log logrus.FieldLogger, method string) (Provider, error) {
 	switch method {
 	case "", "copy":
@@ -36,6 +36,8 @@ func NewProvider(log logrus.FieldLogger, method string) (Provider, error) {
 		return NewOverlayFSProvider(log), nil
 	case "fuse-overlayfs":
 		return NewFuseOverlayFSProvider(log), nil
+	case "zfs":
+		return NewZFSProvider(log), nil
 	default:
 		return nil, fmt.Errorf("unknown datadir method: %q", method)
 	}
