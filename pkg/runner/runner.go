@@ -345,16 +345,25 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		genesisSource = r.cfg.GenesisURLs[instance.Client]
 	}
 
-	if genesisSource == "" {
-		return fmt.Errorf("no genesis configured for client %s", instance.Client)
+	// Load genesis file if configured.
+	var genesisContent []byte
+
+	if genesisSource != "" {
+		log.WithField("source", genesisSource).Info("Loading genesis file")
+
+		var loadErr error
+
+		genesisContent, loadErr = r.loadFile(ctx, genesisSource)
+		if loadErr != nil {
+			return fmt.Errorf("loading genesis: %w", loadErr)
+		}
+	} else {
+		log.Info("No genesis configured, skipping genesis setup")
 	}
 
-	// Load genesis file (from URL or local path).
-	log.WithField("source", genesisSource).Info("Loading genesis file")
-
-	genesisContent, err := r.loadFile(ctx, genesisSource)
-	if err != nil {
-		return fmt.Errorf("loading genesis: %w", err)
+	// Fail if neither genesis nor datadir is configured.
+	if genesisSource == "" && !useDataDir {
+		return fmt.Errorf("no genesis file or datadir configured for client %s", instance.Client)
 	}
 
 	// Determine image.
@@ -388,9 +397,14 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		}
 	})
 
-	genesisFile := filepath.Join(tempDir, "genesis.json")
-	if err := os.WriteFile(genesisFile, genesisContent, 0644); err != nil {
-		return fmt.Errorf("writing genesis file: %w", err)
+	// Write genesis file to temp dir if genesis is configured.
+	var genesisFile string
+
+	if genesisSource != "" {
+		genesisFile = filepath.Join(tempDir, "genesis.json")
+		if err := os.WriteFile(genesisFile, genesisContent, 0644); err != nil {
+			return fmt.Errorf("writing genesis file: %w", err)
+		}
 	}
 
 	jwtFile := filepath.Join(tempDir, "jwtsecret")
@@ -403,20 +417,24 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		dataMount,
 		{
 			Type:     "bind",
-			Source:   genesisFile,
-			Target:   spec.GenesisPath(),
-			ReadOnly: true,
-		},
-		{
-			Type:     "bind",
 			Source:   jwtFile,
 			Target:   spec.JWTPath(),
 			ReadOnly: true,
 		},
 	}
 
-	// Run init container if required (skip when using datadir).
-	if spec.RequiresInit() && !useDataDir {
+	// Add genesis mount if genesis is configured.
+	if genesisFile != "" {
+		mounts = append(mounts, docker.Mount{
+			Type:     "bind",
+			Source:   genesisFile,
+			Target:   spec.GenesisPath(),
+			ReadOnly: true,
+		})
+	}
+
+	// Run init container if required (skip when using datadir or no genesis configured).
+	if spec.RequiresInit() && !useDataDir && genesisSource != "" {
 		log.Info("Running init container")
 
 		initSpec := &docker.ContainerSpec{
@@ -460,6 +478,8 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		initFile.Close()
 
 		log.Info("Init container completed")
+	} else if spec.RequiresInit() && genesisSource == "" {
+		log.Info("Skipping init container (no genesis configured)")
 	} else if useDataDir {
 		log.Info("Skipping init container (using pre-populated datadir)")
 	}
@@ -468,6 +488,11 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	cmd := instance.Command
 	if len(cmd) == 0 {
 		cmd = spec.DefaultCommand()
+	}
+
+	// Add genesis flag if genesis is configured and client uses a genesis flag.
+	if genesisSource != "" && spec.GenesisFlag() != "" {
+		cmd = append(cmd, spec.GenesisFlag()+spec.GenesisPath())
 	}
 
 	// Append extra args if provided.

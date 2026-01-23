@@ -20,7 +20,6 @@ func (s *nimbusSpec) DefaultImage() string {
 
 func (s *nimbusSpec) DefaultCommand() []string {
 	return []string{
-		"--custom-network=/tmp/genesis.json",
 		"--data-dir=/data",
 		"--metrics=true",
 		"--metrics-address=0.0.0.0",
@@ -35,6 +34,10 @@ func (s *nimbusSpec) DefaultCommand() []string {
 		"--http-address=0.0.0.0",
 		"--http-port=8545",
 	}
+}
+
+func (s *nimbusSpec) GenesisFlag() string {
+	return "--custom-network="
 }
 
 func (s *nimbusSpec) RequiresInit() bool {

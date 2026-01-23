@@ -21,7 +21,6 @@ func (s *nethermindSpec) DefaultImage() string {
 func (s *nethermindSpec) DefaultCommand() []string {
 	return []string{
 		"--datadir=/data",
-		"--Init.ChainSpecPath=/tmp/genesis.json",
 		"--config=none",
 		"--JsonRpc.Enabled=true",
 		"--JsonRpc.Host=0.0.0.0",
@@ -41,6 +40,10 @@ func (s *nethermindSpec) DefaultCommand() []string {
 		"--Merge.TerminalTotalDifficulty=0",
 		"--Blocks.CachePrecompilesOnBlockProcessing=false",
 	}
+}
+
+func (s *nethermindSpec) GenesisFlag() string {
+	return "--Init.ChainSpecPath="
 }
 
 func (s *nethermindSpec) RequiresInit() bool {
