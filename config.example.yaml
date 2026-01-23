@@ -76,6 +76,16 @@ client:
     # Optional: Drop memory caches during benchmark execution (Linux only, requires root).
     # Values: "disabled" (default), "tests" (between tests), "steps" (between setup/test/cleanup steps)
     # drop_memory_caches: "disabled"
+    # Optional: Container resource limits (applied to all instances by default).
+    # resource_limits:
+    #   # CPU pinning - use ONE of the following:
+    #   #   cpuset_count: N    - Pick N random CPUs (new random selection each run)
+    #   #   cpuset: [0, 1, 2]  - Pin to specific CPUs
+    #   cpuset_count: 4
+    #   # Memory limit (supports units: b, k, m, g, e.g., "16g", "4096m")
+    #   memory: "16g"
+    #   # Disable swap for the container (sets memory-swap equal to memory and swappiness to 0)
+    #   swap_disabled: true
     # Genesis file URLs per client type
     genesis:
       besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
@@ -133,6 +143,9 @@ client:
       #   source_dir: ${DATA_SNAPSHOTS_DIR}/geth
       #   container_dir: /data
       # drop_memory_caches: "steps"  # Instance-level override (optional)
+      # resource_limits:  # Instance-level override (optional)
+      #   cpuset_count: 2  # Override global with fewer CPUs
+      #   memory: "8g"     # Override global memory limit
 
     # Example: running multiple clients
     # - id: nethermind-latest

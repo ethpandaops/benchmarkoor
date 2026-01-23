@@ -62,16 +62,25 @@ type Manager interface {
 	WaitForContainerExit(ctx context.Context, containerID string) (<-chan int64, <-chan error)
 }
 
+// ResourceLimits defines container resource constraints.
+type ResourceLimits struct {
+	CpusetCpus       string // Comma-separated CPU IDs (e.g., "0,1,2")
+	MemoryBytes      int64  // Memory limit in bytes
+	MemorySwapBytes  int64  // Memory+swap limit (-1 = unlimited, same as MemoryBytes = no swap)
+	MemorySwappiness *int64 // 0-100, controls swappiness
+}
+
 // ContainerSpec defines container configuration.
 type ContainerSpec struct {
-	Name        string
-	Image       string
-	Entrypoint  []string
-	Command     []string
-	Env         map[string]string
-	Mounts      []Mount
-	NetworkName string
-	Labels      map[string]string
+	Name           string
+	Image          string
+	Entrypoint     []string
+	Command        []string
+	Env            map[string]string
+	Mounts         []Mount
+	NetworkName    string
+	Labels         map[string]string
+	ResourceLimits *ResourceLimits
 }
 
 // Mount defines a volume mount.
@@ -216,6 +225,14 @@ func (m *manager) CreateContainer(ctx context.Context, spec *ContainerSpec) (str
 	hostCfg := &container.HostConfig{
 		Mounts:      mounts,
 		NetworkMode: container.NetworkMode(spec.NetworkName),
+	}
+
+	// Apply resource limits if configured.
+	if spec.ResourceLimits != nil {
+		hostCfg.CpusetCpus = spec.ResourceLimits.CpusetCpus
+		hostCfg.Memory = spec.ResourceLimits.MemoryBytes
+		hostCfg.MemorySwap = spec.ResourceLimits.MemorySwapBytes
+		hostCfg.MemorySwappiness = spec.ResourceLimits.MemorySwappiness
 	}
 
 	networkCfg := &network.NetworkingConfig{}

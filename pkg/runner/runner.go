@@ -8,13 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	mrand "math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
@@ -104,22 +107,31 @@ type SystemInfo struct {
 	MemoryTotalGB      float64 `json:"memory_total_gb"`
 }
 
+// ResolvedResourceLimits contains the resolved resource limits for config.json output.
+type ResolvedResourceLimits struct {
+	CpusetCpus   string `json:"cpuset_cpus,omitempty"`
+	Memory       string `json:"memory,omitempty"`
+	MemoryBytes  int64  `json:"memory_bytes,omitempty"`
+	SwapDisabled bool   `json:"swap_disabled,omitempty"`
+}
+
 // ResolvedInstance contains the resolved configuration for a client instance.
 type ResolvedInstance struct {
-	ID               string                `json:"id"`
-	Client           string                `json:"client"`
-	Image            string                `json:"image"`
-	ImageSHA256      string                `json:"image_sha256,omitempty"`
-	Entrypoint       []string              `json:"entrypoint,omitempty"`
-	Command          []string              `json:"command,omitempty"`
-	ExtraArgs        []string              `json:"extra_args,omitempty"`
-	PullPolicy       string                `json:"pull_policy"`
-	Restart          string                `json:"restart,omitempty"`
-	Environment      map[string]string     `json:"environment,omitempty"`
-	Genesis          string                `json:"genesis"`
-	DataDir          *config.DataDirConfig `json:"datadir,omitempty"`
-	ClientVersion    string                `json:"client_version,omitempty"`
-	DropMemoryCaches string                `json:"drop_memory_caches,omitempty"`
+	ID               string                  `json:"id"`
+	Client           string                  `json:"client"`
+	Image            string                  `json:"image"`
+	ImageSHA256      string                  `json:"image_sha256,omitempty"`
+	Entrypoint       []string                `json:"entrypoint,omitempty"`
+	Command          []string                `json:"command,omitempty"`
+	ExtraArgs        []string                `json:"extra_args,omitempty"`
+	PullPolicy       string                  `json:"pull_policy"`
+	Restart          string                  `json:"restart,omitempty"`
+	Environment      map[string]string       `json:"environment,omitempty"`
+	Genesis          string                  `json:"genesis"`
+	DataDir          *config.DataDirConfig   `json:"datadir,omitempty"`
+	ClientVersion    string                  `json:"client_version,omitempty"`
+	DropMemoryCaches string                  `json:"drop_memory_caches,omitempty"`
+	ResourceLimits   *ResolvedResourceLimits `json:"resource_limits,omitempty"`
 }
 
 // NewRunner creates a new runner instance.
@@ -518,6 +530,28 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		dropMemoryCaches = r.cfg.FullConfig.GetDropMemoryCaches(instance)
 	}
 
+	// Resolve resource limits.
+	var dockerResourceLimits *docker.ResourceLimits
+	var resolvedResourceLimits *ResolvedResourceLimits
+
+	if r.cfg.FullConfig != nil {
+		resourceLimitsCfg := r.cfg.FullConfig.GetResourceLimits(instance)
+		if resourceLimitsCfg != nil {
+			var err error
+
+			dockerResourceLimits, resolvedResourceLimits, err = buildDockerResourceLimits(resourceLimitsCfg)
+			if err != nil {
+				return fmt.Errorf("building resource limits: %w", err)
+			}
+
+			log.WithFields(logrus.Fields{
+				"cpuset_cpus":   resolvedResourceLimits.CpusetCpus,
+				"memory":        resolvedResourceLimits.Memory,
+				"swap_disabled": resolvedResourceLimits.SwapDisabled,
+			}).Info("Resource limits configured")
+		}
+	}
+
 	// Write run configuration with resolved values.
 	runConfig := &RunConfig{
 		Timestamp: runTimestamp,
@@ -536,6 +570,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			Genesis:          genesisSource,
 			DataDir:          datadirCfg,
 			DropMemoryCaches: dropMemoryCaches,
+			ResourceLimits:   resolvedResourceLimits,
 		},
 	}
 
@@ -549,13 +584,14 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	// Build container spec.
 	containerSpec := &docker.ContainerSpec{
-		Name:        fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID),
-		Image:       imageName,
-		Entrypoint:  instance.Entrypoint,
-		Command:     cmd,
-		Env:         env,
-		Mounts:      mounts,
-		NetworkName: r.cfg.DockerNetwork,
+		Name:           fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID),
+		Image:          imageName,
+		Entrypoint:     instance.Entrypoint,
+		Command:        cmd,
+		Env:            env,
+		Mounts:         mounts,
+		NetworkName:    r.cfg.DockerNetwork,
+		ResourceLimits: dockerResourceLimits,
 		Labels: map[string]string{
 			"benchmarkoor.instance":   instance.ID,
 			"benchmarkoor.client":     instance.Client,
@@ -1014,4 +1050,92 @@ func generateShortID() string {
 	}
 
 	return hex.EncodeToString(b)
+}
+
+// selectRandomCPUs picks count random CPUs from available CPUs using Fisher-Yates shuffle.
+func selectRandomCPUs(count int) ([]int, error) {
+	numCPUs, err := cpu.Counts(true)
+	if err != nil {
+		return nil, fmt.Errorf("getting CPU count: %w", err)
+	}
+
+	if count > numCPUs {
+		return nil, fmt.Errorf("requested %d CPUs but only %d available", count, numCPUs)
+	}
+
+	// Create slice of all CPU IDs.
+	cpus := make([]int, numCPUs)
+	for i := range cpus {
+		cpus[i] = i
+	}
+
+	// Fisher-Yates shuffle (partial - only shuffle first 'count' elements).
+	for i := 0; i < count; i++ {
+		j := i + mrand.IntN(numCPUs-i)
+		cpus[i], cpus[j] = cpus[j], cpus[i]
+	}
+
+	return cpus[:count], nil
+}
+
+// cpusetString converts a slice of CPU IDs to a comma-separated string.
+func cpusetString(cpus []int) string {
+	if len(cpus) == 0 {
+		return ""
+	}
+
+	strs := make([]string, len(cpus))
+	for i, c := range cpus {
+		strs[i] = strconv.Itoa(c)
+	}
+
+	return strings.Join(strs, ",")
+}
+
+// buildDockerResourceLimits builds docker.ResourceLimits from config.ResourceLimits.
+func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimits, *ResolvedResourceLimits, error) {
+	if cfg == nil {
+		return nil, nil, nil
+	}
+
+	dockerLimits := &docker.ResourceLimits{}
+	resolved := &ResolvedResourceLimits{}
+
+	// Handle CPU pinning.
+	if cfg.CpusetCount != nil {
+		cpus, err := selectRandomCPUs(*cfg.CpusetCount)
+		if err != nil {
+			return nil, nil, fmt.Errorf("selecting random CPUs: %w", err)
+		}
+
+		dockerLimits.CpusetCpus = cpusetString(cpus)
+		resolved.CpusetCpus = dockerLimits.CpusetCpus
+	} else if len(cfg.Cpuset) > 0 {
+		dockerLimits.CpusetCpus = cpusetString(cfg.Cpuset)
+		resolved.CpusetCpus = dockerLimits.CpusetCpus
+	}
+
+	// Handle memory limit.
+	if cfg.Memory != "" {
+		memBytes, err := units.RAMInBytes(cfg.Memory)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parsing memory limit: %w", err)
+		}
+
+		dockerLimits.MemoryBytes = memBytes
+		resolved.Memory = cfg.Memory
+		resolved.MemoryBytes = memBytes
+
+		// Handle swap.
+		if cfg.SwapDisabled {
+			// Set memory-swap equal to memory to disable swap.
+			dockerLimits.MemorySwapBytes = memBytes
+			// Set swappiness to 0.
+			swappiness := int64(0)
+			dockerLimits.MemorySwappiness = &swappiness
+			resolved.SwapDisabled = true
+		}
+	}
+
+	return dockerLimits, resolved, nil
 }
