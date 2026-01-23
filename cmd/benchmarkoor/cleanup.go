@@ -16,12 +16,14 @@ var forceCleanup bool
 
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
-	Short: "Remove dangling benchmarkoor containers, volumes, and ZFS resources",
-	Long: `Remove all Docker containers, volumes, and ZFS clones/snapshots created by benchmarkoor.
+	Short: "Remove dangling benchmarkoor containers, volumes, and filesystem resources",
+	Long: `Remove all Docker containers, volumes, and filesystem resources created by benchmarkoor.
 This is useful for cleaning up after failed runs or interrupted benchmarks.
 
-ZFS resources (clones and snapshots) may be left behind if the process was killed
-before normal cleanup could occur. This command will find and remove them.`,
+Filesystem resources that may be left behind if the process was killed:
+  - ZFS clones and snapshots
+  - OverlayFS mounts and temp directories
+  - fuse-overlayfs mounts and temp directories`,
 	RunE: runCleanup,
 }
 
@@ -72,7 +74,13 @@ func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) e
 		log.WithError(err).Warn("Failed to list ZFS resources")
 	}
 
-	if len(containers) == 0 && len(volumes) == 0 && len(zfsResources) == 0 {
+	// List orphaned overlay mounts.
+	overlayMounts, err := datadir.ListOrphanedOverlayMounts(ctx)
+	if err != nil {
+		log.WithError(err).Warn("Failed to list overlay mounts")
+	}
+
+	if len(containers) == 0 && len(volumes) == 0 && len(zfsResources) == 0 && len(overlayMounts) == 0 {
 		log.Info("No benchmarkoor resources found")
 
 		return nil
@@ -100,6 +108,14 @@ func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) e
 
 		for _, r := range zfsResources {
 			fmt.Printf("  - %s (%s)\n", r.Name, r.Type)
+		}
+	}
+
+	if len(overlayMounts) > 0 {
+		fmt.Printf("\nOverlay mounts to be removed (%d):\n", len(overlayMounts))
+
+		for _, m := range overlayMounts {
+			fmt.Printf("  - %s (%s)\n", m.BaseDir, m.Type)
 		}
 	}
 
@@ -146,6 +162,13 @@ func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) e
 	if len(zfsResources) > 0 {
 		if err := datadir.CleanupOrphanedZFSResources(ctx, log, zfsResources); err != nil {
 			log.WithError(err).Warn("Failed to cleanup ZFS resources")
+		}
+	}
+
+	// Remove overlay mounts (unmount first, then remove directories).
+	if len(overlayMounts) > 0 {
+		if err := datadir.CleanupOrphanedOverlayMounts(ctx, log, overlayMounts); err != nil {
+			log.WithError(err).Warn("Failed to cleanup overlay mounts")
 		}
 	}
 
