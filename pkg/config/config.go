@@ -331,16 +331,6 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("instance %q: unknown client type %q", instance.ID, instance.Client)
 		}
 
-		if instance.Genesis == "" {
-			if _, ok := c.Client.Config.Genesis[instance.Client]; !ok {
-				return fmt.Errorf(
-					"instance %q: no genesis URL configured for client %q",
-					instance.ID,
-					instance.Client,
-				)
-			}
-		}
-
 		// Validate instance-level datadir.
 		if instance.DataDir != nil {
 			if err := instance.DataDir.Validate(fmt.Sprintf("instance %q datadir", instance.ID)); err != nil {

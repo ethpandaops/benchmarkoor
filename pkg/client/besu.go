@@ -21,7 +21,6 @@ func (s *besuSpec) DefaultImage() string {
 func (s *besuSpec) DefaultCommand() []string {
 	return []string{
 		"--data-path=/data",
-		"--genesis-file=/tmp/genesis.json",
 		"--bonsai-historical-block-limit=10000",
 		"--bonsai-limit-trie-logs-enabled=false",
 		"--metrics-enabled=true",
@@ -43,6 +42,10 @@ func (s *besuSpec) DefaultCommand() []string {
 		"--max-peers=0",
 		"--discovery-enabled=false",
 	}
+}
+
+func (s *besuSpec) GenesisFlag() string {
+	return "--genesis-file="
 }
 
 func (s *besuSpec) RequiresInit() bool {

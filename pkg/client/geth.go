@@ -21,7 +21,6 @@ func (s *gethSpec) DefaultImage() string {
 func (s *gethSpec) DefaultCommand() []string {
 	return []string{
 		"--datadir=/data",
-		"--override.genesis=/tmp/genesis.json",
 		"--syncmode=full",
 		"--gcmode=archive",
 		"--snapshot=false",
@@ -48,6 +47,10 @@ func (s *gethSpec) DefaultCommand() []string {
 		"--metrics.port=8008",
 		"--verbosity=3",
 	}
+}
+
+func (s *gethSpec) GenesisFlag() string {
+	return "--override.genesis="
 }
 
 func (s *gethSpec) RequiresInit() bool {

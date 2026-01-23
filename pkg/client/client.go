@@ -28,6 +28,10 @@ type Spec interface {
 	// DefaultCommand returns the default command arguments.
 	DefaultCommand() []string
 
+	// GenesisFlag returns the genesis flag format (e.g., "--genesis-file=").
+	// Returns empty string if client doesn't use a genesis flag (e.g., Erigon uses init container).
+	GenesisFlag() string
+
 	// RequiresInit returns true if client needs init container.
 	RequiresInit() bool
 

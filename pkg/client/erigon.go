@@ -44,6 +44,10 @@ func (s *erigonSpec) DefaultCommand() []string {
 	}
 }
 
+func (s *erigonSpec) GenesisFlag() string {
+	return "" // Erigon uses init container for genesis, not a command flag.
+}
+
 func (s *erigonSpec) RequiresInit() bool {
 	return true
 }

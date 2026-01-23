@@ -22,7 +22,6 @@ func (s *rethSpec) DefaultCommand() []string {
 	return []string{
 		"node",
 		"--datadir=/var/lib/reth",
-		"--chain=/tmp/genesis.json",
 		"--full",
 		"--http",
 		"--http.addr=0.0.0.0",
@@ -37,6 +36,10 @@ func (s *rethSpec) DefaultCommand() []string {
 		"--authrpc.port=8551",
 		"--engine.disable-precompile-cache",
 	}
+}
+
+func (s *rethSpec) GenesisFlag() string {
+	return "--chain="
 }
 
 func (s *rethSpec) RequiresInit() bool {
