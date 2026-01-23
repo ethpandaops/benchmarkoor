@@ -14,6 +14,7 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
 	"github.com/ethpandaops/benchmarkoor/pkg/stats"
 	"github.com/sirupsen/logrus"
@@ -54,10 +55,11 @@ type ExecutionResult struct {
 
 // Config for the executor.
 type Config struct {
-	Source     *config.SourceConfig
-	Filter     string
-	CacheDir   string
-	ResultsDir string
+	Source       *config.SourceConfig
+	Filter       string
+	CacheDir     string
+	ResultsDir   string
+	ResultsOwner *fsutil.OwnerConfig // Optional file ownership for results directory
 }
 
 // NewExecutor creates a new executor instance.
@@ -138,7 +140,7 @@ func (e *executor) createSuiteOutput() error {
 	}
 
 	// Create suite output directory.
-	if err := CreateSuiteOutput(e.cfg.ResultsDir, hash, suiteInfo, e.prepared); err != nil {
+	if err := CreateSuiteOutput(e.cfg.ResultsDir, hash, suiteInfo, e.prepared, e.cfg.ResultsOwner); err != nil {
 		return fmt.Errorf("creating suite output: %w", err)
 	}
 
@@ -234,7 +236,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					goto writeResults
 				}
 			} else {
-				if err := WriteStepResults(opts.ResultsDir, step.Name, StepTypePreRun, preRunResult); err != nil {
+				if err := WriteStepResults(opts.ResultsDir, step.Name, StepTypePreRun, preRunResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write pre-run step results")
 				}
 			}
@@ -280,7 +282,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 				}
 			} else {
 				// Write setup results.
-				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeSetup, setupResult); err != nil {
+				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeSetup, setupResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write setup results")
 				}
 			}
@@ -305,7 +307,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 				}
 			} else {
 				// Write test results.
-				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeTest, testResult); err != nil {
+				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeTest, testResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write test results")
 				}
 			}
@@ -330,7 +332,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 				}
 			} else {
 				// Write cleanup results.
-				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeCleanup, cleanupResult); err != nil {
+				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeCleanup, cleanupResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write cleanup results")
 				}
 			}
@@ -394,7 +396,7 @@ writeResults:
 			}
 		}
 
-		if err := WriteRunResult(opts.ResultsDir, runResult); err != nil {
+		if err := WriteRunResult(opts.ResultsDir, runResult, e.cfg.ResultsOwner); err != nil {
 			e.log.WithError(err).Warn("Failed to write run result")
 		} else {
 			e.log.WithFields(logrus.Fields{

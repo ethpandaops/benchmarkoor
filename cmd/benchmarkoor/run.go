@@ -12,6 +12,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
+	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/runner"
 	"github.com/spf13/cobra"
 )
@@ -41,6 +42,12 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	// Validate configuration.
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validating config: %w", err)
+	}
+
+	// Parse results owner configuration.
+	resultsOwner, err := fsutil.ParseOwner(cfg.Benchmark.ResultsOwner)
+	if err != nil {
+		return fmt.Errorf("parsing results_owner: %w", err)
 	}
 
 	// Add blue emoji prefix to benchmarkoor logs when client logs go to stdout.
@@ -107,10 +114,11 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		}
 
 		execCfg := &executor.Config{
-			Source:     &cfg.Benchmark.Tests.Source,
-			Filter:     cfg.Benchmark.Tests.Filter,
-			CacheDir:   cacheDir,
-			ResultsDir: cfg.Benchmark.ResultsDir,
+			Source:       &cfg.Benchmark.Tests.Source,
+			Filter:       cfg.Benchmark.Tests.Filter,
+			CacheDir:     cacheDir,
+			ResultsDir:   cfg.Benchmark.ResultsDir,
+			ResultsOwner: resultsOwner,
 		}
 
 		exec = executor.NewExecutor(log, execCfg)
@@ -130,6 +138,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	// Create runner.
 	runnerCfg := &runner.Config{
 		ResultsDir:         cfg.Benchmark.ResultsDir,
+		ResultsOwner:       resultsOwner,
 		ClientLogsToStdout: cfg.Global.ClientLogsToStdout,
 		DockerNetwork:      cfg.Global.DockerNetwork,
 		JWT:                cfg.Client.Config.JWT,
@@ -183,7 +192,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		index, err := executor.GenerateIndex(cfg.Benchmark.ResultsDir)
 		if err != nil {
 			log.WithError(err).Warn("Failed to generate results index")
-		} else if err := executor.WriteIndex(cfg.Benchmark.ResultsDir, index); err != nil {
+		} else if err := executor.WriteIndex(cfg.Benchmark.ResultsDir, index, resultsOwner); err != nil {
 			log.WithError(err).Warn("Failed to write results index")
 		} else {
 			log.WithField("entries", len(index.Entries)).Info("Results index generated")
@@ -199,7 +208,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			log.WithError(err).Warn("Failed to generate suite stats")
 		} else {
 			for suiteHash, stats := range allStats {
-				if err := executor.WriteSuiteStats(cfg.Benchmark.ResultsDir, suiteHash, stats); err != nil {
+				if err := executor.WriteSuiteStats(cfg.Benchmark.ResultsDir, suiteHash, stats, resultsOwner); err != nil {
 					log.WithError(err).WithField("suite", suiteHash).Warn("Failed to write suite stats")
 				}
 			}

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 )
 
 // Index contains the aggregated index of all benchmark runs.
@@ -260,7 +262,7 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 }
 
 // WriteIndex writes the index to index.json in the runs subdirectory.
-func WriteIndex(resultsDir string, index *Index) error {
+func WriteIndex(resultsDir string, index *Index, owner *fsutil.OwnerConfig) error {
 	indexPath := filepath.Join(resultsDir, "runs", "index.json")
 
 	data, err := json.MarshalIndent(index, "", "  ")
@@ -268,7 +270,7 @@ func WriteIndex(resultsDir string, index *Index) error {
 		return fmt.Errorf("marshaling index: %w", err)
 	}
 
-	if err := os.WriteFile(indexPath, data, 0644); err != nil {
+	if err := fsutil.WriteFile(indexPath, data, 0644, owner); err != nil {
 		return fmt.Errorf("writing index.json: %w", err)
 	}
 

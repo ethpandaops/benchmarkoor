@@ -35,7 +35,7 @@ func runResultFile(_ *cobra.Command, _ []string) error {
 	}
 
 	// Write the result.json file.
-	if err := executor.WriteRunResult(resultsDir, result); err != nil {
+	if err := executor.WriteRunResult(resultsDir, result, nil); err != nil {
 		return fmt.Errorf("writing run result: %w", err)
 	}
 

@@ -20,6 +20,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
+	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -52,6 +53,7 @@ type Runner interface {
 // Config for the runner.
 type Config struct {
 	ResultsDir         string
+	ResultsOwner       *fsutil.OwnerConfig // Optional file ownership for results directory
 	ClientLogsToStdout bool
 	DockerNetwork      string
 	JWT                string
@@ -162,7 +164,7 @@ var _ Runner = (*runner)(nil)
 // Start initializes the runner.
 func (r *runner) Start(ctx context.Context) error {
 	// Ensure results directory exists.
-	if err := os.MkdirAll(r.cfg.ResultsDir, 0755); err != nil {
+	if err := fsutil.MkdirAll(r.cfg.ResultsDir, 0755, r.cfg.ResultsOwner); err != nil {
 		return fmt.Errorf("creating results directory: %w", err)
 	}
 
@@ -221,12 +223,12 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		r.cfg.ResultsDir, "runs",
 		fmt.Sprintf("%d_%s_%s", runTimestamp, runID, instance.ID),
 	)
-	if err := os.MkdirAll(runResultsDir, 0755); err != nil {
+	if err := fsutil.MkdirAll(runResultsDir, 0755, r.cfg.ResultsOwner); err != nil {
 		return fmt.Errorf("creating run results directory: %w", err)
 	}
 
 	// Setup benchmarkoor log file for this run.
-	benchmarkoorLogFile, err := os.Create(filepath.Join(runResultsDir, "benchmarkoor.log"))
+	benchmarkoorLogFile, err := fsutil.Create(filepath.Join(runResultsDir, "benchmarkoor.log"), r.cfg.ResultsOwner)
 	if err != nil {
 		return fmt.Errorf("creating benchmarkoor log file: %w", err)
 	}
@@ -435,7 +437,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		// Set up init container log streaming.
 		initLogFile := filepath.Join(runResultsDir, "container-init.log")
 
-		initFile, err := os.Create(initLogFile)
+		initFile, err := fsutil.Create(initLogFile, r.cfg.ResultsOwner)
 		if err != nil {
 			return fmt.Errorf("creating init log file: %w", err)
 		}
@@ -507,7 +509,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		runConfig.SuiteHash = r.executor.GetSuiteHash()
 	}
 
-	if err := writeRunConfig(runResultsDir, runConfig); err != nil {
+	if err := writeRunConfig(runResultsDir, runConfig, r.cfg.ResultsOwner); err != nil {
 		log.WithError(err).Warn("Failed to write run config")
 	}
 
@@ -632,7 +634,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	// Update config with client version.
 	runConfig.Instance.ClientVersion = clientVersion
 
-	if err := writeRunConfig(runResultsDir, runConfig); err != nil {
+	if err := writeRunConfig(runResultsDir, runConfig, r.cfg.ResultsOwner); err != nil {
 		log.WithError(err).Warn("Failed to update run config with client version")
 	}
 
@@ -697,7 +699,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	mu.Unlock()
 
 	// Write final config with status.
-	if err := writeRunConfig(runResultsDir, runConfig); err != nil {
+	if err := writeRunConfig(runResultsDir, runConfig, r.cfg.ResultsOwner); err != nil {
 		log.WithError(err).Warn("Failed to write final run config with status")
 	} else {
 		log.WithField("status", runConfig.Status).Info("Run completed")
@@ -787,14 +789,14 @@ func getSystemInfo() *SystemInfo {
 }
 
 // writeRunConfig writes the run configuration to config.json.
-func writeRunConfig(resultsDir string, cfg *RunConfig) error {
+func writeRunConfig(resultsDir string, cfg *RunConfig, owner *fsutil.OwnerConfig) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling run config: %w", err)
 	}
 
 	configPath := filepath.Join(resultsDir, "config.json")
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := fsutil.WriteFile(configPath, data, 0644, owner); err != nil {
 		return fmt.Errorf("writing config.json: %w", err)
 	}
 
@@ -807,7 +809,7 @@ func (r *runner) streamLogs(
 	instanceID, containerID, logPath string,
 	benchmarkoorLog io.Writer,
 ) error {
-	file, err := os.Create(logPath)
+	file, err := fsutil.Create(logPath, r.cfg.ResultsOwner)
 	if err != nil {
 		return fmt.Errorf("creating log file: %w", err)
 	}

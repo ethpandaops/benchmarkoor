@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 )
 
 // SuiteStats maps test names directly to their durations.
@@ -199,10 +201,10 @@ func buildSuiteStats(runsDir string, runs []runInfo) (*SuiteStats, error) {
 }
 
 // WriteSuiteStats writes suite statistics to the appropriate file.
-func WriteSuiteStats(resultsDir, suiteHash string, stats *SuiteStats) error {
+func WriteSuiteStats(resultsDir, suiteHash string, stats *SuiteStats, owner *fsutil.OwnerConfig) error {
 	suitesDir := filepath.Join(resultsDir, "suites", suiteHash)
 
-	if err := os.MkdirAll(suitesDir, 0755); err != nil {
+	if err := fsutil.MkdirAll(suitesDir, 0755, owner); err != nil {
 		return fmt.Errorf("creating suites directory: %w", err)
 	}
 
@@ -213,7 +215,7 @@ func WriteSuiteStats(resultsDir, suiteHash string, stats *SuiteStats) error {
 		return fmt.Errorf("marshaling suite stats: %w", err)
 	}
 
-	if err := os.WriteFile(statsPath, data, 0644); err != nil {
+	if err := fsutil.WriteFile(statsPath, data, 0644, owner); err != nil {
 		return fmt.Errorf("writing stats.json: %w", err)
 	}
 
