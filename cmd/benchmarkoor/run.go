@@ -28,12 +28,12 @@ func init() {
 }
 
 func runBenchmark(cmd *cobra.Command, args []string) error {
-	if cfgFile == "" {
+	if len(cfgFiles) == 0 {
 		return fmt.Errorf("config file is required (use --config)")
 	}
 
 	// Load configuration.
-	cfg, err := config.Load(cfgFile)
+	cfg, err := config.Load(cfgFiles...)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}

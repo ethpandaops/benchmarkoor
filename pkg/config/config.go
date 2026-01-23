@@ -165,11 +165,16 @@ type ClientInstance struct {
 	DataDir     *DataDirConfig    `yaml:"datadir,omitempty" mapstructure:"datadir"`
 }
 
-// Load reads and parses a configuration file from the given path.
+// Load reads and parses configuration files from the given paths.
+// When multiple paths are provided, configs are merged in order (later values override earlier).
 // Environment variables can be substituted in config values using ${VAR} or $VAR syntax.
 // Additionally, environment variables with the prefix BENCHMARKOOR_ can override config values.
 // For example, BENCHMARKOOR_GLOBAL_LOG_LEVEL overrides global.log_level.
-func Load(path string) (*Config, error) {
+func Load(paths ...string) (*Config, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("at least one config path is required")
+	}
+
 	v := viper.New()
 
 	// Configure environment variable handling for overrides.
@@ -177,18 +182,26 @@ func Load(path string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	// Read and expand environment variables in config file.
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading config file: %w", err)
-	}
-
-	expanded := os.ExpandEnv(string(content))
-
 	v.SetConfigType("yaml")
 
-	if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
-		return nil, fmt.Errorf("parsing config: %w", err)
+	// Load and merge configs in order.
+	for i, path := range paths {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("reading config file %q: %w", path, err)
+		}
+
+		expanded := os.ExpandEnv(string(content))
+
+		if i == 0 {
+			if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
+				return nil, fmt.Errorf("parsing config %q: %w", path, err)
+			}
+		} else {
+			if err := v.MergeConfig(strings.NewReader(expanded)); err != nil {
+				return nil, fmt.Errorf("merging config %q: %w", path, err)
+			}
+		}
 	}
 
 	// Bind all known configuration keys to allow env var overrides.
