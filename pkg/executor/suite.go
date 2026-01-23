@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 )
 
 // SuiteInfo contains information about a test suite.
@@ -115,6 +117,7 @@ func CreateSuiteOutput(
 	resultsDir, hash string,
 	info *SuiteInfo,
 	prepared *PreparedSource,
+	owner *fsutil.OwnerConfig,
 ) error {
 	suiteDir := filepath.Join(resultsDir, "suites", hash)
 
@@ -125,14 +128,14 @@ func CreateSuiteOutput(
 	}
 
 	// Create suite directory.
-	if err := os.MkdirAll(suiteDir, 0755); err != nil {
+	if err := fsutil.MkdirAll(suiteDir, 0755, owner); err != nil {
 		return fmt.Errorf("creating suite dir: %w", err)
 	}
 
 	// Copy pre-run steps.
 	// Structure: <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
 	for _, f := range prepared.PreRunSteps {
-		suiteFile, err := copyPreRunStepFile(suiteDir, f)
+		suiteFile, err := copyPreRunStepFile(suiteDir, f, owner)
 		if err != nil {
 			return fmt.Errorf("copying pre-run step: %w", err)
 		}
@@ -149,12 +152,12 @@ func CreateSuiteOutput(
 
 		// Create test directory.
 		testDir := filepath.Join(suiteDir, test.Name)
-		if err := os.MkdirAll(testDir, 0755); err != nil {
+		if err := fsutil.MkdirAll(testDir, 0755, owner); err != nil {
 			return fmt.Errorf("creating test dir for %s: %w", test.Name, err)
 		}
 
 		if test.Setup != nil {
-			suiteFile, err := copyTestStepFile(testDir, "setup", test.Setup)
+			suiteFile, err := copyTestStepFile(testDir, "setup", test.Setup, owner)
 			if err != nil {
 				return fmt.Errorf("copying setup file: %w", err)
 			}
@@ -163,7 +166,7 @@ func CreateSuiteOutput(
 		}
 
 		if test.Test != nil {
-			suiteFile, err := copyTestStepFile(testDir, "test", test.Test)
+			suiteFile, err := copyTestStepFile(testDir, "test", test.Test, owner)
 			if err != nil {
 				return fmt.Errorf("copying test file: %w", err)
 			}
@@ -172,7 +175,7 @@ func CreateSuiteOutput(
 		}
 
 		if test.Cleanup != nil {
-			suiteFile, err := copyTestStepFile(testDir, "cleanup", test.Cleanup)
+			suiteFile, err := copyTestStepFile(testDir, "cleanup", test.Cleanup, owner)
 			if err != nil {
 				return fmt.Errorf("copying cleanup file: %w", err)
 			}
@@ -191,7 +194,7 @@ func CreateSuiteOutput(
 		return fmt.Errorf("marshaling summary: %w", err)
 	}
 
-	if err := os.WriteFile(summaryPath, summaryData, 0644); err != nil {
+	if err := fsutil.WriteFile(summaryPath, summaryData, 0644, owner); err != nil {
 		return fmt.Errorf("writing summary: %w", err)
 	}
 
@@ -200,7 +203,7 @@ func CreateSuiteOutput(
 
 // copyTestStepFile copies a test step file to the test directory with a standardized name.
 // Files are stored as <test_dir>/<step_type>.request (e.g., setup.request, test.request, cleanup.request).
-func copyTestStepFile(testDir, stepType string, file *StepFile) (*SuiteFile, error) {
+func copyTestStepFile(testDir, stepType string, file *StepFile, owner *fsutil.OwnerConfig) (*SuiteFile, error) {
 	srcFile, err := os.Open(file.Path)
 	if err != nil {
 		return nil, fmt.Errorf("opening source: %w", err)
@@ -210,7 +213,7 @@ func copyTestStepFile(testDir, stepType string, file *StepFile) (*SuiteFile, err
 
 	dstPath := filepath.Join(testDir, stepType+".request")
 
-	dstFile, err := os.Create(dstPath)
+	dstFile, err := fsutil.Create(dstPath, owner)
 	if err != nil {
 		return nil, fmt.Errorf("creating destination: %w", err)
 	}
@@ -226,10 +229,10 @@ func copyTestStepFile(testDir, stepType string, file *StepFile) (*SuiteFile, err
 
 // copyPreRunStepFile copies a pre-run step file to the suite directory.
 // Files are stored as <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
-func copyPreRunStepFile(suiteDir string, file *StepFile) (*SuiteFile, error) {
+func copyPreRunStepFile(suiteDir string, file *StepFile, owner *fsutil.OwnerConfig) (*SuiteFile, error) {
 	// Create step directory using the step name (relative path).
 	stepDir := filepath.Join(suiteDir, file.Name)
-	if err := os.MkdirAll(stepDir, 0755); err != nil {
+	if err := fsutil.MkdirAll(stepDir, 0755, owner); err != nil {
 		return nil, fmt.Errorf("creating step dir: %w", err)
 	}
 
@@ -242,7 +245,7 @@ func copyPreRunStepFile(suiteDir string, file *StepFile) (*SuiteFile, error) {
 
 	dstPath := filepath.Join(stepDir, "pre_run.request")
 
-	dstFile, err := os.Create(dstPath)
+	dstFile, err := fsutil.Create(dstPath, owner)
 	if err != nil {
 		return nil, fmt.Errorf("creating destination: %w", err)
 	}

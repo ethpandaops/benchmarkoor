@@ -96,7 +96,7 @@ docker-build-ui:
 
 ## docker-up: Start services with docker-compose
 docker-up:
-	docker compose up -d --build
+	USER_UID=$(shell id -u) USER_GID=$(shell id -g) docker compose up -d --build
 
 ## docker-down: Stop services with docker-compose
 docker-down:

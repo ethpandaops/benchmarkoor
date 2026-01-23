@@ -55,6 +55,7 @@ type DirectoriesConfig struct {
 // BenchmarkConfig contains benchmark-specific settings.
 type BenchmarkConfig struct {
 	ResultsDir           string      `yaml:"results_dir" mapstructure:"results_dir"`
+	ResultsOwner         string      `yaml:"results_owner,omitempty" mapstructure:"results_owner"`
 	GenerateResultsIndex bool        `yaml:"generate_results_index" mapstructure:"generate_results_index"`
 	GenerateSuiteStats   bool        `yaml:"generate_suite_stats" mapstructure:"generate_suite_stats"`
 	Tests                TestsConfig `yaml:"tests,omitempty" mapstructure:"tests"`
@@ -230,6 +231,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"global.directories.tmp_cachedir",
 		// Benchmark settings
 		"benchmark.results_dir",
+		"benchmark.results_owner",
 		"benchmark.generate_results_index",
 		"benchmark.generate_suite_stats",
 		"benchmark.tests.filter",

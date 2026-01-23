@@ -36,7 +36,7 @@ func runSuiteStatsFile(_ *cobra.Command, _ []string) error {
 
 	// Write stats for each suite.
 	for suiteHash, stats := range allStats {
-		if err := executor.WriteSuiteStats(suiteStatsResultsDir, suiteHash, stats); err != nil {
+		if err := executor.WriteSuiteStats(suiteStatsResultsDir, suiteHash, stats, nil); err != nil {
 			return fmt.Errorf("writing stats for suite %s: %w", suiteHash, err)
 		}
 

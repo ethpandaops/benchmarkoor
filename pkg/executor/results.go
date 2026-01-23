@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 )
 
 // MethodStats contains aggregated statistics for a single method (int64 values).
@@ -481,10 +483,15 @@ func percentileFloat(sorted []float64, p int) float64 {
 
 // WriteStepResults writes the three output files for a test step.
 // Files are written to: resultDir/testName/{stepType}.{response,result-details.json,result-aggregated.json}
-func WriteStepResults(resultDir, testName string, stepType StepType, result *TestResult) error {
+func WriteStepResults(
+	resultDir, testName string,
+	stepType StepType,
+	result *TestResult,
+	owner *fsutil.OwnerConfig,
+) error {
 	// Ensure the test directory exists.
 	testDir := filepath.Join(resultDir, testName)
-	if err := os.MkdirAll(testDir, 0755); err != nil {
+	if err := fsutil.MkdirAll(testDir, 0755, owner); err != nil {
 		return fmt.Errorf("creating test result directory: %w", err)
 	}
 
@@ -493,7 +500,7 @@ func WriteStepResults(resultDir, testName string, stepType StepType, result *Tes
 
 	// Write .response file.
 	responsePath := basePath + ".response"
-	if err := os.WriteFile(responsePath, []byte(strings.Join(result.Responses, "\n")+"\n"), 0644); err != nil {
+	if err := fsutil.WriteFile(responsePath, []byte(strings.Join(result.Responses, "\n")+"\n"), 0644, owner); err != nil {
 		return fmt.Errorf("writing response file: %w", err)
 	}
 
@@ -512,7 +519,7 @@ func WriteStepResults(resultDir, testName string, stepType StepType, result *Tes
 		return fmt.Errorf("marshaling result details: %w", err)
 	}
 
-	if err := os.WriteFile(detailsPath, detailsJSON, 0644); err != nil {
+	if err := fsutil.WriteFile(detailsPath, detailsJSON, 0644, owner); err != nil {
 		return fmt.Errorf("writing result details file: %w", err)
 	}
 
@@ -525,7 +532,7 @@ func WriteStepResults(resultDir, testName string, stepType StepType, result *Tes
 		return fmt.Errorf("marshaling stats: %w", err)
 	}
 
-	if err := os.WriteFile(statsPath, statsJSON, 0644); err != nil {
+	if err := fsutil.WriteFile(statsPath, statsJSON, 0644, owner); err != nil {
 		return fmt.Errorf("writing stats file: %w", err)
 	}
 
@@ -648,7 +655,7 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 }
 
 // WriteRunResult writes the run result to result.json in the results directory.
-func WriteRunResult(resultsDir string, result *RunResult) error {
+func WriteRunResult(resultsDir string, result *RunResult, owner *fsutil.OwnerConfig) error {
 	resultPath := filepath.Join(resultsDir, "result.json")
 
 	data, err := json.MarshalIndent(result, "", "  ")
@@ -656,7 +663,7 @@ func WriteRunResult(resultsDir string, result *RunResult) error {
 		return fmt.Errorf("marshaling run result: %w", err)
 	}
 
-	if err := os.WriteFile(resultPath, data, 0644); err != nil {
+	if err := fsutil.WriteFile(resultPath, data, 0644, owner); err != nil {
 		return fmt.Errorf("writing result.json: %w", err)
 	}
 

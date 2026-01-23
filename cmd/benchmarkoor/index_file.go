@@ -35,7 +35,7 @@ func runIndexFile(_ *cobra.Command, _ []string) error {
 	}
 
 	// Write the index.json file.
-	if err := executor.WriteIndex(indexResultsDir, index); err != nil {
+	if err := executor.WriteIndex(indexResultsDir, index, nil); err != nil {
 		return fmt.Errorf("writing index: %w", err)
 	}
 

@@ -1,6 +1,6 @@
 global:
   log_level: info
-  client_logs_to_stdout: false
+  client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
 
