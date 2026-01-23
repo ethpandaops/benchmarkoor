@@ -63,7 +63,7 @@ client:
   config:
     # JWT secret for Engine API authentication (optional, has a default).
     # Can be set via environment variable for security.
-    jwt: ${JWT_SECRET:-5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae}
+    # jwt: ${JWT_SECRET:-5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae}
     # Genesis file URLs per client type
     genesis:
       besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
