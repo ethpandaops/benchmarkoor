@@ -9,7 +9,10 @@ services:
       - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=${PWD}/tmp/cache
       - BENCHMARKOOR_BENCHMARK_RESULTS_OWNER=${USER_UID}:${USER_GID}
     volumes:
+      # The docker socket is required to interact with docker containers
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # The cgroups path is recommended when on Linux systems to fetch system metrics
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
       - ./config.example.docker.yaml:/app/config.yaml:ro
       - ${PWD}/tmp:${PWD}/tmp
       - ./results:/app/results

@@ -18,6 +18,10 @@ global:
 
 benchmark:
   results_dir: ${RESULTS_DIR:-./results}
+  # Optional: Enable/disable system resource collection (cgroups/Docker Stats API).
+  # When disabled, no CPU/memory/disk metrics will be collected during tests.
+  # Useful when running in environments without cgroup access. Default: true
+  # system_resource_collection_enabled: true
   # Optional: Generate index.json after benchmark (aggregates all run metadata).
   # generate_results_index: true
   # Optional: Generate stats.json per suite after benchmark (aggregates test durations
