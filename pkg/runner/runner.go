@@ -258,8 +258,10 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	var cleanupFuncs []func()
 
 	defer func() {
-		for _, cleanup := range cleanupFuncs {
-			cleanup()
+		// Execute cleanup in reverse order (LIFO) - container must be
+		// removed before its volume can be deleted.
+		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
+			cleanupFuncs[i]()
 		}
 	}()
 
