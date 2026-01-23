@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/docker/go-units"
+	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/spf13/viper"
 )
 
@@ -117,6 +119,69 @@ type DataDirConfig struct {
 	Method       string `yaml:"method,omitempty" json:"method,omitempty" mapstructure:"method"`
 }
 
+// ResourceLimits configures container resource constraints.
+type ResourceLimits struct {
+	CpusetCount  *int   `yaml:"cpuset_count,omitempty" mapstructure:"cpuset_count" json:"cpuset_count,omitempty"`
+	Cpuset       []int  `yaml:"cpuset,omitempty" mapstructure:"cpuset" json:"cpuset,omitempty"`
+	Memory       string `yaml:"memory,omitempty" mapstructure:"memory" json:"memory,omitempty"`
+	SwapDisabled bool   `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
+}
+
+// Validate checks the resource limits configuration for errors.
+func (r *ResourceLimits) Validate(prefix string) error {
+	if r == nil {
+		return nil
+	}
+
+	// Check mutual exclusivity of cpuset_count and cpuset.
+	if r.CpusetCount != nil && len(r.Cpuset) > 0 {
+		return fmt.Errorf("%s: cpuset_count and cpuset are mutually exclusive", prefix)
+	}
+
+	// Get available CPU count.
+	numCPUs, err := cpu.Counts(true)
+	if err != nil {
+		return fmt.Errorf("%s: failed to get CPU count: %w", prefix, err)
+	}
+
+	// Validate cpuset_count.
+	if r.CpusetCount != nil {
+		if *r.CpusetCount < 1 {
+			return fmt.Errorf("%s: cpuset_count must be at least 1", prefix)
+		}
+
+		if *r.CpusetCount > numCPUs {
+			return fmt.Errorf("%s: cpuset_count (%d) exceeds available CPUs (%d)", prefix, *r.CpusetCount, numCPUs)
+		}
+	}
+
+	// Validate cpuset.
+	if len(r.Cpuset) > 0 {
+		seen := make(map[int]struct{}, len(r.Cpuset))
+
+		for _, cpuID := range r.Cpuset {
+			if cpuID < 0 || cpuID >= numCPUs {
+				return fmt.Errorf("%s: cpuset contains invalid CPU %d (valid range: 0-%d)", prefix, cpuID, numCPUs-1)
+			}
+
+			if _, exists := seen[cpuID]; exists {
+				return fmt.Errorf("%s: cpuset contains duplicate CPU %d", prefix, cpuID)
+			}
+
+			seen[cpuID] = struct{}{}
+		}
+	}
+
+	// Validate memory format.
+	if r.Memory != "" {
+		if _, err := units.RAMInBytes(r.Memory); err != nil {
+			return fmt.Errorf("%s: invalid memory format %q: %w", prefix, r.Memory, err)
+		}
+	}
+
+	return nil
+}
+
 // Validate checks the datadir configuration for errors.
 func (d *DataDirConfig) Validate(prefix string) error {
 	if d.SourceDir == "" {
@@ -156,6 +221,7 @@ type ClientDefaults struct {
 	JWT              string            `yaml:"jwt" mapstructure:"jwt"`
 	Genesis          map[string]string `yaml:"genesis" mapstructure:"genesis"`
 	DropMemoryCaches string            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
+	ResourceLimits   *ResourceLimits   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
@@ -172,6 +238,7 @@ type ClientInstance struct {
 	Genesis          string            `yaml:"genesis,omitempty" mapstructure:"genesis"`
 	DataDir          *DataDirConfig    `yaml:"datadir,omitempty" mapstructure:"datadir"`
 	DropMemoryCaches string            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
+	ResourceLimits   *ResourceLimits   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
 }
 
 // Load reads and parses configuration files from the given paths.
@@ -344,6 +411,20 @@ func (c *Config) Validate() error {
 				return err
 			}
 		}
+
+		// Validate instance-level resource limits.
+		if instance.ResourceLimits != nil {
+			if err := instance.ResourceLimits.Validate(fmt.Sprintf("instance %q resource_limits", instance.ID)); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Validate global resource limits.
+	if c.Client.Config.ResourceLimits != nil {
+		if err := c.Client.Config.ResourceLimits.Validate("client.config.resource_limits"); err != nil {
+			return err
+		}
 	}
 
 	// Validate global datadirs.
@@ -464,6 +545,17 @@ func (c *Config) GetDropCachesPath() string {
 	}
 
 	return DefaultDropCachesPath
+}
+
+// GetResourceLimits returns the resource limits for an instance.
+// Instance-level limits take precedence over global defaults.
+// Returns nil if no limits are configured.
+func (c *Config) GetResourceLimits(instance *ClientInstance) *ResourceLimits {
+	if instance.ResourceLimits != nil {
+		return instance.ResourceLimits
+	}
+
+	return c.Client.Config.ResourceLimits
 }
 
 // validateDropMemoryCaches validates drop_memory_caches settings and checks permissions.

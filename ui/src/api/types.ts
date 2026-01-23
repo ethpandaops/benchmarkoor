@@ -146,6 +146,13 @@ export interface DataDirConfig {
   method?: string
 }
 
+export interface ResourceLimitsConfig {
+  cpuset_cpus?: string
+  memory?: string
+  memory_bytes?: number
+  swap_disabled?: boolean
+}
+
 export interface InstanceConfig {
   id: string
   client: string
@@ -161,6 +168,7 @@ export interface InstanceConfig {
   datadir?: DataDirConfig
   client_version?: string
   drop_memory_caches?: string
+  resource_limits?: ResourceLimitsConfig
 }
 
 // result.json per run

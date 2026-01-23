@@ -219,6 +219,30 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                 <InfoItem label="Virtualization" value={`${system.virtualization} (${system.virtualization_role})`} />
               )}
             </dl>
+
+            {/* Resource Limits */}
+            {instance.resource_limits && (
+              <div className="mt-6">
+                <h5 className="mb-3 text-xs/5 font-medium text-gray-500 dark:text-gray-400">Resource Limits</h5>
+                <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {instance.resource_limits.cpuset_cpus && (
+                    <>
+                      <InfoItem
+                        label="CPU Count"
+                        value={instance.resource_limits.cpuset_cpus.split(',').length}
+                      />
+                      <InfoItem label="CPU Pinning" value={instance.resource_limits.cpuset_cpus} />
+                    </>
+                  )}
+                  {instance.resource_limits.memory && (
+                    <InfoItem label="Memory Limit" value={instance.resource_limits.memory} />
+                  )}
+                  {instance.resource_limits.swap_disabled !== undefined && (
+                    <InfoItem label="Swap Disabled" value={instance.resource_limits.swap_disabled ? 'Yes' : 'No'} />
+                  )}
+                </dl>
+              </div>
+            )}
           </div>
         </div>
       )}
