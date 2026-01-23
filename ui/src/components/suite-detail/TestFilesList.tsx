@@ -67,7 +67,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   )
 }
 
-// For pre-run steps: path is suites/${suiteHash}/pre_run_steps/${file.og_path}
+// For pre-run steps: path is suites/${suiteHash}/${file.og_path}/pre_run.request
 // For test steps: path is suites/${suiteHash}/${testName}/${stepType}.request
 function FileContent({
   suiteHash,
@@ -83,7 +83,7 @@ function FileContent({
   // Build path based on whether this is a test step or pre-run step
   const path = testName
     ? `suites/${suiteHash}/${testName}/${stepType}.request`
-    : `suites/${suiteHash}/${stepType}/${file.og_path}`
+    : `suites/${suiteHash}/${file.og_path}/pre_run.request`
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['suite', suiteHash, stepType, testName, file.og_path],

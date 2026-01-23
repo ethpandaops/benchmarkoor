@@ -15,6 +15,7 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { ClientStat } from '@/components/shared/ClientStat'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
+import { StatusAlert } from '@/components/shared/StatusBadge'
 import { formatTimestamp } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
 
@@ -331,6 +332,12 @@ export function RunDetailPage() {
           </div>
         )}
       </div>
+
+      <StatusAlert
+        status={config.status}
+        terminationReason={config.termination_reason}
+        containerExitCode={config.container_exit_code}
+      />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <ClientStat client={config.instance.client} runId={config.instance.id} />

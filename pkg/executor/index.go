@@ -17,11 +17,13 @@ type Index struct {
 
 // IndexEntry contains summary information for a single benchmark run.
 type IndexEntry struct {
-	RunID     string          `json:"run_id"`
-	Timestamp int64           `json:"timestamp"`
-	SuiteHash string          `json:"suite_hash,omitempty"`
-	Instance  *IndexInstance  `json:"instance"`
-	Tests     *IndexTestStats `json:"tests"`
+	RunID             string          `json:"run_id"`
+	Timestamp         int64           `json:"timestamp"`
+	SuiteHash         string          `json:"suite_hash,omitempty"`
+	Instance          *IndexInstance  `json:"instance"`
+	Tests             *IndexTestStats `json:"tests"`
+	Status            string          `json:"status,omitempty"`
+	TerminationReason string          `json:"termination_reason,omitempty"`
 }
 
 // IndexInstance contains the client instance information for the index.
@@ -55,9 +57,11 @@ type IndexStepStats struct {
 
 // runConfigJSON is used to parse config.json files.
 type runConfigJSON struct {
-	Timestamp int64  `json:"timestamp"`
-	SuiteHash string `json:"suite_hash,omitempty"`
-	Instance  struct {
+	Timestamp         int64  `json:"timestamp"`
+	SuiteHash         string `json:"suite_hash,omitempty"`
+	Status            string `json:"status,omitempty"`
+	TerminationReason string `json:"termination_reason,omitempty"`
+	Instance          struct {
 		ID     string `json:"id"`
 		Client string `json:"client"`
 		Image  string `json:"image"`
@@ -241,9 +245,11 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 	}
 
 	return &IndexEntry{
-		RunID:     runID,
-		Timestamp: runConfig.Timestamp,
-		SuiteHash: runConfig.SuiteHash,
+		RunID:             runID,
+		Timestamp:         runConfig.Timestamp,
+		SuiteHash:         runConfig.SuiteHash,
+		Status:            runConfig.Status,
+		TerminationReason: runConfig.TerminationReason,
 		Instance: &IndexInstance{
 			ID:     runConfig.Instance.ID,
 			Client: runConfig.Instance.Client,
