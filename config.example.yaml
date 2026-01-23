@@ -70,6 +70,9 @@ client:
     # JWT secret for Engine API authentication (optional, has a default).
     # Can be set via environment variable for security.
     # jwt: ${JWT_SECRET:-5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae}
+    # Optional: Drop memory caches during benchmark execution (Linux only, requires root).
+    # Values: "disabled" (default), "tests" (between tests), "steps" (between setup/test/cleanup steps)
+    # drop_memory_caches: "disabled"
     # Genesis file URLs per client type
     genesis:
       besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
@@ -126,6 +129,7 @@ client:
       # datadir:  # Instance-level datadir (overrides global datadirs)
       #   source_dir: ${DATA_SNAPSHOTS_DIR}/geth
       #   container_dir: /data
+      # drop_memory_caches: "steps"  # Instance-level override (optional)
 
     # Example: running multiple clients
     # - id: nethermind-latest

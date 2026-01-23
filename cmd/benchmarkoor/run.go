@@ -148,6 +148,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		TmpDataDir:         cfg.Global.Directories.TmpDataDir,
 		TmpCacheDir:        cfg.Global.Directories.TmpCacheDir,
 		TestFilter:         cfg.Benchmark.Tests.Filter,
+		FullConfig:         cfg,
 	}
 
 	r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec)

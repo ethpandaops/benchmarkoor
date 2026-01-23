@@ -4,6 +4,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    cap_add:
+     # Required for dropping memory caches between tests (config.yaml#client.config.drop_memory_caches)
+      - SYS_ADMIN
     environment:
       - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=${PWD}/tmp/data
       - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=${PWD}/tmp/cache
@@ -13,6 +16,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # The cgroups path is recommended when on Linux systems to fetch system metrics
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      #  # Required for dropping memory caches between tests (config.yaml#client.config.drop_memory_caches)
+      - /proc/sys/vm/drop_caches:/proc/sys/vm/drop_caches
+      # Config file
       - ./config.example.docker.yaml:/app/config.yaml:ro
       - ${PWD}/tmp:${PWD}/tmp
       - ./results:/app/results
