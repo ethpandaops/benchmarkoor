@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -257,9 +258,15 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	// Track cleanup functions.
 	var cleanupFuncs []func()
 
+	cleanupStarted := make(chan struct{})
+
+	var cleanupOnce sync.Once
+
 	defer func() {
-		// Execute cleanup in reverse order (LIFO) - container must be
-		// removed before its volume can be deleted.
+		// Signal that intentional cleanup is starting.
+		cleanupOnce.Do(func() { close(cleanupStarted) })
+
+		// Execute cleanup in reverse order (LIFO).
 		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
 			cleanupFuncs[i]()
 		}
@@ -548,7 +555,13 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		defer r.wg.Done()
 
 		if err := r.streamLogs(logCtx, instance.ID, containerID, logFile, benchmarkoorLogFile); err != nil {
-			log.WithError(err).Warn("Log streaming error")
+			// Context cancellation during cleanup is expected.
+			select {
+			case <-cleanupStarted:
+				log.WithError(err).Debug("Log streaming stopped")
+			default:
+				log.WithError(err).Warn("Log streaming error")
+			}
 		}
 	}()
 
@@ -582,10 +595,17 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			containerExitCode = &exitCode
 			mu.Unlock()
 
-			log.WithField("exit_code", exitCode).Warn("Container exited unexpectedly")
-			execCancel() // Cancel test execution context.
+			// Only warn if not during intentional cleanup.
+			select {
+			case <-cleanupStarted:
+				log.WithField("exit_code", exitCode).Debug("Container stopped during cleanup")
+			default:
+				log.WithField("exit_code", exitCode).Warn("Container exited unexpectedly")
+			}
+
+			execCancel()
 		case err := <-containerErrCh:
-			if err != nil && err != context.Canceled {
+			if err != nil && !errors.Is(err, context.Canceled) {
 				log.WithError(err).Warn("Container wait error")
 			}
 		case <-r.done:
