@@ -16,11 +16,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # The cgroups path is recommended when on Linux systems to fetch system metrics
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
-      #  # Required for dropping memory caches between tests (config.yaml#client.config.drop_memory_caches)
-      - /proc/sys/vm/drop_caches:/proc/sys/vm/drop_caches
+      # Required for dropping memory caches between tests (config.yaml#client.config.drop_memory_caches)
+      - /proc/sys/vm/drop_caches:/host_drop_caches
       # Config file
       - ./config.example.docker.yaml:/app/config.yaml:ro
+      # Temp directory (For fetching temporary files and node data dirs)
       - ${PWD}/tmp:${PWD}/tmp
+      # Results directory
       - ./results:/app/results
     working_dir: /app
     command: ["run", "--config", "/app/config.yaml"]

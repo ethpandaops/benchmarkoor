@@ -15,6 +15,9 @@ global:
   #   tmp_datadir: ${TMP_DIR:-/tmp}/benchmarkoor
   #   # Directory for executor cache - git clones, etc (defaults to ~/.cache/benchmarkoor).
   #   tmp_cachedir: ${TMP_DIR:-/tmp}/benchmarkoor-cache
+  # Optional: Override path to drop_caches file (default: /proc/sys/vm/drop_caches).
+  # Useful when running in containers where the file is mounted at a different path.
+  # drop_caches_path: /proc/sys/vm/drop_caches
 
 benchmark:
   results_dir: ${RESULTS_DIR:-./results}
