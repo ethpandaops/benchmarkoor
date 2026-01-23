@@ -54,11 +54,12 @@ type DirectoriesConfig struct {
 
 // BenchmarkConfig contains benchmark-specific settings.
 type BenchmarkConfig struct {
-	ResultsDir           string      `yaml:"results_dir" mapstructure:"results_dir"`
-	ResultsOwner         string      `yaml:"results_owner,omitempty" mapstructure:"results_owner"`
-	GenerateResultsIndex bool        `yaml:"generate_results_index" mapstructure:"generate_results_index"`
-	GenerateSuiteStats   bool        `yaml:"generate_suite_stats" mapstructure:"generate_suite_stats"`
-	Tests                TestsConfig `yaml:"tests,omitempty" mapstructure:"tests"`
+	ResultsDir                      string      `yaml:"results_dir" mapstructure:"results_dir"`
+	ResultsOwner                    string      `yaml:"results_owner,omitempty" mapstructure:"results_owner"`
+	SystemResourceCollectionEnabled *bool       `yaml:"system_resource_collection_enabled,omitempty" mapstructure:"system_resource_collection_enabled"`
+	GenerateResultsIndex            bool        `yaml:"generate_results_index" mapstructure:"generate_results_index"`
+	GenerateSuiteStats              bool        `yaml:"generate_suite_stats" mapstructure:"generate_suite_stats"`
+	Tests                           TestsConfig `yaml:"tests,omitempty" mapstructure:"tests"`
 }
 
 // TestsConfig contains test execution settings.
@@ -232,6 +233,7 @@ func bindEnvKeys(v *viper.Viper) {
 		// Benchmark settings
 		"benchmark.results_dir",
 		"benchmark.results_owner",
+		"benchmark.system_resource_collection_enabled",
 		"benchmark.generate_results_index",
 		"benchmark.generate_suite_stats",
 		"benchmark.tests.filter",
@@ -256,6 +258,11 @@ func (c *Config) applyDefaults() {
 
 	if c.Benchmark.ResultsDir == "" {
 		c.Benchmark.ResultsDir = DefaultResultsDir
+	}
+
+	if c.Benchmark.SystemResourceCollectionEnabled == nil {
+		enabled := true
+		c.Benchmark.SystemResourceCollectionEnabled = &enabled
 	}
 
 	if c.Client.Config.JWT == "" {

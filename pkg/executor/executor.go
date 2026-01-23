@@ -55,11 +55,12 @@ type ExecutionResult struct {
 
 // Config for the executor.
 type Config struct {
-	Source       *config.SourceConfig
-	Filter       string
-	CacheDir     string
-	ResultsDir   string
-	ResultsOwner *fsutil.OwnerConfig // Optional file ownership for results directory
+	Source                          *config.SourceConfig
+	Filter                          string
+	CacheDir                        string
+	ResultsDir                      string
+	ResultsOwner                    *fsutil.OwnerConfig // Optional file ownership for results directory
+	SystemResourceCollectionEnabled bool                // Enable system resource collection (cgroups/Docker Stats)
 }
 
 // NewExecutor creates a new executor instance.
@@ -177,8 +178,8 @@ func (e *executor) GetSuiteHash() string {
 func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*ExecutionResult, error) {
 	startTime := time.Now()
 
-	// Create stats reader if container ID is provided.
-	if opts.ContainerID != "" {
+	// Create stats reader if container ID is provided and collection is enabled.
+	if opts.ContainerID != "" && e.cfg.SystemResourceCollectionEnabled {
 		reader, err := stats.NewReader(e.log, opts.DockerClient, opts.ContainerID)
 		if err != nil {
 			e.log.WithError(err).Warn("Failed to create stats reader, continuing without resource metrics")
