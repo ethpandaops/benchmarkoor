@@ -17,7 +17,7 @@ var (
 )
 
 var (
-	cfgFile  string
+	cfgFiles []string
 	logLevel string
 	log      *logrus.Logger
 )
@@ -63,7 +63,8 @@ var versionCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path")
+	rootCmd.PersistentFlags().StringArrayVar(&cfgFiles, "config", nil,
+		"config file path (can be specified multiple times)")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info",
 		"log level ("+strings.Join(logLevels(), ", ")+")")
 
