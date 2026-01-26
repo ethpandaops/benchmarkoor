@@ -14,7 +14,13 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/runner"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+)
+
+var (
+	limitInstanceIDs     []string
+	limitInstanceClients []string
 )
 
 var runCmd = &cobra.Command{
@@ -26,6 +32,10 @@ var runCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(runCmd)
+	runCmd.Flags().StringSliceVar(&limitInstanceIDs, "limit-instance-id", nil,
+		"Limit to instances with these IDs (comma-separated or repeated flag)")
+	runCmd.Flags().StringSliceVar(&limitInstanceClients, "limit-instance-client", nil,
+		"Limit to instances with these client types (comma-separated or repeated flag)")
 }
 
 func runBenchmark(cmd *cobra.Command, args []string) error {
@@ -163,8 +173,21 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Filter instances if limits are specified.
+	instances := filterInstances(cfg.Client.Instances, limitInstanceIDs, limitInstanceClients)
+	if len(instances) == 0 {
+		return fmt.Errorf("no instances match the specified filters")
+	}
+
+	if len(instances) != len(cfg.Client.Instances) {
+		log.WithFields(logrus.Fields{
+			"total":    len(cfg.Client.Instances),
+			"filtered": len(instances),
+		}).Info("Running filtered instances")
+	}
+
 	// Run all configured instances.
-	for _, instance := range cfg.Client.Instances {
+	for _, instance := range instances {
 		select {
 		case <-ctx.Done():
 			log.Info("Benchmark interrupted")
@@ -230,4 +253,46 @@ func getExecutorCacheDir() (string, error) {
 	}
 
 	return filepath.Join(homeDir, ".cache", "benchmarkoor"), nil
+}
+
+// filterInstances filters instances by ID and/or client type.
+// If no filters are specified, all instances are returned.
+func filterInstances(instances []config.ClientInstance, ids, clients []string) []config.ClientInstance {
+	// No filters, return all.
+	if len(ids) == 0 && len(clients) == 0 {
+		return instances
+	}
+
+	// Build lookup sets for O(1) matching.
+	idSet := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		idSet[id] = struct{}{}
+	}
+
+	clientSet := make(map[string]struct{}, len(clients))
+	for _, c := range clients {
+		clientSet[c] = struct{}{}
+	}
+
+	filtered := make([]config.ClientInstance, 0, len(instances))
+
+	for _, instance := range instances {
+		// If ID filter is set, instance must match.
+		if len(idSet) > 0 {
+			if _, ok := idSet[instance.ID]; !ok {
+				continue
+			}
+		}
+
+		// If client filter is set, instance must match.
+		if len(clientSet) > 0 {
+			if _, ok := clientSet[instance.Client]; !ok {
+				continue
+			}
+		}
+
+		filtered = append(filtered, instance)
+	}
+
+	return filtered
 }

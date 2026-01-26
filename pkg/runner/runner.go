@@ -85,6 +85,7 @@ type RunConfig struct {
 // Run status constants.
 const (
 	RunStatusCompleted     = "completed"
+	RunStatusFailed        = "failed"
 	RunStatusContainerDied = "container_died"
 	RunStatusCancelled     = "cancelled"
 )
@@ -320,11 +321,17 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			}
 		})
 
+		// Determine container directory: use config value or fall back to client's default.
+		containerDir := datadirCfg.ContainerDir
+		if containerDir == "" {
+			containerDir = spec.DataDir()
+		}
+
 		// Use bind mount for the prepared data.
 		dataMount = docker.Mount{
 			Type:   "bind",
 			Source: prepared.MountPath,
-			Target: datadirCfg.ContainerDir,
+			Target: containerDir,
 		}
 	} else {
 		// Create Docker volume for this run.
@@ -693,9 +700,25 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	log.WithField("ip", containerIP).Debug("Container IP address")
 
-	// Wait for RPC to be ready.
-	clientVersion, err := r.waitForRPC(ctx, containerIP, spec.RPCPort())
+	// Wait for RPC to be ready (use execCtx so it cancels if container dies).
+	clientVersion, err := r.waitForRPC(execCtx, containerIP, spec.RPCPort())
 	if err != nil {
+		// Mark run as failed and write config before returning.
+		mu.Lock()
+		if containerDied {
+			runConfig.Status = RunStatusContainerDied
+			runConfig.TerminationReason = fmt.Sprintf("container exited while waiting for RPC: %v", err)
+			runConfig.ContainerExitCode = containerExitCode
+		} else {
+			runConfig.Status = RunStatusFailed
+			runConfig.TerminationReason = fmt.Sprintf("waiting for RPC: %v", err)
+		}
+		mu.Unlock()
+
+		if writeErr := writeRunConfig(runResultsDir, runConfig, r.cfg.ResultsOwner); writeErr != nil {
+			log.WithError(writeErr).Warn("Failed to write run config with failed status")
+		}
+
 		return fmt.Errorf("waiting for RPC: %w", err)
 	}
 
@@ -708,12 +731,22 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		log.WithError(err).Warn("Failed to update run config with client version")
 	}
 
-	// Wait additional time.
+	// Wait additional time (use execCtx so it cancels if container dies).
 	select {
 	case <-time.After(r.cfg.ReadyWaitAfter):
 		log.Info("Wait period complete")
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-execCtx.Done():
+		// Check if it was container death or user cancellation.
+		mu.Lock()
+		died := containerDied
+		mu.Unlock()
+
+		if died {
+			// Will be handled in final status section.
+			log.Warn("Container died during wait period")
+		} else {
+			return ctx.Err()
+		}
 	}
 
 	// Execute tests if executor is configured.

@@ -241,18 +241,18 @@ client:
   datadirs:
     geth:
       source_dir: ./data/snapshots/geth
-      container_dir: /data
+      # container_dir defaults to /data (geth's data directory)
       method: copy
     reth:
       source_dir: ./data/snapshots/reth
-      container_dir: /root/.local/share/reth
+      # container_dir defaults to /var/lib/reth (reth's data directory)
       method: overlayfs
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `source_dir` | string | Required | Path to the source data directory |
-| `container_dir` | string | `/data` | Mount path inside the container |
+| `container_dir` | string | Client default | Mount path inside the container. If not specified, uses the client's default data directory (e.g., `/var/lib/reth` for reth, `/data` for geth) |
 | `method` | string | `copy` | Method for preparing the data directory |
 
 #### Data Directory Methods
@@ -272,6 +272,19 @@ zfs allow -u <user> clone,create,destroy,mount,snapshot <dataset>
 ```
 
 The dataset is auto-detected from the source directory mount point.
+
+##### Default Container Directories
+
+When `container_dir` is not specified, the client's default data directory is used:
+
+| Client | Default Data Directory |
+|--------|----------------------|
+| geth | `/data` |
+| nethermind | `/data` |
+| besu | `/data` |
+| erigon | `/data` |
+| nimbus | `/data` |
+| reth | `/var/lib/reth` |
 
 ### Client Instances
 
@@ -294,7 +307,7 @@ client:
       genesis: https://example.com/custom-genesis.json
       datadir:
         source_dir: ./snapshots/geth
-        container_dir: /data
+        # container_dir defaults to client's data directory
         method: overlayfs
       drop_memory_caches: "steps"
       resource_limits:
