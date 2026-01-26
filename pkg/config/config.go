@@ -353,10 +353,8 @@ func (c *Config) applyDefaults() {
 			if dd.Method == "" {
 				dd.Method = "copy"
 			}
-
-			if dd.ContainerDir == "" {
-				dd.ContainerDir = DefaultContainerDir
-			}
+			// Note: ContainerDir is intentionally not defaulted here.
+			// If empty, the runner will use the client's spec.DataDir() at runtime.
 		}
 	}
 
@@ -370,10 +368,8 @@ func (c *Config) applyDefaults() {
 			if c.Client.Instances[i].DataDir.Method == "" {
 				c.Client.Instances[i].DataDir.Method = "copy"
 			}
-
-			if c.Client.Instances[i].DataDir.ContainerDir == "" {
-				c.Client.Instances[i].DataDir.ContainerDir = DefaultContainerDir
-			}
+			// Note: ContainerDir is intentionally not defaulted here.
+			// If empty, the runner will use the client's spec.DataDir() at runtime.
 		}
 	}
 }

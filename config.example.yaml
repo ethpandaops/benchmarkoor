@@ -109,7 +109,7 @@ client:
   # datadirs:
   #   geth:
   #     source_dir: ./data/snapshots/geth
-  #     container_dir: /data  # default, can be omitted
+  #     # container_dir: /data  # defaults to client's data directory if omitted
   #     # Method for preparing the data directory:
   #     #   copy           - parallel Go copy (default, works everywhere, has progress)
   #     #   overlayfs      - uses Linux overlayfs for near-instant setup (requires root)
@@ -126,7 +126,7 @@ client:
   #     method: copy
   #   reth:
   #     source_dir: ./data/snapshots/reth
-  #     container_dir: /root/.local/share/reth
+  #     # container_dir defaults to /var/lib/reth for reth
   #     method: fuse-overlayfs  # near-instant, no root required
   #   # Example: ZFS-backed data directory
   #   # nethermind:
