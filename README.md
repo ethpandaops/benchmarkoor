@@ -13,6 +13,31 @@ Benchmarkoor is a benchmarking tool for Ethereum execution clients. It runs stan
 - [Configuration Reference](docs/configuration.md) - All configuration options explained
 - [Docker Guide](docs/docker.md) - Docker setup, requirements, and troubleshooting
 
+## Docker Quickstart
+
+The easiest way to get started is using Docker Compose:
+
+```bash
+make docker-up
+```
+
+This builds and starts:
+- **benchmarkoor** - Runs benchmarks using [config.example.docker.yaml](config.example.docker.yaml)
+- **ui** - Web UI available at http://localhost:8080
+
+Results will be saved to the `./results` directory.
+
+To view the logs you can do:
+```bash
+docker compose logs -f benchmarkoor
+```
+
+To stop the services:
+
+```bash
+make docker-down
+```
+
 ## Development Quickstart
 
 Build the binary
@@ -48,27 +73,6 @@ Example:
 ./bin/benchmarkoor run \
       --config examples/configuration/config.stateless.yaml \
       --limit-instance-client=nethermind
-```
-
-
-## Docker Quickstart
-
-The easiest way to get started is using Docker Compose:
-
-```bash
-make docker-up
-```
-
-This builds and starts:
-- **benchmarkoor** - Runs benchmarks using [config.example.docker.yaml](config.example.docker.yaml)
-- **ui** - Web UI available at http://localhost:8080
-
-Results are saved to the `./results` directory.
-
-To stop the services:
-
-```bash
-make docker-down
 ```
 
 ## License

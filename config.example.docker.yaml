@@ -38,11 +38,11 @@ client:
   instances:
     - id: nethermind
       client: nethermind
-    #- id: geth
-    #  client: geth
-    #- id: reth
-    #  client: reth
-    #- id: erigon
-    #  client: erigon
-    #- id: besu
-    #  client: besu
+    - id: geth
+      client: geth
+    - id: reth
+      client: reth
+    - id: erigon
+      client: erigon
+    - id: besu
+      client: besu
