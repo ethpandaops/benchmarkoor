@@ -15,7 +15,7 @@ func (s *erigonSpec) Type() ClientType {
 }
 
 func (s *erigonSpec) DefaultImage() string {
-	return "ethpandaops/erigon:performance"
+	return "erigontech/erigon:latest"
 }
 
 func (s *erigonSpec) DefaultCommand() []string {
@@ -23,7 +23,8 @@ func (s *erigonSpec) DefaultCommand() []string {
 		"--datadir=/data",
 		"--externalcl",
 		"--private.api.addr=0.0.0.0:9090",
-		"--nat=any",
+		"--nat=none",
+		"--nodiscover",
 		"--http",
 		"--http.addr=0.0.0.0",
 		"--http.port=8545",
@@ -35,12 +36,11 @@ func (s *erigonSpec) DefaultCommand() []string {
 		"--authrpc.port=8551",
 		"--authrpc.vhosts=*",
 		"--authrpc.jwtsecret=/tmp/jwtsecret",
-		"--healthcheck",
 		"--metrics",
 		"--metrics.addr=0.0.0.0",
 		"--metrics.port=8008",
-		"--db.size.limit=2GB",
-		"--experimental.always-generate-changesets",
+		"--prune.mode=full",
+		"--log.console.verbosity=info",
 	}
 }
 

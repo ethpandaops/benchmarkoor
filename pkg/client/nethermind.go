@@ -15,7 +15,7 @@ func (s *nethermindSpec) Type() ClientType {
 }
 
 func (s *nethermindSpec) DefaultImage() string {
-	return "ethpandaops/nethermind:performance"
+	return "nethermind/nethermind:latest"
 }
 
 func (s *nethermindSpec) DefaultCommand() []string {

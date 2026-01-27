@@ -15,7 +15,7 @@ func (s *besuSpec) Type() ClientType {
 }
 
 func (s *besuSpec) DefaultImage() string {
-	return "ethpandaops/besu:performance"
+	return "hyperledger/besu:latest"
 }
 
 func (s *besuSpec) DefaultCommand() []string {
