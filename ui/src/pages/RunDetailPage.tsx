@@ -125,12 +125,18 @@ export function RunDetailPage() {
   const { data: suite } = useSuite(config?.suite_hash ?? '')
   const { data: containerLog } = useQuery({
     queryKey: ['run', runId, 'container-log'],
-    queryFn: () => fetchText(`runs/${runId}/container.log`),
+    queryFn: async () => {
+      const { data } = await fetchText(`runs/${runId}/container.log`)
+      return data
+    },
     enabled: !!runId,
   })
   const { data: benchmarkoorLog } = useQuery({
     queryKey: ['run', runId, 'benchmarkoor-log'],
-    queryFn: () => fetchText(`runs/${runId}/benchmarkoor.log`),
+    queryFn: async () => {
+      const { data } = await fetchText(`runs/${runId}/benchmarkoor.log`)
+      return data
+    },
     enabled: !!runId,
   })
 

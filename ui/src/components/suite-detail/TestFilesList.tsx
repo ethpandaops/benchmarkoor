@@ -87,7 +87,13 @@ function FileContent({
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['suite', suiteHash, stepType, testName, file.og_path],
-    queryFn: () => fetchText(path),
+    queryFn: async () => {
+      const { data, status } = await fetchText(path)
+      if (!data) {
+        throw new Error(`Failed to fetch file: ${status}`)
+      }
+      return data
+    },
   })
 
   if (isLoading) {
