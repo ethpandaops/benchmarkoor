@@ -242,7 +242,7 @@ export function TestFilesList({
     }
   }
 
-  const PaginationControls = () => (
+  const paginationControls = (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2">
         <span className="text-sm/6 text-gray-500 dark:text-gray-400">
@@ -288,7 +288,7 @@ export function TestFilesList({
             />
           </div>
         </div>
-        {filteredItems.length > 0 && <PaginationControls />}
+        {filteredItems.length > 0 && paginationControls}
         <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
           <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-900">
@@ -358,7 +358,7 @@ export function TestFilesList({
           )}
         </div>
 
-        {filteredItems.length > 0 && <PaginationControls />}
+        {filteredItems.length > 0 && paginationControls}
       </div>
     )
   }
@@ -380,7 +380,7 @@ export function TestFilesList({
           />
         </div>
       </div>
-      {filteredItems.length > 0 && <PaginationControls />}
+      {filteredItems.length > 0 && paginationControls}
       <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
         <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
@@ -457,7 +457,7 @@ export function TestFilesList({
         )}
       </div>
 
-      {filteredItems.length > 0 && <PaginationControls />}
+      {filteredItems.length > 0 && paginationControls}
     </div>
   )
 }

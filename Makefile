@@ -1,4 +1,4 @@
-.PHONY: build clean test lint run run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
+.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all lint-ui fmt-core tidy-core install-core run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -10,6 +10,9 @@ LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.da
 # Go variables
 GOBIN?=$(shell go env GOPATH)/bin
 
+# Directories
+UI_DIR := ui
+
 ## help: Show this help message
 help:
 	@echo "Usage: make [target]"
@@ -17,51 +20,68 @@ help:
 	@echo "Targets:"
 	@sed -n 's/^##//p' $(MAKEFILE_LIST) | column -t -s ':' | sed 's/^/ /'
 
-## build: Build the binary
-build:
+## build: Build all components (core + ui)
+build: build-core build-ui
+
+## build-core: Build the Go binary
+build-core:
 	go build $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/benchmarkoor
 
-## install: Install the binary to GOPATH/bin
-install:
+## build-ui: Build the UI
+build-ui:
+	@echo "Building UI..."
+	npm install --prefix $(UI_DIR)
+	npm run --prefix $(UI_DIR) build
+
+## install-core: Install the binary to GOPATH/bin
+install-core:
 	go install $(LDFLAGS) ./cmd/benchmarkoor
 
 ## clean: Remove build artifacts
 clean:
+	@echo "Cleaning..."
 	rm -rf bin/
-	rm -rf results/
+	rm -rf $(UI_DIR)/dist
+	rm -rf $(UI_DIR)/node_modules
 
-## test: Run tests
-test:
+## test-core: Run Go tests
+test-core:
 	go test -race -v ./...
 
-## test-coverage: Run tests with coverage
-test-coverage:
+## test-coverage-core: Run Go tests with coverage
+test-coverage-core:
 	go test -race -coverprofile=coverage.out -covermode=atomic ./...
 	go tool cover -html=coverage.out -o coverage.html
 
-## lint: Run linter
-lint:
+## lint-core: Run Go linter
+lint-core:
 	golangci-lint run --new-from-rev="origin/master"
 
-## lint-all: Run linter on all files
-lint-all:
+## lint-core-all: Run Go linter on all files
+lint-core-all:
 	golangci-lint run
 
-## fmt: Format code
-fmt:
+## lint-ui: Run UI linter
+lint-ui:
+	@echo "Linting UI..."
+	npm install --prefix $(UI_DIR)
+	npm run --prefix $(UI_DIR) lint
+
+## fmt-core: Format Go code
+fmt-core:
 	go fmt ./...
 	gofumpt -l -w .
 
-## tidy: Tidy go modules
-tidy:
+## tidy-core: Tidy go modules
+tidy-core:
 	go mod tidy
 
-## run: Run with example config
-run: build
+## run-core: Run with example config
+run-core: build-core
 	./bin/$(BINARY_NAME) run --config config.example.yaml
 
-## version: Show version
-version: build
+## version-core: Show version
+version-core: build-core
 	./bin/$(BINARY_NAME) version
 
 ## run-ui: Run the UI dev server

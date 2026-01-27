@@ -107,11 +107,12 @@ export function RunsTable({
         case 'duration':
           comparison = statsA.duration - statsB.duration
           break
-        case 'mgas':
+        case 'mgas': {
           const mgasA = calculateMGasPerSec(statsA.gasUsed, statsA.gasUsedDuration) ?? -Infinity
           const mgasB = calculateMGasPerSec(statsB.gasUsed, statsB.gasUsedDuration) ?? -Infinity
           comparison = mgasA - mgasB
           break
+        }
         case 'failed':
           comparison = statsA.fail - statsB.fail
           break

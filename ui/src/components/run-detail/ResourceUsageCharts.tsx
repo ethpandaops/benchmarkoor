@@ -246,6 +246,7 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
     return { dataPoints: points, hasResourceData: hasData, summaryStats: stats }
   }, [tests])
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const chartOptions = useMemo(() => {
     const textColor = isDark ? '#ffffff' : '#374151'
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
