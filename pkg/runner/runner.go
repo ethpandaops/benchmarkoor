@@ -724,6 +724,16 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	log.WithField("version", clientVersion).Info("RPC endpoint ready")
 
+	// Log the latest block info.
+	if blockNum, blockHash, err := r.getLatestBlock(execCtx, containerIP, spec.RPCPort()); err != nil {
+		log.WithError(err).Warn("Failed to get latest block")
+	} else {
+		log.WithFields(logrus.Fields{
+			"block_number": blockNum,
+			"block_hash":   blockHash,
+		}).Info("Latest block")
+	}
+
 	// Update config with client version.
 	runConfig.Instance.ClientVersion = clientVersion
 
@@ -999,6 +1009,56 @@ func (r *runner) checkRPCHealth(ctx context.Context, url string) (string, bool) 
 	}
 
 	return rpcResp.Result, true
+}
+
+// getLatestBlock fetches the latest block number and hash from the RPC endpoint.
+func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uint64, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	url := fmt.Sprintf("http://%s:%d", host, port)
+	body := `{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}`
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		return 0, "", fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, "", fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, "", fmt.Errorf("reading response: %w", err)
+	}
+
+	var rpcResp struct {
+		Result struct {
+			Number string `json:"number"`
+			Hash   string `json:"hash"`
+		} `json:"result"`
+	}
+
+	if err := json.Unmarshal(respBody, &rpcResp); err != nil {
+		return 0, "", fmt.Errorf("parsing response: %w", err)
+	}
+
+	// Parse hex block number.
+	blockNum, err := strconv.ParseUint(strings.TrimPrefix(rpcResp.Result.Number, "0x"), 16, 64)
+	if err != nil {
+		return 0, "", fmt.Errorf("parsing block number: %w", err)
+	}
+
+	return blockNum, rpcResp.Result.Hash, nil
 }
 
 // prefixedWriter adds a prefix to each line written.
