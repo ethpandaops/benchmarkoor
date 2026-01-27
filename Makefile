@@ -1,4 +1,4 @@
-.PHONY: build build-core build-ui clean test lint run run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
+.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all fmt-core tidy-core install-core run run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -28,8 +28,8 @@ build-core:
 build-ui:
 	npm run --prefix ui build
 
-## install: Install the binary to GOPATH/bin
-install:
+## install-core: Install the binary to GOPATH/bin
+install-core:
 	go install $(LDFLAGS) ./cmd/benchmarkoor
 
 ## clean: Remove build artifacts
@@ -37,30 +37,30 @@ clean:
 	rm -rf bin/
 	rm -rf results/
 
-## test: Run tests
-test:
+## test-core: Run Go tests
+test-core:
 	go test -race -v ./...
 
-## test-coverage: Run tests with coverage
-test-coverage:
+## test-coverage-core: Run Go tests with coverage
+test-coverage-core:
 	go test -race -coverprofile=coverage.out -covermode=atomic ./...
 	go tool cover -html=coverage.out -o coverage.html
 
-## lint: Run linter
-lint:
+## lint-core: Run Go linter
+lint-core:
 	golangci-lint run --new-from-rev="origin/master"
 
-## lint-all: Run linter on all files
-lint-all:
+## lint-core-all: Run Go linter on all files
+lint-core-all:
 	golangci-lint run
 
-## fmt: Format code
-fmt:
+## fmt-core: Format Go code
+fmt-core:
 	go fmt ./...
 	gofumpt -l -w .
 
-## tidy: Tidy go modules
-tidy:
+## tidy-core: Tidy go modules
+tidy-core:
 	go mod tidy
 
 ## run: Run with example config
