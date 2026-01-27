@@ -1,4 +1,4 @@
-.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all fmt-core tidy-core install-core run run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
+.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all fmt-core tidy-core install-core run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -63,12 +63,12 @@ fmt-core:
 tidy-core:
 	go mod tidy
 
-## run: Run with example config
-run: build-core
+## run-core: Run with example config
+run-core: build-core
 	./bin/$(BINARY_NAME) run --config config.example.yaml
 
-## version: Show version
-version: build-core
+## version-core: Show version
+version-core: build-core
 	./bin/$(BINARY_NAME) version
 
 ## run-ui: Run the UI dev server
