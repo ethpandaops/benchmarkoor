@@ -1,4 +1,4 @@
-.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all fmt-core tidy-core install-core run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
+.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all lint-ui fmt-core tidy-core install-core run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -53,6 +53,10 @@ lint-core:
 ## lint-core-all: Run Go linter on all files
 lint-core-all:
 	golangci-lint run
+
+## lint-ui: Run UI linter
+lint-ui:
+	npm run --prefix ui lint
 
 ## fmt-core: Format Go code
 fmt-core:
