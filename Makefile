@@ -1,4 +1,4 @@
-.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all lint-ui fmt-core tidy-core install-core run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
+.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all lint-ui fmt-core tidy-core install-core deps-ui run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -28,14 +28,16 @@ build-core:
 	go build $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/benchmarkoor
 
 ## build-ui: Build the UI
-build-ui:
-	@echo "Building UI..."
-	npm install --prefix $(UI_DIR)
+build-ui: deps-ui
 	npm run --prefix $(UI_DIR) build
 
 ## install-core: Install the binary to GOPATH/bin
 install-core:
 	go install $(LDFLAGS) ./cmd/benchmarkoor
+
+## deps-ui: Install UI dependencies
+deps-ui:
+	npm install --prefix $(UI_DIR)
 
 ## clean: Remove build artifacts
 clean:
@@ -62,9 +64,7 @@ lint-core-all:
 	golangci-lint run
 
 ## lint-ui: Run UI linter
-lint-ui:
-	@echo "Linting UI..."
-	npm install --prefix $(UI_DIR)
+lint-ui: deps-ui
 	npm run --prefix $(UI_DIR) lint
 
 ## fmt-core: Format Go code
@@ -85,8 +85,8 @@ version-core: build-core
 	./bin/$(BINARY_NAME) version
 
 ## run-ui: Run the UI dev server
-run-ui:
-	npm run --prefix ui dev
+run-ui: deps-ui
+	npm run --prefix $(UI_DIR) dev
 
 # Docker variables
 DOCKER_REGISTRY?=ethpandaops

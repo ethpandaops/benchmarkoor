@@ -11,10 +11,6 @@ export default defineConfig({
       '@': resolve(__dirname, './src'),
     },
   },
-  server: {
-    host: '0.0.0.0',
-    allowedHosts: ['pop-os-shiny.taile8f668.ts.net'],
-  },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
