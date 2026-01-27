@@ -126,6 +126,7 @@ function DownloadButton({ content, filename }: { content: string; filename: stri
 }
 
 // ANSI escape code pattern
+// eslint-disable-next-line no-control-regex
 const ANSI_REGEX = /\x1b\[[0-9;]*m/g
 
 function hasAnsiCodes(content: string): boolean {
@@ -237,6 +238,7 @@ function AnsiLine({ content }: { content: string }) {
   let partKey = 0
 
   // Reset regex lastIndex
+  // eslint-disable-next-line no-control-regex
   const regex = /\x1b\[([0-9;]*)m/g
   let match
 

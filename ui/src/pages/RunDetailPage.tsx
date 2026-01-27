@@ -21,10 +21,13 @@ import { formatNumber, formatBytes } from '@/utils/format'
 
 // Step types that can be included in MGas/s calculation
 export type StepTypeOption = 'setup' | 'test' | 'cleanup'
+// eslint-disable-next-line react-refresh/only-export-components
 export const ALL_STEP_TYPES: StepTypeOption[] = ['setup', 'test', 'cleanup']
+// eslint-disable-next-line react-refresh/only-export-components
 export const DEFAULT_STEP_FILTER: StepTypeOption[] = ['test']
 
 // Aggregate stats from selected steps of a test entry
+// eslint-disable-next-line react-refresh/only-export-components
 export function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
   if (!entry.steps) return undefined
 
