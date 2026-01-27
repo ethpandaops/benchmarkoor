@@ -559,15 +559,12 @@ func (e *executor) executeRPC(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	// Set up httptrace to measure server time (request written → first response byte).
-	var wroteRequest, gotFirstByte time.Time
+	// Set up httptrace to measure server time (request written → body fully read).
+	var wroteRequest time.Time
 
 	trace := &httptrace.ClientTrace{
 		WroteRequest: func(_ httptrace.WroteRequestInfo) {
 			wroteRequest = time.Now()
-		},
-		GotFirstResponseByte: func() {
-			gotFirstByte = time.Now()
 		},
 	}
 
@@ -581,15 +578,9 @@ func (e *executor) executeRPC(
 
 	start := time.Now()
 	resp, err := http.DefaultClient.Do(req)
-	fullDuration := time.Since(start).Nanoseconds()
 
-	// Calculate server time (duration from request written to first response byte).
-	var duration int64
-	if !wroteRequest.IsZero() && !gotFirstByte.IsZero() {
-		duration = gotFirstByte.Sub(wroteRequest).Nanoseconds()
-	}
-
-	// Read stats AFTER and compute delta.
+	// Read stats AFTER the request completes and compute delta.
+	// This captures resource usage during server processing, not during body read.
 	var delta *ResourceDelta
 	if e.statsReader != nil && beforeStats != nil {
 		if afterStats, readErr := e.statsReader.ReadStats(); readErr == nil {
@@ -608,12 +599,24 @@ func (e *executor) executeRPC(
 	}
 
 	if err != nil {
-		return "", duration, fullDuration, delta, fmt.Errorf("executing request: %w", err)
+		fullDuration := time.Since(start).Nanoseconds()
+
+		return "", 0, fullDuration, delta, fmt.Errorf("executing request: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
+	// Read full body to measure time-to-last-byte.
 	body, err := io.ReadAll(resp.Body)
+	bodyReadComplete := time.Now()
+	fullDuration := time.Since(start).Nanoseconds()
+
+	// Calculate server time (duration from request written to body fully read).
+	var duration int64
+	if !wroteRequest.IsZero() {
+		duration = bodyReadComplete.Sub(wroteRequest).Nanoseconds()
+	}
+
 	if err != nil {
 		return "", duration, fullDuration, delta, fmt.Errorf("reading response: %w", err)
 	}
