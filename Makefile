@@ -10,6 +10,9 @@ LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.da
 # Go variables
 GOBIN?=$(shell go env GOPATH)/bin
 
+# Directories
+UI_DIR := ui
+
 ## help: Show this help message
 help:
 	@echo "Usage: make [target]"
@@ -26,7 +29,9 @@ build-core:
 
 ## build-ui: Build the UI
 build-ui:
-	npm run --prefix ui build
+	@echo "Building UI..."
+	npm install --prefix $(UI_DIR)
+	npm run --prefix $(UI_DIR) build
 
 ## install-core: Install the binary to GOPATH/bin
 install-core:
@@ -34,8 +39,10 @@ install-core:
 
 ## clean: Remove build artifacts
 clean:
+	@echo "Cleaning..."
 	rm -rf bin/
-	rm -rf results/
+	rm -rf $(UI_DIR)/dist
+	rm -rf $(UI_DIR)/node_modules
 
 ## test-core: Run Go tests
 test-core:
@@ -56,7 +63,9 @@ lint-core-all:
 
 ## lint-ui: Run UI linter
 lint-ui:
-	npm run --prefix ui lint
+	@echo "Linting UI..."
+	npm install --prefix $(UI_DIR)
+	npm run --prefix $(UI_DIR) lint
 
 ## fmt-core: Format Go code
 fmt-core:
