@@ -11,7 +11,13 @@ export function useTestResultDetails(runId: string, testName: string, stepType: 
 
   return useQuery({
     queryKey: ['run', runId, 'test', testName, 'step', stepType, 'result-details'],
-    queryFn: () => fetchData<ResultDetails>(path),
+    queryFn: async () => {
+      const { data, status } = await fetchData<ResultDetails>(path)
+      if (!data) {
+        throw new Error(`Failed to fetch result details: ${status}`)
+      }
+      return data
+    },
     enabled: !!runId && !!testName,
   })
 }
@@ -23,8 +29,11 @@ export function useTestResponses(runId: string, testName: string, stepType: Step
   return useQuery({
     queryKey: ['run', runId, 'test', testName, 'step', stepType, 'responses'],
     queryFn: async () => {
-      const text = await fetchText(path)
-      return text.trim().split('\n')
+      const { data, status } = await fetchText(path)
+      if (!data) {
+        throw new Error(`Failed to fetch responses: ${status}`)
+      }
+      return data.trim().split('\n')
     },
     enabled: !!runId && !!testName,
   })
@@ -36,7 +45,13 @@ export function useTestAggregated(runId: string, testName: string, stepType: Ste
 
   return useQuery({
     queryKey: ['run', runId, 'test', testName, 'step', stepType, 'aggregated'],
-    queryFn: () => fetchData<AggregatedStats>(path),
+    queryFn: async () => {
+      const { data, status } = await fetchData<AggregatedStats>(path)
+      if (!data) {
+        throw new Error(`Failed to fetch aggregated stats: ${status}`)
+      }
+      return data
+    },
     enabled: !!runId && !!testName,
   })
 }
@@ -48,8 +63,11 @@ export function useTestRequests(suiteHash: string, testName: string, stepType: S
   return useQuery({
     queryKey: ['suite', suiteHash, 'test', testName, 'step', stepType, 'requests'],
     queryFn: async () => {
-      const text = await fetchText(path)
-      return text.trim().split('\n')
+      const { data, status } = await fetchText(path)
+      if (!data) {
+        throw new Error(`Failed to fetch requests: ${status}`)
+      }
+      return data.trim().split('\n')
     },
     enabled: !!suiteHash && !!testName,
   })

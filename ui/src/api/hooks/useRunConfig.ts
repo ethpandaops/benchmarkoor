@@ -5,7 +5,13 @@ import type { RunConfig } from '../types'
 export function useRunConfig(runId: string) {
   return useQuery({
     queryKey: ['run', runId, 'config'],
-    queryFn: () => fetchData<RunConfig>(`runs/${runId}/config.json`),
+    queryFn: async () => {
+      const { data, status } = await fetchData<RunConfig>(`runs/${runId}/config.json`)
+      if (!data) {
+        throw new Error(`Failed to fetch run config: ${status}`)
+      }
+      return data
+    },
     enabled: !!runId,
   })
 }

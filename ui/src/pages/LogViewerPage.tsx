@@ -344,7 +344,13 @@ export function LogViewerPage() {
     refetch,
   } = useQuery({
     queryKey: ['run', runId, 'logs', filename],
-    queryFn: () => fetchText(`runs/${runId}/${filename}`),
+    queryFn: async () => {
+      const { data, status } = await fetchText(`runs/${runId}/${filename}`)
+      if (!data) {
+        throw new Error(`Failed to fetch log: ${status}`)
+      }
+      return data
+    },
     enabled: !!runId && !!filename,
   })
 

@@ -5,7 +5,13 @@ import type { SuiteStats } from '../types'
 export function useSuiteStats(suiteHash: string | undefined) {
   return useQuery({
     queryKey: ['suiteStats', suiteHash],
-    queryFn: () => fetchData<SuiteStats>(`suites/${suiteHash}/stats.json`),
+    queryFn: async () => {
+      const { data, status } = await fetchData<SuiteStats>(`suites/${suiteHash}/stats.json`)
+      if (!data) {
+        throw new Error(`Failed to fetch suite stats: ${status}`)
+      }
+      return data
+    },
     enabled: !!suiteHash,
   })
 }

@@ -5,7 +5,13 @@ import type { RunResult } from '../types'
 export function useRunResult(runId: string) {
   return useQuery({
     queryKey: ['run', runId, 'result'],
-    queryFn: () => fetchData<RunResult>(`runs/${runId}/result.json`),
+    queryFn: async () => {
+      const { data, status } = await fetchData<RunResult>(`runs/${runId}/result.json`)
+      if (!data) {
+        throw new Error(`Failed to fetch run result: ${status}`)
+      }
+      return data
+    },
     enabled: !!runId,
   })
 }
