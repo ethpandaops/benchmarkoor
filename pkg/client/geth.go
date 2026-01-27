@@ -15,7 +15,7 @@ func (s *gethSpec) Type() ClientType {
 }
 
 func (s *gethSpec) DefaultImage() string {
-	return "ethpandaops/geth:performance"
+	return "ethereum/client-go:stable"
 }
 
 func (s *gethSpec) DefaultCommand() []string {

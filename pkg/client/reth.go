@@ -15,7 +15,7 @@ func (s *rethSpec) Type() ClientType {
 }
 
 func (s *rethSpec) DefaultImage() string {
-	return "ethpandaops/reth:performance"
+	return "ghcr.io/paradigmxyz/reth:latest"
 }
 
 func (s *rethSpec) DefaultCommand() []string {
