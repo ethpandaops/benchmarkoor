@@ -409,7 +409,7 @@ client:
       client: besu
 ```
 
-Running stateful tests on a geth container with an existing data directoy:
+Running stateful tests on a geth container with an existing data directory:
 
 ```yaml
 global:
