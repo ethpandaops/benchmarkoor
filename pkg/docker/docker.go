@@ -342,7 +342,7 @@ func (m *manager) StreamLogs(ctx context.Context, containerID string, stdout, st
 	if err != nil {
 		return fmt.Errorf("getting container logs: %w", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	_, err = stdcopy.StdCopy(stdout, stderr, reader)
 	if err != nil && err != io.EOF {
@@ -383,7 +383,7 @@ func (m *manager) PullImage(ctx context.Context, imageName string, policy string
 	if err != nil {
 		return fmt.Errorf("pulling image %s: %w", imageName, err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	// Consume the pull output.
 	if _, err := io.Copy(io.Discard, reader); err != nil {

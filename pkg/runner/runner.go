@@ -247,7 +247,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	if err != nil {
 		return fmt.Errorf("creating benchmarkoor log file: %w", err)
 	}
-	defer benchmarkoorLogFile.Close()
+	defer func() { _ = benchmarkoorLogFile.Close() }()
 
 	logHook := &fileHook{
 		writer:    benchmarkoorLogFile,
@@ -491,12 +491,12 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		}
 
 		if err := r.docker.RunInitContainer(ctx, initSpec, initStdout, initStderr); err != nil {
-			initFile.Close()
+			_ = initFile.Close()
 
 			return fmt.Errorf("running init container: %w", err)
 		}
 
-		initFile.Close()
+		_ = initFile.Close()
 
 		log.Info("Init container completed")
 	} else if spec.RequiresInit() && genesisSource == "" {
@@ -852,7 +852,7 @@ func (r *runner) downloadFromURL(ctx context.Context, url string) ([]byte, error
 	if err != nil {
 		return nil, fmt.Errorf("executing request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
@@ -934,7 +934,7 @@ func (r *runner) streamLogs(
 	if err != nil {
 		return fmt.Errorf("creating log file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var stdout, stderr io.Writer = file, file
 
@@ -989,7 +989,7 @@ func (r *runner) checkRPCHealth(ctx context.Context, url string) (string, bool) 
 	if err != nil {
 		return "", false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", false
@@ -1030,7 +1030,7 @@ func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uin
 	if err != nil {
 		return 0, "", fmt.Errorf("executing request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
