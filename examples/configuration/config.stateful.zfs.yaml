@@ -1,0 +1,110 @@
+global:
+  log_level: info
+  client_logs_to_stdout: true
+  docker_network: benchmarkoor
+  cleanup_on_start: false
+
+benchmark:
+  results_dir: ./results
+  results_owner: "1000:1000"
+  generate_results_index: true
+  generate_suite_stats: true
+
+  tests:
+    source:
+      git:
+        repo: https://github.com/parithosh/gas-benchmarks.git
+        version: kch/stateful_new
+        pre_run_steps:
+          - stateful_tests/gas-bump.txt
+          - stateful_tests/funding.txt
+        steps:
+          setup:
+            - stateful_tests/setup/*/*
+          test:
+            - stateful_tests/testing/*/*
+          cleanup:
+            - stateful_tests/cleanup/*/*
+
+client:
+  config:
+    drop_memory_caches: "steps"
+
+    genesis:
+      besu: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/skylenet-patch-1/network-configs/devnet-2/metadata/besu.json
+      erigon: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/skylenet-patch-1/network-configs/devnet-2/metadata/genesis.json
+      geth: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/skylenet-patch-1/network-configs/devnet-2/metadata/genesis.json
+      nethermind: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/master/network-configs/devnet-2/metadata/chainspec.json
+      reth: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/skylenet-patch-1/network-configs/devnet-2/metadata/genesis.json
+
+  datadirs:
+    besu:
+      source_dir: /data-zfs/eth/besu/perf-devnet-2/23861500/besu/
+      method: zfs
+    geth:
+      source_dir: /data-zfs/eth/geth/perf-devnet-2/23861500/geth/
+      method: zfs
+    nethermind:
+      source_dir: /data-zfs/eth/nethermind/perf-devnet-2/23861500/nethermind/
+      method: zfs
+    reth:
+      source_dir: /data-zfs/eth/reth/perf-devnet-2/23861500/reth/
+      method: zfs
+    erigon:
+      source_dir: /data-zfs/eth/erigon/perf-devnet-2/23861500/erigon/
+      method: zfs
+
+  instances:
+    # Besu
+    - id: besu
+      client: besu
+      image: ethpandaops/besu:performance
+      extra_args:
+        - --network-id=12159
+
+    # Geth
+    - id: geth
+      client: geth
+      image: ethpandaops/geth:master
+      extra_args:
+        - --networkid=12159
+
+    # Nethermind
+    - id: nethermind
+      client: nethermind
+      image: ethpandaops/nethermind:performance
+      command:
+        - --datadir=/data
+        - --config=mainnet.cfg
+        - --JsonRpc.Enabled=true
+        - --JsonRpc.Host=0.0.0.0
+        - --JsonRpc.Port=8545
+        - --JsonRpc.JwtSecretFile=/tmp/jwtsecret
+        - --JsonRpc.EngineHost=0.0.0.0
+        - --JsonRpc.EnginePort=8551
+        - --Network.DiscoveryPort=0
+        - --Network.MaxActivePeers=0
+        - --Init.DiscoveryEnabled=false
+        - --HealthChecks.Enabled=true
+        - --Metrics.Enabled=true
+        - --Metrics.ExposePort=8008
+        - --Sync.MaxAttemptsToUpdatePivot=0
+        - --Init.AutoDump=None
+        - --Merge.NewPayloadBlockProcessingTimeout=70000
+        - --Merge.TerminalTotalDifficulty=0
+        - --Blocks.CachePrecompilesOnBlockProcessing=false
+        - --Init.NetworkId=12159
+
+    # Reth
+    - id: reth
+      client: reth
+      image: ethpandaops/reth:main
+      extra_args:
+        - --network-id=12159
+
+    # Erigon
+    - id: erigon
+      client: erigon
+      image: erigontech/erigon:v3.3.4
+      extra_args:
+        - --networkid=12159

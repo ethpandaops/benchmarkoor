@@ -1,0 +1,51 @@
+global:
+  log_level: info
+  client_logs_to_stdout: true
+  cleanup_on_start: false
+
+benchmark:
+  results_dir: ./results
+  #results_owner: "1000:1000" # Depending if you run benchmarkoor with sudo, you might want the results to be owned by your own user
+  generate_results_index: true
+  generate_suite_stats: true
+
+  tests:
+    filter: "bn128" # Comment this out if you want to run the full test suite
+    source:
+      git:
+        repo: https://github.com/NethermindEth/gas-benchmarks.git
+        version: main
+        pre_run_steps: []
+        steps:
+          setup:
+            - eest_tests/setup/*/*
+          test:
+            - eest_tests/testing/*/*
+          cleanup: []
+
+client:
+  config:
+    # drop_memory_caches: "steps" # Remove the comment if you want to drop memory caches between step execution
+                                  # Note that it will require sudo (root) access for this. It also only works on Linux.
+
+    genesis:
+      besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
+      erigon: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      ethrex: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      geth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      nethermind: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/nethermind/zkevmgenesis.json
+      nimbus: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+      reth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+
+  instances:
+    - id: nethermind
+      client: nethermind
+    - id: geth
+      client: geth
+      image: ethpandaops/geth:master
+    - id: reth
+      client: reth
+    - id: erigon
+      client: erigon
+    - id: besu
+      client: besu

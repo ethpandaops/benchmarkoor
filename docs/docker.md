@@ -94,9 +94,9 @@ docker run --rm \
   benchmarkoor run --config /app/config.yaml
 ```
 
-#### With Privileged Mode (for overlayfs)
+#### With Privileged Mode (for overlayfs,zfs)
 
-If using the `overlayfs` datadir method, the container needs privileged mode:
+If using the `overlayfs` or `zfs` datadir method, the container needs privileged mode:
 
 ```bash
 docker run --rm --privileged \

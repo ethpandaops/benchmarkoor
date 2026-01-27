@@ -13,6 +13,44 @@ Benchmarkoor is a benchmarking tool for Ethereum execution clients. It runs stan
 - [Configuration Reference](docs/configuration.md) - All configuration options explained
 - [Docker Guide](docs/docker.md) - Docker setup, requirements, and troubleshooting
 
+## Development Quickstart
+
+Build the binary
+```sh
+make build-core
+```
+
+Run the UI (On a different tab):
+```sh
+make run-ui
+```
+
+It should print the address where you can access it. By default it's http://localhost:5173/ .
+
+Now we want to run benchmarkoor. We'll be using an example configuration file that contains some stateless tests. By default we'll be just running the `bn128` subset of that suite. Have a look at the config file for more details:
+```sh
+./bin/benchmarkoor run --config examples/configuration/config.stateless.yaml
+```
+
+If you don't always want to build and run, you can also use it like this:
+
+```sh
+go run cmd/benchmarkoor/*.go run --config examples/configuration/config.stateless.yaml
+```
+
+After the run, you should be able to see the results on the UI.
+
+Note: If you want to limit your runs to a specific client that is on the config, you can either comment out those that you don't want, or use the `--limit-instance-client` flag. This allows you to limit the execution to certain clients. For example `--limit-instance-client=nethermind` would only run any instances that are of the `nethermind` client type.
+
+Example:
+
+```
+./bin/benchmarkoor run \
+      --config examples/configuration/config.stateless.yaml \
+      --limit-instance-client=nethermind
+```
+
+
 ## Docker Quickstart
 
 The easiest way to get started is using Docker Compose:
