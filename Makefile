@@ -1,4 +1,4 @@
-.PHONY: build clean test lint run run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
+.PHONY: build build-core build-ui clean test lint run run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -17,9 +17,16 @@ help:
 	@echo "Targets:"
 	@sed -n 's/^##//p' $(MAKEFILE_LIST) | column -t -s ':' | sed 's/^/ /'
 
-## build: Build the binary
-build:
+## build: Build all components (core + ui)
+build: build-core build-ui
+
+## build-core: Build the Go binary
+build-core:
 	go build $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/benchmarkoor
+
+## build-ui: Build the UI
+build-ui:
+	npm run --prefix ui build
 
 ## install: Install the binary to GOPATH/bin
 install:
@@ -57,11 +64,11 @@ tidy:
 	go mod tidy
 
 ## run: Run with example config
-run: build
+run: build-core
 	./bin/$(BINARY_NAME) run --config config.example.yaml
 
 ## version: Show version
-version: build
+version: build-core
 	./bin/$(BINARY_NAME) version
 
 ## run-ui: Run the UI dev server
