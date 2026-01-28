@@ -67,6 +67,18 @@ benchmark:
   #     #       - "tests/test/*.txt"
   #     #     cleanup:
   #     #       - "tests/cleanup/*.txt"
+  #
+  #     # Option 3: EEST (Ethereum Execution Spec Tests) fixtures from GitHub releases.
+  #     # Downloads fixtures directly from ethereum/execution-spec-tests releases.
+  #     # Genesis files are auto-resolved per client type from the release.
+  #     # eest_fixtures:
+  #     #   github_repo: ethereum/execution-spec-tests
+  #     #   github_release: benchmark@v0.0.6
+  #     #   # Optional: Override the subdirectory within fixtures tarball.
+  #     #   # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
+  #     #   # Optional: Override URLs for fixtures/genesis tarballs.
+  #     #   # fixtures_url: https://example.com/fixtures_benchmark.tar.gz
+  #     #   # genesis_url: https://example.com/benchmark_genesis.tar.gz
 
 client:
   config:

@@ -126,7 +126,7 @@ benchmark:
 
 ### Test Sources
 
-Tests can be loaded from a local directory or a git repository. Only one source type can be configured.
+Tests can be loaded from a local directory, a git repository, or EEST (Ethereum Execution Spec Tests) fixtures. Only one source type can be configured.
 
 #### Local Source
 
@@ -181,6 +181,55 @@ tests:
 | `steps.setup` | []string | No | Glob patterns for setup phase files |
 | `steps.test` | []string | No | Glob patterns for test phase files |
 | `steps.cleanup` | []string | No | Glob patterns for cleanup phase files |
+
+#### EEST Fixtures Source
+
+EEST (Ethereum Execution Spec Tests) fixtures can be loaded directly from GitHub releases. This source type downloads fixtures from `ethereum/execution-spec-tests` releases and converts them to Engine API calls automatically.
+
+```yaml
+tests:
+  source:
+    eest_fixtures:
+      github_repo: ethereum/execution-spec-tests
+      github_release: benchmark@v0.0.6
+      fixtures_subdir: fixtures/blockchain_tests_engine_x
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `github_repo` | string | Yes | - | GitHub repository (e.g., `ethereum/execution-spec-tests`) |
+| `github_release` | string | Yes | - | Release tag (e.g., `benchmark@v0.0.6`) |
+| `fixtures_subdir` | string | No | `fixtures/blockchain_tests_engine_x` | Subdirectory within the fixtures tarball to search |
+| `fixtures_url` | string | No | Auto-generated | Override URL for fixtures tarball |
+| `genesis_url` | string | No | Auto-generated | Override URL for genesis tarball |
+
+**Key features:**
+- Automatically downloads and caches fixtures from GitHub releases
+- Converts EEST fixture format to `engine_newPayloadV{1-4}` + `engine_forkchoiceUpdatedV{1,3}` calls
+- Only includes fixtures with `fixture-format: blockchain_test_engine_x`
+- Auto-resolves genesis files per client type from the release
+
+**Genesis file resolution:**
+
+When using EEST fixtures, genesis files are automatically resolved from the release based on client type. You don't need to configure `client.config.genesis` unless you want to override the defaults.
+
+| Client | Genesis Path |
+|--------|--------------|
+| geth, erigon, reth, nimbus | `go-ethereum/genesis.json` |
+| nethermind | `nethermind/chainspec.json` |
+| besu | `besu/genesis.json` |
+
+**Example with filter:**
+
+```yaml
+benchmark:
+  tests:
+    filter: "bn128"  # Only run tests matching "bn128"
+    source:
+      eest_fixtures:
+        github_repo: ethereum/execution-spec-tests
+        github_release: benchmark@v0.0.6
+```
 
 ## Client Settings
 
@@ -407,6 +456,47 @@ client:
       client: erigon
     - id: besu
       client: besu
+```
+
+Running EEST fixtures across multiple clients:
+
+```yaml
+global:
+  log_level: info
+  client_logs_to_stdout: true
+  cleanup_on_start: true
+
+benchmark:
+  results_dir: ./results
+  generate_results_index: true
+  generate_suite_stats: true
+  tests:
+    filter: "bn128"  # Optional: filter tests by name
+    source:
+      eest_fixtures:
+        github_repo: ethereum/execution-spec-tests
+        github_release: benchmark@v0.0.6
+
+client:
+  config:
+    resource_limits:
+      cpuset_count: 4
+      memory: "16g"
+      swap_disabled: true
+    # Genesis files are auto-resolved from the EEST release.
+    # No need to configure genesis URLs unless you want to override.
+
+  instances:
+    - id: geth
+      client: geth
+    - id: nethermind
+      client: nethermind
+    - id: reth
+      client: reth
+    - id: besu
+      client: besu
+    - id: erigon
+      client: erigon
 ```
 
 Running stateful tests on a geth container with an existing data directory:
