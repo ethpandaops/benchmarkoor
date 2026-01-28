@@ -78,9 +78,22 @@ type TestsConfig struct {
 // SourceConfig defines where to find test files.
 type SourceConfig struct {
 	// New unified source options.
-	Git   *GitSourceV2   `yaml:"git,omitempty" mapstructure:"git"`
-	Local *LocalSourceV2 `yaml:"local,omitempty" mapstructure:"local"`
+	Git          *GitSourceV2        `yaml:"git,omitempty" mapstructure:"git"`
+	Local        *LocalSourceV2      `yaml:"local,omitempty" mapstructure:"local"`
+	EESTFixtures *EESTFixturesSource `yaml:"eest_fixtures,omitempty" mapstructure:"eest_fixtures"`
 }
+
+// EESTFixturesSource defines an EEST fixtures source from GitHub releases.
+type EESTFixturesSource struct {
+	GitHubRepo     string `yaml:"github_repo" mapstructure:"github_repo"`
+	GitHubRelease  string `yaml:"github_release" mapstructure:"github_release"`
+	FixturesURL    string `yaml:"fixtures_url,omitempty" mapstructure:"fixtures_url"`
+	GenesisURL     string `yaml:"genesis_url,omitempty" mapstructure:"genesis_url"`
+	FixturesSubdir string `yaml:"fixtures_subdir,omitempty" mapstructure:"fixtures_subdir"`
+}
+
+// DefaultEESTFixturesSubdir is the default subdirectory within the fixtures tarball.
+const DefaultEESTFixturesSubdir = "fixtures/blockchain_tests_engine_x"
 
 // GitSourceV2 defines a git repository source for tests with step-based structure.
 type GitSourceV2 struct {
@@ -106,7 +119,7 @@ type StepsConfig struct {
 
 // IsConfigured returns true if any test source is configured.
 func (s *SourceConfig) IsConfigured() bool {
-	return s.Git != nil || s.Local != nil
+	return s.Git != nil || s.Local != nil || s.EESTFixtures != nil
 }
 
 // DefaultContainerDir is the default container mount path for data directories.
@@ -461,8 +474,22 @@ func (s *SourceConfig) Validate() error {
 		return nil
 	}
 
-	if s.Git != nil && s.Local != nil {
-		return fmt.Errorf("cannot specify both git and local source")
+	// Count configured sources.
+	count := 0
+	if s.Git != nil {
+		count++
+	}
+
+	if s.Local != nil {
+		count++
+	}
+
+	if s.EESTFixtures != nil {
+		count++
+	}
+
+	if count > 1 {
+		return fmt.Errorf("cannot specify multiple sources (git, local, eest_fixtures)")
 	}
 
 	if s.Git != nil {
@@ -482,6 +509,16 @@ func (s *SourceConfig) Validate() error {
 
 		if _, err := os.Stat(s.Local.BaseDir); os.IsNotExist(err) {
 			return fmt.Errorf("local.base_dir %q does not exist", s.Local.BaseDir)
+		}
+	}
+
+	if s.EESTFixtures != nil {
+		if s.EESTFixtures.GitHubRepo == "" {
+			return fmt.Errorf("eest_fixtures.github_repo is required")
+		}
+
+		if s.EESTFixtures.GitHubRelease == "" {
+			return fmt.Errorf("eest_fixtures.github_release is required")
 		}
 	}
 

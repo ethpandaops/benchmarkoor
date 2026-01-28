@@ -31,6 +31,9 @@ type Executor interface {
 
 	// GetSuiteHash returns the hash of the test suite.
 	GetSuiteHash() string
+
+	// GetSource returns the underlying source, which can be used for genesis resolution.
+	GetSource() Source
 }
 
 // ExecuteOptions contains options for test execution.
@@ -173,6 +176,11 @@ func (e *executor) Stop() error {
 // GetSuiteHash returns the hash of the test suite.
 func (e *executor) GetSuiteHash() string {
 	return e.suiteHash
+}
+
+// GetSource returns the underlying source.
+func (e *executor) GetSource() Source {
+	return e.source
 }
 
 // ExecuteTests runs all tests against the specified Engine API endpoint.
@@ -443,8 +451,18 @@ writeResults:
 	return result, nil
 }
 
-// runStepFile executes a single step file.
+// runStepFile executes a single step file or provider.
 func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *StepFile, result *TestResult) error {
+	// Use provider if available, otherwise read from file.
+	if step.Provider != nil {
+		return e.runStepLines(ctx, opts, step.Name, step.Provider.Lines(), result)
+	}
+
+	return e.runStepFromFile(ctx, opts, step, result)
+}
+
+// runStepFromFile reads and executes lines from a file.
+func (e *executor) runStepFromFile(ctx context.Context, opts *ExecuteOptions, step *StepFile, result *TestResult) error {
 	file, err := os.Open(step.Path)
 	if err != nil {
 		return fmt.Errorf("opening step file: %w", err)
@@ -453,30 +471,46 @@ func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *
 	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
-	// Increase buffer size to 50MB to handle large JSON-RPC payloads
+	// Increase buffer size to 50MB to handle large JSON-RPC payloads.
 	scanner.Buffer(make([]byte, 64*1024), 50*1024*1024)
-	lineNum := 0
+
+	var lines []string
 
 	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("reading step file: %w", err)
+	}
+
+	return e.runStepLines(ctx, opts, step.Name, lines, result)
+}
+
+// runStepLines executes JSON-RPC lines.
+func (e *executor) runStepLines(
+	ctx context.Context,
+	opts *ExecuteOptions,
+	stepName string,
+	lines []string,
+	result *TestResult,
+) error {
+	for lineNum, line := range lines {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		lineNum++
-
 		// Parse JSON to extract method name.
 		method, err := extractMethod(line)
 		if err != nil {
 			e.log.WithFields(logrus.Fields{
-				"line": lineNum,
-				"step": step.Name,
+				"line": lineNum + 1,
+				"step": stepName,
 			}).WithError(err).Warn("Failed to parse JSON-RPC payload")
 
 			if result != nil {
@@ -499,9 +533,9 @@ func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *
 
 		if err != nil {
 			e.log.WithFields(logrus.Fields{
-				"line":   lineNum,
+				"line":   lineNum + 1,
 				"method": method,
-				"step":   step.Name,
+				"step":   stepName,
 			}).WithError(err).Warn("RPC call failed")
 		}
 
@@ -509,17 +543,17 @@ func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *
 		if succeeded && e.validator != nil && response != "" {
 			if resp, parseErr := jsonrpc.Parse(response); parseErr != nil {
 				e.log.WithFields(logrus.Fields{
-					"line":   lineNum,
+					"line":   lineNum + 1,
 					"method": method,
-					"step":   step.Name,
+					"step":   stepName,
 				}).WithError(parseErr).Warn("Failed to parse JSON-RPC response")
 
 				succeeded = false
 			} else if validationErr := e.validator.Validate(method, resp); validationErr != nil {
 				e.log.WithFields(logrus.Fields{
-					"line":   lineNum,
+					"line":   lineNum + 1,
 					"method": method,
-					"step":   step.Name,
+					"step":   stepName,
 				}).WithError(validationErr).Warn("Response validation failed")
 
 				succeeded = false
@@ -529,10 +563,6 @@ func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *
 		if result != nil {
 			result.AddResult(method, line, response, duration, succeeded, resourceDelta)
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("reading step file: %w", err)
 	}
 
 	return nil

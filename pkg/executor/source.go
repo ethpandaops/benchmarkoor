@@ -25,10 +25,19 @@ const (
 	StepTypePreRun  StepType = "pre_run"
 )
 
+// StepProvider provides step lines without requiring a file on disk.
+type StepProvider interface {
+	// Lines returns the JSON-RPC lines for this step.
+	Lines() []string
+	// Content returns the full content as bytes for hashing.
+	Content() []byte
+}
+
 // StepFile represents a single step file.
 type StepFile struct {
-	Path string // Full absolute path
-	Name string // Relative path from base
+	Path     string       // Full absolute path (empty if using provider)
+	Name     string       // Relative path from base or logical name
+	Provider StepProvider // Optional provider for in-memory steps
 }
 
 // TestWithSteps represents a test with its optional setup/test/cleanup steps.
@@ -56,6 +65,14 @@ type Source interface {
 	GetSourceInfo() (*SuiteSource, error)
 }
 
+// GenesisProvider is an optional interface that sources can implement
+// to provide genesis files for clients.
+type GenesisProvider interface {
+	// GetGenesisPath returns the path to the genesis file for a client type.
+	// Returns an empty string if no genesis is available for the client.
+	GetGenesisPath(clientType string) string
+}
+
 // NewSource creates a Source from the configuration.
 func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir string, filter string) Source {
 	if cfg.Local != nil {
@@ -73,6 +90,10 @@ func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir string
 			cacheDir: cacheDir,
 			filter:   filter,
 		}
+	}
+
+	if cfg.EESTFixtures != nil {
+		return NewEESTSource(log, cfg.EESTFixtures, cacheDir, filter)
 	}
 
 	return nil

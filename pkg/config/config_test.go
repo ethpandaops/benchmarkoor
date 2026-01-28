@@ -253,3 +253,192 @@ func TestLoad_InvalidYAML(t *testing.T) {
 	_, err := Load(configPath)
 	require.Error(t, err)
 }
+
+func TestSourceConfig_Validate(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name      string
+		source    SourceConfig
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "no source configured is valid",
+			source:  SourceConfig{},
+			wantErr: false,
+		},
+		{
+			name: "valid git source",
+			source: SourceConfig{
+				Git: &GitSourceV2{
+					Repo:    "https://github.com/test/repo",
+					Version: "v1.0.0",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid local source",
+			source: SourceConfig{
+				Local: &LocalSourceV2{
+					BaseDir: tmpDir,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid eest_fixtures source",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					GitHubRepo:    "ethereum/execution-spec-tests",
+					GitHubRelease: "benchmark@v0.0.6",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "multiple sources not allowed - git and local",
+			source: SourceConfig{
+				Git: &GitSourceV2{
+					Repo:    "https://github.com/test/repo",
+					Version: "v1.0.0",
+				},
+				Local: &LocalSourceV2{
+					BaseDir: tmpDir,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "cannot specify multiple sources",
+		},
+		{
+			name: "multiple sources not allowed - git and eest",
+			source: SourceConfig{
+				Git: &GitSourceV2{
+					Repo:    "https://github.com/test/repo",
+					Version: "v1.0.0",
+				},
+				EESTFixtures: &EESTFixturesSource{
+					GitHubRepo:    "ethereum/execution-spec-tests",
+					GitHubRelease: "benchmark@v0.0.6",
+				},
+			},
+			wantErr:   true,
+			errSubstr: "cannot specify multiple sources",
+		},
+		{
+			name: "eest_fixtures missing github_repo",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					GitHubRelease: "benchmark@v0.0.6",
+				},
+			},
+			wantErr:   true,
+			errSubstr: "eest_fixtures.github_repo is required",
+		},
+		{
+			name: "eest_fixtures missing github_release",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					GitHubRepo: "ethereum/execution-spec-tests",
+				},
+			},
+			wantErr:   true,
+			errSubstr: "eest_fixtures.github_release is required",
+		},
+		{
+			name: "git missing repo",
+			source: SourceConfig{
+				Git: &GitSourceV2{
+					Version: "v1.0.0",
+				},
+			},
+			wantErr:   true,
+			errSubstr: "git.repo is required",
+		},
+		{
+			name: "git missing version",
+			source: SourceConfig{
+				Git: &GitSourceV2{
+					Repo: "https://github.com/test/repo",
+				},
+			},
+			wantErr:   true,
+			errSubstr: "git.version is required",
+		},
+		{
+			name: "local missing base_dir",
+			source: SourceConfig{
+				Local: &LocalSourceV2{},
+			},
+			wantErr:   true,
+			errSubstr: "local.base_dir is required",
+		},
+		{
+			name: "local base_dir does not exist",
+			source: SourceConfig{
+				Local: &LocalSourceV2{
+					BaseDir: "/nonexistent/path",
+				},
+			},
+			wantErr:   true,
+			errSubstr: "does not exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.source.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSourceConfig_IsConfigured(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   SourceConfig
+		expected bool
+	}{
+		{
+			name:     "no source",
+			source:   SourceConfig{},
+			expected: false,
+		},
+		{
+			name: "git source",
+			source: SourceConfig{
+				Git: &GitSourceV2{Repo: "test", Version: "v1"},
+			},
+			expected: true,
+		},
+		{
+			name: "local source",
+			source: SourceConfig{
+				Local: &LocalSourceV2{BaseDir: "/tmp"},
+			},
+			expected: true,
+		},
+		{
+			name: "eest source",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					GitHubRepo:    "test/repo",
+					GitHubRelease: "v1",
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.source.IsConfigured())
+		})
+	}
+}

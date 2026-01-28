@@ -361,9 +361,20 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	}
 
 	// Determine genesis source (URL or local file path).
+	// Priority: instance config > global config > EEST source
 	genesisSource := instance.Genesis
 	if genesisSource == "" {
 		genesisSource = r.cfg.GenesisURLs[instance.Client]
+	}
+
+	// If no genesis configured and executor provides one (e.g., EEST source), use that.
+	if genesisSource == "" && r.executor != nil {
+		if gp, ok := r.executor.GetSource().(executor.GenesisProvider); ok {
+			if path := gp.GetGenesisPath(instance.Client); path != "" {
+				genesisSource = path
+				log.WithField("source", path).Info("Using genesis from test source")
+			}
+		}
 	}
 
 	// Load genesis file if configured.

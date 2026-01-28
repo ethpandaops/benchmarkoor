@@ -26,6 +26,7 @@ type SuiteInfo struct {
 type SuiteSource struct {
 	Git   *GitSourceInfo   `json:"git,omitempty"`
 	Local *LocalSourceInfo `json:"local,omitempty"`
+	EEST  *EESTSourceInfo  `json:"eest,omitempty"`
 }
 
 // GitSourceInfo contains git repository source information.
@@ -70,9 +71,9 @@ func ComputeSuiteHash(prepared *PreparedSource) (string, error) {
 
 	// Hash pre-run steps first.
 	for _, f := range prepared.PreRunSteps {
-		content, err := os.ReadFile(f.Path)
+		content, err := getStepContent(f)
 		if err != nil {
-			return "", fmt.Errorf("reading pre-run step %s: %w", f.Path, err)
+			return "", fmt.Errorf("reading pre-run step %s: %w", f.Name, err)
 		}
 
 		h.Write(content)
@@ -81,27 +82,27 @@ func ComputeSuiteHash(prepared *PreparedSource) (string, error) {
 	// Hash all test step files.
 	for _, test := range prepared.Tests {
 		if test.Setup != nil {
-			content, err := os.ReadFile(test.Setup.Path)
+			content, err := getStepContent(test.Setup)
 			if err != nil {
-				return "", fmt.Errorf("reading setup file %s: %w", test.Setup.Path, err)
+				return "", fmt.Errorf("reading setup file %s: %w", test.Setup.Name, err)
 			}
 
 			h.Write(content)
 		}
 
 		if test.Test != nil {
-			content, err := os.ReadFile(test.Test.Path)
+			content, err := getStepContent(test.Test)
 			if err != nil {
-				return "", fmt.Errorf("reading test file %s: %w", test.Test.Path, err)
+				return "", fmt.Errorf("reading test file %s: %w", test.Test.Name, err)
 			}
 
 			h.Write(content)
 		}
 
 		if test.Cleanup != nil {
-			content, err := os.ReadFile(test.Cleanup.Path)
+			content, err := getStepContent(test.Cleanup)
 			if err != nil {
-				return "", fmt.Errorf("reading cleanup file %s: %w", test.Cleanup.Path, err)
+				return "", fmt.Errorf("reading cleanup file %s: %w", test.Cleanup.Name, err)
 			}
 
 			h.Write(content)
@@ -110,6 +111,15 @@ func ComputeSuiteHash(prepared *PreparedSource) (string, error) {
 
 	// Use first 16 characters of the hash.
 	return hex.EncodeToString(h.Sum(nil))[:16], nil
+}
+
+// getStepContent returns the content of a step, either from provider or file.
+func getStepContent(step *StepFile) ([]byte, error) {
+	if step.Provider != nil {
+		return step.Provider.Content(), nil
+	}
+
+	return os.ReadFile(step.Path)
 }
 
 // CreateSuiteOutput creates the suite directory structure with copied files and summary.
@@ -204,14 +214,24 @@ func CreateSuiteOutput(
 // copyTestStepFile copies a test step file to the test directory with a standardized name.
 // Files are stored as <test_dir>/<step_type>.request (e.g., setup.request, test.request, cleanup.request).
 func copyTestStepFile(testDir, stepType string, file *StepFile, owner *fsutil.OwnerConfig) (*SuiteFile, error) {
+	dstPath := filepath.Join(testDir, stepType+".request")
+
+	// Handle provider-based steps.
+	if file.Provider != nil {
+		if err := fsutil.WriteFile(dstPath, file.Provider.Content(), 0644, owner); err != nil {
+			return nil, fmt.Errorf("writing content: %w", err)
+		}
+
+		return &SuiteFile{OgPath: file.Name}, nil
+	}
+
+	// Handle file-based steps.
 	srcFile, err := os.Open(file.Path)
 	if err != nil {
 		return nil, fmt.Errorf("opening source: %w", err)
 	}
 
 	defer func() { _ = srcFile.Close() }()
-
-	dstPath := filepath.Join(testDir, stepType+".request")
 
 	dstFile, err := fsutil.Create(dstPath, owner)
 	if err != nil {
@@ -236,14 +256,24 @@ func copyPreRunStepFile(suiteDir string, file *StepFile, owner *fsutil.OwnerConf
 		return nil, fmt.Errorf("creating step dir: %w", err)
 	}
 
+	dstPath := filepath.Join(stepDir, "pre_run.request")
+
+	// Handle provider-based steps.
+	if file.Provider != nil {
+		if err := fsutil.WriteFile(dstPath, file.Provider.Content(), 0644, owner); err != nil {
+			return nil, fmt.Errorf("writing content: %w", err)
+		}
+
+		return &SuiteFile{OgPath: file.Name}, nil
+	}
+
+	// Handle file-based steps.
 	srcFile, err := os.Open(file.Path)
 	if err != nil {
 		return nil, fmt.Errorf("opening source: %w", err)
 	}
 
 	defer func() { _ = srcFile.Close() }()
-
-	dstPath := filepath.Join(stepDir, "pre_run.request")
 
 	dstFile, err := fsutil.Create(dstPath, owner)
 	if err != nil {
