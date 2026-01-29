@@ -42,10 +42,11 @@ type ExecuteOptions struct {
 	JWT              string
 	ResultsDir       string
 	Filter           string
-	ContainerID      string         // Container ID for stats collection.
-	DockerClient     *client.Client // Docker client for fallback stats reader.
-	DropMemoryCaches string         // "tests", "steps", or "" (disabled).
-	DropCachesPath   string         // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
+	ContainerID      string           // Container ID for stats collection.
+	DockerClient     *client.Client   // Docker client for fallback stats reader.
+	DropMemoryCaches string           // "tests", "steps", or "" (disabled).
+	DropCachesPath   string           // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
+	Tests            []*TestWithSteps // Optional subset of tests to run (nil = run all).
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -209,9 +210,15 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		}
 	}
 
+	// Determine which tests to run: opts.Tests overrides prepared.Tests.
+	tests := e.prepared.Tests
+	if opts.Tests != nil {
+		tests = opts.Tests
+	}
+
 	e.log.WithFields(logrus.Fields{
 		"pre_run_steps": len(e.prepared.PreRunSteps),
-		"tests":         len(e.prepared.Tests),
+		"tests":         len(tests),
 	}).Info("Starting test execution")
 
 	// Track if execution was interrupted.
@@ -223,8 +230,8 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	dropBetweenSteps := opts.DropMemoryCaches == "steps"
 	dropCachesPath := opts.DropCachesPath
 
-	// Run pre-run steps first.
-	if len(e.prepared.PreRunSteps) > 0 {
+	// Run pre-run steps first (skip when running a test subset, e.g. multi-genesis).
+	if len(e.prepared.PreRunSteps) > 0 && opts.Tests == nil {
 		e.log.Info("Running pre-run steps")
 
 		for _, step := range e.prepared.PreRunSteps {
@@ -264,7 +271,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	}
 
 	// Run actual tests with result collection.
-	for i, test := range e.prepared.Tests {
+	for i, test := range tests {
 		select {
 		case <-ctx.Done():
 			interrupted = true
@@ -387,7 +394,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 writeResults:
 	// Build execution result.
 	result := &ExecutionResult{
-		TotalTests:        len(e.prepared.Tests),
+		TotalTests:        len(tests),
 		TotalDuration:     time.Since(startTime),
 		ContainerDied:     interrupted,
 		TerminationReason: interruptReason,

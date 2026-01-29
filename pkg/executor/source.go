@@ -73,6 +73,23 @@ type GenesisProvider interface {
 	GetGenesisPath(clientType string) string
 }
 
+// GenesisGroup represents a group of tests that share the same genesis.
+type GenesisGroup struct {
+	GenesisHash string
+	Tests       []*TestWithSteps
+}
+
+// GenesisGroupProvider is an optional interface that sources can implement
+// to provide multiple genesis groups for multi-genesis test execution.
+type GenesisGroupProvider interface {
+	// GetGenesisGroups returns the genesis groups discovered from pre_alloc.
+	// Returns nil if no pre_alloc directory exists (backward compatible).
+	GetGenesisGroups() []*GenesisGroup
+	// GetGenesisPathForGroup returns the genesis file path for a specific
+	// genesis hash and client type.
+	GetGenesisPathForGroup(genesisHash, clientType string) string
+}
+
 // NewSource creates a Source from the configuration.
 func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir, filter, githubToken string) Source {
 	if cfg.Local != nil {

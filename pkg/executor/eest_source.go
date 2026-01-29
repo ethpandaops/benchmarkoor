@@ -22,14 +22,20 @@ import (
 
 // EESTSource provides tests from EEST fixtures in GitHub releases or artifacts.
 type EESTSource struct {
-	log         logrus.FieldLogger
-	cfg         *config.EESTFixturesSource
-	cacheDir    string
-	filter      string
-	githubToken string
-	fixturesDir string
-	genesisDir  string
-	tests       []*TestWithSteps
+	log           logrus.FieldLogger
+	cfg           *config.EESTFixturesSource
+	cacheDir      string
+	filter        string
+	githubToken   string
+	fixturesDir   string
+	genesisDir    string
+	tests         []*TestWithSteps
+	genesisGroups []*GenesisGroup
+}
+
+// preAllocFile represents the JSON structure of a pre_alloc file.
+type preAllocFile struct {
+	TestIDs []string `json:"testIds"`
 }
 
 // NewEESTSource creates a new EEST source.
@@ -599,6 +605,9 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 
 	s.log.WithField("path", searchDir).Info("Searching for fixtures")
 
+	// Map fixture keys (testIds) to their TestWithSteps for pre_alloc matching.
+	testsByFixtureKey := make(map[string]*TestWithSteps, 256)
+
 	// Walk fixture directory for JSON files.
 	err := filepath.Walk(searchDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -694,6 +703,7 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 			}
 
 			result.Tests = append(result.Tests, test)
+			testsByFixtureKey[name] = test
 		}
 
 		return nil
@@ -711,6 +721,25 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 	s.tests = result.Tests
 
 	s.log.WithField("count", len(result.Tests)).Info("Discovered EEST fixtures")
+
+	// Parse pre_alloc directory for multi-genesis support.
+	if err := s.parsePreAlloc(searchDir, testsByFixtureKey); err != nil {
+		s.log.WithError(err).Warn("Failed to parse pre_alloc directory")
+	}
+
+	// If genesis groups were found, reorder result.Tests to match execution
+	// order: groups iterated by genesis hash, tests sorted by name within
+	// each group. This ensures the suite summary reflects actual execution.
+	if len(s.genesisGroups) > 0 {
+		reordered := make([]*TestWithSteps, 0, len(result.Tests))
+
+		for _, group := range s.genesisGroups {
+			reordered = append(reordered, group.Tests...)
+		}
+
+		result.Tests = reordered
+		s.tests = reordered
+	}
 
 	return result, nil
 }
@@ -742,27 +771,131 @@ func (s *EESTSource) GetSourceInfo() (*SuiteSource, error) {
 	}, nil
 }
 
+// parsePreAlloc scans the pre_alloc directory and builds genesis groups.
+func (s *EESTSource) parsePreAlloc(
+	searchDir string,
+	testsByFixtureKey map[string]*TestWithSteps,
+) error {
+	preAllocDir := filepath.Join(searchDir, "pre_alloc")
+
+	entries, err := os.ReadDir(preAllocDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			s.log.Debug("No pre_alloc directory found, skipping multi-genesis")
+
+			return nil
+		}
+
+		return fmt.Errorf("reading pre_alloc directory: %w", err)
+	}
+
+	groups := make([]*GenesisGroup, 0, len(entries))
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(preAllocDir, entry.Name()))
+		if err != nil {
+			return fmt.Errorf("reading pre_alloc file %s: %w", entry.Name(), err)
+		}
+
+		var paf preAllocFile
+		if err := json.Unmarshal(data, &paf); err != nil {
+			s.log.WithFields(logrus.Fields{
+				"file":  entry.Name(),
+				"error": err,
+			}).Warn("Failed to parse pre_alloc file, skipping")
+
+			continue
+		}
+
+		if len(paf.TestIDs) == 0 {
+			continue
+		}
+
+		hash := strings.TrimSuffix(entry.Name(), ".json")
+		matched := make([]*TestWithSteps, 0, len(paf.TestIDs))
+
+		for _, testID := range paf.TestIDs {
+			if t, ok := testsByFixtureKey[testID]; ok {
+				matched = append(matched, t)
+			} else {
+				s.log.WithFields(logrus.Fields{
+					"test_id":      testID,
+					"genesis_hash": hash,
+				}).Debug("pre_alloc testId not found in discovered tests")
+			}
+		}
+
+		if len(matched) > 0 {
+			// Sort tests by name for consistent ordering within each group.
+			sort.Slice(matched, func(i, j int) bool {
+				return matched[i].Name < matched[j].Name
+			})
+
+			groups = append(groups, &GenesisGroup{
+				GenesisHash: hash,
+				Tests:       matched,
+			})
+		}
+	}
+
+	if len(groups) > 0 {
+		s.genesisGroups = groups
+
+		s.log.WithField("groups", len(groups)).Info("Discovered genesis groups from pre_alloc")
+	}
+
+	return nil
+}
+
+// GetGenesisGroups returns the genesis groups discovered from pre_alloc.
+func (s *EESTSource) GetGenesisGroups() []*GenesisGroup {
+	return s.genesisGroups
+}
+
+// GetGenesisPathForGroup returns the genesis file path for a specific
+// genesis hash and client type.
+func (s *EESTSource) GetGenesisPathForGroup(genesisHash, clientType string) string {
+	clientDir, filename := s.resolveClientGenesis(clientType)
+
+	genesisPath := filepath.Join(
+		s.genesisDir, "genesis", genesisHash, clientDir, filename,
+	)
+
+	if _, err := os.Stat(genesisPath); err == nil {
+		return genesisPath
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"genesis_hash": genesisHash,
+		"client":       clientType,
+		"path":         genesisPath,
+	}).Warn("Genesis file not found for group")
+
+	return ""
+}
+
+// resolveClientGenesis maps a client type to its genesis directory and filename.
+func (s *EESTSource) resolveClientGenesis(clientType string) (string, string) {
+	switch clientType {
+	case "geth", "erigon", "reth", "nimbus":
+		return "go-ethereum", "genesis.json"
+	case "nethermind":
+		return "nethermind", "chainspec.json"
+	case "besu":
+		return "besu", "genesis.json"
+	default:
+		return "go-ethereum", "genesis.json"
+	}
+}
+
 // GetGenesisPath returns the genesis file path for a client type.
 // Maps client types to their genesis directories in the EEST release.
 func (s *EESTSource) GetGenesisPath(clientType string) string {
-	// Map client types to genesis directories and filenames.
-	var clientDir, filename string
-
-	switch clientType {
-	case "geth", "erigon", "reth", "nimbus":
-		clientDir = "go-ethereum"
-		filename = "genesis.json"
-	case "nethermind":
-		clientDir = "nethermind"
-		filename = "chainspec.json"
-	case "besu":
-		clientDir = "besu"
-		filename = "genesis.json"
-	default:
-		// Default to geth format.
-		clientDir = "go-ethereum"
-		filename = "genesis.json"
-	}
+	clientDir, filename := s.resolveClientGenesis(clientType)
 
 	// Genesis files are in genesis/genesis/<hash>/<client>/<filename>
 	// Find the hash subdirectory (there should typically be one).
@@ -771,13 +904,16 @@ func (s *EESTSource) GetGenesisPath(clientType string) string {
 	entries, err := os.ReadDir(genesisBaseDir)
 	if err != nil {
 		s.log.WithError(err).Warn("Failed to read genesis directory")
+
 		return ""
 	}
 
 	// Find the first directory (the hash directory).
 	for _, entry := range entries {
 		if entry.IsDir() {
-			genesisPath := filepath.Join(genesisBaseDir, entry.Name(), clientDir, filename)
+			genesisPath := filepath.Join(
+				genesisBaseDir, entry.Name(), clientDir, filename,
+			)
 			if _, err := os.Stat(genesisPath); err == nil {
 				return genesisPath
 			}
