@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/eest"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 )
 
@@ -57,13 +58,19 @@ type SuiteFile struct {
 	OgPath string `json:"og_path"` // original relative path
 }
 
+// SuiteTestEEST contains EEST-specific metadata for a test.
+type SuiteTestEEST struct {
+	Info *eest.FixtureInfo `json:"info"`
+}
+
 // SuiteTest represents a test with its optional steps in the suite output.
 type SuiteTest struct {
-	Name        string     `json:"name"`
-	GenesisHash string     `json:"genesis,omitempty"`
-	Setup       *SuiteFile `json:"setup,omitempty"`
-	Test        *SuiteFile `json:"test,omitempty"`
-	Cleanup     *SuiteFile `json:"cleanup,omitempty"`
+	Name        string         `json:"name"`
+	GenesisHash string         `json:"genesis,omitempty"`
+	Setup       *SuiteFile     `json:"setup,omitempty"`
+	Test        *SuiteFile     `json:"test,omitempty"`
+	Cleanup     *SuiteFile     `json:"cleanup,omitempty"`
+	EEST        *SuiteTestEEST `json:"eest,omitempty"`
 }
 
 // ComputeSuiteHash computes a hash of all test file contents.
@@ -160,6 +167,10 @@ func CreateSuiteOutput(
 		suiteTest := SuiteTest{
 			Name:        test.Name,
 			GenesisHash: test.GenesisHash,
+		}
+
+		if test.EESTInfo != nil {
+			suiteTest.EEST = &SuiteTestEEST{Info: test.EESTInfo}
 		}
 
 		// Create test directory.

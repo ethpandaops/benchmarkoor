@@ -741,7 +741,8 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 			testName := strings.TrimSuffix(relPath, ".json") + "/" + name
 
 			test := &TestWithSteps{
-				Name: testName,
+				Name:     testName,
+				EESTInfo: fixture.Info,
 			}
 
 			// Create setup step if there are setup lines.

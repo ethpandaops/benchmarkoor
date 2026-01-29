@@ -300,12 +300,25 @@ export interface SuiteInfo {
   tests: SuiteTest[]
 }
 
+export interface SuiteTestEEST {
+  info?: {
+    'fixture-format': string
+    hash?: string
+    opcode_count?: Record<string, number>
+    comment?: string
+    'filling-transition-tool'?: string
+    description?: string
+    url?: string
+  }
+}
+
 export interface SuiteTest {
   name: string
   genesis?: string
   setup?: SuiteFile
   test?: SuiteFile
   cleanup?: SuiteFile
+  eest?: SuiteTestEEST
 }
 
 export interface SourceInfo {

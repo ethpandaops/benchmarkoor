@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/eest"
 	"github.com/sirupsen/logrus"
 )
 
@@ -42,11 +43,12 @@ type StepFile struct {
 
 // TestWithSteps represents a test with its optional setup/test/cleanup steps.
 type TestWithSteps struct {
-	Name        string    // Common test name (e.g., "abc.txt")
-	Setup       *StepFile // Optional setup step
-	Test        *StepFile // Optional test step
-	Cleanup     *StepFile // Optional cleanup step
-	GenesisHash string    // Genesis hash from pre_alloc (empty if single-genesis)
+	Name        string            // Common test name (e.g., "abc.txt")
+	Setup       *StepFile         // Optional setup step
+	Test        *StepFile         // Optional test step
+	Cleanup     *StepFile         // Optional cleanup step
+	GenesisHash string            // Genesis hash from pre_alloc (empty if single-genesis)
+	EESTInfo    *eest.FixtureInfo // EEST fixture metadata (nil for non-EEST sources)
 }
 
 // PreparedSource contains the prepared test source with all discovered tests.
