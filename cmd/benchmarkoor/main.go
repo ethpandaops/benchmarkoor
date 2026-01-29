@@ -55,6 +55,7 @@ var rootCmd = &cobra.Command{
 	Long: `Benchmarkoor is a tool for benchmarking Ethereum execution layer clients.
 It supports running EL clients via Docker and measuring their performance
 through the Engine API.`,
+	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		level, err := logrus.ParseLevel(logLevel)
 		if err != nil {
