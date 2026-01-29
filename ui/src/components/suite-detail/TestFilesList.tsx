@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import clsx from 'clsx'
 import type { SuiteFile, SuiteTest } from '@/api/types'
@@ -160,6 +160,75 @@ function SearchIcon({ className }: { className?: string }) {
   )
 }
 
+// Component for displaying EEST fixture info
+function EESTInfoContent({ test }: { test: SuiteTest }) {
+  const info = test.eest?.info
+  if (!info) return null
+
+  const fields = [
+    { label: 'Description', value: info.description },
+    { label: 'Comment', value: info.comment },
+    { label: 'Fixture Format', value: info['fixture-format'] },
+    { label: 'Filling Tool', value: info['filling-transition-tool'] },
+    { label: 'Hash', value: info.hash },
+    { label: 'URL', value: info.url },
+  ].filter((f) => f.value)
+
+  const hasOpcodes = info.opcode_count && Object.keys(info.opcode_count).length > 0
+
+  if (fields.length === 0 && !hasOpcodes) return null
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Badge variant="default">EEST Info</Badge>
+      </div>
+      <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm/6">
+          {fields.map(({ label, value }) => (
+            <Fragment key={label}>
+              <dt className="font-medium text-gray-500 dark:text-gray-400">{label}</dt>
+              <dd className="break-all text-gray-900 dark:text-gray-100">
+                {label === 'URL' && value ? (
+                  <a
+                    href={value}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline dark:text-blue-400"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {value}
+                  </a>
+                ) : (
+                  <span className="font-mono">{value}</span>
+                )}
+              </dd>
+            </Fragment>
+          ))}
+        </dl>
+        {hasOpcodes && (
+          <div className="mt-3 flex flex-col gap-1">
+            <span className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Opcode Count</span>
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(info.opcode_count!)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([opcode, count]) => (
+                  <span
+                    key={opcode}
+                    className="inline-flex items-center gap-1 rounded-sm bg-gray-100 px-2 py-0.5 font-mono text-xs/5 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+                  >
+                    {opcode}
+                    <span className="text-gray-500 dark:text-gray-400">{count}</span>
+                  </span>
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // Component for displaying test steps content (for tests with setup/test/cleanup)
 function TestStepsContent({ suiteHash, test }: { suiteHash: string; test: SuiteTest }) {
   const steps = [
@@ -168,12 +237,14 @@ function TestStepsContent({ suiteHash, test }: { suiteHash: string; test: SuiteT
     { key: 'cleanup', label: 'Cleanup', file: test.cleanup },
   ].filter((s) => s.file) as { key: string; label: string; file: SuiteFile }[]
 
-  if (steps.length === 0) {
+  const hasInfo = !!test.eest?.info
+  if (steps.length === 0 && !hasInfo) {
     return <div className="p-4 text-sm/6 text-gray-500">No step files available</div>
   }
 
   return (
     <div className="flex flex-col gap-6">
+      <EESTInfoContent test={test} />
       {steps.map(({ key, label, file }) => (
         <div key={key} className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
