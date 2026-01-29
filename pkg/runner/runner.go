@@ -227,6 +227,29 @@ func (r *runner) resolveDataDir(instance *config.ClientInstance) *config.DataDir
 	return nil
 }
 
+// containerLogInfo contains metadata written to container log markers.
+type containerLogInfo struct {
+	Name             string
+	ContainerID      string
+	Image            string
+	GenesisGroupHash string
+}
+
+// formatStartMarker formats a log start marker with container metadata.
+func formatStartMarker(marker string, info *containerLogInfo) string {
+	s := "#" + marker + ":START name=" + info.Name +
+		" image=" + info.Image
+	if info.ContainerID != "" {
+		s += " container_id=" + info.ContainerID
+	}
+
+	if info.GenesisGroupHash != "" {
+		s += " genesis_group=" + info.GenesisGroupHash
+	}
+
+	return s + "\n"
+}
+
 // containerRunParams contains parameters for a single container lifecycle run.
 type containerRunParams struct {
 	Instance         *config.ClientInstance
@@ -606,19 +629,25 @@ func (r *runner) runContainerLifecycle(
 			},
 		}
 
-		// Set up init container log streaming.
-		initLogFile := filepath.Join(runResultsDir, "container-init.log")
-		if params.GenesisGroupHash != "" {
-			initLogFile = filepath.Join(
-				runResultsDir,
-				"container-init-"+params.GenesisGroupHash+".log",
-			)
+		// Set up init container log streaming (appends to container.log).
+		initLogFile := filepath.Join(runResultsDir, "container.log")
+
+		initFile, err := os.OpenFile(
+			initLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
+		)
+		if err != nil {
+			return fmt.Errorf("opening init log file: %w", err)
 		}
 
-		initFile, err := fsutil.Create(initLogFile, r.cfg.ResultsOwner)
-		if err != nil {
-			return fmt.Errorf("creating init log file: %w", err)
+		if r.cfg.ResultsOwner != nil {
+			fsutil.Chown(initLogFile, r.cfg.ResultsOwner)
 		}
+
+		_, _ = fmt.Fprint(initFile, formatStartMarker("INIT_CONTAINER", &containerLogInfo{
+			Name:             initSpec.Name,
+			Image:            initSpec.Image,
+			GenesisGroupHash: params.GenesisGroupHash,
+		}))
 
 		var initStdout, initStderr io.Writer = initFile, initFile
 		if r.cfg.ClientLogsToStdout {
@@ -640,11 +669,13 @@ func (r *runner) runContainerLifecycle(
 		if err := r.docker.RunInitContainer(
 			ctx, initSpec, initStdout, initStderr,
 		); err != nil {
+			_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
 			_ = initFile.Close()
 
 			return fmt.Errorf("running init container: %w", err)
 		}
 
+		_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
 		_ = initFile.Close()
 
 		log.Info("Init container completed")
@@ -793,12 +824,7 @@ func (r *runner) runContainerLifecycle(
 	logCtx, logCancel := context.WithCancel(ctx)
 	defer logCancel()
 
-	logFileName := "container.log"
-	if params.GenesisGroupHash != "" {
-		logFileName = "container-" + params.GenesisGroupHash + ".log"
-	}
-
-	logFile := filepath.Join(runResultsDir, logFileName)
+	logFile := filepath.Join(runResultsDir, "container.log")
 
 	r.wg.Add(1)
 
@@ -807,6 +833,12 @@ func (r *runner) runContainerLifecycle(
 
 		if err := r.streamLogs(
 			logCtx, instance.ID, containerID, logFile, benchmarkoorLogFile,
+			&containerLogInfo{
+				Name:             containerName,
+				ContainerID:      containerID,
+				Image:            imageName,
+				GenesisGroupHash: params.GenesisGroupHash,
+			},
 		); err != nil {
 			// Context cancellation during cleanup is expected.
 			select {
@@ -1123,16 +1155,26 @@ func writeRunConfig(resultsDir string, cfg *RunConfig, owner *fsutil.OwnerConfig
 }
 
 // streamLogs streams container logs to file and optionally stdout/benchmarkoor log.
+// The log file is opened in append mode with start/end markers so that
+// multiple container runs (e.g. multi-genesis) write to a single file.
 func (r *runner) streamLogs(
 	ctx context.Context,
 	instanceID, containerID, logPath string,
 	benchmarkoorLog io.Writer,
+	logInfo *containerLogInfo,
 ) error {
-	file, err := fsutil.Create(logPath, r.cfg.ResultsOwner)
+	file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("creating log file: %w", err)
+		return fmt.Errorf("opening log file: %w", err)
 	}
 	defer func() { _ = file.Close() }()
+
+	if r.cfg.ResultsOwner != nil {
+		fsutil.Chown(logPath, r.cfg.ResultsOwner)
+	}
+
+	// Write start marker with container metadata.
+	_, _ = fmt.Fprint(file, formatStartMarker("CONTAINER", logInfo))
 
 	var stdout, stderr io.Writer = file, file
 
@@ -1144,7 +1186,12 @@ func (r *runner) streamLogs(
 		stderr = io.MultiWriter(file, stdoutPrefixWriter, logFilePrefixWriter)
 	}
 
-	return r.docker.StreamLogs(ctx, containerID, stdout, stderr)
+	streamErr := r.docker.StreamLogs(ctx, containerID, stdout, stderr)
+
+	// Write end marker (best-effort, even if streaming failed).
+	_, _ = fmt.Fprintf(file, "#CONTAINER:END\n")
+
+	return streamErr
 }
 
 // waitForRPC waits for the RPC endpoint to be ready and returns the client version.
