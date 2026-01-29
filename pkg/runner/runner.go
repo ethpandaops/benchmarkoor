@@ -285,23 +285,6 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	datadirCfg := r.resolveDataDir(instance)
 	useDataDir := datadirCfg != nil
 
-	// Track cleanup functions.
-	var cleanupFuncs []func()
-
-	cleanupStarted := make(chan struct{})
-
-	var cleanupOnce sync.Once
-
-	defer func() {
-		// Signal that intentional cleanup is starting.
-		cleanupOnce.Do(func() { close(cleanupStarted) })
-
-		// Execute cleanup in reverse order (LIFO).
-		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
-			cleanupFuncs[i]()
-		}
-	}()
-
 	// Determine genesis source (URL or local file path).
 	// Priority: instance config > global config > EEST source
 	genesisSource := instance.Genesis
@@ -349,7 +332,6 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 					if err := r.runContainerLifecycle(
 						ctx, params, spec, datadirCfg, useDataDir,
-						&cleanupFuncs, cleanupStarted,
 					); err != nil {
 						return fmt.Errorf(
 							"running genesis group %s: %w",
@@ -386,7 +368,6 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	return r.runContainerLifecycle(
 		ctx, params, spec, datadirCfg, useDataDir,
-		&cleanupFuncs, cleanupStarted,
 	)
 }
 
@@ -400,8 +381,6 @@ func (r *runner) runContainerLifecycle(
 	spec client.Spec,
 	datadirCfg *config.DataDirConfig,
 	useDataDir bool,
-	cleanupFuncs *[]func(),
-	cleanupStarted chan struct{},
 ) error {
 	instance := params.Instance
 	runID := params.RunID
@@ -417,6 +396,21 @@ func (r *runner) runContainerLifecycle(
 	if params.GenesisGroupHash != "" {
 		log = log.WithField("genesis_group", params.GenesisGroupHash)
 	}
+
+	// Each container lifecycle manages its own cleanup and crash detection.
+	var localCleanupFuncs []func()
+
+	localCleanupStarted := make(chan struct{})
+
+	var localCleanupOnce sync.Once
+
+	defer func() {
+		localCleanupOnce.Do(func() { close(localCleanupStarted) })
+
+		for i := len(localCleanupFuncs) - 1; i >= 0; i-- {
+			localCleanupFuncs[i]()
+		}
+	}()
 
 	// Setup data directory: either Docker volume or copied datadir.
 	// Each container lifecycle gets a fresh volume/datadir.
@@ -442,7 +436,7 @@ func (r *runner) runContainerLifecycle(
 			return fmt.Errorf("preparing datadir: %w", err)
 		}
 
-		*cleanupFuncs = append(*cleanupFuncs, func() {
+		localCleanupFuncs = append(localCleanupFuncs, func() {
 			if cleanupErr := prepared.Cleanup(); cleanupErr != nil {
 				log.WithError(cleanupErr).Warn("Failed to cleanup datadir")
 			}
@@ -478,7 +472,7 @@ func (r *runner) runContainerLifecycle(
 			return fmt.Errorf("creating volume: %w", err)
 		}
 
-		*cleanupFuncs = append(*cleanupFuncs, func() {
+		localCleanupFuncs = append(localCleanupFuncs, func() {
 			if rmErr := r.docker.RemoveVolume(
 				context.Background(), volumeName,
 			); rmErr != nil {
@@ -544,7 +538,7 @@ func (r *runner) runContainerLifecycle(
 		return fmt.Errorf("creating temp directory: %w", err)
 	}
 
-	*cleanupFuncs = append(*cleanupFuncs, func() {
+	localCleanupFuncs = append(localCleanupFuncs, func() {
 		if rmErr := os.RemoveAll(tempDir); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove temp directory")
 		}
@@ -785,7 +779,7 @@ func (r *runner) runContainerLifecycle(
 	}
 
 	// Ensure cleanup.
-	*cleanupFuncs = append(*cleanupFuncs, func() {
+	localCleanupFuncs = append(localCleanupFuncs, func() {
 		log.Info("Removing container")
 
 		if rmErr := r.docker.RemoveContainer(
@@ -816,7 +810,7 @@ func (r *runner) runContainerLifecycle(
 		); err != nil {
 			// Context cancellation during cleanup is expected.
 			select {
-			case <-cleanupStarted:
+			case <-localCleanupStarted:
 				log.WithError(err).Debug("Log streaming stopped")
 			default:
 				log.WithError(err).Warn("Log streaming error")
@@ -856,7 +850,7 @@ func (r *runner) runContainerLifecycle(
 			mu.Unlock()
 
 			select {
-			case <-cleanupStarted:
+			case <-localCleanupStarted:
 				log.WithField("exit_code", exitCode).Debug(
 					"Container stopped during cleanup",
 				)
