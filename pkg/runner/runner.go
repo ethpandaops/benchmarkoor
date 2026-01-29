@@ -1019,6 +1019,12 @@ func (r *runner) runContainerLifecycle(
 		log.WithField("status", runConfig.Status).Info("Run completed")
 	}
 
+	// Return an error if the container died so callers (e.g. multi-genesis
+	// loop) stop instead of continuing with the next group.
+	if containerDied {
+		return fmt.Errorf("container died during execution")
+	}
+
 	return nil
 }
 
