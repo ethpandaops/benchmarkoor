@@ -2,12 +2,15 @@ package executor
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,42 +20,66 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// EESTSource provides tests from EEST fixtures in GitHub releases.
+// EESTSource provides tests from EEST fixtures in GitHub releases or artifacts.
 type EESTSource struct {
 	log         logrus.FieldLogger
 	cfg         *config.EESTFixturesSource
 	cacheDir    string
 	filter      string
+	githubToken string
 	fixturesDir string
 	genesisDir  string
 	tests       []*TestWithSteps
 }
 
 // NewEESTSource creates a new EEST source.
-func NewEESTSource(log logrus.FieldLogger, cfg *config.EESTFixturesSource, cacheDir, filter string) *EESTSource {
+func NewEESTSource(log logrus.FieldLogger, cfg *config.EESTFixturesSource, cacheDir, filter, githubToken string) *EESTSource {
 	return &EESTSource{
-		log:      log.WithField("source", "eest"),
-		cfg:      cfg,
-		cacheDir: cacheDir,
-		filter:   filter,
+		log:         log.WithField("source", "eest"),
+		cfg:         cfg,
+		cacheDir:    cacheDir,
+		filter:      filter,
+		githubToken: githubToken,
 	}
 }
 
-// Prepare downloads and extracts fixtures from GitHub releases.
+// Prepare downloads and extracts fixtures from GitHub releases or artifacts.
 func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
-	// Build cache path.
+	// Build cache path based on source type.
 	repoHash := hashRepoURL(s.cfg.GitHubRepo)
-	cacheBase := filepath.Join(s.cacheDir, "eest", repoHash, s.cfg.GitHubRelease)
+
+	var cacheBase string
+
+	if s.cfg.UseArtifacts() {
+		// For artifacts, use artifact name and optional run ID for caching.
+		artifactKey := s.cfg.FixturesArtifactName
+		if s.cfg.FixturesArtifactRunID != "" {
+			artifactKey = fmt.Sprintf("%s-%s", s.cfg.FixturesArtifactName, s.cfg.FixturesArtifactRunID)
+		}
+
+		cacheBase = filepath.Join(s.cacheDir, "eest-artifacts", repoHash, artifactKey)
+	} else {
+		// For releases, use the release tag.
+		cacheBase = filepath.Join(s.cacheDir, "eest", repoHash, s.cfg.GitHubRelease)
+	}
 
 	s.fixturesDir = filepath.Join(cacheBase, "fixtures")
 	s.genesisDir = filepath.Join(cacheBase, "genesis")
 
 	// Check if already extracted.
 	if _, err := os.Stat(s.fixturesDir); os.IsNotExist(err) {
-		s.log.Info("Downloading EEST fixtures")
+		if s.cfg.UseArtifacts() {
+			s.log.Info("Downloading EEST fixtures from GitHub artifacts")
 
-		if err := s.downloadAndExtract(ctx, cacheBase); err != nil {
-			return nil, fmt.Errorf("downloading fixtures: %w", err)
+			if err := s.downloadArtifacts(ctx, cacheBase); err != nil {
+				return nil, fmt.Errorf("downloading artifacts: %w", err)
+			}
+		} else {
+			s.log.Info("Downloading EEST fixtures from GitHub release")
+
+			if err := s.downloadAndExtract(ctx, cacheBase); err != nil {
+				return nil, fmt.Errorf("downloading fixtures: %w", err)
+			}
 		}
 	} else {
 		s.log.WithField("path", cacheBase).Info("Using cached EEST fixtures")
@@ -97,6 +124,373 @@ func (s *EESTSource) downloadAndExtract(ctx context.Context, cacheBase string) e
 
 	if err := s.downloadAndExtractTarball(ctx, genesisURL, s.genesisDir); err != nil {
 		return fmt.Errorf("extracting genesis: %w", err)
+	}
+
+	return nil
+}
+
+// downloadArtifacts downloads fixtures and genesis from GitHub Actions artifacts.
+func (s *EESTSource) downloadArtifacts(ctx context.Context, cacheBase string) error {
+	if err := os.MkdirAll(cacheBase, 0755); err != nil {
+		return fmt.Errorf("creating cache directory: %w", err)
+	}
+
+	// Download fixtures artifact.
+	fixturesArtifact := s.cfg.FixturesArtifactName
+	if fixturesArtifact == "" {
+		fixturesArtifact = "fixtures_benchmark"
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"artifact": fixturesArtifact,
+		"repo":     s.cfg.GitHubRepo,
+	}).Info("Downloading fixtures artifact")
+
+	if err := s.downloadGitHubArtifact(ctx, fixturesArtifact, s.cfg.FixturesArtifactRunID, s.fixturesDir); err != nil {
+		return fmt.Errorf("downloading fixtures artifact: %w", err)
+	}
+
+	// Extract any .tar.gz files found inside the artifact.
+	if err := s.extractInnerTarballs(ctx, s.fixturesDir); err != nil {
+		return fmt.Errorf("extracting fixtures tarballs: %w", err)
+	}
+
+	// Download genesis artifact.
+	genesisArtifact := s.cfg.GenesisArtifactName
+	if genesisArtifact == "" {
+		genesisArtifact = "benchmark_genesis"
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"artifact": genesisArtifact,
+		"repo":     s.cfg.GitHubRepo,
+	}).Info("Downloading genesis artifact")
+
+	if err := s.downloadGitHubArtifact(ctx, genesisArtifact, s.cfg.GenesisArtifactRunID, s.genesisDir); err != nil {
+		return fmt.Errorf("downloading genesis artifact: %w", err)
+	}
+
+	// Extract any .tar.gz files found inside the artifact.
+	if err := s.extractInnerTarballs(ctx, s.genesisDir); err != nil {
+		return fmt.Errorf("extracting genesis tarballs: %w", err)
+	}
+
+	return nil
+}
+
+// downloadGitHubArtifact downloads a GitHub Actions artifact.
+// It first tries the gh CLI, then falls back to the GitHub REST API if a token is available.
+func (s *EESTSource) downloadGitHubArtifact(ctx context.Context, artifactName, runID, targetDir string) error {
+	// Try gh CLI first.
+	if ghErr := s.downloadArtifactViaGH(ctx, artifactName, runID, targetDir); ghErr == nil {
+		return nil
+	} else {
+		s.log.WithError(ghErr).Warn("gh CLI artifact download failed, trying GitHub API fallback")
+	}
+
+	// Fall back to GitHub REST API.
+	if s.githubToken == "" {
+		return fmt.Errorf(
+			"GitHub artifact download failed. Either:\n" +
+				"  1. Install and authenticate the gh CLI (https://cli.github.com/)\n" +
+				"  2. Set global.github_token in config (or BENCHMARKOOR_GLOBAL_GITHUB_TOKEN env var)",
+		)
+	}
+
+	return s.downloadArtifactViaAPI(ctx, artifactName, runID, targetDir)
+}
+
+// downloadArtifactViaGH downloads an artifact using the gh CLI.
+func (s *EESTSource) downloadArtifactViaGH(ctx context.Context, artifactName, runID, targetDir string) error {
+	ghPath, err := exec.LookPath("gh")
+	if err != nil {
+		return fmt.Errorf("gh CLI not found: %w", err)
+	}
+
+	args := []string{"run", "download", "-R", s.cfg.GitHubRepo, "-n", artifactName, "-D", targetDir}
+	if runID != "" {
+		args = append(args, "--run-id", runID)
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"command": ghPath + " " + strings.Join(args, " "),
+	}).Debug("Executing gh command")
+
+	cmd := exec.CommandContext(ctx, ghPath, args...)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("gh run download failed: %w: %s", err, string(output))
+	}
+
+	return nil
+}
+
+// ghArtifactList represents a GitHub API response listing artifacts.
+type ghArtifactList struct {
+	Artifacts []ghArtifact `json:"artifacts"`
+}
+
+// ghArtifact represents a single GitHub Actions artifact.
+type ghArtifact struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// downloadArtifactViaAPI downloads an artifact using the GitHub REST API.
+func (s *EESTSource) downloadArtifactViaAPI(ctx context.Context, artifactName, runID, targetDir string) error {
+	s.log.WithFields(logrus.Fields{
+		"artifact": artifactName,
+		"repo":     s.cfg.GitHubRepo,
+	}).Info("Downloading artifact via GitHub API")
+
+	// Find the artifact ID.
+	var listURL string
+	if runID != "" {
+		listURL = fmt.Sprintf(
+			"https://api.github.com/repos/%s/actions/runs/%s/artifacts",
+			s.cfg.GitHubRepo, runID,
+		)
+	} else {
+		listURL = fmt.Sprintf(
+			"https://api.github.com/repos/%s/actions/artifacts?name=%s",
+			s.cfg.GitHubRepo, artifactName,
+		)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
+	if err != nil {
+		return fmt.Errorf("creating artifact list request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.githubToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("listing artifacts: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("listing artifacts: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var artifactList ghArtifactList
+	if err := json.NewDecoder(resp.Body).Decode(&artifactList); err != nil {
+		return fmt.Errorf("decoding artifact list: %w", err)
+	}
+
+	// Find matching artifact.
+	var artifactID int64
+
+	for _, a := range artifactList.Artifacts {
+		if a.Name == artifactName {
+			artifactID = a.ID
+
+			break
+		}
+	}
+
+	if artifactID == 0 {
+		return fmt.Errorf("artifact %q not found in repository %s", artifactName, s.cfg.GitHubRepo)
+	}
+
+	// Download the artifact zip.
+	downloadURL := fmt.Sprintf(
+		"https://api.github.com/repos/%s/actions/artifacts/%d/zip",
+		s.cfg.GitHubRepo, artifactID,
+	)
+
+	dlReq, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return fmt.Errorf("creating artifact download request: %w", err)
+	}
+
+	dlReq.Header.Set("Authorization", "Bearer "+s.githubToken)
+	dlReq.Header.Set("Accept", "application/vnd.github+json")
+
+	dlResp, err := http.DefaultClient.Do(dlReq)
+	if err != nil {
+		return fmt.Errorf("downloading artifact: %w", err)
+	}
+
+	defer func() { _ = dlResp.Body.Close() }()
+
+	if dlResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(dlResp.Body)
+		return fmt.Errorf("downloading artifact: HTTP %d: %s", dlResp.StatusCode, string(body))
+	}
+
+	// Write to a temp file, then extract.
+	tmpFile, err := os.CreateTemp("", "gh-artifact-*.zip")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+
+	defer func() {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpFile.Name())
+	}()
+
+	if _, err := io.Copy(tmpFile, dlResp.Body); err != nil {
+		return fmt.Errorf("writing artifact zip: %w", err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+
+	return s.extractZip(tmpFile.Name(), targetDir)
+}
+
+// extractZip extracts a zip archive to the target directory.
+func (s *EESTSource) extractZip(zipPath, targetDir string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("opening zip: %w", err)
+	}
+
+	defer func() { _ = r.Close() }()
+
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("creating target directory: %w", err)
+	}
+
+	for _, f := range r.File {
+		target := filepath.Join(targetDir, filepath.Clean(f.Name))
+		if !strings.HasPrefix(target, filepath.Clean(targetDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid zip entry: %s", f.Name)
+		}
+
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return fmt.Errorf("creating directory: %w", err)
+			}
+
+			continue
+		}
+
+		// Ensure parent directory exists.
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return fmt.Errorf("creating parent directory: %w", err)
+		}
+
+		outFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
+		if err != nil {
+			return fmt.Errorf("creating file: %w", err)
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			_ = outFile.Close()
+
+			return fmt.Errorf("opening zip entry: %w", err)
+		}
+
+		if _, err := io.Copy(outFile, rc); err != nil {
+			_ = rc.Close()
+			_ = outFile.Close()
+
+			return fmt.Errorf("extracting file: %w", err)
+		}
+
+		_ = rc.Close()
+		_ = outFile.Close()
+	}
+
+	return nil
+}
+
+// extractInnerTarballs finds .tar.gz files in the directory, extracts them in-place,
+// and removes the original tarball. GitHub Actions artifacts contain .tar.gz files
+// inside the outer zip.
+func (s *EESTSource) extractInnerTarballs(_ context.Context, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("reading directory %s: %w", dir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tar.gz") {
+			continue
+		}
+
+		tarballPath := filepath.Join(dir, entry.Name())
+
+		s.log.WithField("file", tarballPath).Debug("Extracting inner tarball")
+
+		if err := s.extractLocalTarball(tarballPath, dir); err != nil {
+			return fmt.Errorf("extracting %s: %w", entry.Name(), err)
+		}
+
+		// Remove the tarball after successful extraction.
+		if err := os.Remove(tarballPath); err != nil {
+			s.log.WithError(err).WithField("file", tarballPath).Warn("Failed to remove extracted tarball")
+		}
+	}
+
+	return nil
+}
+
+// extractLocalTarball extracts a local .tar.gz file to the target directory.
+func (s *EESTSource) extractLocalTarball(tarballPath, targetDir string) error {
+	f, err := os.Open(tarballPath)
+	if err != nil {
+		return fmt.Errorf("opening tarball: %w", err)
+	}
+
+	defer func() { _ = f.Close() }()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("creating gzip reader: %w", err)
+	}
+
+	defer func() { _ = gzr.Close() }()
+
+	tr := tar.NewReader(gzr)
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return fmt.Errorf("reading tar: %w", err)
+		}
+
+		target := filepath.Join(targetDir, filepath.Clean(header.Name))
+		if !strings.HasPrefix(target, filepath.Clean(targetDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid tar entry: %s", header.Name)
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return fmt.Errorf("creating directory: %w", err)
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return fmt.Errorf("creating parent directory: %w", err)
+			}
+
+			outFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+			if err != nil {
+				return fmt.Errorf("creating file: %w", err)
+			}
+
+			if _, err := io.Copy(outFile, tr); err != nil {
+				_ = outFile.Close()
+
+				return fmt.Errorf("extracting file: %w", err)
+			}
+
+			_ = outFile.Close()
+		}
 	}
 
 	return nil
@@ -335,11 +729,15 @@ func (s *EESTSource) GetSourceInfo() (*SuiteSource, error) {
 
 	return &SuiteSource{
 		EEST: &EESTSourceInfo{
-			GitHubRepo:     s.cfg.GitHubRepo,
-			GitHubRelease:  s.cfg.GitHubRelease,
-			FixturesURL:    s.cfg.FixturesURL,
-			GenesisURL:     s.cfg.GenesisURL,
-			FixturesSubdir: fixturesSubdir,
+			GitHubRepo:            s.cfg.GitHubRepo,
+			GitHubRelease:         s.cfg.GitHubRelease,
+			FixturesURL:           s.cfg.FixturesURL,
+			GenesisURL:            s.cfg.GenesisURL,
+			FixturesSubdir:        fixturesSubdir,
+			FixturesArtifactName:  s.cfg.FixturesArtifactName,
+			GenesisArtifactName:   s.cfg.GenesisArtifactName,
+			FixturesArtifactRunID: s.cfg.FixturesArtifactRunID,
+			GenesisArtifactRunID:  s.cfg.GenesisArtifactRunID,
 		},
 	}, nil
 }
@@ -412,8 +810,13 @@ func (p *linesProvider) Content() []byte {
 // EESTSourceInfo contains EEST source information for the suite summary.
 type EESTSourceInfo struct {
 	GitHubRepo     string `json:"github_repo"`
-	GitHubRelease  string `json:"github_release"`
+	GitHubRelease  string `json:"github_release,omitempty"`
 	FixturesURL    string `json:"fixtures_url,omitempty"`
 	GenesisURL     string `json:"genesis_url,omitempty"`
 	FixturesSubdir string `json:"fixtures_subdir,omitempty"`
+	// Artifact fields (alternative to releases).
+	FixturesArtifactName  string `json:"fixtures_artifact_name,omitempty"`
+	GenesisArtifactName   string `json:"genesis_artifact_name,omitempty"`
+	FixturesArtifactRunID string `json:"fixtures_artifact_run_id,omitempty"`
+	GenesisArtifactRunID  string `json:"genesis_artifact_run_id,omitempty"`
 }

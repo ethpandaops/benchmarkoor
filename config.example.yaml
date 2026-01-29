@@ -18,6 +18,11 @@ global:
   # Optional: Override path to drop_caches file (default: /proc/sys/vm/drop_caches).
   # Useful when running in containers where the file is mounted at a different path.
   # drop_caches_path: /proc/sys/vm/drop_caches
+  # Optional: GitHub token for downloading GitHub Actions artifacts via the REST API.
+  # If the gh CLI is installed and authenticated, no token is needed.
+  # Otherwise, provide a GitHub token with actions:read scope.
+  # Can also be set via BENCHMARKOOR_GLOBAL_GITHUB_TOKEN environment variable.
+  # github_token: ${GITHUB_TOKEN:-}
 
 benchmark:
   results_dir: ${RESULTS_DIR:-./results}
@@ -79,6 +84,19 @@ benchmark:
   #     #   # Optional: Override URLs for fixtures/genesis tarballs.
   #     #   # fixtures_url: https://example.com/fixtures_benchmark.tar.gz
   #     #   # genesis_url: https://example.com/benchmark_genesis.tar.gz
+  #
+  #     # Option 3b: EEST fixtures from GitHub Actions artifacts.
+  #     # Alternative to releases - downloads from workflow run artifacts.
+  #     # Uses the gh CLI if available, otherwise falls back to the GitHub REST API
+  #     # (requires global.github_token or BENCHMARKOOR_GLOBAL_GITHUB_TOKEN).
+  #     # eest_fixtures:
+  #     #   github_repo: ethereum/execution-spec-tests
+  #     #   fixtures_artifact_name: fixtures_benchmark_fast  # Required (instead of github_release)
+  #     #   genesis_artifact_name: benchmark_genesis         # Optional, defaults to 'benchmark_genesis'
+  #     #   # Optional: Specify a specific workflow run ID (uses latest if not specified)
+  #     #   # fixtures_artifact_run_id: "12345678901"
+  #     #   # genesis_artifact_run_id: "12345678901"
+  #     #   # fixtures_subdir also works with artifacts
 
 client:
   config:

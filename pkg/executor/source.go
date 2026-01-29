@@ -74,7 +74,7 @@ type GenesisProvider interface {
 }
 
 // NewSource creates a Source from the configuration.
-func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir string, filter string) Source {
+func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir, filter, githubToken string) Source {
 	if cfg.Local != nil {
 		return &LocalSource{
 			log:    log.WithField("source", "local"),
@@ -93,7 +93,7 @@ func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir string
 	}
 
 	if cfg.EESTFixtures != nil {
-		return NewEESTSource(log, cfg.EESTFixtures, cacheDir, filter)
+		return NewEESTSource(log, cfg.EESTFixtures, cacheDir, filter, githubToken)
 	}
 
 	return nil

@@ -67,6 +67,7 @@ type Config struct {
 	ResultsDir                      string
 	ResultsOwner                    *fsutil.OwnerConfig // Optional file ownership for results directory
 	SystemResourceCollectionEnabled bool                // Enable system resource collection (cgroups/Docker Stats)
+	GitHubToken                     string              // Optional GitHub token for API-based artifact downloads
 }
 
 // NewExecutor creates a new executor instance.
@@ -93,7 +94,7 @@ var _ Executor = (*executor)(nil)
 
 // Start initializes the executor and prepares test sources.
 func (e *executor) Start(ctx context.Context) error {
-	e.source = NewSource(e.log, e.cfg.Source, e.cfg.CacheDir, e.cfg.Filter)
+	e.source = NewSource(e.log, e.cfg.Source, e.cfg.CacheDir, e.cfg.Filter, e.cfg.GitHubToken)
 	if e.source == nil {
 		return fmt.Errorf("no test source configured")
 	}

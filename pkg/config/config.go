@@ -47,6 +47,7 @@ type GlobalConfig struct {
 	CleanupOnStart     bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
 	Directories        DirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
 	DropCachesPath     string            `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
+	GitHubToken        string            `yaml:"github_token,omitempty" mapstructure:"github_token"`
 }
 
 // DirectoriesConfig contains directory path configurations.
@@ -83,13 +84,23 @@ type SourceConfig struct {
 	EESTFixtures *EESTFixturesSource `yaml:"eest_fixtures,omitempty" mapstructure:"eest_fixtures"`
 }
 
-// EESTFixturesSource defines an EEST fixtures source from GitHub releases.
+// EESTFixturesSource defines an EEST fixtures source from GitHub releases or artifacts.
 type EESTFixturesSource struct {
 	GitHubRepo     string `yaml:"github_repo" mapstructure:"github_repo"`
-	GitHubRelease  string `yaml:"github_release" mapstructure:"github_release"`
+	GitHubRelease  string `yaml:"github_release,omitempty" mapstructure:"github_release"`
 	FixturesURL    string `yaml:"fixtures_url,omitempty" mapstructure:"fixtures_url"`
 	GenesisURL     string `yaml:"genesis_url,omitempty" mapstructure:"genesis_url"`
 	FixturesSubdir string `yaml:"fixtures_subdir,omitempty" mapstructure:"fixtures_subdir"`
+	// GitHub Actions artifact support (alternative to releases).
+	FixturesArtifactName  string `yaml:"fixtures_artifact_name,omitempty" mapstructure:"fixtures_artifact_name"`
+	GenesisArtifactName   string `yaml:"genesis_artifact_name,omitempty" mapstructure:"genesis_artifact_name"`
+	FixturesArtifactRunID string `yaml:"fixtures_artifact_run_id,omitempty" mapstructure:"fixtures_artifact_run_id"`
+	GenesisArtifactRunID  string `yaml:"genesis_artifact_run_id,omitempty" mapstructure:"genesis_artifact_run_id"`
+}
+
+// UseArtifacts returns true if the source is configured to use GitHub Actions artifacts.
+func (e *EESTFixturesSource) UseArtifacts() bool {
+	return e.FixturesArtifactName != "" || e.GenesisArtifactName != ""
 }
 
 // DefaultEESTFixturesSubdir is the default subdirectory within the fixtures tarball.
@@ -317,6 +328,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"global.cleanup_on_start",
 		"global.directories.tmp_datadir",
 		"global.directories.tmp_cachedir",
+		"global.github_token",
 		// Benchmark settings
 		"benchmark.results_dir",
 		"benchmark.results_owner",
@@ -517,8 +529,16 @@ func (s *SourceConfig) Validate() error {
 			return fmt.Errorf("eest_fixtures.github_repo is required")
 		}
 
-		if s.EESTFixtures.GitHubRelease == "" {
-			return fmt.Errorf("eest_fixtures.github_release is required")
+		// Must have either release or artifact configuration.
+		hasRelease := s.EESTFixtures.GitHubRelease != ""
+		hasArtifacts := s.EESTFixtures.FixturesArtifactName != ""
+
+		if !hasRelease && !hasArtifacts {
+			return fmt.Errorf("eest_fixtures: must specify either github_release or fixtures_artifact_name")
+		}
+
+		if hasRelease && hasArtifacts {
+			return fmt.Errorf("eest_fixtures: cannot specify both github_release and fixtures_artifact_name")
 		}
 	}
 
