@@ -263,6 +263,8 @@ type containerRunParams struct {
 	Tests            []*executor.TestWithSteps // Optional test subset (nil = all).
 	GenesisGroupHash string                    // Non-empty when running a specific genesis group.
 	GenesisGroups    map[string]string         // All genesis hash → path mappings (multi-genesis).
+	ImageName        string                    // Resolved image name (pulled once by caller).
+	ImageDigest      string                    // Image SHA256 digest (resolved once by caller).
 }
 
 // RunInstance runs a single client instance through its lifecycle.
@@ -309,6 +311,23 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	// Resolve datadir configuration.
 	datadirCfg := r.resolveDataDir(instance)
 	useDataDir := datadirCfg != nil
+
+	// Pull image once for this instance (shared across genesis groups).
+	imageName := instance.Image
+	if imageName == "" {
+		imageName = spec.DefaultImage()
+	}
+
+	if err := r.docker.PullImage(ctx, imageName, instance.PullPolicy); err != nil {
+		return fmt.Errorf("pulling image: %w", err)
+	}
+
+	imageDigest, err := r.docker.GetImageDigest(ctx, imageName)
+	if err != nil {
+		log.WithError(err).Warn("Failed to get image digest")
+	} else {
+		log.WithField("digest", imageDigest).Debug("Got image digest")
+	}
 
 	// Determine genesis source (URL or local file path).
 	// Priority: instance config > global config > EEST source
@@ -359,6 +378,8 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 						Tests:            group.Tests,
 						GenesisGroupHash: group.GenesisHash,
 						GenesisGroups:    genesisGroups,
+						ImageName:        imageName,
+						ImageDigest:      imageDigest,
 					}
 
 					if err := r.runContainerLifecycle(
@@ -395,6 +416,8 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		BenchmarkoorLog: benchmarkoorLogFile,
 		LogHook:         logHook,
 		GenesisSource:   genesisSource,
+		ImageName:       imageName,
+		ImageDigest:     imageDigest,
 	}
 
 	return r.runContainerLifecycle(
@@ -542,24 +565,9 @@ func (r *runner) runContainerLifecycle(
 		)
 	}
 
-	// Determine image.
-	imageName := instance.Image
-	if imageName == "" {
-		imageName = spec.DefaultImage()
-	}
-
-	// Pull image.
-	if err := r.docker.PullImage(ctx, imageName, instance.PullPolicy); err != nil {
-		return fmt.Errorf("pulling image: %w", err)
-	}
-
-	// Get image digest.
-	imageDigest, err := r.docker.GetImageDigest(ctx, imageName)
-	if err != nil {
-		log.WithError(err).Warn("Failed to get image digest")
-	} else {
-		log.WithField("digest", imageDigest).Debug("Got image digest")
-	}
+	// Image is already pulled by RunInstance; use the resolved name and digest.
+	imageName := params.ImageName
+	imageDigest := params.ImageDigest
 
 	// Create temp files for genesis and JWT.
 	tempDir, err := os.MkdirTemp(
