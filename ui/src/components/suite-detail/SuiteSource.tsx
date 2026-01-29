@@ -1,4 +1,5 @@
 import type { SourceInfo } from '@/api/types'
+import { Badge } from '@/components/shared/Badge'
 import { Card } from '@/components/shared/Card'
 
 interface SuiteSourceProps {
@@ -101,6 +102,8 @@ function getGitHubUrl(repo: string, sha?: string, directory?: string): string {
     baseUrl = repo.replace('git@github.com:', 'https://github.com/').replace(/\.git$/, '')
   } else if (repo.includes('github.com') && repo.endsWith('.git')) {
     baseUrl = repo.replace(/\.git$/, '')
+  } else if (!repo.startsWith('http')) {
+    baseUrl = `https://github.com/${repo}`
   }
 
   if (sha && directory) {
@@ -111,12 +114,30 @@ function getGitHubUrl(repo: string, sha?: string, directory?: string): string {
   return baseUrl
 }
 
+function SourceTypeBadge({ source }: { source: SourceInfo }) {
+  if (source.git) {
+    return <Badge variant="info">Git</Badge>
+  }
+
+  if (source.local) {
+    return <Badge variant="warning">Local</Badge>
+  }
+
+  if (source.eest) {
+    const hasArtifacts =
+      source.eest.fixtures_artifact_name || source.eest.genesis_artifact_name
+    return <Badge variant="success">{hasArtifacts ? 'EEST Artifact' : 'EEST Release'}</Badge>
+  }
+
+  return null
+}
+
 export function SuiteSource({ title, source }: SuiteSourceProps) {
   if (source.git) {
     const gitUrl = getGitHubUrl(source.git.repo, source.git.sha)
 
     return (
-      <Card title={title} collapsible>
+      <Card title={<span className="flex items-center gap-2">{title}<SourceTypeBadge source={source} /></span>} collapsible>
         <div className="flex flex-col gap-4">
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
@@ -149,7 +170,7 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
 
   if (source.local) {
     return (
-      <Card title={title} collapsible>
+      <Card title={<span className="flex items-center gap-2">{title}<SourceTypeBadge source={source} /></span>} collapsible>
         <div className="flex flex-col gap-4">
           <div>
             <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Local Directory</dt>
@@ -164,11 +185,22 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
   if (source.eest) {
     const eest = source.eest
     const repoUrl = getGitHubUrl(eest.github_repo)
+    const runId = eest.fixtures_artifact_run_id || eest.genesis_artifact_run_id
+    const githubLink = runId
+      ? `${repoUrl}/actions/runs/${runId}`
+      : eest.github_release
+        ? `${repoUrl}/releases/tag/${eest.github_release}`
+        : repoUrl
+    const githubLinkLabel = runId
+      ? 'View Actions Run'
+      : eest.github_release
+        ? 'View Release'
+        : 'View on GitHub'
     const hasArtifacts =
       eest.fixtures_artifact_name || eest.genesis_artifact_name || eest.fixtures_artifact_run_id || eest.genesis_artifact_run_id
 
     return (
-      <Card title={title} collapsible>
+      <Card title={<span className="flex items-center gap-2">{title}<SourceTypeBadge source={source} /></span>} collapsible>
         <div className="flex flex-col gap-4">
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
@@ -258,13 +290,13 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
             </div>
           )}
           <a
-            href={repoUrl}
+            href={githubLink}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex w-fit items-center gap-2 rounded-xs bg-gray-900 px-3 py-1.5 text-sm/6 font-medium text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300"
           >
             <GitHubIcon className="size-4" />
-            View on GitHub
+            {githubLinkLabel}
           </a>
         </div>
       </Card>
