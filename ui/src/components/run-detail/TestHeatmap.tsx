@@ -210,6 +210,15 @@ export function TestHeatmap({
     return new Map(suiteTests.map((test, index) => [test.name, index + 1]))
   }, [suiteTests])
 
+  const genesisMap = useMemo(() => {
+    if (!suiteTests) return new Map<string, string>()
+    const m = new Map<string, string>()
+    for (const test of suiteTests) {
+      if (test.genesis) m.set(test.name, test.genesis)
+    }
+    return m
+  }, [suiteTests])
+
   const { testData, minMgas, maxMgas } = useMemo(() => {
     const data: TestData[] = []
     let minMgas = Infinity
@@ -501,6 +510,9 @@ export function TestHeatmap({
         >
           <div className="flex flex-col gap-1">
             <div className="font-medium">Test #{tooltip.test.order}</div>
+            {genesisMap.get(tooltip.test.testKey) && (
+              <div className="text-gray-500 dark:text-gray-400">Genesis: {genesisMap.get(tooltip.test.testKey)}</div>
+            )}
             <div>MGas/s: {tooltip.test.noData ? 'No data' : tooltip.test.mgasPerSec.toFixed(2)}</div>
             {!tooltip.test.noData && (
               <>
@@ -532,7 +544,7 @@ export function TestHeatmap({
                 <div>
                   <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Test Name</div>
                   <div className="flex items-center gap-2 text-sm/6 text-gray-900 dark:text-gray-100">
-                    <span>{selectedTest}</span>
+                    <span className="min-w-0 break-all">{selectedTest}</span>
                     <CopyButton text={selectedTest} />
                   </div>
                 </div>
@@ -542,6 +554,15 @@ export function TestHeatmap({
                     <div className="flex items-center gap-2 text-sm/6 text-gray-900 dark:text-gray-100">
                       <span>{entry.dir}</span>
                       <CopyButton text={entry.dir} />
+                    </div>
+                  </div>
+                )}
+                {genesisMap.get(selectedTest) && (
+                  <div>
+                    <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis</div>
+                    <div className="flex items-center gap-2 text-sm/6 text-gray-900 dark:text-gray-100">
+                      <span className="font-mono">{genesisMap.get(selectedTest)}</span>
+                      <CopyButton text={genesisMap.get(selectedTest)!} />
                     </div>
                   </div>
                 )}

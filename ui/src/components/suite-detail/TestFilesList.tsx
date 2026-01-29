@@ -205,6 +205,7 @@ export function TestFilesList({
 
   // For pre_run_steps, use files; for tests, use tests
   const isPreRunSteps = type === 'pre_run_steps'
+  const hasGenesis = !isPreRunSteps && (tests ?? []).some((t) => !!t.genesis)
   const itemCount = isPreRunSteps ? (files?.length ?? 0) : (tests?.length ?? 0)
 
   // Filter and index items
@@ -398,6 +399,11 @@ export function TestFilesList({
               <th className="px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Test Name
               </th>
+              {hasGenesis && (
+                <th className="w-40 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Genesis
+                </th>
+              )}
               <th className="w-48 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Steps
               </th>
@@ -436,6 +442,11 @@ export function TestFilesList({
                     <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100" title={test.name}>
                       {test.name}
                     </td>
+                    {hasGenesis && (
+                      <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-500 dark:text-gray-400" title={test.genesis}>
+                        {test.genesis ?? '—'}
+                      </td>
+                    )}
                     <td className="px-4 py-2">
                       <div className="flex gap-1">
                         {test.setup && <Badge variant="default">Setup</Badge>}
@@ -446,7 +457,7 @@ export function TestFilesList({
                   </tr>
                   {isExpanded && (
                     <tr key={`${originalIndex}-content`}>
-                      <td colSpan={4} className="max-w-0 bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
+                      <td colSpan={hasGenesis ? 5 : 4} className="max-w-0 bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
                         <TestStepsContent suiteHash={suiteHash} test={test} />
                       </td>
                     </tr>
