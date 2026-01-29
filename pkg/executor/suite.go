@@ -59,10 +59,11 @@ type SuiteFile struct {
 
 // SuiteTest represents a test with its optional steps in the suite output.
 type SuiteTest struct {
-	Name    string     `json:"name"`
-	Setup   *SuiteFile `json:"setup,omitempty"`
-	Test    *SuiteFile `json:"test,omitempty"`
-	Cleanup *SuiteFile `json:"cleanup,omitempty"`
+	Name        string     `json:"name"`
+	GenesisHash string     `json:"genesis,omitempty"`
+	Setup       *SuiteFile `json:"setup,omitempty"`
+	Test        *SuiteFile `json:"test,omitempty"`
+	Cleanup     *SuiteFile `json:"cleanup,omitempty"`
 }
 
 // ComputeSuiteHash computes a hash of all test file contents.
@@ -157,7 +158,8 @@ func CreateSuiteOutput(
 	// New structure: <suite_dir>/<test_name>/{setup,test,cleanup}.request
 	for _, test := range prepared.Tests {
 		suiteTest := SuiteTest{
-			Name: test.Name,
+			Name:        test.Name,
+			GenesisHash: test.GenesisHash,
 		}
 
 		// Create test directory.

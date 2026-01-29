@@ -820,6 +820,7 @@ func (s *EESTSource) parsePreAlloc(
 
 		for _, testID := range paf.TestIDs {
 			if t, ok := testsByFixtureKey[testID]; ok {
+				t.GenesisHash = hash
 				matched = append(matched, t)
 			} else {
 				s.log.WithFields(logrus.Fields{
