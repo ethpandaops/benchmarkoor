@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -31,6 +30,11 @@ type EESTSource struct {
 	genesisDir    string
 	tests         []*TestWithSteps
 	genesisGroups []*GenesisGroup
+	// resolvedFixturesRunID and resolvedGenesisRunID store the actual run IDs
+	// used when downloading artifacts. When the config doesn't specify a run ID,
+	// these capture the latest run ID that was resolved during download.
+	resolvedFixturesRunID string
+	resolvedGenesisRunID  string
 }
 
 // preAllocFile represents the JSON structure of a pre_alloc file.
@@ -57,11 +61,52 @@ func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 	var cacheBase string
 
 	if s.cfg.UseArtifacts() {
-		// For artifacts, use artifact name and optional run ID for caching.
-		artifactKey := s.cfg.FixturesArtifactName
-		if s.cfg.FixturesArtifactRunID != "" {
-			artifactKey = fmt.Sprintf("%s-%s", s.cfg.FixturesArtifactName, s.cfg.FixturesArtifactRunID)
+		// GitHub token is required for all artifact operations.
+		if s.githubToken == "" {
+			return nil, fmt.Errorf(
+				"GitHub token is required for artifact downloads. " +
+					"Set global.github_token in config or BENCHMARKOOR_GLOBAL_GITHUB_TOKEN env var",
+			)
 		}
+
+		// Resolve run IDs upfront so the cache key always includes a run ID.
+		fixturesArtifact := s.cfg.FixturesArtifactName
+		if fixturesArtifact == "" {
+			fixturesArtifact = "fixtures_benchmark"
+		}
+
+		if s.cfg.FixturesArtifactRunID != "" {
+			s.resolvedFixturesRunID = s.cfg.FixturesArtifactRunID
+		} else {
+			runID, err := s.resolveArtifactRunID(ctx, fixturesArtifact)
+			if err != nil {
+				return nil, fmt.Errorf("resolving fixtures artifact run ID: %w", err)
+			}
+
+			s.resolvedFixturesRunID = runID
+
+			s.log.WithField("run_id", runID).Info("Resolved latest fixtures artifact run ID")
+		}
+
+		genesisArtifact := s.cfg.GenesisArtifactName
+		if genesisArtifact == "" {
+			genesisArtifact = "benchmark_genesis"
+		}
+
+		if s.cfg.GenesisArtifactRunID != "" {
+			s.resolvedGenesisRunID = s.cfg.GenesisArtifactRunID
+		} else {
+			runID, err := s.resolveArtifactRunID(ctx, genesisArtifact)
+			if err != nil {
+				return nil, fmt.Errorf("resolving genesis artifact run ID: %w", err)
+			}
+
+			s.resolvedGenesisRunID = runID
+
+			s.log.WithField("run_id", runID).Info("Resolved latest genesis artifact run ID")
+		}
+
+		artifactKey := fmt.Sprintf("%s-%s", fixturesArtifact, s.resolvedFixturesRunID)
 
 		cacheBase = filepath.Join(s.cacheDir, "eest-artifacts", repoHash, artifactKey)
 	} else {
@@ -150,9 +195,10 @@ func (s *EESTSource) downloadArtifacts(ctx context.Context, cacheBase string) er
 	s.log.WithFields(logrus.Fields{
 		"artifact": fixturesArtifact,
 		"repo":     s.cfg.GitHubRepo,
+		"run_id":   s.resolvedFixturesRunID,
 	}).Info("Downloading fixtures artifact")
 
-	if err := s.downloadGitHubArtifact(ctx, fixturesArtifact, s.cfg.FixturesArtifactRunID, s.fixturesDir); err != nil {
+	if _, err := s.downloadGitHubArtifact(ctx, fixturesArtifact, s.resolvedFixturesRunID, s.fixturesDir); err != nil {
 		return fmt.Errorf("downloading fixtures artifact: %w", err)
 	}
 
@@ -170,63 +216,16 @@ func (s *EESTSource) downloadArtifacts(ctx context.Context, cacheBase string) er
 	s.log.WithFields(logrus.Fields{
 		"artifact": genesisArtifact,
 		"repo":     s.cfg.GitHubRepo,
+		"run_id":   s.resolvedGenesisRunID,
 	}).Info("Downloading genesis artifact")
 
-	if err := s.downloadGitHubArtifact(ctx, genesisArtifact, s.cfg.GenesisArtifactRunID, s.genesisDir); err != nil {
+	if _, err := s.downloadGitHubArtifact(ctx, genesisArtifact, s.resolvedGenesisRunID, s.genesisDir); err != nil {
 		return fmt.Errorf("downloading genesis artifact: %w", err)
 	}
 
 	// Extract any .tar.gz files found inside the artifact.
 	if err := s.extractInnerTarballs(ctx, s.genesisDir); err != nil {
 		return fmt.Errorf("extracting genesis tarballs: %w", err)
-	}
-
-	return nil
-}
-
-// downloadGitHubArtifact downloads a GitHub Actions artifact.
-// It first tries the gh CLI, then falls back to the GitHub REST API if a token is available.
-func (s *EESTSource) downloadGitHubArtifact(ctx context.Context, artifactName, runID, targetDir string) error {
-	// Try gh CLI first.
-	if ghErr := s.downloadArtifactViaGH(ctx, artifactName, runID, targetDir); ghErr == nil {
-		return nil
-	} else {
-		s.log.WithError(ghErr).Warn("gh CLI artifact download failed, trying GitHub API fallback")
-	}
-
-	// Fall back to GitHub REST API.
-	if s.githubToken == "" {
-		return fmt.Errorf(
-			"GitHub artifact download failed. Either:\n" +
-				"  1. Install and authenticate the gh CLI (https://cli.github.com/)\n" +
-				"  2. Set global.github_token in config (or BENCHMARKOOR_GLOBAL_GITHUB_TOKEN env var)",
-		)
-	}
-
-	return s.downloadArtifactViaAPI(ctx, artifactName, runID, targetDir)
-}
-
-// downloadArtifactViaGH downloads an artifact using the gh CLI.
-func (s *EESTSource) downloadArtifactViaGH(ctx context.Context, artifactName, runID, targetDir string) error {
-	ghPath, err := exec.LookPath("gh")
-	if err != nil {
-		return fmt.Errorf("gh CLI not found: %w", err)
-	}
-
-	args := []string{"run", "download", "-R", s.cfg.GitHubRepo, "-n", artifactName, "-D", targetDir}
-	if runID != "" {
-		args = append(args, "--run-id", runID)
-	}
-
-	s.log.WithFields(logrus.Fields{
-		"command": ghPath + " " + strings.Join(args, " "),
-	}).Debug("Executing gh command")
-
-	cmd := exec.CommandContext(ctx, ghPath, args...)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("gh run download failed: %w: %s", err, string(output))
 	}
 
 	return nil
@@ -239,12 +238,65 @@ type ghArtifactList struct {
 
 // ghArtifact represents a single GitHub Actions artifact.
 type ghArtifact struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	WorkflowRun *ghRunRef `json:"workflow_run,omitempty"`
 }
 
-// downloadArtifactViaAPI downloads an artifact using the GitHub REST API.
-func (s *EESTSource) downloadArtifactViaAPI(ctx context.Context, artifactName, runID, targetDir string) error {
+// ghRunRef is a minimal reference to a workflow run inside an artifact response.
+type ghRunRef struct {
+	ID int64 `json:"id"`
+}
+
+// resolveArtifactRunID queries the GitHub API for the latest artifact with the
+// given name and returns its workflow run ID.
+func (s *EESTSource) resolveArtifactRunID(ctx context.Context, artifactName string) (string, error) {
+	listURL := fmt.Sprintf(
+		"https://api.github.com/repos/%s/actions/artifacts?name=%s&per_page=1",
+		s.cfg.GitHubRepo, artifactName,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating artifact list request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.githubToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("listing artifacts: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+
+		return "", fmt.Errorf("listing artifacts: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var list ghArtifactList
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		return "", fmt.Errorf("decoding artifact list: %w", err)
+	}
+
+	if len(list.Artifacts) == 0 {
+		return "", fmt.Errorf("no artifacts found for %q in %s", artifactName, s.cfg.GitHubRepo)
+	}
+
+	a := list.Artifacts[0]
+	if a.WorkflowRun == nil {
+		return "", fmt.Errorf("artifact %q has no workflow_run metadata", artifactName)
+	}
+
+	return fmt.Sprintf("%d", a.WorkflowRun.ID), nil
+}
+
+// downloadGitHubArtifact downloads an artifact using the GitHub REST API.
+// It returns the workflow run ID that the artifact belongs to.
+func (s *EESTSource) downloadGitHubArtifact(ctx context.Context, artifactName, runID, targetDir string) (string, error) {
 	s.log.WithFields(logrus.Fields{
 		"artifact": artifactName,
 		"repo":     s.cfg.GitHubRepo,
@@ -266,7 +318,7 @@ func (s *EESTSource) downloadArtifactViaAPI(ctx context.Context, artifactName, r
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
 	if err != nil {
-		return fmt.Errorf("creating artifact list request: %w", err)
+		return "", fmt.Errorf("creating artifact list request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+s.githubToken)
@@ -274,45 +326,51 @@ func (s *EESTSource) downloadArtifactViaAPI(ctx context.Context, artifactName, r
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("listing artifacts: %w", err)
+		return "", fmt.Errorf("listing artifacts: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("listing artifacts: HTTP %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("listing artifacts: HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
 	var artifactList ghArtifactList
 	if err := json.NewDecoder(resp.Body).Decode(&artifactList); err != nil {
-		return fmt.Errorf("decoding artifact list: %w", err)
+		return "", fmt.Errorf("decoding artifact list: %w", err)
 	}
 
 	// Find matching artifact.
-	var artifactID int64
+	var matched *ghArtifact
 
-	for _, a := range artifactList.Artifacts {
+	for i, a := range artifactList.Artifacts {
 		if a.Name == artifactName {
-			artifactID = a.ID
+			matched = &artifactList.Artifacts[i]
 
 			break
 		}
 	}
 
-	if artifactID == 0 {
-		return fmt.Errorf("artifact %q not found in repository %s", artifactName, s.cfg.GitHubRepo)
+	if matched == nil {
+		return "", fmt.Errorf("artifact %q not found in repository %s", artifactName, s.cfg.GitHubRepo)
+	}
+
+	// Extract the resolved run ID from the artifact metadata.
+	resolvedRunID := runID
+	if resolvedRunID == "" && matched.WorkflowRun != nil {
+		resolvedRunID = fmt.Sprintf("%d", matched.WorkflowRun.ID)
 	}
 
 	// Download the artifact zip.
 	downloadURL := fmt.Sprintf(
 		"https://api.github.com/repos/%s/actions/artifacts/%d/zip",
-		s.cfg.GitHubRepo, artifactID,
+		s.cfg.GitHubRepo, matched.ID,
 	)
 
 	dlReq, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
-		return fmt.Errorf("creating artifact download request: %w", err)
+		return "", fmt.Errorf("creating artifact download request: %w", err)
 	}
 
 	dlReq.Header.Set("Authorization", "Bearer "+s.githubToken)
@@ -320,20 +378,20 @@ func (s *EESTSource) downloadArtifactViaAPI(ctx context.Context, artifactName, r
 
 	dlResp, err := http.DefaultClient.Do(dlReq)
 	if err != nil {
-		return fmt.Errorf("downloading artifact: %w", err)
+		return "", fmt.Errorf("downloading artifact: %w", err)
 	}
 
 	defer func() { _ = dlResp.Body.Close() }()
 
 	if dlResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(dlResp.Body)
-		return fmt.Errorf("downloading artifact: HTTP %d: %s", dlResp.StatusCode, string(body))
+		return "", fmt.Errorf("downloading artifact: HTTP %d: %s", dlResp.StatusCode, string(body))
 	}
 
 	// Write to a temp file, then extract.
 	tmpFile, err := os.CreateTemp("", "gh-artifact-*.zip")
 	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
+		return "", fmt.Errorf("creating temp file: %w", err)
 	}
 
 	defer func() {
@@ -342,14 +400,14 @@ func (s *EESTSource) downloadArtifactViaAPI(ctx context.Context, artifactName, r
 	}()
 
 	if _, err := io.Copy(tmpFile, dlResp.Body); err != nil {
-		return fmt.Errorf("writing artifact zip: %w", err)
+		return "", fmt.Errorf("writing artifact zip: %w", err)
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("closing temp file: %w", err)
+		return "", fmt.Errorf("closing temp file: %w", err)
 	}
 
-	return s.extractZip(tmpFile.Name(), targetDir)
+	return resolvedRunID, s.extractZip(tmpFile.Name(), targetDir)
 }
 
 // extractZip extracts a zip archive to the target directory.
@@ -756,6 +814,17 @@ func (s *EESTSource) GetSourceInfo() (*SuiteSource, error) {
 		fixturesSubdir = config.DefaultEESTFixturesSubdir
 	}
 
+	// Use resolved run IDs when available, falling back to config values.
+	fixturesRunID := s.resolvedFixturesRunID
+	if fixturesRunID == "" {
+		fixturesRunID = s.cfg.FixturesArtifactRunID
+	}
+
+	genesisRunID := s.resolvedGenesisRunID
+	if genesisRunID == "" {
+		genesisRunID = s.cfg.GenesisArtifactRunID
+	}
+
 	return &SuiteSource{
 		EEST: &EESTSourceInfo{
 			GitHubRepo:            s.cfg.GitHubRepo,
@@ -765,8 +834,8 @@ func (s *EESTSource) GetSourceInfo() (*SuiteSource, error) {
 			FixturesSubdir:        fixturesSubdir,
 			FixturesArtifactName:  s.cfg.FixturesArtifactName,
 			GenesisArtifactName:   s.cfg.GenesisArtifactName,
-			FixturesArtifactRunID: s.cfg.FixturesArtifactRunID,
-			GenesisArtifactRunID:  s.cfg.GenesisArtifactRunID,
+			FixturesArtifactRunID: fixturesRunID,
+			GenesisArtifactRunID:  genesisRunID,
 		},
 	}, nil
 }
