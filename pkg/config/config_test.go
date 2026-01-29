@@ -337,14 +337,36 @@ func TestSourceConfig_Validate(t *testing.T) {
 			errSubstr: "eest_fixtures.github_repo is required",
 		},
 		{
-			name: "eest_fixtures missing github_release",
+			name: "eest_fixtures missing github_release and artifacts",
 			source: SourceConfig{
 				EESTFixtures: &EESTFixturesSource{
 					GitHubRepo: "ethereum/execution-spec-tests",
 				},
 			},
 			wantErr:   true,
-			errSubstr: "eest_fixtures.github_release is required",
+			errSubstr: "must specify either github_release or fixtures_artifact_name",
+		},
+		{
+			name: "valid eest_fixtures with artifacts",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					GitHubRepo:           "ethereum/execution-spec-tests",
+					FixturesArtifactName: "fixtures_benchmark_fast",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "eest_fixtures cannot have both release and artifact",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					GitHubRepo:           "ethereum/execution-spec-tests",
+					GitHubRelease:        "benchmark@v0.0.6",
+					FixturesArtifactName: "fixtures_benchmark_fast",
+				},
+			},
+			wantErr:   true,
+			errSubstr: "cannot specify both github_release and fixtures_artifact_name",
 		},
 		{
 			name: "git missing repo",
