@@ -329,6 +329,17 @@ export interface SourceInfo {
       cleanup?: string[]
     }
   }
+  eest?: {
+    github_repo: string
+    github_release?: string
+    fixtures_url?: string
+    genesis_url?: string
+    fixtures_subdir?: string
+    fixtures_artifact_name?: string
+    genesis_artifact_name?: string
+    fixtures_artifact_run_id?: string
+    genesis_artifact_run_id?: string
+  }
 }
 
 export interface SuiteFile {

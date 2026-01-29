@@ -161,5 +161,115 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
     )
   }
 
+  if (source.eest) {
+    const eest = source.eest
+    const repoUrl = getGitHubUrl(eest.github_repo)
+    const hasArtifacts =
+      eest.fixtures_artifact_name || eest.genesis_artifact_name || eest.fixtures_artifact_run_id || eest.genesis_artifact_run_id
+
+    return (
+      <Card title={title} collapsible>
+        <div className="flex flex-col gap-4">
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Repository</dt>
+              <dd className="mt-1 break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.github_repo}</dd>
+            </div>
+            {eest.github_release && (
+              <div>
+                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Release</dt>
+                <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.github_release}</dd>
+              </div>
+            )}
+            {eest.fixtures_subdir && (
+              <div>
+                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Fixtures Subdirectory</dt>
+                <dd className="mt-1">
+                  <code className="rounded-xs bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                    {eest.fixtures_subdir}
+                  </code>
+                </dd>
+              </div>
+            )}
+          </dl>
+          {(eest.fixtures_url || eest.genesis_url) && (
+            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {eest.fixtures_url && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Fixtures URL</dt>
+                  <dd className="mt-1 break-all text-sm/6">
+                    <a
+                      href={eest.fixtures_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {eest.fixtures_url}
+                    </a>
+                  </dd>
+                </div>
+              )}
+              {eest.genesis_url && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis URL</dt>
+                  <dd className="mt-1 break-all text-sm/6">
+                    <a
+                      href={eest.genesis_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {eest.genesis_url}
+                    </a>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          )}
+          {hasArtifacts && (
+            <div className="flex flex-col gap-3 border-t border-gray-200 pt-4 dark:border-gray-700">
+              <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Artifacts</dt>
+              <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {eest.fixtures_artifact_name && (
+                  <div>
+                    <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Fixtures Artifact</dt>
+                    <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.fixtures_artifact_name}</dd>
+                  </div>
+                )}
+                {eest.genesis_artifact_name && (
+                  <div>
+                    <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis Artifact</dt>
+                    <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.genesis_artifact_name}</dd>
+                  </div>
+                )}
+                {eest.fixtures_artifact_run_id && (
+                  <div>
+                    <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Fixtures Run ID</dt>
+                    <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.fixtures_artifact_run_id}</dd>
+                  </div>
+                )}
+                {eest.genesis_artifact_run_id && (
+                  <div>
+                    <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis Run ID</dt>
+                    <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.genesis_artifact_run_id}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
+          <a
+            href={repoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex w-fit items-center gap-2 rounded-xs bg-gray-900 px-3 py-1.5 text-sm/6 font-medium text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300"
+          >
+            <GitHubIcon className="size-4" />
+            View on GitHub
+          </a>
+        </div>
+      </Card>
+    )
+  }
+
   return null
 }
