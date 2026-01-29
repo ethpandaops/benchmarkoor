@@ -164,7 +164,8 @@ export interface InstanceConfig {
   pull_policy: string
   restart?: string
   environment?: Record<string, string>
-  genesis: string
+  genesis?: string
+  genesis_groups?: Record<string, string>
   datadir?: DataDirConfig
   client_version?: string
   drop_memory_caches?: string
@@ -301,6 +302,7 @@ export interface SuiteInfo {
 
 export interface SuiteTest {
   name: string
+  genesis?: string
   setup?: SuiteFile
   test?: SuiteFile
   cleanup?: SuiteFile

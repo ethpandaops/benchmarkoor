@@ -128,7 +128,8 @@ type ResolvedInstance struct {
 	PullPolicy       string                  `json:"pull_policy"`
 	Restart          string                  `json:"restart,omitempty"`
 	Environment      map[string]string       `json:"environment,omitempty"`
-	Genesis          string                  `json:"genesis"`
+	Genesis          string                  `json:"genesis,omitempty"`
+	GenesisGroups    map[string]string       `json:"genesis_groups,omitempty"`
 	DataDir          *config.DataDirConfig   `json:"datadir,omitempty"`
 	ClientVersion    string                  `json:"client_version,omitempty"`
 	DropMemoryCaches string                  `json:"drop_memory_caches,omitempty"`
@@ -261,6 +262,7 @@ type containerRunParams struct {
 	GenesisSource    string                    // Path or URL to genesis file.
 	Tests            []*executor.TestWithSteps // Optional test subset (nil = all).
 	GenesisGroupHash string                    // Non-empty when running a specific genesis group.
+	GenesisGroups    map[string]string         // All genesis hash → path mappings (multi-genesis).
 }
 
 // RunInstance runs a single client instance through its lifecycle.
@@ -323,10 +325,15 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 					"Running multi-genesis mode",
 				)
 
-				for i, group := range groups {
-					groupGenesis := ggp.GetGenesisPathForGroup(
+				genesisGroups := make(map[string]string, len(groups))
+				for _, group := range groups {
+					genesisGroups[group.GenesisHash] = ggp.GetGenesisPathForGroup(
 						group.GenesisHash, instance.Client,
 					)
+				}
+
+				for i, group := range groups {
+					groupGenesis := genesisGroups[group.GenesisHash]
 					if groupGenesis == "" {
 						return fmt.Errorf(
 							"no genesis file for group %s and client %s",
@@ -351,6 +358,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 						GenesisSource:    groupGenesis,
 						Tests:            group.Tests,
 						GenesisGroupHash: group.GenesisHash,
+						GenesisGroups:    genesisGroups,
 					}
 
 					if err := r.runContainerLifecycle(
@@ -760,11 +768,16 @@ func (r *runner) runContainerLifecycle(
 			PullPolicy:       instance.PullPolicy,
 			Restart:          instance.Restart,
 			Environment:      env,
-			Genesis:          genesisSource,
 			DataDir:          datadirCfg,
 			DropMemoryCaches: dropMemoryCaches,
 			ResourceLimits:   resolvedResourceLimits,
 		},
+	}
+
+	if len(params.GenesisGroups) > 0 {
+		runConfig.Instance.GenesisGroups = params.GenesisGroups
+	} else {
+		runConfig.Instance.Genesis = genesisSource
 	}
 
 	if r.executor != nil {
