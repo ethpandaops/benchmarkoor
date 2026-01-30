@@ -96,7 +96,7 @@ interface HeatmapCanvasProps {
 function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight, expanded, categorySpans, getCount, sortCol, onSortChange, onTestClick }: HeatmapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
+  const [tooltip, setTooltip] = useState<{ lines: { text: string; bold?: boolean }[]; x: number; y: number } | null>(null)
   const hoverRef = useRef<{ row: number; col: number } | null>(null)
   const rafRef = useRef(0)
 
@@ -426,7 +426,11 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
         const count = getCount(test, colName)
         if (count > 0) {
           setTooltip({
-            text: `${test.name}\n${colName}: ${count.toLocaleString()}`,
+            lines: [
+              { text: `Test #${filteredTests[row].index + 1}` },
+              { text: `${colName}: ${count.toLocaleString()}`, bold: true },
+              { text: test.name },
+            ],
             x: e.clientX,
             y: e.clientY - 12,
           })
@@ -501,11 +505,11 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       </div>
       {tooltip && (
         <div
-          className="pointer-events-none fixed z-50 max-w-xs rounded-xs bg-gray-900 px-2 py-1 text-xs text-white shadow-xs dark:bg-gray-700"
+          className="pointer-events-none fixed z-50 flex max-w-sm flex-col gap-1 break-all rounded-xs bg-gray-900 px-2 py-1.5 text-xs text-white shadow-xs dark:bg-gray-700"
           style={{ left: tooltip.x, top: tooltip.y, transform: 'translate(-50%, -100%)' }}
         >
-          {tooltip.text.split('\n').map((line, i) => (
-            <div key={i}>{line}</div>
+          {tooltip.lines.map((line, i) => (
+            <div key={i} className={line.bold ? 'font-bold' : undefined}>{line.text}</div>
           ))}
         </div>
       )}
@@ -517,6 +521,7 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
   const [search, setSearch] = useState('')
   const [fullscreen, setFullscreen] = useState(false)
   const [expanded, setExpanded] = useState(true)
+  const [groupStack, setGroupStack] = useState(false)
   const [sortCol, setSortCol] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [isDark] = useState(() => {
@@ -564,6 +569,31 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
 
   const grouped: GroupedResult = useMemo(() => getGroupedOpcodes(allOpcodes), [allOpcodes])
 
+  // When groupStack is on in expanded mode, replace individual stack subcategory opcodes
+  // with a single column per subcategory (Pop, Push, Dup, Swap)
+  const stackGrouped = useMemo((): { columns: string[]; categorySpans: CategorySpan[] } => {
+    if (!groupStack) return { columns: grouped.columns, categorySpans: grouped.categorySpans }
+    const columns: string[] = []
+    const categorySpans: CategorySpan[] = []
+    for (const span of grouped.categorySpans) {
+      if (span.subcategories && span.subcategories.length > 0) {
+        // Replace individual opcodes with subcategory names
+        const startCol = columns.length
+        const subSpans = span.subcategories.map((sub) => {
+          const s = { ...sub, startCol: columns.length, count: 1, opcodes: sub.opcodes }
+          columns.push(sub.name)
+          return s
+        })
+        categorySpans.push({ ...span, startCol, count: subSpans.length, subcategories: subSpans })
+      } else {
+        const startCol = columns.length
+        columns.push(...span.opcodes)
+        categorySpans.push({ ...span, startCol, count: span.opcodes.length })
+      }
+    }
+    return { columns, categorySpans }
+  }, [grouped, groupStack])
+
   // Collapsed mode: category names as columns
   const collapsedColumns = useMemo(() => {
     return grouped.categorySpans.map((g) => g.name)
@@ -578,13 +608,37 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
     return map
   }, [grouped])
 
-  const columns = expanded ? grouped.columns : collapsedColumns
+  // Lookup: subcategory name -> opcodes (for groupStack aggregation)
+  const subCategoryOpcodeMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const span of grouped.categorySpans) {
+      if (span.subcategories) {
+        for (const sub of span.subcategories) {
+          map.set(sub.name, sub.opcodes)
+        }
+      }
+    }
+    return map
+  }, [grouped])
+
+  const columns = expanded ? stackGrouped.columns : collapsedColumns
 
   const getCount = useCallback(
     (test: SuiteTest, col: string): number => {
       const counts = test.eest?.info?.opcode_count
       if (!counts) return 0
       if (expanded) {
+        // If groupStack is on, a column might be a subcategory name
+        if (groupStack) {
+          const ops = subCategoryOpcodeMap.get(col)
+          if (ops) {
+            let total = 0
+            for (const op of ops) {
+              total += counts[op] ?? 0
+            }
+            return total
+          }
+        }
         return counts[col] ?? 0
       }
       // Collapsed: sum all opcodes in the category
@@ -596,7 +650,7 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
       }
       return total
     },
-    [expanded, categoryOpcodeMap],
+    [expanded, groupStack, categoryOpcodeMap, subCategoryOpcodeMap],
   )
 
   const handleSortChange = useCallback(
@@ -651,7 +705,7 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
         <h3 className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">
           Opcode Heatmap
           <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-            ({filteredTests.length} tests, {expanded ? grouped.columns.length + ' opcodes' : collapsedColumns.length + ' categories'}{sortCol ? `, sorted by ${sortCol} ${sortDir}` : ''})
+            ({filteredTests.length} tests, {expanded ? stackGrouped.columns.length + ' opcodes' : collapsedColumns.length + ' categories'}{sortCol ? `, sorted by ${sortCol} ${sortDir}` : ''})
           </span>
         </h3>
         <div className="flex items-center gap-2">
@@ -662,6 +716,15 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
             onChange={(e) => setSearch(e.target.value)}
             className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
           />
+          {expanded && (
+            <button
+              onClick={() => setGroupStack(!groupStack)}
+              className={`rounded-xs border px-2 py-1 text-sm/6 ${groupStack ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-900/30 dark:text-blue-300' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'}`}
+              title={groupStack ? 'Expand Stack opcodes' : 'Group Stack opcodes'}
+            >
+              Group Stack
+            </button>
+          )}
           <button
             onClick={() => setExpanded(!expanded)}
             className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
@@ -704,7 +767,7 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
     maxPerColumn,
     isDark,
     expanded,
-    categorySpans: grouped.categorySpans,
+    categorySpans: expanded ? stackGrouped.categorySpans : grouped.categorySpans,
     getCount,
     sortCol,
     onSortChange: handleSortChange,
