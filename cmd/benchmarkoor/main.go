@@ -9,6 +9,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// utcFormatter wraps a logrus formatter and converts timestamps to UTC.
+type utcFormatter struct {
+	formatter logrus.Formatter
+}
+
+func (f *utcFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	entry.Time = entry.Time.UTC()
+
+	return f.formatter.Format(entry)
+}
+
 // prefixedFormatter wraps a logrus formatter and adds a prefix to each line.
 type prefixedFormatter struct {
 	prefix    string
@@ -40,8 +51,11 @@ var (
 func main() {
 	log = logrus.New()
 	log.SetOutput(os.Stdout)
-	log.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
+	log.SetFormatter(&utcFormatter{
+		formatter: &logrus.TextFormatter{
+			FullTimestamp:   true,
+			TimestampFormat: "2006-01-02T15:04:05.000000000Z",
+		},
 	})
 
 	if err := rootCmd.Execute(); err != nil {
