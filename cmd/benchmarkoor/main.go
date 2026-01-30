@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
+
+const logTimestampFormat = "2006-01-02T15:04:05.000Z"
 
 // utcFormatter wraps a logrus formatter and converts timestamps to UTC.
 type utcFormatter struct {
@@ -20,19 +24,47 @@ func (f *utcFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	return f.formatter.Format(entry)
 }
 
-// prefixedFormatter wraps a logrus formatter and adds a prefix to each line.
-type prefixedFormatter struct {
-	prefix    string
-	formatter logrus.Formatter
+// consistentFormatter formats log lines as: "$prefix $TIMESTAMP $LEVEL | $msg $fields\n".
+type consistentFormatter struct {
+	prefix string // e.g. "🔵"
 }
 
-func (f *prefixedFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	formatted, err := f.formatter.Format(entry)
-	if err != nil {
-		return nil, err
+// shortLevel maps logrus levels to 4-character abbreviations.
+var shortLevel = map[logrus.Level]string{
+	logrus.TraceLevel: "TRAC",
+	logrus.DebugLevel: "DEBG",
+	logrus.InfoLevel:  "INFO",
+	logrus.WarnLevel:  "WARN",
+	logrus.ErrorLevel: "ERRO",
+	logrus.FatalLevel: "FATL",
+	logrus.PanicLevel: "PANC",
+}
+
+func (f *consistentFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	ts := entry.Time.UTC().Format(logTimestampFormat)
+	level := shortLevel[entry.Level]
+
+	var buf bytes.Buffer
+
+	fmt.Fprintf(&buf, "%s %s %s | %s", f.prefix, ts, level, entry.Message)
+
+	// Append fields in sorted order.
+	if len(entry.Data) > 0 {
+		keys := make([]string, 0, len(entry.Data))
+		for k := range entry.Data {
+			keys = append(keys, k)
+		}
+
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			fmt.Fprintf(&buf, " %s=%v", k, entry.Data[k])
+		}
 	}
 
-	return append([]byte(f.prefix), formatted...), nil
+	buf.WriteByte('\n')
+
+	return buf.Bytes(), nil
 }
 
 var (
@@ -54,7 +86,7 @@ func main() {
 	log.SetFormatter(&utcFormatter{
 		formatter: &logrus.TextFormatter{
 			FullTimestamp:   true,
-			TimestampFormat: "2006-01-02T15:04:05.000000000Z",
+			TimestampFormat: "2006-01-02T15:04:05.000Z",
 		},
 	})
 

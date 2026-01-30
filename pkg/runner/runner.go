@@ -667,12 +667,12 @@ func (r *runner) runContainerLifecycle(
 
 		var initStdout, initStderr io.Writer = initFile, initFile
 		if r.cfg.ClientLogsToStdout {
-			prefix := fmt.Sprintf("🟣 [%s-init] ", instance.ID)
+			pfxFn := clientLogPrefix(instance.ID + "-init")
 			stdoutPrefixWriter := &prefixedWriter{
-				prefix: prefix, writer: os.Stdout,
+				prefixFn: pfxFn, writer: os.Stdout,
 			}
 			logFilePrefixWriter := &prefixedWriter{
-				prefix: prefix, writer: benchmarkoorLogFile,
+				prefixFn: pfxFn, writer: benchmarkoorLogFile,
 			}
 			initStdout = io.MultiWriter(
 				initFile, stdoutPrefixWriter, logFilePrefixWriter,
@@ -1210,9 +1210,9 @@ func (r *runner) streamLogs(
 	var stdout, stderr io.Writer = file, file
 
 	if r.cfg.ClientLogsToStdout {
-		prefix := fmt.Sprintf("🟣 [%s] ", instanceID)
-		stdoutPrefixWriter := &prefixedWriter{prefix: prefix, writer: os.Stdout}
-		logFilePrefixWriter := &prefixedWriter{prefix: prefix, writer: benchmarkoorLog}
+		pfxFn := clientLogPrefix(instanceID)
+		stdoutPrefixWriter := &prefixedWriter{prefixFn: pfxFn, writer: os.Stdout}
+		logFilePrefixWriter := &prefixedWriter{prefixFn: pfxFn, writer: benchmarkoorLog}
 		stdout = io.MultiWriter(file, stdoutPrefixWriter, logFilePrefixWriter)
 		stderr = io.MultiWriter(file, stdoutPrefixWriter, logFilePrefixWriter)
 	}
@@ -1337,11 +1337,17 @@ func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uin
 	return blockNum, rpcResp.Result.Hash, nil
 }
 
+// logTimestampFormat is the UTC nanosecond timestamp format for log lines.
+const logTimestampFormat = "2006-01-02T15:04:05.000Z"
+
 // prefixedWriter adds a prefix to each line written.
+// If prefixFn is set, it is called per line to generate the prefix dynamically.
+// Otherwise, the static prefix field is used.
 type prefixedWriter struct {
-	prefix string
-	writer io.Writer
-	buf    []byte
+	prefix   string
+	prefixFn func() string
+	writer   io.Writer
+	buf      []byte
 }
 
 func (w *prefixedWriter) Write(p []byte) (n int, err error) {
@@ -1366,12 +1372,27 @@ func (w *prefixedWriter) Write(p []byte) (n int, err error) {
 		line := w.buf[:idx+1]
 		w.buf = w.buf[idx+1:]
 
-		if _, err := fmt.Fprintf(w.writer, "%s%s", w.prefix, line); err != nil {
+		pfx := w.prefix
+		if w.prefixFn != nil {
+			pfx = w.prefixFn()
+		}
+
+		if _, err := fmt.Fprintf(w.writer, "%s%s", pfx, line); err != nil {
 			return n, err
 		}
 	}
 
 	return n, nil
+}
+
+// clientLogPrefix returns a function that generates a consistent log prefix
+// for client container logs: "🟣 $TIMESTAMP CLIE | $clientName | ".
+func clientLogPrefix(clientName string) func() string {
+	return func() string {
+		ts := time.Now().UTC().Format(logTimestampFormat)
+
+		return fmt.Sprintf("🟣 %s CLIE | %s | ", ts, clientName)
+	}
 }
 
 // fileHook writes log entries to a file.
