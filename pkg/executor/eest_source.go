@@ -697,12 +697,6 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 			return nil
 		}
 
-		// Get relative path for test naming.
-		relPath, err := filepath.Rel(searchDir, path)
-		if err != nil {
-			relPath = filepath.Base(path)
-		}
-
 		// Convert each fixture to tests.
 		for name, fixture := range fixtures {
 			// Skip fixtures that don't have the supported format.
@@ -737,8 +731,15 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 				continue
 			}
 
-			// Build test name: file_path/fixture_name.
-			testName := strings.TrimSuffix(relPath, ".json") + "/" + name
+			// Build test name from the fixture key.
+			// The fixture key is a pytest node ID like
+			// "tests/benchmark/.../test_foo.py::test_bar[params]".
+			// Strip the leading "tests/" directory prefix if present
+			// since it's a pytest artifact, not part of the test identity.
+			testName := name
+			if after, ok := strings.CutPrefix(testName, "tests/"); ok {
+				testName = after
+			}
 
 			test := &TestWithSteps{
 				Name:     testName,
