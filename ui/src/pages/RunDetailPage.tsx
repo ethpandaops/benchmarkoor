@@ -439,7 +439,16 @@ export function RunDetailPage() {
       <RunConfiguration instance={config.instance} system={config.system} />
 
       <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-        <h3 className="mb-4 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Performance Heatmap</h3>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Performance Heatmap</h3>
+          <input
+            type="text"
+            placeholder="Search tests..."
+            value={q}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+          />
+        </div>
         <TestHeatmap
           tests={result.tests}
           suiteTests={suite?.tests}
