@@ -391,7 +391,7 @@ export function TestHeatmap({
             placeholder="Search tests..."
             value={searchQuery}
             onChange={(e) => onSearchChange?.(e.target.value)}
-            className="w-48 rounded-sm border border-gray-300 bg-white px-2 py-1 text-xs/5 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+            className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
           />
         </div>
         <div className="text-xs/5 text-gray-500 dark:text-gray-400">
