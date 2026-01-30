@@ -30,7 +30,7 @@ func (s *erigonSpec) DefaultCommand() []string {
 		"--http.port=8545",
 		"--http.vhosts=*",
 		"--http.corsdomain=*",
-		"--http.api=web3,eth,net,engine",
+		"--http.api=web3,eth,net,engine,debug",
 		"--txpool.disable",
 		"--authrpc.addr=0.0.0.0",
 		"--authrpc.port=8551",

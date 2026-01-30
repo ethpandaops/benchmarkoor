@@ -25,6 +25,7 @@ func (s *nethermindSpec) DefaultCommand() []string {
 		"--JsonRpc.Enabled=true",
 		"--JsonRpc.Host=0.0.0.0",
 		"--JsonRpc.Port=8545",
+		"--JsonRpc.EnabledModules=Net,Eth,Consensus,Subscribe,Web3,Admin,Debug,Rpc,Health,TxPool",
 		"--JsonRpc.JwtSecretFile=/tmp/jwtsecret",
 		"--JsonRpc.EngineHost=0.0.0.0",
 		"--JsonRpc.EnginePort=8551",

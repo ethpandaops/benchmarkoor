@@ -25,7 +25,7 @@ func (s *rethSpec) DefaultCommand() []string {
 		"--full",
 		"--http",
 		"--http.addr=0.0.0.0",
-		"--http.api=web3,eth,net",
+		"--http.api=admin,debug,eth,net,trace,txpool,web3,rpc,reth,ots,flashbots,miner,mev",
 		"--http.port=8545",
 		"--ws",
 		"--ws.addr=0.0.0.0",
