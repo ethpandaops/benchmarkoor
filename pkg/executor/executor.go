@@ -297,7 +297,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 		// Capture block number for rollback before the test starts.
 		var rollbackBlockNum string
-		if opts.RollbackStrategy == "rpc-debug-setHead" && opts.RPCEndpoint != "" {
+		if opts.RollbackStrategy == config.RollbackStrategyRPCDebugSetHead && opts.RPCEndpoint != "" {
 			var blockErr error
 
 			rollbackBlockNum, blockErr = e.getBlockNumber(ctx, opts.RPCEndpoint)
@@ -402,7 +402,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		}
 
 		// Rollback to captured block number after test completes.
-		if opts.RollbackStrategy == "rpc-method" && rollbackBlockNum != "" && opts.RPCEndpoint != "" {
+		if opts.RollbackStrategy == config.RollbackStrategyRPCDebugSetHead && rollbackBlockNum != "" && opts.RPCEndpoint != "" {
 			log.WithField("block_number", rollbackBlockNum).Info("Rolling back via debug_setHead")
 
 			if rbErr := e.rollbackToBlock(ctx, opts.RPCEndpoint, rollbackBlockNum); rbErr != nil {

@@ -30,6 +30,12 @@ const (
 
 	// DefaultDropCachesPath is the default path to the Linux drop_caches file.
 	DefaultDropCachesPath = "/proc/sys/vm/drop_caches"
+
+	// RollbackStrategyNone disables rollback after tests.
+	RollbackStrategyNone = "none"
+
+	// RollbackStrategyRPCDebugSetHead rolls back via eth_blockNumber + debug_setHead.
+	RollbackStrategyRPCDebugSetHead = "rpc-debug-setHead"
 )
 
 // Config is the root configuration for benchmarkoor.
@@ -599,9 +605,9 @@ func (c *Config) GetDropMemoryCaches(instance *ClientInstance) string {
 
 // validRollbackStrategies contains valid values for rollback_strategy.
 var validRollbackStrategies = map[string]bool{
-	"":                  true, // Unset (defaults to "none")
-	"none":              true, // Explicitly disabled
-	"rpc-debug-setHead": true, // Rollback via debug_setHead RPC
+	"":                              true, // Unset (defaults to "none")
+	RollbackStrategyNone:            true, // Explicitly disabled
+	RollbackStrategyRPCDebugSetHead: true, // Rollback via debug_setHead RPC
 }
 
 // GetRollbackStrategy returns the rollback_strategy setting for an instance.
@@ -616,7 +622,7 @@ func (c *Config) GetRollbackStrategy(instance *ClientInstance) string {
 		return c.Client.Config.RollbackStrategy
 	}
 
-	return "none"
+	return RollbackStrategyNone
 }
 
 // GetDropCachesPath returns the path to the drop_caches file.
