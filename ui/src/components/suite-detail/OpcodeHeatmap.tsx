@@ -274,7 +274,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
         ctx.textBaseline = 'middle'
         ctx.fillText(span.name, centerX, catRowY)
 
-        // Vertical separator at category boundary (except first)
+        // Vertical separator at category boundary (except first) — header portion
         if (span.startCol > 0) {
           ctx.strokeStyle = separatorColor
           ctx.lineWidth = 1
@@ -334,6 +334,43 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     ctx.textAlign = 'left'
     ctx.textBaseline = 'bottom'
     ctx.fillText('#', 6, headerHeight - 4)
+
+    // Draw full-height category separator lines across the data area
+    if (expanded && categorySpans.length > 0) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(ROW_LABEL_WIDTH, headerHeight, viewW - ROW_LABEL_WIDTH, viewH - headerHeight)
+      ctx.clip()
+      for (const span of categorySpans) {
+        // Category separator
+        if (span.startCol > 0) {
+          const x = ROW_LABEL_WIDTH + span.startCol * CELL_SIZE - scrollX
+          if (x >= ROW_LABEL_WIDTH && x <= viewW) {
+            ctx.strokeStyle = separatorColor
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(x, headerHeight)
+            ctx.lineTo(x, viewH)
+            ctx.stroke()
+          }
+        }
+        // Subcategory separators
+        if (span.subcategories) {
+          for (const sub of span.subcategories) {
+            if (sub.startCol <= span.startCol) continue
+            const x = ROW_LABEL_WIDTH + sub.startCol * CELL_SIZE - scrollX
+            if (x < ROW_LABEL_WIDTH || x > viewW) continue
+            ctx.strokeStyle = separatorColor
+            ctx.lineWidth = 0.5
+            ctx.beginPath()
+            ctx.moveTo(x, headerHeight)
+            ctx.lineTo(x, viewH)
+            ctx.stroke()
+          }
+        }
+      }
+      ctx.restore()
+    }
   }, [filteredTests, columns, colorGrid, isDark, headerHeight, expanded, categorySpans])
 
   useEffect(() => {
