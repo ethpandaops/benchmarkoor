@@ -41,3 +41,4 @@ config.yaml
 /package-lock.json
 
 /data/
+/fixtures/

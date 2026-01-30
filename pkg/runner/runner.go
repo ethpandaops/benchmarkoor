@@ -128,7 +128,8 @@ type ResolvedInstance struct {
 	PullPolicy       string                  `json:"pull_policy"`
 	Restart          string                  `json:"restart,omitempty"`
 	Environment      map[string]string       `json:"environment,omitempty"`
-	Genesis          string                  `json:"genesis"`
+	Genesis          string                  `json:"genesis,omitempty"`
+	GenesisGroups    map[string]string       `json:"genesis_groups,omitempty"`
 	DataDir          *config.DataDirConfig   `json:"datadir,omitempty"`
 	ClientVersion    string                  `json:"client_version,omitempty"`
 	DropMemoryCaches string                  `json:"drop_memory_caches,omitempty"`
@@ -227,6 +228,45 @@ func (r *runner) resolveDataDir(instance *config.ClientInstance) *config.DataDir
 	return nil
 }
 
+// containerLogInfo contains metadata written to container log markers.
+type containerLogInfo struct {
+	Name             string
+	ContainerID      string
+	Image            string
+	GenesisGroupHash string
+}
+
+// formatStartMarker formats a log start marker with container metadata.
+func formatStartMarker(marker string, info *containerLogInfo) string {
+	s := "#" + marker + ":START name=" + info.Name +
+		" image=" + info.Image
+	if info.ContainerID != "" {
+		s += " container_id=" + info.ContainerID
+	}
+
+	if info.GenesisGroupHash != "" {
+		s += " genesis_group=" + info.GenesisGroupHash
+	}
+
+	return s + "\n"
+}
+
+// containerRunParams contains parameters for a single container lifecycle run.
+type containerRunParams struct {
+	Instance         *config.ClientInstance
+	RunID            string
+	RunTimestamp     int64
+	RunResultsDir    string
+	BenchmarkoorLog  *os.File
+	LogHook          *fileHook
+	GenesisSource    string                    // Path or URL to genesis file.
+	Tests            []*executor.TestWithSteps // Optional test subset (nil = all).
+	GenesisGroupHash string                    // Non-empty when running a specific genesis group.
+	GenesisGroups    map[string]string         // All genesis hash → path mappings (multi-genesis).
+	ImageName        string                    // Resolved image name (pulled once by caller).
+	ImageDigest      string                    // Image SHA256 digest (resolved once by caller).
+}
+
 // RunInstance runs a single client instance through its lifecycle.
 func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstance) error {
 	// Generate a short random ID for this run.
@@ -272,27 +312,163 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	datadirCfg := r.resolveDataDir(instance)
 	useDataDir := datadirCfg != nil
 
-	// Track cleanup functions.
-	var cleanupFuncs []func()
+	// Pull image once for this instance (shared across genesis groups).
+	imageName := instance.Image
+	if imageName == "" {
+		imageName = spec.DefaultImage()
+	}
 
-	cleanupStarted := make(chan struct{})
+	if err := r.docker.PullImage(ctx, imageName, instance.PullPolicy); err != nil {
+		return fmt.Errorf("pulling image: %w", err)
+	}
 
-	var cleanupOnce sync.Once
+	imageDigest, err := r.docker.GetImageDigest(ctx, imageName)
+	if err != nil {
+		log.WithError(err).Warn("Failed to get image digest")
+	} else {
+		log.WithField("digest", imageDigest).Debug("Got image digest")
+	}
+
+	// Determine genesis source (URL or local file path).
+	// Priority: instance config > global config > EEST source
+	genesisSource := instance.Genesis
+	if genesisSource == "" {
+		genesisSource = r.cfg.GenesisURLs[instance.Client]
+	}
+
+	// Check for multi-genesis support (EEST pre_alloc).
+	if genesisSource == "" && r.executor != nil {
+		if ggp, ok := r.executor.GetSource().(executor.GenesisGroupProvider); ok {
+			if groups := ggp.GetGenesisGroups(); len(groups) > 0 {
+				log.WithField("groups", len(groups)).Info(
+					"Running multi-genesis mode",
+				)
+
+				genesisGroups := make(map[string]string, len(groups))
+				for _, group := range groups {
+					genesisGroups[group.GenesisHash] = ggp.GetGenesisPathForGroup(
+						group.GenesisHash, instance.Client,
+					)
+				}
+
+				for i, group := range groups {
+					groupGenesis := genesisGroups[group.GenesisHash]
+					if groupGenesis == "" {
+						return fmt.Errorf(
+							"no genesis file for group %s and client %s",
+							group.GenesisHash, instance.Client,
+						)
+					}
+
+					log.WithFields(logrus.Fields{
+						"group":        i + 1,
+						"total_groups": len(groups),
+						"genesis_hash": group.GenesisHash,
+						"tests":        len(group.Tests),
+					}).Info("Running genesis group")
+
+					params := &containerRunParams{
+						Instance:         instance,
+						RunID:            runID,
+						RunTimestamp:     runTimestamp,
+						RunResultsDir:    runResultsDir,
+						BenchmarkoorLog:  benchmarkoorLogFile,
+						LogHook:          logHook,
+						GenesisSource:    groupGenesis,
+						Tests:            group.Tests,
+						GenesisGroupHash: group.GenesisHash,
+						GenesisGroups:    genesisGroups,
+						ImageName:        imageName,
+						ImageDigest:      imageDigest,
+					}
+
+					if err := r.runContainerLifecycle(
+						ctx, params, spec, datadirCfg, useDataDir,
+					); err != nil {
+						return fmt.Errorf(
+							"running genesis group %s: %w",
+							group.GenesisHash, err,
+						)
+					}
+				}
+
+				return nil
+			}
+		}
+	}
+
+	// If no genesis configured and executor provides one (e.g., EEST source), use that.
+	if genesisSource == "" && r.executor != nil {
+		if gp, ok := r.executor.GetSource().(executor.GenesisProvider); ok {
+			if path := gp.GetGenesisPath(instance.Client); path != "" {
+				genesisSource = path
+				log.WithField("source", path).Info("Using genesis from test source")
+			}
+		}
+	}
+
+	// Single-genesis path.
+	params := &containerRunParams{
+		Instance:        instance,
+		RunID:           runID,
+		RunTimestamp:    runTimestamp,
+		RunResultsDir:   runResultsDir,
+		BenchmarkoorLog: benchmarkoorLogFile,
+		LogHook:         logHook,
+		GenesisSource:   genesisSource,
+		ImageName:       imageName,
+		ImageDigest:     imageDigest,
+	}
+
+	return r.runContainerLifecycle(
+		ctx, params, spec, datadirCfg, useDataDir,
+	)
+}
+
+// runContainerLifecycle runs a single container lifecycle: load genesis,
+// create container, start, wait for RPC, execute tests, stop.
+//
+//nolint:gocognit,cyclop // Container lifecycle is inherently complex.
+func (r *runner) runContainerLifecycle(
+	ctx context.Context,
+	params *containerRunParams,
+	spec client.Spec,
+	datadirCfg *config.DataDirConfig,
+	useDataDir bool,
+) error {
+	instance := params.Instance
+	runID := params.RunID
+	runResultsDir := params.RunResultsDir
+	benchmarkoorLogFile := params.BenchmarkoorLog
+	genesisSource := params.GenesisSource
+
+	log := r.log.WithFields(logrus.Fields{
+		"instance": instance.ID,
+		"run_id":   runID,
+	})
+
+	if params.GenesisGroupHash != "" {
+		log = log.WithField("genesis_group", params.GenesisGroupHash)
+	}
+
+	// Each container lifecycle manages its own cleanup and crash detection.
+	var localCleanupFuncs []func()
+
+	localCleanupStarted := make(chan struct{})
+
+	var localCleanupOnce sync.Once
 
 	defer func() {
-		// Signal that intentional cleanup is starting.
-		cleanupOnce.Do(func() { close(cleanupStarted) })
+		localCleanupOnce.Do(func() { close(localCleanupStarted) })
 
-		// Execute cleanup in reverse order (LIFO).
-		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
-			cleanupFuncs[i]()
+		for i := len(localCleanupFuncs) - 1; i >= 0; i-- {
+			localCleanupFuncs[i]()
 		}
 	}()
 
 	// Setup data directory: either Docker volume or copied datadir.
+	// Each container lifecycle gets a fresh volume/datadir.
 	var dataMount docker.Mount
-
-	var volumeName string
 
 	if useDataDir {
 		log.WithFields(logrus.Fields{
@@ -300,7 +476,6 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			"method": datadirCfg.Method,
 		}).Info("Using pre-populated data directory")
 
-		// Create provider based on configured method.
 		provider, err := datadir.NewProvider(log, datadirCfg.Method)
 		if err != nil {
 			return fmt.Errorf("creating datadir provider: %w", err)
@@ -315,27 +490,29 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			return fmt.Errorf("preparing datadir: %w", err)
 		}
 
-		cleanupFuncs = append(cleanupFuncs, func() {
+		localCleanupFuncs = append(localCleanupFuncs, func() {
 			if cleanupErr := prepared.Cleanup(); cleanupErr != nil {
 				log.WithError(cleanupErr).Warn("Failed to cleanup datadir")
 			}
 		})
 
-		// Determine container directory: use config value or fall back to client's default.
 		containerDir := datadirCfg.ContainerDir
 		if containerDir == "" {
 			containerDir = spec.DataDir()
 		}
 
-		// Use bind mount for the prepared data.
 		dataMount = docker.Mount{
 			Type:   "bind",
 			Source: prepared.MountPath,
 			Target: containerDir,
 		}
 	} else {
-		// Create Docker volume for this run.
-		volumeName = fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID)
+		volumeSuffix := instance.ID
+		if params.GenesisGroupHash != "" {
+			volumeSuffix = instance.ID + "-" + params.GenesisGroupHash
+		}
+
+		volumeName := fmt.Sprintf("benchmarkoor-%s-%s", runID, volumeSuffix)
 		volumeLabels := map[string]string{
 			"benchmarkoor.instance":   instance.ID,
 			"benchmarkoor.client":     instance.Client,
@@ -343,12 +520,16 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			"benchmarkoor.managed-by": "benchmarkoor",
 		}
 
-		if err := r.docker.CreateVolume(ctx, volumeName, volumeLabels); err != nil {
+		if err := r.docker.CreateVolume(
+			ctx, volumeName, volumeLabels,
+		); err != nil {
 			return fmt.Errorf("creating volume: %w", err)
 		}
 
-		cleanupFuncs = append(cleanupFuncs, func() {
-			if rmErr := r.docker.RemoveVolume(context.Background(), volumeName); rmErr != nil {
+		localCleanupFuncs = append(localCleanupFuncs, func() {
+			if rmErr := r.docker.RemoveVolume(
+				context.Background(), volumeName,
+			); rmErr != nil {
 				log.WithError(rmErr).Warn("Failed to remove volume")
 			}
 		})
@@ -358,12 +539,6 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			Source: volumeName,
 			Target: spec.DataDir(),
 		}
-	}
-
-	// Determine genesis source (URL or local file path).
-	genesisSource := instance.Genesis
-	if genesisSource == "" {
-		genesisSource = r.cfg.GenesisURLs[instance.Client]
 	}
 
 	// Load genesis file if configured.
@@ -384,35 +559,25 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	// Fail if neither genesis nor datadir is configured.
 	if genesisSource == "" && !useDataDir {
-		return fmt.Errorf("no genesis file or datadir configured for client %s", instance.Client)
+		return fmt.Errorf(
+			"no genesis file or datadir configured for client %s",
+			instance.Client,
+		)
 	}
 
-	// Determine image.
-	imageName := instance.Image
-	if imageName == "" {
-		imageName = spec.DefaultImage()
-	}
-
-	// Pull image.
-	if err := r.docker.PullImage(ctx, imageName, instance.PullPolicy); err != nil {
-		return fmt.Errorf("pulling image: %w", err)
-	}
-
-	// Get image digest.
-	imageDigest, err := r.docker.GetImageDigest(ctx, imageName)
-	if err != nil {
-		log.WithError(err).Warn("Failed to get image digest")
-	} else {
-		log.WithField("digest", imageDigest).Debug("Got image digest")
-	}
+	// Image is already pulled by RunInstance; use the resolved name and digest.
+	imageName := params.ImageName
+	imageDigest := params.ImageDigest
 
 	// Create temp files for genesis and JWT.
-	tempDir, err := os.MkdirTemp(r.cfg.TmpCacheDir, "benchmarkoor-"+instance.ID+"-")
+	tempDir, err := os.MkdirTemp(
+		r.cfg.TmpCacheDir, "benchmarkoor-"+instance.ID+"-",
+	)
 	if err != nil {
 		return fmt.Errorf("creating temp directory: %w", err)
 	}
 
-	cleanupFuncs = append(cleanupFuncs, func() {
+	localCleanupFuncs = append(localCleanupFuncs, func() {
 		if rmErr := os.RemoveAll(tempDir); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove temp directory")
 		}
@@ -454,12 +619,19 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		})
 	}
 
-	// Run init container if required (skip when using datadir or no genesis configured).
+	// Run init container if required (skip when using datadir or no genesis).
 	if spec.RequiresInit() && !useDataDir && genesisSource != "" {
 		log.Info("Running init container")
 
+		initSuffix := "init"
+		if params.GenesisGroupHash != "" {
+			initSuffix = "init-" + params.GenesisGroupHash
+		}
+
 		initSpec := &docker.ContainerSpec{
-			Name:        fmt.Sprintf("benchmarkoor-%s-%s-init", runID, instance.ID),
+			Name: fmt.Sprintf(
+				"benchmarkoor-%s-%s-%s", runID, instance.ID, initSuffix,
+			),
 			Image:       imageName,
 			Command:     spec.InitCommand(),
 			Mounts:      mounts,
@@ -473,29 +645,53 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			},
 		}
 
-		// Set up init container log streaming.
-		initLogFile := filepath.Join(runResultsDir, "container-init.log")
+		// Set up init container log streaming (appends to container.log).
+		initLogFile := filepath.Join(runResultsDir, "container.log")
 
-		initFile, err := fsutil.Create(initLogFile, r.cfg.ResultsOwner)
+		initFile, err := os.OpenFile(
+			initLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
+		)
 		if err != nil {
-			return fmt.Errorf("creating init log file: %w", err)
+			return fmt.Errorf("opening init log file: %w", err)
 		}
+
+		if r.cfg.ResultsOwner != nil {
+			fsutil.Chown(initLogFile, r.cfg.ResultsOwner)
+		}
+
+		_, _ = fmt.Fprint(initFile, formatStartMarker("INIT_CONTAINER", &containerLogInfo{
+			Name:             initSpec.Name,
+			Image:            initSpec.Image,
+			GenesisGroupHash: params.GenesisGroupHash,
+		}))
 
 		var initStdout, initStderr io.Writer = initFile, initFile
 		if r.cfg.ClientLogsToStdout {
 			prefix := fmt.Sprintf("🟣 [%s-init] ", instance.ID)
-			stdoutPrefixWriter := &prefixedWriter{prefix: prefix, writer: os.Stdout}
-			logFilePrefixWriter := &prefixedWriter{prefix: prefix, writer: benchmarkoorLogFile}
-			initStdout = io.MultiWriter(initFile, stdoutPrefixWriter, logFilePrefixWriter)
-			initStderr = io.MultiWriter(initFile, stdoutPrefixWriter, logFilePrefixWriter)
+			stdoutPrefixWriter := &prefixedWriter{
+				prefix: prefix, writer: os.Stdout,
+			}
+			logFilePrefixWriter := &prefixedWriter{
+				prefix: prefix, writer: benchmarkoorLogFile,
+			}
+			initStdout = io.MultiWriter(
+				initFile, stdoutPrefixWriter, logFilePrefixWriter,
+			)
+			initStderr = io.MultiWriter(
+				initFile, stdoutPrefixWriter, logFilePrefixWriter,
+			)
 		}
 
-		if err := r.docker.RunInitContainer(ctx, initSpec, initStdout, initStderr); err != nil {
+		if err := r.docker.RunInitContainer(
+			ctx, initSpec, initStdout, initStderr,
+		); err != nil {
+			_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
 			_ = initFile.Close()
 
 			return fmt.Errorf("running init container: %w", err)
 		}
 
+		_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
 		_ = initFile.Close()
 
 		log.Info("Init container completed")
@@ -506,7 +702,9 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	}
 
 	// Determine command.
-	cmd := instance.Command
+	cmd := make([]string, len(instance.Command))
+	copy(cmd, instance.Command)
+
 	if len(cmd) == 0 {
 		cmd = spec.DefaultCommand()
 	}
@@ -522,7 +720,10 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	}
 
 	// Build environment (default first, instance overrides).
-	env := make(map[string]string, len(spec.DefaultEnvironment())+len(instance.Environment))
+	env := make(
+		map[string]string,
+		len(spec.DefaultEnvironment())+len(instance.Environment),
+	)
 	for k, v := range spec.DefaultEnvironment() {
 		env[k] = v
 	}
@@ -546,7 +747,8 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		if resourceLimitsCfg != nil {
 			var err error
 
-			dockerResourceLimits, resolvedResourceLimits, err = buildDockerResourceLimits(resourceLimitsCfg)
+			dockerResourceLimits, resolvedResourceLimits, err =
+				buildDockerResourceLimits(resourceLimitsCfg)
 			if err != nil {
 				return fmt.Errorf("building resource limits: %w", err)
 			}
@@ -561,7 +763,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	// Write run configuration with resolved values.
 	runConfig := &RunConfig{
-		Timestamp: runTimestamp,
+		Timestamp: params.RunTimestamp,
 		System:    getSystemInfo(),
 		Instance: &ResolvedInstance{
 			ID:               instance.ID,
@@ -574,24 +776,39 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			PullPolicy:       instance.PullPolicy,
 			Restart:          instance.Restart,
 			Environment:      env,
-			Genesis:          genesisSource,
 			DataDir:          datadirCfg,
 			DropMemoryCaches: dropMemoryCaches,
 			ResourceLimits:   resolvedResourceLimits,
 		},
 	}
 
+	if len(params.GenesisGroups) > 0 {
+		runConfig.Instance.GenesisGroups = params.GenesisGroups
+	} else {
+		runConfig.Instance.Genesis = genesisSource
+	}
+
 	if r.executor != nil {
 		runConfig.SuiteHash = r.executor.GetSuiteHash()
 	}
 
-	if err := writeRunConfig(runResultsDir, runConfig, r.cfg.ResultsOwner); err != nil {
+	if err := writeRunConfig(
+		runResultsDir, runConfig, r.cfg.ResultsOwner,
+	); err != nil {
 		log.WithError(err).Warn("Failed to write run config")
 	}
 
 	// Build container spec.
+	containerName := fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID)
+	if params.GenesisGroupHash != "" {
+		containerName = fmt.Sprintf(
+			"benchmarkoor-%s-%s-%s",
+			runID, instance.ID, params.GenesisGroupHash,
+		)
+	}
+
 	containerSpec := &docker.ContainerSpec{
-		Name:           fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID),
+		Name:           containerName,
 		Image:          imageName,
 		Entrypoint:     instance.Entrypoint,
 		Command:        cmd,
@@ -614,10 +831,12 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	}
 
 	// Ensure cleanup.
-	cleanupFuncs = append(cleanupFuncs, func() {
+	localCleanupFuncs = append(localCleanupFuncs, func() {
 		log.Info("Removing container")
 
-		if rmErr := r.docker.RemoveContainer(context.Background(), containerID); rmErr != nil {
+		if rmErr := r.docker.RemoveContainer(
+			context.Background(), containerID,
+		); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove container")
 		}
 	})
@@ -633,10 +852,18 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	go func() {
 		defer r.wg.Done()
 
-		if err := r.streamLogs(logCtx, instance.ID, containerID, logFile, benchmarkoorLogFile); err != nil {
+		if err := r.streamLogs(
+			logCtx, instance.ID, containerID, logFile, benchmarkoorLogFile,
+			&containerLogInfo{
+				Name:             containerName,
+				ContainerID:      containerID,
+				Image:            imageName,
+				GenesisGroupHash: params.GenesisGroupHash,
+			},
+		); err != nil {
 			// Context cancellation during cleanup is expected.
 			select {
-			case <-cleanupStarted:
+			case <-localCleanupStarted:
 				log.WithError(err).Debug("Log streaming stopped")
 			default:
 				log.WithError(err).Warn("Log streaming error")
@@ -652,7 +879,6 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	log.Info("Container started")
 
 	// Start container death monitoring.
-	// Create a child context for execution that gets cancelled when container dies.
 	execCtx, execCancel := context.WithCancel(ctx)
 	defer execCancel()
 
@@ -660,7 +886,9 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	var containerExitCode *int64
 	var mu sync.Mutex
 
-	containerExitCh, containerErrCh := r.docker.WaitForContainerExit(ctx, containerID)
+	containerExitCh, containerErrCh := r.docker.WaitForContainerExit(
+		ctx, containerID,
+	)
 
 	r.wg.Add(1)
 
@@ -674,12 +902,15 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			containerExitCode = &exitCode
 			mu.Unlock()
 
-			// Only warn if not during intentional cleanup.
 			select {
-			case <-cleanupStarted:
-				log.WithField("exit_code", exitCode).Debug("Container stopped during cleanup")
+			case <-localCleanupStarted:
+				log.WithField("exit_code", exitCode).Debug(
+					"Container stopped during cleanup",
+				)
 			default:
-				log.WithField("exit_code", exitCode).Warn("Container exited unexpectedly")
+				log.WithField("exit_code", exitCode).Warn(
+					"Container exited unexpectedly",
+				)
 			}
 
 			execCancel()
@@ -693,30 +924,39 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	}()
 
 	// Get container IP for health checks.
-	containerIP, err := r.docker.GetContainerIP(ctx, containerID, r.cfg.DockerNetwork)
+	containerIP, err := r.docker.GetContainerIP(
+		ctx, containerID, r.cfg.DockerNetwork,
+	)
 	if err != nil {
 		return fmt.Errorf("getting container IP: %w", err)
 	}
 
 	log.WithField("ip", containerIP).Debug("Container IP address")
 
-	// Wait for RPC to be ready (use execCtx so it cancels if container dies).
+	// Wait for RPC to be ready.
 	clientVersion, err := r.waitForRPC(execCtx, containerIP, spec.RPCPort())
 	if err != nil {
-		// Mark run as failed and write config before returning.
 		mu.Lock()
 		if containerDied {
 			runConfig.Status = RunStatusContainerDied
-			runConfig.TerminationReason = fmt.Sprintf("container exited while waiting for RPC: %v", err)
+			runConfig.TerminationReason = fmt.Sprintf(
+				"container exited while waiting for RPC: %v", err,
+			)
 			runConfig.ContainerExitCode = containerExitCode
 		} else {
 			runConfig.Status = RunStatusFailed
-			runConfig.TerminationReason = fmt.Sprintf("waiting for RPC: %v", err)
+			runConfig.TerminationReason = fmt.Sprintf(
+				"waiting for RPC: %v", err,
+			)
 		}
 		mu.Unlock()
 
-		if writeErr := writeRunConfig(runResultsDir, runConfig, r.cfg.ResultsOwner); writeErr != nil {
-			log.WithError(writeErr).Warn("Failed to write run config with failed status")
+		if writeErr := writeRunConfig(
+			runResultsDir, runConfig, r.cfg.ResultsOwner,
+		); writeErr != nil {
+			log.WithError(writeErr).Warn(
+				"Failed to write run config with failed status",
+			)
 		}
 
 		return fmt.Errorf("waiting for RPC: %w", err)
@@ -725,8 +965,10 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	log.WithField("version", clientVersion).Info("RPC endpoint ready")
 
 	// Log the latest block info.
-	if blockNum, blockHash, err := r.getLatestBlock(execCtx, containerIP, spec.RPCPort()); err != nil {
-		log.WithError(err).Warn("Failed to get latest block")
+	if blockNum, blockHash, blkErr := r.getLatestBlock(
+		execCtx, containerIP, spec.RPCPort(),
+	); blkErr != nil {
+		log.WithError(blkErr).Warn("Failed to get latest block")
 	} else {
 		log.WithFields(logrus.Fields{
 			"block_number": blockNum,
@@ -737,22 +979,24 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	// Update config with client version.
 	runConfig.Instance.ClientVersion = clientVersion
 
-	if err := writeRunConfig(runResultsDir, runConfig, r.cfg.ResultsOwner); err != nil {
-		log.WithError(err).Warn("Failed to update run config with client version")
+	if err := writeRunConfig(
+		runResultsDir, runConfig, r.cfg.ResultsOwner,
+	); err != nil {
+		log.WithError(err).Warn(
+			"Failed to update run config with client version",
+		)
 	}
 
-	// Wait additional time (use execCtx so it cancels if container dies).
+	// Wait additional time.
 	select {
 	case <-time.After(r.cfg.ReadyWaitAfter):
 		log.Info("Wait period complete")
 	case <-execCtx.Done():
-		// Check if it was container death or user cancellation.
 		mu.Lock()
 		died := containerDied
 		mu.Unlock()
 
 		if died {
-			// Will be handled in final status section.
 			log.Warn("Container died during wait period")
 		} else {
 			return ctx.Err()
@@ -763,14 +1007,15 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	if r.executor != nil {
 		log.Info("Starting test execution")
 
-		// Resolve drop caches path.
 		var dropCachesPath string
 		if r.cfg.FullConfig != nil {
 			dropCachesPath = r.cfg.FullConfig.GetDropCachesPath()
 		}
 
 		execOpts := &executor.ExecuteOptions{
-			EngineEndpoint:   fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort()),
+			EngineEndpoint: fmt.Sprintf(
+				"http://%s:%d", containerIP, spec.EnginePort(),
+			),
 			JWT:              r.cfg.JWT,
 			ResultsDir:       runResultsDir,
 			Filter:           r.cfg.TestFilter,
@@ -778,6 +1023,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			DockerClient:     r.docker.GetClient(),
 			DropMemoryCaches: dropMemoryCaches,
 			DropCachesPath:   dropCachesPath,
+			Tests:            params.Tests,
 		}
 
 		result, err := r.executor.ExecuteTests(execCtx, execOpts)
@@ -791,12 +1037,10 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 				"duration": result.TotalDuration,
 			}).Info("Test execution completed")
 
-			// Update config with stats reader type if available.
 			if result.StatsReaderType != "" {
 				runConfig.SystemResourceCollectionMethod = result.StatsReaderType
 			}
 
-			// Propagate container death info from executor result.
 			if result.ContainerDied {
 				mu.Lock()
 				containerDied = true
@@ -820,13 +1064,20 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	mu.Unlock()
 
 	// Write final config with status.
-	if err := writeRunConfig(runResultsDir, runConfig, r.cfg.ResultsOwner); err != nil {
+	if err := writeRunConfig(
+		runResultsDir, runConfig, r.cfg.ResultsOwner,
+	); err != nil {
 		log.WithError(err).Warn("Failed to write final run config with status")
 	} else {
 		log.WithField("status", runConfig.Status).Info("Run completed")
 	}
 
-	// Cleanup happens in defer.
+	// Return an error if the container died so callers (e.g. multi-genesis
+	// loop) stop instead of continuing with the next group.
+	if containerDied {
+		return fmt.Errorf("container died during execution")
+	}
+
 	return nil
 }
 
@@ -925,16 +1176,26 @@ func writeRunConfig(resultsDir string, cfg *RunConfig, owner *fsutil.OwnerConfig
 }
 
 // streamLogs streams container logs to file and optionally stdout/benchmarkoor log.
+// The log file is opened in append mode with start/end markers so that
+// multiple container runs (e.g. multi-genesis) write to a single file.
 func (r *runner) streamLogs(
 	ctx context.Context,
 	instanceID, containerID, logPath string,
 	benchmarkoorLog io.Writer,
+	logInfo *containerLogInfo,
 ) error {
-	file, err := fsutil.Create(logPath, r.cfg.ResultsOwner)
+	file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("creating log file: %w", err)
+		return fmt.Errorf("opening log file: %w", err)
 	}
 	defer func() { _ = file.Close() }()
+
+	if r.cfg.ResultsOwner != nil {
+		fsutil.Chown(logPath, r.cfg.ResultsOwner)
+	}
+
+	// Write start marker with container metadata.
+	_, _ = fmt.Fprint(file, formatStartMarker("CONTAINER", logInfo))
 
 	var stdout, stderr io.Writer = file, file
 
@@ -946,7 +1207,12 @@ func (r *runner) streamLogs(
 		stderr = io.MultiWriter(file, stdoutPrefixWriter, logFilePrefixWriter)
 	}
 
-	return r.docker.StreamLogs(ctx, containerID, stdout, stderr)
+	streamErr := r.docker.StreamLogs(ctx, containerID, stdout, stderr)
+
+	// Write end marker (best-effort, even if streaming failed).
+	_, _ = fmt.Fprintf(file, "#CONTAINER:END\n")
+
+	return streamErr
 }
 
 // waitForRPC waits for the RPC endpoint to be ready and returns the client version.

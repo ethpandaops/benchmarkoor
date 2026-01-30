@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
-import { getIndexAggregatedStats, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
+import { getIndexAggregatedStats, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
 import { useIndex } from '@/api/hooks/useIndex'
@@ -12,7 +12,8 @@ import { ResourceCharts } from '@/components/suite-detail/ResourceCharts'
 import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/RunsHeatmap'
 import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
-import { TestFilesList } from '@/components/suite-detail/TestFilesList'
+import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
+import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -41,6 +42,33 @@ function serializeStepFilter(steps: IndexStepType[]): string | undefined {
   return steps.join(',')
 }
 
+function OpcodeHeatmapSection({ tests, onTestClick }: { tests: SuiteTest[]; onTestClick?: (testIndex: number) => void }) {
+  const [expanded, setExpanded] = useState(true)
+  return (
+    <>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
+      >
+        <svg
+          className={clsx('size-4 text-gray-500 transition-transform', expanded && 'rotate-90')}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        Opcode Heatmap
+      </button>
+      {expanded && (
+        <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+          <OpcodeHeatmap tests={tests} onTestClick={onTestClick} />
+        </div>
+      )}
+    </>
+  )
+}
+
 export function SuiteDetailPage() {
   const { suiteHash } = useParams({ from: '/suites/$suiteHash' })
   const navigate = useNavigate()
@@ -51,8 +79,9 @@ export function SuiteDetailPage() {
     status?: TestStatusFilter
     sortBy?: SortColumn
     sortDir?: SortDirection
-    expanded?: number
     filesPage?: number
+    detail?: number
+    opcodeSort?: OpcodeSortMode
     q?: string
     chartMode?: XAxisMode
     mgasChartMode?: XAxisMode
@@ -60,7 +89,7 @@ export function SuiteDetailPage() {
     heatmapColor?: ColorNormalization
     steps?: string
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount', mgasChartMode = 'runCount', resourceChartMode = 'runCount', heatmapColor = 'suite' } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', mgasChartMode = 'runCount', resourceChartMode = 'runCount', heatmapColor = 'suite' } = search
   const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: suiteStats } = useSuiteStats(suiteHash)
@@ -185,7 +214,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab: newTab, client, image, status, sortBy, sortDir, expanded: undefined, filesPage: undefined, q: undefined },
+      search: { tab: newTab, client, image, status, sortBy, sortDir, filesPage: undefined, detail: undefined, opcodeSort: undefined, q: undefined },
     })
   }
 
@@ -197,19 +226,11 @@ export function SuiteDetailPage() {
     })
   }
 
-  const handleExpandedChange = (index: number | undefined) => {
-    navigate({
-      to: '/suites/$suiteHash',
-      params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, expanded: index, filesPage, q, steps: serializeStepFilter(stepFilter) },
-    })
-  }
-
   const handleFilesPageChange = (page: number) => {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, expanded, filesPage: page, q, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage: page, q, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -217,7 +238,23 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, expanded: undefined, filesPage: 1, q: query || undefined, chartMode, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage: 1, q: query || undefined, chartMode, steps: serializeStepFilter(stepFilter) },
+    })
+  }
+
+  const handleDetailChange = (index: number | undefined) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail: index, opcodeSort, q, steps: serializeStepFilter(stepFilter) },
+    })
+  }
+
+  const handleOpcodeSortChange = (sort: OpcodeSortMode) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort: sort === 'name' ? undefined : sort, q, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -561,16 +598,23 @@ export function SuiteDetailPage() {
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
             <SuiteSource title="Source" source={suite.source} />
+            {suite.tests.some((t) => t.eest?.info?.opcode_count && Object.keys(t.eest.info.opcode_count).length > 0) && (
+              <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                <OpcodeHeatmapSection tests={suite.tests} onTestClick={handleDetailChange} />
+              </div>
+            )}
             <TestFilesList
               tests={suite.tests}
               suiteHash={suiteHash}
               type="tests"
-              expandedIndex={expanded}
-              onExpandedChange={handleExpandedChange}
               currentPage={filesPage}
               onPageChange={handleFilesPageChange}
               searchQuery={q}
               onSearchChange={handleSearchChange}
+              detailIndex={detail}
+              onDetailChange={handleDetailChange}
+              opcodeSort={opcodeSort}
+              onOpcodeSortChange={handleOpcodeSortChange}
             />
           </TabPanel>
           {hasPreRunSteps && (
@@ -580,12 +624,12 @@ export function SuiteDetailPage() {
                 files={suite.pre_run_steps!}
                 suiteHash={suiteHash}
                 type="pre_run_steps"
-                expandedIndex={expanded}
-                onExpandedChange={handleExpandedChange}
                 currentPage={filesPage}
                 onPageChange={handleFilesPageChange}
                 searchQuery={q}
                 onSearchChange={handleSearchChange}
+                detailIndex={detail}
+                onDetailChange={handleDetailChange}
               />
             </TabPanel>
           )}

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import type { TestEntry, SuiteTest, AggregatedStats, StepResult } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
@@ -6,7 +6,7 @@ import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 
-export type TestSortColumn = 'order' | 'name' | 'time' | 'mgas' | 'passed' | 'failed'
+export type TestSortColumn = 'order' | 'name' | 'genesis' | 'time' | 'mgas' | 'passed' | 'failed'
 export type TestSortDirection = 'asc' | 'desc'
 export type TestStatusFilter = 'all' | 'passed' | 'failed'
 
@@ -147,6 +147,23 @@ export function TestsTable({
     return new Map(suiteTests.map((test, index) => [test.name, index + 1]))
   }, [suiteTests])
 
+  const genesisMap = useMemo(() => {
+    if (!suiteTests) return new Map<string, string>()
+    const m = new Map<string, string>()
+    for (const test of suiteTests) {
+      if (test.genesis) m.set(test.name, test.genesis)
+    }
+    return m
+  }, [suiteTests])
+
+  const hasGenesis = genesisMap.size > 0
+
+  const genesisValues = useMemo(() => {
+    return [...new Set(genesisMap.values())].sort()
+  }, [genesisMap])
+
+  const [genesisFilter, setGenesisFilter] = useState<string>('all')
+
   const handleSort = (column: TestSortColumn) => {
     if (onSortChange) {
       const newDirection = sortBy === column && sortDir === 'asc' ? 'desc' : 'asc'
@@ -160,6 +177,11 @@ export function TestsTable({
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(([name]) => name.toLowerCase().includes(query))
+    }
+
+    // Genesis filter
+    if (genesisFilter !== 'all') {
+      filtered = filtered.filter(([name]) => genesisMap.get(name) === genesisFilter)
     }
 
     // Status filter always uses all steps
@@ -188,6 +210,10 @@ export function TestsTable({
         const orderA = executionOrder.get(a) ?? Infinity
         const orderB = executionOrder.get(b) ?? Infinity
         comparison = orderA - orderB
+      } else if (sortBy === 'genesis') {
+        const genA = genesisMap.get(a) ?? ''
+        const genB = genesisMap.get(b) ?? ''
+        comparison = genA.localeCompare(genB)
       } else if (sortBy === 'time') {
         comparison = (statsFiltered_A?.time_total ?? 0) - (statsFiltered_B?.time_total ?? 0)
       } else if (sortBy === 'mgas') {
@@ -203,7 +229,7 @@ export function TestsTable({
       }
       return sortDir === 'asc' ? comparison : -comparison
     })
-  }, [tests, searchQuery, statusFilter, stepFilter, executionOrder, sortBy, sortDir])
+  }, [tests, searchQuery, statusFilter, genesisFilter, stepFilter, executionOrder, genesisMap, sortBy, sortDir])
 
   const totalPages = Math.ceil(sortedTests.length / pageSize)
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -262,6 +288,20 @@ export function TestsTable({
               </button>
             ))}
           </div>
+          {hasGenesis && (
+            <select
+              value={genesisFilter}
+              onChange={(e) => setGenesisFilter(e.target.value)}
+              className="rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm/6 text-gray-900 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+            >
+              <option value="all">All Genesis</option>
+              {genesisValues.map((hash) => (
+                <option key={hash} value={hash}>
+                  {hash}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             type="text"
             placeholder="Search tests..."
@@ -287,6 +327,9 @@ export function TestsTable({
                 className="w-12"
               />
               <SortableHeader label="Test" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+              {hasGenesis && (
+                <SortableHeader label="Genesis" column="genesis" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-40" />
+              )}
               <SortableHeader label="Total Time" column="time" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-28 text-right" />
               <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-24 text-right" />
               <SortableHeader label="Failed" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-16 text-center" />
@@ -319,6 +362,14 @@ export function TestsTable({
                       </div>
                     )}
                   </td>
+                  {hasGenesis && (
+                    <td
+                      className="truncate whitespace-nowrap px-4 py-3 font-mono text-xs/5 text-gray-500 dark:text-gray-400"
+                      title={genesisMap.get(testName)}
+                    >
+                      {genesisMap.get(testName) ?? '—'}
+                    </td>
+                  )}
                   <td
                     className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400"
                     title={`Based on steps: ${stepFilter.join(', ')}`}

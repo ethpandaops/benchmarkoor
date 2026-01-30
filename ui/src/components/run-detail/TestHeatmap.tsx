@@ -189,7 +189,6 @@ export function TestHeatmap({
   onSelectedTestChange,
   onSortModeChange,
   onThresholdChange,
-  onSearchChange,
 }: TestHeatmapProps) {
   const sortMode = sortModeProp ?? 'order'
   const threshold = thresholdProp ?? DEFAULT_THRESHOLD
@@ -208,6 +207,15 @@ export function TestHeatmap({
   const executionOrder = useMemo(() => {
     if (!suiteTests) return new Map<string, number>()
     return new Map(suiteTests.map((test, index) => [test.name, index + 1]))
+  }, [suiteTests])
+
+  const genesisMap = useMemo(() => {
+    if (!suiteTests) return new Map<string, string>()
+    const m = new Map<string, string>()
+    for (const test of suiteTests) {
+      if (test.genesis) m.set(test.name, test.genesis)
+    }
+    return m
   }, [suiteTests])
 
   const { testData, minMgas, maxMgas } = useMemo(() => {
@@ -377,13 +385,6 @@ export function TestHeatmap({
               </button>
             )}
           </div>
-          <input
-            type="text"
-            placeholder="Search tests..."
-            value={searchQuery}
-            onChange={(e) => onSearchChange?.(e.target.value)}
-            className="w-48 rounded-sm border border-gray-300 bg-white px-2 py-1 text-xs/5 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-          />
         </div>
         <div className="text-xs/5 text-gray-500 dark:text-gray-400">
           {testData.length} tests | {minMgas.toFixed(1)} - {maxMgas.toFixed(1)} MGas/s
@@ -501,6 +502,9 @@ export function TestHeatmap({
         >
           <div className="flex flex-col gap-1">
             <div className="font-medium">Test #{tooltip.test.order}</div>
+            {genesisMap.get(tooltip.test.testKey) && (
+              <div className="text-gray-500 dark:text-gray-400">Genesis: {genesisMap.get(tooltip.test.testKey)}</div>
+            )}
             <div>MGas/s: {tooltip.test.noData ? 'No data' : tooltip.test.mgasPerSec.toFixed(2)}</div>
             {!tooltip.test.noData && (
               <>
@@ -532,7 +536,7 @@ export function TestHeatmap({
                 <div>
                   <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Test Name</div>
                   <div className="flex items-center gap-2 text-sm/6 text-gray-900 dark:text-gray-100">
-                    <span>{selectedTest}</span>
+                    <span className="min-w-0 break-all">{selectedTest}</span>
                     <CopyButton text={selectedTest} />
                   </div>
                 </div>
@@ -542,6 +546,15 @@ export function TestHeatmap({
                     <div className="flex items-center gap-2 text-sm/6 text-gray-900 dark:text-gray-100">
                       <span>{entry.dir}</span>
                       <CopyButton text={entry.dir} />
+                    </div>
+                  </div>
+                )}
+                {genesisMap.get(selectedTest) && (
+                  <div>
+                    <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis</div>
+                    <div className="flex items-center gap-2 text-sm/6 text-gray-900 dark:text-gray-100">
+                      <span className="font-mono">{genesisMap.get(selectedTest)}</span>
+                      <CopyButton text={genesisMap.get(selectedTest)!} />
                     </div>
                   </div>
                 )}

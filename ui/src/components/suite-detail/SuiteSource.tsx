@@ -1,4 +1,5 @@
 import type { SourceInfo } from '@/api/types'
+import { Badge } from '@/components/shared/Badge'
 import { Card } from '@/components/shared/Card'
 
 interface SuiteSourceProps {
@@ -101,6 +102,8 @@ function getGitHubUrl(repo: string, sha?: string, directory?: string): string {
     baseUrl = repo.replace('git@github.com:', 'https://github.com/').replace(/\.git$/, '')
   } else if (repo.includes('github.com') && repo.endsWith('.git')) {
     baseUrl = repo.replace(/\.git$/, '')
+  } else if (!repo.startsWith('http')) {
+    baseUrl = `https://github.com/${repo}`
   }
 
   if (sha && directory) {
@@ -111,12 +114,30 @@ function getGitHubUrl(repo: string, sha?: string, directory?: string): string {
   return baseUrl
 }
 
+function SourceTypeBadge({ source }: { source: SourceInfo }) {
+  if (source.git) {
+    return <Badge variant="info">Git</Badge>
+  }
+
+  if (source.local) {
+    return <Badge variant="warning">Local</Badge>
+  }
+
+  if (source.eest) {
+    const hasArtifacts =
+      source.eest.fixtures_artifact_name || source.eest.genesis_artifact_name
+    return <Badge variant="success">{hasArtifacts ? 'EEST Artifact' : 'EEST Release'}</Badge>
+  }
+
+  return null
+}
+
 export function SuiteSource({ title, source }: SuiteSourceProps) {
   if (source.git) {
     const gitUrl = getGitHubUrl(source.git.repo, source.git.sha)
 
     return (
-      <Card title={title} collapsible>
+      <Card title={<span className="flex items-center gap-2">{title}<SourceTypeBadge source={source} /></span>} collapsible>
         <div className="flex flex-col gap-4">
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
@@ -149,13 +170,134 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
 
   if (source.local) {
     return (
-      <Card title={title} collapsible>
+      <Card title={<span className="flex items-center gap-2">{title}<SourceTypeBadge source={source} /></span>} collapsible>
         <div className="flex flex-col gap-4">
           <div>
             <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Local Directory</dt>
             <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.local.base_dir}</dd>
           </div>
           <StepsInfo steps={source.local.steps} preRunSteps={source.local.pre_run_steps} />
+        </div>
+      </Card>
+    )
+  }
+
+  if (source.eest) {
+    const eest = source.eest
+    const repoUrl = getGitHubUrl(eest.github_repo)
+    const runId = eest.fixtures_artifact_run_id || eest.genesis_artifact_run_id
+    const githubLink = runId
+      ? `${repoUrl}/actions/runs/${runId}`
+      : eest.github_release
+        ? `${repoUrl}/releases/tag/${eest.github_release}`
+        : repoUrl
+    const githubLinkLabel = runId
+      ? 'View Actions Run'
+      : eest.github_release
+        ? 'View Release'
+        : 'View on GitHub'
+    const hasArtifacts =
+      eest.fixtures_artifact_name || eest.genesis_artifact_name || eest.fixtures_artifact_run_id || eest.genesis_artifact_run_id
+
+    return (
+      <Card title={<span className="flex items-center gap-2">{title}<SourceTypeBadge source={source} /></span>} collapsible>
+        <div className="flex flex-col gap-4">
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Repository</dt>
+              <dd className="mt-1 break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.github_repo}</dd>
+            </div>
+            {eest.github_release && (
+              <div>
+                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Release</dt>
+                <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.github_release}</dd>
+              </div>
+            )}
+            {eest.fixtures_subdir && (
+              <div>
+                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Fixtures Subdirectory</dt>
+                <dd className="mt-1">
+                  <code className="rounded-xs bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                    {eest.fixtures_subdir}
+                  </code>
+                </dd>
+              </div>
+            )}
+          </dl>
+          {(eest.fixtures_url || eest.genesis_url) && (
+            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {eest.fixtures_url && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Fixtures URL</dt>
+                  <dd className="mt-1 break-all text-sm/6">
+                    <a
+                      href={eest.fixtures_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {eest.fixtures_url}
+                    </a>
+                  </dd>
+                </div>
+              )}
+              {eest.genesis_url && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis URL</dt>
+                  <dd className="mt-1 break-all text-sm/6">
+                    <a
+                      href={eest.genesis_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {eest.genesis_url}
+                    </a>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          )}
+          {hasArtifacts && (
+            <div className="flex flex-col gap-3 border-t border-gray-200 pt-4 dark:border-gray-700">
+              <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Artifacts</dt>
+              <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {eest.fixtures_artifact_name && (
+                  <div>
+                    <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Fixtures Artifact</dt>
+                    <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.fixtures_artifact_name}</dd>
+                  </div>
+                )}
+                {eest.genesis_artifact_name && (
+                  <div>
+                    <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis Artifact</dt>
+                    <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.genesis_artifact_name}</dd>
+                  </div>
+                )}
+                {eest.fixtures_artifact_run_id && (
+                  <div>
+                    <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Fixtures Run ID</dt>
+                    <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.fixtures_artifact_run_id}</dd>
+                  </div>
+                )}
+                {eest.genesis_artifact_run_id && (
+                  <div>
+                    <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis Run ID</dt>
+                    <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.genesis_artifact_run_id}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
+          <a
+            href={githubLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex w-fit items-center gap-2 rounded-xs bg-gray-900 px-3 py-1.5 text-sm/6 font-medium text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300"
+          >
+            <GitHubIcon className="size-4" />
+            {githubLinkLabel}
+          </a>
         </div>
       </Card>
     )

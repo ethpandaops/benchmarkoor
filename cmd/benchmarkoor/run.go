@@ -130,6 +130,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			ResultsDir:                      cfg.Benchmark.ResultsDir,
 			ResultsOwner:                    resultsOwner,
 			SystemResourceCollectionEnabled: *cfg.Benchmark.SystemResourceCollectionEnabled,
+			GitHubToken:                     cfg.Global.GitHubToken,
 		}
 
 		exec = executor.NewExecutor(log, execCfg)

@@ -10,30 +10,21 @@ benchmark:
   generate_results_index: true
   generate_suite_stats: true
   tests:
+    # Comment out the "filter" if you want to run the full suite
     filter: "bn128"
     source:
-      git:
-        repo: https://github.com/NethermindEth/gas-benchmarks.git
-        version: main
-        pre_run_steps: []
-        steps:
-          setup:
-            - eest_tests/setup/*/*
-          test:
-            - eest_tests/testing/*/*
-          cleanup: []
+      eest_fixtures:
+        github_repo: ethereum/execution-spec-tests
+        github_release: benchmark@v0.0.6
 
 client:
   config:
     drop_memory_caches: "steps"
-    genesis:
-      besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
-      erigon: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      ethrex: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      geth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      nethermind: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/nethermind/zkevmgenesis.json
-      nimbus: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      reth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+    # Set resource limits, for example, as per https://eips.ethereum.org/EIPS/eip-7870
+    # resource_limits:
+    #   cpuset_count: 4
+    #   memory: "32g"
+    #   swap_disabled: true
 
   instances:
     - id: nethermind

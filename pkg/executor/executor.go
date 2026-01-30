@@ -31,6 +31,9 @@ type Executor interface {
 
 	// GetSuiteHash returns the hash of the test suite.
 	GetSuiteHash() string
+
+	// GetSource returns the underlying source, which can be used for genesis resolution.
+	GetSource() Source
 }
 
 // ExecuteOptions contains options for test execution.
@@ -39,10 +42,11 @@ type ExecuteOptions struct {
 	JWT              string
 	ResultsDir       string
 	Filter           string
-	ContainerID      string         // Container ID for stats collection.
-	DockerClient     *client.Client // Docker client for fallback stats reader.
-	DropMemoryCaches string         // "tests", "steps", or "" (disabled).
-	DropCachesPath   string         // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
+	ContainerID      string           // Container ID for stats collection.
+	DockerClient     *client.Client   // Docker client for fallback stats reader.
+	DropMemoryCaches string           // "tests", "steps", or "" (disabled).
+	DropCachesPath   string           // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
+	Tests            []*TestWithSteps // Optional subset of tests to run (nil = run all).
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -64,6 +68,7 @@ type Config struct {
 	ResultsDir                      string
 	ResultsOwner                    *fsutil.OwnerConfig // Optional file ownership for results directory
 	SystemResourceCollectionEnabled bool                // Enable system resource collection (cgroups/Docker Stats)
+	GitHubToken                     string              // Optional GitHub token for API-based artifact downloads
 }
 
 // NewExecutor creates a new executor instance.
@@ -90,7 +95,7 @@ var _ Executor = (*executor)(nil)
 
 // Start initializes the executor and prepares test sources.
 func (e *executor) Start(ctx context.Context) error {
-	e.source = NewSource(e.log, e.cfg.Source, e.cfg.CacheDir, e.cfg.Filter)
+	e.source = NewSource(e.log, e.cfg.Source, e.cfg.CacheDir, e.cfg.Filter, e.cfg.GitHubToken)
 	if e.source == nil {
 		return fmt.Errorf("no test source configured")
 	}
@@ -175,6 +180,11 @@ func (e *executor) GetSuiteHash() string {
 	return e.suiteHash
 }
 
+// GetSource returns the underlying source.
+func (e *executor) GetSource() Source {
+	return e.source
+}
+
 // ExecuteTests runs all tests against the specified Engine API endpoint.
 // If the context is cancelled (e.g., due to container death), execution stops
 // but partial results are still written.
@@ -200,9 +210,15 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		}
 	}
 
+	// Determine which tests to run: opts.Tests overrides prepared.Tests.
+	tests := e.prepared.Tests
+	if opts.Tests != nil {
+		tests = opts.Tests
+	}
+
 	e.log.WithFields(logrus.Fields{
 		"pre_run_steps": len(e.prepared.PreRunSteps),
-		"tests":         len(e.prepared.Tests),
+		"tests":         len(tests),
 	}).Info("Starting test execution")
 
 	// Track if execution was interrupted.
@@ -214,8 +230,8 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	dropBetweenSteps := opts.DropMemoryCaches == "steps"
 	dropCachesPath := opts.DropCachesPath
 
-	// Run pre-run steps first.
-	if len(e.prepared.PreRunSteps) > 0 {
+	// Run pre-run steps first (skip when running a test subset, e.g. multi-genesis).
+	if len(e.prepared.PreRunSteps) > 0 && opts.Tests == nil {
 		e.log.Info("Running pre-run steps")
 
 		for _, step := range e.prepared.PreRunSteps {
@@ -255,7 +271,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	}
 
 	// Run actual tests with result collection.
-	for i, test := range e.prepared.Tests {
+	for i, test := range tests {
 		select {
 		case <-ctx.Done():
 			interrupted = true
@@ -378,7 +394,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 writeResults:
 	// Build execution result.
 	result := &ExecutionResult{
-		TotalTests:        len(e.prepared.Tests),
+		TotalTests:        len(tests),
 		TotalDuration:     time.Since(startTime),
 		ContainerDied:     interrupted,
 		TerminationReason: interruptReason,
@@ -443,8 +459,18 @@ writeResults:
 	return result, nil
 }
 
-// runStepFile executes a single step file.
+// runStepFile executes a single step file or provider.
 func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *StepFile, result *TestResult) error {
+	// Use provider if available, otherwise read from file.
+	if step.Provider != nil {
+		return e.runStepLines(ctx, opts, step.Name, step.Provider.Lines(), result)
+	}
+
+	return e.runStepFromFile(ctx, opts, step, result)
+}
+
+// runStepFromFile reads and executes lines from a file.
+func (e *executor) runStepFromFile(ctx context.Context, opts *ExecuteOptions, step *StepFile, result *TestResult) error {
 	file, err := os.Open(step.Path)
 	if err != nil {
 		return fmt.Errorf("opening step file: %w", err)
@@ -453,30 +479,46 @@ func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *
 	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
-	// Increase buffer size to 50MB to handle large JSON-RPC payloads
+	// Increase buffer size to 50MB to handle large JSON-RPC payloads.
 	scanner.Buffer(make([]byte, 64*1024), 50*1024*1024)
-	lineNum := 0
+
+	var lines []string
 
 	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("reading step file: %w", err)
+	}
+
+	return e.runStepLines(ctx, opts, step.Name, lines, result)
+}
+
+// runStepLines executes JSON-RPC lines.
+func (e *executor) runStepLines(
+	ctx context.Context,
+	opts *ExecuteOptions,
+	stepName string,
+	lines []string,
+	result *TestResult,
+) error {
+	for lineNum, line := range lines {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		lineNum++
-
 		// Parse JSON to extract method name.
 		method, err := extractMethod(line)
 		if err != nil {
 			e.log.WithFields(logrus.Fields{
-				"line": lineNum,
-				"step": step.Name,
+				"line": lineNum + 1,
+				"step": stepName,
 			}).WithError(err).Warn("Failed to parse JSON-RPC payload")
 
 			if result != nil {
@@ -499,9 +541,9 @@ func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *
 
 		if err != nil {
 			e.log.WithFields(logrus.Fields{
-				"line":   lineNum,
+				"line":   lineNum + 1,
 				"method": method,
-				"step":   step.Name,
+				"step":   stepName,
 			}).WithError(err).Warn("RPC call failed")
 		}
 
@@ -509,17 +551,17 @@ func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *
 		if succeeded && e.validator != nil && response != "" {
 			if resp, parseErr := jsonrpc.Parse(response); parseErr != nil {
 				e.log.WithFields(logrus.Fields{
-					"line":   lineNum,
+					"line":   lineNum + 1,
 					"method": method,
-					"step":   step.Name,
+					"step":   stepName,
 				}).WithError(parseErr).Warn("Failed to parse JSON-RPC response")
 
 				succeeded = false
 			} else if validationErr := e.validator.Validate(method, resp); validationErr != nil {
 				e.log.WithFields(logrus.Fields{
-					"line":   lineNum,
+					"line":   lineNum + 1,
 					"method": method,
-					"step":   step.Name,
+					"step":   stepName,
 				}).WithError(validationErr).Warn("Response validation failed")
 
 				succeeded = false
@@ -529,10 +571,6 @@ func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *
 		if result != nil {
 			result.AddResult(method, line, response, duration, succeeded, resourceDelta)
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("reading step file: %w", err)
 	}
 
 	return nil

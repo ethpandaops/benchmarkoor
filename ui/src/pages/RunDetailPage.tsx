@@ -10,6 +10,7 @@ import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
 import { PreRunStepsTable } from '@/components/run-detail/PreRunStepsTable'
 import { TestHeatmap, type SortMode } from '@/components/run-detail/TestHeatmap'
+import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { ClientStat } from '@/components/shared/ClientStat'
@@ -438,7 +439,16 @@ export function RunDetailPage() {
       <RunConfiguration instance={config.instance} system={config.system} />
 
       <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-        <h3 className="mb-4 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Performance Heatmap</h3>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Performance Heatmap</h3>
+          <input
+            type="text"
+            placeholder="Filter tests..."
+            value={q}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+          />
+        </div>
         <TestHeatmap
           tests={result.tests}
           suiteTests={suite?.tests}
@@ -456,6 +466,31 @@ export function RunDetailPage() {
           onSearchChange={handleSearchChange}
         />
       </div>
+
+      {suite?.tests && suite.tests.length > 0 && (
+        <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+          <OpcodeHeatmap
+            tests={suite.tests}
+            extraColumns={[{
+              name: 'Mgas/s',
+              getValue: (testIndex: number) => {
+                const testName = suite.tests[testIndex]?.name
+                if (!testName) return undefined
+                const entry = result.tests[testName]
+                if (!entry) return undefined
+                const stats = getAggregatedStats(entry, stepFilter)
+                if (!stats || stats.gas_used_time_total <= 0) return undefined
+                return (stats.gas_used_total * 1000) / stats.gas_used_time_total
+              },
+              width: 54,
+              format: (v: number) => v.toFixed(1),
+            }]}
+            onTestClick={(testIndex) => handleTestModalChange(suite.tests[testIndex - 1]?.name)}
+            searchQuery={q}
+            onSearchChange={handleSearchChange}
+          />
+        </div>
+      )}
 
       <ResourceUsageCharts
         tests={result.tests}

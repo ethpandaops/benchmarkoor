@@ -15,4 +15,8 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
   },
+  server: {
+    host: '0.0.0.0',
+    allowedHosts: ['pop-os-shiny.taile8f668.ts.net'],
+  },
 })

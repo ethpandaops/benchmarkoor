@@ -47,6 +47,7 @@ type GlobalConfig struct {
 	CleanupOnStart     bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
 	Directories        DirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
 	DropCachesPath     string            `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
+	GitHubToken        string            `yaml:"github_token,omitempty" mapstructure:"github_token"`
 }
 
 // DirectoriesConfig contains directory path configurations.
@@ -78,9 +79,32 @@ type TestsConfig struct {
 // SourceConfig defines where to find test files.
 type SourceConfig struct {
 	// New unified source options.
-	Git   *GitSourceV2   `yaml:"git,omitempty" mapstructure:"git"`
-	Local *LocalSourceV2 `yaml:"local,omitempty" mapstructure:"local"`
+	Git          *GitSourceV2        `yaml:"git,omitempty" mapstructure:"git"`
+	Local        *LocalSourceV2      `yaml:"local,omitempty" mapstructure:"local"`
+	EESTFixtures *EESTFixturesSource `yaml:"eest_fixtures,omitempty" mapstructure:"eest_fixtures"`
 }
+
+// EESTFixturesSource defines an EEST fixtures source from GitHub releases or artifacts.
+type EESTFixturesSource struct {
+	GitHubRepo     string `yaml:"github_repo" mapstructure:"github_repo"`
+	GitHubRelease  string `yaml:"github_release,omitempty" mapstructure:"github_release"`
+	FixturesURL    string `yaml:"fixtures_url,omitempty" mapstructure:"fixtures_url"`
+	GenesisURL     string `yaml:"genesis_url,omitempty" mapstructure:"genesis_url"`
+	FixturesSubdir string `yaml:"fixtures_subdir,omitempty" mapstructure:"fixtures_subdir"`
+	// GitHub Actions artifact support (alternative to releases).
+	FixturesArtifactName  string `yaml:"fixtures_artifact_name,omitempty" mapstructure:"fixtures_artifact_name"`
+	GenesisArtifactName   string `yaml:"genesis_artifact_name,omitempty" mapstructure:"genesis_artifact_name"`
+	FixturesArtifactRunID string `yaml:"fixtures_artifact_run_id,omitempty" mapstructure:"fixtures_artifact_run_id"`
+	GenesisArtifactRunID  string `yaml:"genesis_artifact_run_id,omitempty" mapstructure:"genesis_artifact_run_id"`
+}
+
+// UseArtifacts returns true if the source is configured to use GitHub Actions artifacts.
+func (e *EESTFixturesSource) UseArtifacts() bool {
+	return e.FixturesArtifactName != "" || e.GenesisArtifactName != ""
+}
+
+// DefaultEESTFixturesSubdir is the default subdirectory within the fixtures tarball.
+const DefaultEESTFixturesSubdir = "fixtures/blockchain_tests_engine_x"
 
 // GitSourceV2 defines a git repository source for tests with step-based structure.
 type GitSourceV2 struct {
@@ -106,7 +130,7 @@ type StepsConfig struct {
 
 // IsConfigured returns true if any test source is configured.
 func (s *SourceConfig) IsConfigured() bool {
-	return s.Git != nil || s.Local != nil
+	return s.Git != nil || s.Local != nil || s.EESTFixtures != nil
 }
 
 // DefaultContainerDir is the default container mount path for data directories.
@@ -304,6 +328,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"global.cleanup_on_start",
 		"global.directories.tmp_datadir",
 		"global.directories.tmp_cachedir",
+		"global.github_token",
 		// Benchmark settings
 		"benchmark.results_dir",
 		"benchmark.results_owner",
@@ -461,8 +486,22 @@ func (s *SourceConfig) Validate() error {
 		return nil
 	}
 
-	if s.Git != nil && s.Local != nil {
-		return fmt.Errorf("cannot specify both git and local source")
+	// Count configured sources.
+	count := 0
+	if s.Git != nil {
+		count++
+	}
+
+	if s.Local != nil {
+		count++
+	}
+
+	if s.EESTFixtures != nil {
+		count++
+	}
+
+	if count > 1 {
+		return fmt.Errorf("cannot specify multiple sources (git, local, eest_fixtures)")
 	}
 
 	if s.Git != nil {
@@ -482,6 +521,24 @@ func (s *SourceConfig) Validate() error {
 
 		if _, err := os.Stat(s.Local.BaseDir); os.IsNotExist(err) {
 			return fmt.Errorf("local.base_dir %q does not exist", s.Local.BaseDir)
+		}
+	}
+
+	if s.EESTFixtures != nil {
+		if s.EESTFixtures.GitHubRepo == "" {
+			return fmt.Errorf("eest_fixtures.github_repo is required")
+		}
+
+		// Must have either release or artifact configuration.
+		hasRelease := s.EESTFixtures.GitHubRelease != ""
+		hasArtifacts := s.EESTFixtures.FixturesArtifactName != ""
+
+		if !hasRelease && !hasArtifacts {
+			return fmt.Errorf("eest_fixtures: must specify either github_release or fixtures_artifact_name")
+		}
+
+		if hasRelease && hasArtifacts {
+			return fmt.Errorf("eest_fixtures: cannot specify both github_release and fixtures_artifact_name")
 		}
 	}
 

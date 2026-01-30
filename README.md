@@ -17,20 +17,31 @@ Benchmarkoor is a benchmarking tool for Ethereum execution clients. It runs stan
 
 The easiest way to get started is using Docker Compose:
 
+Start the UI. By default it will be listening on [http://localhost:8080](http://localhost:8080)
 ```bash
-make docker-up
+# Starts the UI on default port 8080
+make docker-run-ui
+
+# Alternatively, you can also choose your own port like
+make docker-run-ui UI_PORT=3000
 ```
 
-This builds and starts:
-- **benchmarkoor** - Runs benchmarks using [config.example.docker.yaml](config.example.docker.yaml)
-- **ui** - Web UI available at http://localhost:8080
+Next we'll run a benchmark. By default it will use the  [config.example.docker.yaml](config.example.docker.yaml) configuration file. By default, it just runs a subset of tests, via the `filter: bn128`. Have a look at the file and change it as you want. If you're just experimenting, you can leave it as it is.
 
-Results will be saved to the `./results` directory.
+To run the benchmark we can do the following:
 
-To view the logs you can do:
-```bash
-docker compose logs -f benchmarkoor
+```sh
+# Run the default config.example.docker.yaml with all clients
+make docker-run-benchmark
+
+# Limit the client. In this case, just run geth
+make docker-run-benchmark CLIENT=geth
+
+# Run with your custom configuration
+make docker-run-benchmark CONFIG=config.custom.yaml
 ```
+
+After each run, if you refresh the UI, you should see new results there.
 
 To stop the services:
 
@@ -54,13 +65,13 @@ It should print the address where you can access it. By default it's http://loca
 
 Now we want to run benchmarkoor. We'll be using an example configuration file that contains some stateless tests. By default we'll be just running the `bn128` subset of that suite. Have a look at the config file for more details:
 ```sh
-./bin/benchmarkoor run --config examples/configuration/config.stateless.yaml
+./bin/benchmarkoor run --config examples/configuration/config.stateless.eest.yaml
 ```
 
 If you don't always want to build and run, you can also use it like this:
 
 ```sh
-go run cmd/benchmarkoor/*.go run --config examples/configuration/config.stateless.yaml
+go run cmd/benchmarkoor/*.go run --config examples/configuration/config.stateless.eest.yaml
 ```
 
 After the run, you should be able to see the results on the UI.
@@ -71,7 +82,7 @@ Example:
 
 ```
 ./bin/benchmarkoor run \
-      --config examples/configuration/config.stateless.yaml \
+      --config examples/configuration/config.stateless.eest.yaml \
       --limit-instance-client=nethermind
 ```
 
