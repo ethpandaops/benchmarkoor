@@ -42,7 +42,7 @@ function serializeStepFilter(steps: IndexStepType[]): string | undefined {
   return steps.join(',')
 }
 
-function OpcodeHeatmapSection({ tests }: { tests: SuiteTest[] }) {
+function OpcodeHeatmapSection({ tests, onTestClick }: { tests: SuiteTest[]; onTestClick?: (testIndex: number) => void }) {
   const [expanded, setExpanded] = useState(true)
   return (
     <>
@@ -62,7 +62,7 @@ function OpcodeHeatmapSection({ tests }: { tests: SuiteTest[] }) {
       </button>
       {expanded && (
         <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-          <OpcodeHeatmap tests={tests} />
+          <OpcodeHeatmap tests={tests} onTestClick={onTestClick} />
         </div>
       )}
     </>
@@ -600,7 +600,7 @@ export function SuiteDetailPage() {
             <SuiteSource title="Source" source={suite.source} />
             {suite.tests.some((t) => t.eest?.info?.opcode_count && Object.keys(t.eest.info.opcode_count).length > 0) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                <OpcodeHeatmapSection tests={suite.tests} />
+                <OpcodeHeatmapSection tests={suite.tests} onTestClick={handleDetailChange} />
               </div>
             )}
             <TestFilesList

@@ -5,6 +5,7 @@ import type { CategorySpan, GroupedResult } from '@/utils/opcodeCategories'
 
 interface OpcodeHeatmapProps {
   tests: SuiteTest[]
+  onTestClick?: (testIndex: number) => void
 }
 
 const CELL_SIZE = 16
@@ -89,9 +90,10 @@ interface HeatmapCanvasProps {
   getCount: (test: SuiteTest, col: string) => number
   sortCol: string | null
   onSortChange: (col: string) => void
+  onTestClick?: (testIndex: number) => void
 }
 
-function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight, expanded, categorySpans, getCount, sortCol, onSortChange }: HeatmapCanvasProps) {
+function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight, expanded, categorySpans, getCount, sortCol, onSortChange, onTestClick }: HeatmapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
@@ -444,20 +446,30 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       const container = containerRef.current
       if (!container) return
       const rect = container.getBoundingClientRect()
-      const my = e.clientY - rect.top + container.scrollTop
-      // Only respond to clicks in the header area (opcode labels region)
-      if (my > headerHeight) return
+      // Use screen-relative Y (no scroll offset) since header is sticky
+      const viewY = e.clientY - rect.top
       const mx = e.clientX - rect.left + container.scrollLeft
-      if (mx < ROW_LABEL_WIDTH) {
-        onSortChange('#')
-      } else {
-        const col = Math.floor((mx - ROW_LABEL_WIDTH) / CELL_SIZE)
-        if (col >= 0 && col < columns.length) {
-          onSortChange(columns[col])
+      if (viewY <= headerHeight) {
+        // Header click — sort
+        if (mx < ROW_LABEL_WIDTH) {
+          onSortChange('#')
+        } else {
+          const col = Math.floor((mx - ROW_LABEL_WIDTH) / CELL_SIZE)
+          if (col >= 0 && col < columns.length) {
+            onSortChange(columns[col])
+          }
+        }
+      } else if (onTestClick) {
+        // Data cell click — open test detail
+        const my = e.clientY - rect.top + container.scrollTop
+        const row = Math.floor((my - headerHeight) / CELL_SIZE)
+        if (row >= 0 && row < filteredTests.length) {
+          // testIndex is 1-based
+          onTestClick(filteredTests[row].index + 1)
         }
       }
     },
-    [columns, headerHeight, onSortChange],
+    [columns, headerHeight, onSortChange, onTestClick, filteredTests],
   )
 
   const handleMouseLeave = useCallback(() => {
@@ -501,7 +513,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
   )
 }
 
-export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
+export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
   const [search, setSearch] = useState('')
   const [fullscreen, setFullscreen] = useState(false)
   const [expanded, setExpanded] = useState(true)
@@ -696,6 +708,7 @@ export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
     getCount,
     sortCol,
     onSortChange: handleSortChange,
+    onTestClick,
   }
 
   if (fullscreen) {
