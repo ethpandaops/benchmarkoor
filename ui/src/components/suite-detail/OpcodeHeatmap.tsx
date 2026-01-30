@@ -14,6 +14,8 @@ interface OpcodeHeatmapProps {
   tests: SuiteTest[]
   onTestClick?: (testIndex: number) => void
   extraColumns?: ExtraColumn[]
+  searchQuery?: string
+  onSearchChange?: (query: string) => void
 }
 
 const CELL_SIZE = 16
@@ -719,8 +721,10 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
   )
 }
 
-export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [] }: OpcodeHeatmapProps) {
-  const [search, setSearch] = useState('')
+export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQuery, onSearchChange }: OpcodeHeatmapProps) {
+  const [internalSearch, setInternalSearch] = useState('')
+  const search = searchQuery ?? internalSearch
+  const setSearch = onSearchChange ?? setInternalSearch
   const [fullscreen, setFullscreen] = useState(false)
   const [expanded] = useState(true)
   const [groupStack, setGroupStack] = useState(true)

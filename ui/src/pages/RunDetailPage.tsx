@@ -477,6 +477,8 @@ export function RunDetailPage() {
               format: (v: number) => v.toFixed(1),
             }]}
             onTestClick={(testIndex) => handleTestModalChange(suite.tests[testIndex - 1]?.name)}
+            searchQuery={q}
+            onSearchChange={handleSearchChange}
           />
         </div>
       )}
