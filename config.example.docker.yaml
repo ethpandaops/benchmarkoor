@@ -12,16 +12,9 @@ benchmark:
   tests:
     filter: "bn128"
     source:
-      git:
-        repo: https://github.com/NethermindEth/gas-benchmarks.git
-        version: main
-        pre_run_steps: []
-        steps:
-          setup:
-            - eest_tests/setup/*/*
-          test:
-            - eest_tests/testing/*/*
-          cleanup: []
+      eest_fixtures:
+        github_repo: ethereum/execution-spec-tests
+        github_release: benchmark@v0.0.6
 
 client:
   config:

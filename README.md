@@ -54,13 +54,13 @@ It should print the address where you can access it. By default it's http://loca
 
 Now we want to run benchmarkoor. We'll be using an example configuration file that contains some stateless tests. By default we'll be just running the `bn128` subset of that suite. Have a look at the config file for more details:
 ```sh
-./bin/benchmarkoor run --config examples/configuration/config.stateless.yaml
+./bin/benchmarkoor run --config examples/configuration/config.stateless.eest.yaml
 ```
 
 If you don't always want to build and run, you can also use it like this:
 
 ```sh
-go run cmd/benchmarkoor/*.go run --config examples/configuration/config.stateless.yaml
+go run cmd/benchmarkoor/*.go run --config examples/configuration/config.stateless.eest.yaml
 ```
 
 After the run, you should be able to see the results on the UI.
@@ -71,7 +71,7 @@ Example:
 
 ```
 ./bin/benchmarkoor run \
-      --config examples/configuration/config.stateless.yaml \
+      --config examples/configuration/config.stateless.eest.yaml \
       --limit-instance-client=nethermind
 ```
 

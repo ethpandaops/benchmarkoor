@@ -1,4 +1,4 @@
-.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all lint-ui fmt-core tidy-core install-core deps-ui run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-up docker-down
+.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all lint-ui fmt-core tidy-core install-core deps-ui run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-down docker-run-ui docker-run-benchmark
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -114,10 +114,14 @@ docker-build-ui:
 		-t $(DOCKER_IMAGE_UI):latest \
 		-f Dockerfile.ui .
 
-## docker-up: Start services with docker-compose
-docker-up:
-	USER_UID=$(shell id -u) USER_GID=$(shell id -g) docker compose up -d --build
-
 ## docker-down: Stop services with docker-compose
 docker-down:
 	docker compose down
+
+## docker-run-ui: Start the UI service with docker-compose
+docker-run-ui:
+	docker compose up -d --build ui
+
+## docker-run-benchmark: Start the benchmarkoor service with docker-compose
+docker-run-benchmark:
+	USER_UID=$(shell id -u) USER_GID=$(shell id -g) docker compose up --build benchmarkoor
