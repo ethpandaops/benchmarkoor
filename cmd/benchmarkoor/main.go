@@ -29,20 +29,37 @@ type consistentFormatter struct {
 	prefix string // e.g. "🔵"
 }
 
-// shortLevel maps logrus levels to 4-character abbreviations.
-var shortLevel = map[logrus.Level]string{
-	logrus.TraceLevel: "TRAC",
-	logrus.DebugLevel: "DEBG",
-	logrus.InfoLevel:  "INFO",
-	logrus.WarnLevel:  "WARN",
-	logrus.ErrorLevel: "ERRO",
-	logrus.FatalLevel: "FATL",
-	logrus.PanicLevel: "PANC",
+// ANSI color codes for log levels.
+const (
+	colorReset  = "\033[0m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorCyan   = "\033[36m"
+	colorWhite  = "\033[37m"
+)
+
+// levelLabel contains the 4-char abbreviation and ANSI color for a log level.
+type levelLabel struct {
+	text  string
+	color string
+}
+
+// shortLevel maps logrus levels to colored 4-character abbreviations.
+var shortLevel = map[logrus.Level]levelLabel{
+	logrus.TraceLevel: {text: "TRAC", color: colorWhite},
+	logrus.DebugLevel: {text: "DEBG", color: colorCyan},
+	logrus.InfoLevel:  {text: "INFO", color: colorGreen},
+	logrus.WarnLevel:  {text: "WARN", color: colorYellow},
+	logrus.ErrorLevel: {text: "ERRO", color: colorRed},
+	logrus.FatalLevel: {text: "FATL", color: colorRed},
+	logrus.PanicLevel: {text: "PANC", color: colorRed},
 }
 
 func (f *consistentFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	ts := entry.Time.UTC().Format(logTimestampFormat)
-	level := shortLevel[entry.Level]
+	lbl := shortLevel[entry.Level]
+	level := lbl.color + lbl.text + colorReset
 
 	var buf bytes.Buffer
 
