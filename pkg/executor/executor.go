@@ -46,6 +46,8 @@ type ExecuteOptions struct {
 	DockerClient     *client.Client   // Docker client for fallback stats reader.
 	DropMemoryCaches string           // "tests", "steps", or "" (disabled).
 	DropCachesPath   string           // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
+	RollbackStrategy string           // "rpc-debug-setHead" or "" (disabled).
+	RPCEndpoint      string           // RPC endpoint for rollback calls (e.g. http://host:port).
 	Tests            []*TestWithSteps // Optional subset of tests to run (nil = run all).
 }
 
@@ -293,6 +295,21 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		log := e.log.WithField("test", test.Name)
 		log.Info("Running test")
 
+		// Capture block number for rollback before the test starts.
+		var rollbackBlockNum string
+		if opts.RollbackStrategy == "rpc-debug-setHead" && opts.RPCEndpoint != "" {
+			var blockErr error
+
+			rollbackBlockNum, blockErr = e.getBlockNumber(ctx, opts.RPCEndpoint)
+			if blockErr != nil {
+				log.WithError(blockErr).Warn("Failed to capture block number for rollback")
+			} else {
+				log.WithField("block_number", rollbackBlockNum).Debug(
+					"Captured block number for rollback",
+				)
+			}
+		}
+
 		testPassed := true
 
 		// Run setup step if present.
@@ -380,6 +397,29 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 				// Write cleanup results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeCleanup, cleanupResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write cleanup results")
+				}
+			}
+		}
+
+		// Rollback to captured block number after test completes.
+		if opts.RollbackStrategy == "rpc-method" && rollbackBlockNum != "" && opts.RPCEndpoint != "" {
+			log.WithField("block_number", rollbackBlockNum).Info("Rolling back via debug_setHead")
+
+			if rbErr := e.rollbackToBlock(ctx, opts.RPCEndpoint, rollbackBlockNum); rbErr != nil {
+				log.WithError(rbErr).Warn("Failed to rollback via debug_setHead")
+			} else {
+				// Verify the rollback succeeded.
+				if currentBlock, verifyErr := e.getBlockNumber(ctx, opts.RPCEndpoint); verifyErr != nil {
+					log.WithError(verifyErr).Warn("Failed to verify rollback block number")
+				} else if currentBlock != rollbackBlockNum {
+					log.WithFields(logrus.Fields{
+						"expected": rollbackBlockNum,
+						"actual":   currentBlock,
+					}).Warn("Block number mismatch after rollback")
+				} else {
+					log.WithField("block_number", rollbackBlockNum).Info(
+						"Rollback verified successfully",
+					)
 				}
 			}
 		}
@@ -694,6 +734,100 @@ func (e *executor) dropMemoryCaches(path string) error {
 	}
 
 	e.log.Debug("Dropped memory caches")
+
+	return nil
+}
+
+// getBlockNumber calls eth_blockNumber on the RPC endpoint and returns
+// the block number as a hex string.
+func (e *executor) getBlockNumber(ctx context.Context, rpcEndpoint string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	payload := `{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}`
+
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, rpcEndpoint, strings.NewReader(payload),
+	)
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("executing request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response: %w", err)
+	}
+
+	var rpcResp struct {
+		Result string `json:"result"`
+	}
+
+	if err := json.Unmarshal(body, &rpcResp); err != nil {
+		return "", fmt.Errorf("parsing response: %w", err)
+	}
+
+	if rpcResp.Result == "" {
+		return "", fmt.Errorf("empty block number in response")
+	}
+
+	return rpcResp.Result, nil
+}
+
+// rollbackToBlock calls debug_setHead on the RPC endpoint to roll back
+// the chain to the specified block number (hex string).
+func (e *executor) rollbackToBlock(ctx context.Context, rpcEndpoint, hexBlockNumber string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	payload := fmt.Sprintf(
+		`{"jsonrpc":"2.0","method":"debug_setHead","params":[%q],"id":1}`,
+		hexBlockNumber,
+	)
+
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, rpcEndpoint, strings.NewReader(payload),
+	)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("executing request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
+
+	// Check for JSON-RPC error.
+	var rpcResp struct {
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal(body, &rpcResp); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+
+	if rpcResp.Error != nil {
+		return fmt.Errorf("debug_setHead error %d: %s",
+			rpcResp.Error.Code, rpcResp.Error.Message)
+	}
 
 	return nil
 }

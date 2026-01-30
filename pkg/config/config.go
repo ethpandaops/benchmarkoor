@@ -245,6 +245,7 @@ type ClientDefaults struct {
 	JWT              string            `yaml:"jwt" mapstructure:"jwt"`
 	Genesis          map[string]string `yaml:"genesis" mapstructure:"genesis"`
 	DropMemoryCaches string            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
+	RollbackStrategy string            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
 	ResourceLimits   *ResourceLimits   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
 }
 
@@ -262,6 +263,7 @@ type ClientInstance struct {
 	Genesis          string            `yaml:"genesis,omitempty" mapstructure:"genesis"`
 	DataDir          *DataDirConfig    `yaml:"datadir,omitempty" mapstructure:"datadir"`
 	DropMemoryCaches string            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
+	RollbackStrategy string            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
 	ResourceLimits   *ResourceLimits   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
 }
 
@@ -471,6 +473,11 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("tests config: %w", err)
 	}
 
+	// Validate rollback_strategy settings.
+	if err := c.validateRollbackStrategy(); err != nil {
+		return err
+	}
+
 	// Validate drop_memory_caches settings.
 	if err := c.validateDropMemoryCaches(); err != nil {
 		return err
@@ -590,6 +597,28 @@ func (c *Config) GetDropMemoryCaches(instance *ClientInstance) string {
 	return c.Client.Config.DropMemoryCaches
 }
 
+// validRollbackStrategies contains valid values for rollback_strategy.
+var validRollbackStrategies = map[string]bool{
+	"":                  true, // Unset (defaults to "none")
+	"none":              true, // Explicitly disabled
+	"rpc-debug-setHead": true, // Rollback via debug_setHead RPC
+}
+
+// GetRollbackStrategy returns the rollback_strategy setting for an instance.
+// Instance-level setting takes precedence over global default.
+// Returns "none" if neither is set.
+func (c *Config) GetRollbackStrategy(instance *ClientInstance) string {
+	if instance.RollbackStrategy != "" {
+		return instance.RollbackStrategy
+	}
+
+	if c.Client.Config.RollbackStrategy != "" {
+		return c.Client.Config.RollbackStrategy
+	}
+
+	return "none"
+}
+
 // GetDropCachesPath returns the path to the drop_caches file.
 // Returns the configured path or the default (/proc/sys/vm/drop_caches).
 func (c *Config) GetDropCachesPath() string {
@@ -651,6 +680,22 @@ func (c *Config) validateDropMemoryCaches() error {
 	}
 
 	_ = file.Close()
+
+	return nil
+}
+
+// validateRollbackStrategy validates rollback_strategy settings for all instances.
+func (c *Config) validateRollbackStrategy() error {
+	for _, instance := range c.Client.Instances {
+		value := c.GetRollbackStrategy(&instance)
+
+		if !validRollbackStrategies[value] {
+			return fmt.Errorf(
+				"instance %q: invalid rollback_strategy value %q (must be \"none\" or \"rpc-debug-setHead\")",
+				instance.ID, value,
+			)
+		}
+	}
 
 	return nil
 }

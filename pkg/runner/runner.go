@@ -1012,6 +1012,12 @@ func (r *runner) runContainerLifecycle(
 			dropCachesPath = r.cfg.FullConfig.GetDropCachesPath()
 		}
 
+		// Resolve rollback strategy.
+		var rollbackStrategy string
+		if r.cfg.FullConfig != nil {
+			rollbackStrategy = r.cfg.FullConfig.GetRollbackStrategy(instance)
+		}
+
 		execOpts := &executor.ExecuteOptions{
 			EngineEndpoint: fmt.Sprintf(
 				"http://%s:%d", containerIP, spec.EnginePort(),
@@ -1023,7 +1029,11 @@ func (r *runner) runContainerLifecycle(
 			DockerClient:     r.docker.GetClient(),
 			DropMemoryCaches: dropMemoryCaches,
 			DropCachesPath:   dropCachesPath,
-			Tests:            params.Tests,
+			RollbackStrategy: rollbackStrategy,
+			RPCEndpoint: fmt.Sprintf(
+				"http://%s:%d", containerIP, spec.RPCPort(),
+			),
+			Tests: params.Tests,
 		}
 
 		result, err := r.executor.ExecuteTests(execCtx, execOpts)

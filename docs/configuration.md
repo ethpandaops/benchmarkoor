@@ -289,6 +289,7 @@ client:
   config:
     jwt: "5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae"
     drop_memory_caches: "disabled"
+    rollback_strategy: "none"  # or "rpc-debug-setHead"
     resource_limits:
       cpuset_count: 4
       memory: "16g"
@@ -302,6 +303,7 @@ client:
 |--------|------|---------|-------------|
 | `jwt` | string | `5a64f1...` | JWT secret for Engine API authentication |
 | `drop_memory_caches` | string | `disabled` | When to drop Linux memory caches (see below) |
+| `rollback_strategy` | string | `none` | Rollback strategy after each test (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
@@ -314,6 +316,17 @@ This Linux-only feature (requires root) drops page cache, dentries, and inodes b
 | `disabled` | Do not drop caches (default) |
 | `tests` | Drop caches between tests |
 | `steps` | Drop caches between all steps (setup, test, cleanup) |
+
+#### Rollback Strategy
+
+Controls whether the client state is rolled back after each test. This is useful for stateful benchmarks where tests modify chain state and you want each test to start from the same block.
+
+| Value | Description |
+|-------|-------------|
+| `none` | Do not rollback (default) |
+| `rpc-debug-setHead` | Capture block number via `eth_blockNumber` before each test, then rollback via `debug_setHead` after the test completes. Requires the client's RPC endpoint to support `debug_setHead` |
+
+When using `rpc-method`, the rollback happens after the cleanup step. If the rollback fails or the resulting block number doesn't match the captured one, a warning is logged but the test is not marked as failed.
 
 ### Data Directories
 
@@ -412,6 +425,7 @@ client:
 | `genesis` | string | No | From `client.config.genesis` | Override genesis file URL |
 | `datadir` | object | No | From `client.datadirs` | Instance-specific data directory config |
 | `drop_memory_caches` | string | No | From `client.config` | Instance-specific cache drop setting |
+| `rollback_strategy` | string | No | From `client.config` | Instance-specific rollback strategy |
 | `resource_limits` | object | No | From `client.config` | Instance-specific resource limits |
 
 ## Resource Limits
