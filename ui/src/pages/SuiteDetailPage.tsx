@@ -12,7 +12,7 @@ import { ResourceCharts } from '@/components/suite-detail/ResourceCharts'
 import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/RunsHeatmap'
 import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
-import { TestFilesList } from '@/components/suite-detail/TestFilesList'
+import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
@@ -80,6 +80,8 @@ export function SuiteDetailPage() {
     sortBy?: SortColumn
     sortDir?: SortDirection
     filesPage?: number
+    detail?: number
+    opcodeSort?: OpcodeSortMode
     q?: string
     chartMode?: XAxisMode
     mgasChartMode?: XAxisMode
@@ -87,7 +89,7 @@ export function SuiteDetailPage() {
     heatmapColor?: ColorNormalization
     steps?: string
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, q, chartMode = 'runCount', mgasChartMode = 'runCount', resourceChartMode = 'runCount', heatmapColor = 'suite' } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', mgasChartMode = 'runCount', resourceChartMode = 'runCount', heatmapColor = 'suite' } = search
   const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: suiteStats } = useSuiteStats(suiteHash)
@@ -212,7 +214,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab: newTab, client, image, status, sortBy, sortDir, filesPage: undefined, q: undefined },
+      search: { tab: newTab, client, image, status, sortBy, sortDir, filesPage: undefined, detail: undefined, opcodeSort: undefined, q: undefined },
     })
   }
 
@@ -237,6 +239,22 @@ export function SuiteDetailPage() {
       to: '/suites/$suiteHash',
       params: { suiteHash },
       search: { tab, client, image, status, sortBy, sortDir, filesPage: 1, q: query || undefined, chartMode, steps: serializeStepFilter(stepFilter) },
+    })
+  }
+
+  const handleDetailChange = (index: number | undefined) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail: index, opcodeSort, q, steps: serializeStepFilter(stepFilter) },
+    })
+  }
+
+  const handleOpcodeSortChange = (sort: OpcodeSortMode) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort: sort === 'name' ? undefined : sort, q, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -593,6 +611,10 @@ export function SuiteDetailPage() {
               onPageChange={handleFilesPageChange}
               searchQuery={q}
               onSearchChange={handleSearchChange}
+              detailIndex={detail}
+              onDetailChange={handleDetailChange}
+              opcodeSort={opcodeSort}
+              onOpcodeSortChange={handleOpcodeSortChange}
             />
           </TabPanel>
           {hasPreRunSteps && (
@@ -606,6 +628,8 @@ export function SuiteDetailPage() {
                 onPageChange={handleFilesPageChange}
                 searchQuery={q}
                 onSearchChange={handleSearchChange}
+                detailIndex={detail}
+                onDetailChange={handleDetailChange}
               />
             </TabPanel>
           )}

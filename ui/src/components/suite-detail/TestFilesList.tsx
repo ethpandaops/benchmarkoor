@@ -7,6 +7,8 @@ import { Spinner } from '@/components/shared/Spinner'
 import { Badge } from '@/components/shared/Badge'
 import { Modal } from '@/components/shared/Modal'
 
+export type OpcodeSortMode = 'name' | 'count'
+
 interface TestFilesListProps {
   // For pre_run_steps - simple file list
   files?: SuiteFile[]
@@ -18,6 +20,10 @@ interface TestFilesListProps {
   onPageChange?: (page: number) => void
   searchQuery?: string
   onSearchChange?: (query: string | undefined) => void
+  detailIndex?: number
+  onDetailChange?: (index: number | undefined) => void
+  opcodeSort?: OpcodeSortMode
+  onOpcodeSortChange?: (sort: OpcodeSortMode) => void
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
@@ -163,7 +169,7 @@ function SearchIcon({ className }: { className?: string }) {
 }
 
 // Component for displaying EEST fixture info
-function EESTInfoContent({ test }: { test: SuiteTest }) {
+function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test: SuiteTest; opcodeSort: OpcodeSortMode; onOpcodeSortChange: (sort: OpcodeSortMode) => void }) {
   const info = test.eest?.info
   if (!info) return null
 
@@ -210,10 +216,21 @@ function EESTInfoContent({ test }: { test: SuiteTest }) {
         </dl>
         {hasOpcodes && (
           <div className="mt-3 flex flex-col gap-1">
-            <span className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Opcode Count</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Opcode Count</span>
+              <button
+                onClick={() => onOpcodeSortChange(opcodeSort === 'name' ? 'count' : 'name')}
+                className="rounded-sm px-2 py-0.5 text-xs font-medium text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-600 dark:hover:text-gray-200"
+              >
+                Sort by {opcodeSort === 'name' ? 'count' : 'name'}
+              </button>
+            </div>
             <div className="flex flex-wrap gap-1">
               {Object.entries(info.opcode_count!)
-                .sort(([a], [b]) => a.localeCompare(b))
+                .sort(opcodeSort === 'name'
+                  ? ([a], [b]) => a.localeCompare(b)
+                  : ([, a], [, b]) => b - a
+                )
                 .map(([opcode, count]) => (
                   <span
                     key={opcode}
@@ -232,7 +249,7 @@ function EESTInfoContent({ test }: { test: SuiteTest }) {
 }
 
 // Component for displaying test steps content (for tests with setup/test/cleanup)
-function TestStepsContent({ suiteHash, test }: { suiteHash: string; test: SuiteTest }) {
+function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: { suiteHash: string; test: SuiteTest; opcodeSort: OpcodeSortMode; onOpcodeSortChange: (sort: OpcodeSortMode) => void }) {
   const steps = [
     { key: 'setup', label: 'Setup step', file: test.setup },
     { key: 'test', label: 'Test step', file: test.test },
@@ -253,7 +270,7 @@ function TestStepsContent({ suiteHash, test }: { suiteHash: string; test: SuiteT
         </div>
         <div className="break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">{test.name}</div>
       </div>
-      <EESTInfoContent test={test} />
+      <EESTInfoContent test={test} opcodeSort={opcodeSort} onOpcodeSortChange={onOpcodeSortChange} />
       {steps.map(({ key, label, file }) => (
         <div key={key} className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
@@ -275,12 +292,18 @@ export function TestFilesList({
   onPageChange,
   searchQuery,
   onSearchChange,
+  detailIndex,
+  onDetailChange,
+  opcodeSort = 'name',
+  onOpcodeSortChange,
 }: TestFilesListProps) {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
-  const [selectedTest, setSelectedTest] = useState<{ test: SuiteTest; index: number } | null>(null)
-  const [selectedFile, setSelectedFile] = useState<{ file: SuiteFile; index: number } | null>(null)
   const currentPage = controlledPage ?? 1
   const search = searchQuery ?? ''
+
+  const handleOpcodeSortChange = (sort: OpcodeSortMode) => {
+    onOpcodeSortChange?.(sort)
+  }
 
   // For pre_run_steps, use files; for tests, use tests
   const isPreRunSteps = type === 'pre_run_steps'
@@ -385,7 +408,7 @@ export function TestFilesList({
               {fileItems.map(({ file, originalIndex }) => (
                 <tr
                   key={originalIndex}
-                  onClick={() => setSelectedFile({ file, index: originalIndex })}
+                  onClick={() => onDetailChange?.(originalIndex)}
                   className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
                 >
                   <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
@@ -410,15 +433,20 @@ export function TestFilesList({
 
         {filteredItems.length > 0 && paginationControls}
 
-        <Modal
-          isOpen={!!selectedFile}
-          onClose={() => setSelectedFile(null)}
-          title={selectedFile ? `Test #${selectedFile.index}` : undefined}
-        >
-          {selectedFile && (
-            <FileContent suiteHash={suiteHash} stepType="pre_run_steps" file={selectedFile.file} />
-          )}
-        </Modal>
+        {(() => {
+          const selectedFileItem = detailIndex != null ? (files ?? [])[detailIndex - 1] : undefined
+          return (
+            <Modal
+              isOpen={!!selectedFileItem}
+              onClose={() => onDetailChange?.(undefined)}
+              title={detailIndex != null ? `Test #${detailIndex}` : undefined}
+            >
+              {selectedFileItem && (
+                <FileContent suiteHash={suiteHash} stepType="pre_run_steps" file={selectedFileItem} />
+              )}
+            </Modal>
+          )
+        })()}
       </div>
     )
   }
@@ -465,7 +493,7 @@ export function TestFilesList({
             {testItems.map(({ test, originalIndex }) => (
               <tr
                 key={originalIndex}
-                onClick={() => setSelectedTest({ test, index: originalIndex })}
+                onClick={() => onDetailChange?.(originalIndex)}
                 className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
               >
                 <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
@@ -499,15 +527,20 @@ export function TestFilesList({
 
       {filteredItems.length > 0 && paginationControls}
 
-      <Modal
-        isOpen={!!selectedTest}
-        onClose={() => setSelectedTest(null)}
-        title={selectedTest ? `Test #${selectedTest.index}` : undefined}
-      >
-        {selectedTest && (
-          <TestStepsContent suiteHash={suiteHash} test={selectedTest.test} />
-        )}
-      </Modal>
+      {(() => {
+        const selectedTestItem = detailIndex != null ? (tests ?? [])[detailIndex - 1] : undefined
+        return (
+          <Modal
+            isOpen={!!selectedTestItem}
+            onClose={() => onDetailChange?.(undefined)}
+            title={detailIndex != null ? `Test #${detailIndex}` : undefined}
+          >
+            {selectedTestItem && (
+              <TestStepsContent suiteHash={suiteHash} test={selectedTestItem} opcodeSort={opcodeSort} onOpcodeSortChange={handleOpcodeSortChange} />
+            )}
+          </Modal>
+        )
+      })()}
     </div>
   )
 }
