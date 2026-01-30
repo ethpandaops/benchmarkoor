@@ -88,7 +88,7 @@ function fitLabel(ctx: CanvasRenderingContext2D, name: string, maxWidth: number)
 function computeExpandedHeaderHeight(categorySpans: CategorySpan[]): number {
   const hasSubcategories = categorySpans.some((s) => s.subcategories && s.subcategories.length > 0)
   // category row + optional subcategory row + opcode label area
-  return ROW_HEIGHT + (hasSubcategories ? ROW_HEIGHT : 0) + 70
+  return ROW_HEIGHT + (hasSubcategories ? ROW_HEIGHT : 0) + 90
 }
 
 type SortDir = 'asc' | 'desc'
@@ -230,10 +230,12 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     ctx.lineTo(ROW_LABEL_WIDTH, viewH)
     ctx.stroke()
 
-    // Draw column labels (rotated) — clipped to header area right of row labels
+    // Draw column labels (rotated) — clipped to opcode label area only
+    const hasSubcats = expanded && categorySpans.some((s) => s.subcategories && s.subcategories.length > 0)
+    const opcodeClipTop = expanded ? ROW_HEIGHT + (hasSubcats ? ROW_HEIGHT : 0) : 0
     ctx.save()
     ctx.beginPath()
-    ctx.rect(ROW_LABEL_WIDTH, 0, viewW - ROW_LABEL_WIDTH, headerHeight)
+    ctx.rect(ROW_LABEL_WIDTH, opcodeClipTop, viewW - ROW_LABEL_WIDTH, headerHeight - opcodeClipTop)
     ctx.clip()
     ctx.textBaseline = 'middle'
     for (let col = firstCol; col <= lastCol; col++) {
@@ -249,6 +251,13 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       ctx.restore()
     }
 
+    // Restore opcode label clip, start new clip for category headers
+    ctx.restore()
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(ROW_LABEL_WIDTH, 0, viewW - ROW_LABEL_WIDTH, headerHeight)
+    ctx.clip()
+
     // Draw category and subcategory headers in expanded mode
     if (expanded && categorySpans.length > 0) {
       const catRowY = ROW_HEIGHT / 2
@@ -259,22 +268,21 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'center'
 
-      // Horizontal separators only under categories that have subcategories
+      // Horizontal separator below category row (full width)
       ctx.strokeStyle = borderColor
       ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(ROW_LABEL_WIDTH, ROW_HEIGHT)
+      ctx.lineTo(viewW, ROW_HEIGHT)
+      ctx.stroke()
+
+      // Horizontal separator below subcategory row (only under categories that have subcategories)
       for (const span of categorySpans) {
         if (!span.subcategories || span.subcategories.length === 0) continue
         const sx0 = ROW_LABEL_WIDTH + span.startCol * CELL_SIZE - scrollX
         const sx1 = sx0 + span.count * CELL_SIZE
         if (sx1 < ROW_LABEL_WIDTH || sx0 > viewW) continue
 
-        // Line below category row
-        ctx.beginPath()
-        ctx.moveTo(sx0, ROW_HEIGHT)
-        ctx.lineTo(sx1, ROW_HEIGHT)
-        ctx.stroke()
-
-        // Line below subcategory row
         ctx.beginPath()
         ctx.moveTo(sx0, ROW_HEIGHT * 2)
         ctx.lineTo(sx1, ROW_HEIGHT * 2)
@@ -571,8 +579,8 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
 export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
   const [search, setSearch] = useState('')
   const [fullscreen, setFullscreen] = useState(false)
-  const [expanded, setExpanded] = useState(true)
-  const [groupStack, setGroupStack] = useState(false)
+  const [expanded] = useState(true)
+  const [groupStack, setGroupStack] = useState(true)
   const [sortCol, setSortCol] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [isDark] = useState(() => {
@@ -635,7 +643,7 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
           columns.push(sub.name)
           return s
         })
-        categorySpans.push({ ...span, startCol, count: subSpans.length, subcategories: subSpans })
+        categorySpans.push({ ...span, startCol, count: subSpans.length, subcategories: undefined })
       } else {
         const startCol = columns.length
         columns.push(...span.opcodes)
@@ -776,21 +784,6 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
               Group Stack
             </button>
           )}
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-            title={expanded ? 'Show categories' : 'Show all opcodes'}
-          >
-            {expanded ? (
-              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            ) : (
-              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-              </svg>
-            )}
-          </button>
           <button
             onClick={() => setFullscreen(!fullscreen)}
             className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
