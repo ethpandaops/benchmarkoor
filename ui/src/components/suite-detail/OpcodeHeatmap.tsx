@@ -70,6 +70,20 @@ function HeatmapLegend({ isDark }: { isDark: boolean }) {
   )
 }
 
+function getInitials(name: string): string {
+  // Use first letter of each word, or first 2 chars if single word
+  const words = name.split(/\s+/)
+  if (words.length > 1) return words.map((w) => w[0]).join('').toUpperCase()
+  return name.slice(0, 2)
+}
+
+function fitLabel(ctx: CanvasRenderingContext2D, name: string, maxWidth: number): string {
+  if (ctx.measureText(name).width <= maxWidth) return name
+  const initials = getInitials(name)
+  if (ctx.measureText(initials).width <= maxWidth) return initials
+  return ''
+}
+
 /** Compute expanded header height: category row + subcategory row (if any) + opcode labels */
 function computeExpandedHeaderHeight(categorySpans: CategorySpan[]): number {
   const hasSubcategories = categorySpans.some((s) => s.subcategories && s.subcategories.length > 0)
@@ -273,13 +287,15 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
         const x1 = x0 + span.count * CELL_SIZE
         if (x1 < ROW_LABEL_WIDTH || x0 > viewW) continue
 
-        // Category label
+        // Category label (use initials if text doesn't fit)
+        const spanWidth = x1 - x0 - 4
         const centerX = (x0 + x1) / 2
         ctx.font = 'bold 10px sans-serif'
         ctx.fillStyle = getCategoryColor(span.name, isDark)
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.fillText(span.name, centerX, catRowY)
+        const catLabel = fitLabel(ctx, span.name, spanWidth)
+        if (catLabel) ctx.fillText(catLabel, centerX, catRowY)
 
         // Vertical separator at category boundary (except first) — header portion
         if (span.startCol > 0) {
@@ -298,12 +314,14 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
             const sx1 = sx0 + sub.count * CELL_SIZE
             if (sx1 < ROW_LABEL_WIDTH || sx0 > viewW) continue
 
+            const subWidth = sx1 - sx0 - 4
             const subCenterX = (sx0 + sx1) / 2
             ctx.font = '10px sans-serif'
             ctx.fillStyle = getCategoryColor(span.name, isDark)
             ctx.textAlign = 'center'
             ctx.textBaseline = 'middle'
-            ctx.fillText(sub.name, subCenterX, subRowY)
+            const subLabel = fitLabel(ctx, sub.name, subWidth)
+            if (subLabel) ctx.fillText(subLabel, subCenterX, subRowY)
 
             // Vertical separator between subcategories (except at category boundary)
             if (sub.startCol > span.startCol) {
@@ -415,6 +433,39 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       const col = Math.floor((mx - ROW_LABEL_WIDTH) / CELL_SIZE)
       const row = Math.floor((my - headerHeight) / CELL_SIZE)
 
+      // Check if hovering over header (category/subcategory rows) — use screen-relative Y
+      const viewY = e.clientY - rect.top
+      if (expanded && viewY < headerHeight && viewY < ROW_HEIGHT * 2 && mx >= ROW_LABEL_WIDTH) {
+        if (hoverRef.current) {
+          hoverRef.current = null
+          scheduleRedraw()
+        }
+        // Find which category/subcategory span the mouse is over
+        const colIdx = Math.floor((mx - ROW_LABEL_WIDTH) / CELL_SIZE)
+        if (viewY < ROW_HEIGHT) {
+          // Category row
+          for (const span of categorySpans) {
+            if (colIdx >= span.startCol && colIdx < span.startCol + span.count) {
+              setTooltip({ lines: [{ text: span.name, bold: true }], x: e.clientX, y: e.clientY + 16 })
+              return
+            }
+          }
+        } else {
+          // Subcategory row
+          for (const span of categorySpans) {
+            if (!span.subcategories) continue
+            for (const sub of span.subcategories) {
+              if (colIdx >= sub.startCol && colIdx < sub.startCol + sub.count) {
+                setTooltip({ lines: [{ text: `${span.name} / ${sub.name}`, bold: true }], x: e.clientX, y: e.clientY + 16 })
+                return
+              }
+            }
+          }
+        }
+        setTooltip(null)
+        return
+      }
+
       if (col >= 0 && col < columns.length && row >= 0 && row < filteredTests.length) {
         const prev = hoverRef.current
         if (!prev || prev.row !== row || prev.col !== col) {
@@ -442,7 +493,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       }
       setTooltip(null)
     },
-    [filteredTests, columns, scheduleRedraw, headerHeight, getCount],
+    [filteredTests, columns, scheduleRedraw, headerHeight, getCount, expanded, categorySpans],
   )
 
   const handleClick = useCallback(
