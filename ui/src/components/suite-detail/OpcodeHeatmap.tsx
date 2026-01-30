@@ -76,6 +76,8 @@ function computeExpandedHeaderHeight(categorySpans: CategorySpan[]): number {
   return ROW_HEIGHT + (hasSubcategories ? ROW_HEIGHT : 0) + 70
 }
 
+type SortDir = 'asc' | 'desc'
+
 interface HeatmapCanvasProps {
   filteredTests: { test: SuiteTest; index: number }[]
   columns: string[]
@@ -85,9 +87,11 @@ interface HeatmapCanvasProps {
   expanded: boolean
   categorySpans: CategorySpan[]
   getCount: (test: SuiteTest, col: string) => number
+  sortCol: string | null
+  onSortChange: (col: string) => void
 }
 
-function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight, expanded, categorySpans, getCount }: HeatmapCanvasProps) {
+function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight, expanded, categorySpans, getCount, sortCol, onSortChange }: HeatmapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
@@ -215,10 +219,11 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     ctx.beginPath()
     ctx.rect(ROW_LABEL_WIDTH, 0, viewW - ROW_LABEL_WIDTH, headerHeight)
     ctx.clip()
-    ctx.fillStyle = textColor
-    ctx.font = '10px monospace'
     ctx.textBaseline = 'middle'
     for (let col = firstCol; col <= lastCol; col++) {
+      const isSorted = columns[col] === sortCol
+      ctx.fillStyle = isSorted ? (isDark ? '#f9fafb' : '#111827') : textColor
+      ctx.font = isSorted ? 'bold 10px monospace' : '10px monospace'
       const cx = ROW_LABEL_WIDTH + col * CELL_SIZE - scrollX + CELL_SIZE / 2
       ctx.save()
       ctx.translate(cx, headerHeight - 4)
@@ -329,8 +334,9 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     ctx.restore()
 
     // # label
-    ctx.fillStyle = textColor
-    ctx.font = '11px sans-serif'
+    const hashSorted = sortCol === '#'
+    ctx.fillStyle = hashSorted ? (isDark ? '#f9fafb' : '#111827') : textColor
+    ctx.font = hashSorted ? 'bold 11px sans-serif' : '11px sans-serif'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'bottom'
     ctx.fillText('#', 6, headerHeight - 4)
@@ -371,7 +377,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       }
       ctx.restore()
     }
-  }, [filteredTests, columns, colorGrid, isDark, headerHeight, expanded, categorySpans])
+  }, [filteredTests, columns, colorGrid, isDark, headerHeight, expanded, categorySpans, sortCol])
 
   useEffect(() => {
     draw()
@@ -433,6 +439,27 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     [filteredTests, columns, scheduleRedraw, headerHeight, getCount],
   )
 
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const container = containerRef.current
+      if (!container) return
+      const rect = container.getBoundingClientRect()
+      const my = e.clientY - rect.top + container.scrollTop
+      // Only respond to clicks in the header area (opcode labels region)
+      if (my > headerHeight) return
+      const mx = e.clientX - rect.left + container.scrollLeft
+      if (mx < ROW_LABEL_WIDTH) {
+        onSortChange('#')
+      } else {
+        const col = Math.floor((mx - ROW_LABEL_WIDTH) / CELL_SIZE)
+        if (col >= 0 && col < columns.length) {
+          onSortChange(columns[col])
+        }
+      }
+    },
+    [columns, headerHeight, onSortChange],
+  )
+
   const handleMouseLeave = useCallback(() => {
     if (hoverRef.current) {
       hoverRef.current = null
@@ -450,6 +477,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
         onScroll={handleScroll}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       >
         <div style={{ width: totalWidth, height: totalHeight, position: 'relative' }}>
           <canvas
@@ -477,6 +505,8 @@ export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
   const [search, setSearch] = useState('')
   const [fullscreen, setFullscreen] = useState(false)
   const [expanded, setExpanded] = useState(true)
+  const [sortCol, setSortCol] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [isDark] = useState(() => {
     if (typeof window === 'undefined') return false
     return document.documentElement.classList.contains('dark')
@@ -557,6 +587,37 @@ export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
     [expanded, categoryOpcodeMap],
   )
 
+  const handleSortChange = useCallback(
+    (col: string) => {
+      if (sortCol === col) {
+        // Cycle: desc -> asc -> clear
+        if (sortDir === 'desc') {
+          setSortDir('asc')
+        } else {
+          setSortCol(null)
+        }
+      } else {
+        setSortCol(col)
+        setSortDir('desc')
+      }
+    },
+    [sortCol, sortDir],
+  )
+
+  const sortedTests = useMemo(() => {
+    if (!sortCol) return filteredTests
+    if (sortCol === '#') {
+      return [...filteredTests].sort((a, b) =>
+        sortDir === 'desc' ? b.index - a.index : a.index - b.index,
+      )
+    }
+    return [...filteredTests].sort((a, b) => {
+      const ca = getCount(a.test, sortCol)
+      const cb = getCount(b.test, sortCol)
+      return sortDir === 'desc' ? cb - ca : ca - cb
+    })
+  }, [filteredTests, sortCol, sortDir, getCount])
+
   const maxPerColumn = useMemo(() => {
     const maxes: Record<string, number> = {}
     for (const col of columns) {
@@ -578,7 +639,7 @@ export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
         <h3 className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">
           Opcode Heatmap
           <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-            ({filteredTests.length} tests, {expanded ? grouped.columns.length + ' opcodes' : collapsedColumns.length + ' categories'})
+            ({filteredTests.length} tests, {expanded ? grouped.columns.length + ' opcodes' : collapsedColumns.length + ' categories'}{sortCol ? `, sorted by ${sortCol} ${sortDir}` : ''})
           </span>
         </h3>
         <div className="flex items-center gap-2">
@@ -626,13 +687,15 @@ export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
   )
 
   const canvasProps = {
-    filteredTests,
+    filteredTests: sortedTests,
     columns,
     maxPerColumn,
     isDark,
     expanded,
     categorySpans: grouped.categorySpans,
     getCount,
+    sortCol,
+    onSortChange: handleSortChange,
   }
 
   if (fullscreen) {
