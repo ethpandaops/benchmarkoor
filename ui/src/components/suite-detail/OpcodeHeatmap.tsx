@@ -3,9 +3,17 @@ import type { SuiteTest } from '@/api/types'
 import { getGroupedOpcodes, getCategoryColor } from '@/utils/opcodeCategories'
 import type { CategorySpan, GroupedResult } from '@/utils/opcodeCategories'
 
+export interface ExtraColumn {
+  name: string
+  getValue: (testIndex: number) => number | undefined
+  width?: number
+  format?: (value: number) => string
+}
+
 interface OpcodeHeatmapProps {
   tests: SuiteTest[]
   onTestClick?: (testIndex: number) => void
+  extraColumns?: ExtraColumn[]
 }
 
 const CELL_SIZE = 16
@@ -105,9 +113,10 @@ interface HeatmapCanvasProps {
   sortCol: string | null
   onSortChange: (col: string) => void
   onTestClick?: (testIndex: number) => void
+  extraColumns?: ExtraColumn[]
 }
 
-function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight, expanded, categorySpans, getCount, sortCol, onSortChange, onTestClick }: HeatmapCanvasProps) {
+function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight, expanded, categorySpans, getCount, sortCol, onSortChange, onTestClick, extraColumns = [] }: HeatmapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [tooltip, setTooltip] = useState<{ lines: { text: string; bold?: boolean }[]; x: number; y: number } | null>(null)
@@ -115,7 +124,9 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
   const rafRef = useRef(0)
 
   const headerHeight = expanded ? computeExpandedHeaderHeight(categorySpans) : HEADER_HEIGHT_COLLAPSED
-  const totalWidth = ROW_LABEL_WIDTH + columns.length * CELL_SIZE
+  const extraWidth = extraColumns.reduce((sum, c) => sum + (c.width ?? 48), 0)
+  const leftWidth = ROW_LABEL_WIDTH + extraWidth
+  const totalWidth = leftWidth + columns.length * CELL_SIZE
   const totalHeight = headerHeight + filteredTests.length * CELL_SIZE
 
   const colorGrid = useMemo(() => {
@@ -164,14 +175,14 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
 
     const firstRow = Math.max(0, Math.floor((scrollY - headerHeight) / CELL_SIZE))
     const lastRow = Math.min(filteredTests.length - 1, Math.ceil((scrollY + viewH - headerHeight) / CELL_SIZE))
-    const firstCol = Math.max(0, Math.floor((scrollX - ROW_LABEL_WIDTH) / CELL_SIZE))
-    const lastCol = Math.min(columns.length - 1, Math.ceil((scrollX + viewW - ROW_LABEL_WIDTH) / CELL_SIZE))
+    const firstCol = Math.max(0, Math.floor((scrollX - leftWidth) / CELL_SIZE))
+    const lastCol = Math.min(columns.length - 1, Math.ceil((scrollX + viewW - leftWidth) / CELL_SIZE))
 
     // Draw cells
     for (let row = firstRow; row <= lastRow; row++) {
       const cy = headerHeight + row * CELL_SIZE - scrollY
       for (let col = firstCol; col <= lastCol; col++) {
-        const cx = ROW_LABEL_WIDTH + col * CELL_SIZE - scrollX
+        const cx = leftWidth + col * CELL_SIZE - scrollX
         const colorIdx = grid[row * columns.length + col]
         if (colorIdx > 0) {
           ctx.fillStyle = colors[colorIdx]
@@ -186,13 +197,13 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     ctx.beginPath()
     for (let row = firstRow; row <= lastRow + 1; row++) {
       const y = headerHeight + row * CELL_SIZE - scrollY
-      const x0 = ROW_LABEL_WIDTH + firstCol * CELL_SIZE - scrollX
-      const x1 = ROW_LABEL_WIDTH + (lastCol + 1) * CELL_SIZE - scrollX
+      const x0 = leftWidth + firstCol * CELL_SIZE - scrollX
+      const x1 = leftWidth + (lastCol + 1) * CELL_SIZE - scrollX
       ctx.moveTo(x0, y)
       ctx.lineTo(x1, y)
     }
     for (let col = firstCol; col <= lastCol + 1; col++) {
-      const x = ROW_LABEL_WIDTH + col * CELL_SIZE - scrollX
+      const x = leftWidth + col * CELL_SIZE - scrollX
       const y0 = headerHeight + firstRow * CELL_SIZE - scrollY
       const y1 = headerHeight + (lastRow + 1) * CELL_SIZE - scrollY
       ctx.moveTo(x, y0)
@@ -203,7 +214,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     // Hover highlight
     const hover = hoverRef.current
     if (hover && hover.row >= firstRow && hover.row <= lastRow && hover.col >= firstCol && hover.col <= lastCol) {
-      const hx = ROW_LABEL_WIDTH + hover.col * CELL_SIZE - scrollX
+      const hx = leftWidth + hover.col * CELL_SIZE - scrollX
       const hy = headerHeight + hover.row * CELL_SIZE - scrollY
       ctx.strokeStyle = isDark ? '#f9fafb' : '#111827'
       ctx.lineWidth = 2
@@ -213,12 +224,12 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     // Header background
     ctx.fillStyle = hdrBg
     ctx.fillRect(0, 0, viewW, headerHeight)
-    // Row label column background
+    // Row label column background (includes extra columns area)
     ctx.fillStyle = bg
-    ctx.fillRect(0, headerHeight, ROW_LABEL_WIDTH, viewH - headerHeight)
+    ctx.fillRect(0, headerHeight, leftWidth, viewH - headerHeight)
     // Corner
     ctx.fillStyle = hdrBg
-    ctx.fillRect(0, 0, ROW_LABEL_WIDTH, headerHeight)
+    ctx.fillRect(0, 0, leftWidth, headerHeight)
 
     // Header border
     ctx.strokeStyle = borderColor
@@ -226,8 +237,8 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     ctx.beginPath()
     ctx.moveTo(0, headerHeight)
     ctx.lineTo(viewW, headerHeight)
-    ctx.moveTo(ROW_LABEL_WIDTH, 0)
-    ctx.lineTo(ROW_LABEL_WIDTH, viewH)
+    ctx.moveTo(leftWidth, 0)
+    ctx.lineTo(leftWidth, viewH)
     ctx.stroke()
 
     // Draw column labels (rotated) — clipped to opcode label area only
@@ -235,14 +246,14 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     const opcodeClipTop = expanded ? ROW_HEIGHT + (hasSubcats ? ROW_HEIGHT : 0) : 0
     ctx.save()
     ctx.beginPath()
-    ctx.rect(ROW_LABEL_WIDTH, opcodeClipTop, viewW - ROW_LABEL_WIDTH, headerHeight - opcodeClipTop)
+    ctx.rect(leftWidth, opcodeClipTop, viewW - leftWidth, headerHeight - opcodeClipTop)
     ctx.clip()
     ctx.textBaseline = 'middle'
     for (let col = firstCol; col <= lastCol; col++) {
       const isSorted = columns[col] === sortCol
       ctx.fillStyle = isSorted ? (isDark ? '#f9fafb' : '#111827') : textColor
       ctx.font = isSorted ? 'bold 10px monospace' : '10px monospace'
-      const cx = ROW_LABEL_WIDTH + col * CELL_SIZE - scrollX + CELL_SIZE / 2
+      const cx = leftWidth + col * CELL_SIZE - scrollX + CELL_SIZE / 2
       ctx.save()
       ctx.translate(cx, headerHeight - 4)
       ctx.rotate(-Math.PI / 2)
@@ -255,7 +266,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     ctx.restore()
     ctx.save()
     ctx.beginPath()
-    ctx.rect(ROW_LABEL_WIDTH, 0, viewW - ROW_LABEL_WIDTH, headerHeight)
+    ctx.rect(leftWidth, 0, viewW - leftWidth, headerHeight)
     ctx.clip()
 
     // Draw category and subcategory headers in expanded mode
@@ -272,16 +283,16 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       ctx.strokeStyle = borderColor
       ctx.lineWidth = 1
       ctx.beginPath()
-      ctx.moveTo(ROW_LABEL_WIDTH, ROW_HEIGHT)
+      ctx.moveTo(leftWidth, ROW_HEIGHT)
       ctx.lineTo(viewW, ROW_HEIGHT)
       ctx.stroke()
 
       // Horizontal separator below subcategory row (only under categories that have subcategories)
       for (const span of categorySpans) {
         if (!span.subcategories || span.subcategories.length === 0) continue
-        const sx0 = ROW_LABEL_WIDTH + span.startCol * CELL_SIZE - scrollX
+        const sx0 = leftWidth + span.startCol * CELL_SIZE - scrollX
         const sx1 = sx0 + span.count * CELL_SIZE
-        if (sx1 < ROW_LABEL_WIDTH || sx0 > viewW) continue
+        if (sx1 < leftWidth || sx0 > viewW) continue
 
         ctx.beginPath()
         ctx.moveTo(sx0, ROW_HEIGHT * 2)
@@ -291,9 +302,9 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
 
       for (let i = 0; i < categorySpans.length; i++) {
         const span = categorySpans[i]
-        const x0 = ROW_LABEL_WIDTH + span.startCol * CELL_SIZE - scrollX
+        const x0 = leftWidth + span.startCol * CELL_SIZE - scrollX
         const x1 = x0 + span.count * CELL_SIZE
-        if (x1 < ROW_LABEL_WIDTH || x0 > viewW) continue
+        if (x1 < leftWidth || x0 > viewW) continue
 
         // Category label (use initials if text doesn't fit)
         const spanWidth = x1 - x0 - 4
@@ -318,9 +329,9 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
         // Subcategory labels
         if (span.subcategories) {
           for (const sub of span.subcategories) {
-            const sx0 = ROW_LABEL_WIDTH + sub.startCol * CELL_SIZE - scrollX
+            const sx0 = leftWidth + sub.startCol * CELL_SIZE - scrollX
             const sx1 = sx0 + sub.count * CELL_SIZE
-            if (sx1 < ROW_LABEL_WIDTH || sx0 > viewW) continue
+            if (sx1 < leftWidth || sx0 > viewW) continue
 
             const subWidth = sx1 - sx0 - 4
             const subCenterX = (sx0 + sx1) / 2
@@ -345,6 +356,73 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       }
     }
     ctx.restore()
+
+    // Draw extra column headers (rotated, in header area)
+    if (extraColumns.length > 0) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(ROW_LABEL_WIDTH, 0, extraWidth, headerHeight)
+      ctx.clip()
+      let exOff = 0
+      for (const ec of extraColumns) {
+        const ecw = ec.width ?? 48
+        const isSorted = ec.name === sortCol
+        ctx.fillStyle = isSorted ? (isDark ? '#f9fafb' : '#111827') : textColor
+        ctx.font = isSorted ? 'bold 10px monospace' : '10px monospace'
+        const cx = ROW_LABEL_WIDTH + exOff + ecw / 2
+        ctx.save()
+        ctx.translate(cx, headerHeight - 4)
+        ctx.rotate(-Math.PI / 2)
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(ec.name, 0, 0)
+        ctx.restore()
+        exOff += ecw
+      }
+      ctx.restore()
+    }
+
+    // Draw extra column values in rows
+    if (extraColumns.length > 0) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(ROW_LABEL_WIDTH, headerHeight, extraWidth, viewH - headerHeight)
+      ctx.clip()
+      ctx.font = '10px monospace'
+      ctx.textAlign = 'right'
+      ctx.textBaseline = 'middle'
+      for (let row = firstRow; row <= lastRow; row++) {
+        const cy = headerHeight + row * CELL_SIZE - scrollY + CELL_SIZE / 2
+        let exOff = 0
+        for (const ec of extraColumns) {
+          const ecw = ec.width ?? 48
+          const val = ec.getValue(filteredTests[row].index)
+          if (val !== undefined) {
+            ctx.fillStyle = textColor
+            const formatted = ec.format ? ec.format(val) : String(val)
+            ctx.fillText(formatted, ROW_LABEL_WIDTH + exOff + ecw - 4, cy)
+          }
+          exOff += ecw
+        }
+      }
+      ctx.restore()
+
+      // Draw vertical separator between extra columns and opcode area
+      ctx.strokeStyle = borderColor
+      ctx.lineWidth = 0.5
+      let exOff = 0
+      for (let i = 0; i < extraColumns.length; i++) {
+        const ecw = extraColumns[i].width ?? 48
+        exOff += ecw
+        if (i < extraColumns.length - 1) {
+          const sx = ROW_LABEL_WIDTH + exOff
+          ctx.beginPath()
+          ctx.moveTo(sx, headerHeight)
+          ctx.lineTo(sx, viewH)
+          ctx.stroke()
+        }
+      }
+    }
 
     // Draw row labels
     ctx.save()
@@ -373,13 +451,13 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
     if (expanded && categorySpans.length > 0) {
       ctx.save()
       ctx.beginPath()
-      ctx.rect(ROW_LABEL_WIDTH, headerHeight, viewW - ROW_LABEL_WIDTH, viewH - headerHeight)
+      ctx.rect(leftWidth, headerHeight, viewW - leftWidth, viewH - headerHeight)
       ctx.clip()
       for (const span of categorySpans) {
         // Category separator
         if (span.startCol > 0) {
-          const x = ROW_LABEL_WIDTH + span.startCol * CELL_SIZE - scrollX
-          if (x >= ROW_LABEL_WIDTH && x <= viewW) {
+          const x = leftWidth + span.startCol * CELL_SIZE - scrollX
+          if (x >= leftWidth && x <= viewW) {
             ctx.strokeStyle = separatorColor
             ctx.lineWidth = 1
             ctx.beginPath()
@@ -392,8 +470,8 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
         if (span.subcategories) {
           for (const sub of span.subcategories) {
             if (sub.startCol <= span.startCol) continue
-            const x = ROW_LABEL_WIDTH + sub.startCol * CELL_SIZE - scrollX
-            if (x < ROW_LABEL_WIDTH || x > viewW) continue
+            const x = leftWidth + sub.startCol * CELL_SIZE - scrollX
+            if (x < leftWidth || x > viewW) continue
             ctx.strokeStyle = separatorColor
             ctx.lineWidth = 0.5
             ctx.beginPath()
@@ -405,7 +483,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       }
       ctx.restore()
     }
-  }, [filteredTests, columns, colorGrid, isDark, headerHeight, expanded, categorySpans, sortCol])
+  }, [filteredTests, columns, colorGrid, isDark, headerHeight, expanded, categorySpans, sortCol, extraColumns, leftWidth, extraWidth])
 
   useEffect(() => {
     draw()
@@ -438,18 +516,72 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       const mx = e.clientX - rect.left + container.scrollLeft
       const my = e.clientY - rect.top + container.scrollTop
 
-      const col = Math.floor((mx - ROW_LABEL_WIDTH) / CELL_SIZE)
+      const col = Math.floor((mx - leftWidth) / CELL_SIZE)
       const row = Math.floor((my - headerHeight) / CELL_SIZE)
 
-      // Check if hovering over header (category/subcategory rows) — use screen-relative Y
+      // Check if hovering over extra column cells
       const viewY = e.clientY - rect.top
-      if (expanded && viewY < headerHeight && viewY < ROW_HEIGHT * 2 && mx >= ROW_LABEL_WIDTH) {
+      if (extraColumns.length > 0 && mx >= ROW_LABEL_WIDTH && mx < leftWidth && viewY > headerHeight) {
+        if (hoverRef.current) {
+          hoverRef.current = null
+          scheduleRedraw()
+        }
+        // Find which extra column
+        let exOff = 0
+        for (const ec of extraColumns) {
+          const ecw = ec.width ?? 48
+          if (mx >= ROW_LABEL_WIDTH + exOff && mx < ROW_LABEL_WIDTH + exOff + ecw) {
+            if (row >= 0 && row < filteredTests.length) {
+              const val = ec.getValue(filteredTests[row].index)
+              if (val !== undefined) {
+                const formatted = ec.format ? ec.format(val) : String(val)
+                setTooltip({
+                  lines: [
+                    { text: `Test #${filteredTests[row].index + 1}` },
+                    { text: `${ec.name}: ${formatted}`, bold: true },
+                    { text: filteredTests[row].test.name },
+                  ],
+                  x: e.clientX,
+                  y: e.clientY - 12,
+                })
+                return
+              }
+            }
+            break
+          }
+          exOff += ecw
+        }
+        setTooltip(null)
+        return
+      }
+
+      // Check if hovering over extra column headers
+      if (extraColumns.length > 0 && mx >= ROW_LABEL_WIDTH && mx < leftWidth && viewY <= headerHeight) {
+        if (hoverRef.current) {
+          hoverRef.current = null
+          scheduleRedraw()
+        }
+        let exOff = 0
+        for (const ec of extraColumns) {
+          const ecw = ec.width ?? 48
+          if (mx >= ROW_LABEL_WIDTH + exOff && mx < ROW_LABEL_WIDTH + exOff + ecw) {
+            setTooltip({ lines: [{ text: ec.name, bold: true }], x: e.clientX, y: e.clientY + 16 })
+            return
+          }
+          exOff += ecw
+        }
+        setTooltip(null)
+        return
+      }
+
+      // Check if hovering over header (category/subcategory rows) — use screen-relative Y
+      if (expanded && viewY < headerHeight && viewY < ROW_HEIGHT * 2 && mx >= leftWidth) {
         if (hoverRef.current) {
           hoverRef.current = null
           scheduleRedraw()
         }
         // Find which category/subcategory span the mouse is over
-        const colIdx = Math.floor((mx - ROW_LABEL_WIDTH) / CELL_SIZE)
+        const colIdx = Math.floor((mx - leftWidth) / CELL_SIZE)
         if (viewY < ROW_HEIGHT) {
           // Category row
           for (const span of categorySpans) {
@@ -501,7 +633,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       }
       setTooltip(null)
     },
-    [filteredTests, columns, scheduleRedraw, headerHeight, getCount, expanded, categorySpans],
+    [filteredTests, columns, scheduleRedraw, headerHeight, getCount, expanded, categorySpans, extraColumns, leftWidth],
   )
 
   const handleClick = useCallback(
@@ -516,8 +648,19 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
         // Header click — sort
         if (mx < ROW_LABEL_WIDTH) {
           onSortChange('#')
+        } else if (extraColumns.length > 0 && mx >= ROW_LABEL_WIDTH && mx < leftWidth) {
+          // Extra column header click — sort by extra column
+          let exOff = 0
+          for (const ec of extraColumns) {
+            const ecw = ec.width ?? 48
+            if (mx >= ROW_LABEL_WIDTH + exOff && mx < ROW_LABEL_WIDTH + exOff + ecw) {
+              onSortChange(ec.name)
+              break
+            }
+            exOff += ecw
+          }
         } else {
-          const col = Math.floor((mx - ROW_LABEL_WIDTH) / CELL_SIZE)
+          const col = Math.floor((mx - leftWidth) / CELL_SIZE)
           if (col >= 0 && col < columns.length) {
             onSortChange(columns[col])
           }
@@ -532,7 +675,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
         }
       }
     },
-    [columns, headerHeight, onSortChange, onTestClick, filteredTests],
+    [columns, headerHeight, onSortChange, onTestClick, filteredTests, extraColumns, leftWidth],
   )
 
   const handleMouseLeave = useCallback(() => {
@@ -576,7 +719,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
   )
 }
 
-export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
+export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [] }: OpcodeHeatmapProps) {
   const [search, setSearch] = useState('')
   const [fullscreen, setFullscreen] = useState(false)
   const [expanded] = useState(true)
@@ -736,12 +879,21 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
         sortDir === 'desc' ? b.index - a.index : a.index - b.index,
       )
     }
+    // Check if sorting by an extra column
+    const extraCol = extraColumns.find((ec) => ec.name === sortCol)
+    if (extraCol) {
+      return [...filteredTests].sort((a, b) => {
+        const va = extraCol.getValue(a.index) ?? -Infinity
+        const vb = extraCol.getValue(b.index) ?? -Infinity
+        return sortDir === 'desc' ? vb - va : va - vb
+      })
+    }
     return [...filteredTests].sort((a, b) => {
       const ca = getCount(a.test, sortCol)
       const cb = getCount(b.test, sortCol)
       return sortDir === 'desc' ? cb - ca : ca - cb
     })
-  }, [filteredTests, sortCol, sortDir, getCount])
+  }, [filteredTests, sortCol, sortDir, getCount, extraColumns])
 
   const maxPerColumn = useMemo(() => {
     const maxes: Record<string, number> = {}
@@ -816,6 +968,7 @@ export function OpcodeHeatmap({ tests, onTestClick }: OpcodeHeatmapProps) {
     sortCol,
     onSortChange: handleSortChange,
     onTestClick,
+    extraColumns,
   }
 
   if (fullscreen) {

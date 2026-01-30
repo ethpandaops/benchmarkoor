@@ -10,6 +10,7 @@ import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
 import { PreRunStepsTable } from '@/components/run-detail/PreRunStepsTable'
 import { TestHeatmap, type SortMode } from '@/components/run-detail/TestHeatmap'
+import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { ClientStat } from '@/components/shared/ClientStat'
@@ -456,6 +457,29 @@ export function RunDetailPage() {
           onSearchChange={handleSearchChange}
         />
       </div>
+
+      {suite?.tests && suite.tests.length > 0 && (
+        <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+          <OpcodeHeatmap
+            tests={suite.tests}
+            extraColumns={[{
+              name: 'Mgas/s',
+              getValue: (testIndex: number) => {
+                const testName = suite.tests[testIndex]?.name
+                if (!testName) return undefined
+                const entry = result.tests[testName]
+                if (!entry) return undefined
+                const stats = getAggregatedStats(entry, stepFilter)
+                if (!stats || stats.gas_used_time_total <= 0) return undefined
+                return (stats.gas_used_total * 1000) / stats.gas_used_time_total
+              },
+              width: 54,
+              format: (v: number) => v.toFixed(1),
+            }]}
+            onTestClick={(testIndex) => handleTestModalChange(suite.tests[testIndex - 1]?.name)}
+          />
+        </div>
+      )}
 
       <ResourceUsageCharts
         tests={result.tests}
