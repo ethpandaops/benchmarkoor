@@ -1,11 +1,11 @@
 import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import clsx from 'clsx'
 import type { SuiteFile, SuiteTest } from '@/api/types'
 import { fetchText } from '@/api/client'
 import { Pagination } from '@/components/shared/Pagination'
 import { Spinner } from '@/components/shared/Spinner'
 import { Badge } from '@/components/shared/Badge'
+import { Modal } from '@/components/shared/Modal'
 
 interface TestFilesListProps {
   // For pre_run_steps - simple file list
@@ -14,8 +14,6 @@ interface TestFilesListProps {
   tests?: SuiteTest[]
   suiteHash: string
   type: 'tests' | 'pre_run_steps'
-  expandedIndex?: number
-  onExpandedChange?: (index: number | undefined) => void
   currentPage?: number
   onPageChange?: (page: number) => void
   searchQuery?: string
@@ -74,11 +72,13 @@ function FileContent({
   stepType,
   file,
   testName,
+  hidePath,
 }: {
   suiteHash: string
   stepType: string
   file: SuiteFile
   testName?: string
+  hidePath?: boolean
 }) {
   // Build path based on whether this is a test step or pre-run step
   const path = testName
@@ -115,15 +115,17 @@ function FileContent({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between">
-          <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            Original Path
-          </span>
-          <CopyButton text={file.og_path} label="path" />
+      {!hidePath && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Original Path
+            </span>
+            <CopyButton text={file.og_path} label="path" />
+          </div>
+          <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.og_path}</div>
         </div>
-        <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.og_path}</div>
-      </div>
+      )}
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
           <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -232,9 +234,9 @@ function EESTInfoContent({ test }: { test: SuiteTest }) {
 // Component for displaying test steps content (for tests with setup/test/cleanup)
 function TestStepsContent({ suiteHash, test }: { suiteHash: string; test: SuiteTest }) {
   const steps = [
-    { key: 'setup', label: 'Setup', file: test.setup },
-    { key: 'test', label: 'Test', file: test.test },
-    { key: 'cleanup', label: 'Cleanup', file: test.cleanup },
+    { key: 'setup', label: 'Setup step', file: test.setup },
+    { key: 'test', label: 'Test step', file: test.test },
+    { key: 'cleanup', label: 'Cleanup step', file: test.cleanup },
   ].filter((s) => s.file) as { key: string; label: string; file: SuiteFile }[]
 
   const hasInfo = !!test.eest?.info
@@ -244,14 +246,20 @@ function TestStepsContent({ suiteHash, test }: { suiteHash: string; test: SuiteT
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Name</span>
+          <CopyButton text={test.name} label="name" />
+        </div>
+        <div className="break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">{test.name}</div>
+      </div>
       <EESTInfoContent test={test} />
       {steps.map(({ key, label, file }) => (
         <div key={key} className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <Badge variant="default">{label}</Badge>
-            <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{file.og_path}</span>
           </div>
-          <FileContent suiteHash={suiteHash} stepType={key} file={file} testName={test.name} />
+          <FileContent suiteHash={suiteHash} stepType={key} file={file} testName={test.name} hidePath={hasInfo} />
         </div>
       ))}
     </div>
@@ -263,14 +271,14 @@ export function TestFilesList({
   tests,
   suiteHash,
   type,
-  expandedIndex,
-  onExpandedChange,
   currentPage: controlledPage,
   onPageChange,
   searchQuery,
   onSearchChange,
 }: TestFilesListProps) {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [selectedTest, setSelectedTest] = useState<{ test: SuiteTest; index: number } | null>(null)
+  const [selectedFile, setSelectedFile] = useState<{ file: SuiteFile; index: number } | null>(null)
   const currentPage = controlledPage ?? 1
   const search = searchQuery ?? ''
 
@@ -300,12 +308,6 @@ export function TestFilesList({
   const setCurrentPage = (page: number) => {
     if (onPageChange) {
       onPageChange(page)
-    }
-  }
-
-  const toggleExpand = (index: number) => {
-    if (onExpandedChange) {
-      onExpandedChange(expandedIndex === index ? undefined : index)
     }
   }
 
@@ -371,7 +373,6 @@ export function TestFilesList({
           <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
-                <th className="w-10 px-2 py-3"></th>
                 <th className="w-16 px-2 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                   #
                 </th>
@@ -381,52 +382,23 @@ export function TestFilesList({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {fileItems.map(({ file, originalIndex }) => {
-                const isExpanded = expandedIndex === originalIndex
-
-                return (
-                  <>
-                    <tr
-                      key={originalIndex}
-                      onClick={() => toggleExpand(originalIndex)}
-                      className={clsx(
-                        'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
-                        isExpanded && 'bg-blue-50 dark:bg-blue-900/20',
-                      )}
-                    >
-                      <td className="px-2 py-2">
-                        <svg
-                          className={clsx(
-                            'size-3.5 text-gray-400 transition-transform',
-                            isExpanded && 'rotate-90',
-                          )}
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </td>
-                      <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
-                        {originalIndex}
-                      </td>
-                      <td
-                        className="truncate px-4 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100"
-                        title={file.og_path}
-                      >
-                        {file.og_path}
-                      </td>
-                    </tr>
-                    {isExpanded && (
-                      <tr key={`${originalIndex}-content`}>
-                        <td colSpan={3} className="max-w-0 bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
-                          <FileContent suiteHash={suiteHash} stepType="pre_run_steps" file={file} />
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                )
-              })}
+              {fileItems.map(({ file, originalIndex }) => (
+                <tr
+                  key={originalIndex}
+                  onClick={() => setSelectedFile({ file, index: originalIndex })}
+                  className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                >
+                  <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
+                    {originalIndex}
+                  </td>
+                  <td
+                    className="truncate px-4 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100"
+                    title={file.og_path}
+                  >
+                    {file.og_path}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
           {filteredItems.length === 0 && (
@@ -437,6 +409,16 @@ export function TestFilesList({
         </div>
 
         {filteredItems.length > 0 && paginationControls}
+
+        <Modal
+          isOpen={!!selectedFile}
+          onClose={() => setSelectedFile(null)}
+          title={selectedFile ? `Test #${selectedFile.index}` : undefined}
+        >
+          {selectedFile && (
+            <FileContent suiteHash={suiteHash} stepType="pre_run_steps" file={selectedFile.file} />
+          )}
+        </Modal>
       </div>
     )
   }
@@ -463,7 +445,6 @@ export function TestFilesList({
         <table className="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
-              <th className="w-10 px-2 py-3"></th>
               <th className="w-16 px-2 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 #
               </th>
@@ -481,61 +462,32 @@ export function TestFilesList({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {testItems.map(({ test, originalIndex }) => {
-              const isExpanded = expandedIndex === originalIndex
-
-              return (
-                <>
-                  <tr
-                    key={originalIndex}
-                    onClick={() => toggleExpand(originalIndex)}
-                    className={clsx(
-                      'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
-                      isExpanded && 'bg-blue-50 dark:bg-blue-900/20',
-                    )}
-                  >
-                    <td className="px-2 py-2">
-                      <svg
-                        className={clsx(
-                          'size-3.5 text-gray-400 transition-transform',
-                          isExpanded && 'rotate-90',
-                        )}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </td>
-                    <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
-                      {originalIndex}
-                    </td>
-                    <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100" title={test.name}>
-                      {test.name}
-                    </td>
-                    {hasGenesis && (
-                      <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-500 dark:text-gray-400" title={test.genesis}>
-                        {test.genesis ?? '—'}
-                      </td>
-                    )}
-                    <td className="px-4 py-2">
-                      <div className="flex gap-1">
-                        {test.setup && <Badge variant="default">Setup</Badge>}
-                        {test.test && <Badge variant="default">Test</Badge>}
-                        {test.cleanup && <Badge variant="default">Cleanup</Badge>}
-                      </div>
-                    </td>
-                  </tr>
-                  {isExpanded && (
-                    <tr key={`${originalIndex}-content`}>
-                      <td colSpan={hasGenesis ? 5 : 4} className="max-w-0 bg-gray-50 px-4 py-4 dark:bg-gray-900/50">
-                        <TestStepsContent suiteHash={suiteHash} test={test} />
-                      </td>
-                    </tr>
-                  )}
-                </>
-              )
-            })}
+            {testItems.map(({ test, originalIndex }) => (
+              <tr
+                key={originalIndex}
+                onClick={() => setSelectedTest({ test, index: originalIndex })}
+                className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
+              >
+                <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
+                  {originalIndex}
+                </td>
+                <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100" title={test.name}>
+                  {test.name}
+                </td>
+                {hasGenesis && (
+                  <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-500 dark:text-gray-400" title={test.genesis}>
+                    {test.genesis ?? '—'}
+                  </td>
+                )}
+                <td className="px-4 py-2">
+                  <div className="flex gap-1">
+                    {test.setup && <Badge variant="default">Setup</Badge>}
+                    {test.test && <Badge variant="default">Test</Badge>}
+                    {test.cleanup && <Badge variant="default">Cleanup</Badge>}
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
         {filteredItems.length === 0 && (
@@ -546,6 +498,16 @@ export function TestFilesList({
       </div>
 
       {filteredItems.length > 0 && paginationControls}
+
+      <Modal
+        isOpen={!!selectedTest}
+        onClose={() => setSelectedTest(null)}
+        title={selectedTest ? `Test #${selectedTest.index}` : undefined}
+      >
+        {selectedTest && (
+          <TestStepsContent suiteHash={suiteHash} test={selectedTest.test} />
+        )}
+      </Modal>
     </div>
   )
 }

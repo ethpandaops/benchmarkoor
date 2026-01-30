@@ -79,7 +79,6 @@ export function SuiteDetailPage() {
     status?: TestStatusFilter
     sortBy?: SortColumn
     sortDir?: SortDirection
-    expanded?: number
     filesPage?: number
     q?: string
     chartMode?: XAxisMode
@@ -88,7 +87,7 @@ export function SuiteDetailPage() {
     heatmapColor?: ColorNormalization
     steps?: string
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', expanded, filesPage, q, chartMode = 'runCount', mgasChartMode = 'runCount', resourceChartMode = 'runCount', heatmapColor = 'suite' } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, q, chartMode = 'runCount', mgasChartMode = 'runCount', resourceChartMode = 'runCount', heatmapColor = 'suite' } = search
   const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: suiteStats } = useSuiteStats(suiteHash)
@@ -213,7 +212,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab: newTab, client, image, status, sortBy, sortDir, expanded: undefined, filesPage: undefined, q: undefined },
+      search: { tab: newTab, client, image, status, sortBy, sortDir, filesPage: undefined, q: undefined },
     })
   }
 
@@ -225,19 +224,11 @@ export function SuiteDetailPage() {
     })
   }
 
-  const handleExpandedChange = (index: number | undefined) => {
-    navigate({
-      to: '/suites/$suiteHash',
-      params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, expanded: index, filesPage, q, steps: serializeStepFilter(stepFilter) },
-    })
-  }
-
   const handleFilesPageChange = (page: number) => {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, expanded, filesPage: page, q, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage: page, q, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -245,7 +236,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, expanded: undefined, filesPage: 1, q: query || undefined, chartMode, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage: 1, q: query || undefined, chartMode, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -598,8 +589,6 @@ export function SuiteDetailPage() {
               tests={suite.tests}
               suiteHash={suiteHash}
               type="tests"
-              expandedIndex={expanded}
-              onExpandedChange={handleExpandedChange}
               currentPage={filesPage}
               onPageChange={handleFilesPageChange}
               searchQuery={q}
@@ -613,8 +602,6 @@ export function SuiteDetailPage() {
                 files={suite.pre_run_steps!}
                 suiteHash={suiteHash}
                 type="pre_run_steps"
-                expandedIndex={expanded}
-                onExpandedChange={handleExpandedChange}
                 currentPage={filesPage}
                 onPageChange={handleFilesPageChange}
                 searchQuery={q}
