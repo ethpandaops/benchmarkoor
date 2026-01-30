@@ -443,7 +443,7 @@ export function RunDetailPage() {
           <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Performance Heatmap</h3>
           <input
             type="text"
-            placeholder="Search tests..."
+            placeholder="Filter tests..."
             value={q}
             onChange={(e) => handleSearchChange(e.target.value)}
             className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
