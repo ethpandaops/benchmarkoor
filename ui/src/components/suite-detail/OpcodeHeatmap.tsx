@@ -1,0 +1,471 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { SuiteTest } from '@/api/types'
+
+interface OpcodeHeatmapProps {
+  tests: SuiteTest[]
+}
+
+const CELL_SIZE = 16
+const HEADER_HEIGHT = 90
+const ROW_LABEL_WIDTH = 50
+const MAX_HEIGHT = 600
+const BORDER_COLOR_LIGHT = '#e5e7eb'
+const BORDER_COLOR_DARK = '#374151'
+const BG_LIGHT = '#ffffff'
+const BG_DARK = '#1f2937'
+const TEXT_LIGHT = '#6b7280'
+const TEXT_DARK = '#9ca3af'
+const HEADER_BG_LIGHT = '#f9fafb'
+const HEADER_BG_DARK = '#1f2937'
+
+function logRatio(count: number, max: number): number {
+  if (count <= 0 || max <= 0) return 0
+  return Math.log1p(count) / Math.log1p(max)
+}
+
+const COLORS_LIGHT = ['transparent', '#eff6ff', '#dbeafe', '#bfdbfe', '#93c5fd', '#818cf8', '#7c3aed', '#6d28d9', '#5b21b6']
+const COLORS_DARK = ['transparent', 'rgba(59,130,246,0.15)', 'rgba(59,130,246,0.3)', 'rgba(99,102,241,0.4)', 'rgba(99,102,241,0.55)', 'rgba(139,92,246,0.6)', 'rgba(139,92,246,0.75)', 'rgba(168,85,247,0.85)', 'rgba(168,85,247,1)']
+
+function getColorIndex(ratio: number): number {
+  if (ratio === 0) return 0
+  if (ratio <= 0.125) return 1
+  if (ratio <= 0.25) return 2
+  if (ratio <= 0.375) return 3
+  if (ratio <= 0.5) return 4
+  if (ratio <= 0.625) return 5
+  if (ratio <= 0.75) return 6
+  if (ratio <= 0.875) return 7
+  return 8
+}
+
+function getCellColor(ratio: number, isDark: boolean): string {
+  const colors = isDark ? COLORS_DARK : COLORS_LIGHT
+  return colors[getColorIndex(ratio)]
+}
+
+const LEGEND_STEPS = [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+
+function HeatmapLegend({ isDark }: { isDark: boolean }) {
+  return (
+    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+      <span>Low</span>
+      <div className="flex">
+        {LEGEND_STEPS.map((ratio) => (
+          <div
+            key={ratio}
+            className="border border-gray-200 dark:border-gray-700"
+            style={{ width: 20, height: 12, backgroundColor: getCellColor(ratio, isDark) }}
+          />
+        ))}
+      </div>
+      <span>High</span>
+      <span className="text-gray-400 dark:text-gray-500">(log scale, per-opcode)</span>
+    </div>
+  )
+}
+
+interface HeatmapCanvasProps {
+  filteredTests: { test: SuiteTest; index: number }[]
+  opcodes: string[]
+  maxPerOpcode: Record<string, number>
+  isDark: boolean
+  maxHeight?: number
+}
+
+function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight }: HeatmapCanvasProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
+  const scrollRef = useRef({ x: 0, y: 0 })
+  const hoverRef = useRef<{ row: number; col: number } | null>(null)
+  const rafRef = useRef(0)
+
+  const totalWidth = ROW_LABEL_WIDTH + opcodes.length * CELL_SIZE
+  const totalHeight = HEADER_HEIGHT + filteredTests.length * CELL_SIZE
+
+  // Pre-compute color grid as flat array for fast access
+  const colorGrid = useMemo(() => {
+    const colors = isDark ? COLORS_DARK : COLORS_LIGHT
+    const grid = new Uint8Array(filteredTests.length * opcodes.length)
+    for (let row = 0; row < filteredTests.length; row++) {
+      const counts = filteredTests[row].test.eest?.info?.opcode_count ?? {}
+      for (let col = 0; col < opcodes.length; col++) {
+        const count = counts[opcodes[col]] ?? 0
+        const max = maxPerOpcode[opcodes[col]] ?? 1
+        grid[row * opcodes.length + col] = getColorIndex(logRatio(count, max))
+      }
+    }
+    return { grid, colors }
+  }, [filteredTests, opcodes, maxPerOpcode, isDark])
+
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current
+    const container = containerRef.current
+    if (!canvas || !container) return
+
+    const dpr = window.devicePixelRatio || 1
+    const viewW = container.clientWidth
+    const viewH = container.clientHeight
+    const scrollX = container.scrollLeft
+    const scrollY = container.scrollTop
+
+    canvas.width = viewW * dpr
+    canvas.height = viewH * dpr
+    canvas.style.width = `${viewW}px`
+    canvas.style.height = `${viewH}px`
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.scale(dpr, dpr)
+
+    const bg = isDark ? BG_DARK : BG_LIGHT
+    const headerBg = isDark ? HEADER_BG_DARK : HEADER_BG_LIGHT
+    const borderColor = isDark ? BORDER_COLOR_DARK : BORDER_COLOR_LIGHT
+    const textColor = isDark ? TEXT_DARK : TEXT_LIGHT
+    const { grid, colors } = colorGrid
+
+    ctx.fillStyle = bg
+    ctx.fillRect(0, 0, viewW, viewH)
+
+    // Determine visible range of rows and columns
+    const firstRow = Math.max(0, Math.floor((scrollY - HEADER_HEIGHT) / CELL_SIZE))
+    const lastRow = Math.min(filteredTests.length - 1, Math.ceil((scrollY + viewH - HEADER_HEIGHT) / CELL_SIZE))
+    const firstCol = Math.max(0, Math.floor((scrollX - ROW_LABEL_WIDTH) / CELL_SIZE))
+    const lastCol = Math.min(opcodes.length - 1, Math.ceil((scrollX + viewW - ROW_LABEL_WIDTH) / CELL_SIZE))
+
+    // Draw cells (only visible ones)
+    for (let row = firstRow; row <= lastRow; row++) {
+      const cy = HEADER_HEIGHT + row * CELL_SIZE - scrollY
+      for (let col = firstCol; col <= lastCol; col++) {
+        const cx = ROW_LABEL_WIDTH + col * CELL_SIZE - scrollX
+        const colorIdx = grid[row * opcodes.length + col]
+        if (colorIdx > 0) {
+          ctx.fillStyle = colors[colorIdx]
+          ctx.fillRect(cx, cy, CELL_SIZE, CELL_SIZE)
+        }
+      }
+    }
+
+    // Draw cell borders (visible range)
+    ctx.strokeStyle = borderColor
+    ctx.lineWidth = 0.5
+    ctx.beginPath()
+    for (let row = firstRow; row <= lastRow + 1; row++) {
+      const y = HEADER_HEIGHT + row * CELL_SIZE - scrollY
+      const x0 = ROW_LABEL_WIDTH + firstCol * CELL_SIZE - scrollX
+      const x1 = ROW_LABEL_WIDTH + (lastCol + 1) * CELL_SIZE - scrollX
+      ctx.moveTo(x0, y)
+      ctx.lineTo(x1, y)
+    }
+    for (let col = firstCol; col <= lastCol + 1; col++) {
+      const x = ROW_LABEL_WIDTH + col * CELL_SIZE - scrollX
+      const y0 = HEADER_HEIGHT + firstRow * CELL_SIZE - scrollY
+      const y1 = HEADER_HEIGHT + (lastRow + 1) * CELL_SIZE - scrollY
+      ctx.moveTo(x, y0)
+      ctx.lineTo(x, y1)
+    }
+    ctx.stroke()
+
+    // Draw hover highlight
+    const hover = hoverRef.current
+    if (hover && hover.row >= firstRow && hover.row <= lastRow && hover.col >= firstCol && hover.col <= lastCol) {
+      const hx = ROW_LABEL_WIDTH + hover.col * CELL_SIZE - scrollX
+      const hy = HEADER_HEIGHT + hover.row * CELL_SIZE - scrollY
+      ctx.strokeStyle = isDark ? '#f9fafb' : '#111827'
+      ctx.lineWidth = 2
+      ctx.strokeRect(hx, hy, CELL_SIZE, CELL_SIZE)
+    }
+
+    // Draw header background (sticky)
+    ctx.fillStyle = headerBg
+    ctx.fillRect(0, 0, viewW, HEADER_HEIGHT)
+    // Row label column background (sticky)
+    ctx.fillStyle = bg
+    ctx.fillRect(0, HEADER_HEIGHT, ROW_LABEL_WIDTH, viewH - HEADER_HEIGHT)
+    // Corner
+    ctx.fillStyle = headerBg
+    ctx.fillRect(0, 0, ROW_LABEL_WIDTH, HEADER_HEIGHT)
+
+    // Header border
+    ctx.strokeStyle = borderColor
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(0, HEADER_HEIGHT)
+    ctx.lineTo(viewW, HEADER_HEIGHT)
+    ctx.moveTo(ROW_LABEL_WIDTH, 0)
+    ctx.lineTo(ROW_LABEL_WIDTH, viewH)
+    ctx.stroke()
+
+    // Draw opcode labels (rotated, clipped to right of row label column)
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(ROW_LABEL_WIDTH, 0, viewW - ROW_LABEL_WIDTH, HEADER_HEIGHT)
+    ctx.clip()
+    ctx.fillStyle = textColor
+    ctx.font = '10px monospace'
+    ctx.textBaseline = 'middle'
+    for (let col = firstCol; col <= lastCol; col++) {
+      const cx = ROW_LABEL_WIDTH + col * CELL_SIZE - scrollX + CELL_SIZE / 2
+      ctx.save()
+      ctx.translate(cx, HEADER_HEIGHT - 4)
+      ctx.rotate(-Math.PI / 2)
+      ctx.textAlign = 'left'
+      ctx.fillText(opcodes[col], 0, 0)
+      ctx.restore()
+    }
+    ctx.restore()
+
+    // Draw row labels (clipped to below header)
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, HEADER_HEIGHT, ROW_LABEL_WIDTH, viewH - HEADER_HEIGHT)
+    ctx.clip()
+    ctx.fillStyle = textColor
+    ctx.font = '10px monospace'
+    ctx.textAlign = 'right'
+    ctx.textBaseline = 'middle'
+    for (let row = firstRow; row <= lastRow; row++) {
+      const cy = HEADER_HEIGHT + row * CELL_SIZE - scrollY + CELL_SIZE / 2
+      ctx.fillText(String(filteredTests[row].index + 1), ROW_LABEL_WIDTH - 6, cy)
+    }
+    ctx.restore()
+
+    // # label
+    ctx.fillStyle = textColor
+    ctx.font = '11px sans-serif'
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'bottom'
+    ctx.fillText('#', 6, HEADER_HEIGHT - 4)
+  }, [filteredTests, opcodes, colorGrid, isDark])
+
+  // Draw on mount and whenever deps change
+  useEffect(() => {
+    draw()
+  }, [draw])
+
+  // Redraw on scroll
+  const handleScroll = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+    scrollRef.current = { x: container.scrollLeft, y: container.scrollTop }
+    requestAnimationFrame(draw)
+  }, [draw])
+
+  // Redraw on resize
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const observer = new ResizeObserver(() => {
+      requestAnimationFrame(draw)
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [draw])
+
+  const scheduleRedraw = useCallback(() => {
+    cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(draw)
+  }, [draw])
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const container = containerRef.current
+      if (!container) return
+      const rect = container.getBoundingClientRect()
+      const mx = e.clientX - rect.left + container.scrollLeft
+      const my = e.clientY - rect.top + container.scrollTop
+
+      const col = Math.floor((mx - ROW_LABEL_WIDTH) / CELL_SIZE)
+      const row = Math.floor((my - HEADER_HEIGHT) / CELL_SIZE)
+
+      if (col >= 0 && col < opcodes.length && row >= 0 && row < filteredTests.length) {
+        const prev = hoverRef.current
+        if (!prev || prev.row !== row || prev.col !== col) {
+          hoverRef.current = { row, col }
+          scheduleRedraw()
+        }
+        const test = filteredTests[row].test
+        const op = opcodes[col]
+        const count = test.eest?.info?.opcode_count?.[op] ?? 0
+        if (count > 0) {
+          setTooltip({
+            text: `${test.name}\n${op}: ${count.toLocaleString()}`,
+            x: e.clientX,
+            y: e.clientY - 12,
+          })
+          return
+        }
+      } else if (hoverRef.current) {
+        hoverRef.current = null
+        scheduleRedraw()
+      }
+      setTooltip(null)
+    },
+    [filteredTests, opcodes, scheduleRedraw],
+  )
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverRef.current) {
+      hoverRef.current = null
+      scheduleRedraw()
+    }
+    setTooltip(null)
+  }, [scheduleRedraw])
+
+  return (
+    <div className="relative" style={maxHeight ? {} : { height: '100%' }}>
+      <div
+        ref={containerRef}
+        className="overflow-auto rounded-sm border border-gray-200 dark:border-gray-700"
+        style={maxHeight ? { maxHeight } : { height: '100%' }}
+        onScroll={handleScroll}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
+        {/* Spacer to create scrollable area */}
+        <div style={{ width: totalWidth, height: totalHeight, position: 'relative' }}>
+          <canvas
+            ref={canvasRef}
+            className="pointer-events-none"
+            style={{ position: 'sticky', top: 0, left: 0 }}
+          />
+        </div>
+      </div>
+      {tooltip && (
+        <div
+          className="pointer-events-none fixed z-50 max-w-xs rounded-sm bg-gray-900 px-2 py-1 text-xs text-white shadow-sm dark:bg-gray-700"
+          style={{ left: tooltip.x, top: tooltip.y, transform: 'translate(-50%, -100%)' }}
+        >
+          {tooltip.text.split('\n').map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
+  const [search, setSearch] = useState('')
+  const [fullscreen, setFullscreen] = useState(false)
+  const [isDark] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return document.documentElement.classList.contains('dark')
+  })
+
+  useEffect(() => {
+    if (!fullscreen) return
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false)
+    }
+    document.addEventListener('keydown', handleKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+      document.body.style.overflow = ''
+    }
+  }, [fullscreen])
+
+  const testsWithOpcodes = useMemo(() => {
+    return tests
+      .map((t, i) => ({ test: t, index: i }))
+      .filter((t) => t.test.eest?.info?.opcode_count && Object.keys(t.test.eest.info.opcode_count).length > 0)
+  }, [tests])
+
+  const filteredTests = useMemo(() => {
+    if (!search) return testsWithOpcodes
+    const q = search.toLowerCase()
+    return testsWithOpcodes.filter((t) => t.test.name.toLowerCase().includes(q))
+  }, [testsWithOpcodes, search])
+
+  const opcodes = useMemo(() => {
+    const set = new Set<string>()
+    for (const { test } of testsWithOpcodes) {
+      const counts = test.eest?.info?.opcode_count
+      if (counts) {
+        for (const op of Object.keys(counts)) {
+          set.add(op)
+        }
+      }
+    }
+    return Array.from(set).sort()
+  }, [testsWithOpcodes])
+
+  const maxPerOpcode = useMemo(() => {
+    const maxes: Record<string, number> = {}
+    for (const op of opcodes) {
+      let max = 0
+      for (const { test } of filteredTests) {
+        const count = test.eest?.info?.opcode_count?.[op] ?? 0
+        if (count > max) max = count
+      }
+      maxes[op] = max
+    }
+    return maxes
+  }, [opcodes, filteredTests])
+
+  if (testsWithOpcodes.length === 0) return null
+
+  const toolbar = (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">
+          Opcode Heatmap
+          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+            ({filteredTests.length} tests, {opcodes.length} opcodes)
+          </span>
+        </h3>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Filter tests..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="rounded-sm border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+          />
+          <button
+            onClick={() => setFullscreen(!fullscreen)}
+            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+            title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            {fullscreen ? (
+              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+              </svg>
+            )}
+          </button>
+        </div>
+      </div>
+      <HeatmapLegend isDark={isDark} />
+    </div>
+  )
+
+  const canvasProps = { filteredTests, opcodes, maxPerOpcode, isDark }
+
+  if (fullscreen) {
+    return (
+      <>
+        <div className="flex flex-col gap-3">
+          {toolbar}
+        </div>
+        <div className="fixed inset-0 z-50 flex flex-col gap-3 bg-white p-4 dark:bg-gray-900">
+          {toolbar}
+          <div className="min-h-0 flex-1">
+            <HeatmapCanvas {...canvasProps} />
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {toolbar}
+      <HeatmapCanvas {...canvasProps} maxHeight={MAX_HEIGHT} />
+    </div>
+  )
+}

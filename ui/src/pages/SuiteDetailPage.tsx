@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
-import { getIndexAggregatedStats, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
+import { getIndexAggregatedStats, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
 import { useIndex } from '@/api/hooks/useIndex'
@@ -13,6 +13,7 @@ import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/
 import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList } from '@/components/suite-detail/TestFilesList'
+import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -39,6 +40,33 @@ function serializeStepFilter(steps: IndexStepType[]): string | undefined {
     return undefined
   }
   return steps.join(',')
+}
+
+function OpcodeHeatmapSection({ tests }: { tests: SuiteTest[] }) {
+  const [expanded, setExpanded] = useState(true)
+  return (
+    <>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
+      >
+        <svg
+          className={clsx('size-4 text-gray-500 transition-transform', expanded && 'rotate-90')}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        Opcode Heatmap
+      </button>
+      {expanded && (
+        <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+          <OpcodeHeatmap tests={tests} />
+        </div>
+      )}
+    </>
+  )
 }
 
 export function SuiteDetailPage() {
@@ -561,6 +589,11 @@ export function SuiteDetailPage() {
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
             <SuiteSource title="Source" source={suite.source} />
+            {suite.tests.some((t) => t.eest?.info?.opcode_count && Object.keys(t.eest.info.opcode_count).length > 0) && (
+              <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                <OpcodeHeatmapSection tests={suite.tests} />
+              </div>
+            )}
             <TestFilesList
               tests={suite.tests}
               suiteHash={suiteHash}
