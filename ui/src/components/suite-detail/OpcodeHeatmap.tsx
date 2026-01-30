@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SuiteTest } from '@/api/types'
+import { getGroupedOpcodes, getCategoryColor } from '@/utils/opcodeCategories'
+import type { CategorySpan, GroupedResult } from '@/utils/opcodeCategories'
 
 interface OpcodeHeatmapProps {
   tests: SuiteTest[]
 }
 
 const CELL_SIZE = 16
-const HEADER_HEIGHT = 90
+const ROW_HEIGHT = 20
+const HEADER_HEIGHT_COLLAPSED = 90
 const ROW_LABEL_WIDTH = 50
 const MAX_HEIGHT = 600
 const BORDER_COLOR_LIGHT = '#e5e7eb'
@@ -17,6 +20,8 @@ const TEXT_LIGHT = '#6b7280'
 const TEXT_DARK = '#9ca3af'
 const HEADER_BG_LIGHT = '#f9fafb'
 const HEADER_BG_DARK = '#1f2937'
+const SEPARATOR_LIGHT = '#d1d5db'
+const SEPARATOR_DARK = '#4b5563'
 
 function logRatio(count: number, max: number): number {
   if (count <= 0 || max <= 0) return 0
@@ -64,39 +69,48 @@ function HeatmapLegend({ isDark }: { isDark: boolean }) {
   )
 }
 
-interface HeatmapCanvasProps {
-  filteredTests: { test: SuiteTest; index: number }[]
-  opcodes: string[]
-  maxPerOpcode: Record<string, number>
-  isDark: boolean
-  maxHeight?: number
+/** Compute expanded header height: category row + subcategory row (if any) + opcode labels */
+function computeExpandedHeaderHeight(categorySpans: CategorySpan[]): number {
+  const hasSubcategories = categorySpans.some((s) => s.subcategories && s.subcategories.length > 0)
+  // category row + optional subcategory row + opcode label area
+  return ROW_HEIGHT + (hasSubcategories ? ROW_HEIGHT : 0) + 70
 }
 
-function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight }: HeatmapCanvasProps) {
+interface HeatmapCanvasProps {
+  filteredTests: { test: SuiteTest; index: number }[]
+  columns: string[]
+  maxPerColumn: Record<string, number>
+  isDark: boolean
+  maxHeight?: number
+  expanded: boolean
+  categorySpans: CategorySpan[]
+  getCount: (test: SuiteTest, col: string) => number
+}
+
+function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight, expanded, categorySpans, getCount }: HeatmapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
-  const scrollRef = useRef({ x: 0, y: 0 })
   const hoverRef = useRef<{ row: number; col: number } | null>(null)
   const rafRef = useRef(0)
 
-  const totalWidth = ROW_LABEL_WIDTH + opcodes.length * CELL_SIZE
-  const totalHeight = HEADER_HEIGHT + filteredTests.length * CELL_SIZE
+  const headerHeight = expanded ? computeExpandedHeaderHeight(categorySpans) : HEADER_HEIGHT_COLLAPSED
+  const totalWidth = ROW_LABEL_WIDTH + columns.length * CELL_SIZE
+  const totalHeight = headerHeight + filteredTests.length * CELL_SIZE
 
-  // Pre-compute color grid as flat array for fast access
   const colorGrid = useMemo(() => {
     const colors = isDark ? COLORS_DARK : COLORS_LIGHT
-    const grid = new Uint8Array(filteredTests.length * opcodes.length)
+    const grid = new Uint8Array(filteredTests.length * columns.length)
     for (let row = 0; row < filteredTests.length; row++) {
-      const counts = filteredTests[row].test.eest?.info?.opcode_count ?? {}
-      for (let col = 0; col < opcodes.length; col++) {
-        const count = counts[opcodes[col]] ?? 0
-        const max = maxPerOpcode[opcodes[col]] ?? 1
-        grid[row * opcodes.length + col] = getColorIndex(logRatio(count, max))
+      const test = filteredTests[row].test
+      for (let col = 0; col < columns.length; col++) {
+        const count = getCount(test, columns[col])
+        const max = maxPerColumn[columns[col]] ?? 1
+        grid[row * columns.length + col] = getColorIndex(logRatio(count, max))
       }
     }
     return { grid, colors }
-  }, [filteredTests, opcodes, maxPerOpcode, isDark])
+  }, [filteredTests, columns, maxPerColumn, isDark, getCount])
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
@@ -119,26 +133,26 @@ function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight
     ctx.scale(dpr, dpr)
 
     const bg = isDark ? BG_DARK : BG_LIGHT
-    const headerBg = isDark ? HEADER_BG_DARK : HEADER_BG_LIGHT
+    const hdrBg = isDark ? HEADER_BG_DARK : HEADER_BG_LIGHT
     const borderColor = isDark ? BORDER_COLOR_DARK : BORDER_COLOR_LIGHT
     const textColor = isDark ? TEXT_DARK : TEXT_LIGHT
+    const separatorColor = isDark ? SEPARATOR_DARK : SEPARATOR_LIGHT
     const { grid, colors } = colorGrid
 
     ctx.fillStyle = bg
     ctx.fillRect(0, 0, viewW, viewH)
 
-    // Determine visible range of rows and columns
-    const firstRow = Math.max(0, Math.floor((scrollY - HEADER_HEIGHT) / CELL_SIZE))
-    const lastRow = Math.min(filteredTests.length - 1, Math.ceil((scrollY + viewH - HEADER_HEIGHT) / CELL_SIZE))
+    const firstRow = Math.max(0, Math.floor((scrollY - headerHeight) / CELL_SIZE))
+    const lastRow = Math.min(filteredTests.length - 1, Math.ceil((scrollY + viewH - headerHeight) / CELL_SIZE))
     const firstCol = Math.max(0, Math.floor((scrollX - ROW_LABEL_WIDTH) / CELL_SIZE))
-    const lastCol = Math.min(opcodes.length - 1, Math.ceil((scrollX + viewW - ROW_LABEL_WIDTH) / CELL_SIZE))
+    const lastCol = Math.min(columns.length - 1, Math.ceil((scrollX + viewW - ROW_LABEL_WIDTH) / CELL_SIZE))
 
-    // Draw cells (only visible ones)
+    // Draw cells
     for (let row = firstRow; row <= lastRow; row++) {
-      const cy = HEADER_HEIGHT + row * CELL_SIZE - scrollY
+      const cy = headerHeight + row * CELL_SIZE - scrollY
       for (let col = firstCol; col <= lastCol; col++) {
         const cx = ROW_LABEL_WIDTH + col * CELL_SIZE - scrollX
-        const colorIdx = grid[row * opcodes.length + col]
+        const colorIdx = grid[row * columns.length + col]
         if (colorIdx > 0) {
           ctx.fillStyle = colors[colorIdx]
           ctx.fillRect(cx, cy, CELL_SIZE, CELL_SIZE)
@@ -146,12 +160,12 @@ function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight
       }
     }
 
-    // Draw cell borders (visible range)
+    // Draw cell borders
     ctx.strokeStyle = borderColor
     ctx.lineWidth = 0.5
     ctx.beginPath()
     for (let row = firstRow; row <= lastRow + 1; row++) {
-      const y = HEADER_HEIGHT + row * CELL_SIZE - scrollY
+      const y = headerHeight + row * CELL_SIZE - scrollY
       const x0 = ROW_LABEL_WIDTH + firstCol * CELL_SIZE - scrollX
       const x1 = ROW_LABEL_WIDTH + (lastCol + 1) * CELL_SIZE - scrollX
       ctx.moveTo(x0, y)
@@ -159,47 +173,47 @@ function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight
     }
     for (let col = firstCol; col <= lastCol + 1; col++) {
       const x = ROW_LABEL_WIDTH + col * CELL_SIZE - scrollX
-      const y0 = HEADER_HEIGHT + firstRow * CELL_SIZE - scrollY
-      const y1 = HEADER_HEIGHT + (lastRow + 1) * CELL_SIZE - scrollY
+      const y0 = headerHeight + firstRow * CELL_SIZE - scrollY
+      const y1 = headerHeight + (lastRow + 1) * CELL_SIZE - scrollY
       ctx.moveTo(x, y0)
       ctx.lineTo(x, y1)
     }
     ctx.stroke()
 
-    // Draw hover highlight
+    // Hover highlight
     const hover = hoverRef.current
     if (hover && hover.row >= firstRow && hover.row <= lastRow && hover.col >= firstCol && hover.col <= lastCol) {
       const hx = ROW_LABEL_WIDTH + hover.col * CELL_SIZE - scrollX
-      const hy = HEADER_HEIGHT + hover.row * CELL_SIZE - scrollY
+      const hy = headerHeight + hover.row * CELL_SIZE - scrollY
       ctx.strokeStyle = isDark ? '#f9fafb' : '#111827'
       ctx.lineWidth = 2
       ctx.strokeRect(hx, hy, CELL_SIZE, CELL_SIZE)
     }
 
-    // Draw header background (sticky)
-    ctx.fillStyle = headerBg
-    ctx.fillRect(0, 0, viewW, HEADER_HEIGHT)
-    // Row label column background (sticky)
+    // Header background
+    ctx.fillStyle = hdrBg
+    ctx.fillRect(0, 0, viewW, headerHeight)
+    // Row label column background
     ctx.fillStyle = bg
-    ctx.fillRect(0, HEADER_HEIGHT, ROW_LABEL_WIDTH, viewH - HEADER_HEIGHT)
+    ctx.fillRect(0, headerHeight, ROW_LABEL_WIDTH, viewH - headerHeight)
     // Corner
-    ctx.fillStyle = headerBg
-    ctx.fillRect(0, 0, ROW_LABEL_WIDTH, HEADER_HEIGHT)
+    ctx.fillStyle = hdrBg
+    ctx.fillRect(0, 0, ROW_LABEL_WIDTH, headerHeight)
 
     // Header border
     ctx.strokeStyle = borderColor
     ctx.lineWidth = 1
     ctx.beginPath()
-    ctx.moveTo(0, HEADER_HEIGHT)
-    ctx.lineTo(viewW, HEADER_HEIGHT)
+    ctx.moveTo(0, headerHeight)
+    ctx.lineTo(viewW, headerHeight)
     ctx.moveTo(ROW_LABEL_WIDTH, 0)
     ctx.lineTo(ROW_LABEL_WIDTH, viewH)
     ctx.stroke()
 
-    // Draw opcode labels (rotated, clipped to right of row label column)
+    // Draw column labels (rotated) — clipped to header area right of row labels
     ctx.save()
     ctx.beginPath()
-    ctx.rect(ROW_LABEL_WIDTH, 0, viewW - ROW_LABEL_WIDTH, HEADER_HEIGHT)
+    ctx.rect(ROW_LABEL_WIDTH, 0, viewW - ROW_LABEL_WIDTH, headerHeight)
     ctx.clip()
     ctx.fillStyle = textColor
     ctx.font = '10px monospace'
@@ -207,25 +221,109 @@ function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight
     for (let col = firstCol; col <= lastCol; col++) {
       const cx = ROW_LABEL_WIDTH + col * CELL_SIZE - scrollX + CELL_SIZE / 2
       ctx.save()
-      ctx.translate(cx, HEADER_HEIGHT - 4)
+      ctx.translate(cx, headerHeight - 4)
       ctx.rotate(-Math.PI / 2)
       ctx.textAlign = 'left'
-      ctx.fillText(opcodes[col], 0, 0)
+      ctx.fillText(columns[col], 0, 0)
       ctx.restore()
+    }
+
+    // Draw category and subcategory headers in expanded mode
+    if (expanded && categorySpans.length > 0) {
+      const catRowY = ROW_HEIGHT / 2
+      const subRowY = ROW_HEIGHT + ROW_HEIGHT / 2
+
+      // Category row
+      ctx.font = 'bold 10px sans-serif'
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'center'
+
+      // Horizontal separators only under categories that have subcategories
+      ctx.strokeStyle = borderColor
+      ctx.lineWidth = 1
+      for (const span of categorySpans) {
+        if (!span.subcategories || span.subcategories.length === 0) continue
+        const sx0 = ROW_LABEL_WIDTH + span.startCol * CELL_SIZE - scrollX
+        const sx1 = sx0 + span.count * CELL_SIZE
+        if (sx1 < ROW_LABEL_WIDTH || sx0 > viewW) continue
+
+        // Line below category row
+        ctx.beginPath()
+        ctx.moveTo(sx0, ROW_HEIGHT)
+        ctx.lineTo(sx1, ROW_HEIGHT)
+        ctx.stroke()
+
+        // Line below subcategory row
+        ctx.beginPath()
+        ctx.moveTo(sx0, ROW_HEIGHT * 2)
+        ctx.lineTo(sx1, ROW_HEIGHT * 2)
+        ctx.stroke()
+      }
+
+      for (let i = 0; i < categorySpans.length; i++) {
+        const span = categorySpans[i]
+        const x0 = ROW_LABEL_WIDTH + span.startCol * CELL_SIZE - scrollX
+        const x1 = x0 + span.count * CELL_SIZE
+        if (x1 < ROW_LABEL_WIDTH || x0 > viewW) continue
+
+        // Category label
+        const centerX = (x0 + x1) / 2
+        ctx.font = 'bold 10px sans-serif'
+        ctx.fillStyle = getCategoryColor(span.name, isDark)
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(span.name, centerX, catRowY)
+
+        // Vertical separator at category boundary (except first)
+        if (span.startCol > 0) {
+          ctx.strokeStyle = separatorColor
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(x0, 0)
+          ctx.lineTo(x0, headerHeight)
+          ctx.stroke()
+        }
+
+        // Subcategory labels
+        if (span.subcategories) {
+          for (const sub of span.subcategories) {
+            const sx0 = ROW_LABEL_WIDTH + sub.startCol * CELL_SIZE - scrollX
+            const sx1 = sx0 + sub.count * CELL_SIZE
+            if (sx1 < ROW_LABEL_WIDTH || sx0 > viewW) continue
+
+            const subCenterX = (sx0 + sx1) / 2
+            ctx.font = '10px sans-serif'
+            ctx.fillStyle = getCategoryColor(span.name, isDark)
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            ctx.fillText(sub.name, subCenterX, subRowY)
+
+            // Vertical separator between subcategories (except at category boundary)
+            if (sub.startCol > span.startCol) {
+              ctx.strokeStyle = separatorColor
+              ctx.lineWidth = 0.5
+              ctx.beginPath()
+              ctx.moveTo(sx0, ROW_HEIGHT)
+              ctx.lineTo(sx0, headerHeight)
+              ctx.stroke()
+            }
+          }
+        }
+      }
     }
     ctx.restore()
 
-    // Draw row labels (clipped to below header)
+    // Draw row labels
     ctx.save()
     ctx.beginPath()
-    ctx.rect(0, HEADER_HEIGHT, ROW_LABEL_WIDTH, viewH - HEADER_HEIGHT)
+    ctx.rect(0, headerHeight, ROW_LABEL_WIDTH, viewH - headerHeight)
     ctx.clip()
     ctx.fillStyle = textColor
     ctx.font = '10px monospace'
     ctx.textAlign = 'right'
     ctx.textBaseline = 'middle'
     for (let row = firstRow; row <= lastRow; row++) {
-      const cy = HEADER_HEIGHT + row * CELL_SIZE - scrollY + CELL_SIZE / 2
+      const cy = headerHeight + row * CELL_SIZE - scrollY + CELL_SIZE / 2
       ctx.fillText(String(filteredTests[row].index + 1), ROW_LABEL_WIDTH - 6, cy)
     }
     ctx.restore()
@@ -235,23 +333,17 @@ function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight
     ctx.font = '11px sans-serif'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'bottom'
-    ctx.fillText('#', 6, HEADER_HEIGHT - 4)
-  }, [filteredTests, opcodes, colorGrid, isDark])
+    ctx.fillText('#', 6, headerHeight - 4)
+  }, [filteredTests, columns, colorGrid, isDark, headerHeight, expanded, categorySpans])
 
-  // Draw on mount and whenever deps change
   useEffect(() => {
     draw()
   }, [draw])
 
-  // Redraw on scroll
   const handleScroll = useCallback(() => {
-    const container = containerRef.current
-    if (!container) return
-    scrollRef.current = { x: container.scrollLeft, y: container.scrollTop }
     requestAnimationFrame(draw)
   }, [draw])
 
-  // Redraw on resize
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -276,20 +368,20 @@ function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight
       const my = e.clientY - rect.top + container.scrollTop
 
       const col = Math.floor((mx - ROW_LABEL_WIDTH) / CELL_SIZE)
-      const row = Math.floor((my - HEADER_HEIGHT) / CELL_SIZE)
+      const row = Math.floor((my - headerHeight) / CELL_SIZE)
 
-      if (col >= 0 && col < opcodes.length && row >= 0 && row < filteredTests.length) {
+      if (col >= 0 && col < columns.length && row >= 0 && row < filteredTests.length) {
         const prev = hoverRef.current
         if (!prev || prev.row !== row || prev.col !== col) {
           hoverRef.current = { row, col }
           scheduleRedraw()
         }
         const test = filteredTests[row].test
-        const op = opcodes[col]
-        const count = test.eest?.info?.opcode_count?.[op] ?? 0
+        const colName = columns[col]
+        const count = getCount(test, colName)
         if (count > 0) {
           setTooltip({
-            text: `${test.name}\n${op}: ${count.toLocaleString()}`,
+            text: `${test.name}\n${colName}: ${count.toLocaleString()}`,
             x: e.clientX,
             y: e.clientY - 12,
           })
@@ -301,7 +393,7 @@ function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight
       }
       setTooltip(null)
     },
-    [filteredTests, opcodes, scheduleRedraw],
+    [filteredTests, columns, scheduleRedraw, headerHeight, getCount],
   )
 
   const handleMouseLeave = useCallback(() => {
@@ -316,13 +408,12 @@ function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight
     <div className="relative" style={maxHeight ? {} : { height: '100%' }}>
       <div
         ref={containerRef}
-        className="overflow-auto rounded-sm border border-gray-200 dark:border-gray-700"
+        className="overflow-auto rounded-xs border border-gray-200 dark:border-gray-700"
         style={maxHeight ? { maxHeight } : { height: '100%' }}
         onScroll={handleScroll}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       >
-        {/* Spacer to create scrollable area */}
         <div style={{ width: totalWidth, height: totalHeight, position: 'relative' }}>
           <canvas
             ref={canvasRef}
@@ -333,7 +424,7 @@ function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight
       </div>
       {tooltip && (
         <div
-          className="pointer-events-none fixed z-50 max-w-xs rounded-sm bg-gray-900 px-2 py-1 text-xs text-white shadow-sm dark:bg-gray-700"
+          className="pointer-events-none fixed z-50 max-w-xs rounded-xs bg-gray-900 px-2 py-1 text-xs text-white shadow-xs dark:bg-gray-700"
           style={{ left: tooltip.x, top: tooltip.y, transform: 'translate(-50%, -100%)' }}
         >
           {tooltip.text.split('\n').map((line, i) => (
@@ -348,6 +439,7 @@ function HeatmapCanvas({ filteredTests, opcodes, maxPerOpcode, isDark, maxHeight
 export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
   const [search, setSearch] = useState('')
   const [fullscreen, setFullscreen] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const [isDark] = useState(() => {
     if (typeof window === 'undefined') return false
     return document.documentElement.classList.contains('dark')
@@ -378,7 +470,7 @@ export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
     return testsWithOpcodes.filter((t) => t.test.name.toLowerCase().includes(q))
   }, [testsWithOpcodes, search])
 
-  const opcodes = useMemo(() => {
+  const allOpcodes = useMemo(() => {
     const set = new Set<string>()
     for (const { test } of testsWithOpcodes) {
       const counts = test.eest?.info?.opcode_count
@@ -388,21 +480,58 @@ export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
         }
       }
     }
-    return Array.from(set).sort()
+    return set
   }, [testsWithOpcodes])
 
-  const maxPerOpcode = useMemo(() => {
+  const grouped: GroupedResult = useMemo(() => getGroupedOpcodes(allOpcodes), [allOpcodes])
+
+  // Collapsed mode: category names as columns
+  const collapsedColumns = useMemo(() => {
+    return grouped.categorySpans.map((g) => g.name)
+  }, [grouped])
+
+  // Lookup: category name -> all opcodes in that category (for collapsed aggregation)
+  const categoryOpcodeMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const g of grouped.categorySpans) {
+      map.set(g.name, g.opcodes)
+    }
+    return map
+  }, [grouped])
+
+  const columns = expanded ? grouped.columns : collapsedColumns
+
+  const getCount = useCallback(
+    (test: SuiteTest, col: string): number => {
+      const counts = test.eest?.info?.opcode_count
+      if (!counts) return 0
+      if (expanded) {
+        return counts[col] ?? 0
+      }
+      // Collapsed: sum all opcodes in the category
+      const ops = categoryOpcodeMap.get(col)
+      if (!ops) return 0
+      let total = 0
+      for (const op of ops) {
+        total += counts[op] ?? 0
+      }
+      return total
+    },
+    [expanded, categoryOpcodeMap],
+  )
+
+  const maxPerColumn = useMemo(() => {
     const maxes: Record<string, number> = {}
-    for (const op of opcodes) {
+    for (const col of columns) {
       let max = 0
       for (const { test } of filteredTests) {
-        const count = test.eest?.info?.opcode_count?.[op] ?? 0
+        const count = getCount(test, col)
         if (count > max) max = count
       }
-      maxes[op] = max
+      maxes[col] = max
     }
     return maxes
-  }, [opcodes, filteredTests])
+  }, [columns, filteredTests, getCount])
 
   if (testsWithOpcodes.length === 0) return null
 
@@ -412,7 +541,7 @@ export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
         <h3 className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">
           Opcode Heatmap
           <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-            ({filteredTests.length} tests, {opcodes.length} opcodes)
+            ({filteredTests.length} tests, {expanded ? grouped.columns.length + ' opcodes' : collapsedColumns.length + ' categories'})
           </span>
         </h3>
         <div className="flex items-center gap-2">
@@ -421,11 +550,26 @@ export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
             placeholder="Filter tests..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="rounded-sm border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+            className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
           />
           <button
+            onClick={() => setExpanded(!expanded)}
+            className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+            title={expanded ? 'Show categories' : 'Show all opcodes'}
+          >
+            {expanded ? (
+              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            ) : (
+              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+              </svg>
+            )}
+          </button>
+          <button
             onClick={() => setFullscreen(!fullscreen)}
-            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+            className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
             title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
             {fullscreen ? (
@@ -444,7 +588,15 @@ export function OpcodeHeatmap({ tests }: OpcodeHeatmapProps) {
     </div>
   )
 
-  const canvasProps = { filteredTests, opcodes, maxPerOpcode, isDark }
+  const canvasProps = {
+    filteredTests,
+    columns,
+    maxPerColumn,
+    isDark,
+    expanded,
+    categorySpans: grouped.categorySpans,
+    getCount,
+  }
 
   if (fullscreen) {
     return (

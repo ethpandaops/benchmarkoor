@@ -6,6 +6,7 @@ import { Pagination } from '@/components/shared/Pagination'
 import { Spinner } from '@/components/shared/Spinner'
 import { Badge } from '@/components/shared/Badge'
 import { Modal } from '@/components/shared/Modal'
+import { getOpcodeCategory, getCategoryColor } from '@/utils/opcodeCategories'
 
 export type OpcodeSortMode = 'name' | 'count'
 
@@ -231,15 +232,20 @@ function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test: Suite
                   ? ([a], [b]) => a.localeCompare(b)
                   : ([, a], [, b]) => b - a
                 )
-                .map(([opcode, count]) => (
-                  <span
-                    key={opcode}
-                    className="inline-flex items-center gap-1 rounded-sm bg-gray-100 px-2 py-0.5 font-mono text-xs/5 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
-                  >
-                    {opcode}
-                    <span className="text-gray-500 dark:text-gray-400">{count}</span>
-                  </span>
-                ))}
+                .map(([opcode, count]) => {
+                  const category = getOpcodeCategory(opcode)
+                  return (
+                    <span
+                      key={opcode}
+                      title={category}
+                      className="inline-flex items-center gap-1 rounded-xs bg-gray-100 px-2 py-0.5 font-mono text-xs/5 dark:bg-gray-700"
+                      style={{ color: getCategoryColor(category, document.documentElement.classList.contains('dark')) }}
+                    >
+                      {opcode}
+                      <span className="opacity-60">{count}</span>
+                    </span>
+                  )
+                })}
             </div>
           </div>
         )}
