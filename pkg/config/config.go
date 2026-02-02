@@ -31,6 +31,9 @@ const (
 	// DefaultDropCachesPath is the default path to the Linux drop_caches file.
 	DefaultDropCachesPath = "/proc/sys/vm/drop_caches"
 
+	// LogTimestampFormat is the UTC timestamp format for log lines.
+	LogTimestampFormat = "2006-01-02T15:04:05.000Z"
+
 	// RollbackStrategyNone disables rollback after tests.
 	RollbackStrategyNone = "none"
 

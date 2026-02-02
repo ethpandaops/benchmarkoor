@@ -289,7 +289,7 @@ client:
   config:
     jwt: "5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae"
     drop_memory_caches: "disabled"
-    rollback_strategy: "none"  # or "rpc-debug-setHead"
+    rollback_strategy: "rpc-debug-setHead"  # or "none"
     resource_limits:
       cpuset_count: 4
       memory: "16g"
@@ -303,7 +303,7 @@ client:
 |--------|------|---------|-------------|
 | `jwt` | string | `5a64f1...` | JWT secret for Engine API authentication |
 | `drop_memory_caches` | string | `disabled` | When to drop Linux memory caches (see below) |
-| `rollback_strategy` | string | `none` | Rollback strategy after each test (see below) |
+| `rollback_strategy` | string | `rpc-debug-setHead` | Rollback strategy after each test (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 

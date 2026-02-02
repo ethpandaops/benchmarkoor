@@ -1027,7 +1027,7 @@ func (r *runner) runContainerLifecycle(
 			result, execErr = r.runTestsWithContainerStrategy(
 				ctx, params, spec, containerID, containerIP,
 				rollbackStrategy, dropMemoryCaches, dropCachesPath,
-				runResultsDir, logCancel, benchmarkoorLogFile,
+				runResultsDir, &logCancel, benchmarkoorLogFile,
 				&localCleanupFuncs, localCleanupStarted,
 			)
 		} else {
@@ -1138,7 +1138,7 @@ func (r *runner) runTestsWithContainerStrategy(
 	dropMemoryCaches string,
 	dropCachesPath string,
 	resultsDir string,
-	logCancel context.CancelFunc,
+	logCancel *context.CancelFunc,
 	benchmarkoorLog *os.File,
 	cleanupFuncs *[]func(),
 	cleanupStarted chan struct{},
@@ -1171,7 +1171,7 @@ func (r *runner) runTestsWithContainerStrategy(
 	for i, test := range tests {
 		select {
 		case <-ctx.Done():
-			logCancel()
+			(*logCancel)()
 			combined.TotalDuration = time.Since(startTime)
 
 			return combined, ctx.Err()
@@ -1189,7 +1189,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			testLog.Info("Recreating container for next test")
 
 			// Cancel previous log streaming.
-			logCancel()
+			(*logCancel)()
 
 			// Stop and remove the current container.
 			if err := r.docker.StopContainer(
@@ -1270,7 +1270,9 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			// Start fresh log streaming.
 			var logCtx context.Context
-			logCtx, logCancel = context.WithCancel(ctx)
+			var newLogCancel context.CancelFunc
+			logCtx, newLogCancel = context.WithCancel(ctx)
+			*logCancel = newLogCancel
 
 			r.wg.Add(1)
 
@@ -1298,7 +1300,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			// Start the new container.
 			if err := r.docker.StartContainer(ctx, newID); err != nil {
-				logCancel()
+				(*logCancel)()
 				combined.TotalDuration = time.Since(startTime)
 
 				return combined, fmt.Errorf("starting container for test %d: %w", i, err)
@@ -1309,7 +1311,7 @@ func (r *runner) runTestsWithContainerStrategy(
 				ctx, newID, r.cfg.DockerNetwork,
 			)
 			if err != nil {
-				logCancel()
+				(*logCancel)()
 				combined.TotalDuration = time.Since(startTime)
 
 				return combined, fmt.Errorf("getting container IP for test %d: %w", i, err)
@@ -1321,7 +1323,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			if _, err := r.waitForRPC(
 				ctx, currentContainerIP, spec.RPCPort(),
 			); err != nil {
-				logCancel()
+				(*logCancel)()
 				combined.TotalDuration = time.Since(startTime)
 
 				return combined, fmt.Errorf("waiting for RPC on test %d: %w", i, err)
@@ -1370,7 +1372,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			combined.ContainerDied = true
 			combined.TotalDuration = time.Since(startTime)
 
-			logCancel()
+			(*logCancel)()
 
 			return combined, nil
 		}
@@ -1378,7 +1380,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 	combined.TotalDuration = time.Since(startTime)
 
-	logCancel()
+	(*logCancel)()
 
 	return combined, nil
 }
@@ -1796,9 +1798,6 @@ func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uin
 	return blockNum, rpcResp.Result.Hash, nil
 }
 
-// logTimestampFormat is the UTC nanosecond timestamp format for log lines.
-const logTimestampFormat = "2006-01-02T15:04:05.000Z"
-
 // prefixedWriter adds a prefix to each line written.
 // If prefixFn is set, it is called per line to generate the prefix dynamically.
 // Otherwise, the static prefix field is used.
@@ -1848,7 +1847,7 @@ func (w *prefixedWriter) Write(p []byte) (n int, err error) {
 // for client container logs: "🟣 $TIMESTAMP CLIE | $clientName | ".
 func clientLogPrefix(clientName string) func() string {
 	return func() string {
-		ts := time.Now().UTC().Format(logTimestampFormat)
+		ts := time.Now().UTC().Format(config.LogTimestampFormat)
 
 		return fmt.Sprintf("🟣 %s CLIE | %s | ", ts, clientName)
 	}

@@ -7,11 +7,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
-
-const logTimestampFormat = "2006-01-02T15:04:05.000Z"
 
 // utcFormatter wraps a logrus formatter and converts timestamps to UTC.
 type utcFormatter struct {
@@ -57,7 +56,7 @@ var shortLevel = map[logrus.Level]levelLabel{
 }
 
 func (f *consistentFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	ts := entry.Time.UTC().Format(logTimestampFormat)
+	ts := entry.Time.UTC().Format(config.LogTimestampFormat)
 	lbl := shortLevel[entry.Level]
 	level := lbl.color + lbl.text + colorReset
 
@@ -103,7 +102,7 @@ func main() {
 	log.SetFormatter(&utcFormatter{
 		formatter: &logrus.TextFormatter{
 			FullTimestamp:   true,
-			TimestampFormat: "2006-01-02T15:04:05.000Z",
+			TimestampFormat: config.LogTimestampFormat,
 		},
 	})
 
