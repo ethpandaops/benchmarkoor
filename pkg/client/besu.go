@@ -85,3 +85,10 @@ func (s *besuSpec) DefaultEnvironment() map[string]string {
 		"BESU_USER_NAME": "root",
 	}
 }
+
+func (s *besuSpec) RPCRollbackSpec() *RPCRollbackSpec {
+	return &RPCRollbackSpec{
+		Method:    RollbackMethodSetHeadHex,
+		RPCMethod: "debug_setHead",
+	}
+}

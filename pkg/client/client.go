@@ -17,6 +17,26 @@ const (
 	ClientReth       ClientType = "reth"
 )
 
+// RollbackMethodType identifies how a client performs state rollback.
+type RollbackMethodType string
+
+const (
+	// RollbackMethodSetHeadHex uses debug_setHead with a hex string param (Geth, Besu).
+	RollbackMethodSetHeadHex RollbackMethodType = "debug_setHead_hex"
+
+	// RollbackMethodSetHeadInt uses debug_setHead with a raw integer param (Reth).
+	RollbackMethodSetHeadInt RollbackMethodType = "debug_setHead_int"
+
+	// RollbackMethodResetHeadHash uses debug_resetHead with a block hash param (Nethermind).
+	RollbackMethodResetHeadHash RollbackMethodType = "debug_resetHead_hash"
+)
+
+// RPCRollbackSpec describes a client's rollback RPC method and parameter format.
+type RPCRollbackSpec struct {
+	Method    RollbackMethodType
+	RPCMethod string // e.g. "debug_setHead", "debug_resetHead"
+}
+
 // Spec provides client-specific container configuration.
 type Spec interface {
 	// Type returns the client type.
@@ -58,6 +78,10 @@ type Spec interface {
 
 	// DefaultEnvironment returns default environment variables for the client.
 	DefaultEnvironment() map[string]string
+
+	// RPCRollbackSpec returns the client's rollback RPC method and parameter format.
+	// Returns nil if the client does not support rollback.
+	RPCRollbackSpec() *RPCRollbackSpec
 }
 
 // Registry manages client specifications.

@@ -75,3 +75,7 @@ func (s *nimbusSpec) MetricsPort() int {
 func (s *nimbusSpec) DefaultEnvironment() map[string]string {
 	return nil
 }
+
+func (s *nimbusSpec) RPCRollbackSpec() *RPCRollbackSpec {
+	return nil
+}

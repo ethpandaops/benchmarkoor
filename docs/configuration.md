@@ -324,9 +324,31 @@ Controls whether the client state is rolled back after each test. This is useful
 | Value | Description |
 |-------|-------------|
 | `none` | Do not rollback (default) |
-| `rpc-debug-setHead` | Capture block number via `eth_blockNumber` before each test, then rollback via `debug_setHead` after the test completes. Requires the client's RPC endpoint to support `debug_setHead` |
+| `rpc-debug-setHead` | Capture block info before each test, then rollback via a client-specific debug RPC after the test completes |
 
-When using `rpc-method`, the rollback happens after the cleanup step. If the rollback fails or the resulting block number doesn't match the captured one, a warning is logged but the test is not marked as failed.
+When `rpc-debug-setHead` is enabled, the following happens for each test:
+
+1. Before the test, `eth_getBlockByNumber("latest", false)` is called to capture the current block number and hash.
+2. The test (including setup and cleanup steps) runs normally.
+3. After the test, a client-specific rollback RPC call is made.
+4. The rollback is verified by calling `eth_getBlockByNumber("latest", false)` again and comparing the block number.
+
+If the rollback fails or the block number doesn't match, a warning is logged but the test is not marked as failed.
+
+##### Client-specific RPC calls
+
+Each client uses a different RPC method and parameter format for rollback:
+
+| Client | RPC Method | Parameter | Example payload |
+|--------|------------|-----------|-----------------|
+| Geth | `debug_setHead` | Hex block number | `{"method":"debug_setHead","params":["0x5"]}` |
+| Besu | `debug_setHead` | Hex block number | `{"method":"debug_setHead","params":["0x5"]}` |
+| Reth | `debug_setHead` | Integer block number | `{"method":"debug_setHead","params":[5]}` |
+| Nethermind | `debug_resetHead` | Block hash | `{"method":"debug_resetHead","params":["0xabc..."]}` |
+| Erigon | N/A | N/A | Not supported |
+| Nimbus | N/A | N/A | Not supported |
+
+For clients that don't support rollback (Erigon, Nimbus), a warning is logged and the rollback step is skipped.
 
 ### Data Directories
 

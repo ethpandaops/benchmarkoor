@@ -77,3 +77,10 @@ func (s *rethSpec) MetricsPort() int {
 func (s *rethSpec) DefaultEnvironment() map[string]string {
 	return nil
 }
+
+func (s *rethSpec) RPCRollbackSpec() *RPCRollbackSpec {
+	return &RPCRollbackSpec{
+		Method:    RollbackMethodSetHeadInt,
+		RPCMethod: "debug_setHead",
+	}
+}

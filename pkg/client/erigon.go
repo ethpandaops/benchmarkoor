@@ -87,3 +87,7 @@ func (s *erigonSpec) MetricsPort() int {
 func (s *erigonSpec) DefaultEnvironment() map[string]string {
 	return nil
 }
+
+func (s *erigonSpec) RPCRollbackSpec() *RPCRollbackSpec {
+	return nil
+}

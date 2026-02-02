@@ -82,3 +82,10 @@ func (s *nethermindSpec) MetricsPort() int {
 func (s *nethermindSpec) DefaultEnvironment() map[string]string {
 	return nil
 }
+
+func (s *nethermindSpec) RPCRollbackSpec() *RPCRollbackSpec {
+	return &RPCRollbackSpec{
+		Method:    RollbackMethodResetHeadHash,
+		RPCMethod: "debug_resetHead",
+	}
+}
