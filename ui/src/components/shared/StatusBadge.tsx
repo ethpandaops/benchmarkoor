@@ -50,6 +50,9 @@ export function StatusBadge({ status, showCompleted = false, compact = false, cl
   }
 
   const config = statusConfig[status]
+  if (!config) {
+    return null
+  }
 
   if (compact) {
     return (
@@ -93,6 +96,9 @@ export function StatusAlert({ status, terminationReason, containerExitCode }: St
   }
 
   const config = statusConfig[status]
+  if (!config) {
+    return null
+  }
 
   const alertClasses = {
     container_died: 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20',
