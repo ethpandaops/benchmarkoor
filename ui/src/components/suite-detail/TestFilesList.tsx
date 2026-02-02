@@ -170,7 +170,7 @@ function SearchIcon({ className }: { className?: string }) {
 }
 
 // Component for displaying EEST fixture info
-function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test: SuiteTest; opcodeSort: OpcodeSortMode; onOpcodeSortChange: (sort: OpcodeSortMode) => void }) {
+export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test: SuiteTest; opcodeSort: OpcodeSortMode; onOpcodeSortChange: (sort: OpcodeSortMode) => void }) {
   const info = test.eest?.info
   if (!info) return null
 
