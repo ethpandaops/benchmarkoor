@@ -617,7 +617,7 @@ var validRollbackStrategies = map[string]bool{
 
 // GetRollbackStrategy returns the rollback_strategy setting for an instance.
 // Instance-level setting takes precedence over global default.
-// Returns "none" if neither is set.
+// Returns "rpc-debug-setHead" if neither is set.
 func (c *Config) GetRollbackStrategy(instance *ClientInstance) string {
 	if instance.RollbackStrategy != "" {
 		return instance.RollbackStrategy
@@ -627,7 +627,7 @@ func (c *Config) GetRollbackStrategy(instance *ClientInstance) string {
 		return c.Client.Config.RollbackStrategy
 	}
 
-	return RollbackStrategyNone
+	return RollbackStrategyRPCDebugSetHead
 }
 
 // GetDropCachesPath returns the path to the drop_caches file.
