@@ -326,7 +326,6 @@ Controls whether the client state is rolled back after each test. This is useful
 | `none` | Do not rollback (default) |
 | `rpc-debug-setHead` | Capture block info before each test, then rollback via a client-specific debug RPC after the test completes |
 | `container-recreate` | Stop and remove the container after each test, then create and start a fresh one. The data volume/datadir persists between tests |
-| `container-checkpoint` | Create a CRIU checkpoint after initial RPC readiness, then restore from it before each test. Requires Docker experimental mode and CRIU installed on the host |
 
 ##### `rpc-debug-setHead`
 
@@ -365,18 +364,6 @@ When `container-recreate` is enabled, the runner manages the per-test loop:
 
 This strategy works with all clients since it doesn't require any client-specific RPC support.
 
-##### `container-checkpoint`
-
-When `container-checkpoint` is enabled:
-
-1. After the initial RPC readiness and wait period, a CRIU checkpoint is created (this stops the container).
-2. Before each test (including the first), the container is restored from the checkpoint.
-3. The runner waits for the RPC endpoint to become ready before running the test.
-4. After all tests, the checkpoint is cleaned up.
-
-**Requirements:**
-- Docker must be running with experimental mode enabled (`"experimental": true` in `/etc/docker/daemon.json`)
-- CRIU must be installed on the host system (`apt install criu` on Debian/Ubuntu)
 
 ### Data Directories
 

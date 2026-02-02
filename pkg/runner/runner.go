@@ -128,6 +128,7 @@ type ResolvedInstance struct {
 	GenesisGroups    map[string]string       `json:"genesis_groups,omitempty"`
 	DataDir          *config.DataDirConfig   `json:"datadir,omitempty"`
 	ClientVersion    string                  `json:"client_version,omitempty"`
+	RollbackStrategy string                  `json:"rollback_strategy,omitempty"`
 	DropMemoryCaches string                  `json:"drop_memory_caches,omitempty"`
 	ResourceLimits   *ResolvedResourceLimits `json:"resource_limits,omitempty"`
 }
@@ -761,17 +762,23 @@ func (r *runner) runContainerLifecycle(
 		Timestamp: params.RunTimestamp,
 		System:    getSystemInfo(),
 		Instance: &ResolvedInstance{
-			ID:               instance.ID,
-			Client:           instance.Client,
-			Image:            imageName,
-			ImageSHA256:      imageDigest,
-			Entrypoint:       instance.Entrypoint,
-			Command:          cmd,
-			ExtraArgs:        instance.ExtraArgs,
-			PullPolicy:       instance.PullPolicy,
-			Restart:          instance.Restart,
-			Environment:      env,
-			DataDir:          datadirCfg,
+			ID:          instance.ID,
+			Client:      instance.Client,
+			Image:       imageName,
+			ImageSHA256: imageDigest,
+			Entrypoint:  instance.Entrypoint,
+			Command:     cmd,
+			ExtraArgs:   instance.ExtraArgs,
+			PullPolicy:  instance.PullPolicy,
+			Restart:     instance.Restart,
+			Environment: env,
+			DataDir:     datadirCfg,
+			RollbackStrategy: func() string {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetRollbackStrategy(instance)
+				}
+				return ""
+			}(),
 			DropMemoryCaches: dropMemoryCaches,
 			ResourceLimits:   resolvedResourceLimits,
 		},
@@ -1002,8 +1009,7 @@ func (r *runner) runContainerLifecycle(
 			rollbackStrategy = r.cfg.FullConfig.GetRollbackStrategy(instance)
 		}
 
-		isRunnerLevel := rollbackStrategy == config.RollbackStrategyContainerRecreate ||
-			rollbackStrategy == config.RollbackStrategyContainerCheckpoint
+		isRunnerLevel := rollbackStrategy == config.RollbackStrategyContainerRecreate
 
 		var (
 			result  *executor.ExecutionResult
@@ -1156,27 +1162,6 @@ func (r *runner) runTestsWithContainerStrategy(
 	log.WithField("tests", len(tests)).Info(
 		"Running tests with container-level rollback strategy",
 	)
-
-	const checkpointName = "benchmarkoor-base"
-
-	// For container-checkpoint: create checkpoint (stops container).
-	if strategy == config.RollbackStrategyContainerCheckpoint {
-		log.Info("Creating CRIU checkpoint")
-
-		if err := r.docker.CheckpointCreate(
-			ctx, containerID, checkpointName,
-		); err != nil {
-			return nil, fmt.Errorf("creating checkpoint: %w", err)
-		}
-
-		defer func() {
-			if delErr := r.docker.CheckpointDelete(
-				context.Background(), containerID, checkpointName,
-			); delErr != nil {
-				log.WithError(delErr).Warn("Failed to delete checkpoint")
-			}
-		}()
-	}
 
 	combined := &executor.ExecutionResult{}
 	startTime := time.Now()
@@ -1338,89 +1323,6 @@ func (r *runner) runTestsWithContainerStrategy(
 				return combined, fmt.Errorf("waiting for RPC on test %d: %w", i, err)
 			}
 
-		case strategy == config.RollbackStrategyContainerCheckpoint:
-			// For checkpoint, every test (including first) starts from checkpoint.
-			if i > 0 {
-				testLog.Info("Stopping container for checkpoint restore")
-
-				if err := r.docker.StopContainer(
-					ctx, currentContainerID,
-				); err != nil {
-					combined.TotalDuration = time.Since(startTime)
-
-					return combined, fmt.Errorf(
-						"stopping container for checkpoint restore on test %d: %w", i, err,
-					)
-				}
-			}
-
-			// Cancel previous log streaming before restore.
-			logCancel()
-
-			testLog.Info("Restoring from checkpoint")
-
-			if err := r.docker.StartFromCheckpoint(
-				ctx, currentContainerID, checkpointName,
-			); err != nil {
-				combined.TotalDuration = time.Since(startTime)
-
-				return combined, fmt.Errorf(
-					"restoring from checkpoint for test %d: %w", i, err,
-				)
-			}
-
-			// Restart log streaming.
-			var logCtx context.Context
-			logCtx, logCancel = context.WithCancel(ctx)
-
-			r.wg.Add(1)
-
-			go func() {
-				defer r.wg.Done()
-
-				if err := r.streamLogs(
-					logCtx, params.Instance.ID, currentContainerID,
-					filepath.Join(resultsDir, "container.log"),
-					benchmarkoorLog,
-					&containerLogInfo{
-						Name:             params.ContainerSpec.Name,
-						ContainerID:      currentContainerID,
-						Image:            params.ContainerSpec.Image,
-						GenesisGroupHash: params.GenesisGroupHash,
-					},
-				); err != nil {
-					select {
-					case <-cleanupStarted:
-					default:
-						testLog.WithError(err).Debug("Log streaming ended")
-					}
-				}
-			}()
-
-			// Re-fetch container IP (may change after checkpoint restore).
-			newIP, err := r.docker.GetContainerIP(
-				ctx, currentContainerID, r.cfg.DockerNetwork,
-			)
-			if err != nil {
-				combined.TotalDuration = time.Since(startTime)
-
-				return combined, fmt.Errorf(
-					"getting container IP after checkpoint restore on test %d: %w", i, err,
-				)
-			}
-
-			currentContainerIP = newIP
-
-			// Wait for RPC to be ready.
-			if _, err := r.waitForRPC(
-				ctx, currentContainerIP, spec.RPCPort(),
-			); err != nil {
-				combined.TotalDuration = time.Since(startTime)
-
-				return combined, fmt.Errorf(
-					"waiting for RPC after checkpoint restore on test %d: %w", i, err,
-				)
-			}
 		}
 
 		testLog.Info("Executing test")

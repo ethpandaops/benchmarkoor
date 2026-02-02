@@ -40,10 +40,6 @@ const (
 	// RollbackStrategyContainerRecreate recreates the container between tests.
 	// The data volume persists, so the client restarts from the same datadir.
 	RollbackStrategyContainerRecreate = "container-recreate"
-
-	// RollbackStrategyContainerCheckpoint uses CRIU checkpoints to restore
-	// container state between tests. Requires Docker experimental mode and CRIU.
-	RollbackStrategyContainerCheckpoint = "container-checkpoint"
 )
 
 // Config is the root configuration for benchmarkoor.
@@ -613,11 +609,10 @@ func (c *Config) GetDropMemoryCaches(instance *ClientInstance) string {
 
 // validRollbackStrategies contains valid values for rollback_strategy.
 var validRollbackStrategies = map[string]bool{
-	"":                                  true, // Unset (defaults to "none")
-	RollbackStrategyNone:                true, // Explicitly disabled
-	RollbackStrategyRPCDebugSetHead:     true, // Rollback via debug_setHead RPC
-	RollbackStrategyContainerRecreate:   true, // Recreate container between tests
-	RollbackStrategyContainerCheckpoint: true, // CRIU checkpoint/restore between tests
+	"":                                true, // Unset (defaults to "none")
+	RollbackStrategyNone:              true, // Explicitly disabled
+	RollbackStrategyRPCDebugSetHead:   true, // Rollback via debug_setHead RPC
+	RollbackStrategyContainerRecreate: true, // Recreate container between tests
 }
 
 // GetRollbackStrategy returns the rollback_strategy setting for an instance.
@@ -707,12 +702,11 @@ func (c *Config) validateRollbackStrategy() error {
 
 		if !validRollbackStrategies[value] {
 			return fmt.Errorf(
-				"instance %q: invalid rollback_strategy value %q (must be %q, %q, %q, or %q)",
+				"instance %q: invalid rollback_strategy value %q (must be %q, %q, or %q)",
 				instance.ID, value,
 				RollbackStrategyNone,
 				RollbackStrategyRPCDebugSetHead,
 				RollbackStrategyContainerRecreate,
-				RollbackStrategyContainerCheckpoint,
 			)
 		}
 	}
