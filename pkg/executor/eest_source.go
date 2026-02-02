@@ -672,7 +672,15 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 			return err
 		}
 
-		if info.IsDir() || !strings.HasSuffix(path, ".json") {
+		if info.IsDir() {
+			if info.Name() == "pre_alloc" {
+				return filepath.SkipDir
+			}
+
+			return nil
+		}
+
+		if !strings.HasSuffix(path, ".json") {
 			return nil
 		}
 
