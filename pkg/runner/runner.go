@@ -1171,6 +1171,7 @@ func (r *runner) runTestsWithContainerStrategy(
 	for i, test := range tests {
 		select {
 		case <-ctx.Done():
+			logCancel()
 			combined.TotalDuration = time.Since(startTime)
 
 			return combined, ctx.Err()
@@ -1297,6 +1298,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			// Start the new container.
 			if err := r.docker.StartContainer(ctx, newID); err != nil {
+				logCancel()
 				combined.TotalDuration = time.Since(startTime)
 
 				return combined, fmt.Errorf("starting container for test %d: %w", i, err)
@@ -1307,6 +1309,7 @@ func (r *runner) runTestsWithContainerStrategy(
 				ctx, newID, r.cfg.DockerNetwork,
 			)
 			if err != nil {
+				logCancel()
 				combined.TotalDuration = time.Since(startTime)
 
 				return combined, fmt.Errorf("getting container IP for test %d: %w", i, err)
@@ -1318,6 +1321,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			if _, err := r.waitForRPC(
 				ctx, currentContainerIP, spec.RPCPort(),
 			); err != nil {
+				logCancel()
 				combined.TotalDuration = time.Since(startTime)
 
 				return combined, fmt.Errorf("waiting for RPC on test %d: %w", i, err)
@@ -1366,11 +1370,15 @@ func (r *runner) runTestsWithContainerStrategy(
 			combined.ContainerDied = true
 			combined.TotalDuration = time.Since(startTime)
 
+			logCancel()
+
 			return combined, nil
 		}
 	}
 
 	combined.TotalDuration = time.Since(startTime)
+
+	logCancel()
 
 	return combined, nil
 }
