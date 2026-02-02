@@ -289,6 +289,7 @@ client:
   config:
     jwt: "5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae"
     drop_memory_caches: "disabled"
+    rollback_strategy: "rpc-debug-setHead"  # or "none"
     resource_limits:
       cpuset_count: 4
       memory: "16g"
@@ -302,6 +303,7 @@ client:
 |--------|------|---------|-------------|
 | `jwt` | string | `5a64f1...` | JWT secret for Engine API authentication |
 | `drop_memory_caches` | string | `disabled` | When to drop Linux memory caches (see below) |
+| `rollback_strategy` | string | `rpc-debug-setHead` | Rollback strategy after each test (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
@@ -314,6 +316,54 @@ This Linux-only feature (requires root) drops page cache, dentries, and inodes b
 | `disabled` | Do not drop caches (default) |
 | `tests` | Drop caches between tests |
 | `steps` | Drop caches between all steps (setup, test, cleanup) |
+
+#### Rollback Strategy
+
+Controls whether the client state is rolled back after each test. This is useful for stateful benchmarks where tests modify chain state and you want each test to start from the same block.
+
+| Value | Description |
+|-------|-------------|
+| `none` | Do not rollback |
+| `rpc-debug-setHead` | Capture block info before each test, then rollback via a client-specific debug RPC after the test completes (default) |
+| `container-recreate` | Stop and remove the container after each test, then create and start a fresh one. The data volume/datadir persists between tests |
+
+##### `rpc-debug-setHead`
+
+When `rpc-debug-setHead` is enabled, the following happens for each test:
+
+1. Before the test, `eth_getBlockByNumber("latest", false)` is called to capture the current block number and hash.
+2. The test (including setup and cleanup steps) runs normally.
+3. After the test, a client-specific rollback RPC call is made.
+4. The rollback is verified by calling `eth_getBlockByNumber("latest", false)` again and comparing the block number.
+
+If the rollback fails or the block number doesn't match, a warning is logged but the test is not marked as failed.
+
+##### Client-specific RPC calls
+
+Each client uses a different RPC method and parameter format for rollback:
+
+| Client | RPC Method | Parameter | Example payload |
+|--------|------------|-----------|-----------------|
+| Geth | `debug_setHead` | Hex block number | `{"method":"debug_setHead","params":["0x5"]}` |
+| Besu | `debug_setHead` | Hex block number | `{"method":"debug_setHead","params":["0x5"]}` |
+| Reth | `debug_setHead` | Integer block number | `{"method":"debug_setHead","params":[5]}` |
+| Nethermind | `debug_resetHead` | Block hash | `{"method":"debug_resetHead","params":["0xabc..."]}` |
+| Erigon | N/A | N/A | Not supported |
+| Nimbus | N/A | N/A | Not supported |
+
+For clients that don't support rollback (Erigon, Nimbus), a warning is logged and the rollback step is skipped.
+
+##### `container-recreate`
+
+When `container-recreate` is enabled, the runner manages the per-test loop:
+
+1. The first test runs against the original container.
+2. After each test, the container is stopped and removed.
+3. A new container is created and started with the same configuration. The data volume/datadir persists.
+4. The runner waits for the RPC endpoint to become ready and the configured wait period before running the next test.
+
+This strategy works with all clients since it doesn't require any client-specific RPC support.
+
 
 ### Data Directories
 
@@ -412,6 +462,7 @@ client:
 | `genesis` | string | No | From `client.config.genesis` | Override genesis file URL |
 | `datadir` | object | No | From `client.datadirs` | Instance-specific data directory config |
 | `drop_memory_caches` | string | No | From `client.config` | Instance-specific cache drop setting |
+| `rollback_strategy` | string | No | From `client.config` | Instance-specific rollback strategy |
 | `resource_limits` | object | No | From `client.config` | Instance-specific resource limits |
 
 ## Resource Limits

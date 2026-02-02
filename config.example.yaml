@@ -106,6 +106,9 @@ client:
     # Optional: Drop memory caches during benchmark execution (Linux only, requires root).
     # Values: "disabled" (default), "tests" (between tests), "steps" (between setup/test/cleanup steps)
     # drop_memory_caches: "disabled"
+    # Optional: Rollback strategy to reset client state after each test.
+    # Values: "none", "rpc-debug-setHead" (default, capture block number before test, rollback via debug_setHead after)
+    # rollback_strategy: "rpc-debug-setHead"
     # Optional: Container resource limits (applied to all instances by default).
     # resource_limits:
     #   # CPU pinning - use ONE of the following:
@@ -182,6 +185,7 @@ client:
       #   source_dir: ${DATA_SNAPSHOTS_DIR}/geth
       #   container_dir: /data
       # drop_memory_caches: "steps"  # Instance-level override (optional)
+      # rollback_strategy: "rpc-debug-setHead"  # Instance-level override (optional)
       # resource_limits:  # Instance-level override (optional)
       #   cpuset_count: 2  # Override global with fewer CPUs
       #   memory: "8g"     # Override global memory limit

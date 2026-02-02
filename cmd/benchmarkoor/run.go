@@ -60,12 +60,9 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parsing results_owner: %w", err)
 	}
 
-	// Add blue emoji prefix to benchmarkoor logs when client logs go to stdout.
+	// Use consistent log format when client logs go to stdout.
 	if cfg.Global.ClientLogsToStdout {
-		log.SetFormatter(&prefixedFormatter{
-			prefix:    "🔵 ",
-			formatter: log.Formatter,
-		})
+		log.SetFormatter(&consistentFormatter{prefix: "🔵"})
 	}
 
 	// Setup context with signal handling.

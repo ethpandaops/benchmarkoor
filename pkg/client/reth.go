@@ -25,7 +25,7 @@ func (s *rethSpec) DefaultCommand() []string {
 		"--full",
 		"--http",
 		"--http.addr=0.0.0.0",
-		"--http.api=web3,eth,net",
+		"--http.api=admin,debug,eth,net,trace,txpool,web3,rpc,reth,ots,flashbots,miner,mev",
 		"--http.port=8545",
 		"--ws",
 		"--ws.addr=0.0.0.0",
@@ -76,4 +76,11 @@ func (s *rethSpec) MetricsPort() int {
 
 func (s *rethSpec) DefaultEnvironment() map[string]string {
 	return nil
+}
+
+func (s *rethSpec) RPCRollbackSpec() *RPCRollbackSpec {
+	return &RPCRollbackSpec{
+		Method:    RollbackMethodSetHeadInt,
+		RPCMethod: "debug_setHead",
+	}
 }

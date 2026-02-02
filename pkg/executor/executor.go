@@ -10,10 +10,12 @@ import (
 	"net/http/httptrace"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/docker/docker/client"
+	clientpkg "github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
@@ -32,21 +34,27 @@ type Executor interface {
 	// GetSuiteHash returns the hash of the test suite.
 	GetSuiteHash() string
 
+	// GetTests returns the prepared test list. Returns nil if not yet prepared.
+	GetTests() []*TestWithSteps
+
 	// GetSource returns the underlying source, which can be used for genesis resolution.
 	GetSource() Source
 }
 
 // ExecuteOptions contains options for test execution.
 type ExecuteOptions struct {
-	EngineEndpoint   string
-	JWT              string
-	ResultsDir       string
-	Filter           string
-	ContainerID      string           // Container ID for stats collection.
-	DockerClient     *client.Client   // Docker client for fallback stats reader.
-	DropMemoryCaches string           // "tests", "steps", or "" (disabled).
-	DropCachesPath   string           // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
-	Tests            []*TestWithSteps // Optional subset of tests to run (nil = run all).
+	EngineEndpoint        string
+	JWT                   string
+	ResultsDir            string
+	Filter                string
+	ContainerID           string                     // Container ID for stats collection.
+	DockerClient          *client.Client             // Docker client for fallback stats reader.
+	DropMemoryCaches      string                     // "tests", "steps", or "" (disabled).
+	DropCachesPath        string                     // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
+	RollbackStrategy      string                     // "rpc-debug-setHead" or "" (disabled).
+	RPCEndpoint           string                     // RPC endpoint for rollback calls (e.g. http://host:port).
+	ClientRPCRollbackSpec *clientpkg.RPCRollbackSpec // Client-specific rollback method and param format.
+	Tests                 []*TestWithSteps           // Optional subset of tests to run (nil = run all).
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -180,6 +188,15 @@ func (e *executor) GetSuiteHash() string {
 	return e.suiteHash
 }
 
+// GetTests returns the prepared test list.
+func (e *executor) GetTests() []*TestWithSteps {
+	if e.prepared == nil {
+		return nil
+	}
+
+	return e.prepared.Tests
+}
+
 // GetSource returns the underlying source.
 func (e *executor) GetSource() Source {
 	return e.source
@@ -293,6 +310,26 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		log := e.log.WithField("test", test.Name)
 		log.Info("Running test")
 
+		// Capture block info for rollback before the test starts.
+		var rollbackInfo *blockInfo
+		if opts.RollbackStrategy == config.RollbackStrategyRPCDebugSetHead && opts.RPCEndpoint != "" {
+			if opts.ClientRPCRollbackSpec == nil {
+				log.Warn("Rollback enabled but not supported for this client, skipping")
+			} else {
+				var blockErr error
+
+				rollbackInfo, blockErr = e.getBlockInfo(ctx, opts.RPCEndpoint)
+				if blockErr != nil {
+					log.WithError(blockErr).Warn("Failed to capture block info for rollback")
+				} else {
+					log.WithFields(logrus.Fields{
+						"block_number": rollbackInfo.HexNumber,
+						"block_hash":   rollbackInfo.Hash,
+					}).Debug("Captured block info for rollback")
+				}
+			}
+		}
+
 		testPassed := true
 
 		// Run setup step if present.
@@ -380,6 +417,32 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 				// Write cleanup results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeCleanup, cleanupResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write cleanup results")
+				}
+			}
+		}
+
+		// Rollback to captured block after test completes.
+		if rollbackInfo != nil && opts.ClientRPCRollbackSpec != nil && opts.RPCEndpoint != "" {
+			log.WithFields(logrus.Fields{
+				"block_number": rollbackInfo.HexNumber,
+				"rpc_method":   opts.ClientRPCRollbackSpec.RPCMethod,
+			}).Info("Rolling back chain state")
+
+			if rbErr := e.rollback(ctx, opts.RPCEndpoint, opts.ClientRPCRollbackSpec, rollbackInfo); rbErr != nil {
+				log.WithError(rbErr).Warn("Failed to rollback chain state")
+			} else {
+				// Verify the rollback succeeded.
+				if current, verifyErr := e.getBlockInfo(ctx, opts.RPCEndpoint); verifyErr != nil {
+					log.WithError(verifyErr).Warn("Failed to verify rollback block number")
+				} else if current.HexNumber != rollbackInfo.HexNumber {
+					log.WithFields(logrus.Fields{
+						"expected": rollbackInfo.HexNumber,
+						"actual":   current.HexNumber,
+					}).Warn("Block number mismatch after rollback")
+				} else {
+					log.WithField("block_number", rollbackInfo.HexNumber).Info(
+						"Rollback verified successfully",
+					)
 				}
 			}
 		}
@@ -694,6 +757,148 @@ func (e *executor) dropMemoryCaches(path string) error {
 	}
 
 	e.log.Debug("Dropped memory caches")
+
+	return nil
+}
+
+// blockInfo holds the block number (hex) and hash for rollback purposes.
+type blockInfo struct {
+	HexNumber string // e.g. "0x5"
+	Hash      string // e.g. "0xabc..."
+}
+
+// getBlockInfo calls eth_getBlockByNumber("latest", false) on the RPC endpoint
+// and returns the block number (hex) and hash.
+func (e *executor) getBlockInfo(ctx context.Context, rpcEndpoint string) (*blockInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	payload := `{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}`
+
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, rpcEndpoint, strings.NewReader(payload),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	var rpcResp struct {
+		Result struct {
+			Number string `json:"number"`
+			Hash   string `json:"hash"`
+		} `json:"result"`
+	}
+
+	if err := json.Unmarshal(body, &rpcResp); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+
+	if rpcResp.Result.Number == "" {
+		return nil, fmt.Errorf("empty block number in response")
+	}
+
+	return &blockInfo{
+		HexNumber: rpcResp.Result.Number,
+		Hash:      rpcResp.Result.Hash,
+	}, nil
+}
+
+// rollback calls the client-specific rollback RPC method to revert chain state.
+func (e *executor) rollback(
+	ctx context.Context,
+	rpcEndpoint string,
+	spec *clientpkg.RPCRollbackSpec,
+	info *blockInfo,
+) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Build the params portion based on the rollback method type.
+	var payload string
+
+	switch spec.Method {
+	case clientpkg.RollbackMethodSetHeadHex:
+		// Param is a quoted hex string: "0x5"
+		payload = fmt.Sprintf(
+			`{"jsonrpc":"2.0","method":%q,"params":[%q],"id":1}`,
+			spec.RPCMethod, info.HexNumber,
+		)
+	case clientpkg.RollbackMethodSetHeadInt:
+		// Param is a raw integer: 5
+		blockNum, parseErr := strconv.ParseUint(
+			strings.TrimPrefix(info.HexNumber, "0x"), 16, 64,
+		)
+		if parseErr != nil {
+			return fmt.Errorf("parsing block number %q: %w", info.HexNumber, parseErr)
+		}
+
+		payload = fmt.Sprintf(
+			`{"jsonrpc":"2.0","method":%q,"params":[%d],"id":1}`,
+			spec.RPCMethod, blockNum,
+		)
+	case clientpkg.RollbackMethodResetHeadHash:
+		// Param is a block hash string: "0xabc..."
+		if info.Hash == "" {
+			return fmt.Errorf("block hash required for %s but not available", spec.RPCMethod)
+		}
+
+		payload = fmt.Sprintf(
+			`{"jsonrpc":"2.0","method":%q,"params":[%q],"id":1}`,
+			spec.RPCMethod, info.Hash,
+		)
+	default:
+		return fmt.Errorf("unsupported rollback method: %s", spec.Method)
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, rpcEndpoint, strings.NewReader(payload),
+	)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("executing request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
+
+	// Check for JSON-RPC error.
+	var rpcResp struct {
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal(body, &rpcResp); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+
+	if rpcResp.Error != nil {
+		return fmt.Errorf("%s error %d: %s",
+			spec.RPCMethod, rpcResp.Error.Code, rpcResp.Error.Message)
+	}
 
 	return nil
 }

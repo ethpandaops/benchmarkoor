@@ -335,7 +335,7 @@ func (m *manager) StreamLogs(ctx context.Context, containerID string, stdout, st
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
-		Timestamps: true,
+		Timestamps: false,
 	}
 
 	reader, err := m.client.ContainerLogs(ctx, containerID, opts)

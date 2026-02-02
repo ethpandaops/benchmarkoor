@@ -34,9 +34,6 @@ const (
 	// DefaultReadyTimeout is the default timeout for waiting for RPC to be ready.
 	DefaultReadyTimeout = 120 * time.Second
 
-	// DefaultReadyWaitAfter is the default wait time after RPC is ready.
-	DefaultReadyWaitAfter = 10 * time.Second
-
 	// DefaultHealthCheckInterval is the interval between health checks.
 	DefaultHealthCheckInterval = 1 * time.Second
 )
@@ -65,7 +62,6 @@ type Config struct {
 	TmpDataDir         string // Directory for temporary datadir copies (empty = system default)
 	TmpCacheDir        string // Directory for temporary cache files (empty = system default)
 	ReadyTimeout       time.Duration
-	ReadyWaitAfter     time.Duration
 	TestFilter         string
 	FullConfig         *config.Config // Full config for resolving per-instance settings
 }
@@ -132,6 +128,7 @@ type ResolvedInstance struct {
 	GenesisGroups    map[string]string       `json:"genesis_groups,omitempty"`
 	DataDir          *config.DataDirConfig   `json:"datadir,omitempty"`
 	ClientVersion    string                  `json:"client_version,omitempty"`
+	RollbackStrategy string                  `json:"rollback_strategy,omitempty"`
 	DropMemoryCaches string                  `json:"drop_memory_caches,omitempty"`
 	ResourceLimits   *ResolvedResourceLimits `json:"resource_limits,omitempty"`
 }
@@ -146,10 +143,6 @@ func NewRunner(
 ) Runner {
 	if cfg.ReadyTimeout == 0 {
 		cfg.ReadyTimeout = DefaultReadyTimeout
-	}
-
-	if cfg.ReadyWaitAfter == 0 {
-		cfg.ReadyWaitAfter = DefaultReadyWaitAfter
 	}
 
 	return &runner{
@@ -265,6 +258,9 @@ type containerRunParams struct {
 	GenesisGroups    map[string]string         // All genesis hash → path mappings (multi-genesis).
 	ImageName        string                    // Resolved image name (pulled once by caller).
 	ImageDigest      string                    // Image SHA256 digest (resolved once by caller).
+	ContainerSpec    *docker.ContainerSpec     // Saved for container-recreate strategy.
+	DataDirCfg       *config.DataDirConfig     // Resolved datadir config (nil if not using datadir).
+	UseDataDir       bool                      // Whether a pre-populated datadir is used.
 }
 
 // RunInstance runs a single client instance through its lifecycle.
@@ -667,12 +663,12 @@ func (r *runner) runContainerLifecycle(
 
 		var initStdout, initStderr io.Writer = initFile, initFile
 		if r.cfg.ClientLogsToStdout {
-			prefix := fmt.Sprintf("🟣 [%s-init] ", instance.ID)
+			pfxFn := clientLogPrefix(instance.ID + "-init")
 			stdoutPrefixWriter := &prefixedWriter{
-				prefix: prefix, writer: os.Stdout,
+				prefixFn: pfxFn, writer: os.Stdout,
 			}
 			logFilePrefixWriter := &prefixedWriter{
-				prefix: prefix, writer: benchmarkoorLogFile,
+				prefixFn: pfxFn, writer: benchmarkoorLogFile,
 			}
 			initStdout = io.MultiWriter(
 				initFile, stdoutPrefixWriter, logFilePrefixWriter,
@@ -766,17 +762,23 @@ func (r *runner) runContainerLifecycle(
 		Timestamp: params.RunTimestamp,
 		System:    getSystemInfo(),
 		Instance: &ResolvedInstance{
-			ID:               instance.ID,
-			Client:           instance.Client,
-			Image:            imageName,
-			ImageSHA256:      imageDigest,
-			Entrypoint:       instance.Entrypoint,
-			Command:          cmd,
-			ExtraArgs:        instance.ExtraArgs,
-			PullPolicy:       instance.PullPolicy,
-			Restart:          instance.Restart,
-			Environment:      env,
-			DataDir:          datadirCfg,
+			ID:          instance.ID,
+			Client:      instance.Client,
+			Image:       imageName,
+			ImageSHA256: imageDigest,
+			Entrypoint:  instance.Entrypoint,
+			Command:     cmd,
+			ExtraArgs:   instance.ExtraArgs,
+			PullPolicy:  instance.PullPolicy,
+			Restart:     instance.Restart,
+			Environment: env,
+			DataDir:     datadirCfg,
+			RollbackStrategy: func() string {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetRollbackStrategy(instance)
+				}
+				return ""
+			}(),
 			DropMemoryCaches: dropMemoryCaches,
 			ResourceLimits:   resolvedResourceLimits,
 		},
@@ -823,6 +825,11 @@ func (r *runner) runContainerLifecycle(
 			"benchmarkoor.managed-by": "benchmarkoor",
 		},
 	}
+
+	// Save container spec and datadir info for runner-level rollback strategies.
+	params.ContainerSpec = containerSpec
+	params.DataDirCfg = datadirCfg
+	params.UseDataDir = useDataDir
 
 	// Create container.
 	containerID, err := r.docker.CreateContainer(ctx, containerSpec)
@@ -987,22 +994,6 @@ func (r *runner) runContainerLifecycle(
 		)
 	}
 
-	// Wait additional time.
-	select {
-	case <-time.After(r.cfg.ReadyWaitAfter):
-		log.Info("Wait period complete")
-	case <-execCtx.Done():
-		mu.Lock()
-		died := containerDied
-		mu.Unlock()
-
-		if died {
-			log.Warn("Container died during wait period")
-		} else {
-			return ctx.Err()
-		}
-	}
-
 	// Execute tests if executor is configured.
 	if r.executor != nil {
 		log.Info("Starting test execution")
@@ -1012,24 +1003,68 @@ func (r *runner) runContainerLifecycle(
 			dropCachesPath = r.cfg.FullConfig.GetDropCachesPath()
 		}
 
-		execOpts := &executor.ExecuteOptions{
-			EngineEndpoint: fmt.Sprintf(
-				"http://%s:%d", containerIP, spec.EnginePort(),
-			),
-			JWT:              r.cfg.JWT,
-			ResultsDir:       runResultsDir,
-			Filter:           r.cfg.TestFilter,
-			ContainerID:      containerID,
-			DockerClient:     r.docker.GetClient(),
-			DropMemoryCaches: dropMemoryCaches,
-			DropCachesPath:   dropCachesPath,
-			Tests:            params.Tests,
+		// Resolve rollback strategy.
+		var rollbackStrategy string
+		if r.cfg.FullConfig != nil {
+			rollbackStrategy = r.cfg.FullConfig.GetRollbackStrategy(instance)
 		}
 
-		result, err := r.executor.ExecuteTests(execCtx, execOpts)
-		if err != nil {
-			log.WithError(err).Error("Test execution failed")
+		isRunnerLevel := rollbackStrategy == config.RollbackStrategyContainerRecreate
+
+		var (
+			result  *executor.ExecutionResult
+			execErr error
+		)
+
+		if isRunnerLevel {
+			// Runner-level strategies intentionally stop and restart
+			// containers. Signal cleanup-started so the death monitor
+			// treats container exits as expected (debug-level logging),
+			// and cancel execCtx so the monitor's execCancel() is a no-op.
+			localCleanupOnce.Do(func() { close(localCleanupStarted) })
+			execCancel()
+
+			result, execErr = r.runTestsWithContainerStrategy(
+				ctx, params, spec, containerID, containerIP,
+				rollbackStrategy, dropMemoryCaches, dropCachesPath,
+				runResultsDir, &logCancel, benchmarkoorLogFile,
+				&localCleanupFuncs, localCleanupStarted,
+			)
 		} else {
+			execOpts := &executor.ExecuteOptions{
+				EngineEndpoint: fmt.Sprintf(
+					"http://%s:%d", containerIP, spec.EnginePort(),
+				),
+				JWT:                   r.cfg.JWT,
+				ResultsDir:            runResultsDir,
+				Filter:                r.cfg.TestFilter,
+				ContainerID:           containerID,
+				DockerClient:          r.docker.GetClient(),
+				DropMemoryCaches:      dropMemoryCaches,
+				DropCachesPath:        dropCachesPath,
+				RollbackStrategy:      rollbackStrategy,
+				ClientRPCRollbackSpec: spec.RPCRollbackSpec(),
+				RPCEndpoint: fmt.Sprintf(
+					"http://%s:%d", containerIP, spec.RPCPort(),
+				),
+				Tests: params.Tests,
+			}
+
+			result, execErr = r.executor.ExecuteTests(execCtx, execOpts)
+		}
+
+		if execErr != nil {
+			log.WithError(execErr).Error("Test execution failed")
+
+			mu.Lock()
+			runConfig.Status = RunStatusFailed
+			runConfig.TerminationReason = fmt.Sprintf(
+				"test execution failed: %v", execErr,
+			)
+			mu.Unlock()
+		}
+
+		if result != nil {
 			log.WithFields(logrus.Fields{
 				"total":    result.TotalTests,
 				"passed":   result.Passed,
@@ -1041,7 +1076,15 @@ func (r *runner) runContainerLifecycle(
 				runConfig.SystemResourceCollectionMethod = result.StatsReaderType
 			}
 
-			if result.ContainerDied {
+			if isRunnerLevel {
+				// Runner-level strategies intentionally stop containers,
+				// which causes the death monitor to set containerDied.
+				// Reset it and trust only the strategy's result.
+				mu.Lock()
+				containerDied = result.ContainerDied
+				containerExitCode = nil
+				mu.Unlock()
+			} else if result.ContainerDied {
 				mu.Lock()
 				containerDied = true
 				mu.Unlock()
@@ -1049,7 +1092,7 @@ func (r *runner) runContainerLifecycle(
 		}
 	}
 
-	// Determine final run status.
+	// Determine final run status (don't overwrite if already set by executor).
 	mu.Lock()
 	if containerDied {
 		runConfig.Status = RunStatusContainerDied
@@ -1058,7 +1101,7 @@ func (r *runner) runContainerLifecycle(
 	} else if ctx.Err() != nil {
 		runConfig.Status = RunStatusCancelled
 		runConfig.TerminationReason = "run was cancelled"
-	} else {
+	} else if runConfig.Status == "" {
 		runConfig.Status = RunStatusCompleted
 	}
 	mu.Unlock()
@@ -1077,6 +1120,434 @@ func (r *runner) runContainerLifecycle(
 	if containerDied {
 		return fmt.Errorf("container died during execution")
 	}
+
+	return nil
+}
+
+// runTestsWithContainerStrategy executes tests one at a time, manipulating
+// the container between tests according to the given strategy.
+//
+//nolint:gocognit,cyclop // Per-test container manipulation is inherently complex.
+func (r *runner) runTestsWithContainerStrategy(
+	ctx context.Context,
+	params *containerRunParams,
+	spec client.Spec,
+	containerID string,
+	containerIP string,
+	strategy string,
+	dropMemoryCaches string,
+	dropCachesPath string,
+	resultsDir string,
+	logCancel *context.CancelFunc,
+	benchmarkoorLog *os.File,
+	cleanupFuncs *[]func(),
+	cleanupStarted chan struct{},
+) (*executor.ExecutionResult, error) {
+	log := r.log.WithFields(logrus.Fields{
+		"instance": params.Instance.ID,
+		"run_id":   params.RunID,
+		"strategy": strategy,
+	})
+
+	// Resolve the test list.
+	tests := params.Tests
+	if tests == nil {
+		tests = r.executor.GetTests()
+	}
+
+	if len(tests) == 0 {
+		return &executor.ExecutionResult{}, nil
+	}
+
+	log.WithField("tests", len(tests)).Info(
+		"Running tests with container-level rollback strategy",
+	)
+
+	combined := &executor.ExecutionResult{}
+	startTime := time.Now()
+	currentContainerID := containerID
+	currentContainerIP := containerIP
+
+	for i, test := range tests {
+		select {
+		case <-ctx.Done():
+			(*logCancel)()
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, ctx.Err()
+		default:
+		}
+
+		testLog := log.WithFields(logrus.Fields{
+			"test":  test.Name,
+			"index": fmt.Sprintf("%d/%d", i+1, len(tests)),
+		})
+
+		// Restore state before test.
+		switch {
+		case strategy == config.RollbackStrategyContainerRecreate && i > 0:
+			testLog.Info("Recreating container for next test")
+
+			// Cancel previous log streaming.
+			(*logCancel)()
+
+			// Stop and remove the current container.
+			if err := r.docker.StopContainer(
+				ctx, currentContainerID,
+			); err != nil {
+				testLog.WithError(err).Warn("Failed to stop container")
+			}
+
+			if err := r.docker.RemoveContainer(
+				ctx, currentContainerID,
+			); err != nil {
+				testLog.WithError(err).Warn("Failed to remove container")
+			}
+
+			// Create a fresh data volume/datadir for the new container.
+			newSpec := *params.ContainerSpec
+			newSpec.Name = fmt.Sprintf("%s-%d", params.ContainerSpec.Name, i)
+			newSpec.Mounts = make([]docker.Mount, len(params.ContainerSpec.Mounts))
+			copy(newSpec.Mounts, params.ContainerSpec.Mounts)
+
+			freshMount, mountCleanup, err := r.createFreshDataMount(
+				ctx, params, spec, i,
+			)
+			if err != nil {
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf(
+					"creating fresh data mount for test %d: %w", i, err,
+				)
+			}
+
+			if mountCleanup != nil {
+				*cleanupFuncs = append(*cleanupFuncs, mountCleanup)
+			}
+
+			// Replace the data mount (index 0) with the fresh one.
+			newSpec.Mounts[0] = freshMount
+
+			// Run init container if required to populate the fresh volume.
+			if spec.RequiresInit() && !params.UseDataDir &&
+				params.GenesisSource != "" {
+				testLog.Info("Running init container for fresh volume")
+
+				initMounts := make([]docker.Mount, len(newSpec.Mounts))
+				copy(initMounts, newSpec.Mounts)
+
+				if err := r.runInitForRecreate(
+					ctx, params, spec, initMounts, resultsDir,
+					benchmarkoorLog, i,
+				); err != nil {
+					combined.TotalDuration = time.Since(startTime)
+
+					return combined, fmt.Errorf(
+						"running init container for test %d: %w", i, err,
+					)
+				}
+			}
+
+			newID, err := r.docker.CreateContainer(ctx, &newSpec)
+			if err != nil {
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf("creating container for test %d: %w", i, err)
+			}
+
+			currentContainerID = newID
+
+			// Update cleanup to remove this container on exit.
+			*cleanupFuncs = append(*cleanupFuncs, func() {
+				if rmErr := r.docker.RemoveContainer(
+					context.Background(), newID,
+				); rmErr != nil {
+					testLog.WithError(rmErr).Warn(
+						"Failed to remove recreated container",
+					)
+				}
+			})
+
+			// Start fresh log streaming.
+			var logCtx context.Context
+			var newLogCancel context.CancelFunc
+			logCtx, newLogCancel = context.WithCancel(ctx)
+			*logCancel = newLogCancel
+
+			r.wg.Add(1)
+
+			go func() {
+				defer r.wg.Done()
+
+				if err := r.streamLogs(
+					logCtx, params.Instance.ID, newID,
+					filepath.Join(resultsDir, "container.log"),
+					benchmarkoorLog,
+					&containerLogInfo{
+						Name:             newSpec.Name,
+						ContainerID:      newID,
+						Image:            newSpec.Image,
+						GenesisGroupHash: params.GenesisGroupHash,
+					},
+				); err != nil {
+					select {
+					case <-cleanupStarted:
+					default:
+						testLog.WithError(err).Debug("Log streaming ended")
+					}
+				}
+			}()
+
+			// Start the new container.
+			if err := r.docker.StartContainer(ctx, newID); err != nil {
+				(*logCancel)()
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf("starting container for test %d: %w", i, err)
+			}
+
+			// Get new container IP.
+			newIP, err := r.docker.GetContainerIP(
+				ctx, newID, r.cfg.DockerNetwork,
+			)
+			if err != nil {
+				(*logCancel)()
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf("getting container IP for test %d: %w", i, err)
+			}
+
+			currentContainerIP = newIP
+
+			// Wait for RPC to be ready.
+			if _, err := r.waitForRPC(
+				ctx, currentContainerIP, spec.RPCPort(),
+			); err != nil {
+				(*logCancel)()
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf("waiting for RPC on test %d: %w", i, err)
+			}
+
+		}
+
+		testLog.Info("Executing test")
+
+		// Execute single test via executor with no executor-level rollback.
+		execOpts := &executor.ExecuteOptions{
+			EngineEndpoint: fmt.Sprintf(
+				"http://%s:%d", currentContainerIP, spec.EnginePort(),
+			),
+			JWT:              r.cfg.JWT,
+			ResultsDir:       resultsDir,
+			Filter:           r.cfg.TestFilter,
+			ContainerID:      currentContainerID,
+			DockerClient:     r.docker.GetClient(),
+			DropMemoryCaches: dropMemoryCaches,
+			DropCachesPath:   dropCachesPath,
+			RollbackStrategy: config.RollbackStrategyNone,
+			RPCEndpoint: fmt.Sprintf(
+				"http://%s:%d", currentContainerIP, spec.RPCPort(),
+			),
+			Tests: []*executor.TestWithSteps{test},
+		}
+
+		result, err := r.executor.ExecuteTests(ctx, execOpts)
+		if err != nil {
+			testLog.WithError(err).Error("Test execution failed")
+
+			continue
+		}
+
+		// Aggregate results.
+		combined.TotalTests += result.TotalTests
+		combined.Passed += result.Passed
+		combined.Failed += result.Failed
+
+		if result.StatsReaderType != "" {
+			combined.StatsReaderType = result.StatsReaderType
+		}
+
+		if result.ContainerDied {
+			combined.ContainerDied = true
+			combined.TotalDuration = time.Since(startTime)
+
+			(*logCancel)()
+
+			return combined, nil
+		}
+	}
+
+	combined.TotalDuration = time.Since(startTime)
+
+	(*logCancel)()
+
+	return combined, nil
+}
+
+// createFreshDataMount creates a new volume or datadir for a recreated container.
+// Returns the mount, a cleanup function (may be nil), and any error.
+func (r *runner) createFreshDataMount(
+	ctx context.Context,
+	params *containerRunParams,
+	spec client.Spec,
+	iteration int,
+) (docker.Mount, func(), error) {
+	log := r.log.WithFields(logrus.Fields{
+		"instance":  params.Instance.ID,
+		"run_id":    params.RunID,
+		"iteration": iteration,
+	})
+
+	if params.UseDataDir {
+		log.Info("Preparing fresh datadir copy")
+
+		provider, err := datadir.NewProvider(log, params.DataDirCfg.Method)
+		if err != nil {
+			return docker.Mount{}, nil, fmt.Errorf("creating datadir provider: %w", err)
+		}
+
+		prepared, err := provider.Prepare(ctx, &datadir.ProviderConfig{
+			SourceDir:  params.DataDirCfg.SourceDir,
+			InstanceID: fmt.Sprintf("%s-%d", params.Instance.ID, iteration),
+			TmpDir:     r.cfg.TmpDataDir,
+		})
+		if err != nil {
+			return docker.Mount{}, nil, fmt.Errorf("preparing datadir: %w", err)
+		}
+
+		containerDir := params.DataDirCfg.ContainerDir
+		if containerDir == "" {
+			containerDir = spec.DataDir()
+		}
+
+		cleanup := func() {
+			if cleanupErr := prepared.Cleanup(); cleanupErr != nil {
+				log.WithError(cleanupErr).Warn("Failed to cleanup recreate datadir")
+			}
+		}
+
+		return docker.Mount{
+			Type:   "bind",
+			Source: prepared.MountPath,
+			Target: containerDir,
+		}, cleanup, nil
+	}
+
+	// Docker volume path.
+	volumeSuffix := params.Instance.ID
+	if params.GenesisGroupHash != "" {
+		volumeSuffix = params.Instance.ID + "-" + params.GenesisGroupHash
+	}
+
+	volumeName := fmt.Sprintf(
+		"benchmarkoor-%s-%s-%d", params.RunID, volumeSuffix, iteration,
+	)
+	volumeLabels := map[string]string{
+		"benchmarkoor.instance":   params.Instance.ID,
+		"benchmarkoor.client":     params.Instance.Client,
+		"benchmarkoor.run-id":     params.RunID,
+		"benchmarkoor.managed-by": "benchmarkoor",
+	}
+
+	if err := r.docker.CreateVolume(ctx, volumeName, volumeLabels); err != nil {
+		return docker.Mount{}, nil, fmt.Errorf("creating volume: %w", err)
+	}
+
+	log.WithField("volume", volumeName).Debug("Created fresh volume")
+
+	cleanup := func() {
+		if rmErr := r.docker.RemoveVolume(
+			context.Background(), volumeName,
+		); rmErr != nil {
+			log.WithError(rmErr).Warn("Failed to remove recreate volume")
+		}
+	}
+
+	return docker.Mount{
+		Type:   "volume",
+		Source: volumeName,
+		Target: spec.DataDir(),
+	}, cleanup, nil
+}
+
+// runInitForRecreate runs an init container to populate a fresh volume
+// during container-recreate strategy.
+func (r *runner) runInitForRecreate(
+	ctx context.Context,
+	params *containerRunParams,
+	spec client.Spec,
+	mounts []docker.Mount,
+	resultsDir string,
+	benchmarkoorLog *os.File,
+	iteration int,
+) error {
+	instance := params.Instance
+
+	initName := fmt.Sprintf(
+		"benchmarkoor-%s-%s-init-%d", params.RunID, instance.ID, iteration,
+	)
+	if params.GenesisGroupHash != "" {
+		initName = fmt.Sprintf(
+			"benchmarkoor-%s-%s-%s-init-%d",
+			params.RunID, instance.ID, params.GenesisGroupHash, iteration,
+		)
+	}
+
+	initSpec := &docker.ContainerSpec{
+		Name:        initName,
+		Image:       params.ImageName,
+		Command:     spec.InitCommand(),
+		Mounts:      mounts,
+		NetworkName: r.cfg.DockerNetwork,
+		Labels: map[string]string{
+			"benchmarkoor.instance":   instance.ID,
+			"benchmarkoor.client":     instance.Client,
+			"benchmarkoor.run-id":     params.RunID,
+			"benchmarkoor.type":       "init",
+			"benchmarkoor.managed-by": "benchmarkoor",
+		},
+	}
+
+	initLogFile := filepath.Join(resultsDir, "container.log")
+
+	initFile, err := os.OpenFile(
+		initLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
+	)
+	if err != nil {
+		return fmt.Errorf("opening init log file: %w", err)
+	}
+
+	if r.cfg.ResultsOwner != nil {
+		fsutil.Chown(initLogFile, r.cfg.ResultsOwner)
+	}
+
+	_, _ = fmt.Fprint(initFile, formatStartMarker("INIT_CONTAINER", &containerLogInfo{
+		Name:             initSpec.Name,
+		Image:            initSpec.Image,
+		GenesisGroupHash: params.GenesisGroupHash,
+	}))
+
+	var initStdout, initStderr io.Writer = initFile, initFile
+	if r.cfg.ClientLogsToStdout {
+		pfxFn := clientLogPrefix(instance.ID + "-init")
+		stdoutPW := &prefixedWriter{prefixFn: pfxFn, writer: os.Stdout}
+		logPW := &prefixedWriter{prefixFn: pfxFn, writer: benchmarkoorLog}
+		initStdout = io.MultiWriter(initFile, stdoutPW, logPW)
+		initStderr = io.MultiWriter(initFile, stdoutPW, logPW)
+	}
+
+	if err := r.docker.RunInitContainer(
+		ctx, initSpec, initStdout, initStderr,
+	); err != nil {
+		_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
+		_ = initFile.Close()
+
+		return fmt.Errorf("running init container: %w", err)
+	}
+
+	_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
+	_ = initFile.Close()
 
 	return nil
 }
@@ -1200,9 +1671,9 @@ func (r *runner) streamLogs(
 	var stdout, stderr io.Writer = file, file
 
 	if r.cfg.ClientLogsToStdout {
-		prefix := fmt.Sprintf("🟣 [%s] ", instanceID)
-		stdoutPrefixWriter := &prefixedWriter{prefix: prefix, writer: os.Stdout}
-		logFilePrefixWriter := &prefixedWriter{prefix: prefix, writer: benchmarkoorLog}
+		pfxFn := clientLogPrefix(instanceID)
+		stdoutPrefixWriter := &prefixedWriter{prefixFn: pfxFn, writer: os.Stdout}
+		logFilePrefixWriter := &prefixedWriter{prefixFn: pfxFn, writer: benchmarkoorLog}
 		stdout = io.MultiWriter(file, stdoutPrefixWriter, logFilePrefixWriter)
 		stderr = io.MultiWriter(file, stdoutPrefixWriter, logFilePrefixWriter)
 	}
@@ -1328,10 +1799,13 @@ func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uin
 }
 
 // prefixedWriter adds a prefix to each line written.
+// If prefixFn is set, it is called per line to generate the prefix dynamically.
+// Otherwise, the static prefix field is used.
 type prefixedWriter struct {
-	prefix string
-	writer io.Writer
-	buf    []byte
+	prefix   string
+	prefixFn func() string
+	writer   io.Writer
+	buf      []byte
 }
 
 func (w *prefixedWriter) Write(p []byte) (n int, err error) {
@@ -1356,12 +1830,27 @@ func (w *prefixedWriter) Write(p []byte) (n int, err error) {
 		line := w.buf[:idx+1]
 		w.buf = w.buf[idx+1:]
 
-		if _, err := fmt.Fprintf(w.writer, "%s%s", w.prefix, line); err != nil {
+		pfx := w.prefix
+		if w.prefixFn != nil {
+			pfx = w.prefixFn()
+		}
+
+		if _, err := fmt.Fprintf(w.writer, "%s%s", pfx, line); err != nil {
 			return n, err
 		}
 	}
 
 	return n, nil
+}
+
+// clientLogPrefix returns a function that generates a consistent log prefix
+// for client container logs: "🟣 $TIMESTAMP CLIE | $clientName | ".
+func clientLogPrefix(clientName string) func() string {
+	return func() string {
+		ts := time.Now().UTC().Format(config.LogTimestampFormat)
+
+		return fmt.Sprintf("🟣 %s CLIE | %s | ", ts, clientName)
+	}
 }
 
 // fileHook writes log entries to a file.

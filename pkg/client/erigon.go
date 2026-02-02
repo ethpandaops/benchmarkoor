@@ -25,12 +25,13 @@ func (s *erigonSpec) DefaultCommand() []string {
 		"--private.api.addr=0.0.0.0:9090",
 		"--nat=none",
 		"--nodiscover",
+		"--no-downloader",
 		"--http",
 		"--http.addr=0.0.0.0",
 		"--http.port=8545",
 		"--http.vhosts=*",
 		"--http.corsdomain=*",
-		"--http.api=web3,eth,net,engine",
+		"--http.api=web3,eth,net,engine,debug",
 		"--txpool.disable",
 		"--authrpc.addr=0.0.0.0",
 		"--authrpc.port=8551",
@@ -85,5 +86,9 @@ func (s *erigonSpec) MetricsPort() int {
 }
 
 func (s *erigonSpec) DefaultEnvironment() map[string]string {
+	return nil
+}
+
+func (s *erigonSpec) RPCRollbackSpec() *RPCRollbackSpec {
 	return nil
 }

@@ -29,7 +29,7 @@ func (s *gethSpec) DefaultCommand() []string {
 		"--http.addr=0.0.0.0",
 		"--http.vhosts=*",
 		"--http.corsdomain=*",
-		"--http.api=web3,eth,net",
+		"--http.api=admin,debug,web3,eth,net",
 		"--port=0",
 		"--http.port=8545",
 		"--maxpeers=0",
@@ -38,7 +38,7 @@ func (s *gethSpec) DefaultCommand() []string {
 		"--ws",
 		"--ws.addr=0.0.0.0",
 		"--ws.port=8546",
-		"--ws.api=engine,eth,web3,net,debug",
+		"--ws.api=admin,debug,web3,eth,net",
 		"--authrpc.jwtsecret=/tmp/jwtsecret",
 		"--authrpc.addr=0.0.0.0",
 		"--authrpc.port=8551",
@@ -87,4 +87,11 @@ func (s *gethSpec) MetricsPort() int {
 
 func (s *gethSpec) DefaultEnvironment() map[string]string {
 	return nil
+}
+
+func (s *gethSpec) RPCRollbackSpec() *RPCRollbackSpec {
+	return &RPCRollbackSpec{
+		Method:    RollbackMethodSetHeadHex,
+		RPCMethod: "debug_setHead",
+	}
 }

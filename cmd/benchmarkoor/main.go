@@ -1,27 +1,86 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-// prefixedFormatter wraps a logrus formatter and adds a prefix to each line.
-type prefixedFormatter struct {
-	prefix    string
+// utcFormatter wraps a logrus formatter and converts timestamps to UTC.
+type utcFormatter struct {
 	formatter logrus.Formatter
 }
 
-func (f *prefixedFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	formatted, err := f.formatter.Format(entry)
-	if err != nil {
-		return nil, err
+func (f *utcFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	entry.Time = entry.Time.UTC()
+
+	return f.formatter.Format(entry)
+}
+
+// consistentFormatter formats log lines as: "$prefix $TIMESTAMP $LEVEL | $msg $fields\n".
+type consistentFormatter struct {
+	prefix string // e.g. "🔵"
+}
+
+// ANSI color codes for log levels.
+const (
+	colorReset  = "\033[0m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorCyan   = "\033[36m"
+	colorWhite  = "\033[37m"
+)
+
+// levelLabel contains the 4-char abbreviation and ANSI color for a log level.
+type levelLabel struct {
+	text  string
+	color string
+}
+
+// shortLevel maps logrus levels to colored 4-character abbreviations.
+var shortLevel = map[logrus.Level]levelLabel{
+	logrus.TraceLevel: {text: "TRAC", color: colorWhite},
+	logrus.DebugLevel: {text: "DEBG", color: colorCyan},
+	logrus.InfoLevel:  {text: "INFO", color: colorGreen},
+	logrus.WarnLevel:  {text: "WARN", color: colorYellow},
+	logrus.ErrorLevel: {text: "ERRO", color: colorRed},
+	logrus.FatalLevel: {text: "FATL", color: colorRed},
+	logrus.PanicLevel: {text: "PANC", color: colorRed},
+}
+
+func (f *consistentFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	ts := entry.Time.UTC().Format(config.LogTimestampFormat)
+	lbl := shortLevel[entry.Level]
+	level := lbl.color + lbl.text + colorReset
+
+	var buf bytes.Buffer
+
+	fmt.Fprintf(&buf, "%s %s %s | %s", f.prefix, ts, level, entry.Message)
+
+	// Append fields in sorted order.
+	if len(entry.Data) > 0 {
+		keys := make([]string, 0, len(entry.Data))
+		for k := range entry.Data {
+			keys = append(keys, k)
+		}
+
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			fmt.Fprintf(&buf, " %s=%v", k, entry.Data[k])
+		}
 	}
 
-	return append([]byte(f.prefix), formatted...), nil
+	buf.WriteByte('\n')
+
+	return buf.Bytes(), nil
 }
 
 var (
@@ -40,8 +99,11 @@ var (
 func main() {
 	log = logrus.New()
 	log.SetOutput(os.Stdout)
-	log.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
+	log.SetFormatter(&utcFormatter{
+		formatter: &logrus.TextFormatter{
+			FullTimestamp:   true,
+			TimestampFormat: config.LogTimestampFormat,
+		},
 	})
 
 	if err := rootCmd.Execute(); err != nil {
