@@ -25,6 +25,7 @@ func (s *erigonSpec) DefaultCommand() []string {
 		"--private.api.addr=0.0.0.0:9090",
 		"--nat=none",
 		"--nodiscover",
+		"--no-downloader",
 		"--http",
 		"--http.addr=0.0.0.0",
 		"--http.port=8545",
