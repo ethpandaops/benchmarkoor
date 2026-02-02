@@ -168,6 +168,7 @@ export interface InstanceConfig {
   genesis_groups?: Record<string, string>
   datadir?: DataDirConfig
   client_version?: string
+  rollback_strategy?: string
   drop_memory_caches?: string
   resource_limits?: ResourceLimitsConfig
 }

@@ -202,6 +202,29 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                 </div>
               )}
 
+              {instance.rollback_strategy && instance.rollback_strategy !== 'none' && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+                    Rollback Strategy
+                  </dt>
+                  <dd className="mt-1">
+                    <div className="group relative inline-flex items-center gap-2">
+                      <span className="font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                        {instance.rollback_strategy}
+                      </span>
+                      <CopyButton text={instance.rollback_strategy} />
+                      <div className="pointer-events-none absolute bottom-full left-0 z-10 mb-2 hidden w-64 rounded-sm bg-gray-900 p-2 text-xs/5 text-gray-100 shadow-sm group-hover:block dark:bg-gray-700">
+                        {instance.rollback_strategy === 'rpc-debug-setHead'
+                          ? 'Rolls back the client to a previous block via a debug RPC call after each test.'
+                          : instance.rollback_strategy === 'container-recreate'
+                            ? 'Stops and removes the container after each test, then creates a fresh one with the same configuration.'
+                            : `Strategy: ${instance.rollback_strategy}`}
+                      </div>
+                    </div>
+                  </dd>
+                </div>
+              )}
+
               {instance.drop_memory_caches && instance.drop_memory_caches !== 'disabled' && (
                 <div>
                   <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Drop Memory Caches</dt>
