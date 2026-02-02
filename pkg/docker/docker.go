@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/docker/docker/api/types/checkpoint"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -56,6 +57,11 @@ type Manager interface {
 
 	// GetClient returns the underlying Docker client for direct API access.
 	GetClient() *client.Client
+
+	// Checkpoint operations (requires Docker experimental mode + CRIU).
+	CheckpointCreate(ctx context.Context, containerID, checkpointName string) error
+	CheckpointDelete(ctx context.Context, containerID, checkpointName string) error
+	StartFromCheckpoint(ctx context.Context, containerID, checkpointName string) error
 
 	// WaitForContainerExit returns channels that signal when a container exits.
 	// The statusCh receives the exit code, errCh receives any wait errors.
@@ -514,6 +520,56 @@ func (m *manager) ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 	}
 
 	return result, nil
+}
+
+// CheckpointCreate creates a CRIU checkpoint for a container.
+// When exit is true, the container is stopped after the checkpoint is created.
+func (m *manager) CheckpointCreate(ctx context.Context, containerID, checkpointName string) error {
+	if err := m.client.CheckpointCreate(ctx, containerID, checkpoint.CreateOptions{
+		CheckpointID: checkpointName,
+		Exit:         true,
+	}); err != nil {
+		return fmt.Errorf("creating checkpoint %s for container %s: %w", checkpointName, containerID[:12], err)
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"id":         containerID[:12],
+		"checkpoint": checkpointName,
+	}).Debug("Created checkpoint")
+
+	return nil
+}
+
+// CheckpointDelete deletes a CRIU checkpoint from a container.
+func (m *manager) CheckpointDelete(ctx context.Context, containerID, checkpointName string) error {
+	if err := m.client.CheckpointDelete(ctx, containerID, checkpoint.DeleteOptions{
+		CheckpointID: checkpointName,
+	}); err != nil {
+		return fmt.Errorf("deleting checkpoint %s for container %s: %w", checkpointName, containerID[:12], err)
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"id":         containerID[:12],
+		"checkpoint": checkpointName,
+	}).Debug("Deleted checkpoint")
+
+	return nil
+}
+
+// StartFromCheckpoint starts a container from a CRIU checkpoint.
+func (m *manager) StartFromCheckpoint(ctx context.Context, containerID, checkpointName string) error {
+	if err := m.client.ContainerStart(ctx, containerID, container.StartOptions{
+		CheckpointID: checkpointName,
+	}); err != nil {
+		return fmt.Errorf("starting container %s from checkpoint %s: %w", containerID[:12], checkpointName, err)
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"id":         containerID[:12],
+		"checkpoint": checkpointName,
+	}).Debug("Started container from checkpoint")
+
+	return nil
 }
 
 // GetClient returns the underlying Docker client for direct API access.

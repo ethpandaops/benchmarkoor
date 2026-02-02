@@ -34,6 +34,9 @@ type Executor interface {
 	// GetSuiteHash returns the hash of the test suite.
 	GetSuiteHash() string
 
+	// GetTests returns the prepared test list. Returns nil if not yet prepared.
+	GetTests() []*TestWithSteps
+
 	// GetSource returns the underlying source, which can be used for genesis resolution.
 	GetSource() Source
 }
@@ -183,6 +186,15 @@ func (e *executor) Stop() error {
 // GetSuiteHash returns the hash of the test suite.
 func (e *executor) GetSuiteHash() string {
 	return e.suiteHash
+}
+
+// GetTests returns the prepared test list.
+func (e *executor) GetTests() []*TestWithSteps {
+	if e.prepared == nil {
+		return nil
+	}
+
+	return e.prepared.Tests
 }
 
 // GetSource returns the underlying source.
