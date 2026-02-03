@@ -18,6 +18,8 @@ interface BlockLogsDashboardProps {
   onTestClick?: (testName: string) => void
   searchQuery?: string
   onSearchChange?: (query: string) => void
+  fullscreen?: boolean
+  onFullscreenChange?: (fullscreen: boolean) => void
 }
 
 function useDarkMode() {
@@ -34,8 +36,15 @@ function useDarkMode() {
   return isDark
 }
 
-function useFullscreen() {
-  const [fullscreen, setFullscreen] = useState(false)
+function useFullscreen(
+  externalFullscreen?: boolean,
+  onFullscreenChange?: (fullscreen: boolean) => void
+) {
+  const [internalFullscreen, setInternalFullscreen] = useState(false)
+
+  // Use external state if provided, otherwise use internal state
+  const fullscreen = externalFullscreen ?? internalFullscreen
+  const setFullscreen = onFullscreenChange ?? setInternalFullscreen
 
   useEffect(() => {
     if (!fullscreen) return
@@ -48,14 +57,14 @@ function useFullscreen() {
       document.removeEventListener('keydown', handleKey)
       document.body.style.overflow = ''
     }
-  }, [fullscreen])
+  }, [fullscreen, setFullscreen])
 
   return { fullscreen, setFullscreen }
 }
 
-export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, searchQuery = '', onSearchChange }: BlockLogsDashboardProps) {
+export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, searchQuery = '', onSearchChange, fullscreen: externalFullscreen, onFullscreenChange }: BlockLogsDashboardProps) {
   const isDark = useDarkMode()
-  const { fullscreen, setFullscreen } = useFullscreen()
+  const { fullscreen, setFullscreen } = useFullscreen(externalFullscreen, onFullscreenChange)
   const { state, updateState, toggleTestSelection, clearSelection } = useDashboardState(runId)
 
   // Build execution order map from suite tests

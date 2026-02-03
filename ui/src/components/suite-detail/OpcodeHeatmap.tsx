@@ -16,6 +16,8 @@ interface OpcodeHeatmapProps {
   extraColumns?: ExtraColumn[]
   searchQuery?: string
   onSearchChange?: (query: string) => void
+  fullscreen?: boolean
+  onFullscreenChange?: (fullscreen: boolean) => void
 }
 
 const CELL_SIZE = 16
@@ -721,11 +723,13 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
   )
 }
 
-export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQuery, onSearchChange }: OpcodeHeatmapProps) {
+export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQuery, onSearchChange, fullscreen: externalFullscreen, onFullscreenChange }: OpcodeHeatmapProps) {
   const [internalSearch, setInternalSearch] = useState('')
   const search = searchQuery ?? internalSearch
   const setSearch = onSearchChange ?? setInternalSearch
-  const [fullscreen, setFullscreen] = useState(false)
+  const [internalFullscreen, setInternalFullscreen] = useState(false)
+  const fullscreen = externalFullscreen ?? internalFullscreen
+  const setFullscreen = onFullscreenChange ?? setInternalFullscreen
   const [expanded] = useState(true)
   const [groupStack, setGroupStack] = useState(true)
   const [sortCol, setSortCol] = useState<string | null>(null)
@@ -746,7 +750,7 @@ export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQue
       document.removeEventListener('keydown', handleKey)
       document.body.style.overflow = ''
     }
-  }, [fullscreen])
+  }, [fullscreen, setFullscreen])
 
   const testsWithOpcodes = useMemo(() => {
     return tests

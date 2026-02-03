@@ -119,12 +119,14 @@ export function RunDetailPage() {
     heatmapSort?: SortMode
     heatmapThreshold?: number
     steps?: string
+    ohFs?: boolean // Opcode Heatmap fullscreen
+    blFs?: boolean // Block Logs fullscreen
   }
   const page = Number(search.page) || 1
   const pageSize = Number(search.pageSize) || 20
   const heatmapThreshold = search.heatmapThreshold ? Number(search.heatmapThreshold) : undefined
   const stepFilter = parseStepFilter(search.steps)
-  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, heatmapSort } = search
+  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, heatmapSort, ohFs = false, blFs = false } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
@@ -166,6 +168,8 @@ export function RunDetailPage() {
         heatmapSort,
         heatmapThreshold,
         steps: serializeStepFilter(stepFilter),
+        ohFs: ohFs || undefined,
+        blFs: blFs || undefined,
         ...updates,
       },
     })
@@ -205,6 +209,14 @@ export function RunDetailPage() {
 
   const handleStepFilterChange = (steps: StepTypeOption[]) => {
     updateSearch({ steps: serializeStepFilter(steps) })
+  }
+
+  const handleOpcodeHeatmapFullscreenChange = (fullscreen: boolean) => {
+    updateSearch({ ohFs: fullscreen || undefined })
+  }
+
+  const handleBlockLogsFullscreenChange = (fullscreen: boolean) => {
+    updateSearch({ blFs: fullscreen || undefined })
   }
 
   if (isLoading) {
@@ -508,12 +520,14 @@ export function RunDetailPage() {
             onTestClick={(testIndex) => handleTestModalChange(suite.tests[testIndex - 1]?.name)}
             searchQuery={q}
             onSearchChange={handleSearchChange}
+            fullscreen={ohFs}
+            onFullscreenChange={handleOpcodeHeatmapFullscreenChange}
           />
         </div>
       )}
 
       {blockLogs && Object.keys(blockLogs).length > 0 && (
-        <BlockLogsDashboard blockLogs={blockLogs} runId={runId} suiteTests={suite?.tests} onTestClick={handleTestModalChange} searchQuery={q} onSearchChange={handleSearchChange} />
+        <BlockLogsDashboard blockLogs={blockLogs} runId={runId} suiteTests={suite?.tests} onTestClick={handleTestModalChange} searchQuery={q} onSearchChange={handleSearchChange} fullscreen={blFs} onFullscreenChange={handleBlockLogsFullscreenChange} />
       )}
 
       <ResourceUsageCharts
