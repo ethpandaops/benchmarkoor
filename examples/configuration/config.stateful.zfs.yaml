@@ -30,13 +30,6 @@ client:
   config:
     drop_memory_caches: "steps"
 
-    genesis:
-      besu: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/skylenet-patch-1/network-configs/devnet-2/metadata/besu.json
-      erigon: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/skylenet-patch-1/network-configs/devnet-2/metadata/genesis.json
-      geth: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/skylenet-patch-1/network-configs/devnet-2/metadata/genesis.json
-      nethermind: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/master/network-configs/devnet-2/metadata/chainspec.json
-      reth: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/skylenet-patch-1/network-configs/devnet-2/metadata/genesis.json
-
   datadirs:
     besu:
       source_dir: /data-zfs/eth/besu/perf-devnet-2/23861500/besu/
