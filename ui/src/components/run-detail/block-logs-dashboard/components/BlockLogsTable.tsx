@@ -25,9 +25,10 @@ interface SortHeaderProps {
   currentSort: SortField
   currentOrder: SortOrder
   onSort: (field: SortField, order: SortOrder) => void
+  align?: 'left' | 'right'
 }
 
-function SortHeader({ label, field, currentSort, currentOrder, onSort }: SortHeaderProps) {
+function SortHeader({ label, field, currentSort, currentOrder, onSort, align = 'left' }: SortHeaderProps) {
   const isActive = currentSort === field
   const nextOrder: SortOrder = isActive && currentOrder === 'desc' ? 'asc' : 'desc'
 
@@ -35,7 +36,8 @@ function SortHeader({ label, field, currentSort, currentOrder, onSort }: SortHea
     <button
       onClick={() => onSort(field, nextOrder)}
       className={clsx(
-        'flex items-center gap-1 text-left font-medium',
+        'flex items-center gap-1 font-medium',
+        align === 'right' ? 'ml-auto' : '',
         isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
       )}
     >
@@ -84,7 +86,13 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
               />
             </th>
             <th scope="col" className="px-3 py-3 text-left text-xs">
-              <span className="font-medium text-gray-700 dark:text-gray-300">Category</span>
+              <SortHeader
+                label="Category"
+                field="category"
+                currentSort={state.sortBy}
+                currentOrder={state.sortOrder}
+                onSort={handleSort}
+              />
             </th>
             <th scope="col" className="px-3 py-3 text-right text-xs">
               <SortHeader
@@ -93,6 +101,7 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
                 currentSort={state.sortBy}
                 currentOrder={state.sortOrder}
                 onSort={handleSort}
+                align="right"
               />
             </th>
             <th scope="col" className="px-3 py-3 text-right text-xs">
@@ -102,6 +111,7 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
                 currentSort={state.sortBy}
                 currentOrder={state.sortOrder}
                 onSort={handleSort}
+                align="right"
               />
             </th>
             <th scope="col" className="px-3 py-3 text-right text-xs" title="state_read + state_hash + commit">
@@ -111,16 +121,38 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
                 currentSort={state.sortBy}
                 currentOrder={state.sortOrder}
                 onSort={handleSort}
+                align="right"
               />
             </th>
             <th scope="col" className="px-3 py-3 text-right text-xs">
-              <span className="font-medium text-gray-700 dark:text-gray-300">Acct Cache</span>
+              <SortHeader
+                label="Acct Cache"
+                field="accountCache"
+                currentSort={state.sortBy}
+                currentOrder={state.sortOrder}
+                onSort={handleSort}
+                align="right"
+              />
             </th>
             <th scope="col" className="px-3 py-3 text-right text-xs">
-              <span className="font-medium text-gray-700 dark:text-gray-300">Storage Cache</span>
+              <SortHeader
+                label="Storage Cache"
+                field="storageCache"
+                currentSort={state.sortBy}
+                currentOrder={state.sortOrder}
+                onSort={handleSort}
+                align="right"
+              />
             </th>
             <th scope="col" className="px-3 py-3 text-right text-xs">
-              <span className="font-medium text-gray-700 dark:text-gray-300">Code Cache</span>
+              <SortHeader
+                label="Code Cache"
+                field="codeCache"
+                currentSort={state.sortBy}
+                currentOrder={state.sortOrder}
+                onSort={handleSort}
+                align="right"
+              />
             </th>
           </tr>
         </thead>

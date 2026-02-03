@@ -117,6 +117,18 @@ export function useProcessedData(
         case 'order':
           comparison = a.testOrder - b.testOrder
           break
+        case 'category':
+          comparison = a.category.localeCompare(b.category)
+          break
+        case 'accountCache':
+          comparison = a.accountCacheHitRate - b.accountCacheHitRate
+          break
+        case 'storageCache':
+          comparison = a.storageCacheHitRate - b.storageCacheHitRate
+          break
+        case 'codeCache':
+          comparison = a.codeCacheHitRate - b.codeCacheHitRate
+          break
       }
       return state.sortOrder === 'asc' ? comparison : -comparison
     })

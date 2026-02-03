@@ -46,7 +46,7 @@ export interface BoxPlotStats {
 }
 
 export type DashboardTab = 'overview' | 'compare' | 'cache' | 'distribution'
-export type SortField = 'throughput' | 'execution' | 'overhead' | 'name' | 'order'
+export type SortField = 'throughput' | 'execution' | 'overhead' | 'name' | 'order' | 'category' | 'accountCache' | 'storageCache' | 'codeCache'
 export type SortOrder = 'asc' | 'desc'
 
 export interface DashboardState {
