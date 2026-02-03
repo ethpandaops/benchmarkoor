@@ -12,7 +12,7 @@ interface ThroughputBarChartProps {
 }
 
 export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarChartProps) {
-  const [sortMode, setSortMode] = useState<SortMode>('order')
+  const [sortMode, setSortMode] = useState<SortMode>('throughput')
 
   const textColor = isDark ? '#e5e7eb' : '#374151'
   const subTextColor = isDark ? '#9ca3af' : '#6b7280'
