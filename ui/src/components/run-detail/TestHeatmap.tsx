@@ -5,10 +5,12 @@ import { Modal } from '@/components/shared/Modal'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
+import { BlockLogDetails } from './BlockLogDetails'
 import type { TestStatusFilter } from './TestsTable'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 import { formatDuration } from '@/utils/format'
 import { EESTInfoContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
+import { useBlockLogs } from '@/api/hooks/useBlockLogs'
 
 // Aggregate stats from selected steps of a test entry
 function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
@@ -195,6 +197,7 @@ export function TestHeatmap({
   const threshold = thresholdProp ?? DEFAULT_THRESHOLD
   const [tooltip, setTooltip] = useState<{ test: TestData; x: number; y: number } | null>(null)
   const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
+  const { data: blockLogs } = useBlockLogs(runId)
 
   const handleSortModeChange = (mode: SortMode) => {
     onSortModeChange?.(mode)
@@ -566,6 +569,9 @@ export function TestHeatmap({
                 if (!matchingSuiteTest) return null
                 return <EESTInfoContent test={matchingSuiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
               })()}
+              {blockLogs?.[selectedTest] && (
+                <BlockLogDetails blockLog={blockLogs[selectedTest]} />
+              )}
               {stats && (
                 <>
                   <TimeBreakdown methods={stats.method_stats.times} />

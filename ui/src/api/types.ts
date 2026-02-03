@@ -359,3 +359,67 @@ export interface SourceInfo {
 export interface SuiteFile {
   og_path: string
 }
+
+// Block log types from result.block-logs.json
+export interface BlockLogBlock {
+  number: number
+  hash: string
+  gas_used: number
+  tx_count: number
+}
+
+export interface BlockLogTiming {
+  execution_ms: number
+  state_read_ms: number
+  state_hash_ms: number
+  commit_ms: number
+  total_ms: number
+}
+
+export interface BlockLogThroughput {
+  mgas_per_sec: number
+}
+
+export interface BlockLogStateReads {
+  accounts: number
+  storage_slots: number
+  code: number
+  code_bytes: number
+}
+
+export interface BlockLogStateWrites {
+  accounts: number
+  accounts_deleted: number
+  storage_slots: number
+  storage_slots_deleted: number
+  code: number
+  code_bytes: number
+}
+
+export interface BlockLogCacheEntry {
+  hits: number
+  misses: number
+  hit_rate: number
+}
+
+export interface BlockLogCodeCache extends BlockLogCacheEntry {
+  hit_bytes: number
+  miss_bytes: number
+}
+
+export interface BlockLogCache {
+  account: BlockLogCacheEntry
+  storage: BlockLogCacheEntry
+  code: BlockLogCodeCache
+}
+
+export interface BlockLogEntry {
+  block: BlockLogBlock
+  timing: BlockLogTiming
+  throughput: BlockLogThroughput
+  state_reads: BlockLogStateReads
+  state_writes: BlockLogStateWrites
+  cache: BlockLogCache
+}
+
+export type BlockLogs = Record<string, BlockLogEntry>
