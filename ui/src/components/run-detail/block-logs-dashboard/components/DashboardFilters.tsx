@@ -231,15 +231,17 @@ export function DashboardFilters({ state, stats, onUpdate }: DashboardFiltersPro
 
       {/* Toggles */}
       <div className="flex items-center gap-4">
-        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
-          <input
-            type="checkbox"
-            checked={state.excludeOutliers}
-            onChange={(e) => onUpdate({ excludeOutliers: e.target.checked })}
-            className="rounded-xs border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
-          />
-          Exclude outliers
-        </label>
+        {stats && stats.outlierCount > 0 && (
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+            <input
+              type="checkbox"
+              checked={state.excludeOutliers}
+              onChange={(e) => onUpdate({ excludeOutliers: e.target.checked })}
+              className="rounded-xs border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
+            />
+            Exclude outliers ({stats.outlierCount})
+          </label>
+        )}
         <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
           <input
             type="checkbox"

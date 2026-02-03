@@ -49,6 +49,7 @@ export interface DashboardStats {
   avgExecution: number
   avgOverhead: number
   categoryBreakdown: Record<TestCategory, number>
+  outlierCount: number
 }
 
 export interface BoxPlotStats {

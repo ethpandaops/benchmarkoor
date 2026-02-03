@@ -54,6 +54,32 @@ export function removeOutliers<T extends ProcessedTestData>(
 }
 
 /**
+ * Count outliers in data using IQR method.
+ * Also counts items with value <= 0 as outliers.
+ */
+export function countOutliers<T>(
+  data: T[],
+  getValue: (item: T) => number
+): number {
+  const zeroOrNegative = data.filter((item) => getValue(item) <= 0).length
+  const positiveData = data.filter((item) => getValue(item) > 0)
+
+  if (positiveData.length <= 4) {
+    return zeroOrNegative
+  }
+
+  const values = positiveData.map(getValue)
+  const { lower, upper } = calculateIQRBounds(values)
+
+  const iqrOutliers = positiveData.filter((item) => {
+    const value = getValue(item)
+    return value < lower || value > upper
+  }).length
+
+  return zeroOrNegative + iqrOutliers
+}
+
+/**
  * Calculate box plot statistics for each category.
  */
 export function calculateBoxPlotStats(data: ProcessedTestData[]): BoxPlotStats[] {

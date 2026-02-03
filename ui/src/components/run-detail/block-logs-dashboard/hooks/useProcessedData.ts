@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import type { BlockLogs } from '@/api/types'
 import type { ProcessedTestData, DashboardState, DashboardStats } from '../types'
 import { parseCategory } from '../utils/categoryParser'
-import { percentile, removeOutliers, normalizeValue, emptyCategoryBreakdown } from '../utils/statistics'
+import { percentile, removeOutliers, countOutliers, normalizeValue, emptyCategoryBreakdown } from '../utils/statistics'
 
 export function useProcessedData(
   blockLogs: BlockLogs | null | undefined,
@@ -69,6 +69,9 @@ export function useProcessedData(
     if (state.maxThroughput !== undefined) {
       data = data.filter((d) => d.throughput <= state.maxThroughput!)
     }
+
+    // Count outliers before exclusion (for display purposes)
+    const outlierCount = countOutliers(data, (d) => d.throughput)
 
     // Apply outlier exclusion (also exclude 0 MGas/s tests)
     if (state.excludeOutliers) {
@@ -164,6 +167,7 @@ export function useProcessedData(
         avgExecution: executions.reduce((sum, v) => sum + v, 0) / executions.length,
         avgOverhead: overheads.reduce((sum, v) => sum + v, 0) / overheads.length,
         categoryBreakdown,
+        outlierCount,
       }
     })() : {
       count: 0,
@@ -174,6 +178,7 @@ export function useProcessedData(
       avgExecution: 0,
       avgOverhead: 0,
       categoryBreakdown,
+      outlierCount,
     }
 
     return {
