@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import type { DashboardState, DashboardStats, TestCategory, SortField } from '../types'
+import type { DashboardState, DashboardStats, TestCategory } from '../types'
 import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
 
 interface DashboardFiltersProps {
@@ -28,14 +28,6 @@ const CATEGORY_OPTIONS: { value: TestCategory; label: string }[] = [
   // Other
   { value: 'scenario', label: 'Scenario' },
   { value: 'other', label: 'Other' },
-]
-
-const SORT_OPTIONS: { value: SortField; label: string; title?: string }[] = [
-  { value: 'throughput', label: 'Throughput' },
-  { value: 'execution', label: 'Execution Time' },
-  { value: 'overhead', label: 'Overhead', title: 'state_read + state_hash + commit' },
-  { value: 'order', label: 'Test #' },
-  { value: 'name', label: 'Name' },
 ]
 
 export function DashboardFilters({ state, stats, onUpdate }: DashboardFiltersProps) {
@@ -188,37 +180,6 @@ export function DashboardFilters({ state, stats, onUpdate }: DashboardFiltersPro
         </div>
       </div>
 
-      {/* Sort Options */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-500 dark:text-gray-400">Sort:</span>
-        <select
-          value={state.sortBy}
-          onChange={(e) => onUpdate({ sortBy: e.target.value as SortField })}
-          className="rounded-sm border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-        >
-          {SORT_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value} title={option.title}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <button
-          onClick={() => onUpdate({ sortOrder: state.sortOrder === 'asc' ? 'desc' : 'asc' })}
-          className="rounded-sm border border-gray-300 bg-white p-1.5 text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"
-          title={state.sortOrder === 'asc' ? 'Ascending' : 'Descending'}
-        >
-          {state.sortOrder === 'asc' ? (
-            <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-            </svg>
-          ) : (
-            <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          )}
-        </button>
-      </div>
-
       {/* Throughput Range */}
       <div className="flex items-center gap-2">
         <span className="text-xs text-gray-500 dark:text-gray-400">MGas/s:</span>
@@ -229,7 +190,36 @@ export function DashboardFilters({ state, stats, onUpdate }: DashboardFiltersPro
           onChange={(e) => onUpdate({ minThroughput: e.target.value ? Number(e.target.value) : undefined })}
           className="w-16 rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
         />
-        <span className="text-gray-400">-</span>
+        {stats && (
+          <div className="relative flex w-32 items-center">
+            <input
+              type="range"
+              min={0}
+              max={Math.ceil(stats.maxThroughput)}
+              step={1}
+              value={state.minThroughput ?? 0}
+              onChange={(e) => {
+                const val = Number(e.target.value)
+                const maxVal = state.maxThroughput ?? Math.ceil(stats.maxThroughput)
+                onUpdate({ minThroughput: val > 0 ? Math.min(val, maxVal) : undefined })
+              }}
+              className="pointer-events-none absolute h-1 w-full appearance-none rounded-sm bg-gray-200 dark:bg-gray-600 [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:hover:bg-blue-600"
+            />
+            <input
+              type="range"
+              min={0}
+              max={Math.ceil(stats.maxThroughput)}
+              step={1}
+              value={state.maxThroughput ?? Math.ceil(stats.maxThroughput)}
+              onChange={(e) => {
+                const val = Number(e.target.value)
+                const minVal = state.minThroughput ?? 0
+                onUpdate({ maxThroughput: Math.max(val, minVal) })
+              }}
+              className="pointer-events-none absolute h-1 w-full appearance-none rounded-sm bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:hover:bg-blue-600"
+            />
+          </div>
+        )}
         <input
           type="number"
           placeholder="Max"
