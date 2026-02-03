@@ -45,8 +45,9 @@ export function ThroughputScatterChart({ data, isDark, useLogScale }: Throughput
         textStyle: { color: textColor },
         formatter: (params: { data: { testName: string; item: ProcessedTestData } }) => {
           const item = params.data.item
+          const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
           return `
-            <div style="font-weight: 500; margin-bottom: 4px; max-width: 300px; word-wrap: break-word">${item.testName}</div>
+            <div style="font-weight: 500; margin-bottom: 4px; max-width: 300px; word-wrap: break-word">${testLabel}: ${item.testName}</div>
             <div>Throughput: ${item.throughput.toFixed(2)} MGas/s</div>
             <div>Execution: ${item.executionMs.toFixed(2)}ms</div>
             <div>Overhead: ${item.overheadMs.toFixed(2)}ms</div>

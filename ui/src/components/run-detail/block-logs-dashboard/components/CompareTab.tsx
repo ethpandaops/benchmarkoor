@@ -37,20 +37,23 @@ export function CompareTab({ data, selectedTests, isDark, onRemoveTest, onClearS
       {/* Selected Tests Pills */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-gray-500 dark:text-gray-400">Comparing:</span>
-        {selectedData.map((item, index) => (
-          <button
-            key={item.testName}
-            onClick={() => onRemoveTest(item.testName)}
-            className="group flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-80"
-            style={{ backgroundColor: COMPARISON_COLORS[index % COMPARISON_COLORS.length] }}
-            title={item.testName}
-          >
-            <span className="max-w-32 truncate">{item.testName}</span>
-            <svg className="size-3.5 opacity-70 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        ))}
+        {selectedData.map((item, index) => {
+          const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
+          return (
+            <button
+              key={item.testName}
+              onClick={() => onRemoveTest(item.testName)}
+              className="group flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-80"
+              style={{ backgroundColor: COMPARISON_COLORS[index % COMPARISON_COLORS.length] }}
+              title={item.testName}
+            >
+              <span>{testLabel}</span>
+              <svg className="size-3.5 opacity-70 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )
+        })}
         {selectedData.length > 1 && (
           <button
             onClick={onClearSelection}
@@ -117,19 +120,21 @@ export function CompareTab({ data, selectedTests, isDark, onRemoveTest, onClearS
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {selectedData.map((item, index) => (
-                <tr key={item.testName}>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="size-3 shrink-0 rounded-full"
-                        style={{ backgroundColor: COMPARISON_COLORS[index % COMPARISON_COLORS.length] }}
-                      />
-                      <span className="max-w-48 truncate text-sm text-gray-900 dark:text-gray-100" title={item.testName}>
-                        {item.testName}
-                      </span>
-                    </div>
-                  </td>
+              {selectedData.map((item, index) => {
+                const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
+                return (
+                  <tr key={item.testName}>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="size-3 shrink-0 rounded-full"
+                          style={{ backgroundColor: COMPARISON_COLORS[index % COMPARISON_COLORS.length] }}
+                        />
+                        <span className="text-sm text-gray-900 dark:text-gray-100" title={item.testName}>
+                          {testLabel}
+                        </span>
+                      </div>
+                    </td>
                   <td className="px-3 py-2 text-right font-mono text-sm text-gray-900 dark:text-gray-100">
                     {item.throughput.toFixed(2)}
                   </td>
@@ -149,7 +154,8 @@ export function CompareTab({ data, selectedTests, isDark, onRemoveTest, onClearS
                     {item.codeCacheHitRate.toFixed(1)}%
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>

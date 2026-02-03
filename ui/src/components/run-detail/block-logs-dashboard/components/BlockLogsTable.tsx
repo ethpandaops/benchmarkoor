@@ -76,8 +76,8 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
             </th>
             <th scope="col" className="sticky left-0 z-10 bg-gray-50 px-3 py-3 text-left text-xs dark:bg-gray-800/50">
               <SortHeader
-                label="Test Name"
-                field="name"
+                label="Test #"
+                field="order"
                 currentSort={state.sortBy}
                 currentOrder={state.sortOrder}
                 onSort={handleSort}
@@ -150,8 +150,10 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
                     className="rounded-xs border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600"
                   />
                 </td>
-                <td className="sticky left-0 z-10 max-w-xs truncate bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
-                  <span title={row.testName}>{row.testName}</span>
+                <td className="sticky left-0 z-10 bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
+                  <span title={row.testName} className="cursor-help">
+                    {row.testOrder === Infinity ? '-' : `#${row.testOrder}`}
+                  </span>
                 </td>
                 <td className="px-3 py-2">
                   <span

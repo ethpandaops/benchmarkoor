@@ -513,7 +513,7 @@ export function RunDetailPage() {
       )}
 
       {blockLogs && Object.keys(blockLogs).length > 0 && (
-        <BlockLogsDashboard blockLogs={blockLogs} runId={runId} />
+        <BlockLogsDashboard blockLogs={blockLogs} runId={runId} suiteTests={suite?.tests} />
       )}
 
       <ResourceUsageCharts

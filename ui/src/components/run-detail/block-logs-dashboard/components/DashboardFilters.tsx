@@ -21,6 +21,7 @@ const SORT_OPTIONS: { value: SortField; label: string; title?: string }[] = [
   { value: 'throughput', label: 'Throughput' },
   { value: 'execution', label: 'Execution Time' },
   { value: 'overhead', label: 'Overhead', title: 'state_read + state_hash + commit' },
+  { value: 'order', label: 'Test #' },
   { value: 'name', label: 'Name' },
 ]
 

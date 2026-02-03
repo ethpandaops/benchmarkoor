@@ -27,8 +27,9 @@ export function CacheHitRateChart({ data, isDark, maxItems = 20 }: CacheHitRateC
   }, [data, maxItems])
 
   const option = useMemo(() => {
-    const testNames = chartData.map((d) =>
-      d.testName.length > 30 ? d.testName.slice(0, 27) + '...' : d.testName
+    // Use test order for Y axis labels
+    const testLabels = chartData.map((d) =>
+      d.testOrder === Infinity ? '-' : `#${d.testOrder}`
     )
 
     return {
@@ -40,7 +41,8 @@ export function CacheHitRateChart({ data, isDark, maxItems = 20 }: CacheHitRateC
         textStyle: { color: textColor },
         formatter: (params: Array<{ seriesName: string; value: number; color: string; dataIndex: number }>) => {
           const item = chartData[params[0].dataIndex]
-          let content = `<div style="font-weight: 500; margin-bottom: 4px">${item.testName}</div>`
+          const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
+          let content = `<div style="font-weight: 500; margin-bottom: 4px">${testLabel}: ${item.testName}</div>`
           params.forEach((p) => {
             const isGood = p.value >= 80
             content += `<div style="display: flex; align-items: center; gap: 4px">
@@ -59,7 +61,7 @@ export function CacheHitRateChart({ data, isDark, maxItems = 20 }: CacheHitRateC
         itemHeight: 8,
       },
       grid: {
-        left: 200,
+        left: 60,
         right: 30,
         top: 20,
         bottom: 50,
@@ -78,12 +80,10 @@ export function CacheHitRateChart({ data, isDark, maxItems = 20 }: CacheHitRateC
       },
       yAxis: {
         type: 'category' as const,
-        data: testNames,
+        data: testLabels,
         axisLabel: {
           color: textColor,
           fontSize: 10,
-          width: 180,
-          overflow: 'truncate' as const,
         },
         axisLine: { lineStyle: { color: gridColor } },
         axisTick: { show: false },

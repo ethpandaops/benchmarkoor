@@ -26,11 +26,10 @@ export function ThroughputBarChart({ data, isDark, useLogScale, maxItems = 30 }:
   }, [data, maxItems])
 
   const option = useMemo(() => {
-    const testNames = chartData.map((d) => {
-      // Truncate long names
-      const name = d.testName
-      return name.length > 40 ? name.slice(0, 37) + '...' : name
-    })
+    // Use test order for Y axis labels (e.g., "#1", "#2", etc.)
+    const testLabels = chartData.map((d) =>
+      d.testOrder === Infinity ? '-' : `#${d.testOrder}`
+    )
 
     return {
       tooltip: {
@@ -42,8 +41,9 @@ export function ThroughputBarChart({ data, isDark, useLogScale, maxItems = 30 }:
         formatter: (params: { name: string; value: number; dataIndex: number }[]) => {
           const param = params[0]
           const item = chartData[param.dataIndex]
+          const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
           return `
-            <div style="font-weight: 500; margin-bottom: 4px">${item.testName}</div>
+            <div style="font-weight: 500; margin-bottom: 4px">${testLabel}: ${item.testName}</div>
             <div>Throughput: ${item.throughput.toFixed(2)} MGas/s</div>
             <div>Execution: ${item.executionMs.toFixed(2)}ms</div>
             <div>Category: ${item.category}</div>
@@ -51,7 +51,7 @@ export function ThroughputBarChart({ data, isDark, useLogScale, maxItems = 30 }:
         },
       },
       grid: {
-        left: 200,
+        left: 60,
         right: 50,
         top: 20,
         bottom: 40,
@@ -71,12 +71,10 @@ export function ThroughputBarChart({ data, isDark, useLogScale, maxItems = 30 }:
       },
       yAxis: {
         type: 'category' as const,
-        data: testNames,
+        data: testLabels,
         axisLabel: {
           color: textColor,
           fontSize: 10,
-          width: 180,
-          overflow: 'truncate' as const,
         },
         axisLine: { lineStyle: { color: gridColor } },
         axisTick: { show: false },

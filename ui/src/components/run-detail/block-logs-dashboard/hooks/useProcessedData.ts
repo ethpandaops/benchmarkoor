@@ -4,7 +4,11 @@ import type { ProcessedTestData, DashboardState, DashboardStats, TestCategory } 
 import { parseCategory } from '../utils/categoryParser'
 import { percentile, removeOutliers, normalizeValue } from '../utils/statistics'
 
-export function useProcessedData(blockLogs: BlockLogs | null | undefined, state: DashboardState) {
+export function useProcessedData(
+  blockLogs: BlockLogs | null | undefined,
+  state: DashboardState,
+  executionOrder: Map<string, number>
+) {
   return useMemo(() => {
     if (!blockLogs || Object.keys(blockLogs).length === 0) {
       return {
@@ -20,6 +24,7 @@ export function useProcessedData(blockLogs: BlockLogs | null | undefined, state:
 
       return {
         testName,
+        testOrder: executionOrder.get(testName) ?? Infinity,
         category: parseCategory(testName),
         throughput: entry.throughput.mgas_per_sec,
         executionMs: entry.timing.execution_ms,
@@ -109,6 +114,9 @@ export function useProcessedData(blockLogs: BlockLogs | null | undefined, state:
         case 'name':
           comparison = a.testName.localeCompare(b.testName)
           break
+        case 'order':
+          comparison = a.testOrder - b.testOrder
+          break
       }
       return state.sortOrder === 'asc' ? comparison : -comparison
     })
@@ -146,5 +154,5 @@ export function useProcessedData(blockLogs: BlockLogs | null | undefined, state:
       stats,
       allData,
     }
-  }, [blockLogs, state.category, state.minThroughput, state.maxThroughput, state.excludeOutliers, state.sortBy, state.sortOrder])
+  }, [blockLogs, state.category, state.minThroughput, state.maxThroughput, state.excludeOutliers, state.sortBy, state.sortOrder, executionOrder])
 }

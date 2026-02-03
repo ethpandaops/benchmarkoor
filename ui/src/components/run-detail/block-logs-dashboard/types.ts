@@ -2,6 +2,7 @@ export type TestCategory = 'add' | 'mul' | 'pairing' | 'other'
 
 export interface ProcessedTestData {
   testName: string
+  testOrder: number // Position in suite (1-indexed), Infinity if not in suite
   category: TestCategory
   throughput: number
   executionMs: number
@@ -45,7 +46,7 @@ export interface BoxPlotStats {
 }
 
 export type DashboardTab = 'overview' | 'compare' | 'cache' | 'distribution'
-export type SortField = 'throughput' | 'execution' | 'overhead' | 'name'
+export type SortField = 'throughput' | 'execution' | 'overhead' | 'name' | 'order'
 export type SortOrder = 'asc' | 'desc'
 
 export interface DashboardState {

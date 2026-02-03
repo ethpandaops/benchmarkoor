@@ -44,8 +44,9 @@ export function CacheScatterChart({ data, isDark }: CacheScatterChartProps) {
         textStyle: { color: textColor },
         formatter: (params: { data: { testName: string; item: ProcessedTestData } }) => {
           const item = params.data.item
+          const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
           return `
-            <div style="font-weight: 500; margin-bottom: 4px; max-width: 300px; word-wrap: break-word">${item.testName}</div>
+            <div style="font-weight: 500; margin-bottom: 4px; max-width: 300px; word-wrap: break-word">${testLabel}: ${item.testName}</div>
             <div>Account Cache: ${item.accountCacheHitRate.toFixed(1)}%</div>
             <div>Storage Cache: ${item.storageCacheHitRate.toFixed(1)}%</div>
             <div>Code Cache: ${item.codeCacheHitRate.toFixed(1)}%</div>

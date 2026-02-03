@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { TabPanel } from '@headlessui/react'
-import type { BlockLogs } from '@/api/types'
+import type { BlockLogs, SuiteTest } from '@/api/types'
 import { useDashboardState } from './hooks/useDashboardState'
 import { useProcessedData } from './hooks/useProcessedData'
 import { DashboardFilters } from './components/DashboardFilters'
@@ -14,6 +14,7 @@ import { DistributionTab } from './components/DistributionTab'
 interface BlockLogsDashboardProps {
   blockLogs: BlockLogs | null | undefined
   runId: string
+  suiteTests?: SuiteTest[]
 }
 
 function useDarkMode() {
@@ -30,10 +31,17 @@ function useDarkMode() {
   return isDark
 }
 
-export function BlockLogsDashboard({ blockLogs, runId }: BlockLogsDashboardProps) {
+export function BlockLogsDashboard({ blockLogs, runId, suiteTests }: BlockLogsDashboardProps) {
   const isDark = useDarkMode()
   const { state, updateState, toggleTestSelection, clearSelection } = useDashboardState(runId)
-  const { data, stats } = useProcessedData(blockLogs, state)
+
+  // Build execution order map from suite tests
+  const executionOrder = useMemo(() => {
+    if (!suiteTests) return new Map<string, number>()
+    return new Map(suiteTests.map((test, index) => [test.name, index + 1]))
+  }, [suiteTests])
+
+  const { data, stats } = useProcessedData(blockLogs, state, executionOrder)
 
   // Don't render if no block logs data
   if (!blockLogs || Object.keys(blockLogs).length === 0) {

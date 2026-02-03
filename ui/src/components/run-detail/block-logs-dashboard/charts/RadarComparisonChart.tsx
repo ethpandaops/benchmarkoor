@@ -22,22 +22,26 @@ export function RadarComparisonChart({ selectedData, isDark }: RadarComparisonCh
       { name: 'Code Cache', max: 100 },
     ]
 
-    const series = selectedData.map((item, index) => ({
-      value: [
-        item.normalizedThroughput,
-        item.normalizedSpeed,
-        item.normalizedLowOverhead,
-        item.normalizedAccountCache,
-        item.normalizedCodeCache,
-      ],
-      name: item.testName.length > 30 ? item.testName.slice(0, 27) + '...' : item.testName,
-      itemStyle: { color: COMPARISON_COLORS[index % COMPARISON_COLORS.length] },
-      lineStyle: { color: COMPARISON_COLORS[index % COMPARISON_COLORS.length], width: 2 },
-      areaStyle: {
-        color: COMPARISON_COLORS[index % COMPARISON_COLORS.length],
-        opacity: 0.1,
-      },
-    }))
+    const series = selectedData.map((item, index) => {
+      const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
+      return {
+        value: [
+          item.normalizedThroughput,
+          item.normalizedSpeed,
+          item.normalizedLowOverhead,
+          item.normalizedAccountCache,
+          item.normalizedCodeCache,
+        ],
+        name: testLabel,
+        fullName: item.testName,
+        itemStyle: { color: COMPARISON_COLORS[index % COMPARISON_COLORS.length] },
+        lineStyle: { color: COMPARISON_COLORS[index % COMPARISON_COLORS.length], width: 2 },
+        areaStyle: {
+          color: COMPARISON_COLORS[index % COMPARISON_COLORS.length],
+          opacity: 0.1,
+        },
+      }
+    })
 
     return {
       tooltip: {

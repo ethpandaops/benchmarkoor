@@ -15,8 +15,9 @@ export function TimingStackedBars({ selectedData, isDark }: TimingStackedBarsPro
   const tooltipBorder = isDark ? '#374151' : '#e5e7eb'
 
   const option = useMemo(() => {
-    const testNames = selectedData.map((d) =>
-      d.testName.length > 25 ? d.testName.slice(0, 22) + '...' : d.testName
+    // Use test order for X axis labels
+    const testLabels = selectedData.map((d) =>
+      d.testOrder === Infinity ? '-' : `#${d.testOrder}`
     )
 
     return {
@@ -28,7 +29,8 @@ export function TimingStackedBars({ selectedData, isDark }: TimingStackedBarsPro
         textStyle: { color: textColor },
         formatter: (params: Array<{ seriesName: string; value: number; color: string; dataIndex: number }>) => {
           const item = selectedData[params[0].dataIndex]
-          let content = `<div style="font-weight: 500; margin-bottom: 4px">${item.testName}</div>`
+          const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
+          let content = `<div style="font-weight: 500; margin-bottom: 4px">${testLabel}: ${item.testName}</div>`
           content += `<div>Total: ${item.totalMs.toFixed(2)}ms</div>`
           content += '<hr style="margin: 4px 0; border-color: #666"/>'
           params.forEach((p) => {
@@ -56,11 +58,10 @@ export function TimingStackedBars({ selectedData, isDark }: TimingStackedBarsPro
       },
       xAxis: {
         type: 'category' as const,
-        data: testNames,
+        data: testLabels,
         axisLabel: {
           color: textColor,
           fontSize: 10,
-          rotate: 30,
           interval: 0,
         },
         axisLine: { lineStyle: { color: gridColor } },
