@@ -16,13 +16,13 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
   const tooltipBg = isDark ? '#1f2937' : '#ffffff'
   const tooltipBorder = isDark ? '#374151' : '#e5e7eb'
 
-  // Sort by throughput descending (slowest at top of chart)
+  // Sort by test order (ascending)
   const chartData = useMemo(() => {
-    return [...data].sort((a, b) => b.throughput - a.throughput)
+    return [...data].sort((a, b) => a.testOrder - b.testOrder)
   }, [data])
 
   const option = useMemo(() => {
-    // Use test order for Y axis labels (e.g., "#1", "#2", etc.)
+    // Use test order for X axis labels (e.g., "#1", "#2", etc.)
     const testLabels = chartData.map((d) =>
       d.testOrder === Infinity ? '-' : `#${d.testOrder}`
     )
@@ -47,45 +47,48 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
         },
       },
       grid: {
-        left: 60,
-        right: 50,
+        left: 50,
+        right: 20,
         top: 20,
-        bottom: 40,
+        bottom: chartData.length > 30 ? 80 : 40,
       },
       xAxis: {
-        type: useLogScale ? ('log' as const) : ('value' as const),
-        name: 'MGas/s',
-        nameLocation: 'middle' as const,
-        nameGap: 25,
-        nameTextStyle: { color: subTextColor, fontSize: 11 },
-        axisLabel: { color: textColor, fontSize: 11 },
-        axisLine: { lineStyle: { color: gridColor } },
-        splitLine: { lineStyle: { color: gridColor, type: 'dashed' as const } },
-        // Let ECharts auto-calculate based on visible data (filtered by dataZoom)
-        min: useLogScale ? 1 : 0,
-        scale: true, // Allow axis to not include zero and scale to data
-      },
-      yAxis: {
         type: 'category' as const,
         data: testLabels,
         axisLabel: {
           color: textColor,
           fontSize: 10,
+          rotate: chartData.length > 50 ? 90 : 45,
+          interval: chartData.length > 100 ? Math.floor(chartData.length / 50) : 0,
         },
         axisLine: { lineStyle: { color: gridColor } },
         axisTick: { show: false },
+        name: 'Test #',
+        nameLocation: 'middle' as const,
+        nameGap: chartData.length > 30 ? 60 : 30,
+        nameTextStyle: { color: subTextColor, fontSize: 11 },
+      },
+      yAxis: {
+        type: useLogScale ? ('log' as const) : ('value' as const),
+        name: 'MGas/s',
+        nameLocation: 'middle' as const,
+        nameGap: 35,
+        nameTextStyle: { color: subTextColor, fontSize: 11 },
+        axisLabel: { color: textColor, fontSize: 11 },
+        axisLine: { lineStyle: { color: gridColor } },
+        splitLine: { lineStyle: { color: gridColor, type: 'dashed' as const } },
+        min: useLogScale ? 1 : 0,
+        scale: true,
       },
       dataZoom: chartData.length > 30 ? [
         {
           type: 'slider' as const,
-          yAxisIndex: 0,
-          // 'filter' mode: X axis will auto-adjust to only visible tests' throughput range
+          xAxisIndex: 0,
           filterMode: 'filter' as const,
-          width: 20,
-          right: 5,
-          // Show top section (slowest tests) by default - 30 visible
-          start: 100 - (30 / chartData.length) * 100,
-          end: 100,
+          height: 20,
+          bottom: 10,
+          start: 0,
+          end: (30 / chartData.length) * 100,
           fillerColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)',
           borderColor: gridColor,
           handleStyle: { color: '#3b82f6' },
@@ -98,20 +101,11 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
             value: d.throughput,
             itemStyle: { color: CATEGORY_COLORS[d.category] },
           })),
-          barMaxWidth: 20,
-          label: {
-            show: true,
-            position: 'right' as const,
-            formatter: (params: { value: number }) => params.value.toFixed(1),
-            color: textColor,
-            fontSize: 10,
-          },
+          barMaxWidth: 30,
         },
       ],
     }
   }, [chartData, isDark, useLogScale, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
-
-  const height = Math.max(300, Math.min(chartData.length * 25, 800))
 
   return (
     <div className="flex flex-col gap-2">
@@ -120,7 +114,7 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
       </h4>
       <ReactECharts
         option={option}
-        style={{ height: `${height}px`, width: '100%' }}
+        style={{ height: '400px', width: '100%' }}
         opts={{ renderer: 'svg' }}
       />
     </div>
