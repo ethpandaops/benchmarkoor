@@ -19,6 +19,9 @@ import { JDenticon } from '@/components/shared/JDenticon'
 import { StatusAlert } from '@/components/shared/StatusBadge'
 import { formatTimestamp } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
+import { useIndex } from '@/api/hooks/useIndex'
+import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
+import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
 
 // Step types that can be included in MGas/s calculation
 export type StepTypeOption = 'setup' | 'test' | 'cleanup'
@@ -124,6 +127,7 @@ export function RunDetailPage() {
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
   const { data: suite } = useSuite(config?.suite_hash ?? '')
+  const { data: index } = useIndex()
   const { data: containerLog } = useQuery({
     queryKey: ['run', runId, 'container-log'],
     queryFn: async () => {
@@ -219,6 +223,15 @@ export function RunDetailPage() {
   if (!config || !result) {
     return <ErrorState message="Run not found" />
   }
+
+  const clientRuns = (index?.entries ?? []).filter(
+    (r) => r.suite_hash === config.suite_hash && r.instance.client === config.instance.client,
+  )
+
+  // Map StepTypeOption[] to IndexStepType[] for the strip
+  const indexStepFilter: IndexStepType[] = stepFilter.filter(
+    (s): s is IndexStepType => ALL_INDEX_STEP_TYPES.includes(s as IndexStepType),
+  )
 
   const testCount = Object.keys(result.tests).length
   const aggregatedStats = Object.values(result.tests).map((t) => getAggregatedStats(t, stepFilter)).filter((s): s is AggregatedStats => s !== undefined)
@@ -342,6 +355,10 @@ export function RunDetailPage() {
           </div>
         )}
       </div>
+
+      {clientRuns.length > 1 && (
+        <ClientRunsStrip runs={clientRuns} currentRunId={runId} stepFilter={indexStepFilter} />
+      )}
 
       <StatusAlert
         status={config.status}

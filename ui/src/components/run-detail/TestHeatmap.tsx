@@ -8,6 +8,7 @@ import { ExecutionsList } from './ExecutionsList'
 import type { TestStatusFilter } from './TestsTable'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 import { formatDuration } from '@/utils/format'
+import { EESTInfoContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 
 // Aggregate stats from selected steps of a test entry
 function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
@@ -193,6 +194,7 @@ export function TestHeatmap({
   const sortMode = sortModeProp ?? 'order'
   const threshold = thresholdProp ?? DEFAULT_THRESHOLD
   const [tooltip, setTooltip] = useState<{ test: TestData; x: number; y: number } | null>(null)
+  const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
 
   const handleSortModeChange = (mode: SortMode) => {
     onSortModeChange?.(mode)
@@ -559,6 +561,11 @@ export function TestHeatmap({
                   </div>
                 )}
               </div>
+              {(() => {
+                const matchingSuiteTest = suiteTests?.find((t) => t.name === selectedTest)
+                if (!matchingSuiteTest) return null
+                return <EESTInfoContent test={matchingSuiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
+              })()}
               {stats && (
                 <>
                   <TimeBreakdown methods={stats.method_stats.times} />

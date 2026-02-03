@@ -137,8 +137,8 @@ export function RunsHeatmap({
     const clientMgasStats: Record<string, ClientStats> = {}
 
     for (const [client, clientRunsAll] of Object.entries(grouped)) {
-      const sorted = [...clientRunsAll].sort((a, b) => a.timestamp - b.timestamp)
-      clientRuns[client] = sorted.slice(-MAX_RUNS_PER_CLIENT)
+      const sorted = [...clientRunsAll].sort((a, b) => b.timestamp - a.timestamp)
+      clientRuns[client] = sorted.slice(0, MAX_RUNS_PER_CLIENT)
 
       // Calculate duration stats
       const durations = clientRuns[client].map((r) => getIndexAggregatedStats(r, stepFilter).duration)
@@ -156,7 +156,7 @@ export function RunsHeatmap({
         mean: durationSum / durations.length,
         p95: calculatePercentile(sortedDurations, 95),
         p99: calculatePercentile(sortedDurations, 99),
-        last: durations[durations.length - 1],
+        last: durations[0],
       }
 
       // Calculate MGas/s stats
@@ -182,7 +182,7 @@ export function RunsHeatmap({
           mean: mgasSum / mgasValues.length,
           p95: calculatePercentile(sortedMgas, 95),
           p99: calculatePercentile(sortedMgas, 99),
-          last: mgasValues[mgasValues.length - 1],
+          last: mgasValues[0],
         }
       } else {
         clientMgasMinMax[client] = { min: 0, max: 0 }
@@ -404,7 +404,7 @@ export function RunsHeatmap({
 
       {/* Legend */}
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
-        <span>Older → Recent</span>
+        <span>Recent → Older</span>
         <span className="flex items-center gap-1">
           <span>Fast</span>
           <span className="flex gap-0.5">
