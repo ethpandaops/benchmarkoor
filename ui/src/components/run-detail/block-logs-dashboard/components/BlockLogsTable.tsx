@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react'
 import clsx from 'clsx'
 import type { ProcessedTestData, DashboardState, SortField, SortOrder } from '../types'
 import { CATEGORY_COLORS } from '../utils/colors'
@@ -8,6 +9,8 @@ interface BlockLogsTableProps {
   onUpdate: (updates: Partial<DashboardState>) => void
   onToggleSelection: (testName: string) => void
 }
+
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 250]
 
 function formatMs(ms: number): string {
   if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`
@@ -56,8 +59,31 @@ function SortHeader({ label, field, currentSort, currentOrder, onSort, align = '
 }
 
 export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: BlockLogsTableProps) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
+
+  const totalPages = Math.ceil(data.length / pageSize)
+
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    return data.slice(startIndex, startIndex + pageSize)
+  }, [data, currentPage, pageSize])
+
+  // Reset to page 1 when data changes significantly
+  useMemo(() => {
+    if (currentPage > Math.ceil(data.length / pageSize)) {
+      setCurrentPage(1)
+    }
+  }, [data.length, pageSize, currentPage])
+
   const handleSort = (field: SortField, order: SortOrder) => {
     onUpdate({ sortBy: field, sortOrder: order })
+    setCurrentPage(1)
+  }
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize)
+    setCurrentPage(1)
   }
 
   if (data.length === 0) {
@@ -68,177 +94,243 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
     )
   }
 
-  return (
-    <div className="overflow-x-auto border-t border-gray-200 dark:border-gray-700">
-      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-        <thead className="bg-gray-50 dark:bg-gray-800/50">
-          <tr>
-            <th scope="col" className="w-10 px-3 py-3">
-              <span className="sr-only">Select</span>
-            </th>
-            <th scope="col" className="sticky left-0 z-10 bg-gray-50 px-3 py-3 text-left text-xs dark:bg-gray-800/50">
-              <SortHeader
-                label="Test #"
-                field="order"
-                currentSort={state.sortBy}
-                currentOrder={state.sortOrder}
-                onSort={handleSort}
-              />
-            </th>
-            <th scope="col" className="px-3 py-3 text-left text-xs">
-              <SortHeader
-                label="Category"
-                field="category"
-                currentSort={state.sortBy}
-                currentOrder={state.sortOrder}
-                onSort={handleSort}
-              />
-            </th>
-            <th scope="col" className="px-3 py-3 text-right text-xs">
-              <SortHeader
-                label="MGas/s"
-                field="throughput"
-                currentSort={state.sortBy}
-                currentOrder={state.sortOrder}
-                onSort={handleSort}
-                align="right"
-              />
-            </th>
-            <th scope="col" className="px-3 py-3 text-right text-xs">
-              <SortHeader
-                label="Execution"
-                field="execution"
-                currentSort={state.sortBy}
-                currentOrder={state.sortOrder}
-                onSort={handleSort}
-                align="right"
-              />
-            </th>
-            <th scope="col" className="px-3 py-3 text-right text-xs" title="state_read + state_hash + commit">
-              <SortHeader
-                label="Overhead"
-                field="overhead"
-                currentSort={state.sortBy}
-                currentOrder={state.sortOrder}
-                onSort={handleSort}
-                align="right"
-              />
-            </th>
-            <th scope="col" className="px-3 py-3 text-right text-xs">
-              <SortHeader
-                label="Acct Cache"
-                field="accountCache"
-                currentSort={state.sortBy}
-                currentOrder={state.sortOrder}
-                onSort={handleSort}
-                align="right"
-              />
-            </th>
-            <th scope="col" className="px-3 py-3 text-right text-xs">
-              <SortHeader
-                label="Storage Cache"
-                field="storageCache"
-                currentSort={state.sortBy}
-                currentOrder={state.sortOrder}
-                onSort={handleSort}
-                align="right"
-              />
-            </th>
-            <th scope="col" className="px-3 py-3 text-right text-xs">
-              <SortHeader
-                label="Code Cache"
-                field="codeCache"
-                currentSort={state.sortBy}
-                currentOrder={state.sortOrder}
-                onSort={handleSort}
-                align="right"
-              />
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-          {data.map((row) => {
-            const isSelected = state.selectedTests.includes(row.testName)
-            const canSelect = state.selectedTests.length < 5 || isSelected
+  const startItem = (currentPage - 1) * pageSize + 1
+  const endItem = Math.min(currentPage * pageSize, data.length)
 
-            return (
-              <tr
-                key={row.testName}
-                onClick={() => canSelect && onToggleSelection(row.testName)}
-                className={clsx(
-                  'cursor-pointer transition-colors',
-                  isSelected
-                    ? 'bg-blue-50 dark:bg-blue-900/20'
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-800/50',
-                  !canSelect && !isSelected && 'cursor-not-allowed opacity-50'
-                )}
-              >
-                <td className="px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => canSelect && onToggleSelection(row.testName)}
-                    disabled={!canSelect}
-                    className="rounded-xs border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600"
-                  />
-                </td>
-                <td className="sticky left-0 z-10 bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
-                  <span title={row.testName} className="cursor-help">
-                    {row.testOrder === Infinity ? '-' : `#${row.testOrder}`}
-                  </span>
-                </td>
-                <td className="px-3 py-2">
-                  <span
-                    className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize"
-                    style={{
-                      backgroundColor: `${CATEGORY_COLORS[row.category]}20`,
-                      color: CATEGORY_COLORS[row.category],
-                    }}
-                  >
-                    {row.category}
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-sm text-gray-900 dark:text-gray-100">
-                  {row.throughput.toFixed(1)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
-                  {formatMs(row.executionMs)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
-                  {formatMs(row.overheadMs)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-sm">
-                  <span
-                    className={clsx(
-                      row.accountCacheHitRate >= 80 ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'
-                    )}
-                  >
-                    {formatPercent(row.accountCacheHitRate)}
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-sm">
-                  <span
-                    className={clsx(
-                      row.storageCacheHitRate >= 80 ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'
-                    )}
-                  >
-                    {formatPercent(row.storageCacheHitRate)}
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-sm">
-                  <span
-                    className={clsx(
-                      row.codeCacheHitRate >= 80 ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'
-                    )}
-                  >
-                    {formatPercent(row.codeCacheHitRate)}
-                  </span>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+  return (
+    <div className="flex flex-col">
+      <div className="overflow-x-auto border-t border-gray-200 dark:border-gray-700">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-800/50">
+            <tr>
+              <th scope="col" className="w-10 px-3 py-3">
+                <span className="sr-only">Select</span>
+              </th>
+              <th scope="col" className="sticky left-0 z-10 bg-gray-50 px-3 py-3 text-left text-xs dark:bg-gray-800/50">
+                <SortHeader
+                  label="Test #"
+                  field="order"
+                  currentSort={state.sortBy}
+                  currentOrder={state.sortOrder}
+                  onSort={handleSort}
+                />
+              </th>
+              <th scope="col" className="px-3 py-3 text-left text-xs">
+                <SortHeader
+                  label="Category"
+                  field="category"
+                  currentSort={state.sortBy}
+                  currentOrder={state.sortOrder}
+                  onSort={handleSort}
+                />
+              </th>
+              <th scope="col" className="px-3 py-3 text-right text-xs">
+                <SortHeader
+                  label="MGas/s"
+                  field="throughput"
+                  currentSort={state.sortBy}
+                  currentOrder={state.sortOrder}
+                  onSort={handleSort}
+                  align="right"
+                />
+              </th>
+              <th scope="col" className="px-3 py-3 text-right text-xs">
+                <SortHeader
+                  label="Execution"
+                  field="execution"
+                  currentSort={state.sortBy}
+                  currentOrder={state.sortOrder}
+                  onSort={handleSort}
+                  align="right"
+                />
+              </th>
+              <th scope="col" className="px-3 py-3 text-right text-xs" title="state_read + state_hash + commit">
+                <SortHeader
+                  label="Overhead"
+                  field="overhead"
+                  currentSort={state.sortBy}
+                  currentOrder={state.sortOrder}
+                  onSort={handleSort}
+                  align="right"
+                />
+              </th>
+              <th scope="col" className="px-3 py-3 text-right text-xs">
+                <SortHeader
+                  label="Acct Cache"
+                  field="accountCache"
+                  currentSort={state.sortBy}
+                  currentOrder={state.sortOrder}
+                  onSort={handleSort}
+                  align="right"
+                />
+              </th>
+              <th scope="col" className="px-3 py-3 text-right text-xs">
+                <SortHeader
+                  label="Storage Cache"
+                  field="storageCache"
+                  currentSort={state.sortBy}
+                  currentOrder={state.sortOrder}
+                  onSort={handleSort}
+                  align="right"
+                />
+              </th>
+              <th scope="col" className="px-3 py-3 text-right text-xs">
+                <SortHeader
+                  label="Code Cache"
+                  field="codeCache"
+                  currentSort={state.sortBy}
+                  currentOrder={state.sortOrder}
+                  onSort={handleSort}
+                  align="right"
+                />
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {paginatedData.map((row) => {
+              const isSelected = state.selectedTests.includes(row.testName)
+              const canSelect = state.selectedTests.length < 5 || isSelected
+
+              return (
+                <tr
+                  key={row.testName}
+                  onClick={() => canSelect && onToggleSelection(row.testName)}
+                  className={clsx(
+                    'cursor-pointer transition-colors',
+                    isSelected
+                      ? 'bg-blue-50 dark:bg-blue-900/20'
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-800/50',
+                    !canSelect && !isSelected && 'cursor-not-allowed opacity-50'
+                  )}
+                >
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => canSelect && onToggleSelection(row.testName)}
+                      disabled={!canSelect}
+                      className="rounded-xs border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600"
+                    />
+                  </td>
+                  <td className="sticky left-0 z-10 bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
+                    <span title={row.testName} className="cursor-help">
+                      {row.testOrder === Infinity ? '-' : `#${row.testOrder}`}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span
+                      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize"
+                      style={{
+                        backgroundColor: `${CATEGORY_COLORS[row.category]}20`,
+                        color: CATEGORY_COLORS[row.category],
+                      }}
+                    >
+                      {row.category}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-sm text-gray-900 dark:text-gray-100">
+                    {row.throughput.toFixed(1)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
+                    {formatMs(row.executionMs)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
+                    {formatMs(row.overheadMs)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-sm">
+                    <span
+                      className={clsx(
+                        row.accountCacheHitRate >= 80 ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'
+                      )}
+                    >
+                      {formatPercent(row.accountCacheHitRate)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-sm">
+                    <span
+                      className={clsx(
+                        row.storageCacheHitRate >= 80 ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'
+                      )}
+                    >
+                      {formatPercent(row.storageCacheHitRate)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-sm">
+                    <span
+                      className={clsx(
+                        row.codeCacheHitRate >= 80 ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'
+                      )}
+                    >
+                      {formatPercent(row.codeCacheHitRate)}
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination Controls */}
+      <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
+        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+          <span>Show</span>
+          <select
+            value={pageSize}
+            onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+          <span>per page</span>
+        </div>
+
+        <div className="text-sm text-gray-600 dark:text-gray-400">
+          {startItem}-{endItem} of {data.length}
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setCurrentPage(1)}
+            disabled={currentPage === 1}
+            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+            title="First page"
+          >
+            ««
+          </button>
+          <button
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+            title="Previous page"
+          >
+            «
+          </button>
+          <span className="px-3 text-sm text-gray-600 dark:text-gray-400">
+            Page {currentPage} of {totalPages}
+          </span>
+          <button
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+            title="Next page"
+          >
+            »
+          </button>
+          <button
+            onClick={() => setCurrentPage(totalPages)}
+            disabled={currentPage === totalPages}
+            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+            title="Last page"
+          >
+            »»
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
