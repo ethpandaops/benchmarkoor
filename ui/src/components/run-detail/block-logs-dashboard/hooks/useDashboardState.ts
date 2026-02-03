@@ -27,6 +27,8 @@ const DEFAULT_STATE: DashboardState = {
 
 function parseCategories(value: string | undefined): TestCategory[] {
   if (!value) return []
+  // Preserve the special '__none__' sentinel value that indicates "no categories selected"
+  if (value === '__none__') return ['__none__' as TestCategory]
   const categories = value.split(',').filter((c): c is TestCategory =>
     ALL_CATEGORIES.includes(c as TestCategory)
   )

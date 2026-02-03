@@ -65,7 +65,13 @@ export function DashboardFilters({ state, stats, onUpdate }: DashboardFiltersPro
       onUpdate({ categories: [category] })
     } else if (currentCategories.includes(category)) {
       // Remove from selection
-      onUpdate({ categories: currentCategories.filter((c) => c !== category) })
+      const newCategories = currentCategories.filter((c) => c !== category)
+      if (newCategories.length === 0) {
+        // All categories unchecked, switch to "none" mode
+        onUpdate({ categories: ['__none__' as TestCategory] })
+      } else {
+        onUpdate({ categories: newCategories })
+      }
     } else {
       // Add to selection
       const newCategories = [...validCategories, category]

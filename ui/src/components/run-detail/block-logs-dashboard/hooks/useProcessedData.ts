@@ -136,16 +136,17 @@ export function useProcessedData(
       return state.sortOrder === 'asc' ? comparison : -comparison
     })
 
+    // Calculate category breakdown from all data (unfiltered) so counts are always visible
+    const categoryBreakdown = emptyCategoryBreakdown()
+    for (const d of allData) {
+      categoryBreakdown[d.category]++
+    }
+
     // Calculate stats
     const stats: DashboardStats | null = data.length > 0 ? (() => {
       const throughputs = data.map((d) => d.throughput).sort((a, b) => a - b)
       const executions = data.map((d) => d.executionMs)
       const overheads = data.map((d) => d.overheadMs)
-
-      const categoryBreakdown = emptyCategoryBreakdown()
-      for (const d of allData) {
-        categoryBreakdown[d.category]++
-      }
 
       return {
         count: data.length,
@@ -157,7 +158,16 @@ export function useProcessedData(
         avgOverhead: overheads.reduce((sum, v) => sum + v, 0) / overheads.length,
         categoryBreakdown,
       }
-    })() : null
+    })() : {
+      count: 0,
+      avgThroughput: 0,
+      minThroughput: 0,
+      maxThroughput: 0,
+      medianThroughput: 0,
+      avgExecution: 0,
+      avgOverhead: 0,
+      categoryBreakdown,
+    }
 
     return {
       data,
