@@ -98,8 +98,43 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
   const startItem = (currentPage - 1) * pageSize + 1
   const endItem = Math.min(currentPage * pageSize, data.length)
 
+  const paginationControls = (
+    <div className="flex items-center justify-between bg-gray-50 px-4 py-3 dark:bg-gray-800/50">
+      <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+        <span>Show</span>
+        <select
+          value={pageSize}
+          onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+          className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+        >
+          {PAGE_SIZE_OPTIONS.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </select>
+        <span>per page</span>
+      </div>
+
+      <div className="text-sm text-gray-600 dark:text-gray-400">
+        {startItem}-{endItem} of {data.length}
+      </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+      />
+    </div>
+  )
+
   return (
     <div className="flex flex-col">
+      {/* Top Pagination */}
+      <div className="border-t border-gray-200 dark:border-gray-700">
+        {paginationControls}
+      </div>
+
       <div className="overflow-x-auto border-t border-gray-200 dark:border-gray-700">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-800/50">
@@ -272,33 +307,9 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
         </table>
       </div>
 
-      {/* Pagination Controls */}
-      <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
-        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-          <span>Show</span>
-          <select
-            value={pageSize}
-            onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-          <span>per page</span>
-        </div>
-
-        <div className="text-sm text-gray-600 dark:text-gray-400">
-          {startItem}-{endItem} of {data.length}
-        </div>
-
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={setCurrentPage}
-        />
+      {/* Bottom Pagination */}
+      <div className="border-t border-gray-200 dark:border-gray-700">
+        {paginationControls}
       </div>
     </div>
   )

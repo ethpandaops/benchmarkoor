@@ -67,7 +67,7 @@ export type SortOrder = 'asc' | 'desc'
 
 export interface DashboardState {
   activeTab: DashboardTab
-  category: 'all' | TestCategory
+  categories: TestCategory[] // Empty array means all categories
   sortBy: SortField
   sortOrder: SortOrder
   minThroughput?: number

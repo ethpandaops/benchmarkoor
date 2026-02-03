@@ -51,8 +51,8 @@ export function useProcessedData(
     const allData = [...data]
 
     // Apply category filter
-    if (state.category !== 'all') {
-      data = data.filter((d) => d.category === state.category)
+    if (state.categories.length > 0) {
+      data = data.filter((d) => state.categories.includes(d.category))
     }
 
     // Apply throughput range filter
@@ -164,5 +164,5 @@ export function useProcessedData(
       stats,
       allData,
     }
-  }, [blockLogs, state.category, state.minThroughput, state.maxThroughput, state.excludeOutliers, state.sortBy, state.sortOrder, executionOrder])
+  }, [blockLogs, state.categories, state.minThroughput, state.maxThroughput, state.excludeOutliers, state.sortBy, state.sortOrder, executionOrder])
 }

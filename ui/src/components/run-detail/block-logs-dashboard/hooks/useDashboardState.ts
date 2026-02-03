@@ -1,10 +1,11 @@
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo, useCallback } from 'react'
 import type { DashboardState, DashboardTab, SortField, SortOrder, TestCategory } from '../types'
+import { ALL_CATEGORIES } from '../utils/colors'
 
 interface BlockLogsDashboardSearch {
   blTab?: DashboardTab
-  blCategory?: 'all' | TestCategory
+  blCategories?: string // Comma-separated list of categories
   blSortBy?: SortField
   blSortOrder?: SortOrder
   blMinThroughput?: number
@@ -16,12 +17,20 @@ interface BlockLogsDashboardSearch {
 
 const DEFAULT_STATE: DashboardState = {
   activeTab: 'overview',
-  category: 'all',
+  categories: [], // Empty means all
   sortBy: 'throughput',
   sortOrder: 'asc',
   excludeOutliers: true,
   useLogScale: false,
   selectedTests: [],
+}
+
+function parseCategories(value: string | undefined): TestCategory[] {
+  if (!value) return []
+  const categories = value.split(',').filter((c): c is TestCategory =>
+    ALL_CATEGORIES.includes(c as TestCategory)
+  )
+  return categories
 }
 
 export function useDashboardState(runId: string) {
@@ -30,7 +39,7 @@ export function useDashboardState(runId: string) {
 
   const state = useMemo<DashboardState>(() => ({
     activeTab: search.blTab ?? DEFAULT_STATE.activeTab,
-    category: search.blCategory ?? DEFAULT_STATE.category,
+    categories: parseCategories(search.blCategories),
     sortBy: search.blSortBy ?? DEFAULT_STATE.sortBy,
     sortOrder: search.blSortOrder ?? DEFAULT_STATE.sortOrder,
     minThroughput: search.blMinThroughput,
@@ -53,11 +62,11 @@ export function useDashboardState(runId: string) {
       delete newSearch.blTab
     }
 
-    // Category
-    if (newState.category !== DEFAULT_STATE.category) {
-      newSearch.blCategory = newState.category
+    // Categories
+    if (newState.categories.length > 0) {
+      newSearch.blCategories = newState.categories.join(',')
     } else {
-      delete newSearch.blCategory
+      delete newSearch.blCategories
     }
 
     // Sort

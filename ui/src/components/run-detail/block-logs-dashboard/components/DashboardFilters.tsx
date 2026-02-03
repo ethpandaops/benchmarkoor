@@ -1,7 +1,6 @@
-import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from '@headlessui/react'
-import clsx from 'clsx'
+import { useState, useRef, useEffect } from 'react'
 import type { DashboardState, DashboardStats, TestCategory, SortField } from '../types'
-import { CATEGORY_COLORS } from '../utils/colors'
+import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
 
 interface DashboardFiltersProps {
   state: DashboardState
@@ -9,8 +8,7 @@ interface DashboardFiltersProps {
   onUpdate: (updates: Partial<DashboardState>) => void
 }
 
-const CATEGORY_OPTIONS: { value: 'all' | TestCategory; label: string }[] = [
-  { value: 'all', label: 'All Categories' },
+const CATEGORY_OPTIONS: { value: TestCategory; label: string }[] = [
   // EVM Instructions
   { value: 'arithmetic', label: 'Arithmetic' },
   { value: 'memory', label: 'Memory' },
@@ -41,96 +39,163 @@ const SORT_OPTIONS: { value: SortField; label: string; title?: string }[] = [
 ]
 
 export function DashboardFilters({ state, stats, onUpdate }: DashboardFiltersProps) {
-  const selectedCategory = CATEGORY_OPTIONS.find((o) => o.value === state.category) ?? CATEGORY_OPTIONS[0]
-  const selectedSort = SORT_OPTIONS.find((o) => o.value === state.sortBy) ?? SORT_OPTIONS[0]
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const toggleCategory = (category: TestCategory) => {
+    const currentCategories = state.categories
+    const validCategories = currentCategories.filter((c) => ALL_CATEGORIES.includes(c as TestCategory))
+
+    if (currentCategories.length === 0) {
+      // Currently "all" selected, switching to exclude one category
+      onUpdate({ categories: ALL_CATEGORIES.filter((c) => c !== category) })
+    } else if (validCategories.length === 0) {
+      // Currently "none" selected, start fresh with just this category
+      onUpdate({ categories: [category] })
+    } else if (currentCategories.includes(category)) {
+      // Remove from selection
+      onUpdate({ categories: currentCategories.filter((c) => c !== category) })
+    } else {
+      // Add to selection
+      const newCategories = [...validCategories, category]
+      // If all categories are now selected, switch back to empty (meaning "all")
+      if (newCategories.length === ALL_CATEGORIES.length) {
+        onUpdate({ categories: [] })
+      } else {
+        onUpdate({ categories: newCategories })
+      }
+    }
+  }
+
+  const selectAll = () => {
+    onUpdate({ categories: [] })
+  }
+
+  const selectNone = () => {
+    // Set to a single fake category that won't match anything
+    // This effectively filters out everything
+    onUpdate({ categories: ['__none__' as TestCategory] })
+  }
+
+  // Check if a category is a valid one (not the special '__none__' marker)
+  const isValidCategory = (cat: string): cat is TestCategory => ALL_CATEGORIES.includes(cat as TestCategory)
+
+  const getSelectedValidCategories = () => state.categories.filter(isValidCategory)
+
+  const getCategoryLabel = () => {
+    const validCategories = getSelectedValidCategories()
+    if (state.categories.length === 0) {
+      return 'All Categories'
+    }
+    if (validCategories.length === 0) {
+      return 'None'
+    }
+    if (validCategories.length === 1) {
+      const cat = CATEGORY_OPTIONS.find((o) => o.value === validCategories[0])
+      return cat?.label ?? validCategories[0]
+    }
+    return `${validCategories.length} categories`
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-4 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
       {/* Category Filter */}
       <div className="flex items-center gap-2">
         <span className="text-xs text-gray-500 dark:text-gray-400">Category:</span>
-        <Listbox value={state.category} onChange={(value) => onUpdate({ category: value })}>
-          <div className="relative">
-            <ListboxButton className="flex items-center gap-2 rounded-sm border border-gray-300 bg-white px-3 py-1.5 text-left text-sm dark:border-gray-600 dark:bg-gray-700">
-              {state.category !== 'all' && (
-                <span
-                  className="size-2.5 rounded-full"
-                  style={{ backgroundColor: CATEGORY_COLORS[state.category as TestCategory] }}
-                />
-              )}
-              <span className="text-gray-900 dark:text-gray-100">{selectedCategory.label}</span>
-              {stats?.categoryBreakdown && state.category !== 'all' && (
-                <span className="text-gray-500 dark:text-gray-400">
-                  ({stats.categoryBreakdown[state.category as TestCategory]})
-                </span>
-              )}
-              <svg className="size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </ListboxButton>
-            <ListboxOptions className="absolute z-10 mt-1 max-h-60 w-48 overflow-auto rounded-sm border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-600 dark:bg-gray-700">
-              {CATEGORY_OPTIONS.map((option) => (
-                <ListboxOption
-                  key={option.value}
-                  value={option.value}
-                  className={({ active, selected }) =>
-                    clsx(
-                      'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm',
-                      active && 'bg-gray-100 dark:bg-gray-600',
-                      selected && 'font-medium'
-                    )
-                  }
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            className="flex items-center gap-2 rounded-sm border border-gray-300 bg-white px-3 py-1.5 text-left text-sm dark:border-gray-600 dark:bg-gray-700"
+          >
+            {getSelectedValidCategories().length === 1 && (
+              <span
+                className="size-2.5 rounded-full"
+                style={{ backgroundColor: CATEGORY_COLORS[getSelectedValidCategories()[0]] }}
+              />
+            )}
+            <span className="text-gray-900 dark:text-gray-100">{getCategoryLabel()}</span>
+            <svg className="size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {isDropdownOpen && (
+            <div className="absolute z-20 mt-1 w-56 rounded-sm border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-600 dark:bg-gray-700">
+              {/* Select All / None buttons */}
+              <div className="flex gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-600">
+                <button
+                  onClick={selectAll}
+                  className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                 >
-                  {option.value !== 'all' && (
-                    <span
-                      className="size-2.5 rounded-full"
-                      style={{ backgroundColor: CATEGORY_COLORS[option.value] }}
-                    />
-                  )}
-                  <span className="text-gray-900 dark:text-gray-100">{option.label}</span>
-                  {stats?.categoryBreakdown && option.value !== 'all' && (
-                    <span className="ml-auto text-gray-500 dark:text-gray-400">
-                      {stats.categoryBreakdown[option.value]}
-                    </span>
-                  )}
-                </ListboxOption>
-              ))}
-            </ListboxOptions>
-          </div>
-        </Listbox>
+                  All
+                </button>
+                <span className="text-gray-300 dark:text-gray-600">|</span>
+                <button
+                  onClick={selectNone}
+                  className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  None
+                </button>
+              </div>
+
+              {/* Category checkboxes */}
+              <div className="max-h-64 overflow-y-auto">
+                {CATEGORY_OPTIONS.map((option) => {
+                  const isSelected = state.categories.length === 0 || state.categories.includes(option.value)
+                  const count = stats?.categoryBreakdown[option.value] ?? 0
+                  const hasNoneSelected = state.categories.length > 0 && getSelectedValidCategories().length === 0
+
+                  return (
+                    <label
+                      key={option.value}
+                      className="flex cursor-pointer items-center gap-2 px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-600"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected && !hasNoneSelected}
+                        onChange={() => toggleCategory(option.value)}
+                        className="rounded-xs border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
+                      />
+                      <span
+                        className="size-2.5 rounded-full"
+                        style={{ backgroundColor: CATEGORY_COLORS[option.value] }}
+                      />
+                      <span className="flex-1 text-sm text-gray-900 dark:text-gray-100">{option.label}</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{count}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Sort Options */}
       <div className="flex items-center gap-2">
         <span className="text-xs text-gray-500 dark:text-gray-400">Sort:</span>
-        <Listbox value={state.sortBy} onChange={(value) => onUpdate({ sortBy: value })}>
-          <div className="relative">
-            <ListboxButton className="flex items-center gap-2 rounded-sm border border-gray-300 bg-white px-3 py-1.5 text-left text-sm dark:border-gray-600 dark:bg-gray-700">
-              <span className="text-gray-900 dark:text-gray-100">{selectedSort.label}</span>
-              <svg className="size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </ListboxButton>
-            <ListboxOptions className="absolute z-10 mt-1 max-h-60 w-40 overflow-auto rounded-sm border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-600 dark:bg-gray-700">
-              {SORT_OPTIONS.map((option) => (
-                <ListboxOption
-                  key={option.value}
-                  value={option.value}
-                  title={option.title}
-                  className={({ active, selected }) =>
-                    clsx(
-                      'cursor-pointer px-3 py-2 text-sm text-gray-900 dark:text-gray-100',
-                      active && 'bg-gray-100 dark:bg-gray-600',
-                      selected && 'font-medium'
-                    )
-                  }
-                >
-                  {option.label}
-                </ListboxOption>
-              ))}
-            </ListboxOptions>
-          </div>
-        </Listbox>
+        <select
+          value={state.sortBy}
+          onChange={(e) => onUpdate({ sortBy: e.target.value as SortField })}
+          className="rounded-sm border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+        >
+          {SORT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value} title={option.title}>
+              {option.label}
+            </option>
+          ))}
+        </select>
         <button
           onClick={() => onUpdate({ sortOrder: state.sortOrder === 'asc' ? 'desc' : 'asc' })}
           className="rounded-sm border border-gray-300 bg-white p-1.5 text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"
