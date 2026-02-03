@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
-import type { ProcessedTestData } from '../types'
+import type { ProcessedTestData, TestCategory } from '../types'
 import { CacheHitRateChart } from '../charts/CacheHitRateChart'
 import { CacheScatterChart } from '../charts/CacheScatterChart'
+import { ALL_CATEGORIES } from '../utils/colors'
 
 interface CacheTabProps {
   data: ProcessedTestData[]
@@ -28,6 +29,11 @@ function CacheStatCard({ label, value, subLabel, isGood }: CacheStatCardProps) {
 }
 
 export function CacheTab({ data, isDark }: CacheTabProps) {
+  const activeCategories = useMemo<TestCategory[]>(() => {
+    const categoriesInData = new Set(data.map(d => d.category))
+    return ALL_CATEGORIES.filter(cat => categoriesInData.has(cat))
+  }, [data])
+
   const cacheStats = useMemo(() => {
     if (data.length === 0) return null
 
@@ -107,7 +113,7 @@ export function CacheTab({ data, isDark }: CacheTabProps) {
           <CacheHitRateChart data={data} isDark={isDark} />
         </div>
         <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <CacheScatterChart data={data} isDark={isDark} />
+          <CacheScatterChart data={data} isDark={isDark} activeCategories={activeCategories} />
         </div>
       </div>
     </div>

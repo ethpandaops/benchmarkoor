@@ -1,6 +1,8 @@
-import type { ProcessedTestData, DashboardStats } from '../types'
+import { useMemo } from 'react'
+import type { ProcessedTestData, DashboardStats, TestCategory } from '../types'
 import { ThroughputBarChart } from '../charts/ThroughputBarChart'
 import { ThroughputScatterChart } from '../charts/ThroughputScatterChart'
+import { ALL_CATEGORIES } from '../utils/colors'
 
 interface OverviewTabProps {
   data: ProcessedTestData[]
@@ -27,6 +29,11 @@ function StatCard({ label, value, subValue }: StatCardProps) {
 }
 
 export function OverviewTab({ data, stats, isDark, useLogScale, onTestClick }: OverviewTabProps) {
+  const activeCategories = useMemo<TestCategory[]>(() =>
+    ALL_CATEGORIES.filter(cat => (stats?.categoryBreakdown[cat] ?? 0) > 0),
+    [stats]
+  )
+
   if (!stats || data.length === 0) {
     return (
       <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
@@ -65,10 +72,10 @@ export function OverviewTab({ data, stats, isDark, useLogScale, onTestClick }: O
       {/* Charts */}
       <div className="flex flex-col gap-6">
         <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <ThroughputBarChart data={data} isDark={isDark} useLogScale={useLogScale} onTestClick={onTestClick} />
+          <ThroughputBarChart data={data} isDark={isDark} useLogScale={useLogScale} onTestClick={onTestClick} activeCategories={activeCategories} />
         </div>
         <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <ThroughputScatterChart data={data} isDark={isDark} useLogScale={useLogScale} onTestClick={onTestClick} />
+          <ThroughputScatterChart data={data} isDark={isDark} useLogScale={useLogScale} onTestClick={onTestClick} activeCategories={activeCategories} />
         </div>
       </div>
     </div>

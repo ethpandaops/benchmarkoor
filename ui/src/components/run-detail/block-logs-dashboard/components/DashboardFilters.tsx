@@ -149,7 +149,7 @@ export function DashboardFilters({ state, stats, onUpdate }: DashboardFiltersPro
 
               {/* Category checkboxes */}
               <div className="max-h-64 overflow-y-auto">
-                {CATEGORY_OPTIONS.map((option) => {
+                {CATEGORY_OPTIONS.filter((option) => (stats?.categoryBreakdown[option.value] ?? 0) > 0).map((option) => {
                   const isSelected = state.categories.length === 0 || state.categories.includes(option.value)
                   const count = stats?.categoryBreakdown[option.value] ?? 0
                   const hasNoneSelected = state.categories.length > 0 && getSelectedValidCategories().length === 0

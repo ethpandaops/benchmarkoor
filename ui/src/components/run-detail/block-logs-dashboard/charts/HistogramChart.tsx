@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { ProcessedTestData } from '../types'
+import type { ProcessedTestData, TestCategory } from '../types'
 import { createHistogramBins } from '../utils/statistics'
 import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
 
@@ -8,9 +8,11 @@ interface HistogramChartProps {
   data: ProcessedTestData[]
   isDark: boolean
   useLogScale: boolean
+  activeCategories?: TestCategory[]
 }
 
-export function HistogramChart({ data, isDark, useLogScale }: HistogramChartProps) {
+export function HistogramChart({ data, isDark, useLogScale, activeCategories }: HistogramChartProps) {
+  const categoriesToShow = activeCategories ?? ALL_CATEGORIES
   const textColor = isDark ? '#e5e7eb' : '#374151'
   const gridColor = isDark ? '#374151' : '#e5e7eb'
   const tooltipBg = isDark ? '#1f2937' : '#ffffff'
@@ -49,7 +51,7 @@ export function HistogramChart({ data, isDark, useLogScale }: HistogramChartProp
         },
       },
       legend: {
-        data: ALL_CATEGORIES.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
+        data: categoriesToShow.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
         bottom: 0,
         textStyle: { color: textColor, fontSize: 11 },
         itemWidth: 12,
@@ -87,7 +89,7 @@ export function HistogramChart({ data, isDark, useLogScale }: HistogramChartProp
         splitLine: { lineStyle: { color: gridColor, type: 'dashed' as const } },
         min: useLogScale ? 1 : 0,
       },
-      series: ALL_CATEGORIES.map((category) => ({
+      series: categoriesToShow.map((category) => ({
         name: category.charAt(0).toUpperCase() + category.slice(1),
         type: 'bar' as const,
         stack: 'total',
@@ -96,7 +98,7 @@ export function HistogramChart({ data, isDark, useLogScale }: HistogramChartProp
         emphasis: { focus: 'series' as const },
       })),
     }
-  }, [bins, useLogScale, textColor, gridColor, tooltipBg, tooltipBorder])
+  }, [bins, useLogScale, textColor, gridColor, tooltipBg, tooltipBorder, categoriesToShow])
 
   if (bins.length === 0) {
     return (

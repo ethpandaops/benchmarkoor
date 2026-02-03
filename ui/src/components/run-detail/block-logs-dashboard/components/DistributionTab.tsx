@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import type { ProcessedTestData, DashboardStats } from '../types'
+import type { ProcessedTestData, DashboardStats, TestCategory } from '../types'
 import { BoxPlotChart } from '../charts/BoxPlotChart'
 import { HistogramChart } from '../charts/HistogramChart'
 import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
@@ -27,6 +27,11 @@ function PercentileCard({ label, value }: PercentileCardProps) {
 }
 
 export function DistributionTab({ data, stats, isDark, useLogScale }: DistributionTabProps) {
+  const activeCategories = useMemo<TestCategory[]>(() =>
+    ALL_CATEGORIES.filter(cat => (stats?.categoryBreakdown[cat] ?? 0) > 0),
+    [stats]
+  )
+
   const percentiles = useMemo(() => {
     if (data.length === 0) return null
 
@@ -160,7 +165,7 @@ export function DistributionTab({ data, stats, isDark, useLogScale }: Distributi
           <BoxPlotChart data={data} isDark={isDark} useLogScale={useLogScale} />
         </div>
         <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <HistogramChart data={data} isDark={isDark} useLogScale={useLogScale} />
+          <HistogramChart data={data} isDark={isDark} useLogScale={useLogScale} activeCategories={activeCategories} />
         </div>
       </div>
     </div>

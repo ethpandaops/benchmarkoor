@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { ProcessedTestData } from '../types'
+import type { ProcessedTestData, TestCategory } from '../types'
 import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
 
 type SortMode = 'order' | 'throughput'
@@ -10,9 +10,11 @@ interface ThroughputBarChartProps {
   isDark: boolean
   useLogScale: boolean
   onTestClick?: (testName: string) => void
+  activeCategories?: TestCategory[]
 }
 
-export function ThroughputBarChart({ data, isDark, useLogScale, onTestClick }: ThroughputBarChartProps) {
+export function ThroughputBarChart({ data, isDark, useLogScale, onTestClick, activeCategories }: ThroughputBarChartProps) {
+  const categoriesToShow = activeCategories ?? ALL_CATEGORIES
   const [sortMode, setSortMode] = useState<SortMode>('throughput')
 
   const textColor = isDark ? '#e5e7eb' : '#374151'
@@ -57,7 +59,7 @@ export function ThroughputBarChart({ data, isDark, useLogScale, onTestClick }: T
         },
       },
       legend: {
-        data: ALL_CATEGORIES.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
+        data: categoriesToShow.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
         bottom: 0,
         textStyle: { color: textColor, fontSize: 11 },
         itemWidth: 10,
@@ -133,7 +135,7 @@ export function ThroughputBarChart({ data, isDark, useLogScale, onTestClick }: T
           barMaxWidth: 30,
         },
         // Dummy series for legend colors (using scatter to not affect bar width)
-        ...ALL_CATEGORIES.map((category) => ({
+        ...categoriesToShow.map((category) => ({
           name: category.charAt(0).toUpperCase() + category.slice(1),
           type: 'scatter' as const,
           data: [],
@@ -141,7 +143,7 @@ export function ThroughputBarChart({ data, isDark, useLogScale, onTestClick }: T
         })),
       ],
     }
-  }, [chartData, isDark, useLogScale, sortMode, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
+  }, [chartData, isDark, useLogScale, sortMode, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder, categoriesToShow])
 
   const onEvents = useMemo(() => {
     if (!onTestClick) return undefined
