@@ -325,7 +325,7 @@ Controls whether the client state is rolled back after each test. This is useful
 |-------|-------------|
 | `none` | Do not rollback |
 | `rpc-debug-setHead` | Capture block info before each test, then rollback via a client-specific debug RPC after the test completes (default) |
-| `container-recreate` | Stop and remove the container after each test, then create and start a fresh one. The data volume/datadir persists between tests |
+| `container-recreate` | Stop and remove the container after each test, then create and start a fresh one |
 
 ##### `rpc-debug-setHead`
 
