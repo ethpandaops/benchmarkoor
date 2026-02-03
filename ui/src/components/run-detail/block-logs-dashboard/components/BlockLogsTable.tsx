@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import clsx from 'clsx'
 import type { ProcessedTestData, DashboardState, SortField, SortOrder } from '../types'
 import { CATEGORY_COLORS } from '../utils/colors'
+import { Pagination } from '@/components/shared/Pagination'
 
 interface BlockLogsTableProps {
   data: ProcessedTestData[]
@@ -10,7 +11,7 @@ interface BlockLogsTableProps {
   onToggleSelection: (testName: string) => void
 }
 
-const PAGE_SIZE_OPTIONS = [25, 50, 100, 250]
+const PAGE_SIZE_OPTIONS = [20, 50, 100]
 
 function formatMs(ms: number): string {
   if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`
@@ -60,7 +61,7 @@ function SortHeader({ label, field, currentSort, currentOrder, onSort, align = '
 
 export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: BlockLogsTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50)
+  const [pageSize, setPageSize] = useState(20)
 
   const totalPages = Math.ceil(data.length / pageSize)
 
@@ -293,43 +294,11 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
           {startItem}-{endItem} of {data.length}
         </div>
 
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setCurrentPage(1)}
-            disabled={currentPage === 1}
-            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-            title="First page"
-          >
-            ««
-          </button>
-          <button
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-            title="Previous page"
-          >
-            «
-          </button>
-          <span className="px-3 text-sm text-gray-600 dark:text-gray-400">
-            Page {currentPage} of {totalPages}
-          </span>
-          <button
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-            title="Next page"
-          >
-            »
-          </button>
-          <button
-            onClick={() => setCurrentPage(totalPages)}
-            disabled={currentPage === totalPages}
-            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-            title="Last page"
-          >
-            »»
-          </button>
-        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+        />
       </div>
     </div>
   )
