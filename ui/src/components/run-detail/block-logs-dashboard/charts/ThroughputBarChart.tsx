@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { ProcessedTestData } from '../types'
 import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
@@ -144,7 +144,7 @@ export function ThroughputBarChart({ data, isDark, useLogScale, onTestClick }: T
   }, [chartData, isDark, useLogScale, sortMode, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
 
   const onEvents = useMemo(() => {
-    if (!onTestClick) return {}
+    if (!onTestClick) return undefined
     return {
       click: (params: { dataIndex: number }) => {
         const item = chartData[params.dataIndex]

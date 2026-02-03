@@ -96,7 +96,7 @@ export function HistogramChart({ data, isDark, useLogScale }: HistogramChartProp
         emphasis: { focus: 'series' as const },
       })),
     }
-  }, [bins, isDark, useLogScale, textColor, gridColor, tooltipBg, tooltipBorder])
+  }, [bins, useLogScale, textColor, gridColor, tooltipBg, tooltipBorder])
 
   if (bins.length === 0) {
     return (

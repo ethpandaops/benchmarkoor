@@ -115,7 +115,7 @@ export function ThroughputScatterChart({ data, isDark, useLogScale, onTestClick 
   }, [data, isDark, useLogScale, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
 
   const onEvents = useMemo(() => {
-    if (!onTestClick) return {}
+    if (!onTestClick) return undefined
     return {
       click: (params: { data: { testName: string } }) => {
         if (params.data?.testName) {

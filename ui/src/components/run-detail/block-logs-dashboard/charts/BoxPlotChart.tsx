@@ -108,7 +108,7 @@ export function BoxPlotChart({ data, isDark, useLogScale }: BoxPlotChartProps) {
         },
       ],
     }
-  }, [boxPlotStats, isDark, useLogScale, textColor, gridColor, tooltipBg, tooltipBorder])
+  }, [boxPlotStats, useLogScale, textColor, gridColor, tooltipBg, tooltipBorder])
 
   if (boxPlotStats.length === 0) {
     return (

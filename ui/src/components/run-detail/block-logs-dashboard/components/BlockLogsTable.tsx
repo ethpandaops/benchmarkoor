@@ -70,12 +70,11 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
     return data.slice(startIndex, startIndex + pageSize)
   }, [data, currentPage, pageSize])
 
-  // Reset to page 1 when data changes significantly
-  useMemo(() => {
-    if (currentPage > Math.ceil(data.length / pageSize)) {
-      setCurrentPage(1)
-    }
-  }, [data.length, pageSize, currentPage])
+  // Reset to page 1 when data changes and current page would be out of bounds
+  const maxPage = Math.ceil(data.length / pageSize) || 1
+  if (currentPage > maxPage) {
+    setCurrentPage(1)
+  }
 
   const handleSort = (field: SortField, order: SortOrder) => {
     onUpdate({ sortBy: field, sortOrder: order })
