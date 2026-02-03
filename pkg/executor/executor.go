@@ -43,8 +43,7 @@ type Executor interface {
 
 // BlockLogCollector is an interface for capturing JSON payloads from client logs.
 type BlockLogCollector interface {
-	SetCurrentTest(testName string)
-	ClearCurrentTest()
+	RegisterBlockHash(testName, blockHash string)
 }
 
 // ExecuteOptions contains options for test execution.
@@ -274,7 +273,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			log.Info("Running pre-run step")
 
 			preRunResult := NewTestResult(step.Name)
-			if err := e.runStepFile(ctx, opts, step, preRunResult); err != nil {
+			if err := e.runStepFile(ctx, opts, step, preRunResult, false); err != nil {
 				log.WithError(err).Warn("Pre-run step failed")
 
 				// Check if the failure was due to context cancellation.
@@ -317,11 +316,6 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		log := e.log.WithField("test", test.Name)
 		log.Info("Running test")
 
-		// Set current test for block log collector.
-		if opts.BlockLogCollector != nil {
-			opts.BlockLogCollector.SetCurrentTest(test.Name)
-		}
-
 		// Capture block info for rollback before the test starts.
 		var rollbackInfo *blockInfo
 		if opts.RollbackStrategy == config.RollbackStrategyRPCDebugSetHead && opts.RPCEndpoint != "" {
@@ -350,7 +344,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 			setupResult := NewTestResult(test.Name)
 
-			if err := e.runStepFile(ctx, opts, test.Setup, setupResult); err != nil {
+			if err := e.runStepFile(ctx, opts, test.Setup, setupResult, false); err != nil {
 				log.WithError(err).Error("Setup step failed")
 				testPassed = false
 
@@ -382,7 +376,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 			testResult := NewTestResult(test.Name)
 
-			if err := e.runStepFile(ctx, opts, test.Test, testResult); err != nil {
+			if err := e.runStepFile(ctx, opts, test.Test, testResult, true); err != nil {
 				log.WithError(err).Error("Test step failed")
 				testPassed = false
 
@@ -414,7 +408,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 			cleanupResult := NewTestResult(test.Name)
 
-			if err := e.runStepFile(ctx, opts, test.Cleanup, cleanupResult); err != nil {
+			if err := e.runStepFile(ctx, opts, test.Cleanup, cleanupResult, false); err != nil {
 				log.WithError(err).Error("Cleanup step failed")
 				testPassed = false
 
@@ -457,11 +451,6 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					)
 				}
 			}
-		}
-
-		// Clear current test for block log collector.
-		if opts.BlockLogCollector != nil {
-			opts.BlockLogCollector.ClearCurrentTest()
 		}
 
 		if testPassed {
@@ -540,17 +529,30 @@ writeResults:
 }
 
 // runStepFile executes a single step file or provider.
-func (e *executor) runStepFile(ctx context.Context, opts *ExecuteOptions, step *StepFile, result *TestResult) error {
+// If captureBlockLogs is true, blockHashes from engine_newPayload calls are registered for log matching.
+func (e *executor) runStepFile(
+	ctx context.Context,
+	opts *ExecuteOptions,
+	step *StepFile,
+	result *TestResult,
+	captureBlockLogs bool,
+) error {
 	// Use provider if available, otherwise read from file.
 	if step.Provider != nil {
-		return e.runStepLines(ctx, opts, step.Name, step.Provider.Lines(), result)
+		return e.runStepLines(ctx, opts, step.Name, step.Provider.Lines(), result, captureBlockLogs)
 	}
 
-	return e.runStepFromFile(ctx, opts, step, result)
+	return e.runStepFromFile(ctx, opts, step, result, captureBlockLogs)
 }
 
 // runStepFromFile reads and executes lines from a file.
-func (e *executor) runStepFromFile(ctx context.Context, opts *ExecuteOptions, step *StepFile, result *TestResult) error {
+func (e *executor) runStepFromFile(
+	ctx context.Context,
+	opts *ExecuteOptions,
+	step *StepFile,
+	result *TestResult,
+	captureBlockLogs bool,
+) error {
 	file, err := os.Open(step.Path)
 	if err != nil {
 		return fmt.Errorf("opening step file: %w", err)
@@ -575,16 +577,18 @@ func (e *executor) runStepFromFile(ctx context.Context, opts *ExecuteOptions, st
 		return fmt.Errorf("reading step file: %w", err)
 	}
 
-	return e.runStepLines(ctx, opts, step.Name, lines, result)
+	return e.runStepLines(ctx, opts, step.Name, lines, result, captureBlockLogs)
 }
 
 // runStepLines executes JSON-RPC lines.
+// If captureBlockLogs is true, blockHashes from engine_newPayload calls are registered for log matching.
 func (e *executor) runStepLines(
 	ctx context.Context,
 	opts *ExecuteOptions,
 	stepName string,
 	lines []string,
 	result *TestResult,
+	captureBlockLogs bool,
 ) error {
 	for lineNum, line := range lines {
 		select {
@@ -606,6 +610,14 @@ func (e *executor) runStepLines(
 			}
 
 			continue
+		}
+
+		// Register blockHash BEFORE the RPC call for engine_newPayload methods.
+		if captureBlockLogs && strings.HasPrefix(method, "engine_newPayload") &&
+			opts.BlockLogCollector != nil && result != nil {
+			if blockHash, hashErr := extractBlockHash(line); hashErr == nil {
+				opts.BlockLogCollector.RegisterBlockHash(result.TestFile, blockHash)
+			}
 		}
 
 		// Execute RPC call.

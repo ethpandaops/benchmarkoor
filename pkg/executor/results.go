@@ -304,6 +304,33 @@ func extractGasUsed(request string) (uint64, error) {
 	return strconv.ParseUint(strings.TrimPrefix(payload.GasUsed, "0x"), 16, 64)
 }
 
+// extractBlockHash extracts blockHash from an engine_newPayload request.
+func extractBlockHash(request string) (string, error) {
+	var req struct {
+		Params []json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(request), &req); err != nil {
+		return "", err
+	}
+
+	if len(req.Params) == 0 {
+		return "", fmt.Errorf("no params")
+	}
+
+	var payload struct {
+		BlockHash string `json:"blockHash"`
+	}
+	if err := json.Unmarshal(req.Params[0], &payload); err != nil {
+		return "", err
+	}
+
+	if payload.BlockHash == "" {
+		return "", fmt.Errorf("missing blockHash")
+	}
+
+	return payload.BlockHash, nil
+}
+
 // CalculateStats computes aggregated statistics from the test result.
 func (r *TestResult) CalculateStats() *AggregatedStats {
 	stats := &AggregatedStats{
