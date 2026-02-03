@@ -63,9 +63,12 @@ export function useProcessedData(
       data = data.filter((d) => d.throughput <= state.maxThroughput!)
     }
 
-    // Apply outlier exclusion
-    if (state.excludeOutliers && data.length > 4) {
-      data = removeOutliers(data, (d) => d.throughput)
+    // Apply outlier exclusion (also exclude 0 MGas/s tests)
+    if (state.excludeOutliers) {
+      data = data.filter((d) => d.throughput > 0)
+      if (data.length > 4) {
+        data = removeOutliers(data, (d) => d.throughput)
+      }
     }
 
     // Calculate normalization bounds from filtered data
