@@ -7,7 +7,8 @@ import { percentile, removeOutliers, normalizeValue, emptyCategoryBreakdown } fr
 export function useProcessedData(
   blockLogs: BlockLogs | null | undefined,
   state: DashboardState,
-  executionOrder: Map<string, number>
+  executionOrder: Map<string, number>,
+  searchQuery: string = ''
 ) {
   return useMemo(() => {
     if (!blockLogs || Object.keys(blockLogs).length === 0) {
@@ -53,6 +54,12 @@ export function useProcessedData(
     // Apply category filter
     if (state.categories.length > 0) {
       data = data.filter((d) => state.categories.includes(d.category))
+    }
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      data = data.filter((d) => d.testName.toLowerCase().includes(query))
     }
 
     // Apply throughput range filter
@@ -174,5 +181,5 @@ export function useProcessedData(
       stats,
       allData,
     }
-  }, [blockLogs, state.categories, state.minThroughput, state.maxThroughput, state.excludeOutliers, state.sortBy, state.sortOrder, executionOrder])
+  }, [blockLogs, state.categories, state.minThroughput, state.maxThroughput, state.excludeOutliers, state.sortBy, state.sortOrder, executionOrder, searchQuery])
 }

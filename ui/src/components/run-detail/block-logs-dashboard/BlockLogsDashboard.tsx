@@ -16,6 +16,8 @@ interface BlockLogsDashboardProps {
   runId: string
   suiteTests?: SuiteTest[]
   onTestClick?: (testName: string) => void
+  searchQuery?: string
+  onSearchChange?: (query: string) => void
 }
 
 function useDarkMode() {
@@ -32,7 +34,7 @@ function useDarkMode() {
   return isDark
 }
 
-export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick }: BlockLogsDashboardProps) {
+export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, searchQuery = '', onSearchChange }: BlockLogsDashboardProps) {
   const isDark = useDarkMode()
   const { state, updateState, toggleTestSelection, clearSelection } = useDashboardState(runId)
 
@@ -42,7 +44,7 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick }
     return new Map(suiteTests.map((test, index) => [test.name, index + 1]))
   }, [suiteTests])
 
-  const { data, stats } = useProcessedData(blockLogs, state, executionOrder)
+  const { data, stats } = useProcessedData(blockLogs, state, executionOrder, searchQuery)
 
   // Don't render if no block logs data
   if (!blockLogs || Object.keys(blockLogs).length === 0) {
@@ -59,10 +61,14 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick }
             {Object.keys(blockLogs).length} tests
           </span>
         </div>
-        {stats && (
-          <div className="text-xs text-gray-500 dark:text-gray-400">
-            {stats.minThroughput.toFixed(1)} - {stats.maxThroughput.toFixed(1)} MGas/s
-          </div>
+        {onSearchChange && (
+          <input
+            type="text"
+            placeholder="Filter tests..."
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+          />
         )}
       </div>
 
