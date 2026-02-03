@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { ProcessedTestData, TestCategory } from '../types'
+import type { ProcessedTestData } from '../types'
 import { createHistogramBins } from '../utils/statistics'
-import { CATEGORY_COLORS } from '../utils/colors'
+import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
 
 interface HistogramChartProps {
   data: ProcessedTestData[]
@@ -23,7 +23,6 @@ export function HistogramChart({ data, isDark, useLogScale }: HistogramChartProp
       return {}
     }
 
-    const categories: TestCategory[] = ['add', 'mul', 'pairing', 'other']
     const xAxisLabels = bins.map((b) => `${b.start.toFixed(0)}-${b.end.toFixed(0)}`)
 
     return {
@@ -50,11 +49,12 @@ export function HistogramChart({ data, isDark, useLogScale }: HistogramChartProp
         },
       },
       legend: {
-        data: categories.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
+        data: ALL_CATEGORIES.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
         bottom: 0,
         textStyle: { color: textColor, fontSize: 11 },
         itemWidth: 12,
         itemHeight: 8,
+        type: 'scroll',
       },
       grid: {
         left: 50,
@@ -87,7 +87,7 @@ export function HistogramChart({ data, isDark, useLogScale }: HistogramChartProp
         splitLine: { lineStyle: { color: gridColor, type: 'dashed' as const } },
         min: useLogScale ? 1 : 0,
       },
-      series: categories.map((category) => ({
+      series: ALL_CATEGORIES.map((category) => ({
         name: category.charAt(0).toUpperCase() + category.slice(1),
         type: 'bar' as const,
         stack: 'total',

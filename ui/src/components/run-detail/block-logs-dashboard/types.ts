@@ -1,4 +1,20 @@
-export type TestCategory = 'add' | 'mul' | 'pairing' | 'other'
+export type TestCategory =
+  | 'arithmetic'
+  | 'memory'
+  | 'storage'
+  | 'stack'
+  | 'control'
+  | 'keccak'
+  | 'log'
+  | 'account'
+  | 'call'
+  | 'context'
+  | 'system'
+  | 'bn128'
+  | 'bls'
+  | 'precompile'
+  | 'scenario'
+  | 'other'
 
 export interface ProcessedTestData {
   testName: string

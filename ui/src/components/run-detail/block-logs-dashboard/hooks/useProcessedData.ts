@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 import type { BlockLogs } from '@/api/types'
-import type { ProcessedTestData, DashboardState, DashboardStats, TestCategory } from '../types'
+import type { ProcessedTestData, DashboardState, DashboardStats } from '../types'
 import { parseCategory } from '../utils/categoryParser'
-import { percentile, removeOutliers, normalizeValue } from '../utils/statistics'
+import { percentile, removeOutliers, normalizeValue, emptyCategoryBreakdown } from '../utils/statistics'
 
 export function useProcessedData(
   blockLogs: BlockLogs | null | undefined,
@@ -139,12 +139,7 @@ export function useProcessedData(
       const executions = data.map((d) => d.executionMs)
       const overheads = data.map((d) => d.overheadMs)
 
-      const categoryBreakdown: Record<TestCategory, number> = {
-        add: 0,
-        mul: 0,
-        pairing: 0,
-        other: 0,
-      }
+      const categoryBreakdown = emptyCategoryBreakdown()
       for (const d of allData) {
         categoryBreakdown[d.category]++
       }

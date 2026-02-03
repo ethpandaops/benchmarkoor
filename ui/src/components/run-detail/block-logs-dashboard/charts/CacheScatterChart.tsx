@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { ProcessedTestData, TestCategory } from '../types'
-import { CATEGORY_COLORS } from '../utils/colors'
+import type { ProcessedTestData } from '../types'
+import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
 
 interface CacheScatterChartProps {
   data: ProcessedTestData[]
@@ -16,9 +16,7 @@ export function CacheScatterChart({ data, isDark }: CacheScatterChartProps) {
   const tooltipBorder = isDark ? '#374151' : '#e5e7eb'
 
   const option = useMemo(() => {
-    const categories: TestCategory[] = ['add', 'mul', 'pairing', 'other']
-
-    const seriesData = categories.map((category) => ({
+    const seriesData = ALL_CATEGORIES.map((category) => ({
       name: category.charAt(0).toUpperCase() + category.slice(1),
       type: 'scatter' as const,
       data: data
@@ -55,11 +53,12 @@ export function CacheScatterChart({ data, isDark }: CacheScatterChartProps) {
         },
       },
       legend: {
-        data: categories.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
+        data: ALL_CATEGORIES.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
         bottom: 0,
         textStyle: { color: textColor, fontSize: 11 },
         itemWidth: 10,
         itemHeight: 10,
+        type: 'scroll',
       },
       grid: {
         left: 60,

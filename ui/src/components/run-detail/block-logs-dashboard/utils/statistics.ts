@@ -1,4 +1,5 @@
 import type { ProcessedTestData, BoxPlotStats, TestCategory } from '../types'
+import { ALL_CATEGORIES } from './colors'
 
 /**
  * Calculate a specific percentile from a sorted array of numbers.
@@ -56,10 +57,9 @@ export function removeOutliers<T extends ProcessedTestData>(
  * Calculate box plot statistics for each category.
  */
 export function calculateBoxPlotStats(data: ProcessedTestData[]): BoxPlotStats[] {
-  const categories: TestCategory[] = ['add', 'mul', 'pairing', 'other']
   const result: BoxPlotStats[] = []
 
-  for (const category of categories) {
+  for (const category of ALL_CATEGORIES) {
     const categoryData = data.filter((d) => d.category === category)
     if (categoryData.length === 0) continue
 
@@ -88,6 +88,24 @@ export function calculateBoxPlotStats(data: ProcessedTestData[]): BoxPlotStats[]
 }
 
 /**
+ * Create an empty category breakdown object with all categories initialized to 0.
+ */
+export function emptyCategoryBreakdown(): Record<TestCategory, number> {
+  return Object.fromEntries(ALL_CATEGORIES.map((c) => [c, 0])) as Record<TestCategory, number>
+}
+
+/**
+ * Count items by category from data array.
+ */
+function countByCategory(data: ProcessedTestData[]): Record<TestCategory, number> {
+  const counts = emptyCategoryBreakdown()
+  for (const d of data) {
+    counts[d.category]++
+  }
+  return counts
+}
+
+/**
  * Create histogram bins for throughput distribution.
  */
 export function createHistogramBins(
@@ -105,12 +123,7 @@ export function createHistogramBins(
       start: min,
       end: max,
       count: data.length,
-      byCategory: {
-        add: data.filter((d) => d.category === 'add').length,
-        mul: data.filter((d) => d.category === 'mul').length,
-        pairing: data.filter((d) => d.category === 'pairing').length,
-        other: data.filter((d) => d.category === 'other').length,
-      },
+      byCategory: countByCategory(data),
     }]
   }
 
@@ -122,7 +135,7 @@ export function createHistogramBins(
       start: min + i * binWidth,
       end: min + (i + 1) * binWidth,
       count: 0,
-      byCategory: { add: 0, mul: 0, pairing: 0, other: 0 },
+      byCategory: emptyCategoryBreakdown(),
     })
   }
 

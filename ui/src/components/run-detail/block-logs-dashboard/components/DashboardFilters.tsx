@@ -11,9 +11,24 @@ interface DashboardFiltersProps {
 
 const CATEGORY_OPTIONS: { value: 'all' | TestCategory; label: string }[] = [
   { value: 'all', label: 'All Categories' },
-  { value: 'add', label: 'Add' },
-  { value: 'mul', label: 'Multiply' },
-  { value: 'pairing', label: 'Pairing' },
+  // EVM Instructions
+  { value: 'arithmetic', label: 'Arithmetic' },
+  { value: 'memory', label: 'Memory' },
+  { value: 'storage', label: 'Storage' },
+  { value: 'stack', label: 'Stack' },
+  { value: 'control', label: 'Control' },
+  { value: 'keccak', label: 'Keccak' },
+  { value: 'log', label: 'Log' },
+  { value: 'account', label: 'Account' },
+  { value: 'call', label: 'Call' },
+  { value: 'context', label: 'Context' },
+  { value: 'system', label: 'System' },
+  // Precompiles
+  { value: 'bn128', label: 'BN128' },
+  { value: 'bls', label: 'BLS' },
+  { value: 'precompile', label: 'Precompile' },
+  // Other
+  { value: 'scenario', label: 'Scenario' },
   { value: 'other', label: 'Other' },
 ]
 

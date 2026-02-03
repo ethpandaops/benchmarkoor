@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
-import type { ProcessedTestData, DashboardStats, TestCategory } from '../types'
+import type { ProcessedTestData, DashboardStats } from '../types'
 import { BoxPlotChart } from '../charts/BoxPlotChart'
 import { HistogramChart } from '../charts/HistogramChart'
-import { CATEGORY_COLORS } from '../utils/colors'
+import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
 import { percentile } from '../utils/statistics'
 
 interface DistributionTabProps {
@@ -44,8 +44,7 @@ export function DistributionTab({ data, stats, isDark, useLogScale }: Distributi
   }, [data])
 
   const categoryStats = useMemo(() => {
-    const categories: TestCategory[] = ['add', 'mul', 'pairing', 'other']
-    return categories.map((category) => {
+    return ALL_CATEGORIES.map((category) => {
       const categoryData = data.filter((d) => d.category === category)
       if (categoryData.length === 0) return null
 
