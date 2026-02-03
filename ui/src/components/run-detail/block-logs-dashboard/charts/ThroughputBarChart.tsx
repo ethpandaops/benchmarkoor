@@ -75,7 +75,7 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
         axisLine: { lineStyle: { color: gridColor } },
         axisTick: { show: false },
       },
-      dataZoom: chartData.length > 20 ? [
+      dataZoom: chartData.length > 30 ? [
         {
           type: 'slider' as const,
           yAxisIndex: 0,
@@ -83,8 +83,8 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
           filterMode: 'filter' as const,
           width: 20,
           right: 5,
-          // Show top section (slowest tests) by default
-          start: 100 - (20 / chartData.length) * 100,
+          // Show top section (slowest tests) by default - 30 visible
+          start: 100 - (30 / chartData.length) * 100,
           end: 100,
           fillerColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)',
           borderColor: gridColor,
