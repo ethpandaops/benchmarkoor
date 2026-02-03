@@ -87,8 +87,18 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
         min: useLogScale ? 1 : 0,
         scale: true,
       },
-      dataZoom: chartData.length > 30 ? [
+      dataZoom: [
         {
+          type: 'inside' as const,
+          xAxisIndex: 0,
+          filterMode: 'filter' as const,
+          start: 0,
+          end: chartData.length > 30 ? (30 / chartData.length) * 100 : 100,
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: false,
+        },
+        ...(chartData.length > 30 ? [{
           type: 'slider' as const,
           xAxisIndex: 0,
           filterMode: 'filter' as const,
@@ -99,8 +109,8 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
           fillerColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)',
           borderColor: gridColor,
           handleStyle: { color: '#3b82f6' },
-        },
-      ] : undefined,
+        }] : []),
+      ],
       series: [
         {
           type: 'bar' as const,
