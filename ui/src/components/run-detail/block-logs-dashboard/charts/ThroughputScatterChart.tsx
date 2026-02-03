@@ -1,0 +1,108 @@
+import { useMemo } from 'react'
+import ReactECharts from 'echarts-for-react'
+import type { ProcessedTestData, TestCategory } from '../types'
+import { CATEGORY_COLORS } from '../utils/colors'
+
+interface ThroughputScatterChartProps {
+  data: ProcessedTestData[]
+  isDark: boolean
+  useLogScale: boolean
+}
+
+export function ThroughputScatterChart({ data, isDark, useLogScale }: ThroughputScatterChartProps) {
+  const textColor = isDark ? '#e5e7eb' : '#374151'
+  const subTextColor = isDark ? '#9ca3af' : '#6b7280'
+  const gridColor = isDark ? '#374151' : '#e5e7eb'
+  const tooltipBg = isDark ? '#1f2937' : '#ffffff'
+  const tooltipBorder = isDark ? '#374151' : '#e5e7eb'
+
+  const option = useMemo(() => {
+    const categories: TestCategory[] = ['add', 'mul', 'pairing', 'other']
+
+    const seriesData = categories.map((category) => ({
+      name: category.charAt(0).toUpperCase() + category.slice(1),
+      type: 'scatter' as const,
+      data: data
+        .filter((d) => d.category === category)
+        .map((d) => ({
+          value: [d.executionMs, d.throughput],
+          testName: d.testName,
+          item: d,
+        })),
+      itemStyle: { color: CATEGORY_COLORS[category] },
+      symbolSize: 8,
+      emphasis: {
+        itemStyle: { borderColor: textColor, borderWidth: 2 },
+        scale: 1.5,
+      },
+    }))
+
+    return {
+      tooltip: {
+        trigger: 'item' as const,
+        backgroundColor: tooltipBg,
+        borderColor: tooltipBorder,
+        textStyle: { color: textColor },
+        formatter: (params: { data: { testName: string; item: ProcessedTestData } }) => {
+          const item = params.data.item
+          return `
+            <div style="font-weight: 500; margin-bottom: 4px; max-width: 300px; word-wrap: break-word">${item.testName}</div>
+            <div>Throughput: ${item.throughput.toFixed(2)} MGas/s</div>
+            <div>Execution: ${item.executionMs.toFixed(2)}ms</div>
+            <div>Overhead: ${item.overheadMs.toFixed(2)}ms</div>
+            <div>Category: ${item.category}</div>
+          `
+        },
+      },
+      legend: {
+        data: categories.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
+        bottom: 0,
+        textStyle: { color: textColor, fontSize: 11 },
+        itemWidth: 10,
+        itemHeight: 10,
+      },
+      grid: {
+        left: 60,
+        right: 30,
+        top: 20,
+        bottom: 50,
+      },
+      xAxis: {
+        type: useLogScale ? ('log' as const) : ('value' as const),
+        name: 'Execution Time (ms)',
+        nameLocation: 'middle' as const,
+        nameGap: 25,
+        nameTextStyle: { color: subTextColor, fontSize: 11 },
+        axisLabel: { color: textColor, fontSize: 11 },
+        axisLine: { lineStyle: { color: gridColor } },
+        splitLine: { lineStyle: { color: gridColor, type: 'dashed' as const } },
+        min: useLogScale ? 0.01 : undefined,
+      },
+      yAxis: {
+        type: useLogScale ? ('log' as const) : ('value' as const),
+        name: 'MGas/s',
+        nameLocation: 'middle' as const,
+        nameGap: 40,
+        nameTextStyle: { color: subTextColor, fontSize: 11 },
+        axisLabel: { color: textColor, fontSize: 11 },
+        axisLine: { lineStyle: { color: gridColor } },
+        splitLine: { lineStyle: { color: gridColor, type: 'dashed' as const } },
+        min: useLogScale ? 1 : undefined,
+      },
+      series: seriesData,
+    }
+  }, [data, isDark, useLogScale, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+        Execution Time vs Throughput
+      </h4>
+      <ReactECharts
+        option={option}
+        style={{ height: '350px', width: '100%' }}
+        opts={{ renderer: 'svg' }}
+      />
+    </div>
+  )
+}

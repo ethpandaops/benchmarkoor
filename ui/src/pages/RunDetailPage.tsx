@@ -22,6 +22,8 @@ import { formatNumber, formatBytes } from '@/utils/format'
 import { useIndex } from '@/api/hooks/useIndex'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
+import { BlockLogsDashboard } from '@/components/run-detail/block-logs-dashboard'
+import { useBlockLogs } from '@/api/hooks/useBlockLogs'
 
 // Step types that can be included in MGas/s calculation
 export type StepTypeOption = 'setup' | 'test' | 'cleanup'
@@ -144,6 +146,7 @@ export function RunDetailPage() {
     },
     enabled: !!runId,
   })
+  const { data: blockLogs } = useBlockLogs(runId)
 
   const isLoading = configLoading || resultLoading
   const error = configError || resultError
@@ -507,6 +510,10 @@ export function RunDetailPage() {
             onSearchChange={handleSearchChange}
           />
         </div>
+      )}
+
+      {blockLogs && Object.keys(blockLogs).length > 0 && (
+        <BlockLogsDashboard blockLogs={blockLogs} runId={runId} />
       )}
 
       <ResourceUsageCharts
