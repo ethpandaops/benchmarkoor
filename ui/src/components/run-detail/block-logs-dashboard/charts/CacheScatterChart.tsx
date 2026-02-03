@@ -40,15 +40,17 @@ export function CacheScatterChart({ data, isDark }: CacheScatterChartProps) {
         backgroundColor: tooltipBg,
         borderColor: tooltipBorder,
         textStyle: { color: textColor },
+        extraCssText: 'max-width: 300px; white-space: normal;',
         formatter: (params: { data: { testName: string; item: ProcessedTestData } }) => {
           const item = params.data.item
           const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
           return `
-            <div style="font-weight: 500; margin-bottom: 4px; max-width: 300px; word-wrap: break-word">${testLabel}: ${item.testName}</div>
-            <div>Account Cache: ${item.accountCacheHitRate.toFixed(1)}%</div>
-            <div>Storage Cache: ${item.storageCacheHitRate.toFixed(1)}%</div>
-            <div>Code Cache: ${item.codeCacheHitRate.toFixed(1)}%</div>
-            <div>Category: ${item.category}</div>
+            <strong>Test ${testLabel}</strong><br/>
+            <span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${item.testName}</span><br/>
+            Account Cache: ${item.accountCacheHitRate.toFixed(1)}%<br/>
+            Storage Cache: ${item.storageCacheHitRate.toFixed(1)}%<br/>
+            Code Cache: ${item.codeCacheHitRate.toFixed(1)}%<br/>
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${CATEGORY_COLORS[item.category]};margin-right:6px;vertical-align:middle;"></span>${item.category.charAt(0).toUpperCase() + item.category.slice(1)}
           `
         },
       },

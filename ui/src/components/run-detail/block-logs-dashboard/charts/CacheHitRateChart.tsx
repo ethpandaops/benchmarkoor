@@ -39,10 +39,12 @@ export function CacheHitRateChart({ data, isDark, maxItems = 20 }: CacheHitRateC
         backgroundColor: tooltipBg,
         borderColor: tooltipBorder,
         textStyle: { color: textColor },
+        extraCssText: 'max-width: 300px; white-space: normal;',
         formatter: (params: Array<{ seriesName: string; value: number; color: string; dataIndex: number }>) => {
           const item = chartData[params[0].dataIndex]
           const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
-          let content = `<div style="font-weight: 500; margin-bottom: 4px">${testLabel}: ${item.testName}</div>`
+          let content = `<strong>Test ${testLabel}</strong><br/>`
+          content += `<span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${item.testName}</span><br/>`
           params.forEach((p) => {
             const isGood = p.value >= 80
             content += `<div style="display: flex; align-items: center; gap: 4px">
