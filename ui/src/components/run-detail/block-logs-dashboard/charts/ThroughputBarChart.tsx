@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { ProcessedTestData } from '../types'
-import { CATEGORY_COLORS } from '../utils/colors'
+import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
 
 type SortMode = 'order' | 'throughput'
 
@@ -53,11 +53,19 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
           `
         },
       },
+      legend: {
+        data: ALL_CATEGORIES.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
+        bottom: 0,
+        textStyle: { color: textColor, fontSize: 11 },
+        itemWidth: 10,
+        itemHeight: 10,
+        type: 'scroll',
+      },
       grid: {
         left: 50,
         right: 20,
         top: 20,
-        bottom: chartData.length > 50 ? 80 : 40,
+        bottom: chartData.length > 50 ? 110 : 70,
       },
       xAxis: {
         type: 'category' as const,
@@ -103,7 +111,7 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
           xAxisIndex: 0,
           filterMode: 'filter' as const,
           height: 20,
-          bottom: 10,
+          bottom: 40,
           start: 0,
           end: (50 / chartData.length) * 100,
           fillerColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)',
@@ -112,6 +120,7 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
         }] : []),
       ],
       series: [
+        // Main bar series (no name so it doesn't appear in legend)
         {
           type: 'bar' as const,
           data: chartData.map((d) => ({
@@ -120,6 +129,13 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
           })),
           barMaxWidth: 30,
         },
+        // Dummy series for legend colors (using scatter to not affect bar width)
+        ...ALL_CATEGORIES.map((category) => ({
+          name: category.charAt(0).toUpperCase() + category.slice(1),
+          type: 'scatter' as const,
+          data: [],
+          itemStyle: { color: CATEGORY_COLORS[category] },
+        })),
       ],
     }
   }, [chartData, isDark, useLogScale, sortMode, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
