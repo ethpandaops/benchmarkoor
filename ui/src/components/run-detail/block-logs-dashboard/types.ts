@@ -30,6 +30,12 @@ export interface ProcessedTestData {
   accountCacheHitRate: number
   storageCacheHitRate: number
   codeCacheHitRate: number
+  accountCacheHits: number
+  accountCacheMisses: number
+  storageCacheHits: number
+  storageCacheMisses: number
+  codeCacheHits: number
+  codeCacheMisses: number
   gasUsed: number
   txCount: number
   // Normalized 0-100 for radar chart

@@ -56,4 +56,6 @@ export const CACHE_COLORS = {
   account: '#3b82f6', // blue
   storage: '#22c55e', // green
   code: '#a855f7', // purple
+  hit: '#22c55e', // green
+  miss: '#ef4444', // red
 }

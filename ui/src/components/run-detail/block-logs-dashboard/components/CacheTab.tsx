@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { ProcessedTestData, TestCategory } from '../types'
-import { CacheHitRateChart } from '../charts/CacheHitRateChart'
+import { CacheBarChart } from '../charts/CacheBarChart'
 import { CacheScatterChart } from '../charts/CacheScatterChart'
 import { ALL_CATEGORIES } from '../utils/colors'
 
@@ -107,14 +107,20 @@ export function CacheTab({ data, isDark }: CacheTabProps) {
         />
       </div>
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <CacheHitRateChart data={data} isDark={isDark} />
-        </div>
-        <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <CacheScatterChart data={data} isDark={isDark} activeCategories={activeCategories} />
-        </div>
+      {/* Cache Bar Charts */}
+      <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        <CacheBarChart cacheType="account" data={data} isDark={isDark} activeCategories={activeCategories} />
+      </div>
+      <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        <CacheBarChart cacheType="storage" data={data} isDark={isDark} activeCategories={activeCategories} />
+      </div>
+      <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        <CacheBarChart cacheType="code" data={data} isDark={isDark} activeCategories={activeCategories} />
+      </div>
+
+      {/* Scatter Chart for correlation view */}
+      <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        <CacheScatterChart data={data} isDark={isDark} activeCategories={activeCategories} />
       </div>
     </div>
   )

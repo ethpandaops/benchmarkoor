@@ -37,6 +37,12 @@ export function useProcessedData(
         accountCacheHitRate: entry.cache.account.hit_rate,
         storageCacheHitRate: entry.cache.storage.hit_rate,
         codeCacheHitRate: entry.cache.code.hit_rate,
+        accountCacheHits: entry.cache.account.hits,
+        accountCacheMisses: entry.cache.account.misses,
+        storageCacheHits: entry.cache.storage.hits,
+        storageCacheMisses: entry.cache.storage.misses,
+        codeCacheHits: entry.cache.code.hits,
+        codeCacheMisses: entry.cache.code.misses,
         gasUsed: entry.block.gas_used,
         txCount: entry.block.tx_count,
         // Normalized values will be calculated after filtering
