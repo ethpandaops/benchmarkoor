@@ -34,8 +34,28 @@ function useDarkMode() {
   return isDark
 }
 
+function useFullscreen() {
+  const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    if (!fullscreen) return
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false)
+    }
+    document.addEventListener('keydown', handleKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+      document.body.style.overflow = ''
+    }
+  }, [fullscreen])
+
+  return { fullscreen, setFullscreen }
+}
+
 export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, searchQuery = '', onSearchChange }: BlockLogsDashboardProps) {
   const isDark = useDarkMode()
+  const { fullscreen, setFullscreen } = useFullscreen()
   const { state, updateState, toggleTestSelection, clearSelection } = useDashboardState(runId)
 
   // Build execution order map from suite tests
@@ -51,16 +71,15 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
     return null
   }
 
-  return (
-    <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-        <div className="flex items-center gap-3">
-          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Block Logs Analysis</h3>
-          <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
-            {Object.keys(blockLogs).length} tests
-          </span>
-        </div>
+  const header = (
+    <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+      <div className="flex items-center gap-3">
+        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Block Logs Analysis</h3>
+        <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
+          {Object.keys(blockLogs).length} tests
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
         {onSearchChange && (
           <input
             type="text"
@@ -70,8 +89,27 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
             className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
           />
         )}
+        <button
+          onClick={() => setFullscreen(!fullscreen)}
+          className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+          title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {fullscreen ? (
+            <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : (
+            <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+            </svg>
+          )}
+        </button>
       </div>
+    </div>
+  )
 
+  const content = (
+    <>
       {/* Filters */}
       <DashboardFilters
         state={state}
@@ -125,6 +163,33 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
         onUpdate={updateState}
         onToggleSelection={toggleTestSelection}
       />
+    </>
+  )
+
+  if (fullscreen) {
+    return (
+      <>
+        {/* Placeholder in normal flow */}
+        <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
+          {header}
+        </div>
+        {/* Fullscreen overlay */}
+        <div className="fixed inset-0 z-40 flex flex-col overflow-auto bg-white dark:bg-gray-900">
+          <div className="sticky top-0 z-10 bg-white dark:bg-gray-900">
+            {header}
+          </div>
+          <div className="flex-1">
+            {content}
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
+      {header}
+      {content}
     </div>
   )
 }

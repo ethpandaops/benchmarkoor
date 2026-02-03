@@ -981,7 +981,7 @@ export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQue
         <div className="flex flex-col gap-3">
           {toolbar}
         </div>
-        <div className="fixed inset-0 z-50 flex flex-col gap-3 bg-white p-4 dark:bg-gray-900">
+        <div className="fixed inset-0 z-40 flex flex-col gap-3 bg-white p-4 dark:bg-gray-900">
           {toolbar}
           <div className="min-h-0 flex-1">
             <HeatmapCanvas {...canvasProps} />
