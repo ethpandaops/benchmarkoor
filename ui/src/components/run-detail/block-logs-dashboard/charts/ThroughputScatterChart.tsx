@@ -65,7 +65,7 @@ export function ThroughputScatterChart({ data, isDark, useLogScale }: Throughput
         left: 60,
         right: 30,
         top: 20,
-        bottom: 70,
+        bottom: 100,
       },
       xAxis: {
         type: useLogScale ? ('log' as const) : ('value' as const),
@@ -89,6 +89,24 @@ export function ThroughputScatterChart({ data, isDark, useLogScale }: Throughput
         splitLine: { lineStyle: { color: gridColor, type: 'dashed' as const } },
         min: useLogScale ? 1 : undefined,
       },
+      dataZoom: [
+        {
+          type: 'inside' as const,
+          xAxisIndex: 0,
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: false,
+          moveOnMouseWheel: false,
+        },
+        {
+          type: 'slider' as const,
+          xAxisIndex: 0,
+          height: 20,
+          bottom: 45,
+          fillerColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)',
+          borderColor: gridColor,
+          handleStyle: { color: '#3b82f6' },
+        },
+      ],
       series: seriesData,
     }
   }, [data, isDark, useLogScale, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
@@ -100,7 +118,7 @@ export function ThroughputScatterChart({ data, isDark, useLogScale }: Throughput
       </h4>
       <ReactECharts
         option={option}
-        style={{ height: '350px', width: '100%' }}
+        style={{ height: '400px', width: '100%' }}
         opts={{ renderer: 'svg' }}
       />
     </div>
