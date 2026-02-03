@@ -669,3 +669,28 @@ func WriteRunResult(resultsDir string, result *RunResult, owner *fsutil.OwnerCon
 
 	return nil
 }
+
+// WriteBlockLogsResult writes captured block logs to result.block-logs.json.
+// If blockLogs is empty, no file is written.
+func WriteBlockLogsResult(
+	resultsDir string,
+	blockLogs map[string]json.RawMessage,
+	owner *fsutil.OwnerConfig,
+) error {
+	if len(blockLogs) == 0 {
+		return nil
+	}
+
+	resultPath := filepath.Join(resultsDir, "result.block-logs.json")
+
+	data, err := json.MarshalIndent(blockLogs, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling block logs result: %w", err)
+	}
+
+	if err := fsutil.WriteFile(resultPath, data, 0644, owner); err != nil {
+		return fmt.Errorf("writing result.block-logs.json: %w", err)
+	}
+
+	return nil
+}

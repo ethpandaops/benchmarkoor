@@ -41,6 +41,12 @@ type Executor interface {
 	GetSource() Source
 }
 
+// BlockLogCollector is an interface for capturing JSON payloads from client logs.
+type BlockLogCollector interface {
+	SetCurrentTest(testName string)
+	ClearCurrentTest()
+}
+
 // ExecuteOptions contains options for test execution.
 type ExecuteOptions struct {
 	EngineEndpoint        string
@@ -55,6 +61,7 @@ type ExecuteOptions struct {
 	RPCEndpoint           string                     // RPC endpoint for rollback calls (e.g. http://host:port).
 	ClientRPCRollbackSpec *clientpkg.RPCRollbackSpec // Client-specific rollback method and param format.
 	Tests                 []*TestWithSteps           // Optional subset of tests to run (nil = run all).
+	BlockLogCollector     BlockLogCollector          // Optional collector for capturing block logs from client.
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -310,6 +317,11 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		log := e.log.WithField("test", test.Name)
 		log.Info("Running test")
 
+		// Set current test for block log collector.
+		if opts.BlockLogCollector != nil {
+			opts.BlockLogCollector.SetCurrentTest(test.Name)
+		}
+
 		// Capture block info for rollback before the test starts.
 		var rollbackInfo *blockInfo
 		if opts.RollbackStrategy == config.RollbackStrategyRPCDebugSetHead && opts.RPCEndpoint != "" {
@@ -445,6 +457,11 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					)
 				}
 			}
+		}
+
+		// Clear current test for block log collector.
+		if opts.BlockLogCollector != nil {
+			opts.BlockLogCollector.ClearCurrentTest()
 		}
 
 		if testPassed {
