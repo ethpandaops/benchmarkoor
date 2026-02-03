@@ -1,7 +1,9 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { ProcessedTestData } from '../types'
 import { CATEGORY_COLORS } from '../utils/colors'
+
+type SortMode = 'order' | 'throughput'
 
 interface ThroughputBarChartProps {
   data: ProcessedTestData[]
@@ -10,19 +12,24 @@ interface ThroughputBarChartProps {
 }
 
 export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarChartProps) {
+  const [sortMode, setSortMode] = useState<SortMode>('order')
+
   const textColor = isDark ? '#e5e7eb' : '#374151'
   const subTextColor = isDark ? '#9ca3af' : '#6b7280'
   const gridColor = isDark ? '#374151' : '#e5e7eb'
   const tooltipBg = isDark ? '#1f2937' : '#ffffff'
   const tooltipBorder = isDark ? '#374151' : '#e5e7eb'
 
-  // Sort by test order (ascending)
   const chartData = useMemo(() => {
-    return [...data].sort((a, b) => a.testOrder - b.testOrder)
-  }, [data])
+    return [...data].sort((a, b) => {
+      if (sortMode === 'order') {
+        return a.testOrder - b.testOrder
+      }
+      return a.throughput - b.throughput
+    })
+  }, [data, sortMode])
 
   const option = useMemo(() => {
-    // Use test order for X axis labels (e.g., "#1", "#2", etc.)
     const testLabels = chartData.map((d) =>
       d.testOrder === Infinity ? '-' : `#${d.testOrder}`
     )
@@ -63,7 +70,7 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
         },
         axisLine: { lineStyle: { color: gridColor } },
         axisTick: { show: false },
-        name: 'Test #',
+        name: sortMode === 'order' ? 'Test #' : 'Tests (sorted by throughput)',
         nameLocation: 'middle' as const,
         nameGap: chartData.length > 30 ? 60 : 30,
         nameTextStyle: { color: subTextColor, fontSize: 11 },
@@ -105,13 +112,38 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
         },
       ],
     }
-  }, [chartData, isDark, useLogScale, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
+  }, [chartData, isDark, useLogScale, sortMode, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
 
   return (
     <div className="flex flex-col gap-2">
-      <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-        Throughput by Test ({data.length} tests)
-      </h4>
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          Throughput by Test ({data.length} tests)
+        </h4>
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-gray-500 dark:text-gray-400">Sort:</span>
+          <button
+            onClick={() => setSortMode('order')}
+            className={`px-2 py-0.5 text-xs rounded-sm ${
+              sortMode === 'order'
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+            }`}
+          >
+            Test #
+          </button>
+          <button
+            onClick={() => setSortMode('throughput')}
+            className={`px-2 py-0.5 text-xs rounded-sm ${
+              sortMode === 'throughput'
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+            }`}
+          >
+            Throughput
+          </button>
+        </div>
+      </div>
       <ReactECharts
         option={option}
         style={{ height: '400px', width: '100%' }}
