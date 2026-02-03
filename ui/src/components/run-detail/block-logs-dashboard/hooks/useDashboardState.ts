@@ -18,7 +18,7 @@ const DEFAULT_STATE: DashboardState = {
   activeTab: 'overview',
   category: 'all',
   sortBy: 'throughput',
-  sortOrder: 'desc',
+  sortOrder: 'asc',
   excludeOutliers: true,
   useLogScale: false,
   selectedTests: [],
