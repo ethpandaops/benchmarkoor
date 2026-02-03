@@ -7,23 +7,19 @@ interface ThroughputBarChartProps {
   data: ProcessedTestData[]
   isDark: boolean
   useLogScale: boolean
-  maxItems?: number
 }
 
-export function ThroughputBarChart({ data, isDark, useLogScale, maxItems = 30 }: ThroughputBarChartProps) {
+export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarChartProps) {
   const textColor = isDark ? '#e5e7eb' : '#374151'
   const subTextColor = isDark ? '#9ca3af' : '#6b7280'
   const gridColor = isDark ? '#374151' : '#e5e7eb'
   const tooltipBg = isDark ? '#1f2937' : '#ffffff'
   const tooltipBorder = isDark ? '#374151' : '#e5e7eb'
 
-  // Sort by throughput descending, take top N, keep slowest at top
+  // Sort by throughput descending (slowest at top of chart)
   const chartData = useMemo(() => {
-    return [...data]
-      .sort((a, b) => b.throughput - a.throughput)
-      .slice(0, maxItems)
-      // No reverse - slowest of the top N appears at top
-  }, [data, maxItems])
+    return [...data].sort((a, b) => b.throughput - a.throughput)
+  }, [data])
 
   const option = useMemo(() => {
     // Use test order for Y axis labels (e.g., "#1", "#2", etc.)
@@ -115,20 +111,13 @@ export function ThroughputBarChart({ data, isDark, useLogScale, maxItems = 30 }:
     }
   }, [chartData, isDark, useLogScale, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
 
-  const height = Math.max(300, Math.min(chartData.length * 25, 600))
+  const height = Math.max(300, Math.min(chartData.length * 25, 800))
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-          Throughput by Test (Top {Math.min(data.length, maxItems)})
-        </h4>
-        {data.length > maxItems && (
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            Showing {maxItems} of {data.length} tests
-          </span>
-        )}
-      </div>
+      <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+        Throughput by Test ({data.length} tests)
+      </h4>
       <ReactECharts
         option={option}
         style={{ height: `${height}px`, width: '100%' }}
