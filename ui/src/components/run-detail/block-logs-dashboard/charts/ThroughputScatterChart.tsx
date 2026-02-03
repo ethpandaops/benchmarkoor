@@ -66,7 +66,7 @@ export function ThroughputScatterChart({ data, isDark, useLogScale }: Throughput
         left: 60,
         right: 30,
         top: 20,
-        bottom: 50,
+        bottom: 70,
       },
       xAxis: {
         type: useLogScale ? ('log' as const) : ('value' as const),
