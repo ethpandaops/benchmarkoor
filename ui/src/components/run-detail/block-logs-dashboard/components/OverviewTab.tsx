@@ -7,6 +7,7 @@ interface OverviewTabProps {
   stats: DashboardStats | null
   isDark: boolean
   useLogScale: boolean
+  onTestClick?: (testName: string) => void
 }
 
 interface StatCardProps {
@@ -25,7 +26,7 @@ function StatCard({ label, value, subValue }: StatCardProps) {
   )
 }
 
-export function OverviewTab({ data, stats, isDark, useLogScale }: OverviewTabProps) {
+export function OverviewTab({ data, stats, isDark, useLogScale, onTestClick }: OverviewTabProps) {
   if (!stats || data.length === 0) {
     return (
       <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
@@ -64,10 +65,10 @@ export function OverviewTab({ data, stats, isDark, useLogScale }: OverviewTabPro
       {/* Charts */}
       <div className="flex flex-col gap-6">
         <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <ThroughputBarChart data={data} isDark={isDark} useLogScale={useLogScale} />
+          <ThroughputBarChart data={data} isDark={isDark} useLogScale={useLogScale} onTestClick={onTestClick} />
         </div>
         <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <ThroughputScatterChart data={data} isDark={isDark} useLogScale={useLogScale} />
+          <ThroughputScatterChart data={data} isDark={isDark} useLogScale={useLogScale} onTestClick={onTestClick} />
         </div>
       </div>
     </div>

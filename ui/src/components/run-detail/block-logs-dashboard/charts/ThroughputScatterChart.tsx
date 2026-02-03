@@ -7,9 +7,10 @@ interface ThroughputScatterChartProps {
   data: ProcessedTestData[]
   isDark: boolean
   useLogScale: boolean
+  onTestClick?: (testName: string) => void
 }
 
-export function ThroughputScatterChart({ data, isDark, useLogScale }: ThroughputScatterChartProps) {
+export function ThroughputScatterChart({ data, isDark, useLogScale, onTestClick }: ThroughputScatterChartProps) {
   const textColor = isDark ? '#e5e7eb' : '#374151'
   const subTextColor = isDark ? '#9ca3af' : '#6b7280'
   const gridColor = isDark ? '#374151' : '#e5e7eb'
@@ -113,6 +114,17 @@ export function ThroughputScatterChart({ data, isDark, useLogScale }: Throughput
     }
   }, [data, isDark, useLogScale, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
 
+  const onEvents = useMemo(() => {
+    if (!onTestClick) return {}
+    return {
+      click: (params: { data: { testName: string } }) => {
+        if (params.data?.testName) {
+          onTestClick(params.data.testName)
+        }
+      },
+    }
+  }, [onTestClick])
+
   return (
     <div className="flex flex-col gap-2">
       <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -120,8 +132,9 @@ export function ThroughputScatterChart({ data, isDark, useLogScale }: Throughput
       </h4>
       <ReactECharts
         option={option}
-        style={{ height: '400px', width: '100%' }}
+        style={{ height: '400px', width: '100%', cursor: onTestClick ? 'pointer' : 'default' }}
         opts={{ renderer: 'svg' }}
+        onEvents={onEvents}
       />
     </div>
   )

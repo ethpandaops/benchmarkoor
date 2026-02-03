@@ -15,6 +15,7 @@ interface BlockLogsDashboardProps {
   blockLogs: BlockLogs | null | undefined
   runId: string
   suiteTests?: SuiteTest[]
+  onTestClick?: (testName: string) => void
 }
 
 function useDarkMode() {
@@ -31,7 +32,7 @@ function useDarkMode() {
   return isDark
 }
 
-export function BlockLogsDashboard({ blockLogs, runId, suiteTests }: BlockLogsDashboardProps) {
+export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick }: BlockLogsDashboardProps) {
   const isDark = useDarkMode()
   const { state, updateState, toggleTestSelection, clearSelection } = useDashboardState(runId)
 
@@ -83,6 +84,7 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests }: BlockLogsDa
             stats={stats}
             isDark={isDark}
             useLogScale={state.useLogScale}
+            onTestClick={onTestClick}
           />
         </TabPanel>
         <TabPanel>

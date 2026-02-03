@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { ProcessedTestData } from '../types'
 import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
@@ -9,9 +9,10 @@ interface ThroughputBarChartProps {
   data: ProcessedTestData[]
   isDark: boolean
   useLogScale: boolean
+  onTestClick?: (testName: string) => void
 }
 
-export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarChartProps) {
+export function ThroughputBarChart({ data, isDark, useLogScale, onTestClick }: ThroughputBarChartProps) {
   const [sortMode, setSortMode] = useState<SortMode>('throughput')
 
   const textColor = isDark ? '#e5e7eb' : '#374151'
@@ -142,11 +143,23 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
     }
   }, [chartData, isDark, useLogScale, sortMode, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder])
 
+  const onEvents = useMemo(() => {
+    if (!onTestClick) return {}
+    return {
+      click: (params: { dataIndex: number }) => {
+        const item = chartData[params.dataIndex]
+        if (item) {
+          onTestClick(item.testName)
+        }
+      },
+    }
+  }, [chartData, onTestClick])
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-          Throughput by Test ({data.length} tests)
+          Throughput by Test
         </h4>
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500 dark:text-gray-400">Sort:</span>
@@ -174,8 +187,9 @@ export function ThroughputBarChart({ data, isDark, useLogScale }: ThroughputBarC
       </div>
       <ReactECharts
         option={option}
-        style={{ height: '400px', width: '100%' }}
+        style={{ height: '400px', width: '100%', cursor: onTestClick ? 'pointer' : 'default' }}
         opts={{ renderer: 'svg' }}
+        onEvents={onEvents}
       />
     </div>
   )
