@@ -158,6 +158,7 @@ export function RunDetailPage() {
       to: '/runs/$runId',
       params: { runId },
       search: {
+        ...search, // Preserve all existing params (including block logs bl* params)
         page,
         pageSize,
         sortBy,
