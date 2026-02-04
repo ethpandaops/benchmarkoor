@@ -267,7 +267,7 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
 
             {/* Resource Limits */}
             {instance.resource_limits && (
-              <div className="mt-6">
+              <div className="mt-6 border-t border-gray-200 pt-6 dark:border-gray-700">
                 <h4 className="mb-3 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Resource Limits</h4>
                 <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {instance.resource_limits.cpuset_cpus && (
