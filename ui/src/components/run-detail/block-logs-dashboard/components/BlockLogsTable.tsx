@@ -8,6 +8,7 @@ interface BlockLogsTableProps {
   data: ProcessedTestData[]
   state: DashboardState
   onUpdate: (updates: Partial<DashboardState>) => void
+  onTestClick?: (testName: string) => void
 }
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100]
@@ -58,7 +59,7 @@ function SortHeader({ label, field, currentSort, currentOrder, onSort, align = '
   )
 }
 
-export function BlockLogsTable({ data, state, onUpdate }: BlockLogsTableProps) {
+export function BlockLogsTable({ data, state, onUpdate, onTestClick }: BlockLogsTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
 
@@ -221,11 +222,12 @@ export function BlockLogsTable({ data, state, onUpdate }: BlockLogsTableProps) {
             {paginatedData.map((row) => (
               <tr
                 key={row.testName}
-                className="hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                onClick={() => onTestClick?.(row.testName)}
+                className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${onTestClick ? 'cursor-pointer' : ''}`}
               >
                 <td className="sticky left-0 z-10 bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
                     <span title={row.testName} className="cursor-help">
-                      {row.testOrder === Infinity ? '-' : `#${row.testOrder}`}
+                      {row.testOrder === Infinity ? '-' : row.testOrder}
                     </span>
                   </td>
                   <td className="px-3 py-2">

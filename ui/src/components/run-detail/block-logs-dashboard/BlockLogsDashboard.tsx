@@ -172,6 +172,7 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
         data={data}
         state={state}
         onUpdate={updateState}
+        onTestClick={onTestClick}
       />
     </>
   )
