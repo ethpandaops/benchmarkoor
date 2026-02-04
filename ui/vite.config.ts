@@ -16,8 +16,6 @@ export default defineConfig({
     assetsDir: 'assets',
   },
   server: {
-    host: '0.0.0.0',
-    allowedHosts: ['pop-os-shiny.taile8f668.ts.net'],
     watch: {
       ignored: ['**/results/**'],
     },

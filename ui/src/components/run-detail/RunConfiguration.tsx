@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import type { InstanceConfig, SystemInfo } from '@/api/types'
-import { formatBytes } from '@/utils/format'
+import { formatBytes, formatFrequency } from '@/utils/format'
 
 interface RunConfigurationProps {
   instance: InstanceConfig
@@ -267,8 +267,8 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
 
             {/* Resource Limits */}
             {instance.resource_limits && (
-              <div className="mt-6">
-                <h5 className="mb-3 text-xs/5 font-medium text-gray-500 dark:text-gray-400">Resource Limits</h5>
+              <div className="mt-6 border-t border-gray-200 pt-6 dark:border-gray-700">
+                <h4 className="mb-3 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Resource Limits</h4>
                 <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {instance.resource_limits.cpuset_cpus && (
                     <>
@@ -284,6 +284,21 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                   )}
                   {instance.resource_limits.swap_disabled !== undefined && (
                     <InfoItem label="Swap Disabled" value={instance.resource_limits.swap_disabled ? 'Yes' : 'No'} />
+                  )}
+                  {instance.resource_limits.cpu_freq_khz !== undefined && (
+                    <InfoItem
+                      label="CPU Frequency"
+                      value={formatFrequency(instance.resource_limits.cpu_freq_khz)}
+                    />
+                  )}
+                  {instance.resource_limits.cpu_turboboost !== undefined && (
+                    <InfoItem
+                      label="Turbo Boost"
+                      value={instance.resource_limits.cpu_turboboost ? 'Enabled' : 'Disabled'}
+                    />
+                  )}
+                  {instance.resource_limits.cpu_freq_governor && (
+                    <InfoItem label="CPU Governor" value={instance.resource_limits.cpu_freq_governor} />
                   )}
                 </dl>
 

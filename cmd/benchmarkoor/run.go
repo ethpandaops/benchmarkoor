@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
@@ -144,6 +145,32 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		log.Info("Test executor initialized")
 	}
 
+	// Create CPU frequency manager if CPU frequency settings are configured.
+	var cpufreqMgr cpufreq.Manager
+	if needsCPUFreqManager(cfg) {
+		cacheDir := cfg.Global.Directories.TmpCacheDir
+		if cacheDir == "" {
+			var err error
+			cacheDir, err = getExecutorCacheDir()
+			if err != nil {
+				return fmt.Errorf("getting cache directory: %w", err)
+			}
+		}
+
+		cpufreqMgr = cpufreq.NewManager(log, cacheDir)
+		if err := cpufreqMgr.Start(ctx); err != nil {
+			return fmt.Errorf("starting cpufreq manager: %w", err)
+		}
+
+		defer func() {
+			if err := cpufreqMgr.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop cpufreq manager")
+			}
+		}()
+
+		log.Info("CPU frequency manager initialized")
+	}
+
 	// Create runner.
 	runnerCfg := &runner.Config{
 		ResultsDir:         cfg.Benchmark.ResultsDir,
@@ -159,7 +186,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		FullConfig:         cfg,
 	}
 
-	r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec)
+	r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec, cpufreqMgr)
 
 	if err := r.Start(ctx); err != nil {
 		return fmt.Errorf("starting runner: %w", err)
@@ -251,6 +278,31 @@ func getExecutorCacheDir() (string, error) {
 	}
 
 	return filepath.Join(homeDir, ".cache", "benchmarkoor"), nil
+}
+
+// needsCPUFreqManager returns true if any instance has CPU frequency settings configured.
+func needsCPUFreqManager(cfg *config.Config) bool {
+	// Check global resource limits.
+	if cfg.Client.Config.ResourceLimits != nil {
+		if cfg.Client.Config.ResourceLimits.CPUFreq != "" ||
+			cfg.Client.Config.ResourceLimits.CPUTurboBoost != nil ||
+			cfg.Client.Config.ResourceLimits.CPUGovernor != "" {
+			return true
+		}
+	}
+
+	// Check instance-level resource limits.
+	for _, instance := range cfg.Client.Instances {
+		if instance.ResourceLimits != nil {
+			if instance.ResourceLimits.CPUFreq != "" ||
+				instance.ResourceLimits.CPUTurboBoost != nil ||
+				instance.ResourceLimits.CPUGovernor != "" {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // filterInstances filters instances by ID and/or client type.

@@ -21,6 +21,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/blocklog"
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
@@ -107,11 +108,14 @@ type SystemInfo struct {
 
 // ResolvedResourceLimits contains the resolved resource limits for config.json output.
 type ResolvedResourceLimits struct {
-	CpusetCpus   string               `json:"cpuset_cpus,omitempty"`
-	Memory       string               `json:"memory,omitempty"`
-	MemoryBytes  int64                `json:"memory_bytes,omitempty"`
-	SwapDisabled bool                 `json:"swap_disabled,omitempty"`
-	BlkioConfig  *ResolvedBlkioConfig `json:"blkio_config,omitempty"`
+	CpusetCpus    string               `json:"cpuset_cpus,omitempty"`
+	Memory        string               `json:"memory,omitempty"`
+	MemoryBytes   int64                `json:"memory_bytes,omitempty"`
+	SwapDisabled  bool                 `json:"swap_disabled,omitempty"`
+	BlkioConfig   *ResolvedBlkioConfig `json:"blkio_config,omitempty"`
+	CPUFreqKHz    *uint64              `json:"cpu_freq_khz,omitempty"`
+	CPUTurboBoost *bool                `json:"cpu_turboboost,omitempty"`
+	CPUGovernor   string               `json:"cpu_freq_governor,omitempty"`
 }
 
 // ResolvedBlkioConfig contains the resolved blkio configuration for config.json output.
@@ -156,31 +160,34 @@ func NewRunner(
 	dockerMgr docker.Manager,
 	registry client.Registry,
 	exec executor.Executor,
+	cpufreqMgr cpufreq.Manager,
 ) Runner {
 	if cfg.ReadyTimeout == 0 {
 		cfg.ReadyTimeout = DefaultReadyTimeout
 	}
 
 	return &runner{
-		logger:   log,
-		log:      log.WithField("component", "runner"),
-		cfg:      cfg,
-		docker:   dockerMgr,
-		registry: registry,
-		executor: exec,
-		done:     make(chan struct{}),
+		logger:     log,
+		log:        log.WithField("component", "runner"),
+		cfg:        cfg,
+		docker:     dockerMgr,
+		registry:   registry,
+		executor:   exec,
+		cpufreqMgr: cpufreqMgr,
+		done:       make(chan struct{}),
 	}
 }
 
 type runner struct {
-	logger   *logrus.Logger     // The actual logger (for hook management)
-	log      logrus.FieldLogger // The field logger (for logging with fields)
-	cfg      *Config
-	docker   docker.Manager
-	registry client.Registry
-	executor executor.Executor
-	done     chan struct{}
-	wg       sync.WaitGroup
+	logger     *logrus.Logger     // The actual logger (for hook management)
+	log        logrus.FieldLogger // The field logger (for logging with fields)
+	cfg        *Config
+	docker     docker.Manager
+	registry   client.Registry
+	executor   executor.Executor
+	cpufreqMgr cpufreq.Manager
+	done       chan struct{}
+	wg         sync.WaitGroup
 }
 
 // Ensure interface compliance.
@@ -754,6 +761,7 @@ func (r *runner) runContainerLifecycle(
 	// Resolve resource limits.
 	var dockerResourceLimits *docker.ResourceLimits
 	var resolvedResourceLimits *ResolvedResourceLimits
+	var targetCPUs []int // CPUs to apply cpu_freq settings to
 
 	if r.cfg.FullConfig != nil {
 		resourceLimitsCfg := r.cfg.FullConfig.GetResourceLimits(instance)
@@ -780,6 +788,44 @@ func (r *runner) runContainerLifecycle(
 			}
 
 			log.WithFields(fields).Info("Resource limits configured")
+
+			// Determine target CPUs for cpu_freq settings.
+			// Use the resolved cpuset if available.
+			if resolvedResourceLimits.CpusetCpus != "" {
+				for _, cpuStr := range strings.Split(resolvedResourceLimits.CpusetCpus, ",") {
+					if cpuID, err := strconv.Atoi(strings.TrimSpace(cpuStr)); err == nil {
+						targetCPUs = append(targetCPUs, cpuID)
+					}
+				}
+			}
+
+			// Apply CPU frequency settings if configured.
+			if r.cpufreqMgr != nil && hasCPUFreqSettings(resourceLimitsCfg) {
+				cpufreqCfg := buildCPUFreqConfig(resourceLimitsCfg)
+
+				if err := r.cpufreqMgr.Apply(ctx, cpufreqCfg, targetCPUs); err != nil {
+					return fmt.Errorf("applying CPU frequency settings: %w", err)
+				}
+
+				// Log CPU frequency info.
+				logCPUFreqInfo(log, r.cpufreqMgr, targetCPUs)
+
+				// Add restore to cleanup.
+				localCleanupFuncs = append(localCleanupFuncs, func() {
+					if restoreErr := r.cpufreqMgr.Restore(context.Background()); restoreErr != nil {
+						log.WithError(restoreErr).Warn("Failed to restore CPU frequency settings")
+					}
+				})
+
+				// Update resolved limits with CPU freq info.
+				if cpufreqCfg.Frequency != "" && strings.ToUpper(cpufreqCfg.Frequency) != "MAX" {
+					if freqKHz, err := cpufreq.ParseFrequency(cpufreqCfg.Frequency); err == nil {
+						resolvedResourceLimits.CPUFreqKHz = &freqKHz
+					}
+				}
+				resolvedResourceLimits.CPUTurboBoost = cpufreqCfg.TurboBoost
+				resolvedResourceLimits.CPUGovernor = cpufreqCfg.Governor
+			}
 		}
 	}
 
@@ -2138,4 +2184,66 @@ func convertBlkioDevicesIOps(devices []config.ThrottleDevice) ([]docker.BlkioThr
 	}
 
 	return dockerDevices, resolvedDevices
+}
+
+// hasCPUFreqSettings returns true if the resource limits have any CPU frequency settings.
+func hasCPUFreqSettings(cfg *config.ResourceLimits) bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.CPUFreq != "" || cfg.CPUTurboBoost != nil || cfg.CPUGovernor != ""
+}
+
+// buildCPUFreqConfig builds a cpufreq.Config from resource limits.
+func buildCPUFreqConfig(cfg *config.ResourceLimits) *cpufreq.Config {
+	if cfg == nil {
+		return nil
+	}
+
+	cpufreqCfg := &cpufreq.Config{
+		Frequency:  cfg.CPUFreq,
+		TurboBoost: cfg.CPUTurboBoost,
+		Governor:   cfg.CPUGovernor,
+	}
+
+	// Default governor to "performance" if frequency is set but governor isn't.
+	if cpufreqCfg.Frequency != "" && cpufreqCfg.Governor == "" {
+		cpufreqCfg.Governor = "performance"
+	}
+
+	return cpufreqCfg
+}
+
+// logCPUFreqInfo logs CPU frequency information for the target CPUs.
+func logCPUFreqInfo(log logrus.FieldLogger, mgr cpufreq.Manager, targetCPUs []int) {
+	infos, err := mgr.GetCPUInfo()
+	if err != nil {
+		log.WithError(err).Warn("Failed to get CPU frequency info")
+		return
+	}
+
+	// Filter to target CPUs if specified.
+	targetSet := make(map[int]struct{}, len(targetCPUs))
+	for _, cpuID := range targetCPUs {
+		targetSet[cpuID] = struct{}{}
+	}
+
+	for _, info := range infos {
+		// Skip CPUs not in target set if targets were specified.
+		if len(targetCPUs) > 0 {
+			if _, ok := targetSet[info.ID]; !ok {
+				continue
+			}
+		}
+
+		log.WithFields(logrus.Fields{
+			"cpu":         info.ID,
+			"min_freq":    cpufreq.FormatFrequency(info.MinFreqKHz),
+			"max_freq":    cpufreq.FormatFrequency(info.MaxFreqKHz),
+			"current":     cpufreq.FormatFrequency(info.CurrentFreqKHz),
+			"governor":    info.Governor,
+			"scaling_min": cpufreq.FormatFrequency(info.ScalingMinKHz),
+			"scaling_max": cpufreq.FormatFrequency(info.ScalingMaxKHz),
+		}).Info("CPU frequency info")
+	}
 }

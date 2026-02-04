@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/spf13/cobra"
@@ -23,7 +25,8 @@ This is useful for cleaning up after failed runs or interrupted benchmarks.
 Filesystem resources that may be left behind if the process was killed:
   - ZFS clones and snapshots
   - OverlayFS mounts and temp directories
-  - fuse-overlayfs mounts and temp directories`,
+  - fuse-overlayfs mounts and temp directories
+  - CPU frequency state files (restores original CPU settings)`,
 	RunE: runCleanup,
 }
 
@@ -80,7 +83,14 @@ func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) e
 		log.WithError(err).Warn("Failed to list overlay mounts")
 	}
 
-	if len(containers) == 0 && len(volumes) == 0 && len(zfsResources) == 0 && len(overlayMounts) == 0 {
+	// List orphaned CPU frequency state files.
+	cpufreqStateFiles, err := cpufreq.ListOrphanedStateFiles(getCPUFreqCacheDir())
+	if err != nil {
+		log.WithError(err).Warn("Failed to list CPU frequency state files")
+	}
+
+	if len(containers) == 0 && len(volumes) == 0 && len(zfsResources) == 0 &&
+		len(overlayMounts) == 0 && len(cpufreqStateFiles) == 0 {
 		log.Info("No benchmarkoor resources found")
 
 		return nil
@@ -116,6 +126,14 @@ func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) e
 
 		for _, m := range overlayMounts {
 			fmt.Printf("  - %s (%s)\n", m.BaseDir, m.Type)
+		}
+	}
+
+	if len(cpufreqStateFiles) > 0 {
+		fmt.Printf("\nCPU frequency state files to be restored and removed (%d):\n", len(cpufreqStateFiles))
+
+		for _, sf := range cpufreqStateFiles {
+			fmt.Printf("  - %s (created: %s)\n", sf.Path, sf.Timestamp.Format("2006-01-02 15:04:05"))
 		}
 	}
 
@@ -172,7 +190,24 @@ func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) e
 		}
 	}
 
+	// Restore CPU frequency settings from orphaned state files and remove them.
+	if len(cpufreqStateFiles) > 0 {
+		if err := cpufreq.CleanupOrphanedCPUFreqState(ctx, log, cpufreqStateFiles); err != nil {
+			log.WithError(err).Warn("Failed to cleanup CPU frequency state files")
+		}
+	}
+
 	log.Info("Cleanup completed")
 
 	return nil
+}
+
+// getCPUFreqCacheDir returns the cache directory for CPU frequency state files.
+func getCPUFreqCacheDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return os.TempDir()
+	}
+
+	return filepath.Join(homeDir, ".cache", "benchmarkoor")
 }

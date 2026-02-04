@@ -519,6 +519,66 @@ Each device entry has:
 | `path` | string | Device path (e.g., `/dev/sdb`) |
 | `rate` | string | Rate limit. For `*_bps`: string with unit (`b`, `k`, `m`, `g`). For `*_iops`: integer string |
 
+### CPU Frequency Management
+
+CPU frequency settings allow you to lock CPUs to a specific frequency, control turbo boost, and set the CPU frequency governor. This is useful for achieving more consistent benchmark results by eliminating CPU frequency variations.
+
+**Requirements:**
+- Linux only
+- Root access (requires write access to `/sys/devices/system/cpu/*/cpufreq/`)
+- cpufreq subsystem must be available
+
+```yaml
+resource_limits:
+  cpuset_count: 4
+  cpu_freq: "2000MHz"
+  cpu_turboboost: false
+  cpu_freq_governor: performance
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `cpu_freq` | string | Fixed CPU frequency. Supports: `"2000MHz"`, `"2.4GHz"`, `"MAX"` (use system maximum) |
+| `cpu_turboboost` | bool | Enable (`true`) or disable (`false`) turbo boost. Omit to leave unchanged |
+| `cpu_freq_governor` | string | CPU frequency governor. Common values: `performance`, `powersave`, `schedutil`. Defaults to `performance` when `cpu_freq` is set |
+
+**Notes:**
+- CPU frequency settings are applied to the CPUs specified by `cpuset` or `cpuset_count`. If neither is specified, settings are applied to all online CPUs.
+- Original CPU frequency settings are automatically restored when the benchmark completes or is interrupted.
+- If the process is killed, the `benchmarkoor cleanup` command will restore CPU frequency settings from saved state files.
+
+**Turbo Boost:**
+- Intel systems: Controls `/sys/devices/system/cpu/intel_pstate/no_turbo`
+- AMD systems: Controls `/sys/devices/system/cpu/cpufreq/boost`
+
+**Available Governors:**
+
+Common governors (availability depends on kernel configuration):
+
+| Governor | Description |
+|----------|-------------|
+| `performance` | Always run at max frequency (best for benchmarks) |
+| `powersave` | Always run at min frequency |
+| `schedutil` | Scale frequency based on CPU utilization (default on modern kernels) |
+| `ondemand` | Scale frequency based on load |
+| `conservative` | Like ondemand but more gradual changes |
+
+**Example: Consistent Benchmark Configuration**
+
+For the most consistent benchmark results, lock the CPU frequency and disable turbo boost:
+
+```yaml
+client:
+  config:
+    resource_limits:
+      cpuset_count: 4
+      cpu_freq: "2000MHz"
+      cpu_turboboost: false
+      cpu_freq_governor: performance
+      memory: "16g"
+      swap_disabled: true
+```
+
 ## Examples
 
 Running stateless tests across all clients:

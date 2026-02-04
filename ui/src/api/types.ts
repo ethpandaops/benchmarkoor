@@ -164,6 +164,9 @@ export interface ResourceLimitsConfig {
   memory_bytes?: number
   swap_disabled?: boolean
   blkio_config?: BlkioConfig
+  cpu_freq_khz?: number
+  cpu_turboboost?: boolean
+  cpu_freq_governor?: string
 }
 
 export interface InstanceConfig {
