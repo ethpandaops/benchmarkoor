@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/docker/docker/api/types/blkiodev"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -68,6 +69,17 @@ type ResourceLimits struct {
 	MemoryBytes      int64  // Memory limit in bytes
 	MemorySwapBytes  int64  // Memory+swap limit (-1 = unlimited, same as MemoryBytes = no swap)
 	MemorySwappiness *int64 // 0-100, controls swappiness
+	// Blkio throttling.
+	BlkioDeviceReadBps   []BlkioThrottleDevice
+	BlkioDeviceWriteBps  []BlkioThrottleDevice
+	BlkioDeviceReadIOps  []BlkioThrottleDevice
+	BlkioDeviceWriteIOps []BlkioThrottleDevice
+}
+
+// BlkioThrottleDevice defines a block I/O throttle setting.
+type BlkioThrottleDevice struct {
+	Path string
+	Rate uint64
 }
 
 // ContainerSpec defines container configuration.
@@ -233,6 +245,23 @@ func (m *manager) CreateContainer(ctx context.Context, spec *ContainerSpec) (str
 		hostCfg.Memory = spec.ResourceLimits.MemoryBytes
 		hostCfg.MemorySwap = spec.ResourceLimits.MemorySwapBytes
 		hostCfg.MemorySwappiness = spec.ResourceLimits.MemorySwappiness
+
+		// Apply blkio throttling.
+		if len(spec.ResourceLimits.BlkioDeviceReadBps) > 0 {
+			hostCfg.BlkioDeviceReadBps = convertBlkioDevices(spec.ResourceLimits.BlkioDeviceReadBps)
+		}
+
+		if len(spec.ResourceLimits.BlkioDeviceWriteBps) > 0 {
+			hostCfg.BlkioDeviceWriteBps = convertBlkioDevices(spec.ResourceLimits.BlkioDeviceWriteBps)
+		}
+
+		if len(spec.ResourceLimits.BlkioDeviceReadIOps) > 0 {
+			hostCfg.BlkioDeviceReadIOps = convertBlkioDevices(spec.ResourceLimits.BlkioDeviceReadIOps)
+		}
+
+		if len(spec.ResourceLimits.BlkioDeviceWriteIOps) > 0 {
+			hostCfg.BlkioDeviceWriteIOps = convertBlkioDevices(spec.ResourceLimits.BlkioDeviceWriteIOps)
+		}
 	}
 
 	networkCfg := &network.NetworkingConfig{}
@@ -549,4 +578,17 @@ func (m *manager) WaitForContainerExit(
 	}()
 
 	return statusCh, errCh
+}
+
+// convertBlkioDevices converts internal BlkioThrottleDevice slice to Docker SDK format.
+func convertBlkioDevices(devices []BlkioThrottleDevice) []*blkiodev.ThrottleDevice {
+	result := make([]*blkiodev.ThrottleDevice, len(devices))
+	for i, dev := range devices {
+		result[i] = &blkiodev.ThrottleDevice{
+			Path: dev.Path,
+			Rate: dev.Rate,
+		}
+	}
+
+	return result
 }

@@ -107,10 +107,25 @@ type SystemInfo struct {
 
 // ResolvedResourceLimits contains the resolved resource limits for config.json output.
 type ResolvedResourceLimits struct {
-	CpusetCpus   string `json:"cpuset_cpus,omitempty"`
-	Memory       string `json:"memory,omitempty"`
-	MemoryBytes  int64  `json:"memory_bytes,omitempty"`
-	SwapDisabled bool   `json:"swap_disabled,omitempty"`
+	CpusetCpus   string               `json:"cpuset_cpus,omitempty"`
+	Memory       string               `json:"memory,omitempty"`
+	MemoryBytes  int64                `json:"memory_bytes,omitempty"`
+	SwapDisabled bool                 `json:"swap_disabled,omitempty"`
+	BlkioConfig  *ResolvedBlkioConfig `json:"blkio_config,omitempty"`
+}
+
+// ResolvedBlkioConfig contains the resolved blkio configuration for config.json output.
+type ResolvedBlkioConfig struct {
+	DeviceReadBps   []ResolvedThrottleDevice `json:"device_read_bps,omitempty"`
+	DeviceReadIOps  []ResolvedThrottleDevice `json:"device_read_iops,omitempty"`
+	DeviceWriteBps  []ResolvedThrottleDevice `json:"device_write_bps,omitempty"`
+	DeviceWriteIOps []ResolvedThrottleDevice `json:"device_write_iops,omitempty"`
+}
+
+// ResolvedThrottleDevice contains a resolved throttle device for config.json output.
+type ResolvedThrottleDevice struct {
+	Path string `json:"path"`
+	Rate uint64 `json:"rate"`
 }
 
 // ResolvedInstance contains the resolved configuration for a client instance.
@@ -751,11 +766,20 @@ func (r *runner) runContainerLifecycle(
 				return fmt.Errorf("building resource limits: %w", err)
 			}
 
-			log.WithFields(logrus.Fields{
+			fields := logrus.Fields{
 				"cpuset_cpus":   resolvedResourceLimits.CpusetCpus,
 				"memory":        resolvedResourceLimits.Memory,
 				"swap_disabled": resolvedResourceLimits.SwapDisabled,
-			}).Info("Resource limits configured")
+			}
+
+			if resolvedResourceLimits.BlkioConfig != nil {
+				fields["blkio_read_bps_devices"] = len(resolvedResourceLimits.BlkioConfig.DeviceReadBps)
+				fields["blkio_write_bps_devices"] = len(resolvedResourceLimits.BlkioConfig.DeviceWriteBps)
+				fields["blkio_read_iops_devices"] = len(resolvedResourceLimits.BlkioConfig.DeviceReadIOps)
+				fields["blkio_write_iops_devices"] = len(resolvedResourceLimits.BlkioConfig.DeviceWriteIOps)
+			}
+
+			log.WithFields(fields).Info("Resource limits configured")
 		}
 	}
 
@@ -2037,5 +2061,81 @@ func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimi
 		}
 	}
 
+	// Handle blkio config.
+	if cfg.BlkioConfig != nil {
+		blkioCfg := cfg.BlkioConfig
+		resolvedBlkio := &ResolvedBlkioConfig{}
+
+		// Process device_read_bps.
+		if len(blkioCfg.DeviceReadBps) > 0 {
+			dockerLimits.BlkioDeviceReadBps, resolvedBlkio.DeviceReadBps = convertBlkioDevicesBps(blkioCfg.DeviceReadBps)
+		}
+
+		// Process device_write_bps.
+		if len(blkioCfg.DeviceWriteBps) > 0 {
+			dockerLimits.BlkioDeviceWriteBps, resolvedBlkio.DeviceWriteBps = convertBlkioDevicesBps(blkioCfg.DeviceWriteBps)
+		}
+
+		// Process device_read_iops.
+		if len(blkioCfg.DeviceReadIOps) > 0 {
+			dockerLimits.BlkioDeviceReadIOps, resolvedBlkio.DeviceReadIOps = convertBlkioDevicesIOps(blkioCfg.DeviceReadIOps)
+		}
+
+		// Process device_write_iops.
+		if len(blkioCfg.DeviceWriteIOps) > 0 {
+			dockerLimits.BlkioDeviceWriteIOps, resolvedBlkio.DeviceWriteIOps = convertBlkioDevicesIOps(blkioCfg.DeviceWriteIOps)
+		}
+
+		// Only set if we have any blkio config.
+		if len(resolvedBlkio.DeviceReadBps) > 0 || len(resolvedBlkio.DeviceWriteBps) > 0 ||
+			len(resolvedBlkio.DeviceReadIOps) > 0 || len(resolvedBlkio.DeviceWriteIOps) > 0 {
+			resolved.BlkioConfig = resolvedBlkio
+		}
+	}
+
 	return dockerLimits, resolved, nil
+}
+
+// convertBlkioDevicesBps converts config blkio devices with bps rates to docker and resolved formats.
+func convertBlkioDevicesBps(devices []config.ThrottleDevice) ([]docker.BlkioThrottleDevice, []ResolvedThrottleDevice) {
+	dockerDevices := make([]docker.BlkioThrottleDevice, len(devices))
+	resolvedDevices := make([]ResolvedThrottleDevice, len(devices))
+
+	for i, dev := range devices {
+		// Parse rate using RAMInBytes (validation already done in config.Validate).
+		rate, _ := units.RAMInBytes(dev.Rate)
+
+		dockerDevices[i] = docker.BlkioThrottleDevice{
+			Path: dev.Path,
+			Rate: uint64(rate),
+		}
+		resolvedDevices[i] = ResolvedThrottleDevice{
+			Path: dev.Path,
+			Rate: uint64(rate),
+		}
+	}
+
+	return dockerDevices, resolvedDevices
+}
+
+// convertBlkioDevicesIOps converts config blkio devices with IOPS rates to docker and resolved formats.
+func convertBlkioDevicesIOps(devices []config.ThrottleDevice) ([]docker.BlkioThrottleDevice, []ResolvedThrottleDevice) {
+	dockerDevices := make([]docker.BlkioThrottleDevice, len(devices))
+	resolvedDevices := make([]ResolvedThrottleDevice, len(devices))
+
+	for i, dev := range devices {
+		// Parse rate as integer (validation already done in config.Validate).
+		rate, _ := strconv.ParseUint(dev.Rate, 10, 64)
+
+		dockerDevices[i] = docker.BlkioThrottleDevice{
+			Path: dev.Path,
+			Rate: rate,
+		}
+		resolvedDevices[i] = ResolvedThrottleDevice{
+			Path: dev.Path,
+			Rate: rate,
+		}
+	}
+
+	return dockerDevices, resolvedDevices
 }

@@ -119,6 +119,24 @@ client:
     #   memory: "16g"
     #   # Disable swap for the container (sets memory-swap equal to memory and swappiness to 0)
     #   swap_disabled: true
+    #   # Block I/O throttling (optional)
+    #   blkio_config:
+    #     # Limit device read bandwidth (supports units: b, k, m, g)
+    #     device_read_bps:
+    #       - path: /dev/sdb
+    #         rate: '12mb'
+    #     # Limit device read IOPS (integer)
+    #     device_read_iops:
+    #       - path: /dev/sdb
+    #         rate: '120'
+    #     # Limit device write bandwidth
+    #     device_write_bps:
+    #       - path: /dev/sdb
+    #         rate: '1024k'
+    #     # Limit device write IOPS
+    #     device_write_iops:
+    #       - path: /dev/sdb
+    #         rate: '30'
     # Genesis file URLs per client type
     genesis:
       besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
