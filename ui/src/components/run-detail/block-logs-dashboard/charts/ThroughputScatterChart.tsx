@@ -11,6 +11,19 @@ interface ThroughputScatterChartProps {
   activeCategories?: TestCategory[]
 }
 
+function formatGas(gas: number): string {
+  if (gas >= 1_000_000_000) {
+    return `${(gas / 1_000_000_000).toFixed(2)} BGas`
+  }
+  if (gas >= 1_000_000) {
+    return `${(gas / 1_000_000).toFixed(2)} MGas`
+  }
+  if (gas >= 1_000) {
+    return `${(gas / 1_000).toFixed(2)} KGas`
+  }
+  return `${gas} Gas`
+}
+
 export function ThroughputScatterChart({ data, isDark, useLogScale, onTestClick, activeCategories }: ThroughputScatterChartProps) {
   const categoriesToShow = activeCategories ?? ALL_CATEGORIES
   const textColor = isDark ? '#e5e7eb' : '#374151'
@@ -20,6 +33,18 @@ export function ThroughputScatterChart({ data, isDark, useLogScale, onTestClick,
   const tooltipBorder = isDark ? '#374151' : '#e5e7eb'
 
   const option = useMemo(() => {
+    // Calculate gas range for bubble sizing
+    const gasValues = data.map(d => d.gasUsed)
+    const minGas = Math.min(...gasValues)
+    const maxGas = Math.max(...gasValues)
+
+    // Helper to calculate bubble size (4-20px range)
+    const getSymbolSize = (gasUsed: number): number => {
+      if (maxGas === minGas) return 10
+      const normalized = (gasUsed - minGas) / (maxGas - minGas)
+      return 4 + normalized * 16
+    }
+
     const seriesData = categoriesToShow.map((category) => ({
       name: category.charAt(0).toUpperCase() + category.slice(1),
       type: 'scatter' as const,
@@ -31,7 +56,9 @@ export function ThroughputScatterChart({ data, isDark, useLogScale, onTestClick,
           item: d,
         })),
       itemStyle: { color: CATEGORY_COLORS[category] },
-      symbolSize: 8,
+      symbolSize: (_value: number[], params: { data: { item: ProcessedTestData } }) => {
+        return getSymbolSize(params.data.item.gasUsed)
+      },
       emphasis: {
         itemStyle: { borderColor: textColor, borderWidth: 2 },
         scale: 1.5,
@@ -53,6 +80,7 @@ export function ThroughputScatterChart({ data, isDark, useLogScale, onTestClick,
             <span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${item.testName}</span><br/>
             Throughput: ${item.throughput.toFixed(2)} MGas/s<br/>
             Execution: ${item.executionMs.toFixed(2)}ms<br/>
+            Gas Used: ${formatGas(item.gasUsed)}<br/>
             Overhead: ${item.overheadMs.toFixed(2)}ms<br/>
             <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${CATEGORY_COLORS[item.category]};margin-right:6px;vertical-align:middle;"></span>${item.category.charAt(0).toUpperCase() + item.category.slice(1)}
           `
@@ -130,7 +158,7 @@ export function ThroughputScatterChart({ data, isDark, useLogScale, onTestClick,
   return (
     <div className="flex flex-col gap-2">
       <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-        Execution Time vs Throughput
+        Execution Time vs Throughput <span className="text-xs font-normal text-gray-500 dark:text-gray-400">(bubble size = gas used)</span>
       </h4>
       <ReactECharts
         option={option}
