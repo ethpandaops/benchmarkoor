@@ -495,6 +495,9 @@ resource_limits:
 |--------|------|-------------|
 | `cpuset_count` | int | Number of random CPUs to pin to (new selection each run) |
 | `cpuset` | []int | Specific CPU IDs to pin to |
+| `cpu_freq` | string | Fixed CPU frequency. Supports: `"2000MHz"`, `"2.4GHz"`, `"MAX"` (use system maximum) |
+| `cpu_turboboost` | bool | Enable (`true`) or disable (`false`) turbo boost. Omit to leave unchanged |
+| `cpu_freq_governor` | string | CPU frequency governor. Common values: `performance`, `powersave`, `schedutil`. Defaults to `performance` when `cpu_freq` is set |
 | `memory` | string | Memory limit with unit: `b`, `k`, `m`, `g` (e.g., `"16g"`, `"4096m"`) |
 | `swap_disabled` | bool | Disable swap (sets memory-swap equal to memory, swappiness to 0) |
 | `blkio_config` | object | Block I/O throttling configuration (see below) |
@@ -535,12 +538,6 @@ resource_limits:
   cpu_turboboost: false
   cpu_freq_governor: performance
 ```
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `cpu_freq` | string | Fixed CPU frequency. Supports: `"2000MHz"`, `"2.4GHz"`, `"MAX"` (use system maximum) |
-| `cpu_turboboost` | bool | Enable (`true`) or disable (`false`) turbo boost. Omit to leave unchanged |
-| `cpu_freq_governor` | string | CPU frequency governor. Common values: `performance`, `powersave`, `schedutil`. Defaults to `performance` when `cpu_freq` is set |
 
 **Notes:**
 - CPU frequency settings are applied to the CPUs specified by `cpuset` or `cpuset_count`. If neither is specified, settings are applied to all online CPUs.
