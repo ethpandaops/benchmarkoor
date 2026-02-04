@@ -83,6 +83,17 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
     <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
       <div className="flex items-center gap-3">
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Block Logs Analysis</h3>
+        <a
+          href="https://ethresear.ch/t/a-small-step-towards-data-driven-protocol-decisions-unified-slowblock-metrics-across-clients/23907"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+          title="Learn more about block logs metrics"
+        >
+          <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </a>
         <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
           {Object.keys(blockLogs).length} tests
         </span>
