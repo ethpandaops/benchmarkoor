@@ -148,6 +148,9 @@ export function useProcessedData(
         case 'codeCache':
           comparison = a.codeCacheHitRate - b.codeCacheHitRate
           break
+        case 'gas':
+          comparison = a.gasUsed - b.gasUsed
+          break
       }
       return state.sortOrder === 'asc' ? comparison : -comparison
     })

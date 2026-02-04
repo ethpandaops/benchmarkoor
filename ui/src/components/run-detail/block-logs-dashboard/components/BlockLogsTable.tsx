@@ -23,6 +23,13 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`
 }
 
+function formatGas(gas: number): string {
+  if (gas >= 1_000_000_000) return `${(gas / 1_000_000_000).toFixed(1)}B`
+  if (gas >= 1_000_000) return `${(gas / 1_000_000).toFixed(1)}M`
+  if (gas >= 1_000) return `${(gas / 1_000).toFixed(1)}K`
+  return gas.toString()
+}
+
 interface SortHeaderProps {
   label: string
   field: SortField
@@ -168,6 +175,16 @@ export function BlockLogsTable({ data, state, onUpdate, onTestClick }: BlockLogs
               </th>
               <th scope="col" className="px-3 py-3 text-right text-xs">
                 <SortHeader
+                  label="Gas"
+                  field="gas"
+                  currentSort={state.sortBy}
+                  currentOrder={state.sortOrder}
+                  onSort={handleSort}
+                  align="right"
+                />
+              </th>
+              <th scope="col" className="px-3 py-3 text-right text-xs">
+                <SortHeader
                   label="Execution"
                   field="execution"
                   currentSort={state.sortBy}
@@ -243,6 +260,9 @@ export function BlockLogsTable({ data, state, onUpdate, onTestClick }: BlockLogs
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-sm text-gray-900 dark:text-gray-100">
                     {row.throughput.toFixed(1)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
+                    {formatGas(row.gasUsed)}
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
                     {formatMs(row.executionMs)}
