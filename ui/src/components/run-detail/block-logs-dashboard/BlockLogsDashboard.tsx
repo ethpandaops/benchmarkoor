@@ -141,15 +141,6 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
           />
         </TabPanel>
         <TabPanel>
-          <CompareTab
-            data={data}
-            selectedTests={state.selectedTests}
-            isDark={isDark}
-            onRemoveTest={toggleTestSelection}
-            onClearSelection={clearSelection}
-          />
-        </TabPanel>
-        <TabPanel>
           <CacheTab
             data={data}
             isDark={isDark}
@@ -164,6 +155,15 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
             useLogScale={state.useLogScale}
           />
         </TabPanel>
+        <TabPanel>
+          <CompareTab
+            data={data}
+            selectedTests={state.selectedTests}
+            isDark={isDark}
+            onRemoveTest={toggleTestSelection}
+            onClearSelection={clearSelection}
+          />
+        </TabPanel>
       </DashboardTabs>
 
       {/* Data Table */}
@@ -176,30 +176,18 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
     </>
   )
 
-  if (fullscreen) {
-    return (
-      <>
-        {/* Placeholder in normal flow */}
-        <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
-          {header}
-        </div>
-        {/* Fullscreen overlay */}
-        <div className="fixed inset-0 z-40 flex flex-col overflow-auto bg-white dark:bg-gray-900">
-          <div className="sticky top-0 z-10 bg-white dark:bg-gray-900">
-            {header}
-          </div>
-          <div className="flex-1">
-            {content}
-          </div>
-        </div>
-      </>
-    )
-  }
-
   return (
-    <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
-      {header}
-      {content}
+    <div className={
+      fullscreen
+        ? 'fixed inset-0 z-40 flex flex-col overflow-auto bg-white dark:bg-gray-900'
+        : 'overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800'
+    }>
+      <div className={fullscreen ? 'sticky top-0 z-10 bg-white dark:bg-gray-900' : ''}>
+        {header}
+      </div>
+      <div className={fullscreen ? 'flex-1' : ''}>
+        {content}
+      </div>
     </div>
   )
 }
