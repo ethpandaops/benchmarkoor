@@ -77,12 +77,13 @@ export function BlockLogDetails({ blockLog }: BlockLogDetailsProps) {
   const timingBarOption = useMemo(() => ({
     tooltip: {
       trigger: 'item',
+      appendToBody: true,
       backgroundColor: isDark ? '#1f2937' : '#ffffff',
       borderColor: isDark ? '#374151' : '#e5e7eb',
       textStyle: { color: textColor },
-      formatter: (params: { name: string; value: number }) => {
+      formatter: (params: { seriesName: string; value: number }) => {
         const pct = ((params.value / blockLog.timing.total_ms) * 100).toFixed(1)
-        return `${params.name}: ${params.value.toFixed(2)}ms (${pct}%)`
+        return `${params.seriesName}: ${params.value.toFixed(2)}ms (${pct}%)`
       },
     },
     grid: {
@@ -200,7 +201,7 @@ export function BlockLogDetails({ blockLog }: BlockLogDetailsProps) {
           const idx = params[0].dataIndex
           const total = hits[idx] + misses[idx]
           let content = `<strong>${params[0].name}</strong><br/>`
-          content += `Hit Rate: ${(hitRates[idx] * 100).toFixed(1)}%<br/>`
+          content += `Hit Rate: ${hitRates[idx].toFixed(1)}%<br/>`
           params.forEach(p => {
             content += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;"></span>${p.seriesName}: ${p.value.toLocaleString()} (${((p.value / total) * 100).toFixed(1)}%)<br/>`
           })
@@ -390,12 +391,24 @@ export function BlockLogDetails({ blockLog }: BlockLogDetailsProps) {
             opts={{ renderer: 'svg' }}
           />
         </div>
-        <div className="flex justify-between text-xs">
-          <span style={{ color: subTextColor }}>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: subTextColor }}>
+          <span>
             <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.green }} />
             Execution: {blockLog.timing.execution_ms.toFixed(1)}ms ({executionPct.toFixed(1)}%)
           </span>
-          <span style={{ color: subTextColor }}>
+          <span>
+            <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.blue }} />
+            State Read: {blockLog.timing.state_read_ms.toFixed(1)}ms ({((blockLog.timing.state_read_ms / blockLog.timing.total_ms) * 100).toFixed(1)}%)
+          </span>
+          <span>
+            <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.orange }} />
+            State Hash: {blockLog.timing.state_hash_ms.toFixed(1)}ms ({((blockLog.timing.state_hash_ms / blockLog.timing.total_ms) * 100).toFixed(1)}%)
+          </span>
+          <span>
+            <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.purple }} />
+            Commit: {blockLog.timing.commit_ms.toFixed(1)}ms ({((blockLog.timing.commit_ms / blockLog.timing.total_ms) * 100).toFixed(1)}%)
+          </span>
+          <span className="ml-auto font-medium">
             Overhead: {overheadMs.toFixed(1)}ms ({overheadPct.toFixed(1)}%)
           </span>
         </div>

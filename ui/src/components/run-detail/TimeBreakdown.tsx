@@ -15,7 +15,7 @@ export function TimeBreakdown({ methods }: TimeBreakdownProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Time Breakdown</h4>
+      <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">RPC Calls Time Breakdown</h4>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead>

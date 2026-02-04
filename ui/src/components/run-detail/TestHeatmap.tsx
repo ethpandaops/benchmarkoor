@@ -529,7 +529,6 @@ export function TestHeatmap({
       {/* Test Detail Modal */}
       {selectedTest && tests[selectedTest] && (() => {
         const entry = tests[selectedTest]
-        const stats = getAggregatedStats(entry, stepFilter)
         return (
           <Modal
             isOpen={!!selectedTest}
@@ -572,17 +571,17 @@ export function TestHeatmap({
               {blockLogs?.[selectedTest] && (
                 <BlockLogDetails blockLog={blockLogs[selectedTest]} />
               )}
-              {stats && (
-                <>
-                  <TimeBreakdown methods={stats.method_stats.times} />
-                  <MGasBreakdown methods={stats.method_stats.mgas_s} />
-                </>
-              )}
               {suiteHash && entry.steps && (
                 <div className="flex flex-col gap-6">
                   {entry.steps.setup && (
                     <div>
                       <h4 className="mb-2 text-sm/6 font-semibold text-gray-900 dark:text-gray-100">Setup Step</h4>
+                      {entry.steps.setup.aggregated && (
+                        <>
+                          <TimeBreakdown methods={entry.steps.setup.aggregated.method_stats.times} />
+                          <MGasBreakdown methods={entry.steps.setup.aggregated.method_stats.mgas_s} />
+                        </>
+                      )}
                       <ExecutionsList
                         runId={runId}
                         suiteHash={suiteHash}
@@ -594,6 +593,12 @@ export function TestHeatmap({
                   {entry.steps.test && (
                     <div>
                       <h4 className="mb-2 text-sm/6 font-semibold text-gray-900 dark:text-gray-100">Test Step</h4>
+                      {entry.steps.test.aggregated && (
+                        <>
+                          <TimeBreakdown methods={entry.steps.test.aggregated.method_stats.times} />
+                          <MGasBreakdown methods={entry.steps.test.aggregated.method_stats.mgas_s} />
+                        </>
+                      )}
                       <ExecutionsList
                         runId={runId}
                         suiteHash={suiteHash}
@@ -605,6 +610,12 @@ export function TestHeatmap({
                   {entry.steps.cleanup && (
                     <div>
                       <h4 className="mb-2 text-sm/6 font-semibold text-gray-900 dark:text-gray-100">Cleanup Step</h4>
+                      {entry.steps.cleanup.aggregated && (
+                        <>
+                          <TimeBreakdown methods={entry.steps.cleanup.aggregated.method_stats.times} />
+                          <MGasBreakdown methods={entry.steps.cleanup.aggregated.method_stats.mgas_s} />
+                        </>
+                      )}
                       <ExecutionsList
                         runId={runId}
                         suiteHash={suiteHash}

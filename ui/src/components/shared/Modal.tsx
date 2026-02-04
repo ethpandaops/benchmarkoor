@@ -31,13 +31,13 @@ export function Modal({ isOpen, onClose, title, children, className }: ModalProp
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
       <div
         className={clsx(
-          'relative flex max-h-[90vh] w-full max-w-4xl flex-col rounded-sm bg-white shadow-lg dark:bg-gray-800',
+          'relative flex max-h-[90vh] w-full max-w-6xl flex-col rounded-sm bg-white shadow-lg dark:bg-gray-800',
           className,
         )}
       >
         {title && (
           <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-            <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">{title}</h3>
+            <h3 className="text-sm/6 font-bold text-gray-900 dark:text-gray-100">{title}</h3>
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
