@@ -31,3 +31,9 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
+
+export function formatFrequency(kHz: number): string {
+  if (kHz >= 1_000_000) return `${(kHz / 1_000_000).toFixed(2)} GHz`
+  if (kHz >= 1_000) return `${(kHz / 1_000).toFixed(0)} MHz`
+  return `${kHz} kHz`
+}

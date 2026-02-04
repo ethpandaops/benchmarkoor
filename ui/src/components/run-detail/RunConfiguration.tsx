@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import type { InstanceConfig, SystemInfo } from '@/api/types'
-import { formatBytes } from '@/utils/format'
+import { formatBytes, formatFrequency } from '@/utils/format'
 
 interface RunConfigurationProps {
   instance: InstanceConfig
@@ -284,6 +284,21 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                   )}
                   {instance.resource_limits.swap_disabled !== undefined && (
                     <InfoItem label="Swap Disabled" value={instance.resource_limits.swap_disabled ? 'Yes' : 'No'} />
+                  )}
+                  {instance.resource_limits.cpu_freq_khz !== undefined && (
+                    <InfoItem
+                      label="CPU Frequency"
+                      value={formatFrequency(instance.resource_limits.cpu_freq_khz)}
+                    />
+                  )}
+                  {instance.resource_limits.cpu_turboboost !== undefined && (
+                    <InfoItem
+                      label="Turbo Boost"
+                      value={instance.resource_limits.cpu_turboboost ? 'Enabled' : 'Disabled'}
+                    />
+                  )}
+                  {instance.resource_limits.cpu_freq_governor && (
+                    <InfoItem label="CPU Governor" value={instance.resource_limits.cpu_freq_governor} />
                   )}
                 </dl>
 
