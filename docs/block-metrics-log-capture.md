@@ -37,14 +37,14 @@ For more details on the specification and motivation, see:
 
 ## Supported Clients
 
-| Client | Parser Status | Notes |
-|--------|---------------|-------|
-| Geth | Fully supported | Production ready |
-| Reth | Stub (pending) | Parser exists but not implemented |
-| Besu | Stub (pending) | Parser exists but not implemented |
-| Nethermind | Stub (pending) | Parser exists but not implemented |
-| Erigon | Stub (pending) | Parser exists but not implemented |
-| Nimbus | Stub (pending) | Parser exists but not implemented |
+| Client | Parser Status |
+|--------|---------------|
+| Geth | Fully supported |
+| Reth | Stub (pending) |
+| Besu | Stub (pending) |
+| Nethermind | Stub (pending) |
+| Erigon | Stub (pending) |
+| Nimbus | Stub (pending) |
 
 The parsing infrastructure (`pkg/blocklog`) supports all clients via the `Parser` interface. Currently only Geth's log format parser is implemented. Other client parsers return no matches until their specific log formats are implemented.
 
