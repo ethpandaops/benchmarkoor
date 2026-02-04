@@ -3,6 +3,7 @@ package executor
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -699,6 +700,7 @@ func WriteRunResult(resultsDir string, result *RunResult, owner *fsutil.OwnerCon
 
 // WriteBlockLogsResult writes captured block logs to result.block-logs.json.
 // If blockLogs is empty, no file is written.
+// If the file already exists, new block logs are merged with existing ones.
 func WriteBlockLogsResult(
 	resultsDir string,
 	blockLogs map[string]json.RawMessage,
@@ -710,7 +712,17 @@ func WriteBlockLogsResult(
 
 	resultPath := filepath.Join(resultsDir, "result.block-logs.json")
 
-	data, err := json.MarshalIndent(blockLogs, "", "  ")
+	// Read existing block logs if file exists.
+	existing := make(map[string]json.RawMessage, len(blockLogs))
+	if data, err := os.ReadFile(resultPath); err == nil {
+		// Parse existing data, ignore errors (file might be empty/invalid).
+		_ = json.Unmarshal(data, &existing)
+	}
+
+	// Merge new block logs into existing.
+	maps.Copy(existing, blockLogs)
+
+	data, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling block logs result: %w", err)
 	}
