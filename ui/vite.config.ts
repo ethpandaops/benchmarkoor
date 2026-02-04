@@ -5,7 +5,7 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: './',
+  base: '/',
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
@@ -18,5 +18,8 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     allowedHosts: ['pop-os-shiny.taile8f668.ts.net'],
+    watch: {
+      ignored: ['**/results/**'],
+    },
   },
 })

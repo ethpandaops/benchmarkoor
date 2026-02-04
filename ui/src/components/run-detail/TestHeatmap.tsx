@@ -5,10 +5,12 @@ import { Modal } from '@/components/shared/Modal'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
+import { BlockLogDetails } from './BlockLogDetails'
 import type { TestStatusFilter } from './TestsTable'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 import { formatDuration } from '@/utils/format'
 import { EESTInfoContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
+import { useBlockLogs } from '@/api/hooks/useBlockLogs'
 
 // Aggregate stats from selected steps of a test entry
 function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
@@ -195,6 +197,8 @@ export function TestHeatmap({
   const threshold = thresholdProp ?? DEFAULT_THRESHOLD
   const [tooltip, setTooltip] = useState<{ test: TestData; x: number; y: number } | null>(null)
   const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
+  const [activeStepTab, setActiveStepTab] = useState<'test' | 'setup' | 'cleanup'>('test')
+  const { data: blockLogs } = useBlockLogs(runId)
 
   const handleSortModeChange = (mode: SortMode) => {
     onSortModeChange?.(mode)
@@ -526,7 +530,6 @@ export function TestHeatmap({
       {/* Test Detail Modal */}
       {selectedTest && tests[selectedTest] && (() => {
         const entry = tests[selectedTest]
-        const stats = getAggregatedStats(entry, stepFilter)
         return (
           <Modal
             isOpen={!!selectedTest}
@@ -566,49 +569,75 @@ export function TestHeatmap({
                 if (!matchingSuiteTest) return null
                 return <EESTInfoContent test={matchingSuiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
               })()}
-              {stats && (
-                <>
-                  <TimeBreakdown methods={stats.method_stats.times} />
-                  <MGasBreakdown methods={stats.method_stats.mgas_s} />
-                </>
+              {blockLogs?.[selectedTest] && (
+                <BlockLogDetails blockLog={blockLogs[selectedTest]} />
               )}
-              {suiteHash && entry.steps && (
-                <div className="flex flex-col gap-6">
-                  {entry.steps.setup && (
-                    <div>
-                      <h4 className="mb-2 text-sm/6 font-semibold text-gray-900 dark:text-gray-100">Setup Step</h4>
-                      <ExecutionsList
-                        runId={runId}
-                        suiteHash={suiteHash}
-                        testName={selectedTest}
-                        stepType="setup"
-                      />
+              {suiteHash && entry.steps && (() => {
+                const steps = [
+                  { key: 'test' as const, label: 'Test', step: entry.steps.test },
+                  { key: 'setup' as const, label: 'Setup', step: entry.steps.setup },
+                  { key: 'cleanup' as const, label: 'Cleanup', step: entry.steps.cleanup },
+                ].filter(s => s.step)
+
+                const activeStep = steps.find(s => s.key === activeStepTab) ?? steps[0]
+
+                return (
+                  <div className="flex flex-col gap-4">
+                    {/* Step Tabs */}
+                    <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
+                      {steps.map(({ key, label, step }) => {
+                        const isActive = activeStep?.key === key
+                        const success = step?.aggregated?.success ?? 0
+                        const fail = step?.aggregated?.fail ?? 0
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => setActiveStepTab(key)}
+                            className={clsx(
+                              'flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors',
+                              isActive
+                                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
+                            )}
+                          >
+                            {label}
+                            <span className="flex items-center gap-1">
+                              {success > 0 && (
+                                <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/50 dark:text-green-300">
+                                  {success}
+                                </span>
+                              )}
+                              {fail > 0 && (
+                                <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/50 dark:text-red-300">
+                                  {fail}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                        )
+                      })}
                     </div>
-                  )}
-                  {entry.steps.test && (
-                    <div>
-                      <h4 className="mb-2 text-sm/6 font-semibold text-gray-900 dark:text-gray-100">Test Step</h4>
-                      <ExecutionsList
-                        runId={runId}
-                        suiteHash={suiteHash}
-                        testName={selectedTest}
-                        stepType="test"
-                      />
-                    </div>
-                  )}
-                  {entry.steps.cleanup && (
-                    <div>
-                      <h4 className="mb-2 text-sm/6 font-semibold text-gray-900 dark:text-gray-100">Cleanup Step</h4>
-                      <ExecutionsList
-                        runId={runId}
-                        suiteHash={suiteHash}
-                        testName={selectedTest}
-                        stepType="cleanup"
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
+
+                    {/* Active Step Content */}
+                    {activeStep && (
+                      <div>
+                        {activeStep.step?.aggregated && (
+                          <div className="flex flex-col gap-4">
+                            <TimeBreakdown methods={activeStep.step.aggregated.method_stats.times} />
+                            <MGasBreakdown methods={activeStep.step.aggregated.method_stats.mgas_s} />
+                          </div>
+                        )}
+                        <ExecutionsList
+                          runId={runId}
+                          suiteHash={suiteHash}
+                          testName={selectedTest}
+                          stepType={activeStep.key}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           </Modal>
         )

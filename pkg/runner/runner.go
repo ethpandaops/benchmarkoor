@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
+	"github.com/ethpandaops/benchmarkoor/pkg/blocklog"
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
@@ -246,21 +247,22 @@ func formatStartMarker(marker string, info *containerLogInfo) string {
 
 // containerRunParams contains parameters for a single container lifecycle run.
 type containerRunParams struct {
-	Instance         *config.ClientInstance
-	RunID            string
-	RunTimestamp     int64
-	RunResultsDir    string
-	BenchmarkoorLog  *os.File
-	LogHook          *fileHook
-	GenesisSource    string                    // Path or URL to genesis file.
-	Tests            []*executor.TestWithSteps // Optional test subset (nil = all).
-	GenesisGroupHash string                    // Non-empty when running a specific genesis group.
-	GenesisGroups    map[string]string         // All genesis hash → path mappings (multi-genesis).
-	ImageName        string                    // Resolved image name (pulled once by caller).
-	ImageDigest      string                    // Image SHA256 digest (resolved once by caller).
-	ContainerSpec    *docker.ContainerSpec     // Saved for container-recreate strategy.
-	DataDirCfg       *config.DataDirConfig     // Resolved datadir config (nil if not using datadir).
-	UseDataDir       bool                      // Whether a pre-populated datadir is used.
+	Instance          *config.ClientInstance
+	RunID             string
+	RunTimestamp      int64
+	RunResultsDir     string
+	BenchmarkoorLog   *os.File
+	LogHook           *fileHook
+	GenesisSource     string                    // Path or URL to genesis file.
+	Tests             []*executor.TestWithSteps // Optional test subset (nil = all).
+	GenesisGroupHash  string                    // Non-empty when running a specific genesis group.
+	GenesisGroups     map[string]string         // All genesis hash → path mappings (multi-genesis).
+	ImageName         string                    // Resolved image name (pulled once by caller).
+	ImageDigest       string                    // Image SHA256 digest (resolved once by caller).
+	ContainerSpec     *docker.ContainerSpec     // Saved for container-recreate strategy.
+	DataDirCfg        *config.DataDirConfig     // Resolved datadir config (nil if not using datadir).
+	UseDataDir        bool                      // Whether a pre-populated datadir is used.
+	BlockLogCollector blocklog.Collector        // Optional collector for capturing block logs.
 }
 
 // RunInstance runs a single client instance through its lifecycle.
@@ -852,7 +854,25 @@ func (r *runner) runContainerLifecycle(
 	logCtx, logCancel := context.WithCancel(ctx)
 	defer logCancel()
 
-	logFile := filepath.Join(runResultsDir, "container.log")
+	logFilePath := filepath.Join(runResultsDir, "container.log")
+
+	logFile, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("opening container log file: %w", err)
+	}
+
+	localCleanupFuncs = append(localCleanupFuncs, func() {
+		_ = logFile.Close()
+	})
+
+	if r.cfg.ResultsOwner != nil {
+		fsutil.Chown(logFilePath, r.cfg.ResultsOwner)
+	}
+
+	// Create block log collector to capture JSON payloads from client logs.
+	blockLogParser := blocklog.NewParser(client.ClientType(instance.Client))
+	blockLogCollector := blocklog.NewCollector(blockLogParser, logFile)
+	params.BlockLogCollector = blockLogCollector
 
 	r.wg.Add(1)
 
@@ -867,6 +887,7 @@ func (r *runner) runContainerLifecycle(
 				Image:            imageName,
 				GenesisGroupHash: params.GenesisGroupHash,
 			},
+			blockLogCollector,
 		); err != nil {
 			// Context cancellation during cleanup is expected.
 			select {
@@ -1047,7 +1068,8 @@ func (r *runner) runContainerLifecycle(
 				RPCEndpoint: fmt.Sprintf(
 					"http://%s:%d", containerIP, spec.RPCPort(),
 				),
-				Tests: params.Tests,
+				Tests:             params.Tests,
+				BlockLogCollector: params.BlockLogCollector,
 			}
 
 			result, execErr = r.executor.ExecuteTests(execCtx, execOpts)
@@ -1113,6 +1135,20 @@ func (r *runner) runContainerLifecycle(
 		log.WithError(err).Warn("Failed to write final run config with status")
 	} else {
 		log.WithField("status", runConfig.Status).Info("Run completed")
+	}
+
+	// Write block logs if any were captured.
+	if params.BlockLogCollector != nil {
+		blockLogs := params.BlockLogCollector.GetBlockLogs()
+		if len(blockLogs) > 0 {
+			if err := executor.WriteBlockLogsResult(
+				runResultsDir, blockLogs, r.cfg.ResultsOwner,
+			); err != nil {
+				log.WithError(err).Warn("Failed to write block logs result")
+			} else {
+				log.WithField("count", len(blockLogs)).Info("Block logs written")
+			}
+		}
 	}
 
 	// Return an error if the container died so callers (e.g. multi-genesis
@@ -1274,14 +1310,29 @@ func (r *runner) runTestsWithContainerStrategy(
 			logCtx, newLogCancel = context.WithCancel(ctx)
 			*logCancel = newLogCancel
 
+			// Open log file for this container (append mode).
+			recreateLogPath := filepath.Join(resultsDir, "container.log")
+			recreateLogFile, logErr := os.OpenFile(
+				recreateLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
+			)
+			if logErr != nil {
+				(*logCancel)()
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf("opening log file for test %d: %w", i, logErr)
+			}
+
+			*cleanupFuncs = append(*cleanupFuncs, func() {
+				_ = recreateLogFile.Close()
+			})
+
 			r.wg.Add(1)
 
 			go func() {
 				defer r.wg.Done()
 
 				if err := r.streamLogs(
-					logCtx, params.Instance.ID, newID,
-					filepath.Join(resultsDir, "container.log"),
+					logCtx, params.Instance.ID, newID, recreateLogFile,
 					benchmarkoorLog,
 					&containerLogInfo{
 						Name:             newSpec.Name,
@@ -1289,6 +1340,7 @@ func (r *runner) runTestsWithContainerStrategy(
 						Image:            newSpec.Image,
 						GenesisGroupHash: params.GenesisGroupHash,
 					},
+					params.BlockLogCollector,
 				); err != nil {
 					select {
 					case <-cleanupStarted:
@@ -1349,7 +1401,8 @@ func (r *runner) runTestsWithContainerStrategy(
 			RPCEndpoint: fmt.Sprintf(
 				"http://%s:%d", currentContainerIP, spec.RPCPort(),
 			),
-			Tests: []*executor.TestWithSteps{test},
+			Tests:             []*executor.TestWithSteps{test},
+			BlockLogCollector: params.BlockLogCollector,
 		}
 
 		result, err := r.executor.ExecuteTests(ctx, execOpts)
@@ -1647,35 +1700,34 @@ func writeRunConfig(resultsDir string, cfg *RunConfig, owner *fsutil.OwnerConfig
 }
 
 // streamLogs streams container logs to file and optionally stdout/benchmarkoor log.
-// The log file is opened in append mode with start/end markers so that
-// multiple container runs (e.g. multi-genesis) write to a single file.
+// The log file should be opened in append mode before calling this function.
+// If blockLogCollector is provided, the collector's writer wraps the file writer
+// to intercept and parse JSON payloads from log lines.
 func (r *runner) streamLogs(
 	ctx context.Context,
-	instanceID, containerID, logPath string,
+	instanceID, containerID string,
+	file *os.File,
 	benchmarkoorLog io.Writer,
 	logInfo *containerLogInfo,
+	blockLogCollector blocklog.Collector,
 ) error {
-	file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("opening log file: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-
-	if r.cfg.ResultsOwner != nil {
-		fsutil.Chown(logPath, r.cfg.ResultsOwner)
-	}
-
 	// Write start marker with container metadata.
 	_, _ = fmt.Fprint(file, formatStartMarker("CONTAINER", logInfo))
 
-	var stdout, stderr io.Writer = file, file
+	// Base writer is the file, optionally wrapped by block log collector.
+	var baseWriter io.Writer = file
+	if blockLogCollector != nil {
+		baseWriter = blockLogCollector.Writer()
+	}
+
+	stdout, stderr := baseWriter, baseWriter
 
 	if r.cfg.ClientLogsToStdout {
 		pfxFn := clientLogPrefix(instanceID)
 		stdoutPrefixWriter := &prefixedWriter{prefixFn: pfxFn, writer: os.Stdout}
 		logFilePrefixWriter := &prefixedWriter{prefixFn: pfxFn, writer: benchmarkoorLog}
-		stdout = io.MultiWriter(file, stdoutPrefixWriter, logFilePrefixWriter)
-		stderr = io.MultiWriter(file, stdoutPrefixWriter, logFilePrefixWriter)
+		stdout = io.MultiWriter(baseWriter, stdoutPrefixWriter, logFilePrefixWriter)
+		stderr = io.MultiWriter(baseWriter, stdoutPrefixWriter, logFilePrefixWriter)
 	}
 
 	streamErr := r.docker.StreamLogs(ctx, containerID, stdout, stderr)

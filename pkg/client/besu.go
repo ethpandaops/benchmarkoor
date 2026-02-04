@@ -21,8 +21,9 @@ func (s *besuSpec) DefaultImage() string {
 func (s *besuSpec) DefaultCommand() []string {
 	return []string{
 		"--data-path=/data",
-		"--bonsai-historical-block-limit=10000",
-		"--bonsai-limit-trie-logs-enabled=false",
+		//"--bonsai-historical-block-limit=10000",
+		//"--bonsai-limit-trie-logs-enabled=false",
+		"--data-storage-format=BONSAI",
 		"--metrics-enabled=true",
 		"--metrics-host=0.0.0.0",
 		"--metrics-port=8008",

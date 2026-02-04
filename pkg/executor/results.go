@@ -3,6 +3,7 @@ package executor
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -302,6 +303,33 @@ func extractGasUsed(request string) (uint64, error) {
 
 	// Parse hex string (0x prefixed).
 	return strconv.ParseUint(strings.TrimPrefix(payload.GasUsed, "0x"), 16, 64)
+}
+
+// extractBlockHash extracts blockHash from an engine_newPayload request.
+func extractBlockHash(request string) (string, error) {
+	var req struct {
+		Params []json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(request), &req); err != nil {
+		return "", err
+	}
+
+	if len(req.Params) == 0 {
+		return "", fmt.Errorf("no params")
+	}
+
+	var payload struct {
+		BlockHash string `json:"blockHash"`
+	}
+	if err := json.Unmarshal(req.Params[0], &payload); err != nil {
+		return "", err
+	}
+
+	if payload.BlockHash == "" {
+		return "", fmt.Errorf("missing blockHash")
+	}
+
+	return payload.BlockHash, nil
 }
 
 // CalculateStats computes aggregated statistics from the test result.
@@ -665,6 +693,42 @@ func WriteRunResult(resultsDir string, result *RunResult, owner *fsutil.OwnerCon
 
 	if err := fsutil.WriteFile(resultPath, data, 0644, owner); err != nil {
 		return fmt.Errorf("writing result.json: %w", err)
+	}
+
+	return nil
+}
+
+// WriteBlockLogsResult writes captured block logs to result.block-logs.json.
+// If blockLogs is empty, no file is written.
+// If the file already exists, new block logs are merged with existing ones.
+func WriteBlockLogsResult(
+	resultsDir string,
+	blockLogs map[string]json.RawMessage,
+	owner *fsutil.OwnerConfig,
+) error {
+	if len(blockLogs) == 0 {
+		return nil
+	}
+
+	resultPath := filepath.Join(resultsDir, "result.block-logs.json")
+
+	// Read existing block logs if file exists.
+	existing := make(map[string]json.RawMessage, len(blockLogs))
+	if data, err := os.ReadFile(resultPath); err == nil {
+		// Parse existing data, ignore errors (file might be empty/invalid).
+		_ = json.Unmarshal(data, &existing)
+	}
+
+	// Merge new block logs into existing.
+	maps.Copy(existing, blockLogs)
+
+	data, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling block logs result: %w", err)
+	}
+
+	if err := fsutil.WriteFile(resultPath, data, 0644, owner); err != nil {
+		return fmt.Errorf("writing result.block-logs.json: %w", err)
 	}
 
 	return nil

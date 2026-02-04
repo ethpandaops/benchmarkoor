@@ -22,7 +22,7 @@ func (s *gethSpec) DefaultCommand() []string {
 	return []string{
 		"--datadir=/data",
 		"--syncmode=full",
-		"--gcmode=archive",
+		//"--gcmode=archive",
 		"--snapshot=false",
 		"--nat=none",
 		"--http",
