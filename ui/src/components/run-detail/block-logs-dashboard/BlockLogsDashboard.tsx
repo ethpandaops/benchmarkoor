@@ -155,6 +155,7 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
             data={data}
             isDark={isDark}
             useLogScale={state.useLogScale}
+            onTestClick={onTestClick}
           />
         </TabPanel>
         <TabPanel>

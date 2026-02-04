@@ -6,6 +6,7 @@ interface CacheTabProps {
   data: ProcessedTestData[]
   isDark: boolean
   useLogScale: boolean
+  onTestClick?: (testName: string) => void
 }
 
 interface CacheStatCardProps {
@@ -27,7 +28,7 @@ function CacheStatCard({ label, value, subLabel, isGood }: CacheStatCardProps) {
   )
 }
 
-export function CacheTab({ data, isDark, useLogScale }: CacheTabProps) {
+export function CacheTab({ data, isDark, useLogScale, onTestClick }: CacheTabProps) {
   const cacheStats = useMemo(() => {
     if (data.length === 0) return null
 
@@ -103,13 +104,13 @@ export function CacheTab({ data, isDark, useLogScale }: CacheTabProps) {
 
       {/* Cache Bar Charts */}
       <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-        <CacheBarChart cacheType="account" data={data} isDark={isDark} useLogScale={useLogScale} />
+        <CacheBarChart cacheType="account" data={data} isDark={isDark} useLogScale={useLogScale} onTestClick={onTestClick} />
       </div>
       <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-        <CacheBarChart cacheType="storage" data={data} isDark={isDark} useLogScale={useLogScale} />
+        <CacheBarChart cacheType="storage" data={data} isDark={isDark} useLogScale={useLogScale} onTestClick={onTestClick} />
       </div>
       <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-        <CacheBarChart cacheType="code" data={data} isDark={isDark} useLogScale={useLogScale} />
+        <CacheBarChart cacheType="code" data={data} isDark={isDark} useLogScale={useLogScale} onTestClick={onTestClick} />
       </div>
     </div>
   )
