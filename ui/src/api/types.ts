@@ -146,11 +146,24 @@ export interface DataDirConfig {
   method?: string
 }
 
+export interface ThrottleDeviceConfig {
+  path: string
+  rate: number
+}
+
+export interface BlkioConfig {
+  device_read_bps?: ThrottleDeviceConfig[]
+  device_read_iops?: ThrottleDeviceConfig[]
+  device_write_bps?: ThrottleDeviceConfig[]
+  device_write_iops?: ThrottleDeviceConfig[]
+}
+
 export interface ResourceLimitsConfig {
   cpuset_cpus?: string
   memory?: string
   memory_bytes?: number
   swap_disabled?: boolean
+  blkio_config?: BlkioConfig
 }
 
 export interface InstanceConfig {
