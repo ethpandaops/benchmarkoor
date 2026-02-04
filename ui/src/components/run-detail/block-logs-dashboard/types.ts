@@ -68,7 +68,7 @@ export interface BoxPlotStats {
   outliers: number[]
 }
 
-export type DashboardTab = 'overview' | 'compare' | 'cache' | 'distribution'
+export type DashboardTab = 'overview' | 'cache' | 'distribution'
 export type SortField = 'throughput' | 'execution' | 'overhead' | 'name' | 'order' | 'category' | 'accountCache' | 'storageCache' | 'codeCache'
 export type SortOrder = 'asc' | 'desc'
 
@@ -81,5 +81,4 @@ export interface DashboardState {
   maxThroughput?: number
   excludeOutliers: boolean
   useLogScale: boolean
-  selectedTests: string[]
 }

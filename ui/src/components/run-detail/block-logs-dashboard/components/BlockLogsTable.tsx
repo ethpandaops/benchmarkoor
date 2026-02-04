@@ -8,7 +8,6 @@ interface BlockLogsTableProps {
   data: ProcessedTestData[]
   state: DashboardState
   onUpdate: (updates: Partial<DashboardState>) => void
-  onToggleSelection: (testName: string) => void
 }
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100]
@@ -59,7 +58,7 @@ function SortHeader({ label, field, currentSort, currentOrder, onSort, align = '
   )
 }
 
-export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: BlockLogsTableProps) {
+export function BlockLogsTable({ data, state, onUpdate }: BlockLogsTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
 
@@ -138,9 +137,6 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-800/50">
             <tr>
-              <th scope="col" className="w-10 px-3 py-3">
-                <span className="sr-only">Select</span>
-              </th>
               <th scope="col" className="sticky left-0 z-10 bg-gray-50 px-3 py-3 text-left text-xs dark:bg-gray-800/50">
                 <SortHeader
                   label="Test #"
@@ -222,32 +218,12 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {paginatedData.map((row) => {
-              const isSelected = state.selectedTests.includes(row.testName)
-              const canSelect = state.selectedTests.length < 5 || isSelected
-
-              return (
-                <tr
-                  key={row.testName}
-                  onClick={() => canSelect && onToggleSelection(row.testName)}
-                  className={clsx(
-                    'cursor-pointer transition-colors',
-                    isSelected
-                      ? 'bg-blue-50 dark:bg-blue-900/20'
-                      : 'hover:bg-gray-50 dark:hover:bg-gray-800/50',
-                    !canSelect && !isSelected && 'cursor-not-allowed opacity-50'
-                  )}
-                >
-                  <td className="px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => canSelect && onToggleSelection(row.testName)}
-                      disabled={!canSelect}
-                      className="rounded-xs border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600"
-                    />
-                  </td>
-                  <td className="sticky left-0 z-10 bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
+            {paginatedData.map((row) => (
+              <tr
+                key={row.testName}
+                className="hover:bg-gray-50 dark:hover:bg-gray-800/50"
+              >
+                <td className="sticky left-0 z-10 bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-800 dark:text-gray-100">
                     <span title={row.testName} className="cursor-help">
                       {row.testOrder === Infinity ? '-' : `#${row.testOrder}`}
                     </span>
@@ -300,8 +276,7 @@ export function BlockLogsTable({ data, state, onUpdate, onToggleSelection }: Blo
                     </span>
                   </td>
                 </tr>
-              )
-            })}
+            ))}
           </tbody>
         </table>
       </div>

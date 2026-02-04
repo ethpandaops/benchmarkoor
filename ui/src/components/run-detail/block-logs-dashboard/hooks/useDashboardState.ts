@@ -12,7 +12,6 @@ interface BlockLogsDashboardSearch {
   blMaxThroughput?: number
   blExcludeOutliers?: boolean
   blLogScale?: boolean
-  blSelected?: string
 }
 
 const DEFAULT_STATE: DashboardState = {
@@ -22,7 +21,6 @@ const DEFAULT_STATE: DashboardState = {
   sortOrder: 'asc',
   excludeOutliers: true,
   useLogScale: false,
-  selectedTests: [],
 }
 
 function parseCategories(value: string | undefined): TestCategory[] {
@@ -48,7 +46,6 @@ export function useDashboardState(runId: string) {
     maxThroughput: search.blMaxThroughput,
     excludeOutliers: search.blExcludeOutliers ?? DEFAULT_STATE.excludeOutliers,
     useLogScale: search.blLogScale ?? DEFAULT_STATE.useLogScale,
-    selectedTests: search.blSelected ? search.blSelected.split(',').slice(0, 5) : DEFAULT_STATE.selectedTests,
   }), [search])
 
   const updateState = useCallback((updates: Partial<DashboardState>) => {
@@ -111,13 +108,6 @@ export function useDashboardState(runId: string) {
       delete newSearch.blLogScale
     }
 
-    // Selected tests
-    if (newState.selectedTests.length > 0) {
-      newSearch.blSelected = newState.selectedTests.join(',')
-    } else {
-      delete newSearch.blSelected
-    }
-
     navigate({
       to: '/runs/$runId',
       params: { runId },
@@ -125,31 +115,8 @@ export function useDashboardState(runId: string) {
     })
   }, [navigate, runId, search, state])
 
-  const toggleTestSelection = useCallback((testName: string) => {
-    const currentSelected = state.selectedTests
-    const isSelected = currentSelected.includes(testName)
-
-    let newSelected: string[]
-    if (isSelected) {
-      newSelected = currentSelected.filter((t) => t !== testName)
-    } else if (currentSelected.length < 5) {
-      newSelected = [...currentSelected, testName]
-    } else {
-      // Already at max, don't add
-      return
-    }
-
-    updateState({ selectedTests: newSelected })
-  }, [state.selectedTests, updateState])
-
-  const clearSelection = useCallback(() => {
-    updateState({ selectedTests: [] })
-  }, [updateState])
-
   return {
     state,
     updateState,
-    toggleTestSelection,
-    clearSelection,
   }
 }

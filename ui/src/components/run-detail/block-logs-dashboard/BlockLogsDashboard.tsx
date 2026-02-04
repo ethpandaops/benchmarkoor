@@ -7,7 +7,6 @@ import { DashboardFilters } from './components/DashboardFilters'
 import { DashboardTabs } from './components/DashboardTabs'
 import { BlockLogsTable } from './components/BlockLogsTable'
 import { OverviewTab } from './components/OverviewTab'
-import { CompareTab } from './components/CompareTab'
 import { CacheTab } from './components/CacheTab'
 import { DistributionTab } from './components/DistributionTab'
 
@@ -65,7 +64,7 @@ function useFullscreen(
 export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, searchQuery = '', onSearchChange, fullscreen: externalFullscreen, onFullscreenChange }: BlockLogsDashboardProps) {
   const isDark = useDarkMode()
   const { fullscreen, setFullscreen } = useFullscreen(externalFullscreen, onFullscreenChange)
-  const { state, updateState, toggleTestSelection, clearSelection } = useDashboardState(runId)
+  const { state, updateState } = useDashboardState(runId)
 
   // Build execution order map from suite tests
   const executionOrder = useMemo(() => {
@@ -155,15 +154,6 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
             useLogScale={state.useLogScale}
           />
         </TabPanel>
-        <TabPanel>
-          <CompareTab
-            data={data}
-            selectedTests={state.selectedTests}
-            isDark={isDark}
-            onRemoveTest={toggleTestSelection}
-            onClearSelection={clearSelection}
-          />
-        </TabPanel>
       </DashboardTabs>
 
       {/* Data Table */}
@@ -171,7 +161,6 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
         data={data}
         state={state}
         onUpdate={updateState}
-        onToggleSelection={toggleTestSelection}
       />
     </>
   )
