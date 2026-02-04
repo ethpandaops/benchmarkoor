@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/docker/go-units"
+	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/spf13/viper"
 )
@@ -159,11 +160,14 @@ type DataDirConfig struct {
 
 // ResourceLimits configures container resource constraints.
 type ResourceLimits struct {
-	CpusetCount  *int         `yaml:"cpuset_count,omitempty" mapstructure:"cpuset_count" json:"cpuset_count,omitempty"`
-	Cpuset       []int        `yaml:"cpuset,omitempty" mapstructure:"cpuset" json:"cpuset,omitempty"`
-	Memory       string       `yaml:"memory,omitempty" mapstructure:"memory" json:"memory,omitempty"`
-	SwapDisabled bool         `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
-	BlkioConfig  *BlkioConfig `yaml:"blkio_config,omitempty" mapstructure:"blkio_config" json:"blkio_config,omitempty"`
+	CpusetCount   *int         `yaml:"cpuset_count,omitempty" mapstructure:"cpuset_count" json:"cpuset_count,omitempty"`
+	Cpuset        []int        `yaml:"cpuset,omitempty" mapstructure:"cpuset" json:"cpuset,omitempty"`
+	Memory        string       `yaml:"memory,omitempty" mapstructure:"memory" json:"memory,omitempty"`
+	SwapDisabled  bool         `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
+	BlkioConfig   *BlkioConfig `yaml:"blkio_config,omitempty" mapstructure:"blkio_config" json:"blkio_config,omitempty"`
+	CPUFreq       string       `yaml:"cpu_freq,omitempty" mapstructure:"cpu_freq" json:"cpu_freq,omitempty"`
+	CPUTurboBoost *bool        `yaml:"cpu_turboboost,omitempty" mapstructure:"cpu_turboboost" json:"cpu_turboboost,omitempty"`
+	CPUGovernor   string       `yaml:"cpu_freq_governor,omitempty" mapstructure:"cpu_freq_governor" json:"cpu_freq_governor,omitempty"`
 }
 
 // BlkioConfig configures container block I/O limits.
@@ -591,6 +595,11 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	// Validate cpu_freq settings.
+	if err := c.validateCPUFreq(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -806,6 +815,73 @@ func (c *Config) validateRollbackStrategy() error {
 				RollbackStrategyRPCDebugSetHead,
 				RollbackStrategyContainerRecreate,
 			)
+		}
+	}
+
+	return nil
+}
+
+// validateCPUFreq validates cpu_freq settings and checks system capabilities.
+func (c *Config) validateCPUFreq() error {
+	// Check all instances for CPU frequency settings.
+	enabled := false
+
+	for _, instance := range c.Client.Instances {
+		limits := c.GetResourceLimits(&instance)
+		if limits == nil {
+			continue
+		}
+
+		if limits.CPUFreq != "" || limits.CPUTurboBoost != nil || limits.CPUGovernor != "" {
+			enabled = true
+
+			break
+		}
+	}
+
+	if !enabled {
+		return nil
+	}
+
+	// Check OS - CPU frequency control is Linux-only.
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("cpu_freq is only supported on Linux (current OS: %s)", runtime.GOOS)
+	}
+
+	// Check if cpufreq subsystem is available.
+	if !cpufreq.IsCPUFreqSupported() {
+		return fmt.Errorf("cpu_freq: cpufreq subsystem not available (no scaling_governor in sysfs)")
+	}
+
+	// Check write access.
+	if err := cpufreq.HasWriteAccess(); err != nil {
+		return fmt.Errorf("cpu_freq: %w", err)
+	}
+
+	// Validate each instance's settings.
+	for _, instance := range c.Client.Instances {
+		limits := c.GetResourceLimits(&instance)
+		if limits == nil {
+			continue
+		}
+
+		// Validate frequency format and bounds.
+		if limits.CPUFreq != "" && strings.ToUpper(limits.CPUFreq) != "MAX" {
+			freqKHz, err := cpufreq.ParseFrequency(limits.CPUFreq)
+			if err != nil {
+				return fmt.Errorf("instance %q: invalid cpu_freq %q: %w", instance.ID, limits.CPUFreq, err)
+			}
+
+			if err := cpufreq.ValidateFrequency(freqKHz); err != nil {
+				return fmt.Errorf("instance %q: %w", instance.ID, err)
+			}
+		}
+
+		// Validate governor.
+		if limits.CPUGovernor != "" {
+			if err := cpufreq.ValidateGovernor(limits.CPUGovernor); err != nil {
+				return fmt.Errorf("instance %q: %w", instance.ID, err)
+			}
 		}
 	}
 

@@ -137,6 +137,16 @@ client:
     #     device_write_iops:
     #       - path: /dev/sdb
     #         rate: '30'
+    #   # CPU frequency management (Linux only, requires root and cpufreq subsystem)
+    #   # These settings are applied to the CPUs specified by cpuset/cpuset_count,
+    #   # or all online CPUs if neither is specified.
+    #   # Fixed CPU frequency (supports: "2000MHz", "2.4GHz", "MAX")
+    #   cpu_freq: "2000MHz"
+    #   # Enable/disable turbo boost (Intel: no_turbo, AMD: boost)
+    #   cpu_turboboost: false
+    #   # CPU frequency governor (common: performance, powersave, schedutil)
+    #   # Defaults to "performance" when cpu_freq is set
+    #   cpu_freq_governor: performance
     # Genesis file URLs per client type
     genesis:
       besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
