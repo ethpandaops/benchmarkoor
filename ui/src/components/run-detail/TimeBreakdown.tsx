@@ -14,11 +14,13 @@ export function TimeBreakdown({ methods }: TimeBreakdownProps) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">RPC Calls Time Breakdown</h4>
+    <div className="overflow-hidden rounded-sm border border-gray-200 dark:border-gray-700">
+      <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 dark:border-gray-700 dark:bg-gray-800/50">
+        <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">RPC Calls Time Breakdown</h4>
+      </div>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead>
+        <table className="min-w-full">
+          <thead className="bg-gray-50/50 dark:bg-gray-800/30">
             <tr>
               <th className="px-3 py-2 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Method
@@ -57,7 +59,7 @@ export function TimeBreakdown({ methods }: TimeBreakdownProps) {
               )}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+          <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900/20">
             {methodEntries.map(([method, stats]) => (
               <tr key={method}>
                 <td className="whitespace-nowrap px-3 py-2 font-mono text-sm/6 text-gray-900 dark:text-gray-100">
