@@ -1,12 +1,11 @@
 import { useMemo } from 'react'
-import type { ProcessedTestData, TestCategory } from '../types'
+import type { ProcessedTestData } from '../types'
 import { CacheBarChart } from '../charts/CacheBarChart'
-import { CacheScatterChart } from '../charts/CacheScatterChart'
-import { ALL_CATEGORIES } from '../utils/colors'
 
 interface CacheTabProps {
   data: ProcessedTestData[]
   isDark: boolean
+  useLogScale: boolean
 }
 
 interface CacheStatCardProps {
@@ -28,12 +27,7 @@ function CacheStatCard({ label, value, subLabel, isGood }: CacheStatCardProps) {
   )
 }
 
-export function CacheTab({ data, isDark }: CacheTabProps) {
-  const activeCategories = useMemo<TestCategory[]>(() => {
-    const categoriesInData = new Set(data.map(d => d.category))
-    return ALL_CATEGORIES.filter(cat => categoriesInData.has(cat))
-  }, [data])
-
+export function CacheTab({ data, isDark, useLogScale }: CacheTabProps) {
   const cacheStats = useMemo(() => {
     if (data.length === 0) return null
 
@@ -109,18 +103,13 @@ export function CacheTab({ data, isDark }: CacheTabProps) {
 
       {/* Cache Bar Charts */}
       <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-        <CacheBarChart cacheType="account" data={data} isDark={isDark} activeCategories={activeCategories} />
+        <CacheBarChart cacheType="account" data={data} isDark={isDark} useLogScale={useLogScale} />
       </div>
       <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-        <CacheBarChart cacheType="storage" data={data} isDark={isDark} activeCategories={activeCategories} />
+        <CacheBarChart cacheType="storage" data={data} isDark={isDark} useLogScale={useLogScale} />
       </div>
       <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-        <CacheBarChart cacheType="code" data={data} isDark={isDark} activeCategories={activeCategories} />
-      </div>
-
-      {/* Scatter Chart for correlation view */}
-      <div className="rounded-xs border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-        <CacheScatterChart data={data} isDark={isDark} activeCategories={activeCategories} />
+        <CacheBarChart cacheType="code" data={data} isDark={isDark} useLogScale={useLogScale} />
       </div>
     </div>
   )
