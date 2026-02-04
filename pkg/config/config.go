@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/docker/go-units"
@@ -158,10 +159,25 @@ type DataDirConfig struct {
 
 // ResourceLimits configures container resource constraints.
 type ResourceLimits struct {
-	CpusetCount  *int   `yaml:"cpuset_count,omitempty" mapstructure:"cpuset_count" json:"cpuset_count,omitempty"`
-	Cpuset       []int  `yaml:"cpuset,omitempty" mapstructure:"cpuset" json:"cpuset,omitempty"`
-	Memory       string `yaml:"memory,omitempty" mapstructure:"memory" json:"memory,omitempty"`
-	SwapDisabled bool   `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
+	CpusetCount  *int         `yaml:"cpuset_count,omitempty" mapstructure:"cpuset_count" json:"cpuset_count,omitempty"`
+	Cpuset       []int        `yaml:"cpuset,omitempty" mapstructure:"cpuset" json:"cpuset,omitempty"`
+	Memory       string       `yaml:"memory,omitempty" mapstructure:"memory" json:"memory,omitempty"`
+	SwapDisabled bool         `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
+	BlkioConfig  *BlkioConfig `yaml:"blkio_config,omitempty" mapstructure:"blkio_config" json:"blkio_config,omitempty"`
+}
+
+// BlkioConfig configures container block I/O limits.
+type BlkioConfig struct {
+	DeviceReadBps   []ThrottleDevice `yaml:"device_read_bps,omitempty" mapstructure:"device_read_bps" json:"device_read_bps,omitempty"`
+	DeviceReadIOps  []ThrottleDevice `yaml:"device_read_iops,omitempty" mapstructure:"device_read_iops" json:"device_read_iops,omitempty"`
+	DeviceWriteBps  []ThrottleDevice `yaml:"device_write_bps,omitempty" mapstructure:"device_write_bps" json:"device_write_bps,omitempty"`
+	DeviceWriteIOps []ThrottleDevice `yaml:"device_write_iops,omitempty" mapstructure:"device_write_iops" json:"device_write_iops,omitempty"`
+}
+
+// ThrottleDevice defines a device throttle setting.
+type ThrottleDevice struct {
+	Path string `yaml:"path" mapstructure:"path" json:"path"`
+	Rate string `yaml:"rate" mapstructure:"rate" json:"rate"` // For bps: supports units like "12mb", "1024k". For iops: integer string.
 }
 
 // Validate checks the resource limits configuration for errors.
@@ -214,6 +230,85 @@ func (r *ResourceLimits) Validate(prefix string) error {
 		if _, err := units.RAMInBytes(r.Memory); err != nil {
 			return fmt.Errorf("%s: invalid memory format %q: %w", prefix, r.Memory, err)
 		}
+	}
+
+	// Validate blkio_config.
+	if r.BlkioConfig != nil {
+		if err := r.BlkioConfig.Validate(prefix + ".blkio_config"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Validate checks the blkio configuration for errors.
+func (b *BlkioConfig) Validate(prefix string) error {
+	// Validate device_read_bps (bandwidth rates).
+	for i, dev := range b.DeviceReadBps {
+		if err := validateThrottleDeviceBps(dev, fmt.Sprintf("%s.device_read_bps[%d]", prefix, i)); err != nil {
+			return err
+		}
+	}
+
+	// Validate device_write_bps (bandwidth rates).
+	for i, dev := range b.DeviceWriteBps {
+		if err := validateThrottleDeviceBps(dev, fmt.Sprintf("%s.device_write_bps[%d]", prefix, i)); err != nil {
+			return err
+		}
+	}
+
+	// Validate device_read_iops (IOPS rates).
+	for i, dev := range b.DeviceReadIOps {
+		if err := validateThrottleDeviceIOps(dev, fmt.Sprintf("%s.device_read_iops[%d]", prefix, i)); err != nil {
+			return err
+		}
+	}
+
+	// Validate device_write_iops (IOPS rates).
+	for i, dev := range b.DeviceWriteIOps {
+		if err := validateThrottleDeviceIOps(dev, fmt.Sprintf("%s.device_write_iops[%d]", prefix, i)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateThrottleDeviceBps validates a throttle device for bandwidth (bps) limits.
+func validateThrottleDeviceBps(dev ThrottleDevice, prefix string) error {
+	if dev.Path == "" {
+		return fmt.Errorf("%s: path is required", prefix)
+	}
+
+	if dev.Rate == "" {
+		return fmt.Errorf("%s: rate is required", prefix)
+	}
+
+	if _, err := units.RAMInBytes(dev.Rate); err != nil {
+		return fmt.Errorf("%s: invalid rate format %q: %w", prefix, dev.Rate, err)
+	}
+
+	return nil
+}
+
+// validateThrottleDeviceIOps validates a throttle device for IOPS limits.
+func validateThrottleDeviceIOps(dev ThrottleDevice, prefix string) error {
+	if dev.Path == "" {
+		return fmt.Errorf("%s: path is required", prefix)
+	}
+
+	if dev.Rate == "" {
+		return fmt.Errorf("%s: rate is required", prefix)
+	}
+
+	rate, err := strconv.ParseUint(dev.Rate, 10, 64)
+	if err != nil {
+		return fmt.Errorf("%s: invalid iops rate %q (must be a positive integer): %w", prefix, dev.Rate, err)
+	}
+
+	if rate == 0 {
+		return fmt.Errorf("%s: iops rate must be greater than 0", prefix)
 	}
 
 	return nil

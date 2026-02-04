@@ -476,6 +476,19 @@ resource_limits:
   cpuset: [0, 1, 2, 3]
   memory: "16g"
   swap_disabled: true
+  blkio_config:
+    device_read_bps:
+      - path: /dev/sdb
+        rate: '12mb'
+    device_write_bps:
+      - path: /dev/sdb
+        rate: '1024k'
+    device_read_iops:
+      - path: /dev/sdb
+        rate: '120'
+    device_write_iops:
+      - path: /dev/sdb
+        rate: '30'
 ```
 
 | Option | Type | Description |
@@ -484,8 +497,27 @@ resource_limits:
 | `cpuset` | []int | Specific CPU IDs to pin to |
 | `memory` | string | Memory limit with unit: `b`, `k`, `m`, `g` (e.g., `"16g"`, `"4096m"`) |
 | `swap_disabled` | bool | Disable swap (sets memory-swap equal to memory, swappiness to 0) |
+| `blkio_config` | object | Block I/O throttling configuration (see below) |
 
 **Note:** `cpuset_count` and `cpuset` are mutually exclusive. Use one or the other.
+
+### Block I/O Configuration
+
+The `blkio_config` option allows throttling container disk I/O:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `device_read_bps` | []object | Device read bandwidth limits |
+| `device_read_iops` | []object | Device read IOPS limits |
+| `device_write_bps` | []object | Device write bandwidth limits |
+| `device_write_iops` | []object | Device write IOPS limits |
+
+Each device entry has:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | string | Device path (e.g., `/dev/sdb`) |
+| `rate` | string | Rate limit. For `*_bps`: string with unit (`b`, `k`, `m`, `g`). For `*_iops`: integer string |
 
 ## Examples
 
