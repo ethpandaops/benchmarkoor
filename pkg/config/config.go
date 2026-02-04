@@ -352,31 +352,39 @@ type ClientConfig struct {
 	Instances []ClientInstance          `yaml:"instances" mapstructure:"instances"`
 }
 
+// BlockExecutionWarmupConfig configures warmup executions before the test step.
+type BlockExecutionWarmupConfig struct {
+	Enabled bool `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
+	Count   int  `yaml:"count" mapstructure:"count" json:"count"`
+}
+
 // ClientDefaults contains default settings for all clients.
 type ClientDefaults struct {
-	JWT              string            `yaml:"jwt" mapstructure:"jwt"`
-	Genesis          map[string]string `yaml:"genesis" mapstructure:"genesis"`
-	DropMemoryCaches string            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
-	RollbackStrategy string            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
-	ResourceLimits   *ResourceLimits   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
+	JWT                  string                      `yaml:"jwt" mapstructure:"jwt"`
+	Genesis              map[string]string           `yaml:"genesis" mapstructure:"genesis"`
+	DropMemoryCaches     string                      `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
+	RollbackStrategy     string                      `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
+	ResourceLimits       *ResourceLimits             `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
+	BlockExecutionWarmup *BlockExecutionWarmupConfig `yaml:"block_execution_warmup,omitempty" mapstructure:"block_execution_warmup"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
 type ClientInstance struct {
-	ID               string            `yaml:"id" mapstructure:"id"`
-	Client           string            `yaml:"client" mapstructure:"client"`
-	Image            string            `yaml:"image,omitempty" mapstructure:"image"`
-	Entrypoint       []string          `yaml:"entrypoint,omitempty" mapstructure:"entrypoint"`
-	Command          []string          `yaml:"command,omitempty" mapstructure:"command"`
-	ExtraArgs        []string          `yaml:"extra_args,omitempty" mapstructure:"extra_args"`
-	PullPolicy       string            `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
-	Restart          string            `yaml:"restart,omitempty" mapstructure:"restart"`
-	Environment      map[string]string `yaml:"environment,omitempty" mapstructure:"environment"`
-	Genesis          string            `yaml:"genesis,omitempty" mapstructure:"genesis"`
-	DataDir          *DataDirConfig    `yaml:"datadir,omitempty" mapstructure:"datadir"`
-	DropMemoryCaches string            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
-	RollbackStrategy string            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
-	ResourceLimits   *ResourceLimits   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
+	ID                   string                      `yaml:"id" mapstructure:"id"`
+	Client               string                      `yaml:"client" mapstructure:"client"`
+	Image                string                      `yaml:"image,omitempty" mapstructure:"image"`
+	Entrypoint           []string                    `yaml:"entrypoint,omitempty" mapstructure:"entrypoint"`
+	Command              []string                    `yaml:"command,omitempty" mapstructure:"command"`
+	ExtraArgs            []string                    `yaml:"extra_args,omitempty" mapstructure:"extra_args"`
+	PullPolicy           string                      `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
+	Restart              string                      `yaml:"restart,omitempty" mapstructure:"restart"`
+	Environment          map[string]string           `yaml:"environment,omitempty" mapstructure:"environment"`
+	Genesis              string                      `yaml:"genesis,omitempty" mapstructure:"genesis"`
+	DataDir              *DataDirConfig              `yaml:"datadir,omitempty" mapstructure:"datadir"`
+	DropMemoryCaches     string                      `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
+	RollbackStrategy     string                      `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
+	ResourceLimits       *ResourceLimits             `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
+	BlockExecutionWarmup *BlockExecutionWarmupConfig `yaml:"block_execution_warmup,omitempty" mapstructure:"block_execution_warmup"`
 }
 
 // Load reads and parses configuration files from the given paths.
@@ -756,6 +764,17 @@ func (c *Config) GetResourceLimits(instance *ClientInstance) *ResourceLimits {
 	}
 
 	return c.Client.Config.ResourceLimits
+}
+
+// GetBlockExecutionWarmup returns the block execution warmup config for an instance.
+// Instance-level config takes precedence over global defaults.
+// Returns nil if warmup is not configured.
+func (c *Config) GetBlockExecutionWarmup(instance *ClientInstance) *BlockExecutionWarmupConfig {
+	if instance.BlockExecutionWarmup != nil {
+		return instance.BlockExecutionWarmup
+	}
+
+	return c.Client.Config.BlockExecutionWarmup
 }
 
 // validateDropMemoryCaches validates drop_memory_caches settings and checks permissions.

@@ -52,15 +52,16 @@ type ExecuteOptions struct {
 	JWT                   string
 	ResultsDir            string
 	Filter                string
-	ContainerID           string                     // Container ID for stats collection.
-	DockerClient          *client.Client             // Docker client for fallback stats reader.
-	DropMemoryCaches      string                     // "tests", "steps", or "" (disabled).
-	DropCachesPath        string                     // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
-	RollbackStrategy      string                     // "rpc-debug-setHead" or "" (disabled).
-	RPCEndpoint           string                     // RPC endpoint for rollback calls (e.g. http://host:port).
-	ClientRPCRollbackSpec *clientpkg.RPCRollbackSpec // Client-specific rollback method and param format.
-	Tests                 []*TestWithSteps           // Optional subset of tests to run (nil = run all).
-	BlockLogCollector     BlockLogCollector          // Optional collector for capturing block logs from client.
+	ContainerID           string                             // Container ID for stats collection.
+	DockerClient          *client.Client                     // Docker client for fallback stats reader.
+	DropMemoryCaches      string                             // "tests", "steps", or "" (disabled).
+	DropCachesPath        string                             // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
+	RollbackStrategy      string                             // "rpc-debug-setHead" or "" (disabled).
+	RPCEndpoint           string                             // RPC endpoint for rollback calls (e.g. http://host:port).
+	ClientRPCRollbackSpec *clientpkg.RPCRollbackSpec         // Client-specific rollback method and param format.
+	Tests                 []*TestWithSteps                   // Optional subset of tests to run (nil = run all).
+	BlockLogCollector     BlockLogCollector                  // Optional collector for capturing block logs from client.
+	BlockExecutionWarmup  *config.BlockExecutionWarmupConfig // Optional warmup config for pre-test execution.
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -363,10 +364,39 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			}
 		}
 
-		// Drop caches between setup and test.
+		// Drop caches between setup and test (or warmup if enabled).
 		if dropBetweenSteps && test.Setup != nil && test.Test != nil {
 			if err := e.dropMemoryCaches(dropCachesPath); err != nil {
 				e.log.WithError(err).Warn("Failed to drop memory caches before test step")
+			}
+		}
+
+		// Run warmup iterations if enabled.
+		if opts.BlockExecutionWarmup != nil && opts.BlockExecutionWarmup.Enabled && test.Test != nil {
+			warmupCount := opts.BlockExecutionWarmup.Count
+			if warmupCount <= 0 {
+				warmupCount = 1 // Default to 1 if enabled but count not specified.
+			}
+
+			log.WithField("iterations", warmupCount).Info("Running warmup")
+
+			if err := e.runWarmup(ctx, opts, test.Test, warmupCount); err != nil {
+				log.WithError(err).Warn("Warmup failed")
+
+				// Check if the failure was due to context cancellation.
+				if ctx.Err() != nil {
+					interrupted = true
+					interruptReason = "context cancelled during warmup"
+
+					goto writeResults
+				}
+			}
+
+			// Drop caches between warmup and actual test (if steps mode enabled).
+			if dropBetweenSteps {
+				if err := e.dropMemoryCaches(dropCachesPath); err != nil {
+					e.log.WithError(err).Warn("Failed to drop memory caches after warmup")
+				}
 			}
 		}
 
@@ -666,6 +696,114 @@ func (e *executor) runStepLines(
 	}
 
 	return nil
+}
+
+// runWarmup executes warmup iterations using engine_newPayload calls with an invalid stateRoot.
+// This primes client caches without affecting chain state (the client returns INVALID status).
+func (e *executor) runWarmup(
+	ctx context.Context,
+	opts *ExecuteOptions,
+	step *StepFile,
+	iterations int,
+) error {
+	// Extract engine_newPayload lines from the step file.
+	lines, err := e.getNewPayloadLines(step)
+	if err != nil {
+		return fmt.Errorf("extracting newPayload lines: %w", err)
+	}
+
+	if len(lines) == 0 {
+		e.log.Debug("No engine_newPayload calls found for warmup")
+
+		return nil
+	}
+
+	e.log.WithFields(logrus.Fields{
+		"payloads":   len(lines),
+		"iterations": iterations,
+	}).Debug("Starting warmup execution")
+
+	// Run warmup iterations.
+	for i := range iterations {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		e.log.WithField("iteration", i+1).Debug("Warmup iteration")
+
+		for _, line := range lines {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			// Invalidate state root to cause INVALID response.
+			invalidPayload, err := invalidateStateRoot(line)
+			if err != nil {
+				e.log.WithError(err).Warn("Failed to invalidate state root, skipping warmup call")
+
+				continue
+			}
+
+			// Execute RPC call without validation or result recording.
+			_, _, _, _, err = e.executeRPC(ctx, opts.EngineEndpoint, opts.JWT, invalidPayload)
+			if err != nil {
+				e.log.WithError(err).Debug("Warmup RPC call failed (expected for some scenarios)")
+			}
+		}
+	}
+
+	return nil
+}
+
+// getNewPayloadLines extracts all engine_newPayload lines from a step file.
+func (e *executor) getNewPayloadLines(step *StepFile) ([]string, error) {
+	var allLines []string
+
+	// Use provider if available, otherwise read from file.
+	if step.Provider != nil {
+		allLines = step.Provider.Lines()
+	} else {
+		file, err := os.Open(step.Path)
+		if err != nil {
+			return nil, fmt.Errorf("opening step file: %w", err)
+		}
+
+		defer func() { _ = file.Close() }()
+
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 64*1024), 50*1024*1024)
+
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line != "" {
+				allLines = append(allLines, line)
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("reading step file: %w", err)
+		}
+	}
+
+	// Filter for engine_newPayload methods.
+	var newPayloadLines []string
+
+	for _, line := range allLines {
+		method, err := extractMethod(line)
+		if err != nil {
+			continue
+		}
+
+		if strings.HasPrefix(method, "engine_newPayload") {
+			newPayloadLines = append(newPayloadLines, line)
+		}
+	}
+
+	return newPayloadLines, nil
 }
 
 // executeRPC executes a single JSON-RPC call against the Engine API.

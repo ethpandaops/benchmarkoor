@@ -134,23 +134,24 @@ type ResolvedThrottleDevice struct {
 
 // ResolvedInstance contains the resolved configuration for a client instance.
 type ResolvedInstance struct {
-	ID               string                  `json:"id"`
-	Client           string                  `json:"client"`
-	Image            string                  `json:"image"`
-	ImageSHA256      string                  `json:"image_sha256,omitempty"`
-	Entrypoint       []string                `json:"entrypoint,omitempty"`
-	Command          []string                `json:"command,omitempty"`
-	ExtraArgs        []string                `json:"extra_args,omitempty"`
-	PullPolicy       string                  `json:"pull_policy"`
-	Restart          string                  `json:"restart,omitempty"`
-	Environment      map[string]string       `json:"environment,omitempty"`
-	Genesis          string                  `json:"genesis,omitempty"`
-	GenesisGroups    map[string]string       `json:"genesis_groups,omitempty"`
-	DataDir          *config.DataDirConfig   `json:"datadir,omitempty"`
-	ClientVersion    string                  `json:"client_version,omitempty"`
-	RollbackStrategy string                  `json:"rollback_strategy,omitempty"`
-	DropMemoryCaches string                  `json:"drop_memory_caches,omitempty"`
-	ResourceLimits   *ResolvedResourceLimits `json:"resource_limits,omitempty"`
+	ID                   string                             `json:"id"`
+	Client               string                             `json:"client"`
+	Image                string                             `json:"image"`
+	ImageSHA256          string                             `json:"image_sha256,omitempty"`
+	Entrypoint           []string                           `json:"entrypoint,omitempty"`
+	Command              []string                           `json:"command,omitempty"`
+	ExtraArgs            []string                           `json:"extra_args,omitempty"`
+	PullPolicy           string                             `json:"pull_policy"`
+	Restart              string                             `json:"restart,omitempty"`
+	Environment          map[string]string                  `json:"environment,omitempty"`
+	Genesis              string                             `json:"genesis,omitempty"`
+	GenesisGroups        map[string]string                  `json:"genesis_groups,omitempty"`
+	DataDir              *config.DataDirConfig              `json:"datadir,omitempty"`
+	ClientVersion        string                             `json:"client_version,omitempty"`
+	RollbackStrategy     string                             `json:"rollback_strategy,omitempty"`
+	DropMemoryCaches     string                             `json:"drop_memory_caches,omitempty"`
+	ResourceLimits       *ResolvedResourceLimits            `json:"resource_limits,omitempty"`
+	BlockExecutionWarmup *config.BlockExecutionWarmupConfig `json:"block_execution_warmup,omitempty"`
 }
 
 // NewRunner creates a new runner instance.
@@ -758,6 +759,12 @@ func (r *runner) runContainerLifecycle(
 		dropMemoryCaches = r.cfg.FullConfig.GetDropMemoryCaches(instance)
 	}
 
+	// Resolve block execution warmup config.
+	var blockExecutionWarmup *config.BlockExecutionWarmupConfig
+	if r.cfg.FullConfig != nil {
+		blockExecutionWarmup = r.cfg.FullConfig.GetBlockExecutionWarmup(instance)
+	}
+
 	// Resolve resource limits.
 	var dockerResourceLimits *docker.ResourceLimits
 	var resolvedResourceLimits *ResolvedResourceLimits
@@ -851,8 +858,9 @@ func (r *runner) runContainerLifecycle(
 				}
 				return ""
 			}(),
-			DropMemoryCaches: dropMemoryCaches,
-			ResourceLimits:   resolvedResourceLimits,
+			DropMemoryCaches:     dropMemoryCaches,
+			ResourceLimits:       resolvedResourceLimits,
+			BlockExecutionWarmup: blockExecutionWarmup,
 		},
 	}
 
@@ -1118,7 +1126,7 @@ func (r *runner) runContainerLifecycle(
 			result, execErr = r.runTestsWithContainerStrategy(
 				ctx, params, spec, containerID, containerIP,
 				rollbackStrategy, dropMemoryCaches, dropCachesPath,
-				runResultsDir, &logCancel, benchmarkoorLogFile,
+				blockExecutionWarmup, runResultsDir, &logCancel, benchmarkoorLogFile,
 				&localCleanupFuncs, localCleanupStarted,
 			)
 		} else {
@@ -1138,8 +1146,9 @@ func (r *runner) runContainerLifecycle(
 				RPCEndpoint: fmt.Sprintf(
 					"http://%s:%d", containerIP, spec.RPCPort(),
 				),
-				Tests:             params.Tests,
-				BlockLogCollector: params.BlockLogCollector,
+				Tests:                params.Tests,
+				BlockLogCollector:    params.BlockLogCollector,
+				BlockExecutionWarmup: blockExecutionWarmup,
 			}
 
 			result, execErr = r.executor.ExecuteTests(execCtx, execOpts)
@@ -1243,6 +1252,7 @@ func (r *runner) runTestsWithContainerStrategy(
 	strategy string,
 	dropMemoryCaches string,
 	dropCachesPath string,
+	blockExecutionWarmup *config.BlockExecutionWarmupConfig,
 	resultsDir string,
 	logCancel *context.CancelFunc,
 	benchmarkoorLog *os.File,
@@ -1471,8 +1481,9 @@ func (r *runner) runTestsWithContainerStrategy(
 			RPCEndpoint: fmt.Sprintf(
 				"http://%s:%d", currentContainerIP, spec.RPCPort(),
 			),
-			Tests:             []*executor.TestWithSteps{test},
-			BlockLogCollector: params.BlockLogCollector,
+			Tests:                []*executor.TestWithSteps{test},
+			BlockLogCollector:    params.BlockLogCollector,
+			BlockExecutionWarmup: blockExecutionWarmup,
 		}
 
 		result, err := r.executor.ExecuteTests(ctx, execOpts)
