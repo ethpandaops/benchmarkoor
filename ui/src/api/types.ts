@@ -169,6 +169,12 @@ export interface ResourceLimitsConfig {
   cpu_freq_governor?: string
 }
 
+export interface RetryNewPayloadsSyncingConfig {
+  enabled: boolean
+  max_retries: number
+  backoff: string
+}
+
 export interface InstanceConfig {
   id: string
   client: string
@@ -186,6 +192,8 @@ export interface InstanceConfig {
   client_version?: string
   rollback_strategy?: string
   drop_memory_caches?: string
+  wait_after_rpc_ready?: string
+  retry_new_payloads_syncing_state?: RetryNewPayloadsSyncingConfig
   resource_limits?: ResourceLimitsConfig
 }
 
