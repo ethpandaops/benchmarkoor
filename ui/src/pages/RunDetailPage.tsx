@@ -6,7 +6,7 @@ import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
-import { PostTestDumpsPanel } from '@/components/run-detail/PostTestDumpsPanel'
+import { FilesPanel } from '@/components/run-detail/PostTestDumpsPanel'
 import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts'
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
 import { PreRunStepsTable } from '@/components/run-detail/PreRunStepsTable'
@@ -472,13 +472,11 @@ export function RunDetailPage() {
 
       <RunConfiguration instance={config.instance} system={config.system} />
 
-      {config.instance.post_test_rpc_calls && config.instance.post_test_rpc_calls.length > 0 && (
-        <PostTestDumpsPanel
-          runId={runId}
-          testNames={Object.keys(result.tests)}
-          postTestRPCCalls={config.instance.post_test_rpc_calls}
-        />
-      )}
+      <FilesPanel
+        runId={runId}
+        testNames={Object.keys(result.tests)}
+        postTestRPCCalls={config.instance.post_test_rpc_calls}
+      />
 
       <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
