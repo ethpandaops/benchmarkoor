@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import type { PostTestRPCCallConfig } from '@/api/types'
 import { fetchHead, type HeadResult } from '@/api/client'
 import { formatBytes } from '@/utils/format'
+import { Modal } from '@/components/shared/Modal'
 
 interface FilesPanelProps {
   runId: string
@@ -31,8 +32,42 @@ function resolveFileStatus(info: HeadResult): FileStatus {
   return 'available'
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+      title="Copy to clipboard"
+    >
+      {copied ? (
+        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+      ) : (
+        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+          />
+        </svg>
+      )}
+    </button>
+  )
+}
+
 function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: string; testNames: string[]; postTestRPCCalls: PostTestRPCCallConfig[] }) {
   const [filter, setFilter] = useState<FileFilter>('all')
+  const [showDownloadList, setShowDownloadList] = useState(false)
 
   const dumpCalls = useMemo(
     () => postTestRPCCalls.filter((c) => c.dump?.enabled && c.dump.filename),
@@ -77,6 +112,11 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
     return { allFiles: all, unavailableCount: unavailable }
   }, [entries, fileQueries])
 
+  const availableUrls = useMemo(
+    () => allFiles.filter((f) => f.status === 'available').map((f) => f.info.url),
+    [allFiles],
+  )
+
   const filteredFiles = useMemo(() => {
     if (filter === 'all') return allFiles
     return allFiles.filter((f) => f.status === 'unavailable')
@@ -98,26 +138,54 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
     )
   }
 
+  const downloadListText = availableUrls.join('\n')
+
   return (
     <div className="flex flex-col gap-3">
-      {unavailableCount > 0 && (
-        <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 self-start dark:bg-gray-700">
-          {(['all', 'unavailable'] as const).map((value) => (
-            <button
-              key={value}
-              onClick={() => setFilter(value)}
-              className={clsx(
-                'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                filter === value
-                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-              )}
-            >
-              {value === 'all' ? `All (${allFiles.length})` : `Unavailable (${unavailableCount})`}
-            </button>
-          ))}
+      <div className="flex items-center gap-3">
+        {unavailableCount > 0 && (
+          <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
+            {(['all', 'unavailable'] as const).map((value) => (
+              <button
+                key={value}
+                onClick={() => setFilter(value)}
+                className={clsx(
+                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                  filter === value
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                )}
+              >
+                {value === 'all' ? `All (${allFiles.length})` : `Unavailable (${unavailableCount})`}
+              </button>
+            ))}
+          </div>
+        )}
+        {availableUrls.length > 0 && (
+          <button
+            onClick={() => setShowDownloadList(true)}
+            className="flex items-center gap-1.5 rounded-xs border border-gray-300 px-2 py-1 text-xs/5 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+            Generate download list
+          </button>
+        )}
+      </div>
+      <Modal isOpen={showDownloadList} onClose={() => setShowDownloadList(false)} title="Download List" className="max-w-3xl">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">
+              {availableUrls.length} URL{availableUrls.length !== 1 ? 's' : ''}
+            </span>
+            <CopyButton text={downloadListText} />
+          </div>
+          <pre className="max-h-96 overflow-auto rounded-xs bg-gray-100 p-3 font-mono text-xs/5 text-gray-900 select-all dark:bg-gray-900 dark:text-gray-100">
+            {downloadListText}
+          </pre>
         </div>
-      )}
+      </Modal>
       <table className="w-full text-left text-xs/5">
         <thead>
           <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
