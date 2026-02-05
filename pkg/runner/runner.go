@@ -134,23 +134,25 @@ type ResolvedThrottleDevice struct {
 
 // ResolvedInstance contains the resolved configuration for a client instance.
 type ResolvedInstance struct {
-	ID               string                  `json:"id"`
-	Client           string                  `json:"client"`
-	Image            string                  `json:"image"`
-	ImageSHA256      string                  `json:"image_sha256,omitempty"`
-	Entrypoint       []string                `json:"entrypoint,omitempty"`
-	Command          []string                `json:"command,omitempty"`
-	ExtraArgs        []string                `json:"extra_args,omitempty"`
-	PullPolicy       string                  `json:"pull_policy"`
-	Restart          string                  `json:"restart,omitempty"`
-	Environment      map[string]string       `json:"environment,omitempty"`
-	Genesis          string                  `json:"genesis,omitempty"`
-	GenesisGroups    map[string]string       `json:"genesis_groups,omitempty"`
-	DataDir          *config.DataDirConfig   `json:"datadir,omitempty"`
-	ClientVersion    string                  `json:"client_version,omitempty"`
-	RollbackStrategy string                  `json:"rollback_strategy,omitempty"`
-	DropMemoryCaches string                  `json:"drop_memory_caches,omitempty"`
-	ResourceLimits   *ResolvedResourceLimits `json:"resource_limits,omitempty"`
+	ID                           string                                `json:"id"`
+	Client                       string                                `json:"client"`
+	Image                        string                                `json:"image"`
+	ImageSHA256                  string                                `json:"image_sha256,omitempty"`
+	Entrypoint                   []string                              `json:"entrypoint,omitempty"`
+	Command                      []string                              `json:"command,omitempty"`
+	ExtraArgs                    []string                              `json:"extra_args,omitempty"`
+	PullPolicy                   string                                `json:"pull_policy"`
+	Restart                      string                                `json:"restart,omitempty"`
+	Environment                  map[string]string                     `json:"environment,omitempty"`
+	Genesis                      string                                `json:"genesis,omitempty"`
+	GenesisGroups                map[string]string                     `json:"genesis_groups,omitempty"`
+	DataDir                      *config.DataDirConfig                 `json:"datadir,omitempty"`
+	ClientVersion                string                                `json:"client_version,omitempty"`
+	RollbackStrategy             string                                `json:"rollback_strategy,omitempty"`
+	DropMemoryCaches             string                                `json:"drop_memory_caches,omitempty"`
+	WaitAfterRPCReady            string                                `json:"wait_after_rpc_ready,omitempty"`
+	RetryNewPayloadsSyncingState *config.RetryNewPayloadsSyncingConfig `json:"retry_new_payloads_syncing_state,omitempty"`
+	ResourceLimits               *ResolvedResourceLimits               `json:"resource_limits,omitempty"`
 }
 
 // NewRunner creates a new runner instance.
@@ -829,6 +831,14 @@ func (r *runner) runContainerLifecycle(
 		}
 	}
 
+	// Resolve wait_after_rpc_ready for config output.
+	var waitAfterRPCReadyStr string
+	if r.cfg.FullConfig != nil {
+		if d := r.cfg.FullConfig.GetWaitAfterRPCReady(instance); d > 0 {
+			waitAfterRPCReadyStr = d.String()
+		}
+	}
+
 	// Write run configuration with resolved values.
 	runConfig := &RunConfig{
 		Timestamp: params.RunTimestamp,
@@ -851,8 +861,15 @@ func (r *runner) runContainerLifecycle(
 				}
 				return ""
 			}(),
-			DropMemoryCaches: dropMemoryCaches,
-			ResourceLimits:   resolvedResourceLimits,
+			DropMemoryCaches:  dropMemoryCaches,
+			WaitAfterRPCReady: waitAfterRPCReadyStr,
+			RetryNewPayloadsSyncingState: func() *config.RetryNewPayloadsSyncingConfig {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance)
+				}
+				return nil
+			}(),
+			ResourceLimits: resolvedResourceLimits,
 		},
 	}
 
@@ -1062,10 +1079,22 @@ func (r *runner) runContainerLifecycle(
 
 	log.WithField("version", clientVersion).Info("RPC endpoint ready")
 
+	// Wait after RPC ready if configured (gives client time to complete internal sync).
+	if r.cfg.FullConfig != nil {
+		if waitDuration := r.cfg.FullConfig.GetWaitAfterRPCReady(instance); waitDuration > 0 {
+			log.WithField("duration", waitDuration).Info("Waiting after RPC ready")
+
+			select {
+			case <-time.After(waitDuration):
+			case <-execCtx.Done():
+				return execCtx.Err()
+			}
+		}
+	}
+
 	// Log the latest block info.
-	if blockNum, blockHash, blkErr := r.getLatestBlock(
-		execCtx, containerIP, spec.RPCPort(),
-	); blkErr != nil {
+	blockNum, blockHash, blkErr := r.getLatestBlock(execCtx, containerIP, spec.RPCPort())
+	if blkErr != nil {
 		log.WithError(blkErr).Warn("Failed to get latest block")
 	} else {
 		log.WithFields(logrus.Fields{
@@ -1138,8 +1167,9 @@ func (r *runner) runContainerLifecycle(
 				RPCEndpoint: fmt.Sprintf(
 					"http://%s:%d", containerIP, spec.RPCPort(),
 				),
-				Tests:             params.Tests,
-				BlockLogCollector: params.BlockLogCollector,
+				Tests:                         params.Tests,
+				BlockLogCollector:             params.BlockLogCollector,
+				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
 			}
 
 			result, execErr = r.executor.ExecuteTests(execCtx, execOpts)
@@ -1471,8 +1501,9 @@ func (r *runner) runTestsWithContainerStrategy(
 			RPCEndpoint: fmt.Sprintf(
 				"http://%s:%d", currentContainerIP, spec.RPCPort(),
 			),
-			Tests:             []*executor.TestWithSteps{test},
-			BlockLogCollector: params.BlockLogCollector,
+			Tests:                         []*executor.TestWithSteps{test},
+			BlockLogCollector:             params.BlockLogCollector,
+			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
 		}
 
 		result, err := r.executor.ExecuteTests(ctx, execOpts)

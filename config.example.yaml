@@ -109,6 +109,17 @@ client:
     # Optional: Rollback strategy to reset client state after each test.
     # Values: "none", "rpc-debug-setHead" (default, capture block number before test, rollback via debug_setHead after)
     # rollback_strategy: "rpc-debug-setHead"
+    # Optional: Wait duration after RPC becomes ready before running tests.
+    # Useful for clients like Erigon that need time to complete internal sync pipelines
+    # after their RPC endpoint becomes available.
+    # wait_after_rpc_ready: 30s
+    # Optional: Retry engine_newPayload calls when client returns SYNCING status.
+    # Useful for clients with internal sync pipelines (e.g., Erigon) that may return
+    # SYNCING while still processing blocks internally.
+    # retry_new_payloads_syncing_state:
+    #   enabled: true
+    #   max_retries: 10
+    #   backoff: 1s
     # Optional: Container resource limits (applied to all instances by default).
     # resource_limits:
     #   # CPU pinning - use ONE of the following:
@@ -214,6 +225,11 @@ client:
       #   container_dir: /data
       # drop_memory_caches: "steps"  # Instance-level override (optional)
       # rollback_strategy: "rpc-debug-setHead"  # Instance-level override (optional)
+      # wait_after_rpc_ready: 60s  # Instance-level override (optional)
+      # retry_new_payloads_syncing_state:  # Instance-level override (optional)
+      #   enabled: true
+      #   max_retries: 10
+      #   backoff: 1s
       # resource_limits:  # Instance-level override (optional)
       #   cpuset_count: 2  # Override global with fewer CPUs
       #   memory: "8g"     # Override global memory limit

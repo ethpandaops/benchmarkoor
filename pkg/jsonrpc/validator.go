@@ -1,9 +1,18 @@
 package jsonrpc
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// ErrNewPayloadSyncing is returned when engine_newPayload returns SYNCING status.
+var ErrNewPayloadSyncing = errors.New("newPayload status is SYNCING")
+
+// IsSyncingError checks if the error is a SYNCING status error.
+func IsSyncingError(err error) bool {
+	return errors.Is(err, ErrNewPayloadSyncing)
+}
 
 // Validator validates JSON-RPC responses.
 type Validator interface {
@@ -34,6 +43,10 @@ func (v *NewPayloadValidator) Validate(method string, resp *Response) error {
 	var result NewPayloadResult
 	if err := resp.ParseResult(&result); err != nil {
 		return fmt.Errorf("parsing newPayload result: %w", err)
+	}
+
+	if result.Status == "SYNCING" {
+		return fmt.Errorf("%w", ErrNewPayloadSyncing)
 	}
 
 	if result.Status != "VALID" {

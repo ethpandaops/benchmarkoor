@@ -304,6 +304,8 @@ client:
 | `jwt` | string | `5a64f1...` | JWT secret for Engine API authentication |
 | `drop_memory_caches` | string | `disabled` | When to drop Linux memory caches (see below) |
 | `rollback_strategy` | string | `rpc-debug-setHead` | Rollback strategy after each test (see below) |
+| `wait_after_rpc_ready` | string | - | Duration to wait after RPC becomes ready (see below) |
+| `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
@@ -363,6 +365,47 @@ When `container-recreate` is enabled, the runner manages the per-test loop:
 4. The runner waits for the RPC endpoint to become ready and the configured wait period before running the next test.
 
 This strategy works with all clients since it doesn't require any client-specific RPC support.
+
+#### Wait After RPC Ready
+
+Some clients (e.g., Erigon) have internal sync pipelines that continue running after their RPC endpoint becomes available. The `wait_after_rpc_ready` option adds a configurable delay after the RPC health check passes, giving the client time to complete internal initialization before test execution begins.
+
+```yaml
+client:
+  config:
+    wait_after_rpc_ready: 30s
+```
+
+The value is a Go duration string (e.g., `30s`, `1m`, `500ms`). If not set, no additional wait is performed.
+
+**When to use:**
+- When running benchmarks against clients with staged sync pipelines (Erigon)
+- When you observe `SYNCING` responses from Engine API calls despite the RPC being available
+- When starting from pre-populated data directories where clients may need time to validate state
+
+#### Retry New Payloads Syncing State
+
+When `engine_newPayload` returns a `SYNCING` status, it indicates the client hasn't fully processed the parent block yet. The `retry_new_payloads_syncing_state` option configures automatic retries with exponential backoff.
+
+```yaml
+client:
+  config:
+    retry_new_payloads_syncing_state:
+      enabled: true
+      max_retries: 10
+      backoff: 1s
+```
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `enabled` | bool | Yes | Enable retry behavior |
+| `max_retries` | int | Yes | Maximum number of retry attempts (must be ≥ 1) |
+| `backoff` | string | Yes | Delay between retries (Go duration string) |
+
+**When to use:**
+- When benchmarking clients that return `SYNCING` during normal operation (Erigon)
+- When using pre-populated data directories where clients may need time to validate chain state
+- Combined with `wait_after_rpc_ready` for clients with complex initialization
 
 
 ### Data Directories
@@ -463,6 +506,8 @@ client:
 | `datadir` | object | No | From `client.datadirs` | Instance-specific data directory config |
 | `drop_memory_caches` | string | No | From `client.config` | Instance-specific cache drop setting |
 | `rollback_strategy` | string | No | From `client.config` | Instance-specific rollback strategy |
+| `wait_after_rpc_ready` | string | No | From `client.config` | Instance-specific RPC ready wait duration |
+| `retry_new_payloads_syncing_state` | object | No | From `client.config` | Instance-specific retry config for SYNCING responses |
 | `resource_limits` | object | No | From `client.config` | Instance-specific resource limits |
 
 ## Resource Limits

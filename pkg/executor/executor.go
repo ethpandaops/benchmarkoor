@@ -48,19 +48,20 @@ type BlockLogCollector interface {
 
 // ExecuteOptions contains options for test execution.
 type ExecuteOptions struct {
-	EngineEndpoint        string
-	JWT                   string
-	ResultsDir            string
-	Filter                string
-	ContainerID           string                     // Container ID for stats collection.
-	DockerClient          *client.Client             // Docker client for fallback stats reader.
-	DropMemoryCaches      string                     // "tests", "steps", or "" (disabled).
-	DropCachesPath        string                     // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
-	RollbackStrategy      string                     // "rpc-debug-setHead" or "" (disabled).
-	RPCEndpoint           string                     // RPC endpoint for rollback calls (e.g. http://host:port).
-	ClientRPCRollbackSpec *clientpkg.RPCRollbackSpec // Client-specific rollback method and param format.
-	Tests                 []*TestWithSteps           // Optional subset of tests to run (nil = run all).
-	BlockLogCollector     BlockLogCollector          // Optional collector for capturing block logs from client.
+	EngineEndpoint                string
+	JWT                           string
+	ResultsDir                    string
+	Filter                        string
+	ContainerID                   string                                // Container ID for stats collection.
+	DockerClient                  *client.Client                        // Docker client for fallback stats reader.
+	DropMemoryCaches              string                                // "tests", "steps", or "" (disabled).
+	DropCachesPath                string                                // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
+	RollbackStrategy              string                                // "rpc-debug-setHead" or "" (disabled).
+	RPCEndpoint                   string                                // RPC endpoint for rollback calls (e.g. http://host:port).
+	ClientRPCRollbackSpec         *clientpkg.RPCRollbackSpec            // Client-specific rollback method and param format.
+	Tests                         []*TestWithSteps                      // Optional subset of tests to run (nil = run all).
+	BlockLogCollector             BlockLogCollector                     // Optional collector for capturing block logs from client.
+	RetryNewPayloadsSyncingConfig *config.RetryNewPayloadsSyncingConfig // Retry config for SYNCING responses.
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -650,13 +651,28 @@ func (e *executor) runStepLines(
 
 				succeeded = false
 			} else if validationErr := e.validator.Validate(method, resp); validationErr != nil {
-				e.log.WithFields(logrus.Fields{
-					"line":   lineNum + 1,
-					"method": method,
-					"step":   stepName,
-				}).WithError(validationErr).Warn("Response validation failed")
+				// Check if this is a SYNCING error and retry is enabled.
+				if jsonrpc.IsSyncingError(validationErr) && opts.RetryNewPayloadsSyncingConfig != nil &&
+					opts.RetryNewPayloadsSyncingConfig.Enabled {
+					retrySucceeded, retryResponse, retryDuration := e.retryNewPayloadSyncing(
+						ctx, opts, line, method, stepName, lineNum,
+					)
+					if retrySucceeded {
+						succeeded = true
+						response = retryResponse
+						duration = retryDuration
+					} else {
+						succeeded = false
+					}
+				} else {
+					e.log.WithFields(logrus.Fields{
+						"line":   lineNum + 1,
+						"method": method,
+						"step":   stepName,
+					}).WithError(validationErr).Warn("Response validation failed")
 
-				succeeded = false
+					succeeded = false
+				}
 			}
 		}
 
@@ -666,6 +682,105 @@ func (e *executor) runStepLines(
 	}
 
 	return nil
+}
+
+// retryNewPayloadSyncing retries an engine_newPayload call when it returns SYNCING status.
+// Returns whether the retry succeeded, the response, and the duration.
+func (e *executor) retryNewPayloadSyncing(
+	ctx context.Context,
+	opts *ExecuteOptions,
+	payload, method, stepName string,
+	lineNum int,
+) (succeeded bool, response string, duration int64) {
+	cfg := opts.RetryNewPayloadsSyncingConfig
+	backoff, _ := time.ParseDuration(cfg.Backoff) // Already validated in config
+
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		e.log.WithFields(logrus.Fields{
+			"line":        lineNum + 1,
+			"method":      method,
+			"step":        stepName,
+			"attempt":     attempt,
+			"max_retries": cfg.MaxRetries,
+			"backoff":     backoff,
+		}).Info("Retrying newPayload after SYNCING status")
+
+		// Wait for backoff duration.
+		select {
+		case <-ctx.Done():
+			return false, "", 0
+		case <-time.After(backoff):
+		}
+
+		// Re-execute RPC call.
+		retryResponse, retryDuration, _, _, err := e.executeRPC(ctx, opts.EngineEndpoint, opts.JWT, payload)
+		if err != nil {
+			e.log.WithFields(logrus.Fields{
+				"line":    lineNum + 1,
+				"method":  method,
+				"step":    stepName,
+				"attempt": attempt,
+			}).WithError(err).Warn("Retry RPC call failed")
+
+			continue
+		}
+
+		// Validate the retry response.
+		resp, parseErr := jsonrpc.Parse(retryResponse)
+		if parseErr != nil {
+			e.log.WithFields(logrus.Fields{
+				"line":    lineNum + 1,
+				"method":  method,
+				"step":    stepName,
+				"attempt": attempt,
+			}).WithError(parseErr).Warn("Failed to parse retry response")
+
+			continue
+		}
+
+		validationErr := e.validator.Validate(method, resp)
+		if validationErr == nil {
+			e.log.WithFields(logrus.Fields{
+				"line":    lineNum + 1,
+				"method":  method,
+				"step":    stepName,
+				"attempt": attempt,
+			}).Info("Retry succeeded")
+
+			return true, retryResponse, retryDuration
+		}
+
+		// If still SYNCING, continue retrying.
+		if jsonrpc.IsSyncingError(validationErr) {
+			e.log.WithFields(logrus.Fields{
+				"line":    lineNum + 1,
+				"method":  method,
+				"step":    stepName,
+				"attempt": attempt,
+			}).Debug("Still SYNCING, will retry")
+
+			continue
+		}
+
+		// Non-SYNCING error, stop retrying.
+		e.log.WithFields(logrus.Fields{
+			"line":    lineNum + 1,
+			"method":  method,
+			"step":    stepName,
+			"attempt": attempt,
+		}).WithError(validationErr).Warn("Retry validation failed with non-SYNCING error")
+
+		return false, retryResponse, retryDuration
+	}
+
+	e.log.WithFields(logrus.Fields{
+		"line":        lineNum + 1,
+		"method":      method,
+		"step":        stepName,
+		"max_retries": cfg.MaxRetries,
+	}).Warn("Max retries exceeded for SYNCING status")
+
+	return false, "", 0
 }
 
 // executeRPC executes a single JSON-RPC call against the Engine API.

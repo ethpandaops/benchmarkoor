@@ -51,6 +51,9 @@ func (s *erigonSpec) DefaultCommand() []string {
 		"--log.dir.disable",               // We just need logs on the console
 		"--private.api.addr=0.0.0.0:9090", // Erigon specific API
 		"--externalcl",                    // Disables built in Caplin CL client.
+		"--fcu.timeout=0",                 // Setting to 0 disables async FCU treatment (Default is 1s and then goes async)
+		"--fcu.background.prune=false",    // Disables background pruning post FCU
+		//"--fcu.background.commit=false",   // Needs erigon > v3.3.7
 	}
 }
 
