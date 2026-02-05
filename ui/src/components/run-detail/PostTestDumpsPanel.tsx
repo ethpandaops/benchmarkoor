@@ -440,7 +440,7 @@ function usePostTestDumpStats(runId: string, testNames: string[], postTestRPCCal
 }
 
 export function FilesPanel({ runId, testNames, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: FilesPanelProps) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(showDownloadList)
   const [activeTab, setActiveTab] = useState('post-test-rpc-dumps')
 
   const hasPostTestDumps = postTestRPCCalls && postTestRPCCalls.length > 0
