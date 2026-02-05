@@ -27,3 +27,8 @@ export function getDataUrl(path: string, config: RuntimeConfig): string {
     : config.dataSource
   return `${base}/${path}`
 }
+
+export function toAbsoluteUrl(url: string): string {
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`
+}

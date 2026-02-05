@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import type { PostTestRPCCallConfig } from '@/api/types'
 import { fetchHead, type HeadResult } from '@/api/client'
 import { formatBytes } from '@/utils/format'
+import { toAbsoluteUrl } from '@/config/runtime'
 import { Modal } from '@/components/shared/Modal'
 
 interface FilesPanelProps {
@@ -138,7 +139,7 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
     )
   }
 
-  const downloadListText = availableUrls.join('\n')
+  const downloadListText = availableUrls.map(toAbsoluteUrl).join('\n')
 
   return (
     <div className="flex flex-col gap-3">
