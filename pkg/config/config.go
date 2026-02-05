@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/docker/go-units"
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
@@ -156,6 +157,13 @@ type DataDirConfig struct {
 	SourceDir    string `yaml:"source_dir" json:"source_dir" mapstructure:"source_dir"`
 	ContainerDir string `yaml:"container_dir,omitempty" json:"container_dir,omitempty" mapstructure:"container_dir"`
 	Method       string `yaml:"method,omitempty" json:"method,omitempty" mapstructure:"method"`
+}
+
+// RetryNewPayloadsSyncingConfig configures retry behavior when engine_newPayload returns SYNCING.
+type RetryNewPayloadsSyncingConfig struct {
+	Enabled    bool   `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
+	MaxRetries int    `yaml:"max_retries" mapstructure:"max_retries" json:"max_retries"`
+	Backoff    string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
 }
 
 // ResourceLimits configures container resource constraints.
@@ -354,29 +362,33 @@ type ClientConfig struct {
 
 // ClientDefaults contains default settings for all clients.
 type ClientDefaults struct {
-	JWT              string            `yaml:"jwt" mapstructure:"jwt"`
-	Genesis          map[string]string `yaml:"genesis" mapstructure:"genesis"`
-	DropMemoryCaches string            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
-	RollbackStrategy string            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
-	ResourceLimits   *ResourceLimits   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
+	JWT                          string                         `yaml:"jwt" mapstructure:"jwt"`
+	Genesis                      map[string]string              `yaml:"genesis" mapstructure:"genesis"`
+	DropMemoryCaches             string                         `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
+	RollbackStrategy             string                         `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
+	ResourceLimits               *ResourceLimits                `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
+	RetryNewPayloadsSyncingState *RetryNewPayloadsSyncingConfig `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
+	WaitAfterRPCReady            string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
 type ClientInstance struct {
-	ID               string            `yaml:"id" mapstructure:"id"`
-	Client           string            `yaml:"client" mapstructure:"client"`
-	Image            string            `yaml:"image,omitempty" mapstructure:"image"`
-	Entrypoint       []string          `yaml:"entrypoint,omitempty" mapstructure:"entrypoint"`
-	Command          []string          `yaml:"command,omitempty" mapstructure:"command"`
-	ExtraArgs        []string          `yaml:"extra_args,omitempty" mapstructure:"extra_args"`
-	PullPolicy       string            `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
-	Restart          string            `yaml:"restart,omitempty" mapstructure:"restart"`
-	Environment      map[string]string `yaml:"environment,omitempty" mapstructure:"environment"`
-	Genesis          string            `yaml:"genesis,omitempty" mapstructure:"genesis"`
-	DataDir          *DataDirConfig    `yaml:"datadir,omitempty" mapstructure:"datadir"`
-	DropMemoryCaches string            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
-	RollbackStrategy string            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
-	ResourceLimits   *ResourceLimits   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
+	ID                           string                         `yaml:"id" mapstructure:"id"`
+	Client                       string                         `yaml:"client" mapstructure:"client"`
+	Image                        string                         `yaml:"image,omitempty" mapstructure:"image"`
+	Entrypoint                   []string                       `yaml:"entrypoint,omitempty" mapstructure:"entrypoint"`
+	Command                      []string                       `yaml:"command,omitempty" mapstructure:"command"`
+	ExtraArgs                    []string                       `yaml:"extra_args,omitempty" mapstructure:"extra_args"`
+	PullPolicy                   string                         `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
+	Restart                      string                         `yaml:"restart,omitempty" mapstructure:"restart"`
+	Environment                  map[string]string              `yaml:"environment,omitempty" mapstructure:"environment"`
+	Genesis                      string                         `yaml:"genesis,omitempty" mapstructure:"genesis"`
+	DataDir                      *DataDirConfig                 `yaml:"datadir,omitempty" mapstructure:"datadir"`
+	DropMemoryCaches             string                         `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
+	RollbackStrategy             string                         `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
+	ResourceLimits               *ResourceLimits                `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
+	RetryNewPayloadsSyncingState *RetryNewPayloadsSyncingConfig `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
+	WaitAfterRPCReady            string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 }
 
 // Load reads and parses configuration files from the given paths.
@@ -600,6 +612,16 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	// Validate retry_new_payloads_syncing_state settings.
+	if err := c.validateRetryNewPayloadsSyncingState(); err != nil {
+		return err
+	}
+
+	// Validate wait_after_rpc_ready settings.
+	if err := c.validateWaitAfterRPCReady(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -758,6 +780,42 @@ func (c *Config) GetResourceLimits(instance *ClientInstance) *ResourceLimits {
 	return c.Client.Config.ResourceLimits
 }
 
+// GetRetryNewPayloadsSyncingState returns the retry config for an instance.
+// Instance-level config takes precedence over global defaults.
+// Returns nil if no config is set.
+func (c *Config) GetRetryNewPayloadsSyncingState(instance *ClientInstance) *RetryNewPayloadsSyncingConfig {
+	if instance.RetryNewPayloadsSyncingState != nil {
+		return instance.RetryNewPayloadsSyncingState
+	}
+
+	return c.Client.Config.RetryNewPayloadsSyncingState
+}
+
+// GetWaitAfterRPCReady returns the duration to wait after RPC becomes ready.
+// This gives clients time to complete internal initialization (e.g., Erigon's staged sync)
+// before test execution begins.
+// Instance-level config takes precedence over global defaults. Returns 0 if not set.
+func (c *Config) GetWaitAfterRPCReady(instance *ClientInstance) time.Duration {
+	var waitStr string
+
+	if instance.WaitAfterRPCReady != "" {
+		waitStr = instance.WaitAfterRPCReady
+	} else {
+		waitStr = c.Client.Config.WaitAfterRPCReady
+	}
+
+	if waitStr == "" {
+		return 0
+	}
+
+	d, err := time.ParseDuration(waitStr)
+	if err != nil {
+		return 0
+	}
+
+	return d
+}
+
 // validateDropMemoryCaches validates drop_memory_caches settings and checks permissions.
 func (c *Config) validateDropMemoryCaches() error {
 	// Check all instances for valid values and if feature is enabled.
@@ -881,6 +939,52 @@ func (c *Config) validateCPUFreq() error {
 		if limits.CPUGovernor != "" {
 			if err := cpufreq.ValidateGovernor(limits.CPUGovernor); err != nil {
 				return fmt.Errorf("instance %q: %w", instance.ID, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateRetryNewPayloadsSyncingState validates retry_new_payloads_syncing_state settings.
+func (c *Config) validateRetryNewPayloadsSyncingState() error {
+	for _, instance := range c.Client.Instances {
+		cfg := c.GetRetryNewPayloadsSyncingState(&instance)
+		if cfg == nil || !cfg.Enabled {
+			continue
+		}
+
+		if cfg.MaxRetries < 1 {
+			return fmt.Errorf("instance %q: retry_new_payloads_syncing_state.max_retries must be at least 1",
+				instance.ID)
+		}
+
+		if cfg.Backoff == "" {
+			return fmt.Errorf("instance %q: retry_new_payloads_syncing_state.backoff is required when enabled",
+				instance.ID)
+		}
+
+		if _, err := time.ParseDuration(cfg.Backoff); err != nil {
+			return fmt.Errorf("instance %q: invalid retry_new_payloads_syncing_state.backoff %q: %w",
+				instance.ID, cfg.Backoff, err)
+		}
+	}
+
+	return nil
+}
+
+// validateWaitAfterRPCReady validates wait_after_rpc_ready settings.
+func (c *Config) validateWaitAfterRPCReady() error {
+	for _, instance := range c.Client.Instances {
+		waitStr := instance.WaitAfterRPCReady
+		if waitStr == "" {
+			waitStr = c.Client.Config.WaitAfterRPCReady
+		}
+
+		if waitStr != "" {
+			if _, err := time.ParseDuration(waitStr); err != nil {
+				return fmt.Errorf("instance %q: invalid wait_after_rpc_ready %q: %w",
+					instance.ID, waitStr, err)
 			}
 		}
 	}

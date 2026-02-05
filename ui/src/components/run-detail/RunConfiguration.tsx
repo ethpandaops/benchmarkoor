@@ -244,6 +244,46 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                   </dd>
                 </div>
               )}
+
+              {instance.wait_after_rpc_ready && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Wait After RPC Ready</dt>
+                  <dd className="mt-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                        {instance.wait_after_rpc_ready}
+                      </span>
+                      <CopyButton text={instance.wait_after_rpc_ready} />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Waits after RPC becomes ready before running tests, allowing clients to complete internal sync.
+                    </p>
+                  </dd>
+                </div>
+              )}
+
+              {instance.retry_new_payloads_syncing_state?.enabled && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+                    Retry on SYNCING Response
+                  </dt>
+                  <dd className="mt-1 overflow-x-auto rounded-sm bg-gray-100 p-2 dark:bg-gray-900">
+                    <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">max_retries: </span>
+                        {instance.retry_new_payloads_syncing_state.max_retries}
+                      </div>
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">backoff: </span>
+                        {instance.retry_new_payloads_syncing_state.backoff}
+                      </div>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Retries engine_newPayload calls when client returns SYNCING status.
+                    </p>
+                  </dd>
+                </div>
+              )}
             </div>
           </div>
 
