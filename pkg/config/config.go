@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
+	"github.com/mitchellh/mapstructure"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/spf13/viper"
 )
@@ -164,6 +166,19 @@ type RetryNewPayloadsSyncingConfig struct {
 	Enabled    bool   `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
 	MaxRetries int    `yaml:"max_retries" mapstructure:"max_retries" json:"max_retries"`
 	Backoff    string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
+}
+
+// PostTestRPCCall defines an arbitrary RPC call to execute after the test step.
+type PostTestRPCCall struct {
+	Method string     `yaml:"method" mapstructure:"method" json:"method"`
+	Params []any      `yaml:"params" mapstructure:"params" json:"params"`
+	Dump   DumpConfig `yaml:"dump" mapstructure:"dump" json:"dump,omitempty"`
+}
+
+// DumpConfig configures response dumping for a post-test RPC call.
+type DumpConfig struct {
+	Enabled  bool   `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
+	Filename string `yaml:"filename,omitempty" mapstructure:"filename" json:"filename,omitempty"`
 }
 
 // ResourceLimits configures container resource constraints.
@@ -369,6 +384,7 @@ type ClientDefaults struct {
 	ResourceLimits               *ResourceLimits                `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
 	RetryNewPayloadsSyncingState *RetryNewPayloadsSyncingConfig `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
 	WaitAfterRPCReady            string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
+	PostTestRPCCalls             []PostTestRPCCall              `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
@@ -389,6 +405,7 @@ type ClientInstance struct {
 	ResourceLimits               *ResourceLimits                `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
 	RetryNewPayloadsSyncingState *RetryNewPayloadsSyncingConfig `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
 	WaitAfterRPCReady            string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
+	PostTestRPCCalls             []PostTestRPCCall              `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
 }
 
 // Load reads and parses configuration files from the given paths.
@@ -434,7 +451,13 @@ func Load(paths ...string) (*Config, error) {
 	bindEnvKeys(v)
 
 	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
+	if err := v.Unmarshal(&cfg, viper.DecodeHook(
+		mapstructure.ComposeDecodeHookFunc(
+			mapstructure.StringToTimeDurationHookFunc(),
+			mapstructure.StringToSliceHookFunc(","),
+			dumpConfigDecodeHook(),
+		),
+	)); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
@@ -619,6 +642,11 @@ func (c *Config) Validate() error {
 
 	// Validate wait_after_rpc_ready settings.
 	if err := c.validateWaitAfterRPCReady(); err != nil {
+		return err
+	}
+
+	// Validate post_test_rpc_calls settings.
+	if err := c.validatePostTestRPCCalls(); err != nil {
 		return err
 	}
 
@@ -816,6 +844,17 @@ func (c *Config) GetWaitAfterRPCReady(instance *ClientInstance) time.Duration {
 	return d
 }
 
+// GetPostTestRPCCalls returns the post-test RPC calls for an instance.
+// Instance-level config completely replaces the global default.
+// Returns nil if not configured at either level.
+func (c *Config) GetPostTestRPCCalls(instance *ClientInstance) []PostTestRPCCall {
+	if len(instance.PostTestRPCCalls) > 0 {
+		return instance.PostTestRPCCalls
+	}
+
+	return c.Client.Config.PostTestRPCCalls
+}
+
 // validateDropMemoryCaches validates drop_memory_caches settings and checks permissions.
 func (c *Config) validateDropMemoryCaches() error {
 	// Check all instances for valid values and if feature is enabled.
@@ -990,4 +1029,56 @@ func (c *Config) validateWaitAfterRPCReady() error {
 	}
 
 	return nil
+}
+
+// validatePostTestRPCCalls validates post_test_rpc_calls settings.
+func (c *Config) validatePostTestRPCCalls() error {
+	// Validate global-level calls.
+	for i, call := range c.Client.Config.PostTestRPCCalls {
+		if err := validatePostTestRPCCall(call, fmt.Sprintf("client.config.post_test_rpc_calls[%d]", i)); err != nil {
+			return err
+		}
+	}
+
+	// Validate instance-level calls.
+	for _, instance := range c.Client.Instances {
+		for i, call := range instance.PostTestRPCCalls {
+			prefix := fmt.Sprintf("instance %q post_test_rpc_calls[%d]", instance.ID, i)
+			if err := validatePostTestRPCCall(call, prefix); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// validatePostTestRPCCall validates a single post-test RPC call configuration.
+func validatePostTestRPCCall(call PostTestRPCCall, prefix string) error {
+	if call.Method == "" {
+		return fmt.Errorf("%s: method is required", prefix)
+	}
+
+	if call.Dump.Enabled && call.Dump.Filename == "" {
+		return fmt.Errorf("%s: dump.filename is required when dump is enabled", prefix)
+	}
+
+	return nil
+}
+
+// dumpConfigDecodeHook returns a mapstructure decode hook that converts
+// a boolean value to DumpConfig{Enabled: bool}.
+// This allows users to write `dump: true` as shorthand for `dump: {enabled: true}`.
+func dumpConfigDecodeHook() mapstructure.DecodeHookFuncType {
+	return func(from reflect.Type, to reflect.Type, data any) (any, error) {
+		if to != reflect.TypeOf(DumpConfig{}) {
+			return data, nil
+		}
+
+		if from.Kind() == reflect.Bool {
+			return DumpConfig{Enabled: data.(bool)}, nil
+		}
+
+		return data, nil
+	}
 }

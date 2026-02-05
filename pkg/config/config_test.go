@@ -421,6 +421,196 @@ func TestSourceConfig_Validate(t *testing.T) {
 	}
 }
 
+func TestGetPostTestRPCCalls(t *testing.T) {
+	tests := []struct {
+		name     string
+		global   []PostTestRPCCall
+		instance []PostTestRPCCall
+		expected []PostTestRPCCall
+	}{
+		{
+			name:     "no calls configured",
+			global:   nil,
+			instance: nil,
+			expected: nil,
+		},
+		{
+			name: "global only",
+			global: []PostTestRPCCall{
+				{Method: "debug_traceBlockByNumber"},
+			},
+			instance: nil,
+			expected: []PostTestRPCCall{
+				{Method: "debug_traceBlockByNumber"},
+			},
+		},
+		{
+			name:   "instance overrides global",
+			global: []PostTestRPCCall{{Method: "global_method"}},
+			instance: []PostTestRPCCall{
+				{Method: "instance_method"},
+			},
+			expected: []PostTestRPCCall{
+				{Method: "instance_method"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						PostTestRPCCalls: tt.global,
+					},
+				},
+			}
+			instance := &ClientInstance{
+				PostTestRPCCalls: tt.instance,
+			}
+			result := cfg.GetPostTestRPCCalls(instance)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestValidatePostTestRPCCalls(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       Config
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "valid global call",
+			cfg: Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						PostTestRPCCalls: []PostTestRPCCall{
+							{Method: "debug_traceBlockByNumber", Params: []any{"latest"}},
+						},
+					},
+					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing method",
+			cfg: Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						PostTestRPCCalls: []PostTestRPCCall{
+							{Params: []any{"latest"}},
+						},
+					},
+					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "method is required",
+		},
+		{
+			name: "dump enabled without filename",
+			cfg: Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						PostTestRPCCalls: []PostTestRPCCall{
+							{
+								Method: "debug_traceBlockByNumber",
+								Dump:   DumpConfig{Enabled: true},
+							},
+						},
+					},
+					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "dump.filename is required",
+		},
+		{
+			name: "dump enabled with filename is valid",
+			cfg: Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						PostTestRPCCalls: []PostTestRPCCall{
+							{
+								Method: "debug_traceBlockByNumber",
+								Dump: DumpConfig{
+									Enabled:  true,
+									Filename: "trace",
+								},
+							},
+						},
+					},
+					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "instance-level missing method",
+			cfg: Config{
+				Client: ClientConfig{
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+							PostTestRPCCalls: []PostTestRPCCall{
+								{Params: []any{"latest"}},
+							},
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "method is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.validatePostTestRPCCalls()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestDumpConfigDecodeHook(t *testing.T) {
+	// Test that dump: true gets decoded to DumpConfig{Enabled: true}.
+	configContent := `
+client:
+  config:
+    genesis:
+      geth: http://example.com/genesis.json
+    post_test_rpc_calls:
+      - method: debug_traceBlockByNumber
+        params: ["latest"]
+        dump:
+          enabled: true
+          filename: trace
+  instances:
+    - id: test-instance
+      client: geth
+`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	require.Len(t, cfg.Client.Config.PostTestRPCCalls, 1)
+	assert.Equal(t, "debug_traceBlockByNumber", cfg.Client.Config.PostTestRPCCalls[0].Method)
+	assert.True(t, cfg.Client.Config.PostTestRPCCalls[0].Dump.Enabled)
+	assert.Equal(t, "trace", cfg.Client.Config.PostTestRPCCalls[0].Dump.Filename)
+}
+
 func TestSourceConfig_IsConfigured(t *testing.T) {
 	tests := []struct {
 		name     string
