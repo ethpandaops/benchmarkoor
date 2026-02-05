@@ -7,10 +7,16 @@ import { formatBytes } from '@/utils/format'
 import { toAbsoluteUrl } from '@/config/runtime'
 import { Modal } from '@/components/shared/Modal'
 
+type DownloadListFormat = 'urls' | 'curl'
+
 interface FilesPanelProps {
   runId: string
   testNames: string[]
   postTestRPCCalls?: PostTestRPCCallConfig[]
+  showDownloadList: boolean
+  downloadFormat: DownloadListFormat
+  onShowDownloadListChange: (open: boolean) => void
+  onDownloadFormatChange: (format: string) => void
 }
 
 interface DumpFileEntry {
@@ -66,12 +72,16 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-type DownloadListFormat = 'urls' | 'curl'
-
-function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: string; testNames: string[]; postTestRPCCalls: PostTestRPCCallConfig[] }) {
+function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: {
+  runId: string
+  testNames: string[]
+  postTestRPCCalls: PostTestRPCCallConfig[]
+  showDownloadList: boolean
+  downloadFormat: DownloadListFormat
+  onShowDownloadListChange: (open: boolean) => void
+  onDownloadFormatChange: (format: string) => void
+}) {
   const [filter, setFilter] = useState<FileFilter>('all')
-  const [showDownloadList, setShowDownloadList] = useState(false)
-  const [downloadFormat, setDownloadFormat] = useState<DownloadListFormat>('urls')
 
   const dumpCalls = useMemo(
     () => postTestRPCCalls.filter((c) => c.dump?.enabled && c.dump.filename),
@@ -134,7 +144,7 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
       return availableFiles.map((f) => toAbsoluteUrl(f.url)).join('\n')
     }
     return availableFiles
-      .map((f) => `curl -sSL --create-dirs -o '${f.outputPath}' '${toAbsoluteUrl(f.url)}'`)
+      .map((f) => `curl -gsSL --create-dirs -o '${f.outputPath}' '${toAbsoluteUrl(f.url)}'`)
       .join('\n')
   }, [availableFiles, downloadFormat])
 
@@ -177,7 +187,7 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
         )}
         {availableFiles.length > 0 && (
           <button
-            onClick={() => setShowDownloadList(true)}
+            onClick={() => onShowDownloadListChange(true)}
             className="flex items-center gap-1.5 rounded-xs border border-gray-300 px-2 py-1 text-xs/5 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
           >
             <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -187,7 +197,7 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
           </button>
         )}
       </div>
-      <Modal isOpen={showDownloadList} onClose={() => setShowDownloadList(false)} title="Download List" className="max-w-3xl">
+      <Modal isOpen={showDownloadList} onClose={() => onShowDownloadListChange(false)} title="Download List" className="max-w-3xl">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -195,7 +205,7 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
                 {([{ key: 'urls', label: 'Plain URLs' }, { key: 'curl', label: 'curl' }] as const).map(({ key, label }) => (
                   <button
                     key={key}
-                    onClick={() => setDownloadFormat(key)}
+                    onClick={() => onDownloadFormatChange(key)}
                     className={clsx(
                       'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
                       downloadFormat === key
@@ -314,7 +324,7 @@ function usePostTestDumpStats(runId: string, testNames: string[], postTestRPCCal
   }, [fileQueries, dumpCalls.length])
 }
 
-export function FilesPanel({ runId, testNames, postTestRPCCalls }: FilesPanelProps) {
+export function FilesPanel({ runId, testNames, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: FilesPanelProps) {
   const [expanded, setExpanded] = useState(false)
   const [activeTab, setActiveTab] = useState('post-test-rpc-dumps')
 
@@ -406,7 +416,15 @@ export function FilesPanel({ runId, testNames, postTestRPCCalls }: FilesPanelPro
           )}
           <div className="overflow-x-auto p-4">
             {activeTab === 'post-test-rpc-dumps' && hasPostTestDumps && (
-              <PostTestDumpsTab runId={runId} testNames={testNames} postTestRPCCalls={postTestRPCCalls} />
+              <PostTestDumpsTab
+                runId={runId}
+                testNames={testNames}
+                postTestRPCCalls={postTestRPCCalls}
+                showDownloadList={showDownloadList}
+                downloadFormat={downloadFormat}
+                onShowDownloadListChange={onShowDownloadListChange}
+                onDownloadFormatChange={onDownloadFormatChange}
+              />
             )}
           </div>
         </div>

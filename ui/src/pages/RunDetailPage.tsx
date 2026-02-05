@@ -122,12 +122,14 @@ export function RunDetailPage() {
     steps?: string
     ohFs?: boolean // Opcode Heatmap fullscreen
     blFs?: boolean // Block Logs fullscreen
+    dlModal?: boolean // Download list modal
+    dlFmt?: string // Download list format
   }
   const page = Number(search.page) || 1
   const pageSize = Number(search.pageSize) || 20
   const heatmapThreshold = search.heatmapThreshold ? Number(search.heatmapThreshold) : undefined
   const stepFilter = parseStepFilter(search.steps)
-  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, heatmapSort, ohFs = false, blFs = false } = search
+  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
@@ -172,6 +174,8 @@ export function RunDetailPage() {
         steps: serializeStepFilter(stepFilter),
         ohFs: ohFs || undefined,
         blFs: blFs || undefined,
+        dlModal: dlModal || undefined,
+        dlFmt: dlFmt || undefined,
         ...updates,
       },
     })
@@ -219,6 +223,14 @@ export function RunDetailPage() {
 
   const handleBlockLogsFullscreenChange = (fullscreen: boolean) => {
     updateSearch({ blFs: fullscreen || undefined })
+  }
+
+  const handleDownloadListModalChange = (open: boolean) => {
+    updateSearch({ dlModal: open || undefined })
+  }
+
+  const handleDownloadFormatChange = (format: string) => {
+    updateSearch({ dlFmt: format !== 'urls' ? format : undefined })
   }
 
   if (isLoading) {
@@ -476,6 +488,10 @@ export function RunDetailPage() {
         runId={runId}
         testNames={Object.keys(result.tests)}
         postTestRPCCalls={config.instance.post_test_rpc_calls}
+        showDownloadList={dlModal}
+        downloadFormat={(dlFmt as 'urls' | 'curl') ?? 'urls'}
+        onShowDownloadListChange={handleDownloadListModalChange}
+        onDownloadFormatChange={handleDownloadFormatChange}
       />
 
       <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
