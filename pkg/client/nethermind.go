@@ -20,22 +20,28 @@ func (s *nethermindSpec) DefaultImage() string {
 
 func (s *nethermindSpec) DefaultCommand() []string {
 	return []string{
+		// Data directory - should always point to /data
 		"--datadir=/data",
-		"--config=none",
+		// Peering / Syncing
+		"--Network.DiscoveryPort=0",
+		"--Network.MaxActivePeers=0",
+		"--Init.DiscoveryEnabled=false",
+		"--Sync.MaxAttemptsToUpdatePivot=0",
+		// "Public" JSON RPC API
 		"--JsonRpc.Enabled=true",
 		"--JsonRpc.Host=0.0.0.0",
 		"--JsonRpc.Port=8545",
 		"--JsonRpc.EnabledModules=Net,Eth,Consensus,Subscribe,Web3,Admin,Debug,Rpc,Health,TxPool",
+		// "Engine" JSON RPC API
 		"--JsonRpc.JwtSecretFile=/tmp/jwtsecret",
 		"--JsonRpc.EngineHost=0.0.0.0",
 		"--JsonRpc.EnginePort=8551",
-		"--Network.DiscoveryPort=0",
-		"--Network.MaxActivePeers=0",
-		"--Init.DiscoveryEnabled=false",
-		"--HealthChecks.Enabled=true",
+		// Metrics
 		"--Metrics.Enabled=true",
 		"--Metrics.ExposePort=8008",
-		"--Sync.MaxAttemptsToUpdatePivot=0",
+		// Others
+		"--config=none",
+		"--HealthChecks.Enabled=true",
 		"--Init.AutoDump=None",
 		"--Merge.NewPayloadBlockProcessingTimeout=70000",
 		"--Merge.TerminalTotalDifficulty=0",

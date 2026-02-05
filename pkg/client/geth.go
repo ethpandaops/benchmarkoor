@@ -20,32 +20,32 @@ func (s *gethSpec) DefaultImage() string {
 
 func (s *gethSpec) DefaultCommand() []string {
 	return []string{
+		// Data directory - should always point to /data
 		"--datadir=/data",
+		// Peering / Syncing
+		"--port=0",
 		"--syncmode=full",
+		"--maxpeers=0",
+		"--nodiscover",
+		"--bootnodes=",
 		//"--gcmode=archive",
 		"--snapshot=false",
 		"--nat=none",
+		// "Public" JSON RPC API
 		"--http",
 		"--http.addr=0.0.0.0",
 		"--http.vhosts=*",
 		"--http.corsdomain=*",
 		"--http.api=admin,debug,web3,eth,net",
-		"--port=0",
 		"--http.port=8545",
-		"--maxpeers=0",
-		"--nodiscover",
-		"--bootnodes=",
-		"--ws",
-		"--ws.addr=0.0.0.0",
-		"--ws.port=8546",
-		"--ws.api=admin,debug,web3,eth,net",
+		// "Engine" JSON RPC API
 		"--authrpc.jwtsecret=/tmp/jwtsecret",
 		"--authrpc.addr=0.0.0.0",
 		"--authrpc.port=8551",
 		"--authrpc.vhosts=*",
+		// Metrics
 		"--metrics",
 		"--metrics.port=8008",
-		"--verbosity=3",
 	}
 }
 

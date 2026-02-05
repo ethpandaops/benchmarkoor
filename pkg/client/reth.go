@@ -21,20 +21,20 @@ func (s *rethSpec) DefaultImage() string {
 func (s *rethSpec) DefaultCommand() []string {
 	return []string{
 		"node",
+		// Data directory - should always point to /data
 		"--datadir=/var/lib/reth",
-		"--full",
+		// "Public" JSON RPC API
 		"--http",
 		"--http.addr=0.0.0.0",
 		"--http.api=admin,debug,eth,net,trace,txpool,web3,rpc,reth,ots,flashbots,miner,mev",
 		"--http.port=8545",
-		"--ws",
-		"--ws.addr=0.0.0.0",
-		"--ws.port=8546",
-		"--ws.api=admin,debug,eth,net,trace,txpool,web3,rpc,reth,ots,flashbots,miner,mev",
+		// "Engine" JSON RPC API
 		"--authrpc.jwtsecret=/tmp/jwtsecret",
 		"--authrpc.addr=0.0.0.0",
 		"--authrpc.port=8551",
 		"--engine.disable-precompile-cache",
+		// Others
+		"--full",
 	}
 }
 

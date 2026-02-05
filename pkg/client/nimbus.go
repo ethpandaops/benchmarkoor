@@ -20,19 +20,24 @@ func (s *nimbusSpec) DefaultImage() string {
 
 func (s *nimbusSpec) DefaultCommand() []string {
 	return []string{
+		// Data directory - should always point to /data
 		"--data-dir=/data",
-		"--metrics=true",
-		"--metrics-address=0.0.0.0",
-		"--metrics-port=8008",
-		"--engine-api=true",
+		// Peering
 		"--max-peers=0",
-		"--jwt-secret=/tmp/jwtsecret",
-		"--engine-api-port=8551",
-		"--engine-api-address=0.0.0.0",
-		"--allowed-origins=*",
+		// "Public" JSON RPC API
 		"--rpc=true",
 		"--http-address=0.0.0.0",
 		"--http-port=8545",
+		// "Engine" JSON RPC API
+		"--jwt-secret=/tmp/jwtsecret",
+		"--engine-api=true",
+		"--engine-api-port=8551",
+		"--engine-api-address=0.0.0.0",
+		"--allowed-origins=*",
+		// Metrics
+		"--metrics=true",
+		"--metrics-address=0.0.0.0",
+		"--metrics-port=8008",
 	}
 }
 
