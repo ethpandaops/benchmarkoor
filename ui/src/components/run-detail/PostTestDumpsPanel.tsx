@@ -66,9 +66,12 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
+type DownloadListFormat = 'urls' | 'curl'
+
 function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: string; testNames: string[]; postTestRPCCalls: PostTestRPCCallConfig[] }) {
   const [filter, setFilter] = useState<FileFilter>('all')
   const [showDownloadList, setShowDownloadList] = useState(false)
+  const [downloadFormat, setDownloadFormat] = useState<DownloadListFormat>('urls')
 
   const dumpCalls = useMemo(
     () => postTestRPCCalls.filter((c) => c.dump?.enabled && c.dump.filename),
@@ -113,8 +116,11 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
     return { allFiles: all, unavailableCount: unavailable }
   }, [entries, fileQueries])
 
-  const availableUrls = useMemo(
-    () => allFiles.filter((f) => f.status === 'available').map((f) => f.info.url),
+  const availableFiles = useMemo(
+    () => allFiles.filter((f) => f.status === 'available').map((f) => ({
+      url: f.info.url,
+      outputPath: `${f.entry.testName}/post_test_rpc_calls/${f.entry.filename}`,
+    })),
     [allFiles],
   )
 
@@ -122,6 +128,15 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
     if (filter === 'all') return allFiles
     return allFiles.filter((f) => f.status === 'unavailable')
   }, [allFiles, filter])
+
+  const downloadListText = useMemo(() => {
+    if (downloadFormat === 'urls') {
+      return availableFiles.map((f) => toAbsoluteUrl(f.url)).join('\n')
+    }
+    return availableFiles
+      .map((f) => `curl -sSL --create-dirs -o '${f.outputPath}' '${toAbsoluteUrl(f.url)}'`)
+      .join('\n')
+  }, [availableFiles, downloadFormat])
 
   if (isLoading) {
     return (
@@ -138,8 +153,6 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
       </div>
     )
   }
-
-  const downloadListText = availableUrls.map(toAbsoluteUrl).join('\n')
 
   return (
     <div className="flex flex-col gap-3">
@@ -162,7 +175,7 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
             ))}
           </div>
         )}
-        {availableUrls.length > 0 && (
+        {availableFiles.length > 0 && (
           <button
             onClick={() => setShowDownloadList(true)}
             className="flex items-center gap-1.5 rounded-xs border border-gray-300 px-2 py-1 text-xs/5 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
@@ -177,9 +190,27 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
       <Modal isOpen={showDownloadList} onClose={() => setShowDownloadList(false)} title="Download List" className="max-w-3xl">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">
-              {availableUrls.length} URL{availableUrls.length !== 1 ? 's' : ''}
-            </span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
+                {([{ key: 'urls', label: 'Plain URLs' }, { key: 'curl', label: 'curl' }] as const).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setDownloadFormat(key)}
+                    className={clsx(
+                      'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                      downloadFormat === key
+                        ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400">
+                {availableFiles.length} file{availableFiles.length !== 1 ? 's' : ''}
+              </span>
+            </div>
             <CopyButton text={downloadListText} />
           </div>
           <pre className="max-h-96 overflow-auto rounded-xs bg-gray-100 p-3 font-mono text-xs/5 text-gray-900 select-all dark:bg-gray-900 dark:text-gray-100">
