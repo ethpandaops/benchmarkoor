@@ -566,6 +566,65 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 			wantErr:   true,
 			errSubstr: "method is required",
 		},
+		{
+			name: "valid timeout",
+			cfg: Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						PostTestRPCCalls: []PostTestRPCCall{
+							{Method: "debug_executionWitness", Timeout: "2m"},
+						},
+					},
+					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid timeout string",
+			cfg: Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						PostTestRPCCalls: []PostTestRPCCall{
+							{Method: "debug_executionWitness", Timeout: "notaduration"},
+						},
+					},
+					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "invalid timeout",
+		},
+		{
+			name: "negative timeout",
+			cfg: Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						PostTestRPCCalls: []PostTestRPCCall{
+							{Method: "debug_executionWitness", Timeout: "-5s"},
+						},
+					},
+					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "timeout must be positive",
+		},
+		{
+			name: "zero timeout",
+			cfg: Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						PostTestRPCCalls: []PostTestRPCCall{
+							{Method: "debug_executionWitness", Timeout: "0s"},
+						},
+					},
+					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "timeout must be positive",
+		},
 	}
 
 	for _, tt := range tests {

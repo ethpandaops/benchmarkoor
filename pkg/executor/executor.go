@@ -1126,7 +1126,14 @@ func (e *executor) executePostTestRPCCalls(
 		}
 
 		// Execute the RPC call (no JWT, plain HTTP).
-		callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		callTimeout := 30 * time.Second
+		if call.Timeout != "" {
+			if d, err := time.ParseDuration(call.Timeout); err == nil {
+				callTimeout = d
+			}
+		}
+
+		callCtx, cancel := context.WithTimeout(ctx, callTimeout)
 
 		response, execErr := executeSimpleRPC(callCtx, opts.RPCEndpoint, payload)
 

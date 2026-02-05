@@ -641,6 +641,7 @@ client:
           filename: debug_traceBlockByNumber
       - method: debug_traceBlockByHash
         params: ["{{.BlockHash}}"]
+        timeout: 2m  # Override default 30s timeout for slow methods
         dump:
           enabled: true
           filename: debug_traceBlockByHash
@@ -652,6 +653,7 @@ client:
 |--------|------|----------|-------------|
 | `method` | string | Yes | JSON-RPC method name |
 | `params` | []any | No | Method parameters (supports template variables) |
+| `timeout` | string | No | Per-call timeout as a Go duration string (e.g., `30s`, `2m`). Default: `30s` |
 | `dump` | object | No | Response dump configuration |
 | `dump.enabled` | bool | No | Enable writing the response to a file |
 | `dump.filename` | string | When dump enabled | Base filename for the dump (`.json` extension is added automatically) |

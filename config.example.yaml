@@ -135,6 +135,7 @@ client:
     #       filename: debug_traceBlockByNumber  # Written to {resultsDir}/{testName}/post_test_rpc_calls/{filename}.json
     #   - method: debug_traceBlockByHash
     #     params: ["{{.BlockHash}}"]
+    #     timeout: 2m  # Per-call timeout (default: 30s)
     #     dump:
     #       enabled: true
     #       filename: debug_traceBlockByHash

@@ -170,9 +170,10 @@ type RetryNewPayloadsSyncingConfig struct {
 
 // PostTestRPCCall defines an arbitrary RPC call to execute after the test step.
 type PostTestRPCCall struct {
-	Method string     `yaml:"method" mapstructure:"method" json:"method"`
-	Params []any      `yaml:"params" mapstructure:"params" json:"params"`
-	Dump   DumpConfig `yaml:"dump" mapstructure:"dump" json:"dump,omitempty"`
+	Method  string     `yaml:"method" mapstructure:"method" json:"method"`
+	Params  []any      `yaml:"params" mapstructure:"params" json:"params"`
+	Timeout string     `yaml:"timeout,omitempty" mapstructure:"timeout" json:"timeout,omitempty"`
+	Dump    DumpConfig `yaml:"dump" mapstructure:"dump" json:"dump,omitempty"`
 }
 
 // DumpConfig configures response dumping for a post-test RPC call.
@@ -1057,6 +1058,17 @@ func (c *Config) validatePostTestRPCCalls() error {
 func validatePostTestRPCCall(call PostTestRPCCall, prefix string) error {
 	if call.Method == "" {
 		return fmt.Errorf("%s: method is required", prefix)
+	}
+
+	if call.Timeout != "" {
+		d, err := time.ParseDuration(call.Timeout)
+		if err != nil {
+			return fmt.Errorf("%s: invalid timeout %q: %w", prefix, call.Timeout, err)
+		}
+
+		if d <= 0 {
+			return fmt.Errorf("%s: timeout must be positive, got %q", prefix, call.Timeout)
+		}
 	}
 
 	if call.Dump.Enabled && call.Dump.Filename == "" {
