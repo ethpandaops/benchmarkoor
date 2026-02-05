@@ -29,7 +29,7 @@ interface ResolvedFile {
 }
 
 function resolveFileStatus(info: HeadResult): FileStatus {
-  if (!info.exists || info.size == null) return 'unavailable'
+  if (!info.exists) return 'unavailable'
   return 'available'
 }
 
