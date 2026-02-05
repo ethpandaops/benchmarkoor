@@ -17,7 +17,23 @@ interface DumpFileEntry {
   path: string
 }
 
+type FileStatus = 'available' | 'unavailable'
+type FileFilter = 'all' | 'unavailable'
+
+interface ResolvedFile {
+  entry: DumpFileEntry
+  info: HeadResult
+  status: FileStatus
+}
+
+function resolveFileStatus(info: HeadResult): FileStatus {
+  if (!info.exists || info.size == null) return 'unavailable'
+  return 'available'
+}
+
 function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: string; testNames: string[]; postTestRPCCalls: PostTestRPCCallConfig[] }) {
+  const [filter, setFilter] = useState<FileFilter>('all')
+
   const dumpCalls = useMemo(
     () => postTestRPCCalls.filter((c) => c.dump?.enabled && c.dump.filename),
     [postTestRPCCalls],
@@ -46,18 +62,35 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
     })),
   })
 
-  const existingFiles = useMemo(() => {
-    const existing: { entry: DumpFileEntry; info: HeadResult }[] = []
+  const isLoading = fileQueries.some((q) => q.isLoading)
+
+  const { allFiles, unavailableCount } = useMemo(() => {
+    const all: ResolvedFile[] = []
+    let unavailable = 0
     for (let i = 0; i < entries.length; i++) {
       const data = fileQueries[i]?.data
-      if (data?.exists) {
-        existing.push({ entry: entries[i], info: data })
-      }
+      if (!data) continue
+      const status = resolveFileStatus(data)
+      if (status === 'unavailable') unavailable++
+      all.push({ entry: entries[i], info: data, status })
     }
-    return existing
+    return { allFiles: all, unavailableCount: unavailable }
   }, [entries, fileQueries])
 
-  if (existingFiles.length === 0) {
+  const filteredFiles = useMemo(() => {
+    if (filter === 'all') return allFiles
+    return allFiles.filter((f) => f.status === 'unavailable')
+  }, [allFiles, filter])
+
+  if (isLoading) {
+    return (
+      <div className="py-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">
+        Loading files...
+      </div>
+    )
+  }
+
+  if (allFiles.length === 0) {
     return (
       <div className="py-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">
         No dump files found
@@ -66,40 +99,73 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
   }
 
   return (
-    <table className="w-full text-left text-xs/5">
-      <thead>
-        <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
-          <th className="pb-2 pr-3 font-medium">Path</th>
-          <th className="pb-2 pr-3 text-right font-medium">Size</th>
-          <th className="pb-2" />
-        </tr>
-      </thead>
-      <tbody className="font-mono text-gray-900 dark:text-gray-100">
-        {existingFiles.map(({ entry, info }) => (
-          <tr key={entry.path} className="border-b border-gray-200 last:border-0 dark:border-gray-700">
-            <td className="py-2 pr-3">
-              <span className="text-gray-500 dark:text-gray-400">{entry.testName}/</span>
-              post_test_rpc_calls/{entry.filename}
-            </td>
-            <td className="py-2 pr-3 text-right text-gray-500 dark:text-gray-400">
-              {info.size != null ? formatBytes(info.size) : '-'}
-            </td>
-            <td className="py-2">
-              <a
-                href={info.url}
-                download={entry.filename}
-                className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                title="Download"
-              >
-                <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-              </a>
-            </td>
+    <div className="flex flex-col gap-3">
+      {unavailableCount > 0 && (
+        <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 self-start dark:bg-gray-700">
+          {(['all', 'unavailable'] as const).map((value) => (
+            <button
+              key={value}
+              onClick={() => setFilter(value)}
+              className={clsx(
+                'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                filter === value
+                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+              )}
+            >
+              {value === 'all' ? `All (${allFiles.length})` : `Unavailable (${unavailableCount})`}
+            </button>
+          ))}
+        </div>
+      )}
+      <table className="w-full text-left text-xs/5">
+        <thead>
+          <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
+            <th className="pb-2 pr-3 font-medium">Path</th>
+            <th className="pb-2 pr-3 text-right font-medium">Size</th>
+            <th className="pb-2" />
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody className="font-mono text-gray-900 dark:text-gray-100">
+          {filteredFiles.map(({ entry, info, status }) => (
+            <tr
+              key={entry.path}
+              className={clsx(
+                'border-b border-gray-200 last:border-0 dark:border-gray-700',
+                status === 'unavailable' && 'opacity-50',
+              )}
+            >
+              <td className="py-2 pr-3">
+                <span className="text-gray-500 dark:text-gray-400">{entry.testName}/</span>
+                post_test_rpc_calls/{entry.filename}
+                {status === 'unavailable' && (
+                  <span className="ml-2 rounded-full bg-yellow-100 px-1.5 py-0.5 font-sans text-xs font-medium text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300">
+                    Unavailable
+                  </span>
+                )}
+              </td>
+              <td className="py-2 pr-3 text-right text-gray-500 dark:text-gray-400">
+                {status === 'available' && info.size != null ? formatBytes(info.size) : '-'}
+              </td>
+              <td className="py-2">
+                {status === 'available' ? (
+                  <a
+                    href={info.url}
+                    download={entry.filename}
+                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                    title="Download"
+                  >
+                    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </a>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -132,13 +198,19 @@ function usePostTestDumpStats(runId: string, testNames: string[], postTestRPCCal
     const isLoading = fileQueries.some((q) => q.isLoading)
     let fileCount = 0
     let totalSize = 0
+    let unavailableCount = 0
     for (const q of fileQueries) {
-      if (q.data?.exists) {
-        fileCount++
-        if (q.data.size != null) totalSize += q.data.size
+      if (q.data) {
+        const status = resolveFileStatus(q.data)
+        if (status === 'available') {
+          fileCount++
+          if (q.data.size != null) totalSize += q.data.size
+        } else {
+          unavailableCount++
+        }
       }
     }
-    return { isLoading, fileCount, totalSize, hasDumpCalls: dumpCalls.length > 0 }
+    return { isLoading, fileCount, totalSize, unavailableCount, hasDumpCalls: dumpCalls.length > 0 }
   }, [fileQueries, dumpCalls.length])
 }
 
@@ -151,23 +223,30 @@ export function FilesPanel({ runId, testNames, postTestRPCCalls }: FilesPanelPro
 
   const tabs = useMemo(() => {
     const result: { key: string; label: string; badge?: string }[] = []
-    if (hasPostTestDumps) {
+    if (hasPostTestDumps && dumpStats.hasDumpCalls) {
       result.push({
         key: 'post-test-rpc-dumps',
         label: 'Post-Test RPC Dumps',
-        badge: dumpStats.isLoading ? '...' : dumpStats.fileCount > 0 ? String(dumpStats.fileCount) : undefined,
+        badge: dumpStats.isLoading ? '...' : String(dumpStats.fileCount + dumpStats.unavailableCount),
       })
     }
     return result
   }, [hasPostTestDumps, dumpStats])
 
   if (tabs.length === 0) return null
-  if (!dumpStats.isLoading && dumpStats.fileCount === 0 && !dumpStats.hasDumpCalls) return null
-  if (!dumpStats.isLoading && dumpStats.fileCount === 0) return null
 
-  const summary = dumpStats.isLoading
-    ? 'Loading...'
-    : `${dumpStats.fileCount} file${dumpStats.fileCount !== 1 ? 's' : ''}, ${formatBytes(dumpStats.totalSize)} total`
+  const summaryParts: string[] = []
+  if (dumpStats.isLoading) {
+    summaryParts.push('Loading...')
+  } else {
+    if (dumpStats.fileCount > 0) {
+      summaryParts.push(`${dumpStats.fileCount} file${dumpStats.fileCount !== 1 ? 's' : ''}, ${formatBytes(dumpStats.totalSize)}`)
+    }
+    if (dumpStats.unavailableCount > 0) {
+      summaryParts.push(`${dumpStats.unavailableCount} unavailable`)
+    }
+  }
+  const summary = summaryParts.join(' / ')
 
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
