@@ -119,9 +119,9 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls }: { runId: strin
   const availableFiles = useMemo(
     () => allFiles.filter((f) => f.status === 'available').map((f) => ({
       url: f.info.url,
-      outputPath: `${f.entry.testName}/post_test_rpc_calls/${f.entry.filename}`,
+      outputPath: `${runId}/${f.entry.testName}/post_test_rpc_calls/${f.entry.filename}`,
     })),
-    [allFiles],
+    [allFiles, runId],
   )
 
   const filteredFiles = useMemo(() => {
