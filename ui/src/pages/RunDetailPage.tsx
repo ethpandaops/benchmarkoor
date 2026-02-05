@@ -493,6 +493,7 @@ export function RunDetailPage() {
           sortMode={heatmapSort}
           threshold={heatmapThreshold}
           stepFilter={stepFilter}
+          postTestRPCCalls={config.instance.post_test_rpc_calls}
           onSelectedTestChange={handleTestModalChange}
           onSortModeChange={handleHeatmapSortChange}
           onThresholdChange={handleHeatmapThresholdChange}

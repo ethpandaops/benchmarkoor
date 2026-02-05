@@ -284,6 +284,44 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                   </dd>
                 </div>
               )}
+
+              {instance.post_test_rpc_calls && instance.post_test_rpc_calls.length > 0 && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+                    Post-Test RPC Calls
+                  </dt>
+                  <dd className="mt-1 flex flex-col gap-2">
+                    {instance.post_test_rpc_calls.map((call, i) => (
+                      <div
+                        key={i}
+                        className="overflow-x-auto rounded-sm bg-gray-100 p-2 dark:bg-gray-900"
+                      >
+                        <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400">method: </span>
+                            {call.method}
+                          </div>
+                          {call.params && call.params.length > 0 && (
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">params: </span>
+                              {JSON.stringify(call.params)}
+                            </div>
+                          )}
+                          {call.dump?.enabled && (
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">dump: </span>
+                              {call.dump.filename || 'enabled'}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Arbitrary RPC calls executed after each test step. Not timed.
+                    </p>
+                  </dd>
+                </div>
+              )}
             </div>
           </div>
 

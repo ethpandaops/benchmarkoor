@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
+import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
-import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated, StepResult } from '@/api/types'
+import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated, StepResult, PostTestRPCCallConfig } from '@/api/types'
+import { fetchHead } from '@/api/client'
 import { Modal } from '@/components/shared/Modal'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
@@ -8,7 +10,7 @@ import { ExecutionsList } from './ExecutionsList'
 import { BlockLogDetails } from './BlockLogDetails'
 import type { TestStatusFilter } from './TestsTable'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
-import { formatDuration } from '@/utils/format'
+import { formatDuration, formatBytes } from '@/utils/format'
 import { EESTInfoContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
 
@@ -94,6 +96,7 @@ interface TestHeatmapProps {
   sortMode?: SortMode
   threshold?: number
   stepFilter?: StepTypeOption[]
+  postTestRPCCalls?: PostTestRPCCallConfig[]
   onSelectedTestChange?: (testName: string | undefined) => void
   onSortModeChange?: (mode: SortMode) => void
   onThresholdChange?: (threshold: number) => void
@@ -178,6 +181,71 @@ const NO_DATA_STYLE = {
   backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, #1f2937 2px, #1f2937 4px)',
 }
 
+function PostTestDumps({ runId, testName, calls }: { runId: string; testName: string; calls: PostTestRPCCallConfig[] }) {
+  const dumpCalls = calls.filter((c) => c.dump?.enabled && c.dump.filename)
+
+  const fileQueries = useQueries({
+    queries: dumpCalls.map((call) => ({
+      queryKey: ['post-test-dump', runId, testName, call.dump!.filename],
+      queryFn: () => fetchHead(`runs/${runId}/${testName}/post_test_rpc_calls/${call.dump!.filename}.json`),
+      staleTime: Infinity,
+    })),
+  })
+
+  if (dumpCalls.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Post-Test RPC Dumps</div>
+      <div className="overflow-x-auto rounded-xs bg-gray-100 dark:bg-gray-900">
+        <table className="w-full text-left text-xs/5">
+          <thead>
+            <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              <th className="px-3 py-2 font-medium">Method</th>
+              <th className="px-3 py-2 font-medium">Params</th>
+              <th className="px-3 py-2 font-medium">File</th>
+              <th className="px-3 py-2 text-right font-medium">Size</th>
+              <th className="px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody className="font-mono text-gray-900 dark:text-gray-100">
+            {dumpCalls.map((call, i) => {
+              const query = fileQueries[i]
+              const fileInfo = query?.data
+              return (
+                <tr key={i} className="border-b border-gray-200 last:border-0 dark:border-gray-700">
+                  <td className="px-3 py-2">{call.method}</td>
+                  <td className="max-w-48 truncate px-3 py-2 text-gray-500 dark:text-gray-400">
+                    {call.params && call.params.length > 0 ? JSON.stringify(call.params) : '-'}
+                  </td>
+                  <td className="px-3 py-2">{call.dump!.filename}.json</td>
+                  <td className="px-3 py-2 text-right text-gray-500 dark:text-gray-400">
+                    {query?.isLoading ? '...' : fileInfo?.exists && fileInfo.size != null ? formatBytes(fileInfo.size) : '-'}
+                  </td>
+                  <td className="px-3 py-2">
+                    {fileInfo?.exists ? (
+                      <a
+                        href={fileInfo.url}
+                        download={`${call.dump!.filename}.json`}
+                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                        title="Download"
+                      >
+                        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      </a>
+                    ) : null}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export function TestHeatmap({
   tests,
   suiteTests,
@@ -189,6 +257,7 @@ export function TestHeatmap({
   sortMode: sortModeProp,
   threshold: thresholdProp,
   stepFilter = ALL_STEP_TYPES,
+  postTestRPCCalls,
   onSelectedTestChange,
   onSortModeChange,
   onThresholdChange,
@@ -638,6 +707,9 @@ export function TestHeatmap({
                   </div>
                 )
               })()}
+              {postTestRPCCalls && postTestRPCCalls.length > 0 && (
+                <PostTestDumps runId={runId} testName={selectedTest} calls={postTestRPCCalls} />
+              )}
             </div>
           </Modal>
         )
