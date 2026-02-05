@@ -6,8 +6,11 @@ import { fetchHead, type HeadResult } from '@/api/client'
 import { formatBytes } from '@/utils/format'
 import { toAbsoluteUrl } from '@/config/runtime'
 import { Modal } from '@/components/shared/Modal'
+import { Pagination } from '@/components/shared/Pagination'
 
 type DownloadListFormat = 'urls' | 'curl'
+type FileSortColumn = 'path' | 'size'
+type FileSortDirection = 'asc' | 'desc'
 
 interface FilesPanelProps {
   runId: string
@@ -72,6 +75,50 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
+
+function SortIcon({ direction, active }: { direction: FileSortDirection; active: boolean }) {
+  return (
+    <svg
+      className={clsx('ml-1 inline-block size-3', active ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400')}
+      viewBox="0 0 12 12"
+      fill="currentColor"
+    >
+      {direction === 'asc' ? <path d="M6 2L10 8H2L6 2Z" /> : <path d="M6 10L2 4H10L6 10Z" />}
+    </svg>
+  )
+}
+
+function SortableHeader({
+  label,
+  column,
+  currentSort,
+  currentDirection,
+  onSort,
+  className,
+}: {
+  label: string
+  column: FileSortColumn
+  currentSort: FileSortColumn
+  currentDirection: FileSortDirection
+  onSort: (column: FileSortColumn) => void
+  className?: string
+}) {
+  const isActive = currentSort === column
+  return (
+    <th
+      onClick={() => onSort(column)}
+      className={clsx(
+        'cursor-pointer select-none pb-2 pr-3 font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
+        className,
+      )}
+    >
+      {label}
+      <SortIcon direction={isActive ? currentDirection : 'asc'} active={isActive} />
+    </th>
+  )
+}
+
 function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: {
   runId: string
   testNames: string[]
@@ -82,6 +129,20 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
   onDownloadFormatChange: (format: string) => void
 }) {
   const [filter, setFilter] = useState<FileFilter>('all')
+  const [sortBy, setSortBy] = useState<FileSortColumn>('path')
+  const [sortDir, setSortDir] = useState<FileSortDirection>('asc')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+
+  const handleSort = (column: FileSortColumn) => {
+    if (sortBy === column) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortBy(column)
+      setSortDir('asc')
+    }
+    setCurrentPage(1)
+  }
 
   const dumpCalls = useMemo(
     () => postTestRPCCalls.filter((c) => c.dump?.enabled && c.dump.filename),
@@ -139,6 +200,34 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
     return allFiles.filter((f) => f.status === 'unavailable')
   }, [allFiles, filter])
 
+  // Reset to page 1 when filter changes
+  const [prevFilter, setPrevFilter] = useState(filter)
+  if (filter !== prevFilter) {
+    setPrevFilter(filter)
+    setCurrentPage(1)
+  }
+
+  const sortedFiles = useMemo(() => {
+    const sorted = [...filteredFiles]
+    sorted.sort((a, b) => {
+      let cmp = 0
+      if (sortBy === 'path') {
+        const pathA = `${a.entry.testName}/${a.entry.filename}`
+        const pathB = `${b.entry.testName}/${b.entry.filename}`
+        cmp = pathA.localeCompare(pathB)
+      } else {
+        const sizeA = a.info.size ?? -1
+        const sizeB = b.info.size ?? -1
+        cmp = sizeA - sizeB
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [filteredFiles, sortBy, sortDir])
+
+  const totalPages = Math.ceil(sortedFiles.length / pageSize)
+  const paginatedFiles = sortedFiles.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
   const downloadListText = useMemo(() => {
     if (downloadFormat === 'urls') {
       return availableFiles.map((f) => toAbsoluteUrl(f.url)).join('\n')
@@ -166,7 +255,7 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3">
         {unavailableCount > 0 && (
           <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
             {(['all', 'unavailable'] as const).map((value) => (
@@ -188,7 +277,7 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
         {availableFiles.length > 0 && (
           <button
             onClick={() => onShowDownloadListChange(true)}
-            className="flex items-center gap-1.5 rounded-xs border border-gray-300 px-2 py-1 text-xs/5 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            className="ml-auto flex items-center gap-1.5 rounded-xs border border-gray-300 px-2 py-1 text-xs/5 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
           >
             <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
@@ -228,16 +317,37 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
           </pre>
         </div>
       </Modal>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value))
+              setCurrentPage(1)
+            }}
+            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+          <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
+        </div>
+        {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />}
+      </div>
       <table className="w-full text-left text-xs/5">
         <thead>
-          <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
-            <th className="pb-2 pr-3 font-medium">Path</th>
-            <th className="pb-2 pr-3 text-right font-medium">Size</th>
+          <tr className="border-b border-gray-200 dark:border-gray-700">
+            <SortableHeader label="Path" column="path" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+            <SortableHeader label="Size" column="size" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="text-right" />
             <th className="pb-2" />
           </tr>
         </thead>
         <tbody className="font-mono text-gray-900 dark:text-gray-100">
-          {filteredFiles.map(({ entry, info, status }) => (
+          {paginatedFiles.map(({ entry, info, status }) => (
             <tr
               key={entry.path}
               className={clsx(
@@ -275,6 +385,11 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
           ))}
         </tbody>
       </table>
+      {totalPages > 1 && (
+        <div className="flex justify-end">
+          <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+        </div>
+      )}
     </div>
   )
 }
