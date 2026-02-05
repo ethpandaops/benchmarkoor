@@ -20,28 +20,37 @@ func (s *erigonSpec) DefaultImage() string {
 
 func (s *erigonSpec) DefaultCommand() []string {
 	return []string{
+		// Data directory - should always point to /data
 		"--datadir=/data",
-		"--externalcl",
-		"--private.api.addr=0.0.0.0:9090",
+		// Peering / Syncing / TXPool
 		"--nat=none",
+		"--maxpeers=0",
+		"--txpool.disable",
 		"--nodiscover",
 		"--no-downloader",
+		"--torrent.download.rate=0",
+		"--torrent.upload.rate=0",
+		// "Public" JSON RPC API
 		"--http",
 		"--http.addr=0.0.0.0",
 		"--http.port=8545",
 		"--http.vhosts=*",
 		"--http.corsdomain=*",
 		"--http.api=web3,eth,net,engine,debug",
-		"--txpool.disable",
+		// "Engine" JSON RPC API
 		"--authrpc.addr=0.0.0.0",
 		"--authrpc.port=8551",
 		"--authrpc.vhosts=*",
 		"--authrpc.jwtsecret=/tmp/jwtsecret",
+		// Metrics
 		"--metrics",
 		"--metrics.addr=0.0.0.0",
 		"--metrics.port=8008",
 		"--prune.mode=full",
-		"--log.console.verbosity=info",
+		// Others
+		"--log.dir.disable",               // We just need logs on the console
+		"--private.api.addr=0.0.0.0:9090", // Erigon specific API
+		"--externalcl",                    // Disables built in Caplin CL client.
 	}
 }
 

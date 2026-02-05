@@ -20,17 +20,15 @@ func (s *besuSpec) DefaultImage() string {
 
 func (s *besuSpec) DefaultCommand() []string {
 	return []string{
+		// Data directory - should always point to /data
 		"--data-path=/data",
-		//"--bonsai-historical-block-limit=10000",
-		//"--bonsai-limit-trie-logs-enabled=false",
 		"--data-storage-format=BONSAI",
-		"--metrics-enabled=true",
-		"--metrics-host=0.0.0.0",
-		"--metrics-port=8008",
-		"--engine-rpc-enabled=true",
-		"--engine-jwt-secret=/tmp/jwtsecret",
-		"--engine-rpc-port=8551",
-		"--engine-host-allowlist=*",
+		// Peering / Syncing / TXPool
+		"--p2p-enabled=false",
+		"--sync-mode=FULL",
+		"--max-peers=0",
+		"--discovery-enabled=false",
+		// "Public" JSON RPC API
 		"--rpc-http-enabled=true",
 		"--rpc-http-host=0.0.0.0",
 		"--rpc-http-port=8545",
@@ -38,10 +36,18 @@ func (s *besuSpec) DefaultCommand() []string {
 		"--rpc-http-cors-origins=*",
 		"--Xhttp-timeout-seconds=660",
 		"--host-allowlist=*",
-		"--p2p-enabled=false",
-		"--sync-mode=FULL",
-		"--max-peers=0",
-		"--discovery-enabled=false",
+		// "Engine" JSON RPC API
+		"--engine-rpc-enabled=true",
+		"--engine-jwt-secret=/tmp/jwtsecret",
+		"--engine-rpc-port=8551",
+		"--engine-host-allowlist=*",
+		// Metrics
+		"--metrics-enabled=true",
+		"--metrics-host=0.0.0.0",
+		"--metrics-port=8008",
+		// Others
+		//"--bonsai-historical-block-limit=10000",
+		//"--bonsai-limit-trie-logs-enabled=false",
 	}
 }
 
