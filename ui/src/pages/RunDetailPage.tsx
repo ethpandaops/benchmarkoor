@@ -25,6 +25,7 @@ import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
 import { BlockLogsDashboard } from '@/components/run-detail/block-logs-dashboard'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
+import { Flame } from 'lucide-react'
 
 // Step types that can be included in MGas/s calculation
 export type StepTypeOption = 'setup' | 'test' | 'cleanup'
@@ -498,7 +499,10 @@ export function RunDetailPage() {
 
       <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Performance Heatmap</h3>
+          <h3 className="flex items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+            <Flame className="size-4 text-gray-400 dark:text-gray-500" />
+            Performance Heatmap
+          </h3>
           <input
             type="text"
             placeholder="Filter tests..."

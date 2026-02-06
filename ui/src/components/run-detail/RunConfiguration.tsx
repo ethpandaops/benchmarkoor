@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import clsx from 'clsx'
+import { Settings } from 'lucide-react'
 import type { InstanceConfig, SystemInfo } from '@/api/types'
 import { formatBytes, formatFrequency } from '@/utils/format'
 
@@ -64,7 +65,10 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
         onClick={() => setExpanded(!expanded)}
         className="flex w-full cursor-pointer items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 text-left hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
       >
-        <h3 className="shrink-0 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Configuration</h3>
+        <h3 className="flex shrink-0 items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+          <Settings className="size-4 text-gray-400 dark:text-gray-500" />
+          Configuration
+        </h3>
         <div className="flex min-w-0 items-center gap-3">
           <span className="truncate text-xs/5 text-gray-500 dark:text-gray-400">{summary}</span>
           <svg

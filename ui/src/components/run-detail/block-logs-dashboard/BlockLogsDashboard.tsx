@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { TabPanel } from '@headlessui/react'
+import { Blocks } from 'lucide-react'
 import type { BlockLogs, SuiteTest } from '@/api/types'
 import { useDashboardState } from './hooks/useDashboardState'
 import { useProcessedData } from './hooks/useProcessedData'
@@ -82,7 +83,10 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
   const header = (
     <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
       <div className="flex items-center gap-3">
-        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Block Logs Analysis</h3>
+        <h3 className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+          <Blocks className="size-4 text-gray-400 dark:text-gray-500" />
+          Block Logs Analysis
+        </h3>
         <a
           href="https://ethresear.ch/t/a-small-step-towards-data-driven-protocol-decisions-unified-slowblock-metrics-across-clients/23907"
           target="_blank"

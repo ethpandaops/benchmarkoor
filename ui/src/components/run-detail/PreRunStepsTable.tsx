@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
+import { ListChecks } from 'lucide-react'
 import type { StepResult, SuiteFile } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
@@ -150,7 +151,10 @@ export function PreRunStepsTable({
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-lg/7 font-semibold text-gray-900 dark:text-gray-100">Pre-Run Steps ({stepCount})</h2>
+      <h2 className="flex items-center gap-2 text-lg/7 font-semibold text-gray-900 dark:text-gray-100">
+        <ListChecks className="size-5 text-gray-400 dark:text-gray-500" />
+        Pre-Run Steps ({stepCount})
+      </h2>
 
       <div className="overflow-x-auto rounded-xs bg-white shadow-xs dark:bg-gray-800">
         <table className="min-w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">

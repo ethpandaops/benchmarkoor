@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
+import { FlaskConical } from 'lucide-react'
 import type { TestEntry, SuiteTest, AggregatedStats, StepResult } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
@@ -270,7 +271,10 @@ export function TestsTable({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-lg/7 font-semibold text-gray-900 dark:text-gray-100">Tests ({sortedTests.length})</h2>
+        <h2 className="flex items-center gap-2 text-lg/7 font-semibold text-gray-900 dark:text-gray-100">
+          <FlaskConical className="size-5 text-gray-400 dark:text-gray-500" />
+          Tests ({sortedTests.length})
+        </h2>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
             {(['all', 'passed', 'failed'] as const).map((status) => (

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
+import { FolderOpen } from 'lucide-react'
 import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
 import { fetchHead } from '@/api/client'
 import { formatBytes } from '@/utils/format'
@@ -436,7 +437,10 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
         onClick={() => setExpanded(!expanded)}
         className="flex cursor-pointer items-center gap-3 border-b border-gray-200 px-4 py-3 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
       >
-        <h3 className="shrink-0 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Files</h3>
+        <h3 className="flex shrink-0 items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+          <FolderOpen className="size-4 text-gray-400 dark:text-gray-500" />
+          Files
+        </h3>
         <div className="flex min-w-0 items-center gap-3 ml-auto">
           <span className="truncate text-xs/5 text-gray-500 dark:text-gray-400">{summary}</span>
           <button
