@@ -3,7 +3,7 @@ import { useQueries } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
-import { FolderOpen, Folder, Check, Copy, Eye, Download, List, ChevronDown, ChevronRight, File, FileText } from 'lucide-react'
+import { FolderOpen, Folder, Check, Copy, Download, List, ChevronDown, ChevronRight, File, FileText } from 'lucide-react'
 import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
 import { fetchHead, type HeadResult } from '@/api/client'
 import { formatBytes } from '@/utils/format'
@@ -231,6 +231,45 @@ function buildFileTree(
   return nodes
 }
 
+function buildDumpsOnlyTree(
+  tests: Record<string, TestEntry>,
+  runId: string,
+  postTestRPCCalls: PostTestRPCCallConfig[],
+): TreeNode[] {
+  const dumpCalls = postTestRPCCalls.filter((c) => c.dump?.enabled && c.dump.filename)
+  if (dumpCalls.length === 0) return []
+
+  const nodes: TreeNode[] = []
+  for (const testName of Object.keys(tests)) {
+    const children: TreeNode[] = []
+    for (const call of dumpCalls) {
+      const filename = `${call.dump!.filename}.json`
+      const path = `runs/${runId}/${testName}/post_test_rpc_calls/${filename}`
+      children.push({
+        id: path,
+        name: filename,
+        type: 'file',
+        entry: {
+          testName,
+          filename,
+          path,
+          displayPath: `post_test_rpc_calls/${filename}`,
+          outputPath: `${runId}/${testName}/post_test_rpc_calls/${filename}`,
+        },
+        depth: 1,
+      })
+    }
+    nodes.push({
+      id: `dir:${testName}`,
+      name: testName,
+      type: 'directory',
+      children,
+      depth: 0,
+    })
+  }
+  return nodes
+}
+
 function collectVisibleFileEntries(nodes: TreeNode[], expandedDirs: Set<string>): FileEntry[] {
   const entries: FileEntry[] = []
   for (const node of nodes) {
@@ -277,7 +316,7 @@ function FileTreeRow({
     return (
       <button
         onClick={() => onToggleDir(node.id)}
-        className="flex w-full items-center gap-2 text-left text-xs/5 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+        className="flex w-full cursor-pointer items-center gap-2 text-left text-xs/5 hover:bg-gray-50 dark:hover:bg-gray-700/50"
         style={{ paddingLeft: node.depth * 20 + 8, height: ROW_HEIGHT }}
       >
         <ChevronRight
@@ -315,14 +354,20 @@ function FileTreeRow({
       {/* Spacer to align with directory chevron */}
       <span className="size-3.5 shrink-0" />
       <FileIcon className="size-4 shrink-0 text-gray-400 dark:text-gray-500" />
-      <span className="min-w-0 truncate font-mono text-gray-900 dark:text-gray-100">
+      <Link
+        to="/runs/$runId/fileviewer"
+        params={{ runId }}
+        search={{ file: entry.path.replace(`runs/${runId}/`, '') }}
+        target="_blank"
+        className="min-w-0 truncate font-mono text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+      >
         {node.name}
         {isChecked && !isAvailable && (
           <span className="ml-2 rounded-full bg-yellow-100 px-1.5 py-0.5 font-sans text-xs font-medium text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300">
             Unavailable
           </span>
         )}
-      </span>
+      </Link>
       <span className="mr-3 ml-auto flex shrink-0 items-center gap-2">
         <span className="w-16 text-right text-gray-500 dark:text-gray-400">
           {!isChecked ? (
@@ -334,28 +379,16 @@ function FileTreeRow({
           )}
         </span>
         {isAvailable && headResult ? (
-          <span className="flex items-center gap-2">
-            <Link
-              to="/runs/$runId/fileviewer"
-              params={{ runId }}
-              search={{ file: entry.path.replace(`runs/${runId}/`, '') }}
-              target="_blank"
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              title="View"
-            >
-              <Eye className="size-4" />
-            </Link>
-            <a
-              href={headResult.url}
-              download={entry.filename}
-              className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-              title="Download"
-            >
-              <Download className="size-4" />
-            </a>
-          </span>
+          <a
+            href={headResult.url}
+            download={entry.filename}
+            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+            title="Download"
+          >
+            <Download className="size-4" />
+          </a>
         ) : (
-          <span className="w-12" />
+          <span className="size-4" />
         )}
       </span>
     </div>
@@ -437,6 +470,7 @@ interface CategoryInfo {
 export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: FilesPanelProps) {
   const [expanded, setExpanded] = useState(showDownloadList)
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set())
+  const [fileFilter, setFileFilter] = useState<'all' | 'dumps'>('all')
   const [downloadCategories, setDownloadCategories] = useState<Set<string>>(() => new Set())
 
   const testNames = useMemo(() => Object.keys(tests), [tests])
@@ -451,11 +485,17 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
 
   const hasPostTestDumps = postTestDumpEntries.length > 0
 
-  // Build the file tree
-  const tree = useMemo(
+  // Build file trees
+  const allTree = useMemo(
     () => buildFileTree(generalEntries, tests, runId, postTestRPCCalls ?? []),
     [generalEntries, tests, runId, postTestRPCCalls],
   )
+  const dumpsTree = useMemo(
+    () => buildDumpsOnlyTree(tests, runId, postTestRPCCalls ?? []),
+    [tests, runId, postTestRPCCalls],
+  )
+
+  const tree = fileFilter === 'dumps' ? dumpsTree : allTree
 
   // Flatten tree into a flat row list for virtualization
   const flatRows = useMemo(
@@ -609,6 +649,24 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
       </div>
       {expanded && (
         <div className="p-4">
+          {hasPostTestDumps && (
+            <div className="mb-3 flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700" style={{ width: 'fit-content' }}>
+              {([{ key: 'all', label: 'All' }, { key: 'dumps', label: 'Post-Test RPC Dumps' }] as const).map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setFileFilter(key)}
+                  className={clsx(
+                    'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                    fileFilter === key
+                      ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                      : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <FileTree
             flatRows={flatRows}
             runId={runId}
