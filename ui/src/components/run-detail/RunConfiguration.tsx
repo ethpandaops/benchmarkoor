@@ -101,39 +101,6 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                 </div>
               )}
 
-              {instance.genesis && (
-                <div>
-                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis</dt>
-                  <dd className="mt-1 flex items-start gap-2">
-                    <span className="break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">
-                      {instance.genesis}
-                    </span>
-                    <CopyButton text={instance.genesis} />
-                  </dd>
-                </div>
-              )}
-
-              {instance.genesis_groups && Object.keys(instance.genesis_groups).length > 0 && (
-                <div>
-                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
-                    Genesis Groups
-                  </dt>
-                  <dd className="mt-1 overflow-x-auto rounded-xs bg-gray-100 p-2 dark:bg-gray-900">
-                    <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
-                      {Object.entries(instance.genesis_groups).map(([hash, path]) => (
-                        <div key={hash} className="flex items-start gap-2">
-                          <span className="break-all">
-                            <span className="text-gray-500 dark:text-gray-400">{hash}: </span>
-                            {path}
-                          </span>
-                          <CopyButton text={path} />
-                        </div>
-                      ))}
-                    </div>
-                  </dd>
-                </div>
-              )}
-
               {instance.command && instance.command.length > 0 && (
                 <div>
                   <dt className="flex items-center gap-2 text-xs/5 font-medium text-gray-500 dark:text-gray-400">
@@ -303,6 +270,39 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       Arbitrary RPC calls executed after each test step. Not timed.
                     </p>
+                  </dd>
+                </div>
+              )}
+
+              {instance.genesis && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis</dt>
+                  <dd className="mt-1 flex items-start gap-2">
+                    <span className="break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                      {instance.genesis}
+                    </span>
+                    <CopyButton text={instance.genesis} />
+                  </dd>
+                </div>
+              )}
+
+              {instance.genesis_groups && Object.keys(instance.genesis_groups).length > 0 && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+                    Genesis Groups
+                  </dt>
+                  <dd className="mt-1 overflow-x-auto rounded-xs bg-gray-100 p-2 dark:bg-gray-900">
+                    <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                      {Object.entries(instance.genesis_groups).map(([hash, path]) => (
+                        <div key={hash} className="flex items-start gap-2">
+                          <span className="break-all">
+                            <span className="text-gray-500 dark:text-gray-400">{hash}: </span>
+                            {path}
+                          </span>
+                          <CopyButton text={path} />
+                        </div>
+                      ))}
+                    </div>
                   </dd>
                 </div>
               )}
