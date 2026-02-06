@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
 import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
@@ -18,7 +18,7 @@ interface FilesPanelProps {
   showDownloadList: boolean
   downloadFormat: DownloadListFormat
   onShowDownloadListChange: (open: boolean) => void
-  onDownloadFormatChange: (format: string) => void
+  onDownloadFormatChange: (format: DownloadListFormat) => void
 }
 
 interface FileEntry {
@@ -84,18 +84,10 @@ function FileListTab({
   entries,
   queryKeyPrefix,
   emptyMessage,
-  showDownloadList,
-  downloadFormat,
-  onShowDownloadListChange,
-  onDownloadFormatChange,
 }: {
   entries: FileEntry[]
   queryKeyPrefix: string
   emptyMessage: string
-  showDownloadList: boolean
-  downloadFormat: DownloadListFormat
-  onShowDownloadListChange: (open: boolean) => void
-  onDownloadFormatChange: (format: string) => void
 }) {
   const [sortDir, setSortDir] = useState<SortDirection>('asc')
   const [currentPage, setCurrentPage] = useState(1)
@@ -124,19 +116,6 @@ function FileListTab({
     })),
   })
 
-  const [downloadListText, setDownloadListText] = useState('')
-  useEffect(() => {
-    loadRuntimeConfig().then((cfg) => {
-      const lines = entries.map((e) => {
-        const url = getDataUrl(e.path, cfg)
-        return downloadFormat === 'urls'
-          ? toAbsoluteUrl(url)
-          : `curl -fsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`
-      })
-      setDownloadListText(lines.join('\n'))
-    })
-  }, [entries, downloadFormat])
-
   if (entries.length === 0) {
     return (
       <div className="py-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">
@@ -147,48 +126,6 @@ function FileListTab({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <button
-          onClick={() => onShowDownloadListChange(true)}
-          className="ml-auto flex items-center gap-1.5 rounded-xs border border-gray-300 px-2 py-1 text-xs/5 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-        >
-          <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-          </svg>
-          Generate download list
-        </button>
-      </div>
-      <Modal isOpen={showDownloadList} onClose={() => onShowDownloadListChange(false)} title="Download List" className="max-w-3xl">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
-                {([{ key: 'urls', label: 'Plain URLs' }, { key: 'curl', label: 'curl' }] as const).map(({ key, label }) => (
-                  <button
-                    key={key}
-                    onClick={() => onDownloadFormatChange(key)}
-                    className={clsx(
-                      'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                      downloadFormat === key
-                        ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <span className="text-xs/5 text-gray-500 dark:text-gray-400">
-                {entries.length} file{entries.length !== 1 ? 's' : ''}
-              </span>
-            </div>
-            <CopyButton text={downloadListText} />
-          </div>
-          <pre className="max-h-96 overflow-auto rounded-xs bg-gray-100 p-3 font-mono text-xs/5 text-gray-900 select-all dark:bg-gray-900 dark:text-gray-100">
-            {downloadListText}
-          </pre>
-        </div>
-      </Modal>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
@@ -360,11 +297,20 @@ function buildPostTestDumpEntries(runId: string, testNames: string[], postTestRP
   return entries
 }
 
+// --- Category entry map keyed by tab key ---
+
+interface CategoryInfo {
+  key: string
+  label: string
+  entries: FileEntry[]
+}
+
 // --- FilesPanel ---
 
 export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: FilesPanelProps) {
   const [expanded, setExpanded] = useState(showDownloadList)
   const [activeTab, setActiveTab] = useState('general')
+  const [downloadCategories, setDownloadCategories] = useState<Set<string>>(() => new Set())
 
   const testNames = useMemo(() => Object.keys(tests), [tests])
 
@@ -378,39 +324,124 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
 
   const hasPostTestDumps = postTestDumpEntries.length > 0
 
-  const tabs = useMemo(() => {
-    const result: { key: string; label: string; badge: string }[] = []
-    result.push({ key: 'general', label: 'General', badge: String(generalEntries.length) })
-    result.push({ key: 'test-stats', label: 'Stats', badge: String(testStatsEntries.length) })
-    result.push({ key: 'test-responses', label: 'Responses', badge: String(testResponsesEntries.length) })
+  const categories: CategoryInfo[] = useMemo(() => {
+    const result: CategoryInfo[] = [
+      { key: 'general', label: 'General', entries: generalEntries },
+      { key: 'test-stats', label: 'Stats', entries: testStatsEntries },
+      { key: 'test-responses', label: 'Responses', entries: testResponsesEntries },
+    ]
     if (hasPostTestDumps) {
-      result.push({ key: 'post-test-rpc-dumps', label: 'Post-Test RPC Dumps', badge: String(postTestDumpEntries.length) })
+      result.push({ key: 'post-test-rpc-dumps', label: 'Post-Test RPC Dumps', entries: postTestDumpEntries })
     }
     return result
-  }, [generalEntries.length, testStatsEntries.length, testResponsesEntries.length, postTestDumpEntries.length, hasPostTestDumps])
+  }, [generalEntries, testStatsEntries, testResponsesEntries, postTestDumpEntries, hasPostTestDumps])
+
+  const tabs = useMemo(
+    () => categories.map((c) => ({ key: c.key, label: c.label, badge: String(c.entries.length) })),
+    [categories],
+  )
+
+  // Auto-select all categories (including newly appearing ones like post-test dumps)
+  useEffect(() => {
+    const allKeys = categories.map((c) => c.key)
+    setDownloadCategories((prev) => {
+      const next = new Set(prev)
+      let changed = false
+      for (const key of allKeys) {
+        if (!next.has(key)) {
+          next.add(key)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [categories])
+
+  const toggleCategory = useCallback((key: string) => {
+    setDownloadCategories((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }, [])
+
+  const downloadEntries = useMemo(() => {
+    const entries: FileEntry[] = []
+    for (const cat of categories) {
+      if (downloadCategories.has(cat.key)) {
+        entries.push(...cat.entries)
+      }
+    }
+    return entries
+  }, [categories, downloadCategories])
+
+  const [downloadListText, setDownloadListText] = useState('')
+  useEffect(() => {
+    if (downloadEntries.length === 0) {
+      setDownloadListText('')
+      return
+    }
+    loadRuntimeConfig().then((cfg) => {
+      const lines = downloadEntries.map((e) => {
+        const url = getDataUrl(e.path, cfg)
+        return downloadFormat === 'urls'
+          ? toAbsoluteUrl(url)
+          : `curl -fsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`
+      })
+      setDownloadListText(lines.join('\n'))
+    })
+  }, [downloadEntries, downloadFormat])
+
+  const handleDownloadFile = useCallback(() => {
+    if (!downloadListText) return
+    const isCurl = downloadFormat === 'curl'
+    const content = isCurl ? `#!/bin/sh\n${downloadListText}` : downloadListText
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = isCurl ? `${runId}.sh` : `${runId}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [downloadListText, downloadFormat, runId])
 
   const totalEntries = generalEntries.length + testStatsEntries.length + testResponsesEntries.length + postTestDumpEntries.length
   const summary = `${totalEntries} file${totalEntries !== 1 ? 's' : ''}`
 
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 text-left hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
-      >
+      <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
         <h3 className="shrink-0 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Files</h3>
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3 ml-auto">
           <span className="truncate text-xs/5 text-gray-500 dark:text-gray-400">{summary}</span>
-          <svg
-            className={clsx('size-5 shrink-0 text-gray-500 transition-transform', expanded && 'rotate-180')}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+          <button
+            onClick={(e) => { e.stopPropagation(); onShowDownloadListChange(true) }}
+            className="flex shrink-0 items-center gap-1.5 rounded-xs border border-gray-300 px-2 py-1 text-xs/5 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+            <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+            Download list
+          </button>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="shrink-0 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+          >
+            <svg
+              className={clsx('size-5 transition-transform', expanded && 'rotate-180')}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
         </div>
-      </button>
+      </div>
       {expanded && (
         <div>
           <div className="flex gap-1 border-b border-gray-200 px-4 dark:border-gray-700">
@@ -438,10 +469,6 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
                 entries={generalEntries}
                 queryKeyPrefix="file-panel"
                 emptyMessage="No general files found"
-                showDownloadList={showDownloadList}
-                downloadFormat={downloadFormat}
-                onShowDownloadListChange={onShowDownloadListChange}
-                onDownloadFormatChange={onDownloadFormatChange}
               />
             )}
             {activeTab === 'test-stats' && (
@@ -449,10 +476,6 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
                 entries={testStatsEntries}
                 queryKeyPrefix="file-panel"
                 emptyMessage="No test stats files found"
-                showDownloadList={showDownloadList}
-                downloadFormat={downloadFormat}
-                onShowDownloadListChange={onShowDownloadListChange}
-                onDownloadFormatChange={onDownloadFormatChange}
               />
             )}
             {activeTab === 'test-responses' && (
@@ -460,10 +483,6 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
                 entries={testResponsesEntries}
                 queryKeyPrefix="file-panel"
                 emptyMessage="No test response files found"
-                showDownloadList={showDownloadList}
-                downloadFormat={downloadFormat}
-                onShowDownloadListChange={onShowDownloadListChange}
-                onDownloadFormatChange={onDownloadFormatChange}
               />
             )}
             {activeTab === 'post-test-rpc-dumps' && hasPostTestDumps && (
@@ -471,15 +490,80 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
                 entries={postTestDumpEntries}
                 queryKeyPrefix="file-panel"
                 emptyMessage="No dump files found"
-                showDownloadList={showDownloadList}
-                downloadFormat={downloadFormat}
-                onShowDownloadListChange={onShowDownloadListChange}
-                onDownloadFormatChange={onDownloadFormatChange}
               />
             )}
           </div>
         </div>
       )}
+      <Modal isOpen={showDownloadList} onClose={() => onShowDownloadListChange(false)} title="Download List" className="max-w-3xl">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
+                {([{ key: 'curl', label: 'curl' }, { key: 'urls', label: 'Plain URLs' }] as const).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => onDownloadFormatChange(key)}
+                    className={clsx(
+                      'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                      downloadFormat === key
+                        ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400">
+                {downloadEntries.length} file{downloadEntries.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CopyButton text={downloadListText} />
+              <button
+                onClick={handleDownloadFile}
+                disabled={!downloadListText}
+                className="shrink-0 text-gray-400 hover:text-gray-600 disabled:opacity-50 dark:hover:text-gray-200"
+                title="Download as file"
+              >
+                <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Include:</span>
+            {categories.map((cat) => (
+              <button
+                key={cat.key}
+                onClick={() => toggleCategory(cat.key)}
+                className={clsx(
+                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                  downloadCategories.has(cat.key)
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                    : 'bg-gray-100 text-gray-600 hover:text-gray-900 dark:bg-gray-700 dark:text-gray-400 dark:hover:text-gray-100',
+                )}
+              >
+                {cat.label} ({cat.entries.length})
+              </button>
+            ))}
+          </div>
+          <pre className="max-h-96 overflow-auto rounded-xs bg-gray-100 p-3 font-mono text-xs/5 text-gray-900 select-all dark:bg-gray-900 dark:text-gray-100">
+            {downloadListText || 'No files selected'}
+          </pre>
+          {downloadFormat === 'curl' && downloadListText && (
+            <p className="text-xs/5 text-gray-500 dark:text-gray-400">
+              Download{' '}
+              <button onClick={handleDownloadFile} className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+                {runId}.sh
+              </button>
+              . Run with: <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">chmod +x {runId}.sh && ./{runId}.sh</code>{' '}<CopyButton text={`chmod +x ${runId}.sh && ./${runId}.sh`} />
+            </p>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }

@@ -230,7 +230,7 @@ export function RunDetailPage() {
   }
 
   const handleDownloadFormatChange = (format: string) => {
-    updateSearch({ dlFmt: format !== 'urls' ? format : undefined })
+    updateSearch({ dlFmt: format !== 'curl' ? format : undefined })
   }
 
   if (isLoading) {
@@ -489,7 +489,7 @@ export function RunDetailPage() {
         tests={result.tests}
         postTestRPCCalls={config.instance.post_test_rpc_calls}
         showDownloadList={dlModal}
-        downloadFormat={(dlFmt as 'urls' | 'curl') ?? 'urls'}
+        downloadFormat={(dlFmt as 'urls' | 'curl') ?? 'curl'}
         onShowDownloadListChange={handleDownloadListModalChange}
         onDownloadFormatChange={handleDownloadFormatChange}
       />
