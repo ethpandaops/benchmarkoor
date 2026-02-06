@@ -133,7 +133,7 @@ export function RunDetailPage() {
   const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
-  const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
+  const { data: result, isLoading: resultLoading, refetch: refetchResult } = useRunResult(runId)
   const { data: suite } = useSuite(config?.suite_hash ?? '')
   const { data: index } = useIndex()
   const { data: containerLog } = useQuery({
@@ -155,7 +155,7 @@ export function RunDetailPage() {
   const { data: blockLogs } = useBlockLogs(runId)
 
   const isLoading = configLoading || resultLoading
-  const error = configError || resultError
+  const error = configError
 
   const updateSearch = (updates: Partial<typeof search>) => {
     navigate({
@@ -250,7 +250,7 @@ export function RunDetailPage() {
     )
   }
 
-  if (!config || !result) {
+  if (!config) {
     return <ErrorState message="Run not found" />
   }
 
@@ -263,8 +263,11 @@ export function RunDetailPage() {
     (s): s is IndexStepType => ALL_INDEX_STEP_TYPES.includes(s as IndexStepType),
   )
 
-  const testCount = Object.keys(result.tests).length
-  const aggregatedStats = Object.values(result.tests).map((t) => getAggregatedStats(t, stepFilter)).filter((s): s is AggregatedStats => s !== undefined)
+  // Compute result-dependent stats only when result.json is available.
+  const testCount = result ? Object.keys(result.tests).length : 0
+  const aggregatedStats = result
+    ? Object.values(result.tests).map((t) => getAggregatedStats(t, stepFilter)).filter((s): s is AggregatedStats => s !== undefined)
+    : []
   const passedTests = aggregatedStats.filter((s) => s.fail === 0).length
   const failedTests = aggregatedStats.filter((s) => s.fail > 0).length
   const totalDuration = aggregatedStats.reduce((sum, s) => sum + s.time_total, 0)
@@ -386,96 +389,113 @@ export function RunDetailPage() {
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <ClientStat client={config.instance.client} runId={config.instance.id} />
-        <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-          <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Tests</p>
-          <p className="mt-1 flex items-center gap-2 text-2xl/8 font-semibold">
-            <span className="text-gray-900 dark:text-gray-100">{testCount}</span>
-            <span className="text-gray-400 dark:text-gray-500">/</span>
-            <span className="text-green-600 dark:text-green-400">{passedTests}</span>
-            {failedTests > 0 && (
-              <>
+        {result ? (
+          <>
+            <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+              <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Tests</p>
+              <p className="mt-1 flex items-center gap-2 text-2xl/8 font-semibold">
+                <span className="text-gray-900 dark:text-gray-100">{testCount}</span>
                 <span className="text-gray-400 dark:text-gray-500">/</span>
-                <span className="text-red-600 dark:text-red-400">{failedTests}</span>
-              </>
-            )}
-          </p>
-        </div>
-        <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-          <div className="flex items-center justify-between">
-            <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">MGas/s</p>
-            <div className="flex items-center gap-1">
-              {ALL_STEP_TYPES.map((step) => (
-                <button
-                  key={step}
-                  onClick={() => {
-                    const newFilter = stepFilter.includes(step)
-                      ? stepFilter.filter((s) => s !== step)
-                      : [...stepFilter, step]
-                    if (newFilter.length > 0) {
-                      handleStepFilterChange(newFilter)
-                    }
-                  }}
-                  className={`rounded-xs px-1.5 py-0.5 text-xs font-medium transition-colors ${
-                    stepFilter.includes(step)
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                      : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
-                  }`}
-                  title={`${stepFilter.includes(step) ? 'Exclude' : 'Include'} ${step} step in MGas/s calculation`}
-                >
-                  {step.charAt(0).toUpperCase()}
-                </button>
-              ))}
+                <span className="text-green-600 dark:text-green-400">{passedTests}</span>
+                {failedTests > 0 && (
+                  <>
+                    <span className="text-gray-400 dark:text-gray-500">/</span>
+                    <span className="text-red-600 dark:text-red-400">{failedTests}</span>
+                  </>
+                )}
+              </p>
             </div>
+            <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+              <div className="flex items-center justify-between">
+                <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">MGas/s</p>
+                <div className="flex items-center gap-1">
+                  {ALL_STEP_TYPES.map((step) => (
+                    <button
+                      key={step}
+                      onClick={() => {
+                        const newFilter = stepFilter.includes(step)
+                          ? stepFilter.filter((s) => s !== step)
+                          : [...stepFilter, step]
+                        if (newFilter.length > 0) {
+                          handleStepFilterChange(newFilter)
+                        }
+                      }}
+                      className={`rounded-xs px-1.5 py-0.5 text-xs font-medium transition-colors ${
+                        stepFilter.includes(step)
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                          : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
+                      }`}
+                      title={`${stepFilter.includes(step) ? 'Exclude' : 'Include'} ${step} step in MGas/s calculation`}
+                    >
+                      {step.charAt(0).toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
+                {mgasPerSec !== undefined ? mgasPerSec.toFixed(2) : '-'}
+              </p>
+              <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
+                <span title={`${formatNumber(totalGasUsed)} gas`}>
+                  {totalGasUsed >= 1_000_000_000
+                    ? `${(totalGasUsed / 1_000_000_000).toFixed(2)} GGas`
+                    : `${(totalGasUsed / 1_000_000).toFixed(2)} MGas`}
+                </span>
+                {' '}in <Duration nanoseconds={totalGasUsedTime} />
+              </p>
+            </div>
+            <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+              <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Calls</p>
+              <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
+                {formatNumber(totalMsgCount)}
+              </p>
+              {Object.keys(methodCounts).length > 0 && (
+                <div className="mt-2 flex flex-col gap-0.5 text-xs/5 text-gray-500 dark:text-gray-400">
+                  {Object.entries(methodCounts)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([method, count]) => (
+                      <div key={method} className="flex justify-between gap-2">
+                        <span>{method}</span>
+                        <span>{formatNumber(count)}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+            <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+              <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Test Duration</p>
+              <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
+                <Duration nanoseconds={totalDuration} />
+              </p>
+              <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
+                Started at
+              </p>
+              <p className="text-xs/5 text-gray-900 dark:text-gray-100">
+                {formatTimestamp(config.timestamp)}
+              </p>
+            </div>
+          </>
+        ) : (
+          <div className="col-span-4 rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+            <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Results</p>
+            <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-400">
+              No result.json available. The run may still be in progress or may have failed before producing results.
+            </p>
+            <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
+              Started at
+            </p>
+            <p className="text-xs/5 text-gray-900 dark:text-gray-100">
+              {formatTimestamp(config.timestamp)}
+            </p>
           </div>
-          <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
-            {mgasPerSec !== undefined ? mgasPerSec.toFixed(2) : '-'}
-          </p>
-          <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
-            <span title={`${formatNumber(totalGasUsed)} gas`}>
-              {totalGasUsed >= 1_000_000_000
-                ? `${(totalGasUsed / 1_000_000_000).toFixed(2)} GGas`
-                : `${(totalGasUsed / 1_000_000).toFixed(2)} MGas`}
-            </span>
-            {' '}in <Duration nanoseconds={totalGasUsedTime} />
-          </p>
-        </div>
-        <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-          <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Calls</p>
-          <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
-            {formatNumber(totalMsgCount)}
-          </p>
-          {Object.keys(methodCounts).length > 0 && (
-            <div className="mt-2 flex flex-col gap-0.5 text-xs/5 text-gray-500 dark:text-gray-400">
-              {Object.entries(methodCounts)
-                .sort(([, a], [, b]) => b - a)
-                .map(([method, count]) => (
-                  <div key={method} className="flex justify-between gap-2">
-                    <span>{method}</span>
-                    <span>{formatNumber(count)}</span>
-                  </div>
-                ))}
-            </div>
-          )}
-        </div>
-        <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-          <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Test Duration</p>
-          <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
-            <Duration nanoseconds={totalDuration} />
-          </p>
-          <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
-            Started at
-          </p>
-          <p className="text-xs/5 text-gray-900 dark:text-gray-100">
-            {formatTimestamp(config.timestamp)}
-          </p>
-        </div>
+        )}
       </div>
 
       <RunConfiguration instance={config.instance} system={config.system} />
 
       <FilesPanel
         runId={runId}
-        tests={result.tests}
+        tests={result?.tests ?? {}}
         postTestRPCCalls={config.instance.post_test_rpc_calls}
         showDownloadList={dlModal}
         downloadFormat={(dlFmt as 'urls' | 'curl') ?? 'curl'}
@@ -483,102 +503,106 @@ export function RunDetailPage() {
         onDownloadFormatChange={handleDownloadFormatChange}
       />
 
-      <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
-            <Flame className="size-4 text-gray-400 dark:text-gray-500" />
-            Performance Heatmap
-          </h3>
-          <input
-            type="text"
-            placeholder="Filter tests..."
-            value={q}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
-          />
-        </div>
-        <TestHeatmap
-          tests={result.tests}
-          suiteTests={suite?.tests}
-          runId={runId}
-          suiteHash={config.suite_hash}
-          selectedTest={testModal}
-          statusFilter={status}
-          searchQuery={q}
-          sortMode={heatmapSort}
-          threshold={heatmapThreshold}
-          stepFilter={stepFilter}
-          postTestRPCCalls={config.instance.post_test_rpc_calls}
-          onSelectedTestChange={handleTestModalChange}
-          onSortModeChange={handleHeatmapSortChange}
-          onThresholdChange={handleHeatmapThresholdChange}
-          onSearchChange={handleSearchChange}
-        />
-      </div>
+      {result && (
+        <>
+          <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+                <Flame className="size-4 text-gray-400 dark:text-gray-500" />
+                Performance Heatmap
+              </h3>
+              <input
+                type="text"
+                placeholder="Filter tests..."
+                value={q}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+              />
+            </div>
+            <TestHeatmap
+              tests={result.tests}
+              suiteTests={suite?.tests}
+              runId={runId}
+              suiteHash={config.suite_hash}
+              selectedTest={testModal}
+              statusFilter={status}
+              searchQuery={q}
+              sortMode={heatmapSort}
+              threshold={heatmapThreshold}
+              stepFilter={stepFilter}
+              postTestRPCCalls={config.instance.post_test_rpc_calls}
+              onSelectedTestChange={handleTestModalChange}
+              onSortModeChange={handleHeatmapSortChange}
+              onThresholdChange={handleHeatmapThresholdChange}
+              onSearchChange={handleSearchChange}
+            />
+          </div>
 
-      {suite?.tests && suite.tests.length > 0 && (
-        <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-          <OpcodeHeatmap
-            tests={suite.tests}
-            extraColumns={[{
-              name: 'Mgas/s',
-              getValue: (testIndex: number) => {
-                const testName = suite.tests[testIndex]?.name
-                if (!testName) return undefined
-                const entry = result.tests[testName]
-                if (!entry) return undefined
-                const stats = getAggregatedStats(entry, stepFilter)
-                if (!stats || stats.gas_used_time_total <= 0) return undefined
-                return (stats.gas_used_total * 1000) / stats.gas_used_time_total
-              },
-              width: 54,
-              format: (v: number) => v.toFixed(1),
-            }]}
-            onTestClick={(testIndex) => handleTestModalChange(suite.tests[testIndex - 1]?.name)}
+          {suite?.tests && suite.tests.length > 0 && (
+            <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+              <OpcodeHeatmap
+                tests={suite.tests}
+                extraColumns={[{
+                  name: 'Mgas/s',
+                  getValue: (testIndex: number) => {
+                    const testName = suite.tests[testIndex]?.name
+                    if (!testName) return undefined
+                    const entry = result.tests[testName]
+                    if (!entry) return undefined
+                    const stats = getAggregatedStats(entry, stepFilter)
+                    if (!stats || stats.gas_used_time_total <= 0) return undefined
+                    return (stats.gas_used_total * 1000) / stats.gas_used_time_total
+                  },
+                  width: 54,
+                  format: (v: number) => v.toFixed(1),
+                }]}
+                onTestClick={(testIndex) => handleTestModalChange(suite.tests[testIndex - 1]?.name)}
+                searchQuery={q}
+                onSearchChange={handleSearchChange}
+                fullscreen={ohFs}
+                onFullscreenChange={handleOpcodeHeatmapFullscreenChange}
+              />
+            </div>
+          )}
+
+          {blockLogs && Object.keys(blockLogs).length > 0 && (
+            <BlockLogsDashboard blockLogs={blockLogs} runId={runId} suiteTests={suite?.tests} onTestClick={handleTestModalChange} searchQuery={q} onSearchChange={handleSearchChange} fullscreen={blFs} onFullscreenChange={handleBlockLogsFullscreenChange} />
+          )}
+
+          <ResourceUsageCharts
+            tests={result.tests}
+            onTestClick={handleTestModalChange}
+            resourceCollectionMethod={config.system_resource_collection_method}
+          />
+
+          {result.pre_run_steps && Object.keys(result.pre_run_steps).length > 0 && (
+            <PreRunStepsTable
+              preRunSteps={result.pre_run_steps}
+              suitePreRunSteps={suite?.pre_run_steps}
+              runId={runId}
+              suiteHash={config.suite_hash}
+            />
+          )}
+
+          <TestsTable
+            tests={result.tests}
+            suiteTests={suite?.tests}
+            currentPage={page}
+            pageSize={pageSize}
+            sortBy={sortBy}
+            sortDir={sortDir}
             searchQuery={q}
+            statusFilter={status}
+            stepFilter={stepFilter}
+            onPageChange={handlePageChange}
+            onPageSizeChange={handlePageSizeChange}
+            onSortChange={handleSortChange}
             onSearchChange={handleSearchChange}
-            fullscreen={ohFs}
-            onFullscreenChange={handleOpcodeHeatmapFullscreenChange}
+            onStatusFilterChange={handleStatusFilterChange}
+            onTestClick={handleTestModalChange}
           />
-        </div>
+        </>
       )}
-
-      {blockLogs && Object.keys(blockLogs).length > 0 && (
-        <BlockLogsDashboard blockLogs={blockLogs} runId={runId} suiteTests={suite?.tests} onTestClick={handleTestModalChange} searchQuery={q} onSearchChange={handleSearchChange} fullscreen={blFs} onFullscreenChange={handleBlockLogsFullscreenChange} />
-      )}
-
-      <ResourceUsageCharts
-        tests={result.tests}
-        onTestClick={handleTestModalChange}
-        resourceCollectionMethod={config.system_resource_collection_method}
-      />
-
-      {result.pre_run_steps && Object.keys(result.pre_run_steps).length > 0 && (
-        <PreRunStepsTable
-          preRunSteps={result.pre_run_steps}
-          suitePreRunSteps={suite?.pre_run_steps}
-          runId={runId}
-          suiteHash={config.suite_hash}
-        />
-      )}
-
-      <TestsTable
-        tests={result.tests}
-        suiteTests={suite?.tests}
-        currentPage={page}
-        pageSize={pageSize}
-        sortBy={sortBy}
-        sortDir={sortDir}
-        searchQuery={q}
-        statusFilter={status}
-        stepFilter={stepFilter}
-        onPageChange={handlePageChange}
-        onPageSizeChange={handlePageSizeChange}
-        onSortChange={handleSortChange}
-        onSearchChange={handleSearchChange}
-        onStatusFilterChange={handleStatusFilterChange}
-        onTestClick={handleTestModalChange}
-      />
     </div>
   )
 }
