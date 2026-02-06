@@ -54,6 +54,7 @@ func (s *erigonSpec) DefaultCommand() []string {
 		"--fcu.timeout=0",                 // Setting to 0 disables async FCU treatment (Default is 1s and then goes async)
 		"--fcu.background.prune=false",    // Disables background pruning post FCU
 		//"--fcu.background.commit=false",   // Needs erigon > v3.3.7
+		"--sync.parallel-state-flushing=false", // Disable parallel state flushing
 	}
 }
 
