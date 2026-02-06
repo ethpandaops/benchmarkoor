@@ -1,16 +1,15 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
 import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
-import { fetchHead, type HeadResult } from '@/api/client'
+import { fetchHead } from '@/api/client'
 import { formatBytes } from '@/utils/format'
-import { toAbsoluteUrl } from '@/config/runtime'
+import { getDataUrl, loadRuntimeConfig, toAbsoluteUrl } from '@/config/runtime'
 import { Modal } from '@/components/shared/Modal'
 import { Pagination } from '@/components/shared/Pagination'
 
 type DownloadListFormat = 'urls' | 'curl'
-type FileSortColumn = 'path' | 'size'
-type FileSortDirection = 'asc' | 'desc'
+type SortDirection = 'asc' | 'desc'
 
 interface FilesPanelProps {
   runId: string
@@ -28,20 +27,6 @@ interface FileEntry {
   path: string
   displayPath: string
   outputPath: string
-}
-
-type FileStatus = 'available' | 'unavailable'
-type FileFilter = 'all' | 'unavailable'
-
-interface ResolvedFile {
-  entry: FileEntry
-  info: HeadResult
-  status: FileStatus
-}
-
-function resolveFileStatus(info: HeadResult): FileStatus {
-  if (!info.exists) return 'unavailable'
-  return 'available'
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -79,7 +64,7 @@ function CopyButton({ text }: { text: string }) {
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
 
-function SortIcon({ direction, active }: { direction: FileSortDirection; active: boolean }) {
+function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
   return (
     <svg
       className={clsx('ml-1 inline-block size-3', active ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400')}
@@ -91,68 +76,9 @@ function SortIcon({ direction, active }: { direction: FileSortDirection; active:
   )
 }
 
-function SortableHeader({
-  label,
-  column,
-  currentSort,
-  currentDirection,
-  onSort,
-  className,
-}: {
-  label: string
-  column: FileSortColumn
-  currentSort: FileSortColumn
-  currentDirection: FileSortDirection
-  onSort: (column: FileSortColumn) => void
-  className?: string
-}) {
-  const isActive = currentSort === column
-  return (
-    <th
-      onClick={() => onSort(column)}
-      className={clsx(
-        'cursor-pointer select-none pb-2 pr-3 font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
-        className,
-      )}
-    >
-      {label}
-      <SortIcon direction={isActive ? currentDirection : 'asc'} active={isActive} />
-    </th>
-  )
-}
-
-// --- Generic file stats hook ---
-
-function useFileStats(entries: FileEntry[], queryKeyPrefix: string) {
-  const fileQueries = useQueries({
-    queries: entries.map((entry) => ({
-      queryKey: [queryKeyPrefix, entry.path],
-      queryFn: () => fetchHead(entry.path),
-      staleTime: Infinity,
-    })),
-  })
-
-  return useMemo(() => {
-    const isLoading = fileQueries.some((q) => q.isLoading)
-    let fileCount = 0
-    let totalSize = 0
-    let unavailableCount = 0
-    for (const q of fileQueries) {
-      if (q.data) {
-        const status = resolveFileStatus(q.data)
-        if (status === 'available') {
-          fileCount++
-          if (q.data.size != null) totalSize += q.data.size
-        } else {
-          unavailableCount++
-        }
-      }
-    }
-    return { isLoading, fileCount, totalSize, unavailableCount }
-  }, [fileQueries])
-}
-
 // --- Generic FileListTab component ---
+// Sorts and paginates entries statically, then only fires HEAD requests
+// for the visible page to resolve sizes and availability.
 
 function FileListTab({
   entries,
@@ -171,103 +97,47 @@ function FileListTab({
   onShowDownloadListChange: (open: boolean) => void
   onDownloadFormatChange: (format: string) => void
 }) {
-  const [filter, setFilter] = useState<FileFilter>('all')
-  const [sortBy, setSortBy] = useState<FileSortColumn>('path')
-  const [sortDir, setSortDir] = useState<FileSortDirection>('asc')
+  const [sortDir, setSortDir] = useState<SortDirection>('asc')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
 
-  const handleSort = (column: FileSortColumn) => {
-    if (sortBy === column) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    } else {
-      setSortBy(column)
-      setSortDir('asc')
-    }
-    setCurrentPage(1)
-  }
+  const sortedEntries = useMemo(() => {
+    const sorted = [...entries]
+    sorted.sort((a, b) => {
+      const pathA = `${a.testName}/${a.displayPath}`
+      const pathB = `${b.testName}/${b.displayPath}`
+      const cmp = pathA.localeCompare(pathB)
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [entries, sortDir])
 
-  const fileQueries = useQueries({
-    queries: entries.map((entry) => ({
+  const totalPages = Math.ceil(sortedEntries.length / pageSize)
+  const pageEntries = sortedEntries.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  // Only HEAD the entries visible on the current page
+  const pageQueries = useQueries({
+    queries: pageEntries.map((entry) => ({
       queryKey: [queryKeyPrefix, entry.path],
       queryFn: () => fetchHead(entry.path),
       staleTime: Infinity,
     })),
   })
 
-  const isLoading = fileQueries.some((q) => q.isLoading)
-
-  const { allFiles, unavailableCount } = useMemo(() => {
-    const all: ResolvedFile[] = []
-    let unavailable = 0
-    for (let i = 0; i < entries.length; i++) {
-      const data = fileQueries[i]?.data
-      if (!data) continue
-      const status = resolveFileStatus(data)
-      if (status === 'unavailable') unavailable++
-      all.push({ entry: entries[i], info: data, status })
-    }
-    return { allFiles: all, unavailableCount: unavailable }
-  }, [entries, fileQueries])
-
-  const availableFiles = useMemo(
-    () => allFiles.filter((f) => f.status === 'available').map((f) => ({
-      url: f.info.url,
-      outputPath: f.entry.outputPath,
-    })),
-    [allFiles],
-  )
-
-  const filteredFiles = useMemo(() => {
-    if (filter === 'all') return allFiles
-    return allFiles.filter((f) => f.status === 'unavailable')
-  }, [allFiles, filter])
-
-  const [prevFilter, setPrevFilter] = useState(filter)
-  if (filter !== prevFilter) {
-    setPrevFilter(filter)
-    setCurrentPage(1)
-  }
-
-  const sortedFiles = useMemo(() => {
-    const sorted = [...filteredFiles]
-    sorted.sort((a, b) => {
-      let cmp = 0
-      if (sortBy === 'path') {
-        const pathA = `${a.entry.testName}/${a.entry.displayPath}`
-        const pathB = `${b.entry.testName}/${b.entry.displayPath}`
-        cmp = pathA.localeCompare(pathB)
-      } else {
-        const sizeA = a.info.size ?? -1
-        const sizeB = b.info.size ?? -1
-        cmp = sizeA - sizeB
-      }
-      return sortDir === 'asc' ? cmp : -cmp
+  const [downloadListText, setDownloadListText] = useState('')
+  useEffect(() => {
+    loadRuntimeConfig().then((cfg) => {
+      const lines = entries.map((e) => {
+        const url = getDataUrl(e.path, cfg)
+        return downloadFormat === 'urls'
+          ? toAbsoluteUrl(url)
+          : `curl -fsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`
+      })
+      setDownloadListText(lines.join('\n'))
     })
-    return sorted
-  }, [filteredFiles, sortBy, sortDir])
+  }, [entries, downloadFormat])
 
-  const totalPages = Math.ceil(sortedFiles.length / pageSize)
-  const paginatedFiles = sortedFiles.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-
-  const downloadListText = useMemo(() => {
-    if (downloadFormat === 'urls') {
-      return availableFiles.map((f) => toAbsoluteUrl(f.url)).join('\n')
-    }
-    return availableFiles
-      .map((f) => `curl -gsSL --create-dirs -o '${f.outputPath}' '${toAbsoluteUrl(f.url)}'`)
-      .join('\n')
-  }, [availableFiles, downloadFormat])
-
-  if (isLoading) {
-    return (
-      <div className="py-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">
-        Loading files...
-      </div>
-    )
-  }
-
-  if (allFiles.length === 0) {
+  if (entries.length === 0) {
     return (
       <div className="py-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">
         {emptyMessage}
@@ -278,35 +148,15 @@ function FileListTab({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
-        {unavailableCount > 0 && (
-          <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
-            {(['all', 'unavailable'] as const).map((value) => (
-              <button
-                key={value}
-                onClick={() => setFilter(value)}
-                className={clsx(
-                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                  filter === value
-                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-                )}
-              >
-                {value === 'all' ? `All (${allFiles.length})` : `Unavailable (${unavailableCount})`}
-              </button>
-            ))}
-          </div>
-        )}
-        {availableFiles.length > 0 && (
-          <button
-            onClick={() => onShowDownloadListChange(true)}
-            className="ml-auto flex items-center gap-1.5 rounded-xs border border-gray-300 px-2 py-1 text-xs/5 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-            </svg>
-            Generate download list
-          </button>
-        )}
+        <button
+          onClick={() => onShowDownloadListChange(true)}
+          className="ml-auto flex items-center gap-1.5 rounded-xs border border-gray-300 px-2 py-1 text-xs/5 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+        >
+          <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+          </svg>
+          Generate download list
+        </button>
       </div>
       <Modal isOpen={showDownloadList} onClose={() => onShowDownloadListChange(false)} title="Download List" className="max-w-3xl">
         <div className="flex flex-col gap-3">
@@ -329,7 +179,7 @@ function FileListTab({
                 ))}
               </div>
               <span className="text-xs/5 text-gray-500 dark:text-gray-400">
-                {availableFiles.length} file{availableFiles.length !== 1 ? 's' : ''}
+                {entries.length} file{entries.length !== 1 ? 's' : ''}
               </span>
             </div>
             <CopyButton text={downloadListText} />
@@ -363,48 +213,66 @@ function FileListTab({
       <table className="w-full text-left text-xs/5">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700">
-            <SortableHeader label="Path" column="path" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <SortableHeader label="Size" column="size" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="text-right" />
+            <th
+              onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+              className="cursor-pointer select-none pb-2 pr-3 font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+            >
+              Path
+              <SortIcon direction={sortDir} active />
+            </th>
+            <th className="pb-2 pr-3 text-right font-medium text-gray-500 dark:text-gray-400">Size</th>
             <th className="pb-2" />
           </tr>
         </thead>
         <tbody className="font-mono text-gray-900 dark:text-gray-100">
-          {paginatedFiles.map(({ entry, info, status }) => (
-            <tr
-              key={entry.path}
-              className={clsx(
-                'border-b border-gray-200 last:border-0 dark:border-gray-700',
-                status === 'unavailable' && 'opacity-50',
-              )}
-            >
-              <td className="py-2 pr-3">
-                <span className="text-gray-500 dark:text-gray-400">{entry.testName}/</span>
-                {entry.displayPath}
-                {status === 'unavailable' && (
-                  <span className="ml-2 rounded-full bg-yellow-100 px-1.5 py-0.5 font-sans text-xs font-medium text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300">
-                    Unavailable
-                  </span>
+          {pageEntries.map((entry, i) => {
+            const headResult = pageQueries[i]?.data
+            const isAvailable = headResult?.exists ?? false
+            const isChecked = !!headResult
+
+            return (
+              <tr
+                key={entry.path}
+                className={clsx(
+                  'border-b border-gray-200 last:border-0 dark:border-gray-700',
+                  isChecked && !isAvailable && 'opacity-50',
                 )}
-              </td>
-              <td className="py-2 pr-3 text-right text-gray-500 dark:text-gray-400">
-                {status === 'available' && info.size != null ? formatBytes(info.size) : '-'}
-              </td>
-              <td className="py-2">
-                {status === 'available' ? (
-                  <a
-                    href={info.url}
-                    download={entry.filename}
-                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                    title="Download"
-                  >
-                    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                  </a>
-                ) : null}
-              </td>
-            </tr>
-          ))}
+              >
+                <td className="py-2 pr-3">
+                  <span className="text-gray-500 dark:text-gray-400">{entry.testName}/</span>
+                  {entry.displayPath}
+                  {isChecked && !isAvailable && (
+                    <span className="ml-2 rounded-full bg-yellow-100 px-1.5 py-0.5 font-sans text-xs font-medium text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300">
+                      Unavailable
+                    </span>
+                  )}
+                </td>
+                <td className="py-2 pr-3 text-right text-gray-500 dark:text-gray-400">
+                  {!isChecked ? (
+                    <span className="inline-block size-3 animate-pulse rounded-full bg-gray-200 dark:bg-gray-600" />
+                  ) : isAvailable && headResult.size != null ? (
+                    formatBytes(headResult.size)
+                  ) : (
+                    '-'
+                  )}
+                </td>
+                <td className="py-2">
+                  {isAvailable && headResult ? (
+                    <a
+                      href={headResult.url}
+                      download={entry.filename}
+                      className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                      title="Download"
+                    >
+                      <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                    </a>
+                  ) : null}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
       {totalPages > 1 && (
@@ -495,52 +363,20 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
     [runId, testNames, postTestRPCCalls],
   )
 
-  const testStatsStats = useFileStats(testStatsEntries, 'file-panel')
-  const testResponsesStats = useFileStats(testResponsesEntries, 'file-panel')
-  const postTestDumpStats = useFileStats(postTestDumpEntries, 'file-panel')
-
   const hasPostTestDumps = postTestDumpEntries.length > 0
 
   const tabs = useMemo(() => {
-    const result: { key: string; label: string; badge?: string }[] = []
-    result.push({
-      key: 'test-stats',
-      label: 'Test Stats',
-      badge: testStatsStats.isLoading ? '...' : String(testStatsStats.fileCount + testStatsStats.unavailableCount),
-    })
-    result.push({
-      key: 'test-responses',
-      label: 'Test Responses',
-      badge: testResponsesStats.isLoading ? '...' : String(testResponsesStats.fileCount + testResponsesStats.unavailableCount),
-    })
+    const result: { key: string; label: string; badge: string }[] = []
+    result.push({ key: 'test-stats', label: 'Test Stats', badge: String(testStatsEntries.length) })
+    result.push({ key: 'test-responses', label: 'Test Responses', badge: String(testResponsesEntries.length) })
     if (hasPostTestDumps) {
-      result.push({
-        key: 'post-test-rpc-dumps',
-        label: 'Post-Test RPC Dumps',
-        badge: postTestDumpStats.isLoading ? '...' : String(postTestDumpStats.fileCount + postTestDumpStats.unavailableCount),
-      })
+      result.push({ key: 'post-test-rpc-dumps', label: 'Post-Test RPC Dumps', badge: String(postTestDumpEntries.length) })
     }
     return result
-  }, [testStatsStats, testResponsesStats, postTestDumpStats, hasPostTestDumps])
+  }, [testStatsEntries.length, testResponsesEntries.length, postTestDumpEntries.length, hasPostTestDumps])
 
-  const allStats = [testStatsStats, testResponsesStats, ...(hasPostTestDumps ? [postTestDumpStats] : [])]
-  const anyLoading = allStats.some((s) => s.isLoading)
-
-  const summaryParts: string[] = []
-  if (anyLoading) {
-    summaryParts.push('Loading...')
-  } else {
-    const totalFiles = allStats.reduce((sum, s) => sum + s.fileCount, 0)
-    const totalSize = allStats.reduce((sum, s) => sum + s.totalSize, 0)
-    const totalUnavailable = allStats.reduce((sum, s) => sum + s.unavailableCount, 0)
-    if (totalFiles > 0) {
-      summaryParts.push(`${totalFiles} file${totalFiles !== 1 ? 's' : ''}, ${formatBytes(totalSize)}`)
-    }
-    if (totalUnavailable > 0) {
-      summaryParts.push(`${totalUnavailable} unavailable`)
-    }
-  }
-  const summary = summaryParts.join(' / ')
+  const totalEntries = testStatsEntries.length + testResponsesEntries.length + postTestDumpEntries.length
+  const summary = `${totalEntries} file${totalEntries !== 1 ? 's' : ''}`
 
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
@@ -576,11 +412,9 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
                 )}
               >
                 {tab.label}
-                {tab.badge && (
-                  <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                    {tab.badge}
-                  </span>
-                )}
+                <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                  {tab.badge}
+                </span>
               </button>
             ))}
           </div>
