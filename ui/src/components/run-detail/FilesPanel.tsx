@@ -421,7 +421,7 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
       >
         <h3 className="flex shrink-0 items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
           <FolderOpen className="size-4 text-gray-400 dark:text-gray-500" />
-          Files
+          Generated Files
         </h3>
         <div className="flex min-w-0 items-center gap-3 ml-auto">
           <span className="truncate text-xs/5 text-gray-500 dark:text-gray-400">{summary}</span>
