@@ -37,20 +37,44 @@ export interface HeadResult {
   url: string
 }
 
+// Limits concurrent requests to avoid ERR_INSUFFICIENT_RESOURCES when many
+// HEAD requests are queued at once (e.g. 1000+ files).
+function createConcurrencyLimiter(max: number) {
+  let active = 0
+  const queue: Array<() => void> = []
+
+  return async function <T>(fn: () => Promise<T>): Promise<T> {
+    if (active >= max) {
+      await new Promise<void>((resolve) => queue.push(resolve))
+    }
+    active++
+    try {
+      return await fn()
+    } finally {
+      active--
+      queue.shift()?.()
+    }
+  }
+}
+
+const headLimiter = createConcurrencyLimiter(8)
+
 export async function fetchHead(path: string): Promise<HeadResult> {
   const config = await loadRuntimeConfig()
   const url = getDataUrl(path, config)
 
-  try {
-    const response = await fetch(url, { method: 'HEAD' })
-    if (!response.ok) {
+  return headLimiter(async () => {
+    try {
+      const response = await fetch(url, { method: 'HEAD' })
+      if (!response.ok) {
+        return { exists: false, size: null, url }
+      }
+      const contentLength = response.headers.get('content-length')
+      return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url }
+    } catch {
       return { exists: false, size: null, url }
     }
-    const contentLength = response.headers.get('content-length')
-    return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url }
-  } catch {
-    return { exists: false, size: null, url }
-  }
+  })
 }
 
 export async function fetchText(path: string): Promise<FetchResult<string>> {
