@@ -104,8 +104,8 @@ function FileListTab({
   const sortedEntries = useMemo(() => {
     const sorted = [...entries]
     sorted.sort((a, b) => {
-      const pathA = `${a.testName}/${a.displayPath}`
-      const pathB = `${b.testName}/${b.displayPath}`
+      const pathA = a.testName ? `${a.testName}/${a.displayPath}` : a.displayPath
+      const pathB = b.testName ? `${b.testName}/${b.displayPath}` : b.displayPath
       const cmp = pathA.localeCompare(pathB)
       return sortDir === 'asc' ? cmp : -cmp
     })
@@ -239,7 +239,7 @@ function FileListTab({
                 )}
               >
                 <td className="py-2 pr-3">
-                  <span className="text-gray-500 dark:text-gray-400">{entry.testName}/</span>
+                  {entry.testName && <span className="text-gray-500 dark:text-gray-400">{entry.testName}/</span>}
                   {entry.displayPath}
                   {isChecked && !isAvailable && (
                     <span className="ml-2 rounded-full bg-yellow-100 px-1.5 py-0.5 font-sans text-xs font-medium text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300">
@@ -285,6 +285,18 @@ function FileListTab({
 }
 
 // --- Entry generators ---
+
+const GENERAL_FILES = ['benchmarkoor.log', 'container.log', 'config.json', 'result.json'] as const
+
+function buildGeneralEntries(runId: string): FileEntry[] {
+  return GENERAL_FILES.map((filename) => ({
+    testName: '',
+    filename,
+    path: `runs/${runId}/${filename}`,
+    displayPath: filename,
+    outputPath: `${runId}/${filename}`,
+  }))
+}
 
 const ALL_STEPS = ['setup', 'test', 'cleanup'] as const
 type StepName = typeof ALL_STEPS[number]
@@ -352,10 +364,11 @@ function buildPostTestDumpEntries(runId: string, testNames: string[], postTestRP
 
 export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: FilesPanelProps) {
   const [expanded, setExpanded] = useState(showDownloadList)
-  const [activeTab, setActiveTab] = useState('test-stats')
+  const [activeTab, setActiveTab] = useState('general')
 
   const testNames = useMemo(() => Object.keys(tests), [tests])
 
+  const generalEntries = useMemo(() => buildGeneralEntries(runId), [runId])
   const testStatsEntries = useMemo(() => buildTestStatsEntries(runId, tests), [runId, tests])
   const testResponsesEntries = useMemo(() => buildTestResponsesEntries(runId, tests), [runId, tests])
   const postTestDumpEntries = useMemo(
@@ -367,15 +380,16 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
 
   const tabs = useMemo(() => {
     const result: { key: string; label: string; badge: string }[] = []
+    result.push({ key: 'general', label: 'General', badge: String(generalEntries.length) })
     result.push({ key: 'test-stats', label: 'Stats', badge: String(testStatsEntries.length) })
     result.push({ key: 'test-responses', label: 'Responses', badge: String(testResponsesEntries.length) })
     if (hasPostTestDumps) {
       result.push({ key: 'post-test-rpc-dumps', label: 'Post-Test RPC Dumps', badge: String(postTestDumpEntries.length) })
     }
     return result
-  }, [testStatsEntries.length, testResponsesEntries.length, postTestDumpEntries.length, hasPostTestDumps])
+  }, [generalEntries.length, testStatsEntries.length, testResponsesEntries.length, postTestDumpEntries.length, hasPostTestDumps])
 
-  const totalEntries = testStatsEntries.length + testResponsesEntries.length + postTestDumpEntries.length
+  const totalEntries = generalEntries.length + testStatsEntries.length + testResponsesEntries.length + postTestDumpEntries.length
   const summary = `${totalEntries} file${totalEntries !== 1 ? 's' : ''}`
 
   return (
@@ -419,6 +433,17 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
             ))}
           </div>
           <div className="overflow-x-auto p-4">
+            {activeTab === 'general' && (
+              <FileListTab
+                entries={generalEntries}
+                queryKeyPrefix="file-panel"
+                emptyMessage="No general files found"
+                showDownloadList={showDownloadList}
+                downloadFormat={downloadFormat}
+                onShowDownloadListChange={onShowDownloadListChange}
+                onDownloadFormatChange={onDownloadFormatChange}
+              />
+            )}
             {activeTab === 'test-stats' && (
               <FileListTab
                 entries={testStatsEntries}
