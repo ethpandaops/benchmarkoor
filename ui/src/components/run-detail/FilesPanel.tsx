@@ -138,7 +138,7 @@ function FileListTab({
         </div>
         {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />}
       </div>
-      <table className="w-full text-left text-xs/5">
+      <table className="w-full table-fixed text-left text-xs/5">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700">
             <th
@@ -148,8 +148,8 @@ function FileListTab({
               Path
               <SortIcon direction={sortDir} active />
             </th>
-            <th className="pb-2 pr-3 text-right font-medium text-gray-500 dark:text-gray-400">Size</th>
-            <th className="pb-2" />
+            <th className="w-20 pb-2 pr-3 text-right font-medium text-gray-500 dark:text-gray-400">Size</th>
+            <th className="w-16 pb-2" />
           </tr>
         </thead>
         <tbody className="font-mono text-gray-900 dark:text-gray-100">
@@ -166,7 +166,7 @@ function FileListTab({
                   isChecked && !isAvailable && 'opacity-50',
                 )}
               >
-                <td className="py-2 pr-3">
+                <td className="truncate py-2 pr-3">
                   {entry.testName && <span className="text-gray-500 dark:text-gray-400">{entry.testName}/</span>}
                   {entry.displayPath}
                   {isChecked && !isAvailable && (
@@ -175,7 +175,7 @@ function FileListTab({
                     </span>
                   )}
                 </td>
-                <td className="py-2 pr-3 text-right text-gray-500 dark:text-gray-400">
+                <td className="whitespace-nowrap py-2 pr-3 text-right text-gray-500 dark:text-gray-400">
                   {!isChecked ? (
                     <span className="inline-block size-3 animate-pulse rounded-full bg-gray-200 dark:bg-gray-600" />
                   ) : isAvailable && headResult.size != null ? (
