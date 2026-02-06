@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import clsx from 'clsx'
+import { ChevronDown } from 'lucide-react'
 
 interface CardProps {
   title: React.ReactNode
@@ -23,14 +24,7 @@ export function Card({ title, children, collapsible = false, defaultCollapsed = 
       >
         <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">{title}</h3>
         {collapsible && (
-          <svg
-            className={clsx('size-5 text-gray-500 transition-transform', isCollapsed && '-rotate-90')}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+          <ChevronDown className={clsx('size-5 text-gray-500 transition-transform', isCollapsed && '-rotate-90')} />
         )}
       </div>
       {!isCollapsed && <div className="p-4">{children}</div>}

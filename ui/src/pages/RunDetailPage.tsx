@@ -6,7 +6,7 @@ import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
-import { FilesPanel } from '@/components/run-detail/PostTestDumpsPanel'
+import { FilesPanel } from '@/components/run-detail/FilesPanel'
 import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts'
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
 import { PreRunStepsTable } from '@/components/run-detail/PreRunStepsTable'
@@ -25,6 +25,7 @@ import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
 import { BlockLogsDashboard } from '@/components/run-detail/block-logs-dashboard'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
+import { Flame, Download } from 'lucide-react'
 
 // Step types that can be included in MGas/s calculation
 export type StepTypeOption = 'setup' | 'test' | 'cleanup'
@@ -230,7 +231,7 @@ export function RunDetailPage() {
   }
 
   const handleDownloadFormatChange = (format: string) => {
-    updateSearch({ dlFmt: format !== 'urls' ? format : undefined })
+    updateSearch({ dlFmt: format !== 'curl' ? format : undefined })
   }
 
   if (isLoading) {
@@ -305,9 +306,10 @@ export function RunDetailPage() {
             {benchmarkoorLog && (
               <>
                 <Link
-                  to="/runs/$runId/logs"
+                  to="/runs/$runId/fileviewer"
                   params={{ runId }}
                   search={{ file: 'benchmarkoor.log' }}
+                  target="_blank"
                   className="hover:text-gray-700 dark:hover:text-gray-300"
                 >
                   Benchmarkoor
@@ -330,14 +332,7 @@ export function RunDetailPage() {
                   className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                   title="Download benchmarkoor.log"
                 >
-                  <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
+                  <Download className="size-4" />
                 </button>
               </>
             )}
@@ -345,9 +340,10 @@ export function RunDetailPage() {
             {containerLog && (
               <>
                 <Link
-                  to="/runs/$runId/logs"
+                  to="/runs/$runId/fileviewer"
                   params={{ runId }}
                   search={{ file: 'container.log' }}
+                  target="_blank"
                   className="hover:text-gray-700 dark:hover:text-gray-300"
                 >
                   Client
@@ -370,14 +366,7 @@ export function RunDetailPage() {
                   className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                   title="Download container.log"
                 >
-                  <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
+                  <Download className="size-4" />
                 </button>
               </>
             )}
@@ -486,17 +475,20 @@ export function RunDetailPage() {
 
       <FilesPanel
         runId={runId}
-        testNames={Object.keys(result.tests)}
+        tests={result.tests}
         postTestRPCCalls={config.instance.post_test_rpc_calls}
         showDownloadList={dlModal}
-        downloadFormat={(dlFmt as 'urls' | 'curl') ?? 'urls'}
+        downloadFormat={(dlFmt as 'urls' | 'curl') ?? 'curl'}
         onShowDownloadListChange={handleDownloadListModalChange}
         onDownloadFormatChange={handleDownloadFormatChange}
       />
 
       <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Performance Heatmap</h3>
+          <h3 className="flex items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+            <Flame className="size-4 text-gray-400 dark:text-gray-500" />
+            Performance Heatmap
+          </h3>
           <input
             type="text"
             placeholder="Filter tests..."

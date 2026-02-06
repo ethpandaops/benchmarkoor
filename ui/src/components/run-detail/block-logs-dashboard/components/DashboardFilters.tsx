@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { ChevronDown } from 'lucide-react'
 import type { DashboardState, DashboardStats, TestCategory } from '../types'
 import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
 
@@ -123,9 +124,7 @@ export function DashboardFilters({ state, stats, onUpdate }: DashboardFiltersPro
               />
             )}
             <span className="text-gray-900 dark:text-gray-100">{getCategoryLabel()}</span>
-            <svg className="size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+            <ChevronDown className="size-4 text-gray-400" />
           </button>
 
           {isDropdownOpen && (

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { TabPanel } from '@headlessui/react'
+import { Blocks, CircleHelp, X, Maximize2 } from 'lucide-react'
 import type { BlockLogs, SuiteTest } from '@/api/types'
 import { useDashboardState } from './hooks/useDashboardState'
 import { useProcessedData } from './hooks/useProcessedData'
@@ -82,7 +83,10 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
   const header = (
     <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
       <div className="flex items-center gap-3">
-        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Block Logs Analysis</h3>
+        <h3 className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+          <Blocks className="size-4 text-gray-400 dark:text-gray-500" />
+          Block Logs Analysis
+        </h3>
         <a
           href="https://ethresear.ch/t/a-small-step-towards-data-driven-protocol-decisions-unified-slowblock-metrics-across-clients/23907"
           target="_blank"
@@ -90,9 +94,7 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
           className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
           title="Learn more about block logs metrics"
         >
-          <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <CircleHelp className="size-4" />
         </a>
         <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
           {Object.keys(blockLogs).length} tests
@@ -113,15 +115,7 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
           className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
           title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         >
-          {fullscreen ? (
-            <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          ) : (
-            <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
-            </svg>
-          )}
+          {fullscreen ? <X className="size-4" /> : <Maximize2 className="size-4" />}
         </button>
       </div>
     </div>

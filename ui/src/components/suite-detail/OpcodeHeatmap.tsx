@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Grid3X3, X, Maximize2 } from 'lucide-react'
 import type { SuiteTest } from '@/api/types'
 import { getGroupedOpcodes, getCategoryColor } from '@/utils/opcodeCategories'
 import type { CategorySpan, GroupedResult } from '@/utils/opcodeCategories'
@@ -921,7 +922,8 @@ export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQue
   const toolbar = (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">
+        <h3 className="flex items-center gap-2 text-sm/6 font-medium text-gray-700 dark:text-gray-300">
+          <Grid3X3 className="size-4 text-gray-400 dark:text-gray-500" />
           Opcode Heatmap
           <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
             ({filteredTests.length} tests, {expanded ? stackGrouped.columns.length + ' opcodes' : collapsedColumns.length + ' categories'}{sortCol ? `, sorted by ${sortCol} ${sortDir}` : ''})
@@ -949,15 +951,7 @@ export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQue
             className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
             title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
-            {fullscreen ? (
-              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            ) : (
-              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
-              </svg>
-            )}
+            {fullscreen ? <X className="size-4" /> : <Maximize2 className="size-4" />}
           </button>
         </div>
       </div>

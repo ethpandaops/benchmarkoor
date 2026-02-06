@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import clsx from 'clsx'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 import type { ProcessedTestData, DashboardState, SortField, SortOrder } from '../types'
 import { CATEGORY_COLORS } from '../utils/colors'
 import { Pagination } from '@/components/shared/Pagination'
@@ -53,15 +54,7 @@ function SortHeader({ label, field, currentSort, currentOrder, onSort, align = '
       )}
     >
       {label}
-      {isActive && (
-        <svg className="size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          {currentOrder === 'asc' ? (
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-          ) : (
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          )}
-        </svg>
-      )}
+      {isActive && (currentOrder === 'asc' ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />)}
     </button>
   )
 }
