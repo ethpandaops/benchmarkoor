@@ -2,6 +2,7 @@ package executor
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,8 +11,10 @@ import (
 	"net/http/httptrace"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/docker/docker/client"
@@ -62,6 +65,7 @@ type ExecuteOptions struct {
 	Tests                         []*TestWithSteps                      // Optional subset of tests to run (nil = run all).
 	BlockLogCollector             BlockLogCollector                     // Optional collector for capturing block logs from client.
 	RetryNewPayloadsSyncingConfig *config.RetryNewPayloadsSyncingConfig // Retry config for SYNCING responses.
+	PostTestRPCCalls              []config.PostTestRPCCall              // Arbitrary RPC calls to execute after the test step.
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -394,6 +398,11 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					log.WithError(err).Warn("Failed to write test results")
 				}
 			}
+		}
+
+		// Execute post-test RPC calls (not timed, does not affect test results).
+		if len(opts.PostTestRPCCalls) > 0 && opts.RPCEndpoint != "" {
+			e.executePostTestRPCCalls(ctx, opts, test.Name, log)
 		}
 
 		// Drop caches between test and cleanup.
@@ -1042,6 +1051,244 @@ func (e *executor) rollback(
 	if rpcResp.Error != nil {
 		return fmt.Errorf("%s error %d: %s",
 			spec.RPCMethod, rpcResp.Error.Code, rpcResp.Error.Message)
+	}
+
+	return nil
+}
+
+// PostTestTemplateData contains template variables available in post-test RPC call params.
+type PostTestTemplateData struct {
+	BlockHash      string // e.g. "0xabc..."
+	BlockNumber    string // Decimal string, e.g. "1234"
+	BlockNumberHex string // Hex with 0x prefix, e.g. "0x4d2"
+}
+
+// executePostTestRPCCalls runs configured post-test RPC calls after the test step.
+// These calls are not timed and do not affect test results.
+func (e *executor) executePostTestRPCCalls(
+	ctx context.Context,
+	opts *ExecuteOptions,
+	testName string,
+	log logrus.FieldLogger,
+) {
+	// Get latest block info for template variables.
+	info, err := e.getBlockInfo(ctx, opts.RPCEndpoint)
+	if err != nil {
+		log.WithError(err).Warn("Failed to get block info for post-test RPC calls, skipping")
+
+		return
+	}
+
+	// Convert hex block number to decimal.
+	blockNum, err := strconv.ParseUint(
+		strings.TrimPrefix(info.HexNumber, "0x"), 16, 64,
+	)
+	if err != nil {
+		log.WithError(err).Warn("Failed to parse block number for post-test RPC calls, skipping")
+
+		return
+	}
+
+	templateData := PostTestTemplateData{
+		BlockHash:      info.Hash,
+		BlockNumber:    strconv.FormatUint(blockNum, 10),
+		BlockNumberHex: info.HexNumber,
+	}
+
+	for i, call := range opts.PostTestRPCCalls {
+		select {
+		case <-ctx.Done():
+			log.Warn("Context cancelled, skipping remaining post-test RPC calls")
+
+			return
+		default:
+		}
+
+		callLog := log.WithFields(logrus.Fields{
+			"method":     call.Method,
+			"call_index": i,
+		})
+
+		// Process template variables in params.
+		processedParams, tmplErr := processTemplateParams(call.Params, templateData)
+		if tmplErr != nil {
+			callLog.WithError(tmplErr).Warn("Failed to process template params, skipping call")
+
+			continue
+		}
+
+		// Build JSON-RPC payload.
+		payload, buildErr := buildJSONRPCPayload(call.Method, processedParams)
+		if buildErr != nil {
+			callLog.WithError(buildErr).Warn("Failed to build JSON-RPC payload, skipping call")
+
+			continue
+		}
+
+		// Execute the RPC call (no JWT, plain HTTP).
+		callTimeout := 30 * time.Second
+		if call.Timeout != "" {
+			if d, err := time.ParseDuration(call.Timeout); err == nil {
+				callTimeout = d
+			}
+		}
+
+		callCtx, cancel := context.WithTimeout(ctx, callTimeout)
+
+		response, execErr := executeSimpleRPC(callCtx, opts.RPCEndpoint, payload)
+
+		cancel()
+
+		if execErr != nil {
+			callLog.WithError(execErr).Warn("Post-test RPC call failed")
+
+			continue
+		}
+
+		callLog.Info("Post-test RPC call completed")
+
+		// Dump response if configured.
+		if call.Dump.Enabled && call.Dump.Filename != "" {
+			if dumpErr := e.dumpPostTestResponse(
+				opts.ResultsDir, testName, call.Dump.Filename, response,
+			); dumpErr != nil {
+				callLog.WithError(dumpErr).Warn("Failed to dump post-test RPC response")
+			}
+		}
+	}
+}
+
+// processTemplateParams recursively processes Go text/template syntax in param values.
+// String values are treated as templates; non-string values pass through unchanged.
+func processTemplateParams(params []any, data PostTestTemplateData) ([]any, error) {
+	if len(params) == 0 {
+		return params, nil
+	}
+
+	result := make([]any, len(params))
+
+	for i, param := range params {
+		processed, err := processTemplateValue(param, data)
+		if err != nil {
+			return nil, fmt.Errorf("param[%d]: %w", i, err)
+		}
+
+		result[i] = processed
+	}
+
+	return result, nil
+}
+
+// processTemplateValue processes a single value, recursing into maps and slices.
+func processTemplateValue(value any, data PostTestTemplateData) (any, error) {
+	switch v := value.(type) {
+	case string:
+		tmpl, err := template.New("param").Parse(v)
+		if err != nil {
+			return nil, fmt.Errorf("parsing template %q: %w", v, err)
+		}
+
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, data); err != nil {
+			return nil, fmt.Errorf("executing template %q: %w", v, err)
+		}
+
+		return buf.String(), nil
+
+	case map[string]any:
+		result := make(map[string]any, len(v))
+
+		for key, val := range v {
+			processed, err := processTemplateValue(val, data)
+			if err != nil {
+				return nil, fmt.Errorf("key %q: %w", key, err)
+			}
+
+			result[key] = processed
+		}
+
+		return result, nil
+
+	case []any:
+		result := make([]any, len(v))
+
+		for i, val := range v {
+			processed, err := processTemplateValue(val, data)
+			if err != nil {
+				return nil, fmt.Errorf("index %d: %w", i, err)
+			}
+
+			result[i] = processed
+		}
+
+		return result, nil
+
+	default:
+		return value, nil
+	}
+}
+
+// buildJSONRPCPayload constructs a JSON-RPC 2.0 request payload.
+func buildJSONRPCPayload(method string, params []any) (string, error) {
+	request := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  method,
+		"params":  params,
+		"id":      1,
+	}
+
+	data, err := json.Marshal(request)
+	if err != nil {
+		return "", fmt.Errorf("marshaling JSON-RPC request: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// executeSimpleRPC executes a JSON-RPC call without JWT authentication.
+func executeSimpleRPC(ctx context.Context, endpoint, payload string) (string, error) {
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, endpoint, strings.NewReader(payload),
+	)
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("executing request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response: %w", err)
+	}
+
+	return string(body), nil
+}
+
+// dumpPostTestResponse writes a post-test RPC response to a file.
+// The file is written to {resultsDir}/{testName}/post_test_rpc_calls/{filename}.json.
+func (e *executor) dumpPostTestResponse(
+	resultsDir, testName, filename, response string,
+) error {
+	postTestDir := filepath.Join(resultsDir, testName, "post_test_rpc_calls")
+	if err := fsutil.MkdirAll(postTestDir, 0755, e.cfg.ResultsOwner); err != nil {
+		return fmt.Errorf("creating post_test_rpc_calls directory: %w", err)
+	}
+
+	// Pretty-print the response if it's valid JSON.
+	var prettyJSON bytes.Buffer
+	if err := json.Indent(&prettyJSON, []byte(response), "", "  "); err == nil {
+		response = prettyJSON.String()
+	}
+
+	dumpPath := filepath.Join(postTestDir, filename+".json")
+	if err := fsutil.WriteFile(dumpPath, []byte(response), 0644, e.cfg.ResultsOwner); err != nil {
+		return fmt.Errorf("writing dump file: %w", err)
 	}
 
 	return nil

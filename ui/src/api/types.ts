@@ -175,6 +175,17 @@ export interface RetryNewPayloadsSyncingConfig {
   backoff: string
 }
 
+export interface DumpConfig {
+  enabled: boolean
+  filename?: string
+}
+
+export interface PostTestRPCCallConfig {
+  method: string
+  params?: unknown[]
+  dump?: DumpConfig
+}
+
 export interface InstanceConfig {
   id: string
   client: string
@@ -195,6 +206,7 @@ export interface InstanceConfig {
   wait_after_rpc_ready?: string
   retry_new_payloads_syncing_state?: RetryNewPayloadsSyncingConfig
   resource_limits?: ResourceLimitsConfig
+  post_test_rpc_calls?: PostTestRPCCallConfig[]
 }
 
 // result.json per run

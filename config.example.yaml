@@ -120,6 +120,25 @@ client:
     #   enabled: true
     #   max_retries: 10
     #   backoff: 1s
+    # Optional: Arbitrary RPC calls to execute after each test step.
+    # These calls are NOT timed and do NOT affect test results. Useful for collecting
+    # debug traces or other post-test data from the client.
+    # Template variables are available in params:
+    #   {{.BlockHash}}      - Hash of the latest block (e.g., "0xabc...")
+    #   {{.BlockNumber}}    - Decimal block number (e.g., "1234")
+    #   {{.BlockNumberHex}} - Hex block number with 0x prefix (e.g., "0x4d2")
+    # post_test_rpc_calls:
+    #   - method: debug_traceBlockByNumber
+    #     params: ["{{.BlockNumberHex}}", {"tracer": "callTracer"}]
+    #     dump:
+    #       enabled: true
+    #       filename: debug_traceBlockByNumber  # Written to {resultsDir}/{testName}/post_test_rpc_calls/{filename}.json
+    #   - method: debug_traceBlockByHash
+    #     params: ["{{.BlockHash}}"]
+    #     timeout: 2m  # Per-call timeout (default: 30s)
+    #     dump:
+    #       enabled: true
+    #       filename: debug_traceBlockByHash
     # Optional: Container resource limits (applied to all instances by default).
     # resource_limits:
     #   # CPU pinning - use ONE of the following:
@@ -233,6 +252,12 @@ client:
       # resource_limits:  # Instance-level override (optional)
       #   cpuset_count: 2  # Override global with fewer CPUs
       #   memory: "8g"     # Override global memory limit
+      # post_test_rpc_calls:  # Instance-level override (optional, replaces global)
+      #   - method: debug_traceBlockByNumber
+      #     params: ["{{.BlockNumberHex}}"]
+      #     dump:
+      #       enabled: true
+      #       filename: trace
 
     # Example: running multiple clients
     # - id: nethermind-latest

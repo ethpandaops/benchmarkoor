@@ -14,6 +14,7 @@ This document describes all configuration options for benchmarkoor. The [config.
   - [Data Directories](#data-directories)
   - [Client Instances](#client-instances)
 - [Resource Limits](#resource-limits)
+- [Post-Test RPC Calls](#post-test-rpc-calls)
 - [Complete Example](#complete-example)
 
 ## Overview
@@ -307,6 +308,7 @@ client:
 | `wait_after_rpc_ready` | string | - | Duration to wait after RPC becomes ready (see below) |
 | `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
+| `post_test_rpc_calls` | []object | - | Arbitrary RPC calls to execute after each test step (see [Post-Test RPC Calls](#post-test-rpc-calls)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
 #### Drop Memory Caches
@@ -509,6 +511,7 @@ client:
 | `wait_after_rpc_ready` | string | No | From `client.config` | Instance-specific RPC ready wait duration |
 | `retry_new_payloads_syncing_state` | object | No | From `client.config` | Instance-specific retry config for SYNCING responses |
 | `resource_limits` | object | No | From `client.config` | Instance-specific resource limits |
+| `post_test_rpc_calls` | []object | No | From `client.config` | Instance-specific post-test RPC calls (replaces global) |
 
 ## Resource Limits
 
@@ -619,6 +622,99 @@ client:
       cpu_freq_governor: performance
       memory: "16g"
       swap_disabled: true
+```
+
+## Post-Test RPC Calls
+
+Post-test RPC calls allow you to execute arbitrary JSON-RPC calls after each test step completes. These calls are **not timed** and do **not affect test results**. They are useful for collecting debug traces, state snapshots, or other diagnostic data from the client after each test.
+
+Calls are made to the client's regular RPC endpoint (no JWT authentication). If a call fails, a warning is logged and the remaining calls continue.
+
+```yaml
+client:
+  config:
+    post_test_rpc_calls:
+      - method: debug_traceBlockByNumber
+        params: ["{{.BlockNumberHex}}", {"tracer": "callTracer"}]
+        dump:
+          enabled: true
+          filename: debug_traceBlockByNumber
+      - method: debug_traceBlockByHash
+        params: ["{{.BlockHash}}"]
+        timeout: 2m  # Override default 30s timeout for slow methods
+        dump:
+          enabled: true
+          filename: debug_traceBlockByHash
+```
+
+### Call Options
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `method` | string | Yes | JSON-RPC method name |
+| `params` | []any | No | Method parameters (supports template variables) |
+| `timeout` | string | No | Per-call timeout as a Go duration string (e.g., `30s`, `2m`). Default: `30s` |
+| `dump` | object | No | Response dump configuration |
+| `dump.enabled` | bool | No | Enable writing the response to a file |
+| `dump.filename` | string | When dump enabled | Base filename for the dump (`.json` extension is added automatically) |
+
+### Template Variables
+
+Go `text/template` syntax is supported in all string values within `params`. Templates are applied recursively to strings inside arrays and objects.
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{{.BlockHash}}` | Hash of the latest block | `"0xabc..."` |
+| `{{.BlockNumber}}` | Block number as decimal string | `"1234"` |
+| `{{.BlockNumberHex}}` | Block number as hex with `0x` prefix | `"0x4d2"` |
+
+Non-string values (booleans, numbers) pass through unchanged.
+
+### Dump Output
+
+When `dump.enabled` is `true`, the raw JSON-RPC response is written to:
+
+```
+{resultsDir}/{testName}/post_test_rpc_calls/{dump.filename}.json
+```
+
+The response is pretty-printed if it is valid JSON. File ownership respects the `results_owner` configuration.
+
+### Execution Flow
+
+Post-test RPC calls run after the test step and before the cleanup step:
+
+```
+1. Setup step (if present)
+2. Test step (timed, results written)
+3. Post-test RPC calls              ← runs here
+4. Cleanup step (if present)
+5. Rollback (if configured)
+```
+
+### Instance-Level Override
+
+Instance-level `post_test_rpc_calls` completely replace global defaults (not merged):
+
+```yaml
+client:
+  config:
+    post_test_rpc_calls:
+      - method: debug_traceBlockByNumber
+        params: ["{{.BlockNumberHex}}"]
+        dump:
+          enabled: true
+          filename: trace_by_number
+  instances:
+    - id: geth-latest
+      client: geth
+      # This replaces the global calls entirely:
+      post_test_rpc_calls:
+        - method: debug_traceBlockByHash
+          params: ["{{.BlockHash}}"]
+          dump:
+            enabled: true
+            filename: trace_by_hash
 ```
 
 ## Examples

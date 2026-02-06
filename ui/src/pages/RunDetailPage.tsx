@@ -6,6 +6,7 @@ import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
+import { FilesPanel } from '@/components/run-detail/PostTestDumpsPanel'
 import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts'
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
 import { PreRunStepsTable } from '@/components/run-detail/PreRunStepsTable'
@@ -121,12 +122,14 @@ export function RunDetailPage() {
     steps?: string
     ohFs?: boolean // Opcode Heatmap fullscreen
     blFs?: boolean // Block Logs fullscreen
+    dlModal?: boolean // Download list modal
+    dlFmt?: string // Download list format
   }
   const page = Number(search.page) || 1
   const pageSize = Number(search.pageSize) || 20
   const heatmapThreshold = search.heatmapThreshold ? Number(search.heatmapThreshold) : undefined
   const stepFilter = parseStepFilter(search.steps)
-  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, heatmapSort, ohFs = false, blFs = false } = search
+  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, error: resultError, refetch: refetchResult } = useRunResult(runId)
@@ -171,6 +174,8 @@ export function RunDetailPage() {
         steps: serializeStepFilter(stepFilter),
         ohFs: ohFs || undefined,
         blFs: blFs || undefined,
+        dlModal: dlModal || undefined,
+        dlFmt: dlFmt || undefined,
         ...updates,
       },
     })
@@ -218,6 +223,14 @@ export function RunDetailPage() {
 
   const handleBlockLogsFullscreenChange = (fullscreen: boolean) => {
     updateSearch({ blFs: fullscreen || undefined })
+  }
+
+  const handleDownloadListModalChange = (open: boolean) => {
+    updateSearch({ dlModal: open || undefined })
+  }
+
+  const handleDownloadFormatChange = (format: string) => {
+    updateSearch({ dlFmt: format !== 'urls' ? format : undefined })
   }
 
   if (isLoading) {
@@ -471,6 +484,16 @@ export function RunDetailPage() {
 
       <RunConfiguration instance={config.instance} system={config.system} />
 
+      <FilesPanel
+        runId={runId}
+        testNames={Object.keys(result.tests)}
+        postTestRPCCalls={config.instance.post_test_rpc_calls}
+        showDownloadList={dlModal}
+        downloadFormat={(dlFmt as 'urls' | 'curl') ?? 'urls'}
+        onShowDownloadListChange={handleDownloadListModalChange}
+        onDownloadFormatChange={handleDownloadFormatChange}
+      />
+
       <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Performance Heatmap</h3>
@@ -493,6 +516,7 @@ export function RunDetailPage() {
           sortMode={heatmapSort}
           threshold={heatmapThreshold}
           stepFilter={stepFilter}
+          postTestRPCCalls={config.instance.post_test_rpc_calls}
           onSelectedTestChange={handleTestModalChange}
           onSortModeChange={handleHeatmapSortChange}
           onThresholdChange={handleHeatmapThresholdChange}

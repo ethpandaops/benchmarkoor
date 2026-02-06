@@ -31,6 +31,28 @@ export async function fetchData<T>(path: string): Promise<FetchResult<T>> {
   return { data, status: response.status }
 }
 
+export interface HeadResult {
+  exists: boolean
+  size: number | null
+  url: string
+}
+
+export async function fetchHead(path: string): Promise<HeadResult> {
+  const config = await loadRuntimeConfig()
+  const url = getDataUrl(path, config)
+
+  try {
+    const response = await fetch(url, { method: 'HEAD' })
+    if (!response.ok) {
+      return { exists: false, size: null, url }
+    }
+    const contentLength = response.headers.get('content-length')
+    return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url }
+  } catch {
+    return { exists: false, size: null, url }
+  }
+}
+
 export async function fetchText(path: string): Promise<FetchResult<string>> {
   const config = await loadRuntimeConfig()
   const url = getDataUrl(path, config)

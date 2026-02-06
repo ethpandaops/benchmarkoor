@@ -30,6 +30,10 @@ RUN echo 'server { \
     location / { \
         try_files $uri $uri/ /index.html; \
     } \
+    location /results { \
+        try_files $uri =404; \
+        add_header Cache-Control no-transform; \
+    } \
     location /assets { \
         expires 1y; \
         add_header Cache-Control "public, immutable"; \

@@ -153,6 +153,7 @@ type ResolvedInstance struct {
 	WaitAfterRPCReady            string                                `json:"wait_after_rpc_ready,omitempty"`
 	RetryNewPayloadsSyncingState *config.RetryNewPayloadsSyncingConfig `json:"retry_new_payloads_syncing_state,omitempty"`
 	ResourceLimits               *ResolvedResourceLimits               `json:"resource_limits,omitempty"`
+	PostTestRPCCalls             []config.PostTestRPCCall              `json:"post_test_rpc_calls,omitempty"`
 }
 
 // NewRunner creates a new runner instance.
@@ -870,6 +871,12 @@ func (r *runner) runContainerLifecycle(
 				return nil
 			}(),
 			ResourceLimits: resolvedResourceLimits,
+			PostTestRPCCalls: func() []config.PostTestRPCCall {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetPostTestRPCCalls(instance)
+				}
+				return nil
+			}(),
 		},
 	}
 
@@ -1170,6 +1177,7 @@ func (r *runner) runContainerLifecycle(
 				Tests:                         params.Tests,
 				BlockLogCollector:             params.BlockLogCollector,
 				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
+				PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(instance),
 			}
 
 			result, execErr = r.executor.ExecuteTests(execCtx, execOpts)
@@ -1504,6 +1512,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			Tests:                         []*executor.TestWithSteps{test},
 			BlockLogCollector:             params.BlockLogCollector,
 			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
 		}
 
 		result, err := r.executor.ExecuteTests(ctx, execOpts)
