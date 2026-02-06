@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import { useQueries } from '@tanstack/react-query'
+import { useState, useMemo, useCallback, useRef } from 'react'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
@@ -471,7 +471,7 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
   const [expanded, setExpanded] = useState(showDownloadList)
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set())
   const [fileFilter, setFileFilter] = useState<'all' | 'dumps'>('all')
-  const [downloadCategories, setDownloadCategories] = useState<Set<string>>(() => new Set())
+  const [excludedCategories, setExcludedCategories] = useState<Set<string>>(() => new Set())
 
   const testNames = useMemo(() => Object.keys(tests), [tests])
 
@@ -554,24 +554,8 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
     return result
   }, [generalEntries, testStatsEntries, testResponsesEntries, postTestDumpEntries, hasPostTestDumps])
 
-  // Auto-select all categories (including newly appearing ones like post-test dumps)
-  useEffect(() => {
-    const allKeys = categories.map((c) => c.key)
-    setDownloadCategories((prev) => {
-      const next = new Set(prev)
-      let changed = false
-      for (const key of allKeys) {
-        if (!next.has(key)) {
-          next.add(key)
-          changed = true
-        }
-      }
-      return changed ? next : prev
-    })
-  }, [categories])
-
   const toggleCategory = useCallback((key: string) => {
-    setDownloadCategories((prev) => {
+    setExcludedCategories((prev) => {
       const next = new Set(prev)
       if (next.has(key)) {
         next.delete(key)
@@ -585,29 +569,28 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
   const downloadEntries = useMemo(() => {
     const entries: FileEntry[] = []
     for (const cat of categories) {
-      if (downloadCategories.has(cat.key)) {
+      if (!excludedCategories.has(cat.key)) {
         entries.push(...cat.entries)
       }
     }
     return entries
-  }, [categories, downloadCategories])
+  }, [categories, excludedCategories])
 
-  const [downloadListText, setDownloadListText] = useState('')
-  useEffect(() => {
-    if (downloadEntries.length === 0) {
-      setDownloadListText('')
-      return
-    }
-    loadRuntimeConfig().then((cfg) => {
-      const lines = downloadEntries.map((e) => {
-        const url = getDataUrl(e.path, cfg)
-        return downloadFormat === 'urls'
-          ? toAbsoluteUrl(url)
-          : `curl -fsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`
-      })
-      setDownloadListText(lines.join('\n'))
-    })
-  }, [downloadEntries, downloadFormat])
+  const { data: runtimeConfig } = useQuery({
+    queryKey: ['runtime-config'],
+    queryFn: loadRuntimeConfig,
+    staleTime: Infinity,
+  })
+
+  const downloadListText = useMemo(() => {
+    if (!runtimeConfig || downloadEntries.length === 0) return ''
+    return downloadEntries.map((e) => {
+      const url = getDataUrl(e.path, runtimeConfig)
+      return downloadFormat === 'urls'
+        ? toAbsoluteUrl(url)
+        : `curl -fsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`
+    }).join('\n')
+  }, [downloadEntries, downloadFormat, runtimeConfig])
 
   const handleDownloadFile = useCallback(() => {
     if (!downloadListText) return
@@ -720,7 +703,7 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
                 onClick={() => toggleCategory(cat.key)}
                 className={clsx(
                   'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                  downloadCategories.has(cat.key)
+                  !excludedCategories.has(cat.key)
                     ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
                     : 'bg-gray-100 text-gray-600 hover:text-gray-900 dark:bg-gray-700 dark:text-gray-400 dark:hover:text-gray-100',
                 )}
