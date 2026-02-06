@@ -32,6 +32,7 @@ RUN echo 'server { \
     } \
     location /results { \
         try_files $uri =404; \
+        add_header Cache-Control no-transform; \
     } \
     location /assets { \
         expires 1y; \
