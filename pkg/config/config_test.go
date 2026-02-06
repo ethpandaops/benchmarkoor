@@ -713,3 +713,87 @@ func TestSourceConfig_IsConfigured(t *testing.T) {
 		})
 	}
 }
+
+func TestGetBootstrapFCU(t *testing.T) {
+	boolPtr := func(v bool) *bool { return &v }
+
+	tests := []struct {
+		name     string
+		global   bool
+		instance *bool
+		expected bool
+	}{
+		{
+			name:     "both unset defaults to false",
+			global:   false,
+			instance: nil,
+			expected: false,
+		},
+		{
+			name:     "global true, instance nil inherits",
+			global:   true,
+			instance: nil,
+			expected: true,
+		},
+		{
+			name:     "instance override true",
+			global:   false,
+			instance: boolPtr(true),
+			expected: true,
+		},
+		{
+			name:     "instance override false",
+			global:   true,
+			instance: boolPtr(false),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						BootstrapFCU: tt.global,
+					},
+				},
+			}
+			instance := &ClientInstance{
+				BootstrapFCU: tt.instance,
+			}
+			result := cfg.GetBootstrapFCU(instance)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestLoad_BootstrapFCU(t *testing.T) {
+	configContent := `
+client:
+  config:
+    bootstrap_fcu: true
+    genesis:
+      geth: http://example.com/genesis.json
+  instances:
+    - id: inherits-global
+      client: geth
+    - id: override-false
+      client: geth
+      bootstrap_fcu: false
+`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	// Global default is true.
+	assert.True(t, cfg.Client.Config.BootstrapFCU)
+
+	// First instance inherits global true.
+	assert.True(t, cfg.GetBootstrapFCU(&cfg.Client.Instances[0]))
+
+	// Second instance overrides to false.
+	assert.False(t, cfg.GetBootstrapFCU(&cfg.Client.Instances[1]))
+}

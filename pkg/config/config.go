@@ -386,6 +386,7 @@ type ClientDefaults struct {
 	RetryNewPayloadsSyncingState *RetryNewPayloadsSyncingConfig `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
 	WaitAfterRPCReady            string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 	PostTestRPCCalls             []PostTestRPCCall              `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
+	BootstrapFCU                 bool                           `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
@@ -407,6 +408,7 @@ type ClientInstance struct {
 	RetryNewPayloadsSyncingState *RetryNewPayloadsSyncingConfig `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
 	WaitAfterRPCReady            string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 	PostTestRPCCalls             []PostTestRPCCall              `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
+	BootstrapFCU                 *bool                          `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 }
 
 // Load reads and parses configuration files from the given paths.
@@ -854,6 +856,16 @@ func (c *Config) GetPostTestRPCCalls(instance *ClientInstance) []PostTestRPCCall
 	}
 
 	return c.Client.Config.PostTestRPCCalls
+}
+
+// GetBootstrapFCU returns whether bootstrap FCU should be sent for an instance.
+// Instance-level setting takes precedence over global default.
+func (c *Config) GetBootstrapFCU(instance *ClientInstance) bool {
+	if instance.BootstrapFCU != nil {
+		return *instance.BootstrapFCU
+	}
+
+	return c.Client.Config.BootstrapFCU
 }
 
 // validateDropMemoryCaches validates drop_memory_caches settings and checks permissions.
