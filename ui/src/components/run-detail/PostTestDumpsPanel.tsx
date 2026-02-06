@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
-import type { PostTestRPCCallConfig } from '@/api/types'
+import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
 import { fetchHead, type HeadResult } from '@/api/client'
 import { formatBytes } from '@/utils/format'
 import { toAbsoluteUrl } from '@/config/runtime'
@@ -14,7 +14,7 @@ type FileSortDirection = 'asc' | 'desc'
 
 interface FilesPanelProps {
   runId: string
-  testNames: string[]
+  tests: Record<string, TestEntry>
   postTestRPCCalls?: PostTestRPCCallConfig[]
   showDownloadList: boolean
   downloadFormat: DownloadListFormat
@@ -22,17 +22,19 @@ interface FilesPanelProps {
   onDownloadFormatChange: (format: string) => void
 }
 
-interface DumpFileEntry {
+interface FileEntry {
   testName: string
   filename: string
   path: string
+  displayPath: string
+  outputPath: string
 }
 
 type FileStatus = 'available' | 'unavailable'
 type FileFilter = 'all' | 'unavailable'
 
 interface ResolvedFile {
-  entry: DumpFileEntry
+  entry: FileEntry
   info: HeadResult
   status: FileStatus
 }
@@ -119,10 +121,51 @@ function SortableHeader({
   )
 }
 
-function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: {
-  runId: string
-  testNames: string[]
-  postTestRPCCalls: PostTestRPCCallConfig[]
+// --- Generic file stats hook ---
+
+function useFileStats(entries: FileEntry[], queryKeyPrefix: string) {
+  const fileQueries = useQueries({
+    queries: entries.map((entry) => ({
+      queryKey: [queryKeyPrefix, entry.path],
+      queryFn: () => fetchHead(entry.path),
+      staleTime: Infinity,
+    })),
+  })
+
+  return useMemo(() => {
+    const isLoading = fileQueries.some((q) => q.isLoading)
+    let fileCount = 0
+    let totalSize = 0
+    let unavailableCount = 0
+    for (const q of fileQueries) {
+      if (q.data) {
+        const status = resolveFileStatus(q.data)
+        if (status === 'available') {
+          fileCount++
+          if (q.data.size != null) totalSize += q.data.size
+        } else {
+          unavailableCount++
+        }
+      }
+    }
+    return { isLoading, fileCount, totalSize, unavailableCount }
+  }, [fileQueries])
+}
+
+// --- Generic FileListTab component ---
+
+function FileListTab({
+  entries,
+  queryKeyPrefix,
+  emptyMessage,
+  showDownloadList,
+  downloadFormat,
+  onShowDownloadListChange,
+  onDownloadFormatChange,
+}: {
+  entries: FileEntry[]
+  queryKeyPrefix: string
+  emptyMessage: string
   showDownloadList: boolean
   downloadFormat: DownloadListFormat
   onShowDownloadListChange: (open: boolean) => void
@@ -144,29 +187,9 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
     setCurrentPage(1)
   }
 
-  const dumpCalls = useMemo(
-    () => postTestRPCCalls.filter((c) => c.dump?.enabled && c.dump.filename),
-    [postTestRPCCalls],
-  )
-
-  const entries = useMemo<DumpFileEntry[]>(() => {
-    const result: DumpFileEntry[] = []
-    for (const testName of testNames) {
-      for (const call of dumpCalls) {
-        const filename = `${call.dump!.filename}.json`
-        result.push({
-          testName,
-          filename,
-          path: `runs/${runId}/${testName}/post_test_rpc_calls/${filename}`,
-        })
-      }
-    }
-    return result
-  }, [runId, testNames, dumpCalls])
-
   const fileQueries = useQueries({
     queries: entries.map((entry) => ({
-      queryKey: ['post-test-dump-panel', runId, entry.testName, entry.filename],
+      queryKey: [queryKeyPrefix, entry.path],
       queryFn: () => fetchHead(entry.path),
       staleTime: Infinity,
     })),
@@ -190,9 +213,9 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
   const availableFiles = useMemo(
     () => allFiles.filter((f) => f.status === 'available').map((f) => ({
       url: f.info.url,
-      outputPath: `${runId}/${f.entry.testName}/post_test_rpc_calls/${f.entry.filename}`,
+      outputPath: f.entry.outputPath,
     })),
-    [allFiles, runId],
+    [allFiles],
   )
 
   const filteredFiles = useMemo(() => {
@@ -200,7 +223,6 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
     return allFiles.filter((f) => f.status === 'unavailable')
   }, [allFiles, filter])
 
-  // Reset to page 1 when filter changes
   const [prevFilter, setPrevFilter] = useState(filter)
   if (filter !== prevFilter) {
     setPrevFilter(filter)
@@ -212,8 +234,8 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
     sorted.sort((a, b) => {
       let cmp = 0
       if (sortBy === 'path') {
-        const pathA = `${a.entry.testName}/${a.entry.filename}`
-        const pathB = `${b.entry.testName}/${b.entry.filename}`
+        const pathA = `${a.entry.testName}/${a.entry.displayPath}`
+        const pathB = `${b.entry.testName}/${b.entry.displayPath}`
         cmp = pathA.localeCompare(pathB)
       } else {
         const sizeA = a.info.size ?? -1
@@ -248,7 +270,7 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
   if (allFiles.length === 0) {
     return (
       <div className="py-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">
-        No dump files found
+        {emptyMessage}
       </div>
     )
   }
@@ -357,7 +379,7 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
             >
               <td className="py-2 pr-3">
                 <span className="text-gray-500 dark:text-gray-400">{entry.testName}/</span>
-                post_test_rpc_calls/{entry.filename}
+                {entry.displayPath}
                 {status === 'unavailable' && (
                   <span className="ml-2 rounded-full bg-yellow-100 px-1.5 py-0.5 font-sans text-xs font-medium text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300">
                     Unavailable
@@ -394,81 +416,128 @@ function PostTestDumpsTab({ runId, testNames, postTestRPCCalls, showDownloadList
   )
 }
 
-function usePostTestDumpStats(runId: string, testNames: string[], postTestRPCCalls: PostTestRPCCallConfig[]) {
-  const dumpCalls = useMemo(
-    () => postTestRPCCalls.filter((c) => c.dump?.enabled && c.dump.filename),
-    [postTestRPCCalls],
-  )
+// --- Entry generators ---
 
-  const entries = useMemo(() => {
-    const result: { testName: string; filename: string; path: string }[] = []
-    for (const testName of testNames) {
-      for (const call of dumpCalls) {
-        const filename = `${call.dump!.filename}.json`
-        result.push({ testName, filename, path: `runs/${runId}/${testName}/post_test_rpc_calls/${filename}` })
-      }
-    }
-    return result
-  }, [runId, testNames, dumpCalls])
+const ALL_STEPS = ['setup', 'test', 'cleanup'] as const
+type StepName = typeof ALL_STEPS[number]
 
-  const fileQueries = useQueries({
-    queries: entries.map((entry) => ({
-      queryKey: ['post-test-dump-panel', runId, entry.testName, entry.filename],
-      queryFn: () => fetchHead(entry.path),
-      staleTime: Infinity,
-    })),
-  })
-
-  return useMemo(() => {
-    const isLoading = fileQueries.some((q) => q.isLoading)
-    let fileCount = 0
-    let totalSize = 0
-    let unavailableCount = 0
-    for (const q of fileQueries) {
-      if (q.data) {
-        const status = resolveFileStatus(q.data)
-        if (status === 'available') {
-          fileCount++
-          if (q.data.size != null) totalSize += q.data.size
-        } else {
-          unavailableCount++
-        }
-      }
-    }
-    return { isLoading, fileCount, totalSize, unavailableCount, hasDumpCalls: dumpCalls.length > 0 }
-  }, [fileQueries, dumpCalls.length])
+function getTestSteps(entry: TestEntry): StepName[] {
+  if (!entry.steps) return []
+  return ALL_STEPS.filter((step) => entry.steps![step] != null)
 }
 
-export function FilesPanel({ runId, testNames, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: FilesPanelProps) {
-  const [expanded, setExpanded] = useState(showDownloadList)
-  const [activeTab, setActiveTab] = useState('post-test-rpc-dumps')
+function buildTestStatsEntries(runId: string, tests: Record<string, TestEntry>): FileEntry[] {
+  const entries: FileEntry[] = []
+  for (const [testName, testEntry] of Object.entries(tests)) {
+    for (const step of getTestSteps(testEntry)) {
+      for (const suffix of ['result-aggregated.json', 'result-details.json']) {
+        const filename = `${step}.${suffix}`
+        entries.push({
+          testName,
+          filename,
+          path: `runs/${runId}/${testName}/${filename}`,
+          displayPath: filename,
+          outputPath: `${runId}/${testName}/${filename}`,
+        })
+      }
+    }
+  }
+  return entries
+}
 
-  const hasPostTestDumps = postTestRPCCalls && postTestRPCCalls.length > 0
-  const dumpStats = usePostTestDumpStats(runId, testNames, postTestRPCCalls ?? [])
+function buildTestResponsesEntries(runId: string, tests: Record<string, TestEntry>): FileEntry[] {
+  const entries: FileEntry[] = []
+  for (const [testName, testEntry] of Object.entries(tests)) {
+    for (const step of getTestSteps(testEntry)) {
+      const filename = `${step}.response`
+      entries.push({
+        testName,
+        filename,
+        path: `runs/${runId}/${testName}/${filename}`,
+        displayPath: filename,
+        outputPath: `${runId}/${testName}/${filename}`,
+      })
+    }
+  }
+  return entries
+}
+
+function buildPostTestDumpEntries(runId: string, testNames: string[], postTestRPCCalls: PostTestRPCCallConfig[]): FileEntry[] {
+  const dumpCalls = postTestRPCCalls.filter((c) => c.dump?.enabled && c.dump.filename)
+  const entries: FileEntry[] = []
+  for (const testName of testNames) {
+    for (const call of dumpCalls) {
+      const filename = `${call.dump!.filename}.json`
+      entries.push({
+        testName,
+        filename,
+        path: `runs/${runId}/${testName}/post_test_rpc_calls/${filename}`,
+        displayPath: `post_test_rpc_calls/${filename}`,
+        outputPath: `${runId}/${testName}/post_test_rpc_calls/${filename}`,
+      })
+    }
+  }
+  return entries
+}
+
+// --- FilesPanel ---
+
+export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: FilesPanelProps) {
+  const [expanded, setExpanded] = useState(showDownloadList)
+  const [activeTab, setActiveTab] = useState('test-stats')
+
+  const testNames = useMemo(() => Object.keys(tests), [tests])
+
+  const testStatsEntries = useMemo(() => buildTestStatsEntries(runId, tests), [runId, tests])
+  const testResponsesEntries = useMemo(() => buildTestResponsesEntries(runId, tests), [runId, tests])
+  const postTestDumpEntries = useMemo(
+    () => buildPostTestDumpEntries(runId, testNames, postTestRPCCalls ?? []),
+    [runId, testNames, postTestRPCCalls],
+  )
+
+  const testStatsStats = useFileStats(testStatsEntries, 'file-panel')
+  const testResponsesStats = useFileStats(testResponsesEntries, 'file-panel')
+  const postTestDumpStats = useFileStats(postTestDumpEntries, 'file-panel')
+
+  const hasPostTestDumps = postTestDumpEntries.length > 0
 
   const tabs = useMemo(() => {
     const result: { key: string; label: string; badge?: string }[] = []
-    if (hasPostTestDumps && dumpStats.hasDumpCalls) {
+    result.push({
+      key: 'test-stats',
+      label: 'Test Stats',
+      badge: testStatsStats.isLoading ? '...' : String(testStatsStats.fileCount + testStatsStats.unavailableCount),
+    })
+    result.push({
+      key: 'test-responses',
+      label: 'Test Responses',
+      badge: testResponsesStats.isLoading ? '...' : String(testResponsesStats.fileCount + testResponsesStats.unavailableCount),
+    })
+    if (hasPostTestDumps) {
       result.push({
         key: 'post-test-rpc-dumps',
         label: 'Post-Test RPC Dumps',
-        badge: dumpStats.isLoading ? '...' : String(dumpStats.fileCount + dumpStats.unavailableCount),
+        badge: postTestDumpStats.isLoading ? '...' : String(postTestDumpStats.fileCount + postTestDumpStats.unavailableCount),
       })
     }
     return result
-  }, [hasPostTestDumps, dumpStats])
+  }, [testStatsStats, testResponsesStats, postTestDumpStats, hasPostTestDumps])
 
-  if (tabs.length === 0) return null
+  const allStats = [testStatsStats, testResponsesStats, ...(hasPostTestDumps ? [postTestDumpStats] : [])]
+  const anyLoading = allStats.some((s) => s.isLoading)
 
   const summaryParts: string[] = []
-  if (dumpStats.isLoading) {
+  if (anyLoading) {
     summaryParts.push('Loading...')
   } else {
-    if (dumpStats.fileCount > 0) {
-      summaryParts.push(`${dumpStats.fileCount} file${dumpStats.fileCount !== 1 ? 's' : ''}, ${formatBytes(dumpStats.totalSize)}`)
+    const totalFiles = allStats.reduce((sum, s) => sum + s.fileCount, 0)
+    const totalSize = allStats.reduce((sum, s) => sum + s.totalSize, 0)
+    const totalUnavailable = allStats.reduce((sum, s) => sum + s.unavailableCount, 0)
+    if (totalFiles > 0) {
+      summaryParts.push(`${totalFiles} file${totalFiles !== 1 ? 's' : ''}, ${formatBytes(totalSize)}`)
     }
-    if (dumpStats.unavailableCount > 0) {
-      summaryParts.push(`${dumpStats.unavailableCount} unavailable`)
+    if (totalUnavailable > 0) {
+      summaryParts.push(`${totalUnavailable} unavailable`)
     }
   }
   const summary = summaryParts.join(' / ')
@@ -494,47 +563,55 @@ export function FilesPanel({ runId, testNames, postTestRPCCalls, showDownloadLis
       </button>
       {expanded && (
         <div>
-          {tabs.length > 1 && (
-            <div className="flex gap-1 border-b border-gray-200 px-4 dark:border-gray-700">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={clsx(
-                    'flex items-center gap-2 border-b-2 px-4 py-2 text-sm/6 font-medium transition-colors',
-                    activeTab === tab.key
-                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
-                  )}
-                >
-                  {tab.label}
-                  {tab.badge && (
-                    <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-          {tabs.length === 1 && (
-            <div className="border-b border-gray-200 px-4 py-2 dark:border-gray-700">
-              <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
-                {tabs[0].label}
-                {tabs[0].badge && (
-                  <span className="ml-2 rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                    {tabs[0].badge}
+          <div className="flex gap-1 border-b border-gray-200 px-4 dark:border-gray-700">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={clsx(
+                  'flex items-center gap-2 border-b-2 px-4 py-2 text-sm/6 font-medium transition-colors',
+                  activeTab === tab.key
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
+                )}
+              >
+                {tab.label}
+                {tab.badge && (
+                  <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                    {tab.badge}
                   </span>
                 )}
-              </span>
-            </div>
-          )}
+              </button>
+            ))}
+          </div>
           <div className="overflow-x-auto p-4">
+            {activeTab === 'test-stats' && (
+              <FileListTab
+                entries={testStatsEntries}
+                queryKeyPrefix="file-panel"
+                emptyMessage="No test stats files found"
+                showDownloadList={showDownloadList}
+                downloadFormat={downloadFormat}
+                onShowDownloadListChange={onShowDownloadListChange}
+                onDownloadFormatChange={onDownloadFormatChange}
+              />
+            )}
+            {activeTab === 'test-responses' && (
+              <FileListTab
+                entries={testResponsesEntries}
+                queryKeyPrefix="file-panel"
+                emptyMessage="No test response files found"
+                showDownloadList={showDownloadList}
+                downloadFormat={downloadFormat}
+                onShowDownloadListChange={onShowDownloadListChange}
+                onDownloadFormatChange={onDownloadFormatChange}
+              />
+            )}
             {activeTab === 'post-test-rpc-dumps' && hasPostTestDumps && (
-              <PostTestDumpsTab
-                runId={runId}
-                testNames={testNames}
-                postTestRPCCalls={postTestRPCCalls}
+              <FileListTab
+                entries={postTestDumpEntries}
+                queryKeyPrefix="file-panel"
+                emptyMessage="No dump files found"
                 showDownloadList={showDownloadList}
                 downloadFormat={downloadFormat}
                 onShowDownloadListChange={onShowDownloadListChange}

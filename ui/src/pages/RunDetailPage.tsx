@@ -486,7 +486,7 @@ export function RunDetailPage() {
 
       <FilesPanel
         runId={runId}
-        testNames={Object.keys(result.tests)}
+        tests={result.tests}
         postTestRPCCalls={config.instance.post_test_rpc_calls}
         showDownloadList={dlModal}
         downloadFormat={(dlFmt as 'urls' | 'curl') ?? 'urls'}
