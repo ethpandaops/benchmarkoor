@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useQueries } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
 import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
 import { fetchHead } from '@/api/client'
@@ -82,10 +83,12 @@ function SortIcon({ direction, active }: { direction: SortDirection; active: boo
 
 function FileListTab({
   entries,
+  runId,
   queryKeyPrefix,
   emptyMessage,
 }: {
   entries: FileEntry[]
+  runId: string
   queryKeyPrefix: string
   emptyMessage: string
 }) {
@@ -195,16 +198,31 @@ function FileListTab({
                 </td>
                 <td className="py-2">
                   {isAvailable && headResult ? (
-                    <a
-                      href={headResult.url}
-                      download={entry.filename}
-                      className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                      title="Download"
-                    >
-                      <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                    </a>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to="/runs/$runId/fileviewer"
+                        params={{ runId }}
+                        search={{ file: entry.path.replace(`runs/${runId}/`, '') }}
+                        target="_blank"
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                        title="View"
+                      >
+                        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                      </Link>
+                      <a
+                        href={headResult.url}
+                        download={entry.filename}
+                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                        title="Download"
+                      >
+                        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      </a>
+                    </div>
                   ) : null}
                 </td>
               </tr>
@@ -467,6 +485,7 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
             {activeTab === 'general' && (
               <FileListTab
                 entries={generalEntries}
+                runId={runId}
                 queryKeyPrefix="file-panel"
                 emptyMessage="No general files found"
               />
@@ -474,6 +493,7 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
             {activeTab === 'test-stats' && (
               <FileListTab
                 entries={testStatsEntries}
+                runId={runId}
                 queryKeyPrefix="file-panel"
                 emptyMessage="No test stats files found"
               />
@@ -481,6 +501,7 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
             {activeTab === 'test-responses' && (
               <FileListTab
                 entries={testResponsesEntries}
+                runId={runId}
                 queryKeyPrefix="file-panel"
                 emptyMessage="No test response files found"
               />
@@ -488,6 +509,7 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
             {activeTab === 'post-test-rpc-dumps' && hasPostTestDumps && (
               <FileListTab
                 entries={postTestDumpEntries}
+                runId={runId}
                 queryKeyPrefix="file-panel"
                 emptyMessage="No dump files found"
               />

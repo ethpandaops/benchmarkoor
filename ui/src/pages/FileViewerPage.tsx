@@ -110,7 +110,7 @@ function DownloadButton({ content, filename }: { content: string; filename: stri
     <button
       onClick={handleDownload}
       className="flex items-center gap-1.5 rounded-sm bg-gray-700 px-2.5 py-1.5 text-xs/5 font-medium text-gray-200 hover:bg-gray-600"
-      title="Download log file"
+      title="Download file"
     >
       <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path
@@ -324,10 +324,10 @@ function LogLine({ content, language, useAnsi }: { content: string; language: st
   return <HighlightedLine content={content} language={language} />
 }
 
-export function LogViewerPage() {
-  const { runId } = useParams({ from: '/runs/$runId/logs' })
+export function FileViewerPage() {
+  const { runId } = useParams({ from: '/runs/$runId/fileviewer' })
   const navigate = useNavigate()
-  const search = useSearch({ from: '/runs/$runId/logs' }) as { file?: string; lines?: string }
+  const search = useSearch({ from: '/runs/$runId/fileviewer' }) as { file?: string; lines?: string }
   const filename = search.file
   const selectedLines = parseLineSelection(search.lines)
 
@@ -338,12 +338,12 @@ export function LogViewerPage() {
   const { data: config } = useRunConfig(runId)
 
   const {
-    data: logContent,
+    data: fileContent,
     isLoading,
     error,
     refetch,
   } = useQuery({
-    queryKey: ['run', runId, 'logs', filename],
+    queryKey: ['run', runId, 'file', filename],
     queryFn: async () => {
       const { data, status } = await fetchText(`runs/${runId}/${filename}`)
       if (!data) {
@@ -357,7 +357,7 @@ export function LogViewerPage() {
   const updateSelectedLines = useCallback(
     (newSelected: Set<number>) => {
       navigate({
-        to: '/runs/$runId/logs',
+        to: '/runs/$runId/fileviewer',
         params: { runId },
         search: {
           file: filename,
@@ -400,12 +400,12 @@ export function LogViewerPage() {
     [selectedLines, lastClickedLine, updateSelectedLines]
   )
 
-  const useAnsi = useMemo(() => logContent ? hasAnsiCodes(logContent) : false, [logContent])
-  const language = useMemo(() => logContent ? detectLanguage(logContent) : 'bash', [logContent])
+  const useAnsi = useMemo(() => fileContent ? hasAnsiCodes(fileContent) : false, [fileContent])
+  const language = useMemo(() => fileContent ? detectLanguage(fileContent) : 'bash', [fileContent])
 
   // Scroll to first selected line on initial load
   useEffect(() => {
-    if (logContent && selectedLines.size > 0 && !hasScrolledRef.current) {
+    if (fileContent && selectedLines.size > 0 && !hasScrolledRef.current) {
       const firstLine = Math.min(...selectedLines)
       const row = document.getElementById(`log-line-${firstLine}`)
       if (row && scrollContainerRef.current) {
@@ -413,25 +413,25 @@ export function LogViewerPage() {
         hasScrolledRef.current = true
       }
     }
-  }, [logContent, selectedLines])
+  }, [fileContent, selectedLines])
 
   if (!filename) {
-    return <ErrorState message="No file specified. Use ?file=filename.log" />
+    return <ErrorState message="No file specified" />
   }
 
   if (isLoading) {
-    return <LoadingState message="Loading logs..." />
+    return <LoadingState message="Loading file..." />
   }
 
   if (error) {
     return <ErrorState message={error.message} retry={() => refetch()} />
   }
 
-  if (!logContent) {
-    return <ErrorState message="Log file not found" />
+  if (!fileContent) {
+    return <ErrorState message="File not found" />
   }
 
-  const lines = logContent.split('\n')
+  const lines = fileContent.split('\n')
   const selectedContent = selectedLines.size > 0
     ? Array.from(selectedLines)
         .sort((a, b) => a - b)
@@ -482,8 +482,8 @@ export function LogViewerPage() {
           </div>
           <div className="flex items-center gap-2">
             {selectedContent && <CopyButton text={selectedContent} label="Copy selected" />}
-            <CopyButton text={logContent} label="Copy all" />
-            <DownloadButton content={logContent} filename={filename} />
+            <CopyButton text={fileContent} label="Copy all" />
+            <DownloadButton content={fileContent} filename={filename} />
           </div>
         </div>
         <div ref={scrollContainerRef} className="max-h-[80vh] overflow-y-auto">

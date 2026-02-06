@@ -6,7 +6,7 @@ import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
-import { FilesPanel } from '@/components/run-detail/PostTestDumpsPanel'
+import { FilesPanel } from '@/components/run-detail/FilesPanel'
 import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts'
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
 import { PreRunStepsTable } from '@/components/run-detail/PreRunStepsTable'
@@ -305,9 +305,10 @@ export function RunDetailPage() {
             {benchmarkoorLog && (
               <>
                 <Link
-                  to="/runs/$runId/logs"
+                  to="/runs/$runId/fileviewer"
                   params={{ runId }}
                   search={{ file: 'benchmarkoor.log' }}
+                  target="_blank"
                   className="hover:text-gray-700 dark:hover:text-gray-300"
                 >
                   Benchmarkoor
@@ -345,9 +346,10 @@ export function RunDetailPage() {
             {containerLog && (
               <>
                 <Link
-                  to="/runs/$runId/logs"
+                  to="/runs/$runId/fileviewer"
                   params={{ runId }}
                   search={{ file: 'container.log' }}
+                  target="_blank"
                   className="hover:text-gray-700 dark:hover:text-gray-300"
                 >
                   Client
