@@ -367,8 +367,8 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
 
   const tabs = useMemo(() => {
     const result: { key: string; label: string; badge: string }[] = []
-    result.push({ key: 'test-stats', label: 'Test Stats', badge: String(testStatsEntries.length) })
-    result.push({ key: 'test-responses', label: 'Test Responses', badge: String(testResponsesEntries.length) })
+    result.push({ key: 'test-stats', label: 'Stats', badge: String(testStatsEntries.length) })
+    result.push({ key: 'test-responses', label: 'Responses', badge: String(testResponsesEntries.length) })
     if (hasPostTestDumps) {
       result.push({ key: 'post-test-rpc-dumps', label: 'Post-Test RPC Dumps', badge: String(postTestDumpEntries.length) })
     }
