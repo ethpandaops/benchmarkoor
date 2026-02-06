@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
+import { Check, Copy, Download } from 'lucide-react'
 import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated, StepResult, PostTestRPCCallConfig } from '@/api/types'
 import { fetchHead } from '@/api/client'
 import { Modal } from '@/components/shared/Modal'
@@ -135,20 +136,7 @@ function CopyButton({ text }: { text: string }) {
       className="shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
       title="Copy to clipboard"
     >
-      {copied ? (
-        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-      ) : (
-        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-          />
-        </svg>
-      )}
+      {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
     </button>
   )
 }
@@ -230,9 +218,7 @@ function PostTestDumps({ runId, testName, calls }: { runId: string; testName: st
                         className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                         title="Download"
                       >
-                        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
+                        <Download className="size-4" />
                       </a>
                     ) : null}
                   </td>

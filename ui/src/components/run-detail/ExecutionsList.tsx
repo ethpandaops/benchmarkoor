@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import clsx from 'clsx'
+import { ChevronRight } from 'lucide-react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useTestRequests, useTestResponses, useTestResultDetails, type StepType } from '@/api/hooks/useTestDetails'
@@ -124,14 +125,7 @@ function ExecutionRow({ index, request, response, time, status, mgasPerSec }: Ex
           expanded && 'bg-gray-100 dark:bg-gray-800',
         )}
       >
-        <svg
-          className={clsx('size-4 shrink-0 text-gray-400 transition-transform', expanded && 'rotate-90')}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
+        <ChevronRight className={clsx('size-4 shrink-0 text-gray-400 transition-transform', expanded && 'rotate-90')} />
         <span className="w-10 shrink-0 font-mono text-sm/6 text-gray-500 dark:text-gray-400">#{index}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-sm/6 text-gray-900 dark:text-gray-100">{method}</span>
         {mgasPerSec !== undefined && (

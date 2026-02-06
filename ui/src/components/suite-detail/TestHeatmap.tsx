@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
+import { ChevronUp } from 'lucide-react'
 import { type SuiteStats, type SuiteTest, type IndexStepType, ALL_INDEX_STEP_TYPES, getRunDurationAggregatedStats } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Pagination } from '@/components/shared/Pagination'
@@ -451,14 +452,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
                 >
                   #
                   {sortField === 'testNumber' && (
-                    <svg
-                      className={clsx('size-4 transition-transform', sortDirection === 'desc' && 'rotate-180')}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                    </svg>
+                    <ChevronUp className={clsx('size-4 transition-transform', sortDirection === 'desc' && 'rotate-180')} />
                   )}
                 </button>
               </th>
@@ -491,14 +485,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
                   >
                     MGas/s
                     {sortField === 'avgMgas' && (
-                      <svg
-                        className={clsx('size-3 transition-transform', sortDirection === 'desc' && 'rotate-180')}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                      </svg>
+                      <ChevronUp className={clsx('size-3 transition-transform', sortDirection === 'desc' && 'rotate-180')} />
                     )}
                   </button>
                 </div>

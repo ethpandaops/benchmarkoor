@@ -25,7 +25,7 @@ import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
 import { BlockLogsDashboard } from '@/components/run-detail/block-logs-dashboard'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
-import { Flame } from 'lucide-react'
+import { Flame, Download } from 'lucide-react'
 
 // Step types that can be included in MGas/s calculation
 export type StepTypeOption = 'setup' | 'test' | 'cleanup'
@@ -332,14 +332,7 @@ export function RunDetailPage() {
                   className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                   title="Download benchmarkoor.log"
                 >
-                  <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
+                  <Download className="size-4" />
                 </button>
               </>
             )}
@@ -373,14 +366,7 @@ export function RunDetailPage() {
                   className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                   title="Download container.log"
                 >
-                  <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
+                  <Download className="size-4" />
                 </button>
               </>
             )}

@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
+import { ChevronRight } from 'lucide-react'
 import { getIndexAggregatedStats, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
@@ -50,14 +51,7 @@ function OpcodeHeatmapSection({ tests, onTestClick }: { tests: SuiteTest[]; onTe
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
       >
-        <svg
-          className={clsx('size-4 text-gray-500 transition-transform', expanded && 'rotate-90')}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
+        <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', expanded && 'rotate-90')} />
         Opcode Heatmap
       </button>
       {expanded && (
@@ -410,14 +404,7 @@ export function SuiteDetailPage() {
                     onClick={() => setHeatmapExpanded(!heatmapExpanded)}
                     className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
                   >
-                    <svg
-                      className={clsx('size-4 text-gray-500 transition-transform', heatmapExpanded && 'rotate-90')}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
+                    <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', heatmapExpanded && 'rotate-90')} />
                     Recent Runs by Client
                   </button>
                   {heatmapExpanded && (
@@ -432,14 +419,7 @@ export function SuiteDetailPage() {
                       onClick={() => setChartExpanded(!chartExpanded)}
                       className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
                     >
-                      <svg
-                        className={clsx('size-4 text-gray-500 transition-transform', chartExpanded && 'rotate-90')}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+                      <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', chartExpanded && 'rotate-90')} />
                       Duration Chart
                     </button>
                     {chartExpanded && (
@@ -460,14 +440,7 @@ export function SuiteDetailPage() {
                       onClick={() => setMgasChartExpanded(!mgasChartExpanded)}
                       className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
                     >
-                      <svg
-                        className={clsx('size-4 text-gray-500 transition-transform', mgasChartExpanded && 'rotate-90')}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+                      <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', mgasChartExpanded && 'rotate-90')} />
                       MGas/s Chart
                     </button>
                     {mgasChartExpanded && (
@@ -489,14 +462,7 @@ export function SuiteDetailPage() {
                     onClick={() => setResourceChartsExpanded(!resourceChartsExpanded)}
                     className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
                   >
-                    <svg
-                      className={clsx('size-4 text-gray-500 transition-transform', resourceChartsExpanded && 'rotate-90')}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
+                    <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', resourceChartsExpanded && 'rotate-90')} />
                     Resource Usage
                   </button>
                   {resourceChartsExpanded && (
@@ -517,14 +483,7 @@ export function SuiteDetailPage() {
                       onClick={() => setSlowestTestsExpanded(!slowestTestsExpanded)}
                       className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
                     >
-                      <svg
-                        className={clsx('size-4 text-gray-500 transition-transform', slowestTestsExpanded && 'rotate-90')}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+                      <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', slowestTestsExpanded && 'rotate-90')} />
                       Test Heatmap
                     </button>
                     {slowestTestsExpanded && (

@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 interface PaginationProps {
   currentPage: number
@@ -33,9 +34,7 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
         )}
         aria-label="Previous page"
       >
-        <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
+        <ChevronLeft className="size-5" />
       </button>
 
       {pages.map((page, index) =>
@@ -71,9 +70,7 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
         )}
         aria-label="Next page"
       >
-        <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
+        <ChevronRight className="size-5" />
       </button>
     </nav>
   )

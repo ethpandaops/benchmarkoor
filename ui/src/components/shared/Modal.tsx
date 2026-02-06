@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import clsx from 'clsx'
+import { X } from 'lucide-react'
 
 interface ModalProps {
   isOpen: boolean
@@ -42,9 +43,7 @@ export function Modal({ isOpen, onClose, title, children, className }: ModalProp
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
             >
-              <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="size-5" />
             </button>
           </div>
         )}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { Check, Copy, Download } from 'lucide-react'
 import { Link, useParams, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -71,21 +72,12 @@ function CopyButton({ text, label }: { text: string; label: string }) {
     >
       {copied ? (
         <>
-          <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
+          <Check className="size-4" />
           Copied!
         </>
       ) : (
         <>
-          <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-            />
-          </svg>
+          <Copy className="size-4" />
           {label}
         </>
       )}
@@ -112,14 +104,7 @@ function DownloadButton({ content, filename }: { content: string; filename: stri
       className="flex items-center gap-1.5 rounded-sm bg-gray-700 px-2.5 py-1.5 text-xs/5 font-medium text-gray-200 hover:bg-gray-600"
       title="Download file"
     >
-      <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-        />
-      </svg>
+      <Download className="size-4" />
       Download
     </button>
   )

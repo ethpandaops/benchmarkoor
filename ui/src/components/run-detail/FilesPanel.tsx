@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { FolderOpen } from 'lucide-react'
+import { FolderOpen, Check, Copy, Eye, Download, List, ChevronDown } from 'lucide-react'
 import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
 import { fetchHead } from '@/api/client'
 import { formatBytes } from '@/utils/format'
@@ -46,20 +46,7 @@ function CopyButton({ text }: { text: string }) {
       className="shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
       title="Copy to clipboard"
     >
-      {copied ? (
-        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-      ) : (
-        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-          />
-        </svg>
-      )}
+      {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
     </button>
   )
 }
@@ -208,10 +195,7 @@ function FileListTab({
                         className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                         title="View"
                       >
-                        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
+                        <Eye className="size-4" />
                       </Link>
                       <a
                         href={headResult.url}
@@ -219,9 +203,7 @@ function FileListTab({
                         className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                         title="Download"
                       >
-                        <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
+                        <Download className="size-4" />
                       </a>
                     </div>
                   ) : null}
@@ -447,19 +429,10 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
             onClick={(e) => { e.stopPropagation(); onShowDownloadListChange(true) }}
             className="flex shrink-0 items-center gap-1.5 rounded-xs border border-gray-300 px-2 py-1 text-xs/5 font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
           >
-            <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-            </svg>
+            <List className="size-3.5" />
             Download list
           </button>
-          <svg
-            className={clsx('size-5 shrink-0 text-gray-500 transition-transform', expanded && 'rotate-180')}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+          <ChevronDown className={clsx('size-5 shrink-0 text-gray-500 transition-transform', expanded && 'rotate-180')} />
         </div>
       </div>
       {expanded && (
@@ -551,9 +524,7 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
                 className="shrink-0 text-gray-400 hover:text-gray-600 disabled:opacity-50 dark:hover:text-gray-200"
                 title="Download as file"
               >
-                <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
+                <Download className="size-4" />
               </button>
             </div>
           </div>
