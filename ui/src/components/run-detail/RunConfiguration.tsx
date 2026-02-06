@@ -62,7 +62,7 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 text-left hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
+        className="flex w-full cursor-pointer items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 text-left hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
       >
         <h3 className="shrink-0 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Configuration</h3>
         <div className="flex min-w-0 items-center gap-3">

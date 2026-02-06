@@ -432,7 +432,10 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
 
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
-      <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+      <div
+        onClick={() => setExpanded(!expanded)}
+        className="flex cursor-pointer items-center gap-3 border-b border-gray-200 px-4 py-3 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
+      >
         <h3 className="shrink-0 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Files</h3>
         <div className="flex min-w-0 items-center gap-3 ml-auto">
           <span className="truncate text-xs/5 text-gray-500 dark:text-gray-400">{summary}</span>
@@ -445,19 +448,14 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
             </svg>
             Download list
           </button>
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="shrink-0 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+          <svg
+            className={clsx('size-5 shrink-0 text-gray-500 transition-transform', expanded && 'rotate-180')}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
           >
-            <svg
-              className={clsx('size-5 transition-transform', expanded && 'rotate-180')}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
       </div>
       {expanded && (
