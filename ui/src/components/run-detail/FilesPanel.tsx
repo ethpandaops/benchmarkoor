@@ -1,17 +1,16 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
-import { FolderOpen, Check, Copy, Eye, Download, List, ChevronDown } from 'lucide-react'
+import { FolderOpen, Folder, Check, Copy, Eye, Download, List, ChevronDown, ChevronRight, File, FileText } from 'lucide-react'
 import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
-import { fetchHead } from '@/api/client'
+import { fetchHead, type HeadResult } from '@/api/client'
 import { formatBytes } from '@/utils/format'
 import { getDataUrl, loadRuntimeConfig, toAbsoluteUrl } from '@/config/runtime'
 import { Modal } from '@/components/shared/Modal'
-import { Pagination } from '@/components/shared/Pagination'
 
 type DownloadListFormat = 'urls' | 'curl'
-type SortDirection = 'asc' | 'desc'
 
 interface FilesPanelProps {
   runId: string
@@ -29,6 +28,15 @@ interface FileEntry {
   path: string
   displayPath: string
   outputPath: string
+}
+
+interface TreeNode {
+  id: string
+  name: string
+  type: 'file' | 'directory'
+  entry?: FileEntry
+  children?: TreeNode[]
+  depth: number
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -51,177 +59,6 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-const PAGE_SIZE_OPTIONS = [20, 50, 100] as const
-
-function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
-  return (
-    <svg
-      className={clsx('ml-1 inline-block size-3', active ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400')}
-      viewBox="0 0 12 12"
-      fill="currentColor"
-    >
-      {direction === 'asc' ? <path d="M6 2L10 8H2L6 2Z" /> : <path d="M6 10L2 4H10L6 10Z" />}
-    </svg>
-  )
-}
-
-// --- Generic FileListTab component ---
-// Sorts and paginates entries statically, then only fires HEAD requests
-// for the visible page to resolve sizes and availability.
-
-function FileListTab({
-  entries,
-  runId,
-  queryKeyPrefix,
-  emptyMessage,
-}: {
-  entries: FileEntry[]
-  runId: string
-  queryKeyPrefix: string
-  emptyMessage: string
-}) {
-  const [sortDir, setSortDir] = useState<SortDirection>('asc')
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
-
-  const sortedEntries = useMemo(() => {
-    const sorted = [...entries]
-    sorted.sort((a, b) => {
-      const pathA = a.testName ? `${a.testName}/${a.displayPath}` : a.displayPath
-      const pathB = b.testName ? `${b.testName}/${b.displayPath}` : b.displayPath
-      const cmp = pathA.localeCompare(pathB)
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-    return sorted
-  }, [entries, sortDir])
-
-  const totalPages = Math.ceil(sortedEntries.length / pageSize)
-  const pageEntries = sortedEntries.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-
-  // Only HEAD the entries visible on the current page
-  const pageQueries = useQueries({
-    queries: pageEntries.map((entry) => ({
-      queryKey: [queryKeyPrefix, entry.path],
-      queryFn: () => fetchHead(entry.path),
-      staleTime: Infinity,
-    })),
-  })
-
-  if (entries.length === 0) {
-    return (
-      <div className="py-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">
-        {emptyMessage}
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value))
-              setCurrentPage(1)
-            }}
-            className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-          <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
-        </div>
-        {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />}
-      </div>
-      <table className="w-full table-fixed text-left text-xs/5">
-        <thead>
-          <tr className="border-b border-gray-200 dark:border-gray-700">
-            <th
-              onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-              className="cursor-pointer select-none pb-2 pr-3 font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-            >
-              Path
-              <SortIcon direction={sortDir} active />
-            </th>
-            <th className="w-20 pb-2 pr-3 text-right font-medium text-gray-500 dark:text-gray-400">Size</th>
-            <th className="w-16 pb-2" />
-          </tr>
-        </thead>
-        <tbody className="font-mono text-gray-900 dark:text-gray-100">
-          {pageEntries.map((entry, i) => {
-            const headResult = pageQueries[i]?.data
-            const isAvailable = headResult?.exists ?? false
-            const isChecked = !!headResult
-
-            return (
-              <tr
-                key={entry.path}
-                className={clsx(
-                  'border-b border-gray-200 last:border-0 dark:border-gray-700',
-                  isChecked && !isAvailable && 'opacity-50',
-                )}
-              >
-                <td className="truncate py-2 pr-3">
-                  {entry.testName && <span className="text-gray-500 dark:text-gray-400">{entry.testName}/</span>}
-                  {entry.displayPath}
-                  {isChecked && !isAvailable && (
-                    <span className="ml-2 rounded-full bg-yellow-100 px-1.5 py-0.5 font-sans text-xs font-medium text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300">
-                      Unavailable
-                    </span>
-                  )}
-                </td>
-                <td className="whitespace-nowrap py-2 pr-3 text-right text-gray-500 dark:text-gray-400">
-                  {!isChecked ? (
-                    <span className="inline-block size-3 animate-pulse rounded-full bg-gray-200 dark:bg-gray-600" />
-                  ) : isAvailable && headResult.size != null ? (
-                    formatBytes(headResult.size)
-                  ) : (
-                    '-'
-                  )}
-                </td>
-                <td className="py-2">
-                  {isAvailable && headResult ? (
-                    <div className="flex items-center gap-2">
-                      <Link
-                        to="/runs/$runId/fileviewer"
-                        params={{ runId }}
-                        search={{ file: entry.path.replace(`runs/${runId}/`, '') }}
-                        target="_blank"
-                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                        title="View"
-                      >
-                        <Eye className="size-4" />
-                      </Link>
-                      <a
-                        href={headResult.url}
-                        download={entry.filename}
-                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                        title="Download"
-                      >
-                        <Download className="size-4" />
-                      </a>
-                    </div>
-                  ) : null}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-      {totalPages > 1 && (
-        <div className="flex justify-end">
-          <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
-        </div>
-      )}
-    </div>
-  )
-}
-
 // --- Entry generators ---
 
 const GENERAL_FILES = ['benchmarkoor.log', 'container.log', 'config.json', 'result.json'] as const
@@ -237,7 +74,7 @@ function buildGeneralEntries(runId: string): FileEntry[] {
 }
 
 const ALL_STEPS = ['setup', 'test', 'cleanup'] as const
-type StepName = typeof ALL_STEPS[number]
+type StepName = (typeof ALL_STEPS)[number]
 
 function getTestSteps(entry: TestEntry): StepName[] {
   if (!entry.steps) return []
@@ -298,7 +135,296 @@ function buildPostTestDumpEntries(runId: string, testNames: string[], postTestRP
   return entries
 }
 
-// --- Category entry map keyed by tab key ---
+// --- Tree building ---
+
+function countFiles(node: TreeNode): number {
+  if (node.type === 'file') return 1
+  if (!node.children) return 0
+  return node.children.reduce((sum, child) => sum + countFiles(child), 0)
+}
+
+function buildFileTree(
+  generalEntries: FileEntry[],
+  tests: Record<string, TestEntry>,
+  runId: string,
+  postTestRPCCalls: PostTestRPCCallConfig[],
+): TreeNode[] {
+  const nodes: TreeNode[] = []
+
+  // Root-level files
+  for (const entry of generalEntries) {
+    nodes.push({
+      id: entry.path,
+      name: entry.filename,
+      type: 'file',
+      entry,
+      depth: 0,
+    })
+  }
+
+  const dumpCalls = postTestRPCCalls.filter((c) => c.dump?.enabled && c.dump.filename)
+
+  // Test directories
+  for (const [testName, testEntry] of Object.entries(tests)) {
+    const children: TreeNode[] = []
+    const steps = getTestSteps(testEntry)
+
+    // Stats and response files per step
+    for (const step of steps) {
+      for (const suffix of ['response', 'result-aggregated.json', 'result-details.json']) {
+        const filename = `${step}.${suffix}`
+        const path = `runs/${runId}/${testName}/${filename}`
+        children.push({
+          id: path,
+          name: filename,
+          type: 'file',
+          entry: {
+            testName,
+            filename,
+            path,
+            displayPath: filename,
+            outputPath: `${runId}/${testName}/${filename}`,
+          },
+          depth: 1,
+        })
+      }
+    }
+
+    // Post-test RPC calls subdirectory
+    if (dumpCalls.length > 0) {
+      const dumpChildren: TreeNode[] = []
+      for (const call of dumpCalls) {
+        const filename = `${call.dump!.filename}.json`
+        const path = `runs/${runId}/${testName}/post_test_rpc_calls/${filename}`
+        dumpChildren.push({
+          id: path,
+          name: filename,
+          type: 'file',
+          entry: {
+            testName,
+            filename,
+            path,
+            displayPath: `post_test_rpc_calls/${filename}`,
+            outputPath: `${runId}/${testName}/post_test_rpc_calls/${filename}`,
+          },
+          depth: 2,
+        })
+      }
+      children.push({
+        id: `dir:${testName}/post_test_rpc_calls`,
+        name: 'post_test_rpc_calls',
+        type: 'directory',
+        children: dumpChildren,
+        depth: 1,
+      })
+    }
+
+    nodes.push({
+      id: `dir:${testName}`,
+      name: testName,
+      type: 'directory',
+      children,
+      depth: 0,
+    })
+  }
+
+  return nodes
+}
+
+function collectVisibleFileEntries(nodes: TreeNode[], expandedDirs: Set<string>): FileEntry[] {
+  const entries: FileEntry[] = []
+  for (const node of nodes) {
+    if (node.type === 'file' && node.entry) {
+      entries.push(node.entry)
+    } else if (node.type === 'directory' && expandedDirs.has(node.id) && node.children) {
+      entries.push(...collectVisibleFileEntries(node.children, expandedDirs))
+    }
+  }
+  return entries
+}
+
+function flattenTree(nodes: TreeNode[], expandedDirs: Set<string>): TreeNode[] {
+  const flat: TreeNode[] = []
+  for (const node of nodes) {
+    flat.push(node)
+    if (node.type === 'directory' && expandedDirs.has(node.id) && node.children) {
+      flat.push(...flattenTree(node.children, expandedDirs))
+    }
+  }
+  return flat
+}
+
+const ROW_HEIGHT = 32
+
+// --- Tree components ---
+
+function FileTreeRow({
+  node,
+  runId,
+  isExpanded,
+  onToggleDir,
+  headResultMap,
+}: {
+  node: TreeNode
+  runId: string
+  isExpanded?: boolean
+  onToggleDir: (id: string) => void
+  headResultMap: Map<string, HeadResult>
+}) {
+  if (node.type === 'directory') {
+    const fileCount = countFiles(node)
+
+    return (
+      <button
+        onClick={() => onToggleDir(node.id)}
+        className="flex w-full items-center gap-2 text-left text-xs/5 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+        style={{ paddingLeft: node.depth * 20 + 8, height: ROW_HEIGHT }}
+      >
+        <ChevronRight
+          className={clsx('size-3.5 shrink-0 text-gray-400 transition-transform', isExpanded && 'rotate-90')}
+        />
+        {isExpanded ? (
+          <FolderOpen className="size-4 shrink-0 text-amber-500 dark:text-amber-400" />
+        ) : (
+          <Folder className="size-4 shrink-0 text-amber-500 dark:text-amber-400" />
+        )}
+        <span className="min-w-0 truncate font-medium text-gray-900 dark:text-gray-100">{node.name}</span>
+        <span className="mr-3 ml-auto shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+          {fileCount}
+        </span>
+      </button>
+    )
+  }
+
+  // File node
+  const entry = node.entry!
+  const headResult = headResultMap.get(entry.path)
+  const isChecked = !!headResult
+  const isAvailable = headResult?.exists ?? false
+  const isJson = entry.filename.endsWith('.json')
+  const FileIcon = isJson ? FileText : File
+
+  return (
+    <div
+      className={clsx(
+        'flex items-center gap-2 text-xs/5',
+        isChecked && !isAvailable && 'opacity-50',
+      )}
+      style={{ paddingLeft: node.depth * 20 + 8, height: ROW_HEIGHT }}
+    >
+      {/* Spacer to align with directory chevron */}
+      <span className="size-3.5 shrink-0" />
+      <FileIcon className="size-4 shrink-0 text-gray-400 dark:text-gray-500" />
+      <span className="min-w-0 truncate font-mono text-gray-900 dark:text-gray-100">
+        {node.name}
+        {isChecked && !isAvailable && (
+          <span className="ml-2 rounded-full bg-yellow-100 px-1.5 py-0.5 font-sans text-xs font-medium text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300">
+            Unavailable
+          </span>
+        )}
+      </span>
+      <span className="mr-3 ml-auto flex shrink-0 items-center gap-2">
+        <span className="w-16 text-right text-gray-500 dark:text-gray-400">
+          {!isChecked ? (
+            <span className="inline-block size-3 animate-pulse rounded-full bg-gray-200 dark:bg-gray-600" />
+          ) : isAvailable && headResult.size != null ? (
+            formatBytes(headResult.size)
+          ) : (
+            '-'
+          )}
+        </span>
+        {isAvailable && headResult ? (
+          <span className="flex items-center gap-2">
+            <Link
+              to="/runs/$runId/fileviewer"
+              params={{ runId }}
+              search={{ file: entry.path.replace(`runs/${runId}/`, '') }}
+              target="_blank"
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              title="View"
+            >
+              <Eye className="size-4" />
+            </Link>
+            <a
+              href={headResult.url}
+              download={entry.filename}
+              className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+              title="Download"
+            >
+              <Download className="size-4" />
+            </a>
+          </span>
+        ) : (
+          <span className="w-12" />
+        )}
+      </span>
+    </div>
+  )
+}
+
+function FileTree({
+  flatRows,
+  runId,
+  expandedDirs,
+  onToggleDir,
+  headResultMap,
+}: {
+  flatRows: TreeNode[]
+  runId: string
+  expandedDirs: Set<string>
+  onToggleDir: (id: string) => void
+  headResultMap: Map<string, HeadResult>
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const virtualizer = useVirtualizer({
+    count: flatRows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  })
+
+  // Shrink to content when rows fit, otherwise cap at 600px
+  const totalHeight = flatRows.length * ROW_HEIGHT
+  const maxHeight = 600
+  const containerHeight = Math.min(totalHeight, maxHeight)
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div
+        ref={scrollRef}
+        className="overflow-auto"
+        style={{ height: containerHeight }}
+      >
+        <div
+          className="relative w-full"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const node = flatRows[virtualRow.index]
+            return (
+              <div
+                key={node.id}
+                className="absolute left-0 top-0 w-full border-b border-gray-100 last:border-0 dark:border-gray-700/50"
+                style={{ height: virtualRow.size, transform: `translateY(${virtualRow.start}px)` }}
+              >
+                <FileTreeRow
+                  node={node}
+                  runId={runId}
+                  isExpanded={node.type === 'directory' ? expandedDirs.has(node.id) : undefined}
+                  onToggleDir={onToggleDir}
+                  headResultMap={headResultMap}
+                />
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// --- Category entry map for download modal ---
 
 interface CategoryInfo {
   key: string
@@ -310,7 +436,7 @@ interface CategoryInfo {
 
 export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, downloadFormat, onShowDownloadListChange, onDownloadFormatChange }: FilesPanelProps) {
   const [expanded, setExpanded] = useState(showDownloadList)
-  const [activeTab, setActiveTab] = useState('general')
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set())
   const [downloadCategories, setDownloadCategories] = useState<Set<string>>(() => new Set())
 
   const testNames = useMemo(() => Object.keys(tests), [tests])
@@ -325,6 +451,57 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
 
   const hasPostTestDumps = postTestDumpEntries.length > 0
 
+  // Build the file tree
+  const tree = useMemo(
+    () => buildFileTree(generalEntries, tests, runId, postTestRPCCalls ?? []),
+    [generalEntries, tests, runId, postTestRPCCalls],
+  )
+
+  // Flatten tree into a flat row list for virtualization
+  const flatRows = useMemo(
+    () => flattenTree(tree, expandedDirs),
+    [tree, expandedDirs],
+  )
+
+  // Collect file entries that are currently visible (in expanded directories)
+  const visibleFileEntries = useMemo(
+    () => collectVisibleFileEntries(tree, expandedDirs),
+    [tree, expandedDirs],
+  )
+
+  // HEAD requests only for visible files
+  const headQueries = useQueries({
+    queries: visibleFileEntries.map((entry) => ({
+      queryKey: ['file-panel', entry.path],
+      queryFn: () => fetchHead(entry.path),
+      staleTime: Infinity,
+    })),
+  })
+
+  const headResultMap = useMemo(() => {
+    const map = new Map<string, HeadResult>()
+    visibleFileEntries.forEach((entry, i) => {
+      const data = headQueries[i]?.data
+      if (data) {
+        map.set(entry.path, data)
+      }
+    })
+    return map
+  }, [visibleFileEntries, headQueries])
+
+  const toggleDir = useCallback((id: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  // Categories for download modal
   const categories: CategoryInfo[] = useMemo(() => {
     const result: CategoryInfo[] = [
       { key: 'general', label: 'General', entries: generalEntries },
@@ -336,11 +513,6 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
     }
     return result
   }, [generalEntries, testStatsEntries, testResponsesEntries, postTestDumpEntries, hasPostTestDumps])
-
-  const tabs = useMemo(
-    () => categories.map((c) => ({ key: c.key, label: c.label, badge: String(c.entries.length) })),
-    [categories],
-  )
 
   // Auto-select all categories (including newly appearing ones like post-test dumps)
   useEffect(() => {
@@ -423,7 +595,7 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
           <FolderOpen className="size-4 text-gray-400 dark:text-gray-500" />
           Generated Files
         </h3>
-        <div className="flex min-w-0 items-center gap-3 ml-auto">
+        <div className="ml-auto flex min-w-0 items-center gap-3">
           <span className="truncate text-xs/5 text-gray-500 dark:text-gray-400">{summary}</span>
           <button
             onClick={(e) => { e.stopPropagation(); onShowDownloadListChange(true) }}
@@ -436,60 +608,14 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
         </div>
       </div>
       {expanded && (
-        <div>
-          <div className="flex gap-1 border-b border-gray-200 px-4 dark:border-gray-700">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={clsx(
-                  'flex items-center gap-2 border-b-2 px-4 py-2 text-sm/6 font-medium transition-colors',
-                  activeTab === tab.key
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
-                )}
-              >
-                {tab.label}
-                <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                  {tab.badge}
-                </span>
-              </button>
-            ))}
-          </div>
-          <div className="overflow-x-auto p-4">
-            {activeTab === 'general' && (
-              <FileListTab
-                entries={generalEntries}
-                runId={runId}
-                queryKeyPrefix="file-panel"
-                emptyMessage="No general files found"
-              />
-            )}
-            {activeTab === 'test-stats' && (
-              <FileListTab
-                entries={testStatsEntries}
-                runId={runId}
-                queryKeyPrefix="file-panel"
-                emptyMessage="No test stats files found"
-              />
-            )}
-            {activeTab === 'test-responses' && (
-              <FileListTab
-                entries={testResponsesEntries}
-                runId={runId}
-                queryKeyPrefix="file-panel"
-                emptyMessage="No test response files found"
-              />
-            )}
-            {activeTab === 'post-test-rpc-dumps' && hasPostTestDumps && (
-              <FileListTab
-                entries={postTestDumpEntries}
-                runId={runId}
-                queryKeyPrefix="file-panel"
-                emptyMessage="No dump files found"
-              />
-            )}
-          </div>
+        <div className="p-4">
+          <FileTree
+            flatRows={flatRows}
+            runId={runId}
+            expandedDirs={expandedDirs}
+            onToggleDir={toggleDir}
+            headResultMap={headResultMap}
+          />
         </div>
       )}
       <Modal isOpen={showDownloadList} onClose={() => onShowDownloadListChange(false)} title="Download List" className="max-w-3xl">
