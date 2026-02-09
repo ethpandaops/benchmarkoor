@@ -168,6 +168,14 @@ type RetryNewPayloadsSyncingConfig struct {
 	Backoff    string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
 }
 
+// BootstrapFCUConfig configures the bootstrap FCU call used to confirm the
+// client is fully synced and ready for test execution.
+type BootstrapFCUConfig struct {
+	Enabled    bool   `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
+	MaxRetries int    `yaml:"max_retries" mapstructure:"max_retries" json:"max_retries"`
+	Backoff    string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
+}
+
 // PostTestRPCCall defines an arbitrary RPC call to execute after the test step.
 type PostTestRPCCall struct {
 	Method  string     `yaml:"method" mapstructure:"method" json:"method"`
@@ -386,6 +394,7 @@ type ClientDefaults struct {
 	RetryNewPayloadsSyncingState *RetryNewPayloadsSyncingConfig `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
 	WaitAfterRPCReady            string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 	PostTestRPCCalls             []PostTestRPCCall              `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
+	BootstrapFCU                 *BootstrapFCUConfig            `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
@@ -407,6 +416,7 @@ type ClientInstance struct {
 	RetryNewPayloadsSyncingState *RetryNewPayloadsSyncingConfig `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
 	WaitAfterRPCReady            string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 	PostTestRPCCalls             []PostTestRPCCall              `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
+	BootstrapFCU                 *BootstrapFCUConfig            `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 }
 
 // Load reads and parses configuration files from the given paths.
@@ -457,6 +467,7 @@ func Load(paths ...string) (*Config, error) {
 			mapstructure.StringToTimeDurationHookFunc(),
 			mapstructure.StringToSliceHookFunc(","),
 			dumpConfigDecodeHook(),
+			bootstrapFCUDecodeHook(),
 		),
 	)); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
@@ -648,6 +659,11 @@ func (c *Config) Validate() error {
 
 	// Validate post_test_rpc_calls settings.
 	if err := c.validatePostTestRPCCalls(); err != nil {
+		return err
+	}
+
+	// Validate bootstrap_fcu settings.
+	if err := c.validateBootstrapFCU(); err != nil {
 		return err
 	}
 
@@ -854,6 +870,17 @@ func (c *Config) GetPostTestRPCCalls(instance *ClientInstance) []PostTestRPCCall
 	}
 
 	return c.Client.Config.PostTestRPCCalls
+}
+
+// GetBootstrapFCU returns the bootstrap FCU config for an instance.
+// Instance-level config takes precedence over global default.
+// Returns nil if not configured at either level.
+func (c *Config) GetBootstrapFCU(instance *ClientInstance) *BootstrapFCUConfig {
+	if instance.BootstrapFCU != nil {
+		return instance.BootstrapFCU
+	}
+
+	return c.Client.Config.BootstrapFCU
 }
 
 // validateDropMemoryCaches validates drop_memory_caches settings and checks permissions.
@@ -1078,6 +1105,33 @@ func validatePostTestRPCCall(call PostTestRPCCall, prefix string) error {
 	return nil
 }
 
+// validateBootstrapFCU validates bootstrap_fcu settings.
+func (c *Config) validateBootstrapFCU() error {
+	for _, instance := range c.Client.Instances {
+		cfg := c.GetBootstrapFCU(&instance)
+		if cfg == nil || !cfg.Enabled {
+			continue
+		}
+
+		if cfg.MaxRetries < 1 {
+			return fmt.Errorf("instance %q: bootstrap_fcu.max_retries must be at least 1",
+				instance.ID)
+		}
+
+		if cfg.Backoff == "" {
+			return fmt.Errorf("instance %q: bootstrap_fcu.backoff is required when enabled",
+				instance.ID)
+		}
+
+		if _, err := time.ParseDuration(cfg.Backoff); err != nil {
+			return fmt.Errorf("instance %q: invalid bootstrap_fcu.backoff %q: %w",
+				instance.ID, cfg.Backoff, err)
+		}
+	}
+
+	return nil
+}
+
 // dumpConfigDecodeHook returns a mapstructure decode hook that converts
 // a boolean value to DumpConfig{Enabled: bool}.
 // This allows users to write `dump: true` as shorthand for `dump: {enabled: true}`.
@@ -1089,6 +1143,31 @@ func dumpConfigDecodeHook() mapstructure.DecodeHookFuncType {
 
 		if from.Kind() == reflect.Bool {
 			return DumpConfig{Enabled: data.(bool)}, nil
+		}
+
+		return data, nil
+	}
+}
+
+// bootstrapFCUDecodeHook returns a mapstructure decode hook that converts
+// a boolean value to BootstrapFCUConfig.
+// This allows users to write `bootstrap_fcu: true` as shorthand for the full struct.
+func bootstrapFCUDecodeHook() mapstructure.DecodeHookFuncType {
+	return func(from reflect.Type, to reflect.Type, data any) (any, error) {
+		if to != reflect.TypeOf(BootstrapFCUConfig{}) {
+			return data, nil
+		}
+
+		if from.Kind() == reflect.Bool {
+			if data.(bool) {
+				return BootstrapFCUConfig{
+					Enabled:    true,
+					MaxRetries: 30,
+					Backoff:    "1s",
+				}, nil
+			}
+
+			return BootstrapFCUConfig{Enabled: false}, nil
 		}
 
 		return data, nil

@@ -713,3 +713,147 @@ func TestSourceConfig_IsConfigured(t *testing.T) {
 		})
 	}
 }
+
+func TestGetBootstrapFCU(t *testing.T) {
+	tests := []struct {
+		name     string
+		global   *BootstrapFCUConfig
+		instance *BootstrapFCUConfig
+		expected *BootstrapFCUConfig
+	}{
+		{
+			name:     "both nil returns nil",
+			global:   nil,
+			instance: nil,
+			expected: nil,
+		},
+		{
+			name:     "global set, instance nil inherits",
+			global:   &BootstrapFCUConfig{Enabled: true, MaxRetries: 30, Backoff: "1s"},
+			instance: nil,
+			expected: &BootstrapFCUConfig{Enabled: true, MaxRetries: 30, Backoff: "1s"},
+		},
+		{
+			name:     "instance overrides global",
+			global:   &BootstrapFCUConfig{Enabled: true, MaxRetries: 30, Backoff: "1s"},
+			instance: &BootstrapFCUConfig{Enabled: true, MaxRetries: 5, Backoff: "2s"},
+			expected: &BootstrapFCUConfig{Enabled: true, MaxRetries: 5, Backoff: "2s"},
+		},
+		{
+			name:     "instance disabled overrides global enabled",
+			global:   &BootstrapFCUConfig{Enabled: true, MaxRetries: 30, Backoff: "1s"},
+			instance: &BootstrapFCUConfig{Enabled: false},
+			expected: &BootstrapFCUConfig{Enabled: false},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Client: ClientConfig{
+					Config: ClientDefaults{
+						BootstrapFCU: tt.global,
+					},
+				},
+			}
+			instance := &ClientInstance{
+				BootstrapFCU: tt.instance,
+			}
+			result := cfg.GetBootstrapFCU(instance)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestLoad_BootstrapFCU(t *testing.T) {
+	t.Run("shorthand bool true", func(t *testing.T) {
+		configContent := `
+client:
+  config:
+    bootstrap_fcu: true
+    genesis:
+      geth: http://example.com/genesis.json
+  instances:
+    - id: inherits-global
+      client: geth
+    - id: override-false
+      client: geth
+      bootstrap_fcu: false
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		// Global default decoded from bool shorthand.
+		require.NotNil(t, cfg.Client.Config.BootstrapFCU)
+		assert.True(t, cfg.Client.Config.BootstrapFCU.Enabled)
+		assert.Equal(t, 30, cfg.Client.Config.BootstrapFCU.MaxRetries)
+		assert.Equal(t, "1s", cfg.Client.Config.BootstrapFCU.Backoff)
+
+		// First instance inherits global.
+		fcuCfg := cfg.GetBootstrapFCU(&cfg.Client.Instances[0])
+		require.NotNil(t, fcuCfg)
+		assert.True(t, fcuCfg.Enabled)
+
+		// Second instance overrides to false.
+		fcuCfg = cfg.GetBootstrapFCU(&cfg.Client.Instances[1])
+		require.NotNil(t, fcuCfg)
+		assert.False(t, fcuCfg.Enabled)
+	})
+
+	t.Run("full struct config", func(t *testing.T) {
+		configContent := `
+client:
+  config:
+    bootstrap_fcu:
+      enabled: true
+      max_retries: 10
+      backoff: 2s
+    genesis:
+      geth: http://example.com/genesis.json
+  instances:
+    - id: test-instance
+      client: geth
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		require.NotNil(t, cfg.Client.Config.BootstrapFCU)
+		assert.True(t, cfg.Client.Config.BootstrapFCU.Enabled)
+		assert.Equal(t, 10, cfg.Client.Config.BootstrapFCU.MaxRetries)
+		assert.Equal(t, "2s", cfg.Client.Config.BootstrapFCU.Backoff)
+
+		fcuCfg := cfg.GetBootstrapFCU(&cfg.Client.Instances[0])
+		require.NotNil(t, fcuCfg)
+		assert.Equal(t, 10, fcuCfg.MaxRetries)
+		assert.Equal(t, "2s", fcuCfg.Backoff)
+	})
+
+	t.Run("not configured returns nil", func(t *testing.T) {
+		configContent := `
+client:
+  config:
+    genesis:
+      geth: http://example.com/genesis.json
+  instances:
+    - id: test-instance
+      client: geth
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		assert.Nil(t, cfg.Client.Config.BootstrapFCU)
+		assert.Nil(t, cfg.GetBootstrapFCU(&cfg.Client.Instances[0]))
+	})
+}

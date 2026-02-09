@@ -26,6 +26,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
+	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -154,6 +155,7 @@ type ResolvedInstance struct {
 	RetryNewPayloadsSyncingState *config.RetryNewPayloadsSyncingConfig `json:"retry_new_payloads_syncing_state,omitempty"`
 	ResourceLimits               *ResolvedResourceLimits               `json:"resource_limits,omitempty"`
 	PostTestRPCCalls             []config.PostTestRPCCall              `json:"post_test_rpc_calls,omitempty"`
+	BootstrapFCU                 *config.BootstrapFCUConfig            `json:"bootstrap_fcu,omitempty"`
 }
 
 // NewRunner creates a new runner instance.
@@ -877,6 +879,12 @@ func (r *runner) runContainerLifecycle(
 				}
 				return nil
 			}(),
+			BootstrapFCU: func() *config.BootstrapFCUConfig {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetBootstrapFCU(instance)
+				}
+				return nil
+			}(),
 		},
 	}
 
@@ -1108,6 +1116,19 @@ func (r *runner) runContainerLifecycle(
 			"block_number": blockNum,
 			"block_hash":   blockHash,
 		}).Info("Latest block")
+	}
+
+	// Send bootstrap FCU if configured.
+	if r.cfg.FullConfig != nil && blockHash != "" {
+		if fcuCfg := r.cfg.FullConfig.GetBootstrapFCU(instance); fcuCfg != nil && fcuCfg.Enabled {
+			if fcuErr := r.sendBootstrapFCU(
+				execCtx, log, containerIP, spec.EnginePort(), blockHash, fcuCfg,
+			); fcuErr != nil {
+				log.WithError(fcuErr).Error("Bootstrap FCU failed")
+
+				return fmt.Errorf("sending bootstrap FCU: %w", fcuErr)
+			}
+		}
 	}
 
 	// Update config with client version.
@@ -1487,6 +1508,36 @@ func (r *runner) runTestsWithContainerStrategy(
 				combined.TotalDuration = time.Since(startTime)
 
 				return combined, fmt.Errorf("waiting for RPC on test %d: %w", i, err)
+			}
+
+			// Send bootstrap FCU if configured.
+			if r.cfg.FullConfig != nil {
+				if fcuCfg := r.cfg.FullConfig.GetBootstrapFCU(params.Instance); fcuCfg != nil && fcuCfg.Enabled {
+					_, blkHash, blkErr := r.getLatestBlock(
+						ctx, currentContainerIP, spec.RPCPort(),
+					)
+					if blkErr != nil {
+						testLog.WithError(blkErr).Warn(
+							"Failed to get latest block for bootstrap FCU",
+						)
+					} else if blkHash != "" {
+						if fcuErr := r.sendBootstrapFCU(
+							ctx, testLog, currentContainerIP,
+							spec.EnginePort(), blkHash, fcuCfg,
+						); fcuErr != nil {
+							testLog.WithError(fcuErr).Error(
+								"Bootstrap FCU failed",
+							)
+							(*logCancel)()
+							combined.TotalDuration = time.Since(startTime)
+
+							return combined, fmt.Errorf(
+								"sending bootstrap FCU for test %d: %w",
+								i, fcuErr,
+							)
+						}
+					}
+				}
 			}
 
 		}
@@ -1958,6 +2009,127 @@ func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uin
 	}
 
 	return blockNum, rpcResp.Result.Hash, nil
+}
+
+// sendBootstrapFCU sends an engine_forkchoiceUpdatedV3 call to confirm the
+// client is fully synced and ready for test execution. The call is retried
+// up to cfg.MaxRetries times with cfg.Backoff between attempts — some clients
+// (e.g., Erigon) may still be performing internal initialization after RPC
+// becomes available. A VALID response confirms the client is ready.
+func (r *runner) sendBootstrapFCU(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	host string,
+	enginePort int,
+	headBlockHash string,
+	cfg *config.BootstrapFCUConfig,
+) error {
+	const zeroHash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+	backoff, err := time.ParseDuration(cfg.Backoff)
+	if err != nil {
+		return fmt.Errorf("parsing backoff duration: %w", err)
+	}
+
+	// Build the forkchoiceUpdatedV3 payload.
+	payload := fmt.Sprintf(
+		`{"jsonrpc":"2.0","method":"engine_forkchoiceUpdatedV3",`+
+			`"params":[{"headBlockHash":"%s","safeBlockHash":"%s",`+
+			`"finalizedBlockHash":"%s"},null],"id":1}`,
+		headBlockHash, zeroHash, zeroHash,
+	)
+
+	url := fmt.Sprintf("http://%s:%d", host, enginePort)
+
+	log.WithFields(logrus.Fields{
+		"max_retries": cfg.MaxRetries,
+		"backoff":     cfg.Backoff,
+		"payload":     payload,
+	}).Info("Sending bootstrap FCU")
+
+	var lastErr error
+
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		lastErr = r.doBootstrapFCURequest(ctx, url, payload)
+		if lastErr == nil {
+			log.WithField("head_block_hash", headBlockHash).Info(
+				"Bootstrap FCU sent successfully",
+			)
+
+			return nil
+		}
+
+		log.WithFields(logrus.Fields{
+			"attempt": attempt,
+			"max":     cfg.MaxRetries,
+			"error":   lastErr.Error(),
+		}).Warn("Bootstrap FCU attempt failed, retrying")
+
+		if attempt < cfg.MaxRetries {
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+			}
+		}
+	}
+
+	return fmt.Errorf("bootstrap FCU failed after %d attempts: %w", cfg.MaxRetries, lastErr)
+}
+
+// doBootstrapFCURequest performs a single bootstrap FCU HTTP request.
+func (r *runner) doBootstrapFCURequest(
+	ctx context.Context,
+	url string,
+	payload string,
+) error {
+	const requestTimeout = 30 * time.Second
+
+	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+
+	token, err := executor.GenerateJWTToken(r.cfg.JWT)
+	if err != nil {
+		return fmt.Errorf("generating JWT: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(
+		reqCtx, http.MethodPost, url, strings.NewReader(payload),
+	)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("executing request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
+
+	rpcResp, err := jsonrpc.Parse(string(body))
+	if err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+
+	// Validate the response using the FCU validator.
+	validator := &jsonrpc.ForkchoiceUpdatedValidator{}
+	if err := validator.Validate("engine_forkchoiceUpdatedV3", rpcResp); err != nil {
+		return fmt.Errorf("validating response: %w", err)
+	}
+
+	return nil
 }
 
 // prefixedWriter adds a prefix to each line written.

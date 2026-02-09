@@ -139,6 +139,15 @@ client:
     #     dump:
     #       enabled: true
     #       filename: debug_traceBlockByHash
+    # Optional: Send an engine_forkchoiceUpdatedV3 call after RPC is ready.
+    # Uses the latest block hash from eth_getBlockByNumber("latest").
+    # Retries until the client accepts the FCU with VALID status, confirming
+    # it has finished internal initialization and is ready for test execution.
+    # Supports shorthand: `bootstrap_fcu: true` (defaults to max_retries: 30, backoff: 1s)
+    # bootstrap_fcu:
+    #   enabled: true
+    #   max_retries: 30
+    #   backoff: 1s
     # Optional: Container resource limits (applied to all instances by default).
     # resource_limits:
     #   # CPU pinning - use ONE of the following:
@@ -258,6 +267,7 @@ client:
       #     dump:
       #       enabled: true
       #       filename: trace
+      # bootstrap_fcu: true  # Instance-level override (optional)
 
     # Example: running multiple clients
     # - id: nethermind-latest

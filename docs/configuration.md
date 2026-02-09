@@ -309,6 +309,7 @@ client:
 | `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
 | `post_test_rpc_calls` | []object | - | Arbitrary RPC calls to execute after each test step (see [Post-Test RPC Calls](#post-test-rpc-calls)) |
+| `bootstrap_fcu` | bool/object | - | Send an `engine_forkchoiceUpdatedV3` after RPC is ready to confirm the client is fully synced (see [Bootstrap FCU](#bootstrap-fcu)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
 #### Drop Memory Caches
@@ -409,6 +410,44 @@ client:
 - When using pre-populated data directories where clients may need time to validate chain state
 - Combined with `wait_after_rpc_ready` for clients with complex initialization
 
+
+#### Bootstrap FCU
+
+Some clients (e.g., Erigon) may still be performing internal initialization or syncing after their RPC endpoint becomes available. The `bootstrap_fcu` option sends an `engine_forkchoiceUpdatedV3` call in a retry loop after RPC is ready, using the latest block hash from `eth_getBlockByNumber("latest")`. The client accepting the FCU with `VALID` status confirms it has finished syncing and is ready for test execution.
+
+**Shorthand** (uses defaults: `max_retries: 30`, `backoff: 1s`):
+
+```yaml
+client:
+  config:
+    bootstrap_fcu: true
+```
+
+**Full configuration:**
+
+```yaml
+client:
+  config:
+    bootstrap_fcu:
+      enabled: true
+      max_retries: 30
+      backoff: 1s
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | bool | Yes | - | Enable bootstrap FCU |
+| `max_retries` | int | Yes | `30` (shorthand) | Maximum number of retry attempts (must be >= 1) |
+| `backoff` | string | Yes | `1s` (shorthand) | Delay between retries (Go duration string) |
+
+The FCU call sets `headBlockHash` to the latest block, with `safeBlockHash` and `finalizedBlockHash` set to the zero hash and no payload attributes. The response must have `VALID` status. If the call fails, it is retried up to `max_retries` times with `backoff` between attempts. If all attempts fail, the run is aborted.
+
+When using the `container-recreate` rollback strategy, the bootstrap FCU is sent after each container recreate.
+
+**When to use:**
+- When clients may still be performing internal initialization or syncing after RPC becomes available (e.g., Erigon's staged sync)
+- When starting from pre-populated data directories where the client needs time to validate state before processing Engine API requests
+- When you observe test failures due to the client returning errors or SYNCING responses on the first Engine API calls
 
 ### Data Directories
 
@@ -512,6 +551,7 @@ client:
 | `retry_new_payloads_syncing_state` | object | No | From `client.config` | Instance-specific retry config for SYNCING responses |
 | `resource_limits` | object | No | From `client.config` | Instance-specific resource limits |
 | `post_test_rpc_calls` | []object | No | From `client.config` | Instance-specific post-test RPC calls (replaces global) |
+| `bootstrap_fcu` | bool/object | No | From `client.config` | Instance-specific bootstrap FCU setting |
 
 ## Resource Limits
 
