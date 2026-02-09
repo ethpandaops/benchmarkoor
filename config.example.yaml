@@ -139,10 +139,10 @@ client:
     #     dump:
     #       enabled: true
     #       filename: debug_traceBlockByHash
-    # Optional: Send an engine_forkchoiceUpdatedV3 call after RPC is ready to set the
-    # client's chain head. Uses the latest block hash from eth_getBlockByNumber("latest").
-    # Useful when starting from pre-populated data directories where the client needs an
-    # explicit FCU to recognize its chain head before test execution.
+    # Optional: Send an engine_forkchoiceUpdatedV3 call after RPC is ready.
+    # Uses the latest block hash from eth_getBlockByNumber("latest").
+    # Retries until the client accepts the FCU with VALID status, confirming
+    # it has finished internal initialization and is ready for test execution.
     # Supports shorthand: `bootstrap_fcu: true` (defaults to max_retries: 30, backoff: 1s)
     # bootstrap_fcu:
     #   enabled: true

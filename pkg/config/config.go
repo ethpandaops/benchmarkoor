@@ -168,7 +168,8 @@ type RetryNewPayloadsSyncingConfig struct {
 	Backoff    string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
 }
 
-// BootstrapFCUConfig configures the bootstrap FCU call sent after RPC is ready.
+// BootstrapFCUConfig configures the bootstrap FCU call used to confirm the
+// client is fully synced and ready for test execution.
 type BootstrapFCUConfig struct {
 	Enabled    bool   `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
 	MaxRetries int    `yaml:"max_retries" mapstructure:"max_retries" json:"max_retries"`

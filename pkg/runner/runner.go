@@ -2011,10 +2011,11 @@ func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uin
 	return blockNum, rpcResp.Result.Hash, nil
 }
 
-// sendBootstrapFCU sends an engine_forkchoiceUpdatedV3 call to set the head
-// block on the client. This is used when bootstrap_fcu is enabled to ensure
-// the client recognizes its chain head before test execution begins.
-// Retries up to cfg.MaxRetries times with cfg.Backoff between attempts.
+// sendBootstrapFCU sends an engine_forkchoiceUpdatedV3 call to confirm the
+// client is fully synced and ready for test execution. The call is retried
+// up to cfg.MaxRetries times with cfg.Backoff between attempts — some clients
+// (e.g., Erigon) may still be performing internal initialization after RPC
+// becomes available. A VALID response confirms the client is ready.
 func (r *runner) sendBootstrapFCU(
 	ctx context.Context,
 	log logrus.FieldLogger,

@@ -309,7 +309,7 @@ client:
 | `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
 | `post_test_rpc_calls` | []object | - | Arbitrary RPC calls to execute after each test step (see [Post-Test RPC Calls](#post-test-rpc-calls)) |
-| `bootstrap_fcu` | bool/object | - | Send an `engine_forkchoiceUpdatedV3` after RPC is ready to set the client's chain head (see [Bootstrap FCU](#bootstrap-fcu)) |
+| `bootstrap_fcu` | bool/object | - | Send an `engine_forkchoiceUpdatedV3` after RPC is ready to confirm the client is fully synced (see [Bootstrap FCU](#bootstrap-fcu)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
 #### Drop Memory Caches
@@ -413,7 +413,7 @@ client:
 
 #### Bootstrap FCU
 
-When starting from a pre-populated data directory, some clients may not recognize their chain head until they receive an `engine_forkchoiceUpdatedV3` call. The `bootstrap_fcu` option sends this call automatically after the RPC endpoint becomes ready, using the latest block hash from `eth_getBlockByNumber("latest")`.
+Some clients (e.g., Erigon) may still be performing internal initialization or syncing after their RPC endpoint becomes available. The `bootstrap_fcu` option sends an `engine_forkchoiceUpdatedV3` call in a retry loop after RPC is ready, using the latest block hash from `eth_getBlockByNumber("latest")`. The client accepting the FCU with `VALID` status confirms it has finished syncing and is ready for test execution.
 
 **Shorthand** (uses defaults: `max_retries: 30`, `backoff: 1s`):
 
@@ -445,8 +445,9 @@ The FCU call sets `headBlockHash` to the latest block, with `safeBlockHash` and 
 When using the `container-recreate` rollback strategy, the bootstrap FCU is sent after each container recreate.
 
 **When to use:**
-- When starting from pre-populated data directories where the client needs an explicit FCU to begin processing Engine API requests correctly
-- When you observe test failures due to the client not recognizing its chain head
+- When clients may still be performing internal initialization or syncing after RPC becomes available (e.g., Erigon's staged sync)
+- When starting from pre-populated data directories where the client needs time to validate state before processing Engine API requests
+- When you observe test failures due to the client returning errors or SYNCING responses on the first Engine API calls
 
 ### Data Directories
 
