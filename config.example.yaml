@@ -78,7 +78,7 @@ benchmark:
   #     # Genesis files are auto-resolved per client type from the release.
   #     # eest_fixtures:
   #     #   github_repo: ethereum/execution-spec-tests
-  #     #   github_release: benchmark@v0.0.6
+  #     #   github_release: benchmark@v0.0.7
   #     #   # Optional: Override the subdirectory within fixtures tarball.
   #     #   # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
   #     #   # Optional: Override URLs for fixtures/genesis tarballs.
