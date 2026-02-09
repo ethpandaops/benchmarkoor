@@ -20,7 +20,7 @@ benchmark:
       # Run using github release fixtures.
       eest_fixtures:
         github_repo: ethereum/execution-spec-tests
-        github_release: benchmark@v0.0.6
+        github_release: benchmark@v0.0.7
       # Run using github actions artifact fixtures
       # (Requires local "gh" cli. Or setting global.github_token)
       # eest_fixtures:

@@ -195,14 +195,14 @@ tests:
   source:
     eest_fixtures:
       github_repo: ethereum/execution-spec-tests
-      github_release: benchmark@v0.0.6
+      github_release: benchmark@v0.0.7
       fixtures_subdir: fixtures/blockchain_tests_engine_x
 ```
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `github_repo` | string | Yes | - | GitHub repository (e.g., `ethereum/execution-spec-tests`) |
-| `github_release` | string | Yes* | - | Release tag (e.g., `benchmark@v0.0.6`) |
+| `github_release` | string | Yes* | - | Release tag (e.g., `benchmark@v0.0.7`) |
 | `fixtures_subdir` | string | No | `fixtures/blockchain_tests_engine_x` | Subdirectory within the fixtures tarball to search |
 | `fixtures_url` | string | No | Auto-generated | Override URL for fixtures tarball |
 | `genesis_url` | string | No | Auto-generated | Override URL for genesis tarball |
@@ -263,7 +263,7 @@ benchmark:
     source:
       eest_fixtures:
         github_repo: ethereum/execution-spec-tests
-        github_release: benchmark@v0.0.6
+        github_release: benchmark@v0.0.7
 ```
 
 ## Client Settings
@@ -830,7 +830,7 @@ benchmark:
     source:
       eest_fixtures:
         github_repo: ethereum/execution-spec-tests
-        github_release: benchmark@v0.0.6
+        github_release: benchmark@v0.0.7
 
 client:
   config:

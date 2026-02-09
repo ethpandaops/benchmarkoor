@@ -15,7 +15,7 @@ benchmark:
     source:
       eest_fixtures:
         github_repo: ethereum/execution-spec-tests
-        github_release: benchmark@v0.0.6
+        github_release: benchmark@v0.0.7
 
 client:
   config:
