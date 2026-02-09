@@ -142,8 +142,12 @@ client:
     # Optional: Send an engine_forkchoiceUpdatedV3 call after RPC is ready to set the
     # client's chain head. Uses the latest block hash from eth_getBlockByNumber("latest").
     # Useful when starting from pre-populated data directories where the client needs an
-    # explicit FCU to recognize its chain head before test execution. Default: false
-    # bootstrap_fcu: true
+    # explicit FCU to recognize its chain head before test execution.
+    # Supports shorthand: `bootstrap_fcu: true` (defaults to max_retries: 30, backoff: 1s)
+    # bootstrap_fcu:
+    #   enabled: true
+    #   max_retries: 30
+    #   backoff: 1s
     # Optional: Container resource limits (applied to all instances by default).
     # resource_limits:
     #   # CPU pinning - use ONE of the following:

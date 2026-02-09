@@ -309,7 +309,7 @@ client:
 | `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
 | `post_test_rpc_calls` | []object | - | Arbitrary RPC calls to execute after each test step (see [Post-Test RPC Calls](#post-test-rpc-calls)) |
-| `bootstrap_fcu` | bool | `false` | Send an `engine_forkchoiceUpdatedV3` after RPC is ready to set the client's chain head (see [Bootstrap FCU](#bootstrap-fcu)) |
+| `bootstrap_fcu` | bool/object | - | Send an `engine_forkchoiceUpdatedV3` after RPC is ready to set the client's chain head (see [Bootstrap FCU](#bootstrap-fcu)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
 #### Drop Memory Caches
@@ -415,13 +415,32 @@ client:
 
 When starting from a pre-populated data directory, some clients may not recognize their chain head until they receive an `engine_forkchoiceUpdatedV3` call. The `bootstrap_fcu` option sends this call automatically after the RPC endpoint becomes ready, using the latest block hash from `eth_getBlockByNumber("latest")`.
 
+**Shorthand** (uses defaults: `max_retries: 30`, `backoff: 1s`):
+
 ```yaml
 client:
   config:
     bootstrap_fcu: true
 ```
 
-The FCU call sets `headBlockHash` to the latest block, with `safeBlockHash` and `finalizedBlockHash` set to the zero hash and no payload attributes. The response must have `VALID` status — if the client rejects the FCU, the run is aborted.
+**Full configuration:**
+
+```yaml
+client:
+  config:
+    bootstrap_fcu:
+      enabled: true
+      max_retries: 30
+      backoff: 1s
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | bool | Yes | - | Enable bootstrap FCU |
+| `max_retries` | int | Yes | `30` (shorthand) | Maximum number of retry attempts (must be >= 1) |
+| `backoff` | string | Yes | `1s` (shorthand) | Delay between retries (Go duration string) |
+
+The FCU call sets `headBlockHash` to the latest block, with `safeBlockHash` and `finalizedBlockHash` set to the zero hash and no payload attributes. The response must have `VALID` status. If the call fails, it is retried up to `max_retries` times with `backoff` between attempts. If all attempts fail, the run is aborted.
 
 When using the `container-recreate` rollback strategy, the bootstrap FCU is sent after each container recreate.
 
@@ -531,7 +550,7 @@ client:
 | `retry_new_payloads_syncing_state` | object | No | From `client.config` | Instance-specific retry config for SYNCING responses |
 | `resource_limits` | object | No | From `client.config` | Instance-specific resource limits |
 | `post_test_rpc_calls` | []object | No | From `client.config` | Instance-specific post-test RPC calls (replaces global) |
-| `bootstrap_fcu` | bool | No | From `client.config` | Instance-specific bootstrap FCU setting |
+| `bootstrap_fcu` | bool/object | No | From `client.config` | Instance-specific bootstrap FCU setting |
 
 ## Resource Limits
 
