@@ -304,7 +304,7 @@ func discoverTestsFromConfig(
 	// Patterns are processed in the order they appear in the config.
 	// Within each pattern, filepath.Glob returns files in lexicographic order.
 	for _, pattern := range preRunStepPatterns {
-		files, _, err := expandGlobPattern(basePath, pattern, filter)
+		files, _, err := expandGlobPattern(basePath, pattern, "")
 		if err != nil {
 			return nil, fmt.Errorf("expanding pre_run_steps pattern %q: %w", pattern, err)
 		}
