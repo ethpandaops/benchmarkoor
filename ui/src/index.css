@@ -10,3 +10,11 @@
   --color-erigon: oklch(0.65 0.15 20);
   --color-nimbus: oklch(0.65 0.15 80);
 }
+
+/* Light mode: dimmed sepia palette to reduce brightness */
+:root:not(.dark) {
+  --color-white: oklch(0.96 0.012 80);
+  --color-gray-50: oklch(0.94 0.014 80);
+  --color-gray-100: oklch(0.91 0.016 80);
+  --color-gray-200: oklch(0.88 0.018 80);
+}
