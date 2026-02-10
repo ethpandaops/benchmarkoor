@@ -50,18 +50,20 @@ function SortableHeader({
   currentSort,
   currentDirection,
   onSort,
+  className,
 }: {
   label: string
   column: SortColumn
   currentSort: SortColumn
   currentDirection: SortDirection
   onSort: (column: SortColumn) => void
+  className?: string
 }) {
   const isActive = currentSort === column
   return (
     <th
       onClick={() => onSort(column)}
-      className="cursor-pointer select-none px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+      className={clsx('cursor-pointer select-none text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300', className ?? 'px-6 py-3')}
     >
       {label}
       <SortIcon direction={isActive ? currentDirection : 'asc'} active={isActive} />
@@ -138,9 +140,9 @@ export function RunsTable({
             {showSuite && <SortableHeader label="Suite" column="suite" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />}
             <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Duration" column="duration" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <SortableHeader label="Total" column="total" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <SortableHeader label="Failed" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <SortableHeader label="Passed" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+            <SortableHeader label="F" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-2 py-3" />
+            <SortableHeader label="P" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-2 py-3" />
+            <SortableHeader label="T" column="total" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-2 py-3" />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -199,16 +201,16 @@ export function RunsTable({
                     <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
                       <Duration nanoseconds={stats.duration} />
                     </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-center text-sm/6 text-gray-500 dark:text-gray-400">
-                      {entry.tests.tests_total}
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-center">
+                    <td className="whitespace-nowrap px-2 py-4 text-center">
                       {entry.tests.tests_total - entry.tests.tests_passed > 0 && (
                         <Badge variant="error">{entry.tests.tests_total - entry.tests.tests_passed}</Badge>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-center">
+                    <td className="whitespace-nowrap px-2 py-4 text-center">
                       <Badge variant="success">{entry.tests.tests_passed}</Badge>
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-4 text-center">
+                      <Badge>{entry.tests.tests_total}</Badge>
                     </td>
                   </>
                 )
