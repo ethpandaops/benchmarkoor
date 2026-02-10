@@ -856,4 +856,74 @@ client:
 		assert.Nil(t, cfg.Client.Config.BootstrapFCU)
 		assert.Nil(t, cfg.GetBootstrapFCU(&cfg.Client.Instances[0]))
 	})
+
+	t.Run("with block_hash", func(t *testing.T) {
+		configContent := `
+client:
+  config:
+    bootstrap_fcu:
+      enabled: true
+      max_retries: 10
+      backoff: 2s
+      head_block_hash: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+    genesis:
+      geth: http://example.com/genesis.json
+  instances:
+    - id: test-instance
+      client: geth
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		require.NotNil(t, cfg.Client.Config.BootstrapFCU)
+		assert.True(t, cfg.Client.Config.BootstrapFCU.Enabled)
+		assert.Equal(t,
+			"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+			cfg.Client.Config.BootstrapFCU.HeadBlockHash,
+		)
+
+		fcuCfg := cfg.GetBootstrapFCU(&cfg.Client.Instances[0])
+		require.NotNil(t, fcuCfg)
+		assert.Equal(t,
+			"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+			fcuCfg.HeadBlockHash,
+		)
+	})
+
+	t.Run("invalid block_hash rejected", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			blockHash string
+		}{
+			{"missing 0x prefix", "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"},
+			{"too short", "0x1234"},
+			{"too long", "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef00"},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				cfg := Config{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							BootstrapFCU: &BootstrapFCUConfig{
+								Enabled:       true,
+								MaxRetries:    10,
+								Backoff:       "2s",
+								HeadBlockHash: tt.blockHash,
+							},
+						},
+						Instances: []ClientInstance{{ID: "test", Client: "geth"}},
+					},
+				}
+
+				err := cfg.validateBootstrapFCU()
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "bootstrap_fcu.head_block_hash")
+			})
+		}
+	})
 }

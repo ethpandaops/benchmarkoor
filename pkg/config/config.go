@@ -171,9 +171,10 @@ type RetryNewPayloadsSyncingConfig struct {
 // BootstrapFCUConfig configures the bootstrap FCU call used to confirm the
 // client is fully synced and ready for test execution.
 type BootstrapFCUConfig struct {
-	Enabled    bool   `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
-	MaxRetries int    `yaml:"max_retries" mapstructure:"max_retries" json:"max_retries"`
-	Backoff    string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
+	Enabled       bool   `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
+	MaxRetries    int    `yaml:"max_retries" mapstructure:"max_retries" json:"max_retries"`
+	Backoff       string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
+	HeadBlockHash string `yaml:"head_block_hash" mapstructure:"head_block_hash" json:"head_block_hash,omitempty"`
 }
 
 // PostTestRPCCall defines an arbitrary RPC call to execute after the test step.
@@ -1126,6 +1127,15 @@ func (c *Config) validateBootstrapFCU() error {
 		if _, err := time.ParseDuration(cfg.Backoff); err != nil {
 			return fmt.Errorf("instance %q: invalid bootstrap_fcu.backoff %q: %w",
 				instance.ID, cfg.Backoff, err)
+		}
+
+		if cfg.HeadBlockHash != "" {
+			if !strings.HasPrefix(cfg.HeadBlockHash, "0x") || len(cfg.HeadBlockHash) != 66 {
+				return fmt.Errorf(
+					"instance %q: bootstrap_fcu.head_block_hash must be a 0x-prefixed"+
+						" 32-byte hex string, got %q", instance.ID, cfg.HeadBlockHash,
+				)
+			}
 		}
 	}
 
