@@ -533,7 +533,7 @@ export function RunDetailPage() {
         )}
       </div>
 
-      <RunConfiguration instance={config.instance} system={config.system} />
+      <RunConfiguration instance={config.instance} system={config.system} startBlock={config.start_block} />
 
       <FilesPanel
         runId={runId}

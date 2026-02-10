@@ -115,6 +115,13 @@ export function getRunDurationAggregatedStats(
   return { gasUsed, timeNs }
 }
 
+// Start block info captured at the beginning of a run.
+export interface StartBlock {
+  number: number
+  hash: string
+  state_root: string
+}
+
 // config.json per run
 export interface RunConfig {
   timestamp: number
@@ -123,6 +130,7 @@ export interface RunConfig {
   system_resource_collection_method?: string // "cgroupv2" or "dockerstats"
   system: SystemInfo
   instance: InstanceConfig
+  start_block?: StartBlock
   test_counts?: {
     total: number
     passed: number
