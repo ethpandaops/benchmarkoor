@@ -1,7 +1,7 @@
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo, useState, useEffect } from 'react'
 import { useIndex } from '@/api/hooks/useIndex'
-import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, getIndexAggregatedStats } from '@/api/types'
+import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
 import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
 import { Pagination } from '@/components/shared/Pagination'
@@ -71,12 +71,11 @@ export function RunsPage() {
       if (client && e.instance.client !== client) return false
       if (image && e.instance.image !== image) return false
       if (suite && e.suite_hash !== suite) return false
-      const stats = getIndexAggregatedStats(e, stepFilter)
-      if (status === 'passing' && stats.fail > 0) return false
-      if (status === 'failing' && stats.fail === 0) return false
+      if (status === 'passing' && e.tests.tests_total - e.tests.tests_passed > 0) return false
+      if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
       return true
     })
-  }, [index, client, image, suite, status, stepFilter])
+  }, [index, client, image, suite, status])
 
   const totalPages = Math.ceil(filteredEntries.length / localPageSize)
   const paginatedEntries = filteredEntries.slice((localPage - 1) * localPageSize, localPage * localPageSize)

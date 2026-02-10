@@ -18,6 +18,9 @@ export interface IndexEntry {
     image: string
   }
   tests: {
+    tests_total: number
+    tests_passed: number
+    tests_failed: number
     steps: {
       setup?: IndexStepStats
       test?: IndexStepStats
@@ -120,6 +123,11 @@ export interface RunConfig {
   system_resource_collection_method?: string // "cgroupv2" or "dockerstats"
   system: SystemInfo
   instance: InstanceConfig
+  test_counts?: {
+    total: number
+    passed: number
+    failed: number
+  }
   status?: RunStatus
   termination_reason?: string
   container_exit_code?: number

@@ -69,6 +69,13 @@ type Config struct {
 	FullConfig         *config.Config // Full config for resolving per-instance settings
 }
 
+// TestCounts contains test count statistics for a run.
+type TestCounts struct {
+	Total  int `json:"total"`
+	Passed int `json:"passed"`
+	Failed int `json:"failed"`
+}
+
 // RunConfig contains configuration for a single test run.
 type RunConfig struct {
 	Timestamp                      int64             `json:"timestamp"`
@@ -77,6 +84,7 @@ type RunConfig struct {
 	SystemResourceCollectionMethod string            `json:"system_resource_collection_method,omitempty"`
 	System                         *SystemInfo       `json:"system"`
 	Instance                       *ResolvedInstance `json:"instance"`
+	TestCounts                     *TestCounts       `json:"test_counts,omitempty"`
 	Status                         string            `json:"status,omitempty"`
 	TerminationReason              string            `json:"termination_reason,omitempty"`
 	ContainerExitCode              *int64            `json:"container_exit_code,omitempty"`
@@ -1233,6 +1241,21 @@ func (r *runner) runContainerLifecycle(
 				"failed":   result.Failed,
 				"duration": result.TotalDuration,
 			}).Info("Test execution completed")
+
+			suiteTotal := result.TotalTests
+			if r.executor != nil {
+				if allTests := r.executor.GetTests(); allTests != nil {
+					suiteTotal = len(allTests)
+				}
+			}
+
+			mu.Lock()
+			runConfig.TestCounts = &TestCounts{
+				Total:  suiteTotal,
+				Passed: result.Passed,
+				Failed: result.Failed,
+			}
+			mu.Unlock()
 
 			if result.StatsReaderType != "" {
 				runConfig.SystemResourceCollectionMethod = result.StatsReaderType

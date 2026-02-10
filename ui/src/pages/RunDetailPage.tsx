@@ -264,12 +264,12 @@ export function RunDetailPage() {
   )
 
   // Compute result-dependent stats only when result.json is available.
-  const testCount = result ? Object.keys(result.tests).length : 0
   const aggregatedStats = result
     ? Object.values(result.tests).map((t) => getAggregatedStats(t, stepFilter)).filter((s): s is AggregatedStats => s !== undefined)
     : []
-  const passedTests = aggregatedStats.filter((s) => s.fail === 0).length
-  const failedTests = aggregatedStats.filter((s) => s.fail > 0).length
+  const testCount = config.test_counts?.total ?? (result ? Object.keys(result.tests).length : 0)
+  const passedTests = config.test_counts?.passed ?? aggregatedStats.filter((s) => s.fail === 0).length
+  const failedTests = config.test_counts ? (config.test_counts.total - config.test_counts.passed) : aggregatedStats.filter((s) => s.fail > 0).length
   const totalDuration = aggregatedStats.reduce((sum, s) => sum + s.time_total, 0)
   const totalGasUsed = aggregatedStats.reduce((sum, s) => sum + s.gas_used_total, 0)
   const totalGasUsedTime = aggregatedStats.reduce((sum, s) => sum + s.gas_used_time_total, 0)
@@ -390,7 +390,7 @@ export function RunDetailPage() {
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <ClientStat client={config.instance.client} runId={config.instance.id} />
-        {result ? (
+        {(config.test_counts || result) ? (
           <>
             <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
               <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Tests</p>
@@ -412,79 +412,100 @@ export function RunDetailPage() {
                 {formatTimestamp(config.timestamp)}
               </p>
             </div>
-            <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-              <div className="flex items-center justify-between">
-                <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">MGas/s</p>
-                <div className="flex items-center gap-1">
-                  {ALL_STEP_TYPES.map((step) => (
-                    <button
-                      key={step}
-                      onClick={() => {
-                        const newFilter = stepFilter.includes(step)
-                          ? stepFilter.filter((s) => s !== step)
-                          : [...stepFilter, step]
-                        if (newFilter.length > 0) {
-                          handleStepFilterChange(newFilter)
-                        }
-                      }}
-                      className={`rounded-xs px-1.5 py-0.5 text-xs font-medium transition-colors ${
-                        stepFilter.includes(step)
-                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                          : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
-                      }`}
-                      title={`${stepFilter.includes(step) ? 'Exclude' : 'Include'} ${step} step in MGas/s calculation`}
-                    >
-                      {step.charAt(0).toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
-                {mgasPerSec !== undefined ? mgasPerSec.toFixed(2) : '-'}
-              </p>
-              <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
-                <span title={`${formatNumber(totalGasUsed)} gas`}>
-                  {totalGasUsed >= 1_000_000_000
-                    ? `${(totalGasUsed / 1_000_000_000).toFixed(2)} GGas`
-                    : `${(totalGasUsed / 1_000_000).toFixed(2)} MGas`}
-                </span>
-                {' '}in <Duration nanoseconds={totalGasUsedTime} />
-              </p>
-            </div>
-            <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-              <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Calls</p>
-              <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
-                {formatNumber(totalMsgCount)}
-              </p>
-              {Object.keys(methodCounts).length > 0 && (
-                <div className="mt-2 flex flex-col gap-0.5 text-xs/5 text-gray-500 dark:text-gray-400">
-                  {Object.entries(methodCounts)
-                    .sort(([, a], [, b]) => b - a)
-                    .map(([method, count]) => (
-                      <div key={method} className="flex justify-between gap-2">
-                        <span>{method}</span>
-                        <span>{formatNumber(count)}</span>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-            <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-              <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Test Duration</p>
-              <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
-                <Duration nanoseconds={totalDuration} />
-              </p>
-              {config.timestamp_end != null && config.timestamp_end > 0 && (
-                <>
+            {result ? (
+              <>
+                <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">MGas/s</p>
+                    <div className="flex items-center gap-1">
+                      {ALL_STEP_TYPES.map((step) => (
+                        <button
+                          key={step}
+                          onClick={() => {
+                            const newFilter = stepFilter.includes(step)
+                              ? stepFilter.filter((s) => s !== step)
+                              : [...stepFilter, step]
+                            if (newFilter.length > 0) {
+                              handleStepFilterChange(newFilter)
+                            }
+                          }}
+                          className={`rounded-xs px-1.5 py-0.5 text-xs font-medium transition-colors ${
+                            stepFilter.includes(step)
+                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                              : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
+                          }`}
+                          title={`${stepFilter.includes(step) ? 'Exclude' : 'Include'} ${step} step in MGas/s calculation`}
+                        >
+                          {step.charAt(0).toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
+                    {mgasPerSec !== undefined ? mgasPerSec.toFixed(2) : '-'}
+                  </p>
                   <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
-                    Total runtime
+                    <span title={`${formatNumber(totalGasUsed)} gas`}>
+                      {totalGasUsed >= 1_000_000_000
+                        ? `${(totalGasUsed / 1_000_000_000).toFixed(2)} GGas`
+                        : `${(totalGasUsed / 1_000_000).toFixed(2)} MGas`}
+                    </span>
+                    {' '}in <Duration nanoseconds={totalGasUsedTime} />
                   </p>
-                  <p className="text-xs/5 text-gray-900 dark:text-gray-100">
-                    {formatDurationSeconds(config.timestamp_end - config.timestamp)}
+                </div>
+                <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+                  <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Calls</p>
+                  <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
+                    {formatNumber(totalMsgCount)}
                   </p>
-                </>
-              )}
-            </div>
+                  {Object.keys(methodCounts).length > 0 && (
+                    <div className="mt-2 flex flex-col gap-0.5 text-xs/5 text-gray-500 dark:text-gray-400">
+                      {Object.entries(methodCounts)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([method, count]) => (
+                          <div key={method} className="flex justify-between gap-2">
+                            <span>{method}</span>
+                            <span>{formatNumber(count)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+                  <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Test Duration</p>
+                  <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
+                    <Duration nanoseconds={totalDuration} />
+                  </p>
+                  {config.timestamp_end != null && config.timestamp_end > 0 && (
+                    <>
+                      <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
+                        Total runtime
+                      </p>
+                      <p className="text-xs/5 text-gray-900 dark:text-gray-100">
+                        {formatDurationSeconds(config.timestamp_end - config.timestamp)}
+                      </p>
+                    </>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="col-span-3 rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+                <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Results</p>
+                <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-400">
+                  No result.json available. The run may still be in progress or may have failed before producing results.
+                </p>
+                {config.timestamp_end != null && config.timestamp_end > 0 && (
+                  <>
+                    <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
+                      Total runtime
+                    </p>
+                    <p className="text-xs/5 text-gray-900 dark:text-gray-100">
+                      {formatDurationSeconds(config.timestamp_end - config.timestamp)}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
           </>
         ) : (
           <div className="col-span-4 rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">

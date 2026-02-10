@@ -101,7 +101,7 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
         {suiteInfo?.source ? (
           <div className="flex items-center gap-2">
             <SourceBadge source={suiteInfo.source} />
-            <Badge variant="default">{suiteInfo.tests.length}</Badge>
+            <Badge variant="default">{suiteInfo.tests?.length ?? 0}</Badge>
           </div>
         ) : (
           <span className="text-gray-400 dark:text-gray-500">-</span>

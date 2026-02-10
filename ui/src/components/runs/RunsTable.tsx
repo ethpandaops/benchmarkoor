@@ -4,7 +4,6 @@ import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, getIndexAggregatedStats } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Badge } from '@/components/shared/Badge'
-import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
@@ -16,7 +15,7 @@ function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number |
 }
 
 
-export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'mgas' | 'failed' | 'passed'
+export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'mgas' | 'failed' | 'passed' | 'total'
 export type SortDirection = 'asc' | 'desc'
 
 interface RunsTableProps {
@@ -50,18 +49,20 @@ function SortableHeader({
   currentSort,
   currentDirection,
   onSort,
+  className,
 }: {
   label: string
   column: SortColumn
   currentSort: SortColumn
   currentDirection: SortDirection
   onSort: (column: SortColumn) => void
+  className?: string
 }) {
   const isActive = currentSort === column
   return (
     <th
       onClick={() => onSort(column)}
-      className="cursor-pointer select-none px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+      className={clsx('cursor-pointer select-none text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300', className ?? 'px-6 py-3')}
     >
       {label}
       <SortIcon direction={isActive ? currentDirection : 'asc'} active={isActive} />
@@ -114,10 +115,13 @@ export function RunsTable({
           break
         }
         case 'failed':
-          comparison = statsA.fail - statsB.fail
+          comparison = (a.tests.tests_total - a.tests.tests_passed) - (b.tests.tests_total - b.tests.tests_passed)
           break
         case 'passed':
-          comparison = statsA.success - statsB.success
+          comparison = a.tests.tests_passed - b.tests.tests_passed
+          break
+        case 'total':
+          comparison = a.tests.tests_total - b.tests.tests_total
           break
       }
       return sortDir === 'asc' ? comparison : -comparison
@@ -135,8 +139,9 @@ export function RunsTable({
             {showSuite && <SortableHeader label="Suite" column="suite" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />}
             <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Duration" column="duration" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <SortableHeader label="Failed" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <SortableHeader label="Passed" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+            <SortableHeader label="F" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-2 py-3" />
+            <SortableHeader label="P" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-2 py-3" />
+            <SortableHeader label="T" column="total" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-2 py-3" />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -150,11 +155,13 @@ export function RunsTable({
                 entry.status === 'cancelled' && 'bg-yellow-50/50 dark:bg-yellow-900/10',
               )}
             >
-              <td className="whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400">
-                <div className="flex items-center gap-2">
-                  <span title={formatRelativeTime(entry.timestamp)}>{formatTimestamp(entry.timestamp)}</span>
-                  <StatusBadge status={entry.status} compact />
-                </div>
+              <td className={clsx(
+                'whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400 border-l-3',
+                entry.status === 'container_died' && 'border-red-400 dark:border-red-500',
+                entry.status === 'cancelled' && 'border-yellow-400 dark:border-yellow-500',
+                entry.status !== 'container_died' && entry.status !== 'cancelled' && 'border-transparent',
+              )}>
+                <span title={formatRelativeTime(entry.timestamp)}>{formatTimestamp(entry.timestamp)}</span>
               </td>
               <td className="whitespace-nowrap px-6 py-4">
                 <ClientBadge client={entry.instance.client} />
@@ -195,11 +202,16 @@ export function RunsTable({
                     <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
                       <Duration nanoseconds={stats.duration} />
                     </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-center">
-                      {stats.fail > 0 && <Badge variant="error">{stats.fail}</Badge>}
+                    <td className="whitespace-nowrap px-2 py-4 text-center">
+                      {entry.tests.tests_total - entry.tests.tests_passed > 0 && (
+                        <Badge variant="error">{entry.tests.tests_total - entry.tests.tests_passed}</Badge>
+                      )}
                     </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-center">
-                      <Badge variant="success">{stats.success}</Badge>
+                    <td className="whitespace-nowrap px-2 py-4 text-center">
+                      <Badge variant="success">{entry.tests.tests_passed}</Badge>
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-4 text-center">
+                      <Badge>{entry.tests.tests_total}</Badge>
                     </td>
                   </>
                 )

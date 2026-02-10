@@ -3,7 +3,7 @@ import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
 import { ChevronRight, LayoutGrid, Clock, Zap, Cpu, Flame, Grid3X3 } from 'lucide-react'
-import { getIndexAggregatedStats, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
+import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
 import { useIndex } from '@/api/hooks/useIndex'
@@ -134,9 +134,8 @@ export function SuiteDetailPage() {
     return suiteRunsAll.filter((e) => {
       if (client && e.instance.client !== client) return false
       if (image && e.instance.image !== image) return false
-      const stats = getIndexAggregatedStats(e)
-      if (status === 'passing' && stats.fail > 0) return false
-      if (status === 'failing' && stats.fail === 0) return false
+      if (status === 'passing' && e.tests.tests_total - e.tests.tests_passed > 0) return false
+      if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
       return true
     })
   }, [suiteRunsAll, client, image, status])
