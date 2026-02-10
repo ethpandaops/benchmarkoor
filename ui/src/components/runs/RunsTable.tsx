@@ -4,7 +4,6 @@ import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, getIndexAggregatedStats } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Badge } from '@/components/shared/Badge'
-import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
@@ -156,11 +155,13 @@ export function RunsTable({
                 entry.status === 'cancelled' && 'bg-yellow-50/50 dark:bg-yellow-900/10',
               )}
             >
-              <td className="whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400">
-                <div className="flex items-center gap-2">
-                  <span title={formatRelativeTime(entry.timestamp)}>{formatTimestamp(entry.timestamp)}</span>
-                  <StatusBadge status={entry.status} compact />
-                </div>
+              <td className={clsx(
+                'whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400 border-l-3',
+                entry.status === 'container_died' && 'border-red-400 dark:border-red-500',
+                entry.status === 'cancelled' && 'border-yellow-400 dark:border-yellow-500',
+                entry.status !== 'container_died' && entry.status !== 'cancelled' && 'border-transparent',
+              )}>
+                <span title={formatRelativeTime(entry.timestamp)}>{formatTimestamp(entry.timestamp)}</span>
               </td>
               <td className="whitespace-nowrap px-6 py-4">
                 <ClientBadge client={entry.instance.client} />
