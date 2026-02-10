@@ -76,6 +76,13 @@ type TestCounts struct {
 	Failed int `json:"failed"`
 }
 
+// StartBlock contains block information captured at the start of a run.
+type StartBlock struct {
+	Number    uint64 `json:"number"`
+	Hash      string `json:"hash"`
+	StateRoot string `json:"state_root"`
+}
+
 // RunConfig contains configuration for a single test run.
 type RunConfig struct {
 	Timestamp                      int64             `json:"timestamp"`
@@ -84,6 +91,7 @@ type RunConfig struct {
 	SystemResourceCollectionMethod string            `json:"system_resource_collection_method,omitempty"`
 	System                         *SystemInfo       `json:"system"`
 	Instance                       *ResolvedInstance `json:"instance"`
+	StartBlock                     *StartBlock       `json:"start_block,omitempty"`
 	TestCounts                     *TestCounts       `json:"test_counts,omitempty"`
 	Status                         string            `json:"status,omitempty"`
 	TerminationReason              string            `json:"termination_reason,omitempty"`
@@ -1127,14 +1135,21 @@ func (r *runner) runContainerLifecycle(
 	}
 
 	// Log the latest block info.
-	blockNum, blockHash, blkErr := r.getLatestBlock(execCtx, containerIP, spec.RPCPort())
+	blockNum, blockHash, stateRoot, blkErr := r.getLatestBlock(execCtx, containerIP, spec.RPCPort())
 	if blkErr != nil {
 		log.WithError(blkErr).Warn("Failed to get latest block")
 	} else {
 		log.WithFields(logrus.Fields{
 			"block_number": blockNum,
 			"block_hash":   blockHash,
+			"state_root":   stateRoot,
 		}).Info("Latest block")
+
+		runConfig.StartBlock = &StartBlock{
+			Number:    blockNum,
+			Hash:      blockHash,
+			StateRoot: stateRoot,
+		}
 	}
 
 	// Send bootstrap FCU if configured.
@@ -1552,7 +1567,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			// Send bootstrap FCU if configured.
 			if r.cfg.FullConfig != nil {
 				if fcuCfg := r.cfg.FullConfig.GetBootstrapFCU(params.Instance); fcuCfg != nil && fcuCfg.Enabled {
-					_, blkHash, blkErr := r.getLatestBlock(
+					_, blkHash, _, blkErr := r.getLatestBlock(
 						ctx, currentContainerIP, spec.RPCPort(),
 					)
 					if blkErr != nil {
@@ -2000,8 +2015,8 @@ func (r *runner) checkRPCHealth(ctx context.Context, url string) (string, bool) 
 	return rpcResp.Result, true
 }
 
-// getLatestBlock fetches the latest block number and hash from the RPC endpoint.
-func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uint64, string, error) {
+// getLatestBlock fetches the latest block number, hash, and state root from the RPC endpoint.
+func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uint64, string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -2010,44 +2025,45 @@ func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uin
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
 	if err != nil {
-		return 0, "", fmt.Errorf("creating request: %w", err)
+		return 0, "", "", fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, "", fmt.Errorf("executing request: %w", err)
+		return 0, "", "", fmt.Errorf("executing request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return 0, "", "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 0, "", fmt.Errorf("reading response: %w", err)
+		return 0, "", "", fmt.Errorf("reading response: %w", err)
 	}
 
 	var rpcResp struct {
 		Result struct {
-			Number string `json:"number"`
-			Hash   string `json:"hash"`
+			Number    string `json:"number"`
+			Hash      string `json:"hash"`
+			StateRoot string `json:"stateRoot"`
 		} `json:"result"`
 	}
 
 	if err := json.Unmarshal(respBody, &rpcResp); err != nil {
-		return 0, "", fmt.Errorf("parsing response: %w", err)
+		return 0, "", "", fmt.Errorf("parsing response: %w", err)
 	}
 
 	// Parse hex block number.
 	blockNum, err := strconv.ParseUint(strings.TrimPrefix(rpcResp.Result.Number, "0x"), 16, 64)
 	if err != nil {
-		return 0, "", fmt.Errorf("parsing block number: %w", err)
+		return 0, "", "", fmt.Errorf("parsing block number: %w", err)
 	}
 
-	return blockNum, rpcResp.Result.Hash, nil
+	return blockNum, rpcResp.Result.Hash, rpcResp.Result.StateRoot, nil
 }
 
 // sendBootstrapFCU sends an engine_forkchoiceUpdatedV3 call to confirm the

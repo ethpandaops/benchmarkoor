@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import { Settings, Check, Copy, ChevronDown } from 'lucide-react'
-import type { InstanceConfig, SystemInfo } from '@/api/types'
+import type { InstanceConfig, SystemInfo, StartBlock } from '@/api/types'
 import { formatBytes, formatFrequency } from '@/utils/format'
 
 interface RunConfigurationProps {
   instance: InstanceConfig
   system: SystemInfo
+  startBlock?: StartBlock
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -41,7 +42,7 @@ function InfoItem({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-export function RunConfiguration({ instance, system }: RunConfigurationProps) {
+export function RunConfiguration({ instance, system, startBlock }: RunConfigurationProps) {
   const [expanded, setExpanded] = useState(false)
 
   const summary = `${instance.image} / ${system.platform} (${system.arch}) / ${system.cpu_cores} Cores`
@@ -302,6 +303,31 @@ export function RunConfiguration({ instance, system }: RunConfigurationProps) {
                           <CopyButton text={path} />
                         </div>
                       ))}
+                    </div>
+                  </dd>
+                </div>
+              )}
+
+              {startBlock && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Start Block</dt>
+                  <dd className="mt-1 overflow-x-auto rounded-xs bg-gray-100 p-2 dark:bg-gray-900">
+                    <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 dark:text-gray-400">number: </span>
+                        <span>{startBlock.number.toLocaleString()}</span>
+                        <CopyButton text={String(startBlock.number)} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="shrink-0 text-gray-500 dark:text-gray-400">hash: </span>
+                        <span className="truncate">{startBlock.hash}</span>
+                        <CopyButton text={startBlock.hash} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="shrink-0 text-gray-500 dark:text-gray-400">state root: </span>
+                        <span className="truncate">{startBlock.state_root}</span>
+                        <CopyButton text={startBlock.state_root} />
+                      </div>
                     </div>
                   </dd>
                 </div>
