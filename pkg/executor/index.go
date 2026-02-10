@@ -73,6 +73,11 @@ type runConfigJSON struct {
 		Client string `json:"client"`
 		Image  string `json:"image"`
 	} `json:"instance"`
+	TestCounts *struct {
+		Total  int `json:"total"`
+		Passed int `json:"passed"`
+		Failed int `json:"failed"`
+	} `json:"test_counts,omitempty"`
 }
 
 // GenerateIndex scans the results directory and builds an index from all runs.
@@ -324,6 +329,14 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 				testStats.Steps.Cleanup = cleanupStats
 			}
 		}
+	}
+
+	// Use test_counts from config.json when available (more accurate than
+	// result.json counts, especially for crashed runs).
+	if runConfig.TestCounts != nil {
+		testStats.TestsTotal = runConfig.TestCounts.Total
+		testStats.TestsPassed = runConfig.TestCounts.Passed
+		testStats.TestsFailed = runConfig.TestCounts.Failed
 	}
 
 	return &IndexEntry{
