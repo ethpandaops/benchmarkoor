@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react'
 import { Check, Copy, Download } from 'lucide-react'
 import { Link, useParams, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { fetchText } from '@/api/client'
@@ -9,6 +10,9 @@ import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
+
+const ESTIMATED_LINE_HEIGHT = 20
+const SYNTAX_HIGHLIGHT_LINE_LIMIT = 5_000
 
 function parseLineSelection(linesParam: string | undefined): Set<number> {
   if (!linesParam) return new Set()
@@ -302,12 +306,63 @@ function HighlightedLine({ content, language }: { content: string; language: str
   )
 }
 
-function LogLine({ content, language, useAnsi }: { content: string; language: string; useAnsi: boolean }) {
+function PlainLine({ content }: { content: string }) {
+  if (!content) {
+    return <span>&nbsp;</span>
+  }
+  return <span>{content}</span>
+}
+
+function LogLine({ content, language, useAnsi, useSyntax }: { content: string; language: string; useAnsi: boolean; useSyntax: boolean }) {
   if (useAnsi) {
     return <AnsiLine content={content} />
   }
-  return <HighlightedLine content={content} language={language} />
+  if (useSyntax) {
+    return <HighlightedLine content={content} language={language} />
+  }
+  return <PlainLine content={content} />
 }
+
+interface VirtualLineRowProps {
+  lineNum: number
+  content: string
+  isSelected: boolean
+  lineNumberWidth: number
+  language: string
+  useAnsi: boolean
+  useSyntax: boolean
+  onLineClick: (lineNum: number, event: React.MouseEvent) => void
+}
+
+const VirtualLineRow = memo(function VirtualLineRow({
+  lineNum,
+  content,
+  isSelected,
+  lineNumberWidth,
+  language,
+  useAnsi,
+  useSyntax,
+  onLineClick,
+}: VirtualLineRowProps) {
+  return (
+    <div className={`flex ${isSelected ? 'bg-yellow-500/20' : 'hover:bg-gray-800/50'}`}>
+      <div
+        onClick={(e) => onLineClick(lineNum, e)}
+        className={`shrink-0 cursor-pointer select-none py-0.5 pr-4 text-right font-mono text-xs/5 ${
+          isSelected
+            ? 'text-yellow-400 hover:text-yellow-300'
+            : 'text-gray-500 hover:text-gray-300'
+        }`}
+        style={{ width: lineNumberWidth, paddingLeft: 16 }}
+      >
+        {lineNum}
+      </div>
+      <div className="min-w-0 flex-1 whitespace-pre-wrap break-all py-0.5 pr-4 font-mono text-xs/5 text-gray-100">
+        <LogLine content={content} language={language} useAnsi={useAnsi} useSyntax={useSyntax} />
+      </div>
+    </div>
+  )
+})
 
 export function FileViewerPage() {
   const { runId } = useParams({ from: '/runs/$runId/fileviewer' })
@@ -337,6 +392,26 @@ export function FileViewerPage() {
       return data
     },
     enabled: !!runId && !!filename,
+  })
+
+  const lines = useMemo(() => fileContent?.split('\n') ?? [], [fileContent])
+  const useAnsi = useMemo(() => fileContent ? hasAnsiCodes(fileContent) : false, [fileContent])
+  const language = useMemo(() => fileContent ? detectLanguage(fileContent) : 'bash', [fileContent])
+  const useSyntax = useMemo(() => !useAnsi && lines.length <= SYNTAX_HIGHLIGHT_LINE_LIMIT, [useAnsi, lines.length])
+
+  const lineNumberWidth = useMemo(() => {
+    const digits = String(lines.length).length
+    // ~8px per digit + 32px padding (16 left + 16 right)
+    return digits * 8 + 32
+  }, [lines.length])
+
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: lines.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ESTIMATED_LINE_HEIGHT,
+    overscan: 30,
+    measureElement: (element) => element.getBoundingClientRect().height,
   })
 
   const updateSelectedLines = useCallback(
@@ -385,20 +460,14 @@ export function FileViewerPage() {
     [selectedLines, lastClickedLine, updateSelectedLines]
   )
 
-  const useAnsi = useMemo(() => fileContent ? hasAnsiCodes(fileContent) : false, [fileContent])
-  const language = useMemo(() => fileContent ? detectLanguage(fileContent) : 'bash', [fileContent])
-
   // Scroll to first selected line on initial load
   useEffect(() => {
-    if (fileContent && selectedLines.size > 0 && !hasScrolledRef.current) {
+    if (lines.length > 0 && selectedLines.size > 0 && !hasScrolledRef.current) {
       const firstLine = Math.min(...selectedLines)
-      const row = document.getElementById(`log-line-${firstLine}`)
-      if (row && scrollContainerRef.current) {
-        row.scrollIntoView({ block: 'center' })
-        hasScrolledRef.current = true
-      }
+      virtualizer.scrollToIndex(firstLine - 1, { align: 'center' })
+      hasScrolledRef.current = true
     }
-  }, [fileContent, selectedLines])
+  }, [lines.length, selectedLines, virtualizer])
 
   if (!filename) {
     return <ErrorState message="No file specified" />
@@ -416,7 +485,6 @@ export function FileViewerPage() {
     return <ErrorState message="File not found" />
   }
 
-  const lines = fileContent.split('\n')
   const selectedContent = selectedLines.size > 0
     ? Array.from(selectedLines)
         .sort((a, b) => a - b)
@@ -464,6 +532,11 @@ export function FileViewerPage() {
                 {selectedLines.size} line{selectedLines.size !== 1 ? 's' : ''} selected
               </span>
             )}
+            {lines.length > SYNTAX_HIGHLIGHT_LINE_LIMIT && !useAnsi && (
+              <span className="text-xs/5 text-gray-500">
+                (syntax highlighting disabled for large files)
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {selectedContent && <CopyButton text={selectedContent} label="Copy selected" />}
@@ -471,36 +544,36 @@ export function FileViewerPage() {
             <DownloadButton content={fileContent} filename={filename} />
           </div>
         </div>
-        <div ref={scrollContainerRef} className="max-h-[80vh] overflow-y-auto">
-          <table className="w-full">
-            <tbody>
-              {lines.map((line, i) => {
-                const lineNum = i + 1
-                const isSelected = selectedLines.has(lineNum)
-                return (
-                  <tr
-                    key={i}
-                    id={`log-line-${lineNum}`}
-                    className={isSelected ? 'bg-yellow-500/20' : 'hover:bg-gray-800/50'}
-                  >
-                    <td
-                      onClick={(e) => handleLineClick(lineNum, e)}
-                      className={`cursor-pointer select-none whitespace-nowrap py-0.5 pl-4 pr-4 text-right align-top font-mono text-xs/5 ${
-                        isSelected
-                          ? 'text-yellow-400 hover:text-yellow-300'
-                          : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      {lineNum}
-                    </td>
-                    <td className="whitespace-pre-wrap break-all py-0.5 pr-4 font-mono text-xs/5 text-gray-100">
-                      <LogLine content={line} language={language} useAnsi={useAnsi} />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+        <div ref={scrollContainerRef} className="max-h-[80vh] overflow-auto">
+          <div
+            className="relative w-full"
+            style={{ height: virtualizer.getTotalSize() }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const lineNum = virtualRow.index + 1
+              const isSelected = selectedLines.has(lineNum)
+              return (
+                <div
+                  key={virtualRow.index}
+                  data-index={virtualRow.index}
+                  ref={virtualizer.measureElement}
+                  className="absolute left-0 top-0 w-full"
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                >
+                  <VirtualLineRow
+                    lineNum={lineNum}
+                    content={lines[virtualRow.index]}
+                    isSelected={isSelected}
+                    lineNumberWidth={lineNumberWidth}
+                    language={language}
+                    useAnsi={useAnsi}
+                    useSyntax={useSyntax}
+                    onLineClick={handleLineClick}
+                  />
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>
