@@ -21,6 +21,7 @@ type Index struct {
 type IndexEntry struct {
 	RunID             string          `json:"run_id"`
 	Timestamp         int64           `json:"timestamp"`
+	TimestampEnd      int64           `json:"timestamp_end,omitempty"`
 	SuiteHash         string          `json:"suite_hash,omitempty"`
 	Instance          *IndexInstance  `json:"instance"`
 	Tests             *IndexTestStats `json:"tests"`
@@ -60,6 +61,7 @@ type IndexStepStats struct {
 // runConfigJSON is used to parse config.json files.
 type runConfigJSON struct {
 	Timestamp         int64  `json:"timestamp"`
+	TimestampEnd      int64  `json:"timestamp_end,omitempty"`
 	SuiteHash         string `json:"suite_hash,omitempty"`
 	Status            string `json:"status,omitempty"`
 	TerminationReason string `json:"termination_reason,omitempty"`
@@ -249,6 +251,7 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 	return &IndexEntry{
 		RunID:             runID,
 		Timestamp:         runConfig.Timestamp,
+		TimestampEnd:      runConfig.TimestampEnd,
 		SuiteHash:         runConfig.SuiteHash,
 		Status:            runConfig.Status,
 		TerminationReason: runConfig.TerminationReason,

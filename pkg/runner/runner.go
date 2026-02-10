@@ -72,6 +72,7 @@ type Config struct {
 // RunConfig contains configuration for a single test run.
 type RunConfig struct {
 	Timestamp                      int64             `json:"timestamp"`
+	TimestampEnd                   int64             `json:"timestamp_end,omitempty"`
 	SuiteHash                      string            `json:"suite_hash,omitempty"`
 	SystemResourceCollectionMethod string            `json:"system_resource_collection_method,omitempty"`
 	System                         *SystemInfo       `json:"system"`
@@ -1088,6 +1089,7 @@ func (r *runner) runContainerLifecycle(
 				"waiting for RPC: %v", err,
 			)
 		}
+		runConfig.TimestampEnd = time.Now().Unix()
 		mu.Unlock()
 
 		if writeErr := writeRunConfig(
@@ -1267,6 +1269,9 @@ func (r *runner) runContainerLifecycle(
 		runConfig.Status = RunStatusCompleted
 	}
 	mu.Unlock()
+
+	// Record when the run ended.
+	runConfig.TimestampEnd = time.Now().Unix()
 
 	// Write final config with status.
 	if err := writeRunConfig(

@@ -18,7 +18,7 @@ import { ClientStat } from '@/components/shared/ClientStat'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { StatusAlert } from '@/components/shared/StatusBadge'
-import { formatTimestamp } from '@/utils/date'
+import { formatTimestamp, formatDurationSeconds } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
 import { useIndex } from '@/api/hooks/useIndex'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
@@ -405,6 +405,12 @@ export function RunDetailPage() {
                   </>
                 )}
               </p>
+              <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
+                Started at
+              </p>
+              <p className="text-xs/5 text-gray-900 dark:text-gray-100">
+                {formatTimestamp(config.timestamp)}
+              </p>
             </div>
             <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
               <div className="flex items-center justify-between">
@@ -468,12 +474,16 @@ export function RunDetailPage() {
               <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
                 <Duration nanoseconds={totalDuration} />
               </p>
-              <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
-                Started at
-              </p>
-              <p className="text-xs/5 text-gray-900 dark:text-gray-100">
-                {formatTimestamp(config.timestamp)}
-              </p>
+              {config.timestamp_end != null && config.timestamp_end > 0 && (
+                <>
+                  <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
+                    Total runtime
+                  </p>
+                  <p className="text-xs/5 text-gray-900 dark:text-gray-100">
+                    {formatDurationSeconds(config.timestamp_end - config.timestamp)}
+                  </p>
+                </>
+              )}
             </div>
           </>
         ) : (
@@ -488,6 +498,16 @@ export function RunDetailPage() {
             <p className="text-xs/5 text-gray-900 dark:text-gray-100">
               {formatTimestamp(config.timestamp)}
             </p>
+            {config.timestamp_end != null && config.timestamp_end > 0 && (
+              <>
+                <p className="mt-1 text-xs/5 text-gray-500 dark:text-gray-400">
+                  Total runtime
+                </p>
+                <p className="text-xs/5 text-gray-900 dark:text-gray-100">
+                  {formatDurationSeconds(config.timestamp_end - config.timestamp)}
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>
