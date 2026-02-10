@@ -25,6 +25,7 @@ type RunDuration struct {
 	GasUsed  uint64                 `json:"gas_used"`
 	Time     int64                  `json:"time_ns"`
 	RunStart int64                  `json:"run_start"`
+	RunEnd   int64                  `json:"run_end,omitempty"`
 	Steps    *RunDurationStepsStats `json:"steps,omitempty"`
 }
 
@@ -43,9 +44,10 @@ type RunDurationStepStats struct {
 
 // runInfo holds information about a run for grouping purposes.
 type runInfo struct {
-	runID     string
-	client    string
-	timestamp int64
+	runID        string
+	client       string
+	timestamp    int64
+	timestampEnd int64
 }
 
 // GenerateAllSuiteStats scans the results directory and generates stats for all suites.
@@ -93,9 +95,10 @@ func GenerateAllSuiteStats(resultsDir string) (map[string]*SuiteStats, error) {
 		}
 
 		suiteRuns[runConfig.SuiteHash] = append(suiteRuns[runConfig.SuiteHash], runInfo{
-			runID:     runID,
-			client:    runConfig.Instance.Client,
-			timestamp: runConfig.Timestamp,
+			runID:        runID,
+			client:       runConfig.Instance.Client,
+			timestamp:    runConfig.Timestamp,
+			timestampEnd: runConfig.TimestampEnd,
 		})
 	}
 
@@ -185,6 +188,7 @@ func buildSuiteStats(runsDir string, runs []runInfo) (*SuiteStats, error) {
 				GasUsed:  totalGasUsed,
 				Time:     totalGasUsedTime,
 				RunStart: run.timestamp,
+				RunEnd:   run.timestampEnd,
 				Steps:    stepsStats,
 			})
 		}

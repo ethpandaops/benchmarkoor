@@ -10,6 +10,7 @@ export type RunStatus = 'completed' | 'container_died' | 'cancelled'
 export interface IndexEntry {
   run_id: string
   timestamp: number
+  timestamp_end?: number
   suite_hash?: string
   instance: {
     id: string
@@ -114,6 +115,7 @@ export function getRunDurationAggregatedStats(
 // config.json per run
 export interface RunConfig {
   timestamp: number
+  timestamp_end?: number
   suite_hash?: string
   system_resource_collection_method?: string // "cgroupv2" or "dockerstats"
   system: SystemInfo
@@ -315,6 +317,7 @@ export interface RunDuration {
   gas_used: number
   time_ns: number
   run_start: number
+  run_end?: number
   steps?: RunDurationStepsStats
 }
 
