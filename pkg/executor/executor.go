@@ -842,6 +842,7 @@ func (e *executor) executeRPC(
 			if statsDelta != nil {
 				delta = &ResourceDelta{
 					MemoryDelta:    statsDelta.MemoryDelta,
+					MemoryAbsBytes: afterStats.Memory,
 					CPUDeltaUsec:   statsDelta.CPUDeltaUsec,
 					DiskReadBytes:  statsDelta.DiskReadBytes,
 					DiskWriteBytes: statsDelta.DiskWriteBytes,
