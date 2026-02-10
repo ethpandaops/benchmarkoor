@@ -45,7 +45,7 @@ function InfoItem({ label, value }: { label: string; value: string | number }) {
 export function RunConfiguration({ instance, system, startBlock }: RunConfigurationProps) {
   const [expanded, setExpanded] = useState(false)
 
-  const summary = `${instance.image} / ${system.platform} (${system.arch}) / ${system.cpu_cores} Cores`
+  const shortImage = instance.image.includes('/') ? instance.image.split('/').pop()! : instance.image
 
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
@@ -58,7 +58,24 @@ export function RunConfiguration({ instance, system, startBlock }: RunConfigurat
           Configuration
         </h3>
         <div className="flex min-w-0 items-center gap-3">
-          <span className="truncate text-xs/5 text-gray-500 dark:text-gray-400">{summary}</span>
+          <span className="flex min-w-0 items-center gap-1.5 truncate text-xs/5">
+            <span className="text-gray-400 dark:text-gray-500">Image:</span>
+            <span className="text-gray-600 dark:text-gray-300">{shortImage}</span>
+            {instance.client_version && (
+              <>
+                <span className="text-gray-300 dark:text-gray-600">·</span>
+                <span className="text-gray-400 dark:text-gray-500">Version:</span>
+                <span className="text-gray-600 dark:text-gray-300">{instance.client_version}</span>
+              </>
+            )}
+            {startBlock && (
+              <>
+                <span className="text-gray-300 dark:text-gray-600">·</span>
+                <span className="text-gray-400 dark:text-gray-500">Start Block:</span>
+                <span className="text-gray-600 dark:text-gray-300">#{startBlock.number.toLocaleString()} (<span className="font-mono">{startBlock.hash.slice(0, 10)}…</span>)</span>
+              </>
+            )}
+          </span>
           <ChevronDown className={clsx('size-5 shrink-0 text-gray-500 transition-transform', expanded && 'rotate-180')} />
         </div>
       </button>
