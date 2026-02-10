@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types/blkiodev"
 	"github.com/docker/docker/api/types/container"
@@ -59,8 +60,8 @@ type Manager interface {
 	GetClient() *client.Client
 
 	// WaitForContainerExit returns channels that signal when a container exits.
-	// The statusCh receives the exit code, errCh receives any wait errors.
-	WaitForContainerExit(ctx context.Context, containerID string) (<-chan int64, <-chan error)
+	// The statusCh receives exit info (code + OOM status), errCh receives any wait errors.
+	WaitForContainerExit(ctx context.Context, containerID string) (<-chan ContainerExitInfo, <-chan error)
 }
 
 // ResourceLimits defines container resource constraints.
@@ -102,6 +103,12 @@ type Mount struct {
 	ReadOnly bool
 	Type     string // "bind", "volume", "tmpfs"
 	Content  []byte // For in-memory content to be written to a temp file
+}
+
+// ContainerExitInfo contains information about a container's exit status.
+type ContainerExitInfo struct {
+	ExitCode  int64
+	OOMKilled bool
 }
 
 // ContainerInfo contains information about a container for cleanup.
@@ -551,12 +558,12 @@ func (m *manager) GetClient() *client.Client {
 }
 
 // WaitForContainerExit returns channels that signal when a container exits.
-// The statusCh receives the exit code, errCh receives any wait errors.
+// The statusCh receives exit info (code + OOM status), errCh receives any wait errors.
 func (m *manager) WaitForContainerExit(
 	ctx context.Context,
 	containerID string,
-) (<-chan int64, <-chan error) {
-	statusCh := make(chan int64, 1)
+) (<-chan ContainerExitInfo, <-chan error) {
+	statusCh := make(chan ContainerExitInfo, 1)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -569,7 +576,33 @@ func (m *manager) WaitForContainerExit(
 
 		select {
 		case status := <-waitStatusCh:
-			statusCh <- status.StatusCode
+			info := ContainerExitInfo{
+				ExitCode: status.StatusCode,
+			}
+
+			// Inspect the container to check for OOM kill.
+			// Use a dedicated context: the parent ctx may already be cancelled
+			// (e.g. Ctrl+C triggered the stop that caused this exit) but the
+			// container state is still readable.
+			inspectCtx, inspectCancel := context.WithTimeout(
+				context.Background(), 10*time.Second,
+			)
+
+			inspect, inspectErr := m.client.ContainerInspect(
+				inspectCtx, containerID,
+			)
+
+			inspectCancel()
+
+			if inspectErr != nil {
+				m.log.WithError(inspectErr).Warn(
+					"Failed to inspect container for OOM status",
+				)
+			} else if inspect.State != nil {
+				info.OOMKilled = inspect.State.OOMKilled
+			}
+
+			statusCh <- info
 		case err := <-waitErrCh:
 			errCh <- err
 		case <-ctx.Done():

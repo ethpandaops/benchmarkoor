@@ -79,6 +79,7 @@ type RunConfig struct {
 	Status                         string            `json:"status,omitempty"`
 	TerminationReason              string            `json:"termination_reason,omitempty"`
 	ContainerExitCode              *int64            `json:"container_exit_code,omitempty"`
+	ContainerOOMKilled             *bool             `json:"container_oom_killed,omitempty"`
 }
 
 // Run status constants.
@@ -1014,6 +1015,7 @@ func (r *runner) runContainerLifecycle(
 
 	var containerDied bool
 	var containerExitCode *int64
+	var containerOOMKilled *bool
 	var mu sync.Mutex
 
 	containerExitCh, containerErrCh := r.docker.WaitForContainerExit(
@@ -1026,19 +1028,25 @@ func (r *runner) runContainerLifecycle(
 		defer r.wg.Done()
 
 		select {
-		case exitCode := <-containerExitCh:
+		case exitInfo := <-containerExitCh:
 			mu.Lock()
 			containerDied = true
-			containerExitCode = &exitCode
+			containerExitCode = &exitInfo.ExitCode
+			containerOOMKilled = &exitInfo.OOMKilled
 			mu.Unlock()
+
+			logFields := logrus.Fields{
+				"exit_code":  exitInfo.ExitCode,
+				"oom_killed": exitInfo.OOMKilled,
+			}
 
 			select {
 			case <-localCleanupStarted:
-				log.WithField("exit_code", exitCode).Debug(
+				log.WithFields(logFields).Debug(
 					"Container stopped during cleanup",
 				)
 			default:
-				log.WithField("exit_code", exitCode).Warn(
+				log.WithFields(logFields).Warn(
 					"Container exited unexpectedly",
 				)
 			}
@@ -1073,6 +1081,7 @@ func (r *runner) runContainerLifecycle(
 				"container exited while waiting for RPC: %v", err,
 			)
 			runConfig.ContainerExitCode = containerExitCode
+			runConfig.ContainerOOMKilled = containerOOMKilled
 		} else {
 			runConfig.Status = RunStatusFailed
 			runConfig.TerminationReason = fmt.Sprintf(
@@ -1234,6 +1243,7 @@ func (r *runner) runContainerLifecycle(
 				mu.Lock()
 				containerDied = result.ContainerDied
 				containerExitCode = nil
+				containerOOMKilled = nil
 				mu.Unlock()
 			} else if result.ContainerDied {
 				mu.Lock()
@@ -1249,6 +1259,7 @@ func (r *runner) runContainerLifecycle(
 		runConfig.Status = RunStatusContainerDied
 		runConfig.TerminationReason = "container exited during test execution"
 		runConfig.ContainerExitCode = containerExitCode
+		runConfig.ContainerOOMKilled = containerOOMKilled
 	} else if ctx.Err() != nil {
 		runConfig.Status = RunStatusCancelled
 		runConfig.TerminationReason = "run was cancelled"
