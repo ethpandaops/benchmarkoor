@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types/blkiodev"
 	"github.com/docker/docker/api/types/container"
@@ -580,9 +581,21 @@ func (m *manager) WaitForContainerExit(
 			}
 
 			// Inspect the container to check for OOM kill.
-			inspect, inspectErr := m.client.ContainerInspect(ctx, containerID)
+			// Use a dedicated context: the parent ctx may already be cancelled
+			// (e.g. Ctrl+C triggered the stop that caused this exit) but the
+			// container state is still readable.
+			inspectCtx, inspectCancel := context.WithTimeout(
+				context.Background(), 10*time.Second,
+			)
+
+			inspect, inspectErr := m.client.ContainerInspect(
+				inspectCtx, containerID,
+			)
+
+			inspectCancel()
+
 			if inspectErr != nil {
-				m.log.WithError(inspectErr).Debug(
+				m.log.WithError(inspectErr).Warn(
 					"Failed to inspect container for OOM status",
 				)
 			} else if inspect.State != nil {
