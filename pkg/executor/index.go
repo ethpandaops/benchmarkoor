@@ -176,6 +176,10 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 						setupResources.DiskWriteBytes += agg.ResourceTotals.DiskWriteBytes
 						setupResources.DiskReadIOPS += agg.ResourceTotals.DiskReadIOPS
 						setupResources.DiskWriteIOPS += agg.ResourceTotals.DiskWriteIOPS
+
+						if agg.ResourceTotals.MemoryBytes > setupResources.MemoryBytes {
+							setupResources.MemoryBytes = agg.ResourceTotals.MemoryBytes
+						}
 					}
 				}
 
@@ -196,6 +200,10 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 						testResources.DiskWriteBytes += agg.ResourceTotals.DiskWriteBytes
 						testResources.DiskReadIOPS += agg.ResourceTotals.DiskReadIOPS
 						testResources.DiskWriteIOPS += agg.ResourceTotals.DiskWriteIOPS
+
+						if agg.ResourceTotals.MemoryBytes > testResources.MemoryBytes {
+							testResources.MemoryBytes = agg.ResourceTotals.MemoryBytes
+						}
 					}
 				}
 
@@ -216,6 +224,10 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 						cleanupResources.DiskWriteBytes += agg.ResourceTotals.DiskWriteBytes
 						cleanupResources.DiskReadIOPS += agg.ResourceTotals.DiskReadIOPS
 						cleanupResources.DiskWriteIOPS += agg.ResourceTotals.DiskWriteIOPS
+
+						if agg.ResourceTotals.MemoryBytes > cleanupResources.MemoryBytes {
+							cleanupResources.MemoryBytes = agg.ResourceTotals.MemoryBytes
+						}
 					}
 				}
 			}

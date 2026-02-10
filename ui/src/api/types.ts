@@ -237,6 +237,7 @@ export interface TestEntry {
 export interface ResourceTotals {
   cpu_usec: number
   memory_delta_bytes: number
+  memory_bytes?: number
   disk_read_bytes: number
   disk_write_bytes: number
   disk_read_iops: number
@@ -284,6 +285,7 @@ export interface MethodStatsFloat {
 // Resource delta for a single RPC call
 export interface ResourceDelta {
   memory_delta_bytes: number
+  memory_abs_bytes?: number
   cpu_delta_usec: number
   disk_read_bytes: number
   disk_write_bytes: number

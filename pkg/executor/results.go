@@ -110,6 +110,7 @@ func (m *MethodStatsFloat) MarshalJSON() ([]byte, error) {
 // ResourceDelta contains resource usage delta for a single RPC call.
 type ResourceDelta struct {
 	MemoryDelta    int64  `json:"memory_delta_bytes"`
+	MemoryAbsBytes uint64 `json:"memory_abs_bytes,omitempty"`
 	CPUDeltaUsec   uint64 `json:"cpu_delta_usec"`
 	DiskReadBytes  uint64 `json:"disk_read_bytes"`
 	DiskWriteBytes uint64 `json:"disk_write_bytes"`
@@ -137,6 +138,7 @@ type MethodsAggregated struct {
 type ResourceTotals struct {
 	CPUUsec        uint64 `json:"cpu_usec"`
 	MemoryDelta    int64  `json:"memory_delta_bytes"`
+	MemoryBytes    uint64 `json:"memory_bytes,omitempty"`
 	DiskReadBytes  uint64 `json:"disk_read_bytes"`
 	DiskWriteBytes uint64 `json:"disk_write_bytes"`
 	DiskReadIOPS   uint64 `json:"disk_read_iops"`
@@ -360,7 +362,16 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 	// Aggregate resource metrics.
 	if len(r.Resources) > 0 {
 		resourceTotals := &ResourceTotals{}
-		for _, res := range r.Resources {
+
+		// Find the last RPC call index for absolute memory reading.
+		maxIdx := -1
+		for idx := range r.Resources {
+			if idx > maxIdx {
+				maxIdx = idx
+			}
+		}
+
+		for idx, res := range r.Resources {
 			if res != nil {
 				resourceTotals.CPUUsec += res.CPUDeltaUsec
 				resourceTotals.MemoryDelta += res.MemoryDelta
@@ -368,8 +379,14 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 				resourceTotals.DiskWriteBytes += res.DiskWriteBytes
 				resourceTotals.DiskReadIOPS += res.DiskReadOps
 				resourceTotals.DiskWriteIOPS += res.DiskWriteOps
+
+				// Use absolute memory from the last RPC call.
+				if idx == maxIdx {
+					resourceTotals.MemoryBytes = res.MemoryAbsBytes
+				}
 			}
 		}
+
 		stats.ResourceTotals = resourceTotals
 	}
 

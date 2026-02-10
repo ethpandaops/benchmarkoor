@@ -594,6 +594,9 @@ export function RunDetailPage() {
             tests={result.tests}
             onTestClick={handleTestModalChange}
             resourceCollectionMethod={config.system_resource_collection_method}
+            cpuCores={config.instance.resource_limits?.cpuset_cpus
+              ? config.instance.resource_limits.cpuset_cpus.split(',').length
+              : config.system.cpu_cores}
           />
 
           {result.pre_run_steps && Object.keys(result.pre_run_steps).length > 0 && (

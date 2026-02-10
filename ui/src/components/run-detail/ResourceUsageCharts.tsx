@@ -4,8 +4,15 @@ import { Cpu } from 'lucide-react'
 import type { TestEntry, ResourceTotals } from '@/api/types'
 import { formatBytes } from '@/utils/format'
 
+// Aggregated resource data from all steps of a test entry
+interface AggregatedResourceData {
+  totals: ResourceTotals
+  timeTotalNs: number
+  memoryBytes: number
+}
+
 // Get aggregated resource totals from all steps of a test entry
-function getResourceTotals(entry: TestEntry): ResourceTotals | undefined {
+function getAggregatedResourceData(entry: TestEntry): AggregatedResourceData | undefined {
   if (!entry.steps) return undefined
 
   const steps = [entry.steps.setup, entry.steps.test, entry.steps.cleanup].filter((s) => s?.aggregated?.resource_totals)
@@ -19,26 +26,43 @@ function getResourceTotals(entry: TestEntry): ResourceTotals | undefined {
   let diskWrite = 0
   let diskReadOps = 0
   let diskWriteOps = 0
+  let timeTotalNs = 0
+  let memoryBytes = 0
 
   for (const step of steps) {
-    if (step?.aggregated?.resource_totals) {
-      const res = step.aggregated.resource_totals
-      cpuUsec += res.cpu_usec ?? 0
-      memoryDelta += res.memory_delta_bytes ?? 0
-      diskRead += res.disk_read_bytes ?? 0
-      diskWrite += res.disk_write_bytes ?? 0
-      diskReadOps += res.disk_read_iops ?? 0
-      diskWriteOps += res.disk_write_iops ?? 0
+    if (step?.aggregated) {
+      timeTotalNs += step.aggregated.time_total ?? 0
+
+      if (step.aggregated.resource_totals) {
+        const res = step.aggregated.resource_totals
+        cpuUsec += res.cpu_usec ?? 0
+        memoryDelta += res.memory_delta_bytes ?? 0
+        diskRead += res.disk_read_bytes ?? 0
+        diskWrite += res.disk_write_bytes ?? 0
+        diskReadOps += res.disk_read_iops ?? 0
+        diskWriteOps += res.disk_write_iops ?? 0
+
+        // Take max absolute memory across steps (it's a snapshot, not cumulative)
+        const stepMemory = res.memory_bytes ?? 0
+        if (stepMemory > memoryBytes) {
+          memoryBytes = stepMemory
+        }
+      }
     }
   }
 
   return {
-    cpu_usec: cpuUsec,
-    memory_delta_bytes: memoryDelta,
-    disk_read_bytes: diskRead,
-    disk_write_bytes: diskWrite,
-    disk_read_iops: diskReadOps,
-    disk_write_iops: diskWriteOps,
+    totals: {
+      cpu_usec: cpuUsec,
+      memory_delta_bytes: memoryDelta,
+      memory_bytes: memoryBytes,
+      disk_read_bytes: diskRead,
+      disk_write_bytes: diskWrite,
+      disk_read_iops: diskReadOps,
+      disk_write_iops: diskWriteOps,
+    },
+    timeTotalNs,
+    memoryBytes,
   }
 }
 
@@ -60,13 +84,16 @@ interface ResourceUsageChartsProps {
   tests: Record<string, TestEntry>
   onTestClick?: (testName: string) => void
   resourceCollectionMethod?: string
+  cpuCores?: number
 }
 
 interface ResourceDataPoint {
   testIndex: number
   testName: string
   cpuUsec: number
+  cpuPercent: number
   memoryDelta: number
+  memoryMB: number
   diskRead: number
   diskWrite: number
   diskReadOps: number
@@ -75,7 +102,9 @@ interface ResourceDataPoint {
 
 interface SummaryStats {
   totalCpu: number
+  avgCpuPercent: number
   peakMemory: number
+  peakMemoryMB: number
   totalDiskRead: number
   totalDiskWrite: number
   totalReadOps: number
@@ -182,7 +211,7 @@ function ChartSection({ title, option, onZoom, onPointClick, highlightedTestRef 
   )
 }
 
-export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMethod }: ResourceUsageChartsProps) {
+export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMethod, cpuCores }: ResourceUsageChartsProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const highlightedTestRef = useRef<string | null>(null)
@@ -191,12 +220,15 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
     setZoomRange({ start, end })
   }, [])
 
-  const { dataPoints, hasResourceData, summaryStats } = useMemo(() => {
+  const { dataPoints, hasResourceData, hasMemoryMBData, summaryStats } = useMemo(() => {
     const points: ResourceDataPoint[] = []
     let hasData = false
+    let hasMemoryMB = false
     const stats: SummaryStats = {
       totalCpu: 0,
+      avgCpuPercent: 0,
       peakMemory: 0,
+      peakMemoryMB: 0,
       totalDiskRead: 0,
       totalDiskWrite: 0,
       totalReadOps: 0,
@@ -210,10 +242,14 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
       return aNum - bNum
     })
 
+    let totalCpuPercent = 0
+    let cpuPercentCount = 0
+
     sortedTests.forEach(([testName, test], index) => {
-      const res = getResourceTotals(test)
-      if (res) {
+      const agg = getAggregatedResourceData(test)
+      if (agg) {
         hasData = true
+        const res = agg.totals
         const cpuUsec = res.cpu_usec ?? 0
         const memoryDelta = res.memory_delta_bytes ?? 0
         const diskRead = res.disk_read_bytes ?? 0
@@ -221,11 +257,25 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
         const diskReadOps = res.disk_read_iops ?? 0
         const diskWriteOps = res.disk_write_iops ?? 0
 
+        // CPU % = (cpu_usec / (time_total_ns / 1000)) * 100
+        let cpuPercent = 0
+        if (agg.timeTotalNs > 0) {
+          cpuPercent = (cpuUsec / (agg.timeTotalNs / 1000)) * 100
+        }
+
+        // Memory MB = absolute memory bytes / (1024*1024)
+        const memoryMB = agg.memoryBytes / (1024 * 1024)
+        if (agg.memoryBytes > 0) {
+          hasMemoryMB = true
+        }
+
         points.push({
           testIndex: index + 1,
           testName,
           cpuUsec,
+          cpuPercent,
           memoryDelta,
+          memoryMB,
           diskRead,
           diskWrite,
           diskReadOps,
@@ -237,6 +287,11 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
         if (memoryDelta > stats.peakMemory) {
           stats.peakMemory = memoryDelta
         }
+        if (memoryMB > stats.peakMemoryMB) {
+          stats.peakMemoryMB = memoryMB
+        }
+        totalCpuPercent += cpuPercent
+        cpuPercentCount++
         stats.totalDiskRead += diskRead
         stats.totalDiskWrite += diskWrite
         stats.totalReadOps += diskReadOps
@@ -244,10 +299,14 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
       }
     })
 
-    return { dataPoints: points, hasResourceData: hasData, summaryStats: stats }
+    if (cpuPercentCount > 0) {
+      stats.avgCpuPercent = totalCpuPercent / cpuPercentCount
+    }
+
+    return { dataPoints: points, hasResourceData: hasData, hasMemoryMBData: hasMemoryMB, summaryStats: stats }
   }, [tests])
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
+   
   const chartOptions = useMemo(() => {
     const textColor = isDark ? '#ffffff' : '#374151'
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
@@ -361,6 +420,31 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
       },
     })
 
+    const createSimpleTooltip = (
+      formatter: (value: number) => string,
+    ) => ({
+      trigger: 'axis' as const,
+      backgroundColor: isDark ? '#1f2937' : '#ffffff',
+      borderColor: isDark ? '#374151' : '#e5e7eb',
+      textStyle: { color: textColor },
+      extraCssText: 'max-width: 300px; white-space: normal;',
+      formatter: (
+        params: Array<{ seriesName: string; color: string; value: [number, number, string] }>,
+      ) => {
+        if (!params.length) return ''
+        const testName = params[0].value[2]
+        const testIndex = params[0].value[0]
+        highlightedTestRef.current = testName
+        let content = `<strong>Test #${testIndex}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
+        params.forEach((p) => {
+          const value = p.value[1]
+          const formatted = formatter(value)
+          content += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;"></span>${p.seriesName}: ${formatted}<br/>`
+        })
+        return content
+      },
+    })
+
     const createMultiSeriesTooltip = (
       formatter: (value: number) => string,
       totals: number[],
@@ -419,14 +503,60 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
       splitLine: { lineStyle: { color: splitLineColor } },
     })
 
-    // CPU Usage Chart
+    // CPU Usage % Chart
+    const cpuPercentMarkLine = cpuCores
+      ? {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { type: 'dashed' as const, color: isDark ? '#6b7280' : '#9ca3af', width: 1 },
+          label: {
+            formatter: `${cpuCores * 100}% (${cpuCores} cores)`,
+            color: isDark ? '#9ca3af' : '#6b7280',
+            fontSize: 10,
+          },
+          data: [{ yAxis: cpuCores * 100 }],
+        }
+      : undefined
+    const cpuPercentOption = {
+      ...baseConfig,
+      tooltip: createSimpleTooltip((v) => `${v.toFixed(1)}%`),
+      yAxis: createYAxis((value: number) => `${value.toFixed(0)}%`),
+      series: [
+        {
+          name: 'CPU Usage %',
+          ...lineSeriesConfig,
+          data: dataPoints.map((d) => [d.testIndex, d.cpuPercent, d.testName]),
+          itemStyle: { color: '#f59e0b' },
+          areaStyle: { opacity: 0.1, color: '#f59e0b' },
+          markLine: cpuPercentMarkLine,
+        },
+      ],
+    }
+
+    // Memory Usage (MB) Chart
+    const memoryMBOption = {
+      ...baseConfig,
+      tooltip: createSimpleTooltip((v) => `${v.toFixed(1)} MB`),
+      yAxis: createYAxis((value: number) => `${value.toFixed(0)} MB`),
+      series: [
+        {
+          name: 'Memory Usage',
+          ...lineSeriesConfig,
+          data: dataPoints.map((d) => [d.testIndex, d.memoryMB, d.testName]),
+          itemStyle: { color: '#10b981' },
+          areaStyle: { opacity: 0.1, color: '#10b981' },
+        },
+      ],
+    }
+
+    // CPU Time Chart
     const cpuOption = {
       ...baseConfig,
       tooltip: createTooltip(formatMicroseconds, summaryStats.totalCpu),
       yAxis: createYAxis((value: number) => formatMicroseconds(value)),
       series: [
         {
-          name: 'CPU Usage',
+          name: 'CPU Time',
           ...lineSeriesConfig,
           data: dataPoints.map((d) => [d.testIndex, d.cpuUsec, d.testName]),
           itemStyle: { color: '#8b5cf6' },
@@ -518,8 +648,8 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
       ],
     }
 
-    return { cpuOption, memoryOption, diskBytesOption, diskOpsOption }
-  }, [dataPoints, isDark, summaryStats, zoomRange])
+    return { cpuPercentOption, memoryMBOption, cpuOption, memoryOption, diskBytesOption, diskOpsOption }
+  }, [dataPoints, isDark, summaryStats, zoomRange, cpuCores])
 
   if (!hasResourceData) {
     return null
@@ -552,7 +682,11 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
       </div>
 
       {/* Summary Stats Row */}
-      <div className="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
+      <div className="mb-4 grid grid-cols-4 gap-2 sm:grid-cols-8">
+        <StatCard label="Avg CPU %" value={`${summaryStats.avgCpuPercent.toFixed(1)}%`} />
+        {hasMemoryMBData && (
+          <StatCard label="Memory" value={`${summaryStats.peakMemoryMB.toFixed(0)} MB`} />
+        )}
         <StatCard label="CPU Time" value={formatMicroseconds(summaryStats.totalCpu)} />
         <StatCard label="Memory Peak" value={formatBytes(summaryStats.peakMemory)} />
         <StatCard label="Disk Read" value={formatBytes(summaryStats.totalDiskRead)} />
@@ -563,7 +697,11 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
 
       {/* Charts Grid */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <ChartSection title="CPU Usage" option={chartOptions.cpuOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="CPU Usage %" option={chartOptions.cpuPercentOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        {hasMemoryMBData && (
+          <ChartSection title="Memory Usage (MB)" option={chartOptions.memoryMBOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        )}
+        <ChartSection title="CPU Time" option={chartOptions.cpuOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
         <ChartSection title="Memory Delta" option={chartOptions.memoryOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
         <ChartSection title="Disk I/O (Bytes)" option={chartOptions.diskBytesOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
         <ChartSection title="Disk IOPS" option={chartOptions.diskOpsOption} onZoom={handleZoom} onPointClick={onTestClick} highlightedTestRef={highlightedTestRef} />
