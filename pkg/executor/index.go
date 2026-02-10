@@ -38,7 +38,10 @@ type IndexInstance struct {
 
 // IndexTestStats contains aggregated test statistics for the index.
 type IndexTestStats struct {
-	Steps *IndexStepsStats `json:"steps"`
+	TestsTotal  int              `json:"tests_total"`
+	TestsPassed int              `json:"tests_passed"`
+	TestsFailed int              `json:"tests_failed"`
+	Steps       *IndexStepsStats `json:"steps"`
 }
 
 // IndexStepsStats contains per-step statistics.
@@ -106,6 +109,43 @@ func GenerateIndex(resultsDir string) (*Index, error) {
 		indexEntries = append(indexEntries, indexEntry)
 	}
 
+	// Override TestsTotal from suite summary when available.
+	// This ensures tests_total reflects the suite's intended count,
+	// not just the number of tests that produced results.
+	suiteTestCounts := make(map[string]int, len(indexEntries))
+
+	for _, ie := range indexEntries {
+		if ie.SuiteHash == "" {
+			continue
+		}
+
+		if _, ok := suiteTestCounts[ie.SuiteHash]; ok {
+			continue
+		}
+
+		summaryPath := filepath.Join(
+			resultsDir, "suites", ie.SuiteHash, "summary.json",
+		)
+
+		summaryData, err := os.ReadFile(summaryPath)
+		if err != nil {
+			continue
+		}
+
+		var suiteInfo SuiteInfo
+		if err := json.Unmarshal(summaryData, &suiteInfo); err != nil {
+			continue
+		}
+
+		suiteTestCounts[ie.SuiteHash] = len(suiteInfo.Tests)
+	}
+
+	for _, ie := range indexEntries {
+		if count, ok := suiteTestCounts[ie.SuiteHash]; ok {
+			ie.Tests.TestsTotal = count
+		}
+	}
+
 	// Sort entries by timestamp, newest first.
 	sort.Slice(indexEntries, func(i, j int) bool {
 		return indexEntries[i].Timestamp > indexEntries[j].Timestamp
@@ -143,6 +183,8 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 	if err == nil {
 		var runResult RunResult
 		if err := json.Unmarshal(resultData, &runResult); err == nil {
+			testStats.TestsTotal = len(runResult.Tests)
+
 			// Initialize per-step stats.
 			setupStats := &IndexStepStats{}
 			testStepStats := &IndexStepStats{}
@@ -229,6 +271,30 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 							cleanupResources.MemoryBytes = agg.ResourceTotals.MemoryBytes
 						}
 					}
+				}
+
+				// Determine test-level pass/fail.
+				testFailed := false
+
+				if test.Steps.Setup != nil && test.Steps.Setup.Aggregated != nil &&
+					test.Steps.Setup.Aggregated.Failed > 0 {
+					testFailed = true
+				}
+
+				if test.Steps.Test != nil && test.Steps.Test.Aggregated != nil &&
+					test.Steps.Test.Aggregated.Failed > 0 {
+					testFailed = true
+				}
+
+				if test.Steps.Cleanup != nil && test.Steps.Cleanup.Aggregated != nil &&
+					test.Steps.Cleanup.Aggregated.Failed > 0 {
+					testFailed = true
+				}
+
+				if testFailed {
+					testStats.TestsFailed++
+				} else {
+					testStats.TestsPassed++
 				}
 			}
 

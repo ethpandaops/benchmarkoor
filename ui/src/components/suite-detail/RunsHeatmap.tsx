@@ -375,7 +375,7 @@ export function RunsHeatmap({
                       onMouseLeave={handleMouseLeave}
                       className={clsx(
                         'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                        runStats.fail > 0 && completed && 'ring-1 ring-red-500',
+                        run.tests.tests_total - run.tests.tests_passed > 0 && completed && 'ring-1 ring-red-500',
                         !completed && 'ring-2 ring-red-600 dark:ring-red-500',
                       )}
                       style={{ backgroundColor: completed ? getColorForRun(run) : '#6b7280' }}
@@ -469,10 +469,17 @@ export function RunsHeatmap({
                   {tooltip.run.instance.image}
                 </div>
                 <div className="flex gap-2">
-                  <span className="text-green-600 dark:text-green-400">{tooltipStats.success} passed</span>
-                  {tooltipStats.fail > 0 && (
-                    <span className="text-red-600 dark:text-red-400">{tooltipStats.fail} failed</span>
+                  <span className="text-green-600 dark:text-green-400">
+                    {tooltip.run.tests.tests_passed} passed
+                  </span>
+                  {tooltip.run.tests.tests_total - tooltip.run.tests.tests_passed > 0 && (
+                    <span className="text-red-600 dark:text-red-400">
+                      {tooltip.run.tests.tests_total - tooltip.run.tests.tests_passed} failed
+                    </span>
                   )}
+                  <span className="text-gray-500 dark:text-gray-400">
+                    ({tooltip.run.tests.tests_total} total)
+                  </span>
                 </div>
                 <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
               </div>

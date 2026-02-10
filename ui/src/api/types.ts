@@ -18,6 +18,9 @@ export interface IndexEntry {
     image: string
   }
   tests: {
+    tests_total: number
+    tests_passed: number
+    tests_failed: number
     steps: {
       setup?: IndexStepStats
       test?: IndexStepStats

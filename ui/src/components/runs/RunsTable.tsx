@@ -16,7 +16,7 @@ function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number |
 }
 
 
-export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'mgas' | 'failed' | 'passed'
+export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'mgas' | 'failed' | 'passed' | 'total'
 export type SortDirection = 'asc' | 'desc'
 
 interface RunsTableProps {
@@ -114,10 +114,13 @@ export function RunsTable({
           break
         }
         case 'failed':
-          comparison = statsA.fail - statsB.fail
+          comparison = (a.tests.tests_total - a.tests.tests_passed) - (b.tests.tests_total - b.tests.tests_passed)
           break
         case 'passed':
-          comparison = statsA.success - statsB.success
+          comparison = a.tests.tests_passed - b.tests.tests_passed
+          break
+        case 'total':
+          comparison = a.tests.tests_total - b.tests.tests_total
           break
       }
       return sortDir === 'asc' ? comparison : -comparison
@@ -135,6 +138,7 @@ export function RunsTable({
             {showSuite && <SortableHeader label="Suite" column="suite" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />}
             <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Duration" column="duration" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+            <SortableHeader label="Total" column="total" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Failed" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Passed" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
           </tr>
@@ -195,11 +199,16 @@ export function RunsTable({
                     <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
                       <Duration nanoseconds={stats.duration} />
                     </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-center">
-                      {stats.fail > 0 && <Badge variant="error">{stats.fail}</Badge>}
+                    <td className="whitespace-nowrap px-6 py-4 text-center text-sm/6 text-gray-500 dark:text-gray-400">
+                      {entry.tests.tests_total}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-center">
-                      <Badge variant="success">{stats.success}</Badge>
+                      {entry.tests.tests_total - entry.tests.tests_passed > 0 && (
+                        <Badge variant="error">{entry.tests.tests_total - entry.tests.tests_passed}</Badge>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-center">
+                      <Badge variant="success">{entry.tests.tests_passed}</Badge>
                     </td>
                   </>
                 )

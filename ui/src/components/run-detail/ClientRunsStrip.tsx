@@ -103,7 +103,7 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter }: ClientRunsSt
                 'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110',
                 isCurrent && 'ring-2 ring-blue-500',
                 !isCurrent && 'hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                stats.fail > 0 && completed && !isCurrent && 'ring-1 ring-red-500',
+                run.tests.tests_total - run.tests.tests_passed > 0 && completed && !isCurrent && 'ring-1 ring-red-500',
                 !completed && !isCurrent && 'ring-2 ring-red-600 dark:ring-red-500',
               )}
               style={{ backgroundColor: color }}
@@ -151,8 +151,17 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter }: ClientRunsSt
               <div>Duration: {formatDurationMinSec(stats.duration)}</div>
               {mgas !== undefined && <div>MGas/s: {mgas.toFixed(2)}</div>}
               <div className="flex gap-2">
-                <span className="text-green-600 dark:text-green-400">{stats.success} passed</span>
-                {stats.fail > 0 && <span className="text-red-600 dark:text-red-400">{stats.fail} failed</span>}
+                <span className="text-green-600 dark:text-green-400">
+                  {tooltip.run.tests.tests_passed} passed
+                </span>
+                {tooltip.run.tests.tests_total - tooltip.run.tests.tests_passed > 0 && (
+                  <span className="text-red-600 dark:text-red-400">
+                    {tooltip.run.tests.tests_total - tooltip.run.tests.tests_passed} failed
+                  </span>
+                )}
+                <span className="text-gray-500 dark:text-gray-400">
+                  ({tooltip.run.tests.tests_total} total)
+                </span>
               </div>
               {tooltip.run.run_id !== currentRunId && (
                 <div className="text-gray-400 dark:text-gray-500">Click for details</div>
