@@ -121,6 +121,7 @@ export interface RunConfig {
   status?: RunStatus
   termination_reason?: string
   container_exit_code?: number
+  container_oom_killed?: boolean
 }
 
 export interface SystemInfo {

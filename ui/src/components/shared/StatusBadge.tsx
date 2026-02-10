@@ -71,9 +71,10 @@ interface StatusAlertProps {
   status?: RunStatus
   terminationReason?: string
   containerExitCode?: number
+  containerOOMKilled?: boolean
 }
 
-export function StatusAlert({ status, terminationReason, containerExitCode }: StatusAlertProps) {
+export function StatusAlert({ status, terminationReason, containerExitCode, containerOOMKilled }: StatusAlertProps) {
   // Only show alert for non-completed statuses
   if (!status || status === 'completed') {
     return null
@@ -109,6 +110,11 @@ export function StatusAlert({ status, terminationReason, containerExitCode }: St
         <h3 className={clsx('text-sm/6 font-medium', textClasses[status])}>{config.label}</h3>
         {terminationReason && (
           <p className={clsx('mt-1 text-sm/6', textClasses[status])}>{terminationReason}</p>
+        )}
+        {containerOOMKilled && (
+          <p className={clsx('mt-1 text-sm/6 font-semibold', textClasses[status])}>
+            Container was killed due to out of memory (OOM)
+          </p>
         )}
         {containerExitCode !== undefined && (
           <p className={clsx('mt-1 text-sm/6', textClasses[status])}>

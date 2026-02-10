@@ -385,6 +385,7 @@ export function RunDetailPage() {
         status={config.status}
         terminationReason={config.termination_reason}
         containerExitCode={config.container_exit_code}
+        containerOOMKilled={config.container_oom_killed}
       />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
