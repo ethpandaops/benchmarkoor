@@ -1172,6 +1172,27 @@ func (r *runner) runContainerLifecycle(
 
 					return fmt.Errorf("sending bootstrap FCU: %w", fcuErr)
 				}
+
+				// Re-fetch latest block after FCU with a configured head_block_hash
+				// so that runConfig.StartBlock reflects the post-FCU state.
+				if fcuCfg.HeadBlockHash != "" {
+					bn, bh, sr, err := r.getLatestBlock(execCtx, containerIP, spec.RPCPort())
+					if err != nil {
+						log.WithError(err).Warn("Failed to get latest block after bootstrap FCU")
+					} else {
+						log.WithFields(logrus.Fields{
+							"block_number": bn,
+							"block_hash":   bh,
+							"state_root":   sr,
+						}).Info("Latest block after bootstrap FCU")
+
+						runConfig.StartBlock = &StartBlock{
+							Number:    bn,
+							Hash:      bh,
+							StateRoot: sr,
+						}
+					}
+				}
 			}
 		}
 	}
