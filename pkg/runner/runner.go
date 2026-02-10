@@ -1153,14 +1153,46 @@ func (r *runner) runContainerLifecycle(
 	}
 
 	// Send bootstrap FCU if configured.
-	if r.cfg.FullConfig != nil && blockHash != "" {
+	if r.cfg.FullConfig != nil {
 		if fcuCfg := r.cfg.FullConfig.GetBootstrapFCU(instance); fcuCfg != nil && fcuCfg.Enabled {
-			if fcuErr := r.sendBootstrapFCU(
-				execCtx, log, containerIP, spec.EnginePort(), blockHash, fcuCfg,
-			); fcuErr != nil {
-				log.WithError(fcuErr).Error("Bootstrap FCU failed")
+			fcuHash := blockHash
+			if fcuCfg.HeadBlockHash != "" {
+				fcuHash = fcuCfg.HeadBlockHash
 
-				return fmt.Errorf("sending bootstrap FCU: %w", fcuErr)
+				log.WithField("block_hash", fcuHash).Info(
+					"Using configured block hash for bootstrap FCU",
+				)
+			}
+
+			if fcuHash != "" {
+				if fcuErr := r.sendBootstrapFCU(
+					execCtx, log, containerIP, spec.EnginePort(), fcuHash, fcuCfg,
+				); fcuErr != nil {
+					log.WithError(fcuErr).Error("Bootstrap FCU failed")
+
+					return fmt.Errorf("sending bootstrap FCU: %w", fcuErr)
+				}
+
+				// Re-fetch latest block after FCU with a configured head_block_hash
+				// so that runConfig.StartBlock reflects the post-FCU state.
+				if fcuCfg.HeadBlockHash != "" {
+					bn, bh, sr, err := r.getLatestBlock(execCtx, containerIP, spec.RPCPort())
+					if err != nil {
+						log.WithError(err).Warn("Failed to get latest block after bootstrap FCU")
+					} else {
+						log.WithFields(logrus.Fields{
+							"block_number": bn,
+							"block_hash":   bh,
+							"state_root":   sr,
+						}).Info("Latest block after bootstrap FCU")
+
+						runConfig.StartBlock = &StartBlock{
+							Number:    bn,
+							Hash:      bh,
+							StateRoot: sr,
+						}
+					}
+				}
 			}
 		}
 	}
@@ -1567,14 +1599,21 @@ func (r *runner) runTestsWithContainerStrategy(
 			// Send bootstrap FCU if configured.
 			if r.cfg.FullConfig != nil {
 				if fcuCfg := r.cfg.FullConfig.GetBootstrapFCU(params.Instance); fcuCfg != nil && fcuCfg.Enabled {
-					_, blkHash, _, blkErr := r.getLatestBlock(
-						ctx, currentContainerIP, spec.RPCPort(),
-					)
-					if blkErr != nil {
-						testLog.WithError(blkErr).Warn(
-							"Failed to get latest block for bootstrap FCU",
+					blkHash := fcuCfg.HeadBlockHash
+					if blkHash == "" {
+						var blkErr error
+						_, blkHash, _, blkErr = r.getLatestBlock(
+							ctx, currentContainerIP, spec.RPCPort(),
 						)
-					} else if blkHash != "" {
+
+						if blkErr != nil {
+							testLog.WithError(blkErr).Warn(
+								"Failed to get latest block for bootstrap FCU",
+							)
+						}
+					}
+
+					if blkHash != "" {
 						if fcuErr := r.sendBootstrapFCU(
 							ctx, testLog, currentContainerIP,
 							spec.EnginePort(), blkHash, fcuCfg,
