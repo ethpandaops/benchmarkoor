@@ -97,6 +97,23 @@ benchmark:
   #     #   # fixtures_artifact_run_id: "12345678901"
   #     #   # genesis_artifact_run_id: "12345678901"
   #     #   # fixtures_subdir also works with artifacts
+  #
+  #     # Option 3c: EEST fixtures from local directories.
+  #     # Points directly at already-extracted fixtures and genesis directories.
+  #     # No downloading or caching — useful for local development with locally-built EEST fixtures.
+  #     # eest_fixtures:
+  #     #   local_fixtures_dir: /home/user/eest-output/fixtures
+  #     #   local_genesis_dir: /home/user/eest-output/genesis
+  #     #   # fixtures_subdir also works with local directories
+  #     #   # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
+  #
+  #     # Option 3d: EEST fixtures from local .tar.gz tarballs.
+  #     # Extracts tarballs to a cache directory (keyed by content hash, re-extraction skipped
+  #     # if already cached). Useful when you have locally-built tarballs but haven't extracted them.
+  #     # eest_fixtures:
+  #     #   local_fixtures_tarball: /home/user/eest-output/fixtures_benchmark.tar.gz
+  #     #   local_genesis_tarball: /home/user/eest-output/benchmark_genesis.tar.gz
+  #     #   # fixtures_subdir also works with local tarballs
 
 client:
   config:

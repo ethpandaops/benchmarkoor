@@ -236,17 +236,66 @@ tests:
 | `genesis_artifact_run_id` | string | No | Latest | Specific workflow run ID for genesis artifact |
 | `fixtures_subdir` | string | No | `fixtures/blockchain_tests_engine_x` | Subdirectory within the fixtures to search |
 
-*Either `github_release` or `fixtures_artifact_name` is required.
+*Either `github_release`, `fixtures_artifact_name`, `local_fixtures_dir`/`local_genesis_dir`, or `local_fixtures_tarball`/`local_genesis_tarball` is required. Only one mode can be used at a time.
+
+##### From Local Directories
+
+For local development with already-extracted EEST fixtures (e.g., built locally from the `execution-spec-tests` repository), you can point directly at the directories. No downloading or caching is performed.
+
+```yaml
+tests:
+  source:
+    eest_fixtures:
+      local_fixtures_dir: /home/user/eest-output/fixtures
+      local_genesis_dir: /home/user/eest-output/genesis
+      # Optional: Override the subdirectory within fixtures to search.
+      # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `local_fixtures_dir` | string | Yes* | - | Path to extracted fixtures directory |
+| `local_genesis_dir` | string | Yes* | - | Path to extracted genesis directory |
+| `fixtures_subdir` | string | No | `fixtures/blockchain_tests_engine_x` | Subdirectory within the fixtures directory to search |
+
+*Both `local_fixtures_dir` and `local_genesis_dir` must be set together. Both paths must exist and be directories.
+
+`github_repo` is not required for local modes.
+
+##### From Local Tarballs
+
+If you have locally-built `.tar.gz` tarballs (e.g., `fixtures_benchmark.tar.gz` and `benchmark_genesis.tar.gz`), you can use them directly. The tarballs are extracted to a cache directory keyed by a hash of the tarball paths, so re-extraction is skipped on subsequent runs.
+
+```yaml
+tests:
+  source:
+    eest_fixtures:
+      local_fixtures_tarball: /home/user/eest-output/fixtures_benchmark.tar.gz
+      local_genesis_tarball: /home/user/eest-output/benchmark_genesis.tar.gz
+      # Optional: Override the subdirectory within fixtures to search.
+      # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `local_fixtures_tarball` | string | Yes* | - | Path to fixtures `.tar.gz` file |
+| `local_genesis_tarball` | string | Yes* | - | Path to genesis `.tar.gz` file |
+| `fixtures_subdir` | string | No | `fixtures/blockchain_tests_engine_x` | Subdirectory within the extracted fixtures to search |
+
+*Both `local_fixtures_tarball` and `local_genesis_tarball` must be set together. Both paths must exist and be regular files.
+
+`github_repo` is not required for local modes.
 
 **Key features:**
 - Automatically downloads and caches fixtures from GitHub releases or artifacts
+- Supports local directories and local `.tar.gz` tarballs for offline/development use
 - Converts EEST fixture format to `engine_newPayloadV{1-4}` + `engine_forkchoiceUpdatedV{1,3}` calls
 - Only includes fixtures with `fixture-format: blockchain_test_engine_x`
-- Auto-resolves genesis files per client type from the release/artifact
+- Auto-resolves genesis files per client type from the release/artifact/local source
 
 **Genesis file resolution:**
 
-When using EEST fixtures, genesis files are automatically resolved from the release/artifact based on client type. You don't need to configure `client.config.genesis` unless you want to override the defaults.
+When using EEST fixtures, genesis files are automatically resolved based on client type. You don't need to configure `client.config.genesis` unless you want to override the defaults.
 
 | Client | Genesis Path |
 |--------|--------------|
@@ -852,6 +901,38 @@ client:
       client: besu
     - id: erigon
       client: erigon
+```
+
+Running EEST fixtures from a local directory (no GitHub required):
+
+```yaml
+global:
+  log_level: info
+  client_logs_to_stdout: true
+  cleanup_on_start: true
+
+benchmark:
+  results_dir: ./results
+  generate_results_index: true
+  generate_suite_stats: true
+  tests:
+    source:
+      eest_fixtures:
+        local_fixtures_dir: /home/user/execution-spec-tests/output/fixtures
+        local_genesis_dir: /home/user/execution-spec-tests/output/genesis
+
+client:
+  config:
+    resource_limits:
+      cpuset_count: 4
+      memory: "16g"
+      swap_disabled: true
+
+  instances:
+    - id: geth
+      client: geth
+    - id: reth
+      client: reth
 ```
 
 Running stateful tests on a geth container with an existing data directory:

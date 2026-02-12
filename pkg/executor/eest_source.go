@@ -53,8 +53,27 @@ func NewEESTSource(log logrus.FieldLogger, cfg *config.EESTFixturesSource, cache
 	}
 }
 
-// Prepare downloads and extracts fixtures from GitHub releases or artifacts.
+// Prepare downloads and extracts fixtures from GitHub releases, artifacts,
+// or resolves them from local directories/tarballs.
 func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
+	// Handle local directory mode — no downloading or caching needed.
+	if s.cfg.UseLocalDir() {
+		s.fixturesDir = s.cfg.LocalFixturesDir
+		s.genesisDir = s.cfg.LocalGenesisDir
+
+		s.log.WithFields(logrus.Fields{
+			"fixtures_dir": s.fixturesDir,
+			"genesis_dir":  s.genesisDir,
+		}).Info("Using local EEST fixtures directories")
+
+		return s.discoverTests()
+	}
+
+	// Handle local tarball mode — extract to cache.
+	if s.cfg.UseLocalTarball() {
+		return s.prepareLocalTarballs()
+	}
+
 	// Build cache path based on source type.
 	repoHash := hashRepoURL(s.cfg.GitHubRepo)
 
@@ -229,6 +248,41 @@ func (s *EESTSource) downloadArtifacts(ctx context.Context, cacheBase string) er
 	}
 
 	return nil
+}
+
+// prepareLocalTarballs extracts local .tar.gz fixtures and genesis to a cache directory.
+func (s *EESTSource) prepareLocalTarballs() (*PreparedSource, error) {
+	// Build a cache key from the tarball paths so re-extractions can be skipped.
+	cacheKey := hashRepoURL(s.cfg.LocalFixturesTarball + "|" + s.cfg.LocalGenesisTarball)
+	cacheBase := filepath.Join(s.cacheDir, "eest-local", cacheKey)
+
+	s.fixturesDir = filepath.Join(cacheBase, "fixtures")
+	s.genesisDir = filepath.Join(cacheBase, "genesis")
+
+	// Check if already extracted.
+	if _, err := os.Stat(s.fixturesDir); os.IsNotExist(err) {
+		s.log.WithFields(logrus.Fields{
+			"fixtures_tarball": s.cfg.LocalFixturesTarball,
+			"genesis_tarball":  s.cfg.LocalGenesisTarball,
+			"cache":            cacheBase,
+		}).Info("Extracting local EEST tarballs")
+
+		if err := os.MkdirAll(cacheBase, 0755); err != nil {
+			return nil, fmt.Errorf("creating cache directory: %w", err)
+		}
+
+		if err := s.extractLocalTarball(s.cfg.LocalFixturesTarball, s.fixturesDir); err != nil {
+			return nil, fmt.Errorf("extracting fixtures tarball: %w", err)
+		}
+
+		if err := s.extractLocalTarball(s.cfg.LocalGenesisTarball, s.genesisDir); err != nil {
+			return nil, fmt.Errorf("extracting genesis tarball: %w", err)
+		}
+	} else {
+		s.log.WithField("path", cacheBase).Info("Using cached local EEST tarballs")
+	}
+
+	return s.discoverTests()
 }
 
 // ghArtifactList represents a GitHub API response listing artifacts.
@@ -846,6 +900,10 @@ func (s *EESTSource) GetSourceInfo() (*SuiteSource, error) {
 			GenesisArtifactName:   s.cfg.GenesisArtifactName,
 			FixturesArtifactRunID: fixturesRunID,
 			GenesisArtifactRunID:  genesisRunID,
+			LocalFixturesDir:      s.cfg.LocalFixturesDir,
+			LocalGenesisDir:       s.cfg.LocalGenesisDir,
+			LocalFixturesTarball:  s.cfg.LocalFixturesTarball,
+			LocalGenesisTarball:   s.cfg.LocalGenesisTarball,
 		},
 	}, nil
 }
@@ -1025,7 +1083,7 @@ func (p *linesProvider) Content() []byte {
 
 // EESTSourceInfo contains EEST source information for the suite summary.
 type EESTSourceInfo struct {
-	GitHubRepo     string `json:"github_repo"`
+	GitHubRepo     string `json:"github_repo,omitempty"`
 	GitHubRelease  string `json:"github_release,omitempty"`
 	FixturesURL    string `json:"fixtures_url,omitempty"`
 	GenesisURL     string `json:"genesis_url,omitempty"`
@@ -1035,4 +1093,9 @@ type EESTSourceInfo struct {
 	GenesisArtifactName   string `json:"genesis_artifact_name,omitempty"`
 	FixturesArtifactRunID string `json:"fixtures_artifact_run_id,omitempty"`
 	GenesisArtifactRunID  string `json:"genesis_artifact_run_id,omitempty"`
+	// Local source fields.
+	LocalFixturesDir     string `json:"local_fixtures_dir,omitempty"`
+	LocalGenesisDir      string `json:"local_genesis_dir,omitempty"`
+	LocalFixturesTarball string `json:"local_fixtures_tarball,omitempty"`
+	LocalGenesisTarball  string `json:"local_genesis_tarball,omitempty"`
 }
