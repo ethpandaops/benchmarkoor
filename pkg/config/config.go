@@ -15,6 +15,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -439,7 +440,11 @@ func Load(paths ...string) (*Config, error) {
 
 	v.SetConfigType("yaml")
 
-	// Load and merge configs in order.
+	// Load and merge configs in order, collecting expanded YAML for
+	// post-processing (Viper lowercases map keys, so we re-parse to
+	// restore original casing for environment variables).
+	rawYAMLs := make([]string, 0, len(paths))
+
 	for i, path := range paths {
 		content, err := os.ReadFile(path)
 		if err != nil {
@@ -447,6 +452,7 @@ func Load(paths ...string) (*Config, error) {
 		}
 
 		expanded := os.ExpandEnv(string(content))
+		rawYAMLs = append(rawYAMLs, expanded)
 
 		if i == 0 {
 			if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
@@ -473,6 +479,8 @@ func Load(paths ...string) (*Config, error) {
 	)); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
+
+	restoreEnvironmentKeyCasing(&cfg, rawYAMLs)
 
 	cfg.applyDefaults()
 
@@ -1181,5 +1189,41 @@ func bootstrapFCUDecodeHook() mapstructure.DecodeHookFuncType {
 		}
 
 		return data, nil
+	}
+}
+
+// rawClientConfig is a minimal struct used to re-parse environment map keys
+// with their original casing, since Viper lowercases all map keys internally.
+type rawClientConfig struct {
+	Client struct {
+		Instances []struct {
+			ID          string            `yaml:"id"`
+			Environment map[string]string `yaml:"environment"`
+		} `yaml:"instances"`
+	} `yaml:"client"`
+}
+
+// restoreEnvironmentKeyCasing re-parses the raw YAML to recover the original
+// casing of environment variable keys that Viper lowercased.
+func restoreEnvironmentKeyCasing(cfg *Config, rawYAMLs []string) {
+	envByID := make(map[string]map[string]string, len(cfg.Client.Instances))
+
+	for _, raw := range rawYAMLs {
+		var parsed rawClientConfig
+		if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil {
+			continue
+		}
+
+		for _, inst := range parsed.Client.Instances {
+			if inst.Environment != nil {
+				envByID[inst.ID] = inst.Environment
+			}
+		}
+	}
+
+	for i := range cfg.Client.Instances {
+		if orig, ok := envByID[cfg.Client.Instances[i].ID]; ok {
+			cfg.Client.Instances[i].Environment = orig
+		}
 	}
 }

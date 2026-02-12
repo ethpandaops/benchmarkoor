@@ -765,6 +765,39 @@ func TestGetBootstrapFCU(t *testing.T) {
 	}
 }
 
+func TestLoad_PreservesEnvironmentKeyCasing(t *testing.T) {
+	configContent := `
+global:
+  docker_network: test-network
+client:
+  config:
+    jwt: test-jwt
+    genesis:
+      geth: http://example.com/genesis.json
+  instances:
+    - id: test-instance
+      client: geth
+      environment:
+        MAX_REORG_DEPTH: "512"
+        SOME_lower_Mixed: "value"
+`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	require.Len(t, cfg.Client.Instances, 1)
+
+	env := cfg.Client.Instances[0].Environment
+	assert.Equal(t, "512", env["MAX_REORG_DEPTH"])
+	assert.Equal(t, "value", env["SOME_lower_Mixed"])
+
+	// Verify lowercased keys are NOT present.
+	_, hasLower := env["max_reorg_depth"]
+	assert.False(t, hasLower)
+}
+
 func TestLoad_BootstrapFCU(t *testing.T) {
 	t.Run("shorthand bool true", func(t *testing.T) {
 		configContent := `
