@@ -39,6 +39,10 @@ const (
 
 	// DefaultHealthCheckInterval is the interval between health checks.
 	DefaultHealthCheckInterval = 1 * time.Second
+
+	// logDrainTimeout is the maximum time to wait for log streaming to
+	// finish after a container has been stopped.
+	logDrainTimeout = 5 * time.Second
 )
 
 // Runner orchestrates client container lifecycle.
@@ -959,31 +963,17 @@ func (r *runner) runContainerLifecycle(
 		return fmt.Errorf("creating container: %w", err)
 	}
 
-	// Ensure cleanup.
-	localCleanupFuncs = append(localCleanupFuncs, func() {
-		log.Info("Removing container")
-
-		if rmErr := r.docker.RemoveContainer(
-			context.Background(), containerID,
-		); rmErr != nil {
-			log.WithError(rmErr).Warn("Failed to remove container")
-		}
-	})
-
 	// Setup log streaming.
 	logCtx, logCancel := context.WithCancel(ctx)
-	defer logCancel()
 
 	logFilePath := filepath.Join(runResultsDir, "container.log")
 
 	logFile, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
+		logCancel()
+
 		return fmt.Errorf("opening container log file: %w", err)
 	}
-
-	localCleanupFuncs = append(localCleanupFuncs, func() {
-		_ = logFile.Close()
-	})
 
 	if r.cfg.ResultsOwner != nil {
 		fsutil.Chown(logFilePath, r.cfg.ResultsOwner)
@@ -994,10 +984,13 @@ func (r *runner) runContainerLifecycle(
 	blockLogCollector := blocklog.NewCollector(blockLogParser, logFile)
 	params.BlockLogCollector = blockLogCollector
 
+	logDone := make(chan struct{})
+
 	r.wg.Add(1)
 
 	go func() {
 		defer r.wg.Done()
+		defer close(logDone)
 
 		if err := r.streamLogs(
 			logCtx, instance.ID, containerID, logFile, benchmarkoorLogFile,
@@ -1018,6 +1011,26 @@ func (r *runner) runContainerLifecycle(
 			}
 		}
 	}()
+
+	// Cleanup funcs execute in LIFO order. Add the log-drain + file-close
+	// first, then the container removal. At teardown the container is removed
+	// (stopping it → Docker flushes remaining logs → StreamLogs returns EOF),
+	// then waitForLogDrain ensures the goroutine has finished writing before
+	// the log file is closed.
+	localCleanupFuncs = append(localCleanupFuncs, func() {
+		waitForLogDrain(&logDone, &logCancel, logDrainTimeout)
+		_ = logFile.Close()
+	})
+
+	localCleanupFuncs = append(localCleanupFuncs, func() {
+		log.Info("Removing container")
+
+		if rmErr := r.docker.RemoveContainer(
+			context.Background(), containerID,
+		); rmErr != nil {
+			log.WithError(rmErr).Warn("Failed to remove container")
+		}
+	})
 
 	// Start container.
 	if err := r.docker.StartContainer(ctx, containerID); err != nil {
@@ -1241,7 +1254,7 @@ func (r *runner) runContainerLifecycle(
 			result, execErr = r.runTestsWithContainerStrategy(
 				ctx, params, spec, containerID, containerIP,
 				rollbackStrategy, dropMemoryCaches, dropCachesPath,
-				runResultsDir, &logCancel, benchmarkoorLogFile,
+				runResultsDir, &logCancel, &logDone, benchmarkoorLogFile,
 				&localCleanupFuncs, localCleanupStarted,
 			)
 		} else {
@@ -1390,6 +1403,7 @@ func (r *runner) runTestsWithContainerStrategy(
 	dropCachesPath string,
 	resultsDir string,
 	logCancel *context.CancelFunc,
+	logDone *chan struct{},
 	benchmarkoorLog *os.File,
 	cleanupFuncs *[]func(),
 	cleanupStarted chan struct{},
@@ -1422,7 +1436,7 @@ func (r *runner) runTestsWithContainerStrategy(
 	for i, test := range tests {
 		select {
 		case <-ctx.Done():
-			(*logCancel)()
+			waitForLogDrain(logDone, logCancel, logDrainTimeout)
 			combined.TotalDuration = time.Since(startTime)
 
 			return combined, ctx.Err()
@@ -1439,16 +1453,17 @@ func (r *runner) runTestsWithContainerStrategy(
 		case strategy == config.RollbackStrategyContainerRecreate && i > 0:
 			testLog.Info("Recreating container for next test")
 
-			// Cancel previous log streaming.
-			(*logCancel)()
-
-			// Stop and remove the current container.
+			// Stop container first so Docker flushes remaining logs.
 			if err := r.docker.StopContainer(
 				ctx, currentContainerID,
 			); err != nil {
 				testLog.WithError(err).Warn("Failed to stop container")
 			}
 
+			// Wait for the log-streaming goroutine to finish.
+			waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+			// Remove the stopped container.
 			if err := r.docker.RemoveContainer(
 				ctx, currentContainerID,
 			); err != nil {
@@ -1541,10 +1556,14 @@ func (r *runner) runTestsWithContainerStrategy(
 				_ = recreateLogFile.Close()
 			})
 
+			newLogDone := make(chan struct{})
+			*logDone = newLogDone
+
 			r.wg.Add(1)
 
 			go func() {
 				defer r.wg.Done()
+				defer close(newLogDone)
 
 				if err := r.streamLogs(
 					logCtx, params.Instance.ID, newID, recreateLogFile,
@@ -1567,7 +1586,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			// Start the new container.
 			if err := r.docker.StartContainer(ctx, newID); err != nil {
-				(*logCancel)()
+				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
 				return combined, fmt.Errorf("starting container for test %d: %w", i, err)
@@ -1578,7 +1597,7 @@ func (r *runner) runTestsWithContainerStrategy(
 				ctx, newID, r.cfg.DockerNetwork,
 			)
 			if err != nil {
-				(*logCancel)()
+				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
 				return combined, fmt.Errorf("getting container IP for test %d: %w", i, err)
@@ -1590,7 +1609,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			if _, err := r.waitForRPC(
 				ctx, currentContainerIP, spec.RPCPort(),
 			); err != nil {
-				(*logCancel)()
+				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
 				return combined, fmt.Errorf("waiting for RPC on test %d: %w", i, err)
@@ -1621,7 +1640,7 @@ func (r *runner) runTestsWithContainerStrategy(
 							testLog.WithError(fcuErr).Error(
 								"Bootstrap FCU failed",
 							)
-							(*logCancel)()
+							waitForLogDrain(logDone, logCancel, logDrainTimeout)
 							combined.TotalDuration = time.Since(startTime)
 
 							return combined, fmt.Errorf(
@@ -1679,7 +1698,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			combined.ContainerDied = true
 			combined.TotalDuration = time.Since(startTime)
 
-			(*logCancel)()
+			waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
 			return combined, nil
 		}
@@ -1687,7 +1706,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 	combined.TotalDuration = time.Since(startTime)
 
-	(*logCancel)()
+	waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
 	return combined, nil
 }
@@ -1990,6 +2009,31 @@ func (r *runner) streamLogs(
 	_, _ = fmt.Fprintf(file, "#CONTAINER:END\n")
 
 	return streamErr
+}
+
+// waitForLogDrain waits for the log-streaming goroutine to finish (signalled
+// via logDone) up to the given timeout. If the timeout expires it cancels the
+// log context and waits for the goroutine to acknowledge. This must be called
+// *after* the container has been stopped so that Docker flushes buffered logs.
+func waitForLogDrain(
+	logDone *chan struct{},
+	logCancel *context.CancelFunc,
+	timeout time.Duration,
+) {
+	if logDone == nil || *logDone == nil {
+		if logCancel != nil {
+			(*logCancel)()
+		}
+
+		return
+	}
+
+	select {
+	case <-*logDone:
+	case <-time.After(timeout):
+		(*logCancel)()
+		<-*logDone
+	}
 }
 
 // waitForRPC waits for the RPC endpoint to be ready and returns the client version.
