@@ -103,9 +103,10 @@ type SourceConfig struct {
 	EESTFixtures *EESTFixturesSource `yaml:"eest_fixtures,omitempty" mapstructure:"eest_fixtures"`
 }
 
-// EESTFixturesSource defines an EEST fixtures source from GitHub releases or artifacts.
+// EESTFixturesSource defines an EEST fixtures source from GitHub releases, artifacts,
+// or local directories/tarballs.
 type EESTFixturesSource struct {
-	GitHubRepo     string `yaml:"github_repo" mapstructure:"github_repo"`
+	GitHubRepo     string `yaml:"github_repo,omitempty" mapstructure:"github_repo"`
 	GitHubRelease  string `yaml:"github_release,omitempty" mapstructure:"github_release"`
 	FixturesURL    string `yaml:"fixtures_url,omitempty" mapstructure:"fixtures_url"`
 	GenesisURL     string `yaml:"genesis_url,omitempty" mapstructure:"genesis_url"`
@@ -115,11 +116,150 @@ type EESTFixturesSource struct {
 	GenesisArtifactName   string `yaml:"genesis_artifact_name,omitempty" mapstructure:"genesis_artifact_name"`
 	FixturesArtifactRunID string `yaml:"fixtures_artifact_run_id,omitempty" mapstructure:"fixtures_artifact_run_id"`
 	GenesisArtifactRunID  string `yaml:"genesis_artifact_run_id,omitempty" mapstructure:"genesis_artifact_run_id"`
+	// Local directory support (already-extracted fixtures).
+	LocalFixturesDir string `yaml:"local_fixtures_dir,omitempty" mapstructure:"local_fixtures_dir"`
+	LocalGenesisDir  string `yaml:"local_genesis_dir,omitempty" mapstructure:"local_genesis_dir"`
+	// Local tarball support (.tar.gz files).
+	LocalFixturesTarball string `yaml:"local_fixtures_tarball,omitempty" mapstructure:"local_fixtures_tarball"`
+	LocalGenesisTarball  string `yaml:"local_genesis_tarball,omitempty" mapstructure:"local_genesis_tarball"`
 }
 
 // UseArtifacts returns true if the source is configured to use GitHub Actions artifacts.
 func (e *EESTFixturesSource) UseArtifacts() bool {
 	return e.FixturesArtifactName != "" || e.GenesisArtifactName != ""
+}
+
+// UseLocalDir returns true if the source is configured to use local directories.
+func (e *EESTFixturesSource) UseLocalDir() bool {
+	return e.LocalFixturesDir != "" || e.LocalGenesisDir != ""
+}
+
+// UseLocalTarball returns true if the source is configured to use local tarballs.
+func (e *EESTFixturesSource) UseLocalTarball() bool {
+	return e.LocalFixturesTarball != "" || e.LocalGenesisTarball != ""
+}
+
+// validate checks the EEST fixtures source configuration for errors.
+// Exactly one mode must be specified: release, artifact, local_dir, or local_tarball.
+func (e *EESTFixturesSource) validate() error {
+	hasRelease := e.GitHubRelease != ""
+	hasArtifacts := e.UseArtifacts()
+	hasLocalDir := e.UseLocalDir()
+	hasLocalTarball := e.UseLocalTarball()
+
+	// Count active modes.
+	modeCount := 0
+	if hasRelease {
+		modeCount++
+	}
+
+	if hasArtifacts {
+		modeCount++
+	}
+
+	if hasLocalDir {
+		modeCount++
+	}
+
+	if hasLocalTarball {
+		modeCount++
+	}
+
+	if modeCount == 0 {
+		return fmt.Errorf(
+			"eest_fixtures: must specify one of: github_release, " +
+				"fixtures_artifact_name, local_fixtures_dir/local_genesis_dir, " +
+				"or local_fixtures_tarball/local_genesis_tarball",
+		)
+	}
+
+	if modeCount > 1 {
+		return fmt.Errorf(
+			"eest_fixtures: cannot combine modes (release, artifact, " +
+				"local_dir, local_tarball are mutually exclusive)",
+		)
+	}
+
+	// Validate remote modes require github_repo.
+	if (hasRelease || hasArtifacts) && e.GitHubRepo == "" {
+		return fmt.Errorf("eest_fixtures.github_repo is required for release/artifact modes")
+	}
+
+	// Validate local dir mode.
+	if hasLocalDir {
+		if e.LocalFixturesDir == "" {
+			return fmt.Errorf("eest_fixtures: local_fixtures_dir is required when local_genesis_dir is set")
+		}
+
+		if e.LocalGenesisDir == "" {
+			return fmt.Errorf("eest_fixtures: local_genesis_dir is required when local_fixtures_dir is set")
+		}
+
+		if err := validateDirExists(e.LocalFixturesDir, "eest_fixtures.local_fixtures_dir"); err != nil {
+			return err
+		}
+
+		if err := validateDirExists(e.LocalGenesisDir, "eest_fixtures.local_genesis_dir"); err != nil {
+			return err
+		}
+	}
+
+	// Validate local tarball mode.
+	if hasLocalTarball {
+		if e.LocalFixturesTarball == "" {
+			return fmt.Errorf("eest_fixtures: local_fixtures_tarball is required when local_genesis_tarball is set")
+		}
+
+		if e.LocalGenesisTarball == "" {
+			return fmt.Errorf("eest_fixtures: local_genesis_tarball is required when local_fixtures_tarball is set")
+		}
+
+		if err := validateFileExists(e.LocalFixturesTarball, "eest_fixtures.local_fixtures_tarball"); err != nil {
+			return err
+		}
+
+		if err := validateFileExists(e.LocalGenesisTarball, "eest_fixtures.local_genesis_tarball"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateDirExists checks that the given path exists and is a directory.
+func validateDirExists(path, field string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s: path %q does not exist", field, path)
+		}
+
+		return fmt.Errorf("%s: checking path: %w", field, err)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%s: path %q is not a directory", field, path)
+	}
+
+	return nil
+}
+
+// validateFileExists checks that the given path exists and is a regular file.
+func validateFileExists(path, field string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s: path %q does not exist", field, path)
+		}
+
+		return fmt.Errorf("%s: checking path: %w", field, err)
+	}
+
+	if info.IsDir() {
+		return fmt.Errorf("%s: path %q is a directory, expected a file", field, path)
+	}
+
+	return nil
 }
 
 // DefaultEESTFixturesSubdir is the default subdirectory within the fixtures tarball.
@@ -725,20 +865,8 @@ func (s *SourceConfig) Validate() error {
 	}
 
 	if s.EESTFixtures != nil {
-		if s.EESTFixtures.GitHubRepo == "" {
-			return fmt.Errorf("eest_fixtures.github_repo is required")
-		}
-
-		// Must have either release or artifact configuration.
-		hasRelease := s.EESTFixtures.GitHubRelease != ""
-		hasArtifacts := s.EESTFixtures.FixturesArtifactName != ""
-
-		if !hasRelease && !hasArtifacts {
-			return fmt.Errorf("eest_fixtures: must specify either github_release or fixtures_artifact_name")
-		}
-
-		if hasRelease && hasArtifacts {
-			return fmt.Errorf("eest_fixtures: cannot specify both github_release and fixtures_artifact_name")
+		if err := s.EESTFixtures.validate(); err != nil {
+			return err
 		}
 	}
 

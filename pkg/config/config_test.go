@@ -1,6 +1,8 @@
 package config
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -257,6 +259,12 @@ func TestLoad_InvalidYAML(t *testing.T) {
 func TestSourceConfig_Validate(t *testing.T) {
 	tmpDir := t.TempDir()
 
+	// Create test tarballs for local tarball validation tests.
+	fixturesTarball := filepath.Join(tmpDir, "fixtures.tar.gz")
+	genesisTarball := filepath.Join(tmpDir, "genesis.tar.gz")
+	createTestTarball(t, fixturesTarball)
+	createTestTarball(t, genesisTarball)
+
 	tests := []struct {
 		name      string
 		source    SourceConfig
@@ -327,14 +335,14 @@ func TestSourceConfig_Validate(t *testing.T) {
 			errSubstr: "cannot specify multiple sources",
 		},
 		{
-			name: "eest_fixtures missing github_repo",
+			name: "eest_fixtures missing github_repo for release mode",
 			source: SourceConfig{
 				EESTFixtures: &EESTFixturesSource{
 					GitHubRelease: "benchmark@v0.0.6",
 				},
 			},
 			wantErr:   true,
-			errSubstr: "eest_fixtures.github_repo is required",
+			errSubstr: "eest_fixtures.github_repo is required for release/artifact modes",
 		},
 		{
 			name: "eest_fixtures missing github_release and artifacts",
@@ -344,7 +352,7 @@ func TestSourceConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr:   true,
-			errSubstr: "must specify either github_release or fixtures_artifact_name",
+			errSubstr: "must specify one of",
 		},
 		{
 			name: "valid eest_fixtures with artifacts",
@@ -366,7 +374,138 @@ func TestSourceConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr:   true,
-			errSubstr: "cannot specify both github_release and fixtures_artifact_name",
+			errSubstr: "cannot combine modes",
+		},
+		{
+			name: "valid eest_fixtures with local dir",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					LocalFixturesDir: tmpDir,
+					LocalGenesisDir:  tmpDir,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "eest_fixtures local dir missing local_genesis_dir",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					LocalFixturesDir: tmpDir,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "local_genesis_dir is required",
+		},
+		{
+			name: "eest_fixtures local dir missing local_fixtures_dir",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					LocalGenesisDir: tmpDir,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "local_fixtures_dir is required",
+		},
+		{
+			name: "eest_fixtures local dir path does not exist",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					LocalFixturesDir: "/nonexistent/fixtures",
+					LocalGenesisDir:  tmpDir,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "does not exist",
+		},
+		{
+			name: "eest_fixtures local dir does not require github_repo",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					LocalFixturesDir: tmpDir,
+					LocalGenesisDir:  tmpDir,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "eest_fixtures cannot mix local dir and release",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					GitHubRepo:       "ethereum/execution-spec-tests",
+					GitHubRelease:    "benchmark@v0.0.6",
+					LocalFixturesDir: tmpDir,
+					LocalGenesisDir:  tmpDir,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "cannot combine modes",
+		},
+		{
+			name: "eest_fixtures cannot mix local dir and local tarball",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					LocalFixturesDir:     tmpDir,
+					LocalGenesisDir:      tmpDir,
+					LocalFixturesTarball: fixturesTarball,
+					LocalGenesisTarball:  genesisTarball,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "cannot combine modes",
+		},
+		{
+			name: "valid eest_fixtures with local tarball",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					LocalFixturesTarball: fixturesTarball,
+					LocalGenesisTarball:  genesisTarball,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "eest_fixtures local tarball missing local_genesis_tarball",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					LocalFixturesTarball: fixturesTarball,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "local_genesis_tarball is required",
+		},
+		{
+			name: "eest_fixtures local tarball missing local_fixtures_tarball",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					LocalGenesisTarball: genesisTarball,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "local_fixtures_tarball is required",
+		},
+		{
+			name: "eest_fixtures local tarball path does not exist",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					LocalFixturesTarball: "/nonexistent/fixtures.tar.gz",
+					LocalGenesisTarball:  genesisTarball,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "does not exist",
+		},
+		{
+			name: "eest_fixtures cannot mix local tarball and artifact",
+			source: SourceConfig{
+				EESTFixtures: &EESTFixturesSource{
+					GitHubRepo:           "ethereum/execution-spec-tests",
+					FixturesArtifactName: "fixtures_benchmark",
+					LocalFixturesTarball: fixturesTarball,
+					LocalGenesisTarball:  genesisTarball,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "cannot combine modes",
 		},
 		{
 			name: "git missing repo",
@@ -959,4 +1098,31 @@ client:
 			})
 		}
 	})
+}
+
+// createTestTarball creates a minimal .tar.gz file at the given path for testing.
+func createTestTarball(t *testing.T, path string) {
+	t.Helper()
+
+	f, err := os.Create(path)
+	require.NoError(t, err)
+
+	defer func() { _ = f.Close() }()
+
+	gw := gzip.NewWriter(f)
+	defer func() { _ = gw.Close() }()
+
+	tw := tar.NewWriter(gw)
+	defer func() { _ = tw.Close() }()
+
+	// Write a single dummy file into the tarball.
+	content := []byte("test")
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name: "dummy.txt",
+		Size: int64(len(content)),
+		Mode: 0644,
+	}))
+
+	_, err = tw.Write(content)
+	require.NoError(t, err)
 }
