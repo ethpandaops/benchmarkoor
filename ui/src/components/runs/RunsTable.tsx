@@ -7,6 +7,7 @@ import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
+import { formatDuration, formatNumber } from '@/utils/format'
 
 // Calculates MGas/s from gas_used and gas_used_duration
 function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number | undefined {
@@ -105,9 +106,12 @@ export function RunsTable({
         case 'suite':
           comparison = (a.suite_hash ?? '').localeCompare(b.suite_hash ?? '')
           break
-        case 'duration':
-          comparison = statsA.duration - statsB.duration
+        case 'duration': {
+          const durA = (a.timestamp_end ?? a.timestamp) - a.timestamp
+          const durB = (b.timestamp_end ?? b.timestamp) - b.timestamp
+          comparison = durA - durB
           break
+        }
         case 'mgas': {
           const mgasA = calculateMGasPerSec(statsA.gasUsed, statsA.gasUsedDuration) ?? -Infinity
           const mgasB = calculateMGasPerSec(statsB.gasUsed, statsB.gasUsedDuration) ?? -Infinity
@@ -193,14 +197,26 @@ export function RunsTable({
                 const stats = getIndexAggregatedStats(entry, stepFilter)
                 return (
                   <>
-                    <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+                    <td
+                      className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400"
+                      title={(() => {
+                        const testStep = entry.tests.steps.test
+                        if (!testStep) return undefined
+                        const parts = []
+                        parts.push(`Duration: ${formatDuration(testStep.gas_used_duration)}`)
+                        parts.push(`Gas used: ${formatNumber(testStep.gas_used)}`)
+                        return parts.join('\n')
+                      })()}
+                    >
                       {(() => {
                         const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
                         return mgas !== undefined ? mgas.toFixed(2) : '-'
                       })()}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                      <Duration nanoseconds={stats.duration} />
+                      {entry.timestamp_end
+                        ? <Duration nanoseconds={(entry.timestamp_end - entry.timestamp) * 1_000_000_000} />
+                        : '-'}
                     </td>
                     <td className="whitespace-nowrap px-2 py-4 text-center">
                       {entry.tests.tests_total - entry.tests.tests_passed > 0 && (
