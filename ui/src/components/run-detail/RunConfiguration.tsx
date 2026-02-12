@@ -143,6 +143,27 @@ export function RunConfiguration({ instance, system, startBlock }: RunConfigurat
                 </div>
               )}
 
+              {instance.environment && Object.keys(instance.environment).length > 0 && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+                    Environment
+                  </dt>
+                  <dd className="mt-1 overflow-x-auto rounded-xs bg-gray-100 p-2 dark:bg-gray-900">
+                    <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                      {Object.entries(instance.environment).map(([key, value]) => (
+                        <div key={key} className="flex items-start gap-2">
+                          <span className="break-all">
+                            <span className="text-gray-500 dark:text-gray-400">{key}=</span>
+                            {value}
+                          </span>
+                          <CopyButton text={`${key}=${value}`} />
+                        </div>
+                      ))}
+                    </div>
+                  </dd>
+                </div>
+              )}
+
               {instance.datadir && (
                 <div>
                   <dt className="flex items-center gap-2 text-xs/5 font-medium text-gray-500 dark:text-gray-400">
