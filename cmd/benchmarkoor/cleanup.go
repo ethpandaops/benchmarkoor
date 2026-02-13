@@ -192,7 +192,9 @@ func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) e
 
 	// Restore CPU frequency settings from orphaned state files and remove them.
 	if len(cpufreqStateFiles) > 0 {
-		if err := cpufreq.CleanupOrphanedCPUFreqState(ctx, log, cpufreqStateFiles); err != nil {
+		if err := cpufreq.CleanupOrphanedCPUFreqState(
+			ctx, log, cpufreqStateFiles, cpufreq.DefaultSysfsCPUPath,
+		); err != nil {
 			log.WithError(err).Warn("Failed to cleanup CPU frequency state files")
 		}
 	}

@@ -3,6 +3,7 @@ package fsutil
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -46,13 +47,30 @@ func Chown(path string, owner *OwnerConfig) {
 	_ = os.Chown(path, owner.UID, owner.GID)
 }
 
-// MkdirAll creates directory and sets ownership.
+// MkdirAll creates directory and sets ownership on all newly created
+// directories, not just the leaf. This ensures intermediate directories
+// are also chowned when the path contains multiple new segments.
 func MkdirAll(path string, perm os.FileMode, owner *OwnerConfig) error {
+	// Find the deepest existing ancestor before creating new directories.
+	existing := path
+	if owner != nil {
+		for existing != "/" && existing != "." {
+			if _, err := os.Stat(existing); err == nil {
+				break
+			}
+
+			existing = filepath.Dir(existing)
+		}
+	}
+
 	if err := os.MkdirAll(path, perm); err != nil {
 		return err
 	}
 
-	Chown(path, owner)
+	// Chown all newly created directories (from leaf up to existing ancestor).
+	for p := path; p != existing; p = filepath.Dir(p) {
+		Chown(p, owner)
+	}
 
 	return nil
 }

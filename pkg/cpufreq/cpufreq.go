@@ -63,17 +63,20 @@ type TurboBoostSettings struct {
 }
 
 // NewManager creates a new CPU frequency manager.
-func NewManager(log logrus.FieldLogger, cacheDir string) Manager {
+// sysfsBasePath is the base path for CPU sysfs files (e.g. "/sys/devices/system/cpu").
+func NewManager(log logrus.FieldLogger, cacheDir, sysfsBasePath string) Manager {
 	return &manager{
-		log:      log.WithField("component", "cpufreq"),
-		cacheDir: cacheDir,
-		done:     make(chan struct{}),
+		log:           log.WithField("component", "cpufreq"),
+		cacheDir:      cacheDir,
+		sysfsBasePath: sysfsBasePath,
+		done:          make(chan struct{}),
 	}
 }
 
 type manager struct {
-	log      logrus.FieldLogger
-	cacheDir string
+	log           logrus.FieldLogger
+	cacheDir      string
+	sysfsBasePath string
 
 	mu               sync.Mutex
 	originalSettings *OriginalSettings
@@ -120,7 +123,7 @@ func (m *manager) Apply(ctx context.Context, cfg *Config, cpus []int) error {
 	// Determine target CPUs.
 	if len(cpus) == 0 {
 		var err error
-		cpus, err = getOnlineCPUs()
+		cpus, err = getOnlineCPUs(m.sysfsBasePath)
 		if err != nil {
 			return fmt.Errorf("getting online CPUs: %w", err)
 		}
@@ -159,7 +162,7 @@ func (m *manager) Apply(ctx context.Context, cfg *Config, cpus []int) error {
 	// Apply governor first (some systems require this before frequency changes).
 	if cfg.Governor != "" {
 		for _, cpuID := range cpus {
-			if err := setGovernor(cpuID, cfg.Governor); err != nil {
+			if err := setGovernor(m.sysfsBasePath, cpuID, cfg.Governor); err != nil {
 				return fmt.Errorf("setting governor for CPU %d: %w", cpuID, err)
 			}
 			m.log.WithFields(logrus.Fields{
@@ -173,7 +176,7 @@ func (m *manager) Apply(ctx context.Context, cfg *Config, cpus []int) error {
 	if cfg.Frequency != "" {
 		for _, cpuID := range cpus {
 			// Get CPU's actual max frequency.
-			cpuMaxKHz, err := getCPUInfoMaxFreq(cpuID)
+			cpuMaxKHz, err := getCPUInfoMaxFreq(m.sysfsBasePath, cpuID)
 			if err != nil {
 				return fmt.Errorf("getting max frequency for CPU %d: %w", cpuID, err)
 			}
@@ -185,7 +188,7 @@ func (m *manager) Apply(ctx context.Context, cfg *Config, cpus []int) error {
 			}
 
 			// Validate frequency is within bounds.
-			cpuMinKHz, err := getCPUInfoMinFreq(cpuID)
+			cpuMinKHz, err := getCPUInfoMinFreq(m.sysfsBasePath, cpuID)
 			if err != nil {
 				return fmt.Errorf("getting min frequency for CPU %d: %w", cpuID, err)
 			}
@@ -198,16 +201,16 @@ func (m *manager) Apply(ctx context.Context, cfg *Config, cpus []int) error {
 			}
 
 			// Set both min and max to the target frequency for a fixed frequency.
-			if err := setScalingMinFreq(cpuID, freqKHz); err != nil {
+			if err := setScalingMinFreq(m.sysfsBasePath, cpuID, freqKHz); err != nil {
 				// Try setting max first if min fails (some systems require max >= min).
-				if setErr := setScalingMaxFreq(cpuID, freqKHz); setErr != nil {
+				if setErr := setScalingMaxFreq(m.sysfsBasePath, cpuID, freqKHz); setErr != nil {
 					return fmt.Errorf("setting frequency for CPU %d: %w", cpuID, setErr)
 				}
-				if err := setScalingMinFreq(cpuID, freqKHz); err != nil {
+				if err := setScalingMinFreq(m.sysfsBasePath, cpuID, freqKHz); err != nil {
 					return fmt.Errorf("setting min frequency for CPU %d: %w", cpuID, err)
 				}
 			} else {
-				if err := setScalingMaxFreq(cpuID, freqKHz); err != nil {
+				if err := setScalingMaxFreq(m.sysfsBasePath, cpuID, freqKHz); err != nil {
 					return fmt.Errorf("setting max frequency for CPU %d: %w", cpuID, err)
 				}
 			}
@@ -221,7 +224,7 @@ func (m *manager) Apply(ctx context.Context, cfg *Config, cpus []int) error {
 
 	// Apply turbo boost setting.
 	if cfg.TurboBoost != nil {
-		if err := setTurboBoost(*cfg.TurboBoost); err != nil {
+		if err := setTurboBoost(m.sysfsBasePath, *cfg.TurboBoost); err != nil {
 			// Turbo boost control might not be available, log and continue.
 			m.log.WithError(err).Warn("Failed to set turbo boost")
 		} else {
@@ -250,7 +253,7 @@ func (m *manager) restoreSettings(ctx context.Context) error {
 
 	// Restore turbo boost first.
 	if m.originalSettings.TurboBoost != nil {
-		if err := restoreTurboBoost(m.originalSettings.TurboBoost); err != nil {
+		if err := restoreTurboBoost(m.sysfsBasePath, m.originalSettings.TurboBoost); err != nil {
 			m.log.WithError(err).Warn("Failed to restore turbo boost")
 		}
 	}
@@ -259,7 +262,7 @@ func (m *manager) restoreSettings(ctx context.Context) error {
 	for cpuID, settings := range m.originalSettings.CPUs {
 		// Restore governor.
 		if settings.Governor != "" {
-			if err := setGovernor(cpuID, settings.Governor); err != nil {
+			if err := setGovernor(m.sysfsBasePath, cpuID, settings.Governor); err != nil {
 				m.log.WithFields(logrus.Fields{
 					"cpu":      cpuID,
 					"governor": settings.Governor,
@@ -269,7 +272,7 @@ func (m *manager) restoreSettings(ctx context.Context) error {
 
 		// Restore scaling frequencies (max first to ensure min <= max).
 		if settings.ScalingMaxKHz > 0 {
-			if err := setScalingMaxFreq(cpuID, settings.ScalingMaxKHz); err != nil {
+			if err := setScalingMaxFreq(m.sysfsBasePath, cpuID, settings.ScalingMaxKHz); err != nil {
 				m.log.WithFields(logrus.Fields{
 					"cpu":     cpuID,
 					"max_khz": settings.ScalingMaxKHz,
@@ -277,7 +280,7 @@ func (m *manager) restoreSettings(ctx context.Context) error {
 			}
 		}
 		if settings.ScalingMinKHz > 0 {
-			if err := setScalingMinFreq(cpuID, settings.ScalingMinKHz); err != nil {
+			if err := setScalingMinFreq(m.sysfsBasePath, cpuID, settings.ScalingMinKHz); err != nil {
 				m.log.WithFields(logrus.Fields{
 					"cpu":     cpuID,
 					"min_khz": settings.ScalingMinKHz,
@@ -302,14 +305,14 @@ func (m *manager) restoreSettings(ctx context.Context) error {
 
 // GetCPUInfo returns CPU frequency info for all online CPUs.
 func (m *manager) GetCPUInfo() ([]CPUInfo, error) {
-	cpus, err := getOnlineCPUs()
+	cpus, err := getOnlineCPUs(m.sysfsBasePath)
 	if err != nil {
 		return nil, fmt.Errorf("getting online CPUs: %w", err)
 	}
 
 	infos := make([]CPUInfo, 0, len(cpus))
 	for _, cpuID := range cpus {
-		info, err := getCPUInfo(cpuID)
+		info, err := getCPUInfo(m.sysfsBasePath, cpuID)
 		if err != nil {
 			m.log.WithFields(logrus.Fields{
 				"cpu": cpuID,
@@ -332,7 +335,7 @@ func (m *manager) captureOriginalSettings(cpus []int) (*OriginalSettings, error)
 		settings := &CPUSettings{}
 
 		// Capture current governor.
-		gov, err := getGovernor(cpuID)
+		gov, err := getGovernor(m.sysfsBasePath, cpuID)
 		if err != nil {
 			m.log.WithField("cpu", cpuID).WithError(err).Warn("Failed to get governor")
 		} else {
@@ -340,14 +343,14 @@ func (m *manager) captureOriginalSettings(cpus []int) (*OriginalSettings, error)
 		}
 
 		// Capture current scaling frequencies.
-		minKHz, err := getScalingMinFreq(cpuID)
+		minKHz, err := getScalingMinFreq(m.sysfsBasePath, cpuID)
 		if err != nil {
 			m.log.WithField("cpu", cpuID).WithError(err).Warn("Failed to get scaling min freq")
 		} else {
 			settings.ScalingMinKHz = minKHz
 		}
 
-		maxKHz, err := getScalingMaxFreq(cpuID)
+		maxKHz, err := getScalingMaxFreq(m.sysfsBasePath, cpuID)
 		if err != nil {
 			m.log.WithField("cpu", cpuID).WithError(err).Warn("Failed to get scaling max freq")
 		} else {
@@ -358,7 +361,7 @@ func (m *manager) captureOriginalSettings(cpus []int) (*OriginalSettings, error)
 	}
 
 	// Capture turbo boost state.
-	turboSettings, err := captureTurboBoostSettings()
+	turboSettings, err := captureTurboBoostSettings(m.sysfsBasePath)
 	if err != nil {
 		m.log.WithError(err).Debug("Turbo boost settings not available")
 	} else {

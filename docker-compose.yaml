@@ -8,6 +8,8 @@ services:
      # Required for dropping memory caches between tests (config.yaml#client.config.drop_memory_caches)
       - SYS_ADMIN
     environment:
+      - BENCHMARKOOR_GLOBAL_DROP_CACHES_PATH=/host_drop_caches
+      - BENCHMARKOOR_GLOBAL_CPU_SYSFS_PATH=/host_sys_cpu
       - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=${PWD}/tmp/data
       - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=${PWD}/tmp/cache
       - BENCHMARKOOR_BENCHMARK_RESULTS_OWNER=${USER_UID}:${USER_GID}
@@ -18,6 +20,8 @@ services:
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
       # Required for dropping memory caches between tests (config.yaml#client.config.drop_memory_caches)
       - /proc/sys/vm/drop_caches:/host_drop_caches
+      # Required for CPU frequency control (config.yaml#client.config.resource_limits.cpu_freq)
+      - /sys/devices/system/cpu:/host_sys_cpu
       # Config file
       - ./${BENCHMARKOOR_CONFIG:-config.example.docker.yaml}:/app/config.yaml:ro
       # Temp directory (For fetching temporary files and node data dirs)

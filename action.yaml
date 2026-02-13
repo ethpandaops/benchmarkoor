@@ -1,0 +1,246 @@
+name: 'Benchmarkoor'
+description: 'Run Ethereum execution client benchmarks using benchmarkoor'
+author: 'ethpandaops'
+branding:
+  icon: 'activity'
+  color: 'gray-dark'
+
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+
+  image:
+    description: 'Docker image for benchmarkoor (e.g., ghcr.io/ethpandaops/benchmarkoor:master). If not provided, will build locally.'
+    required: false
+    default: ''
+
+  git-ref:
+    description: 'Git branch or commit hash to build from. Only used when image is not provided. Defaults to master.'
+    required: false
+    default: ''
+
+  upload-artifacts:
+    description: 'Whether to upload run results as GitHub artifacts'
+    required: false
+    default: 'false'
+
+  run-config-url:
+    description: 'URL for config file to download and pass via --config'
+    required: false
+    default: ''
+
+  run-config:
+    description: 'Raw YAML config content to pass via --config (appended after URL config)'
+    required: false
+    default: ''
+
+  run-args:
+    description: 'Extra flags passed to benchmarkoor run command'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Build Docker image locally
+      if: inputs.image == ''
+      shell: bash
+      run: |
+        GIT_REF="${{ inputs.git-ref }}"
+        if [ -z "$GIT_REF" ]; then
+          GIT_REF="master"
+        fi
+
+        echo "Cloning https://github.com/ethpandaops/benchmarkoor.git at ref $GIT_REF"
+        git clone https://github.com/ethpandaops/benchmarkoor.git benchmarkoor-build
+        cd benchmarkoor-build
+        git checkout "$GIT_REF"
+
+        echo "Building Docker image..."
+        docker build -t benchmarkoor:local .
+        cd ..
+
+        rm -rf benchmarkoor-build
+
+    - name: Determine which image to use
+      id: determine-image
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.image }}" ]; then
+          IMAGE="${{ inputs.image }}"
+          echo "Using provided Docker image: ${IMAGE}"
+        else
+          IMAGE="benchmarkoor:local"
+          echo "Using locally built image: ${IMAGE}"
+        fi
+        echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+
+        if [ -z "$IMAGE" ]; then
+          echo "ERROR: Docker image not specified"
+          exit 1
+        fi
+
+        if [ "$IMAGE" != "benchmarkoor:local" ]; then
+          echo "Pulling Docker image: ${IMAGE}"
+          docker pull "${IMAGE}" || {
+            echo "Failed to pull Docker image: ${IMAGE}"
+            exit 1
+          }
+        fi
+
+    - name: Get Job ID from GH API
+      id: get-job-id
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        jobs=$(gh api -F per_page=100 -X GET repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs)
+        job_id=$(echo "$jobs" | jq -r '.jobs[] | select(.runner_name=="${{ runner.name }}" and .status=="in_progress") | .id')
+        echo "job_id=${job_id}" >> "$GITHUB_OUTPUT"
+
+    - name: Run Benchmarkoor
+      id: run-benchmarkoor
+      shell: bash
+      env:
+        INPUT_RUN_CONFIG: ${{ inputs.run-config }}
+        INPUT_RUN_CONFIG_URL: ${{ inputs.run-config-url }}
+      run: |
+        # Remove any leftover containers from a previous run
+        docker rm -f benchmarkoor-run 2>/dev/null || true
+        docker rm -f benchmarkoor-md 2>/dev/null || true
+
+        mkdir -p ${{ runner.temp }}/results
+
+        IMAGE="${{ steps.determine-image.outputs.image }}"
+        echo "Running benchmarkoor with Docker image: ${IMAGE}"
+
+        # Download URL config if provided
+        if [ -n "$INPUT_RUN_CONFIG_URL" ]; then
+          echo "Downloading config from ${INPUT_RUN_CONFIG_URL}"
+          curl -fsSL "${INPUT_RUN_CONFIG_URL}" -o "${{ runner.temp }}/benchmarkoor-config-url.yaml"
+        fi
+
+        # Write inline config if provided
+        if [ -n "$INPUT_RUN_CONFIG" ]; then
+          cat <<'CONFIGEOF' > "${{ runner.temp }}/benchmarkoor-config-inline.yaml"
+        ${{ inputs.run-config }}
+        CONFIGEOF
+        fi
+
+        # Build docker run command
+        DOCKER_CMD="docker run --network=host --rm --name=benchmarkoor-run"
+        DOCKER_CMD="$DOCKER_CMD -v /var/run/docker.sock:/var/run/docker.sock"
+        DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}/results:/app/results"
+        DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}:/app/configs"
+        DOCKER_CMD="$DOCKER_CMD -v /tmp:/tmp"
+        DOCKER_CMD="$DOCKER_CMD --cap-add=SYS_ADMIN"
+        DOCKER_CMD="$DOCKER_CMD -v /proc/sys/vm/drop_caches:/host_drop_caches"
+        DOCKER_CMD="$DOCKER_CMD -v /sys/devices/system/cpu:/host_sys_cpu"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DROP_CACHES_PATH=/host_drop_caches"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_CPU_SYSFS_PATH=/host_sys_cpu"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_DIR=/app/results"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_OWNER=$(id -u):$(id -g)"
+        DOCKER_CMD="$DOCKER_CMD ${IMAGE}"
+        DOCKER_CMD="$DOCKER_CMD run"
+
+        # Add config files in order: URL config, inline config, override config (last wins)
+        if [ -f "${{ runner.temp }}/benchmarkoor-config-url.yaml" ]; then
+          DOCKER_CMD="$DOCKER_CMD --config=/app/configs/benchmarkoor-config-url.yaml"
+        fi
+
+        if [ -f "${{ runner.temp }}/benchmarkoor-config-inline.yaml" ]; then
+          DOCKER_CMD="$DOCKER_CMD --config=/app/configs/benchmarkoor-config-inline.yaml"
+        fi
+
+        # Add GitHub Actions context as metadata labels
+        DOCKER_CMD="$DOCKER_CMD --metadata.label=github.run_id=${{ github.run_id }}"
+        DOCKER_CMD="$DOCKER_CMD --metadata.label=github.run_number=${{ github.run_number }}"
+        DOCKER_CMD="$DOCKER_CMD --metadata.label=github.job=${{ github.job }}"
+        DOCKER_CMD="$DOCKER_CMD --metadata.label=github.job_id=${{ steps.get-job-id.outputs.job_id }}"
+        DOCKER_CMD="$DOCKER_CMD --metadata.label=github.repository=${{ github.repository }}"
+        DOCKER_CMD="$DOCKER_CMD --metadata.label=github.workflow=\"${{ github.workflow }}\""
+        DOCKER_CMD="$DOCKER_CMD --metadata.label=github.sha=${{ github.sha }}"
+        DOCKER_CMD="$DOCKER_CMD --metadata.label=github.actor=${{ github.actor }}"
+        DOCKER_CMD="$DOCKER_CMD --metadata.label=github.event_name=${{ github.event_name }}"
+        DOCKER_CMD="$DOCKER_CMD --metadata.label=github.ref=${{ github.ref }}"
+
+        # Append extra run args if provided
+        if [ -n "${{ inputs.run-args }}" ]; then
+          DOCKER_CMD="$DOCKER_CMD ${{ inputs.run-args }}"
+        fi
+
+        # Execute the command
+        echo "Running: $DOCKER_CMD"
+        set +e
+        eval $DOCKER_CMD &
+        wait $!
+        DOCKER_EXIT_CODE=$?
+        set -e
+
+        # Find run directories
+        RUN_DIRS=""
+        if [ -d "${{ runner.temp }}/results/runs" ]; then
+          RUN_DIRS=$(find "${{ runner.temp }}/results/runs" -mindepth 1 -maxdepth 1 -type d | sort | tr '\n' ' ')
+        fi
+
+        echo "run-dirs=${RUN_DIRS}" >> $GITHUB_OUTPUT
+
+        if [ $DOCKER_EXIT_CODE -ne 0 ]; then
+          echo "Benchmarkoor failed with exit code $DOCKER_EXIT_CODE"
+          exit $DOCKER_EXIT_CODE
+        fi
+
+        echo "Benchmarkoor completed successfully"
+
+    - name: Generate markdown summaries
+      if: always() && steps.run-benchmarkoor.outputs.run-dirs != ''
+      shell: bash
+      run: |
+        IMAGE="${{ steps.determine-image.outputs.image }}"
+
+        for RUN_DIR_HOST in ${{ steps.run-benchmarkoor.outputs.run-dirs }}; do
+          RUN_DIR_NAME=$(basename "$RUN_DIR_HOST")
+          CONTAINER_RUN_DIR="/app/results/runs/${RUN_DIR_NAME}"
+
+          echo "Generating summary for ${RUN_DIR_NAME}"
+
+          docker run --rm --name=benchmarkoor-md \
+            -v "${{ runner.temp }}/results:/app/results" \
+            "${IMAGE}" \
+            generate-markdown-summary \
+            --run-dir="${CONTAINER_RUN_DIR}" \
+            --output="${CONTAINER_RUN_DIR}/summary.md"
+
+          if [ -f "${RUN_DIR_HOST}/summary.md" ]; then
+            cat "${RUN_DIR_HOST}/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        done
+
+    - name: Create results archive
+      if: always() && inputs.upload-artifacts == 'true'
+      shell: bash
+      run: |
+        if [ -d "${{ runner.temp }}/results" ]; then
+          tar -czf "${{ runner.temp }}/benchmarkoor-results.tar.gz" -C "${{ runner.temp }}" results
+        fi
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      if: always() && inputs.upload-artifacts == 'true'
+      with:
+        name: benchmarkoor-${{ github.run_id }}
+        path: ${{ runner.temp }}/benchmarkoor-results.tar.gz
+
+    - name: Cleanup
+      shell: bash
+      if: always()
+      run: |
+        echo "Cleaning up"
+        rm -rf ${{ runner.temp }}/results
+        rm -f ${{ runner.temp }}/benchmarkoor-config-url.yaml
+        rm -f ${{ runner.temp }}/benchmarkoor-config-inline.yaml
+        rm -f ${{ runner.temp }}/benchmarkoor-results.tar.gz
+        docker rm -f benchmarkoor-run 2>/dev/null || true
+        docker rm -f benchmarkoor-md 2>/dev/null || true

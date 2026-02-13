@@ -175,7 +175,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		cpufreqMgr = cpufreq.NewManager(log, cacheDir)
+		cpufreqMgr = cpufreq.NewManager(log, cacheDir, cfg.GetCPUSysfsPath())
 		if err := cpufreqMgr.Start(ctx); err != nil {
 			return fmt.Errorf("starting cpufreq manager: %w", err)
 		}

@@ -37,6 +37,9 @@ const (
 	// DefaultDropCachesPath is the default path to the Linux drop_caches file.
 	DefaultDropCachesPath = "/proc/sys/vm/drop_caches"
 
+	// DefaultCPUSysfsPath is the default sysfs path for CPU frequency control.
+	DefaultCPUSysfsPath = "/sys/devices/system/cpu"
+
 	// LogTimestampFormat is the UTC timestamp format for log lines.
 	LogTimestampFormat = "2006-01-02T15:04:05.000Z"
 
@@ -71,6 +74,7 @@ type GlobalConfig struct {
 	CleanupOnStart     bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
 	Directories        DirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
 	DropCachesPath     string            `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
+	CPUSysfsPath       string            `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
 	GitHubToken        string            `yaml:"github_token,omitempty" mapstructure:"github_token"`
 	Metadata           MetadataConfig    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 }
@@ -645,6 +649,8 @@ func bindEnvKeys(v *viper.Viper) {
 		"global.directories.tmp_datadir",
 		"global.directories.tmp_cachedir",
 		"global.github_token",
+		"global.drop_caches_path",
+		"global.cpu_sysfs_path",
 		// Benchmark settings
 		"benchmark.results_dir",
 		"benchmark.results_owner",
@@ -654,6 +660,25 @@ func bindEnvKeys(v *viper.Viper) {
 		"benchmark.tests.filter",
 		// Client settings
 		"client.config.jwt",
+		"client.config.drop_memory_caches",
+		"client.config.rollback_strategy",
+		"client.config.wait_after_rpc_ready",
+		// Client resource limits
+		"client.config.resource_limits.cpuset_count",
+		"client.config.resource_limits.memory",
+		"client.config.resource_limits.swap_disabled",
+		"client.config.resource_limits.cpu_freq",
+		"client.config.resource_limits.cpu_turboboost",
+		"client.config.resource_limits.cpu_freq_governor",
+		// Client retry new payloads syncing state
+		"client.config.retry_new_payloads_syncing_state.enabled",
+		"client.config.retry_new_payloads_syncing_state.max_retries",
+		"client.config.retry_new_payloads_syncing_state.backoff",
+		// Client bootstrap FCU
+		"client.config.bootstrap_fcu.enabled",
+		"client.config.bootstrap_fcu.max_retries",
+		"client.config.bootstrap_fcu.backoff",
+		"client.config.bootstrap_fcu.head_block_hash",
 	}
 
 	for _, key := range keys {
@@ -957,6 +982,16 @@ func (c *Config) GetDropCachesPath() string {
 	return DefaultDropCachesPath
 }
 
+// GetCPUSysfsPath returns the sysfs base path for CPU frequency control.
+// Returns the configured path or the default (/sys/devices/system/cpu).
+func (c *Config) GetCPUSysfsPath() string {
+	if c.Global.CPUSysfsPath != "" {
+		return c.Global.CPUSysfsPath
+	}
+
+	return DefaultCPUSysfsPath
+}
+
 // GetResourceLimits returns the resource limits for an instance.
 // Instance-level limits take precedence over global defaults.
 // Returns nil if no limits are configured.
@@ -1116,13 +1151,15 @@ func (c *Config) validateCPUFreq() error {
 		return fmt.Errorf("cpu_freq is only supported on Linux (current OS: %s)", runtime.GOOS)
 	}
 
+	sysfsPath := c.GetCPUSysfsPath()
+
 	// Check if cpufreq subsystem is available.
-	if !cpufreq.IsCPUFreqSupported() {
+	if !cpufreq.IsCPUFreqSupported(sysfsPath) {
 		return fmt.Errorf("cpu_freq: cpufreq subsystem not available (no scaling_governor in sysfs)")
 	}
 
 	// Check write access.
-	if err := cpufreq.HasWriteAccess(); err != nil {
+	if err := cpufreq.HasWriteAccess(sysfsPath); err != nil {
 		return fmt.Errorf("cpu_freq: %w", err)
 	}
 
@@ -1140,14 +1177,14 @@ func (c *Config) validateCPUFreq() error {
 				return fmt.Errorf("instance %q: invalid cpu_freq %q: %w", instance.ID, limits.CPUFreq, err)
 			}
 
-			if err := cpufreq.ValidateFrequency(freqKHz); err != nil {
+			if err := cpufreq.ValidateFrequency(sysfsPath, freqKHz); err != nil {
 				return fmt.Errorf("instance %q: %w", instance.ID, err)
 			}
 		}
 
 		// Validate governor.
 		if limits.CPUGovernor != "" {
-			if err := cpufreq.ValidateGovernor(limits.CPUGovernor); err != nil {
+			if err := cpufreq.ValidateGovernor(sysfsPath, limits.CPUGovernor); err != nil {
 				return fmt.Errorf("instance %q: %w", instance.ID, err)
 			}
 		}
