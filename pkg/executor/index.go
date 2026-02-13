@@ -162,6 +162,155 @@ func GenerateIndex(resultsDir string) (*Index, error) {
 	}, nil
 }
 
+// AggregateStepStats aggregates per-step statistics from a RunResult.
+// Returns the step stats, total tests passed, and total tests failed.
+func AggregateStepStats(result *RunResult) (*IndexStepsStats, int, int) {
+	setupStats := &IndexStepStats{}
+	testStepStats := &IndexStepStats{}
+	cleanupStats := &IndexStepStats{}
+
+	var setupResources, testResources, cleanupResources ResourceTotals
+
+	hasSetupResources := false
+	hasTestResources := false
+	hasCleanupResources := false
+
+	testsPassed := 0
+	testsFailed := 0
+
+	for _, test := range result.Tests {
+		if test.Steps == nil {
+			continue
+		}
+
+		// Aggregate setup stats.
+		if test.Steps.Setup != nil && test.Steps.Setup.Aggregated != nil {
+			agg := test.Steps.Setup.Aggregated
+			setupStats.Success += agg.Succeeded
+			setupStats.Fail += agg.Failed
+			setupStats.Duration += agg.TotalTime
+			setupStats.GasUsed += agg.GasUsedTotal
+			setupStats.GasUsedDuration += agg.GasUsedTimeTotal
+
+			if agg.ResourceTotals != nil {
+				hasSetupResources = true
+				setupResources.CPUUsec += agg.ResourceTotals.CPUUsec
+				setupResources.MemoryDelta += agg.ResourceTotals.MemoryDelta
+				setupResources.DiskReadBytes += agg.ResourceTotals.DiskReadBytes
+				setupResources.DiskWriteBytes += agg.ResourceTotals.DiskWriteBytes
+				setupResources.DiskReadIOPS += agg.ResourceTotals.DiskReadIOPS
+				setupResources.DiskWriteIOPS += agg.ResourceTotals.DiskWriteIOPS
+
+				if agg.ResourceTotals.MemoryBytes > setupResources.MemoryBytes {
+					setupResources.MemoryBytes = agg.ResourceTotals.MemoryBytes
+				}
+			}
+		}
+
+		// Aggregate test stats.
+		if test.Steps.Test != nil && test.Steps.Test.Aggregated != nil {
+			agg := test.Steps.Test.Aggregated
+			testStepStats.Success += agg.Succeeded
+			testStepStats.Fail += agg.Failed
+			testStepStats.Duration += agg.TotalTime
+			testStepStats.GasUsed += agg.GasUsedTotal
+			testStepStats.GasUsedDuration += agg.GasUsedTimeTotal
+
+			if agg.ResourceTotals != nil {
+				hasTestResources = true
+				testResources.CPUUsec += agg.ResourceTotals.CPUUsec
+				testResources.MemoryDelta += agg.ResourceTotals.MemoryDelta
+				testResources.DiskReadBytes += agg.ResourceTotals.DiskReadBytes
+				testResources.DiskWriteBytes += agg.ResourceTotals.DiskWriteBytes
+				testResources.DiskReadIOPS += agg.ResourceTotals.DiskReadIOPS
+				testResources.DiskWriteIOPS += agg.ResourceTotals.DiskWriteIOPS
+
+				if agg.ResourceTotals.MemoryBytes > testResources.MemoryBytes {
+					testResources.MemoryBytes = agg.ResourceTotals.MemoryBytes
+				}
+			}
+		}
+
+		// Aggregate cleanup stats.
+		if test.Steps.Cleanup != nil && test.Steps.Cleanup.Aggregated != nil {
+			agg := test.Steps.Cleanup.Aggregated
+			cleanupStats.Success += agg.Succeeded
+			cleanupStats.Fail += agg.Failed
+			cleanupStats.Duration += agg.TotalTime
+			cleanupStats.GasUsed += agg.GasUsedTotal
+			cleanupStats.GasUsedDuration += agg.GasUsedTimeTotal
+
+			if agg.ResourceTotals != nil {
+				hasCleanupResources = true
+				cleanupResources.CPUUsec += agg.ResourceTotals.CPUUsec
+				cleanupResources.MemoryDelta += agg.ResourceTotals.MemoryDelta
+				cleanupResources.DiskReadBytes += agg.ResourceTotals.DiskReadBytes
+				cleanupResources.DiskWriteBytes += agg.ResourceTotals.DiskWriteBytes
+				cleanupResources.DiskReadIOPS += agg.ResourceTotals.DiskReadIOPS
+				cleanupResources.DiskWriteIOPS += agg.ResourceTotals.DiskWriteIOPS
+
+				if agg.ResourceTotals.MemoryBytes > cleanupResources.MemoryBytes {
+					cleanupResources.MemoryBytes = agg.ResourceTotals.MemoryBytes
+				}
+			}
+		}
+
+		// Determine test-level pass/fail.
+		testFailed := false
+
+		if test.Steps.Setup != nil && test.Steps.Setup.Aggregated != nil &&
+			test.Steps.Setup.Aggregated.Failed > 0 {
+			testFailed = true
+		}
+
+		if test.Steps.Test != nil && test.Steps.Test.Aggregated != nil &&
+			test.Steps.Test.Aggregated.Failed > 0 {
+			testFailed = true
+		}
+
+		if test.Steps.Cleanup != nil && test.Steps.Cleanup.Aggregated != nil &&
+			test.Steps.Cleanup.Aggregated.Failed > 0 {
+			testFailed = true
+		}
+
+		if testFailed {
+			testsFailed++
+		} else {
+			testsPassed++
+		}
+	}
+
+	// Assign resource totals if present.
+	if hasSetupResources {
+		setupStats.ResourceTotals = &setupResources
+	}
+
+	if hasTestResources {
+		testStepStats.ResourceTotals = &testResources
+	}
+
+	if hasCleanupResources {
+		cleanupStats.ResourceTotals = &cleanupResources
+	}
+
+	steps := &IndexStepsStats{}
+
+	// Only include step stats if they have data.
+	if setupStats.Success > 0 || setupStats.Fail > 0 {
+		steps.Setup = setupStats
+	}
+
+	if testStepStats.Success > 0 || testStepStats.Fail > 0 {
+		steps.Test = testStepStats
+	}
+
+	if cleanupStats.Success > 0 || cleanupStats.Fail > 0 {
+		steps.Cleanup = cleanupStats
+	}
+
+	return steps, testsPassed, testsFailed
+}
+
 // buildIndexEntry creates an index entry from a single run directory.
 func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 	// Read config.json.
@@ -190,144 +339,10 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 		if err := json.Unmarshal(resultData, &runResult); err == nil {
 			testStats.TestsTotal = len(runResult.Tests)
 
-			// Initialize per-step stats.
-			setupStats := &IndexStepStats{}
-			testStepStats := &IndexStepStats{}
-			cleanupStats := &IndexStepStats{}
-
-			var setupResources, testResources, cleanupResources ResourceTotals
-
-			hasSetupResources := false
-			hasTestResources := false
-			hasCleanupResources := false
-
-			for _, test := range runResult.Tests {
-				if test.Steps == nil {
-					continue
-				}
-
-				// Aggregate setup stats.
-				if test.Steps.Setup != nil && test.Steps.Setup.Aggregated != nil {
-					agg := test.Steps.Setup.Aggregated
-					setupStats.Success += agg.Succeeded
-					setupStats.Fail += agg.Failed
-					setupStats.Duration += agg.TotalTime
-					setupStats.GasUsed += agg.GasUsedTotal
-					setupStats.GasUsedDuration += agg.GasUsedTimeTotal
-
-					if agg.ResourceTotals != nil {
-						hasSetupResources = true
-						setupResources.CPUUsec += agg.ResourceTotals.CPUUsec
-						setupResources.MemoryDelta += agg.ResourceTotals.MemoryDelta
-						setupResources.DiskReadBytes += agg.ResourceTotals.DiskReadBytes
-						setupResources.DiskWriteBytes += agg.ResourceTotals.DiskWriteBytes
-						setupResources.DiskReadIOPS += agg.ResourceTotals.DiskReadIOPS
-						setupResources.DiskWriteIOPS += agg.ResourceTotals.DiskWriteIOPS
-
-						if agg.ResourceTotals.MemoryBytes > setupResources.MemoryBytes {
-							setupResources.MemoryBytes = agg.ResourceTotals.MemoryBytes
-						}
-					}
-				}
-
-				// Aggregate test stats.
-				if test.Steps.Test != nil && test.Steps.Test.Aggregated != nil {
-					agg := test.Steps.Test.Aggregated
-					testStepStats.Success += agg.Succeeded
-					testStepStats.Fail += agg.Failed
-					testStepStats.Duration += agg.TotalTime
-					testStepStats.GasUsed += agg.GasUsedTotal
-					testStepStats.GasUsedDuration += agg.GasUsedTimeTotal
-
-					if agg.ResourceTotals != nil {
-						hasTestResources = true
-						testResources.CPUUsec += agg.ResourceTotals.CPUUsec
-						testResources.MemoryDelta += agg.ResourceTotals.MemoryDelta
-						testResources.DiskReadBytes += agg.ResourceTotals.DiskReadBytes
-						testResources.DiskWriteBytes += agg.ResourceTotals.DiskWriteBytes
-						testResources.DiskReadIOPS += agg.ResourceTotals.DiskReadIOPS
-						testResources.DiskWriteIOPS += agg.ResourceTotals.DiskWriteIOPS
-
-						if agg.ResourceTotals.MemoryBytes > testResources.MemoryBytes {
-							testResources.MemoryBytes = agg.ResourceTotals.MemoryBytes
-						}
-					}
-				}
-
-				// Aggregate cleanup stats.
-				if test.Steps.Cleanup != nil && test.Steps.Cleanup.Aggregated != nil {
-					agg := test.Steps.Cleanup.Aggregated
-					cleanupStats.Success += agg.Succeeded
-					cleanupStats.Fail += agg.Failed
-					cleanupStats.Duration += agg.TotalTime
-					cleanupStats.GasUsed += agg.GasUsedTotal
-					cleanupStats.GasUsedDuration += agg.GasUsedTimeTotal
-
-					if agg.ResourceTotals != nil {
-						hasCleanupResources = true
-						cleanupResources.CPUUsec += agg.ResourceTotals.CPUUsec
-						cleanupResources.MemoryDelta += agg.ResourceTotals.MemoryDelta
-						cleanupResources.DiskReadBytes += agg.ResourceTotals.DiskReadBytes
-						cleanupResources.DiskWriteBytes += agg.ResourceTotals.DiskWriteBytes
-						cleanupResources.DiskReadIOPS += agg.ResourceTotals.DiskReadIOPS
-						cleanupResources.DiskWriteIOPS += agg.ResourceTotals.DiskWriteIOPS
-
-						if agg.ResourceTotals.MemoryBytes > cleanupResources.MemoryBytes {
-							cleanupResources.MemoryBytes = agg.ResourceTotals.MemoryBytes
-						}
-					}
-				}
-
-				// Determine test-level pass/fail.
-				testFailed := false
-
-				if test.Steps.Setup != nil && test.Steps.Setup.Aggregated != nil &&
-					test.Steps.Setup.Aggregated.Failed > 0 {
-					testFailed = true
-				}
-
-				if test.Steps.Test != nil && test.Steps.Test.Aggregated != nil &&
-					test.Steps.Test.Aggregated.Failed > 0 {
-					testFailed = true
-				}
-
-				if test.Steps.Cleanup != nil && test.Steps.Cleanup.Aggregated != nil &&
-					test.Steps.Cleanup.Aggregated.Failed > 0 {
-					testFailed = true
-				}
-
-				if testFailed {
-					testStats.TestsFailed++
-				} else {
-					testStats.TestsPassed++
-				}
-			}
-
-			// Assign resource totals if present.
-			if hasSetupResources {
-				setupStats.ResourceTotals = &setupResources
-			}
-
-			if hasTestResources {
-				testStepStats.ResourceTotals = &testResources
-			}
-
-			if hasCleanupResources {
-				cleanupStats.ResourceTotals = &cleanupResources
-			}
-
-			// Only include step stats if they have data.
-			if setupStats.Success > 0 || setupStats.Fail > 0 {
-				testStats.Steps.Setup = setupStats
-			}
-
-			if testStepStats.Success > 0 || testStepStats.Fail > 0 {
-				testStats.Steps.Test = testStepStats
-			}
-
-			if cleanupStats.Success > 0 || cleanupStats.Fail > 0 {
-				testStats.Steps.Cleanup = cleanupStats
-			}
+			steps, passed, failed := AggregateStepStats(&runResult)
+			testStats.Steps = steps
+			testStats.TestsPassed = passed
+			testStats.TestsFailed = failed
 		}
 	}
 
