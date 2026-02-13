@@ -164,7 +164,12 @@ runs:
               dir=$(echo "$dir" | xargs)
               [ -z "$dir" ] && continue
               if [ -d "$dir" ]; then
-                stat --format=%m "$dir" 2>/dev/null || true
+                mp=$(findmnt -n -o TARGET --target "$dir" 2>/dev/null || true)
+                if [ -n "$mp" ] && [[ "$mp" == /* ]]; then
+                  echo "$mp"
+                else
+                  echo "Warning: could not determine mount point for '$dir', skipping" >&2
+                fi
               else
                 echo "Warning: datadir source_dir '$dir' does not exist, skipping" >&2
               fi
