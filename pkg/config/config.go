@@ -58,6 +58,11 @@ type Config struct {
 	Client    ClientConfig    `yaml:"client" mapstructure:"client"`
 }
 
+// MetadataConfig contains arbitrary metadata labels for a benchmark run.
+type MetadataConfig struct {
+	Labels map[string]string `yaml:"labels,omitempty" mapstructure:"labels" json:"labels,omitempty"`
+}
+
 // GlobalConfig contains global application settings.
 type GlobalConfig struct {
 	LogLevel           string            `yaml:"log_level" mapstructure:"log_level"`
@@ -67,6 +72,7 @@ type GlobalConfig struct {
 	Directories        DirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
 	DropCachesPath     string            `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
 	GitHubToken        string            `yaml:"github_token,omitempty" mapstructure:"github_token"`
+	Metadata           MetadataConfig    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 }
 
 // DirectoriesConfig contains directory path configurations.

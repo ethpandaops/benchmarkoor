@@ -1100,6 +1100,78 @@ client:
 	})
 }
 
+func TestLoad_MetadataLabels(t *testing.T) {
+	t.Run("parses labels from yaml", func(t *testing.T) {
+		configContent := `
+global:
+  metadata:
+    labels:
+      env: production
+      team: platform
+client:
+  config:
+    genesis:
+      geth: http://example.com/genesis.json
+  instances:
+    - id: test-instance
+      client: geth
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		require.Len(t, cfg.Global.Metadata.Labels, 2)
+		assert.Equal(t, "production", cfg.Global.Metadata.Labels["env"])
+		assert.Equal(t, "platform", cfg.Global.Metadata.Labels["team"])
+	})
+
+	t.Run("empty metadata produces no errors", func(t *testing.T) {
+		configContent := `
+client:
+  config:
+    genesis:
+      geth: http://example.com/genesis.json
+  instances:
+    - id: test-instance
+      client: geth
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		assert.Nil(t, cfg.Global.Metadata.Labels)
+	})
+
+	t.Run("empty labels map produces no errors", func(t *testing.T) {
+		configContent := `
+global:
+  metadata:
+    labels: {}
+client:
+  config:
+    genesis:
+      geth: http://example.com/genesis.json
+  instances:
+    - id: test-instance
+      client: geth
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		assert.Empty(t, cfg.Global.Metadata.Labels)
+	})
+}
+
 // createTestTarball creates a minimal .tar.gz file at the given path for testing.
 func createTestTarball(t *testing.T, path string) {
 	t.Helper()

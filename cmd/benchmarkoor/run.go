@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
@@ -22,6 +23,7 @@ import (
 var (
 	limitInstanceIDs     []string
 	limitInstanceClients []string
+	metadataLabels       []string
 )
 
 var runCmd = &cobra.Command{
@@ -37,6 +39,8 @@ func init() {
 		"Limit to instances with these IDs (comma-separated or repeated flag)")
 	runCmd.Flags().StringSliceVar(&limitInstanceClients, "limit-instance-client", nil,
 		"Limit to instances with these client types (comma-separated or repeated flag)")
+	runCmd.Flags().StringSliceVar(&metadataLabels, "metadata.label", nil,
+		"Add metadata label as key=value (can be repeated)")
 }
 
 func runBenchmark(cmd *cobra.Command, args []string) error {
@@ -48,6 +52,20 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(cfgFiles...)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
+	}
+
+	// Merge CLI metadata labels into config (CLI wins on conflict).
+	for _, entry := range metadataLabels {
+		k, v, ok := strings.Cut(entry, "=")
+		if !ok || k == "" {
+			return fmt.Errorf("invalid metadata label %q: must be key=value", entry)
+		}
+
+		if cfg.Global.Metadata.Labels == nil {
+			cfg.Global.Metadata.Labels = make(map[string]string, len(metadataLabels))
+		}
+
+		cfg.Global.Metadata.Labels[k] = v
 	}
 
 	// Validate configuration.
