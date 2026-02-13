@@ -140,6 +140,9 @@ export interface RunConfig {
   termination_reason?: string
   container_exit_code?: number
   container_oom_killed?: boolean
+  metadata?: {
+    labels?: Record<string, string>
+  }
 }
 
 export interface SystemInfo {

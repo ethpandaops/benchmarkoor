@@ -89,18 +89,19 @@ type StartBlock struct {
 
 // RunConfig contains configuration for a single test run.
 type RunConfig struct {
-	Timestamp                      int64             `json:"timestamp"`
-	TimestampEnd                   int64             `json:"timestamp_end,omitempty"`
-	SuiteHash                      string            `json:"suite_hash,omitempty"`
-	SystemResourceCollectionMethod string            `json:"system_resource_collection_method,omitempty"`
-	System                         *SystemInfo       `json:"system"`
-	Instance                       *ResolvedInstance `json:"instance"`
-	StartBlock                     *StartBlock       `json:"start_block,omitempty"`
-	TestCounts                     *TestCounts       `json:"test_counts,omitempty"`
-	Status                         string            `json:"status,omitempty"`
-	TerminationReason              string            `json:"termination_reason,omitempty"`
-	ContainerExitCode              *int64            `json:"container_exit_code,omitempty"`
-	ContainerOOMKilled             *bool             `json:"container_oom_killed,omitempty"`
+	Timestamp                      int64                  `json:"timestamp"`
+	TimestampEnd                   int64                  `json:"timestamp_end,omitempty"`
+	SuiteHash                      string                 `json:"suite_hash,omitempty"`
+	SystemResourceCollectionMethod string                 `json:"system_resource_collection_method,omitempty"`
+	System                         *SystemInfo            `json:"system"`
+	Instance                       *ResolvedInstance      `json:"instance"`
+	Metadata                       *config.MetadataConfig `json:"metadata,omitempty"`
+	StartBlock                     *StartBlock            `json:"start_block,omitempty"`
+	TestCounts                     *TestCounts            `json:"test_counts,omitempty"`
+	Status                         string                 `json:"status,omitempty"`
+	TerminationReason              string                 `json:"termination_reason,omitempty"`
+	ContainerExitCode              *int64                 `json:"container_exit_code,omitempty"`
+	ContainerOOMKilled             *bool                  `json:"container_oom_killed,omitempty"`
 }
 
 // Run status constants.
@@ -908,6 +909,11 @@ func (r *runner) runContainerLifecycle(
 				return nil
 			}(),
 		},
+	}
+
+	// Attach metadata labels if configured.
+	if r.cfg.FullConfig != nil && len(r.cfg.FullConfig.Global.Metadata.Labels) > 0 {
+		runConfig.Metadata = &r.cfg.FullConfig.Global.Metadata
 	}
 
 	if len(params.GenesisGroups) > 0 {
