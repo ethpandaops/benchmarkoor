@@ -126,6 +126,8 @@ runs:
 
         # Create override config to force results_dir inside the container
         cat > "${{ runner.temp }}/benchmarkoor-config-override.yaml" <<'OVERRIDEEOF'
+        global:
+          drop_caches_path: /host_drop_caches
         benchmark:
           results_dir: /app/results
         OVERRIDEEOF
@@ -136,6 +138,8 @@ runs:
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}/results:/app/results"
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}:/app/configs"
         DOCKER_CMD="$DOCKER_CMD -v /tmp:/tmp"
+        DOCKER_CMD="$DOCKER_CMD --cap-add=SYS_ADMIN"
+        DOCKER_CMD="$DOCKER_CMD -v /proc/sys/vm/drop_caches:/host_drop_caches"
         DOCKER_CMD="$DOCKER_CMD ${IMAGE}"
         DOCKER_CMD="$DOCKER_CMD run"
 
