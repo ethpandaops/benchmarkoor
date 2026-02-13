@@ -25,8 +25,8 @@ inputs:
     required: false
     default: 'false'
 
-  run-config-url:
-    description: 'URL for config file to download and pass via --config'
+  run-config-urls:
+    description: 'Comma-separated URLs for config files to download and pass via --config (merged in order)'
     required: false
     default: ''
 
@@ -104,7 +104,7 @@ runs:
       shell: bash
       env:
         INPUT_RUN_CONFIG: ${{ inputs.run-config }}
-        INPUT_RUN_CONFIG_URL: ${{ inputs.run-config-url }}
+        INPUT_RUN_CONFIG_URLS: ${{ inputs.run-config-urls }}
       run: |
         # Remove any leftover containers from a previous run
         docker rm -f benchmarkoor-run 2>/dev/null || true
@@ -115,10 +115,14 @@ runs:
         IMAGE="${{ steps.determine-image.outputs.image }}"
         echo "Running benchmarkoor with Docker image: ${IMAGE}"
 
-        # Download URL config if provided
-        if [ -n "$INPUT_RUN_CONFIG_URL" ]; then
-          echo "Downloading config from ${INPUT_RUN_CONFIG_URL}"
-          curl -fsSL "${INPUT_RUN_CONFIG_URL}" -o "${{ runner.temp }}/benchmarkoor-config-url.yaml"
+        # Download URL configs if provided (comma-separated)
+        if [ -n "$INPUT_RUN_CONFIG_URLS" ]; then
+          IFS=',' read -ra CONFIG_URLS <<< "$INPUT_RUN_CONFIG_URLS"
+          for i in "${!CONFIG_URLS[@]}"; do
+            URL=$(echo "${CONFIG_URLS[$i]}" | xargs)  # trim whitespace
+            echo "Downloading config from ${URL}"
+            curl -fsSL "${URL}" -o "${{ runner.temp }}/benchmarkoor-config-url-${i}.yaml"
+          done
         fi
 
         # Write inline config if provided
@@ -144,10 +148,10 @@ runs:
         DOCKER_CMD="$DOCKER_CMD ${IMAGE}"
         DOCKER_CMD="$DOCKER_CMD run"
 
-        # Add config files in order: URL config, inline config, override config (last wins)
-        if [ -f "${{ runner.temp }}/benchmarkoor-config-url.yaml" ]; then
-          DOCKER_CMD="$DOCKER_CMD --config=/app/configs/benchmarkoor-config-url.yaml"
-        fi
+        # Add config files in order: URL configs, inline config, override config (last wins)
+        for cfg in "${{ runner.temp }}"/benchmarkoor-config-url-*.yaml; do
+          [ -f "$cfg" ] && DOCKER_CMD="$DOCKER_CMD --config=/app/configs/$(basename "$cfg")"
+        done
 
         if [ -f "${{ runner.temp }}/benchmarkoor-config-inline.yaml" ]; then
           DOCKER_CMD="$DOCKER_CMD --config=/app/configs/benchmarkoor-config-inline.yaml"
@@ -239,7 +243,7 @@ runs:
       run: |
         echo "Cleaning up"
         rm -rf ${{ runner.temp }}/results
-        rm -f ${{ runner.temp }}/benchmarkoor-config-url.yaml
+        rm -f ${{ runner.temp }}/benchmarkoor-config-url-*.yaml
         rm -f ${{ runner.temp }}/benchmarkoor-config-inline.yaml
         rm -f ${{ runner.temp }}/benchmarkoor-results.tar.gz
         docker rm -f benchmarkoor-run 2>/dev/null || true
