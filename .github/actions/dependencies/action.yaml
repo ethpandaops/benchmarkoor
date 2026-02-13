@@ -1,0 +1,91 @@
+name: 'Install and verify dependencies for the Benchmarkoor GitHub Action'
+description: 'Install required dependencies for Benchmarkoor (zip/unzip, GitHub CLI)'
+author: 'ethpandaops'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install zip/unzip if not present
+      shell: bash
+      run: |
+        # Check if zip and unzip are available
+        ZIP_MISSING=false
+        UNZIP_MISSING=false
+
+        if ! command -v zip &> /dev/null; then
+          echo "zip command not found"
+          ZIP_MISSING=true
+        fi
+
+        if ! command -v unzip &> /dev/null; then
+          echo "unzip command not found"
+          UNZIP_MISSING=true
+        fi
+
+        if [ "$ZIP_MISSING" = true ] || [ "$UNZIP_MISSING" = true ]; then
+          echo "Installing zip/unzip utilities..."
+
+          # Detect OS
+          if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux - assume Ubuntu/Debian
+            sudo apt update
+            sudo apt install -y zip unzip
+          elif [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS - zip/unzip should be pre-installed, but check with brew if needed
+            if command -v brew &> /dev/null; then
+              if [ "$ZIP_MISSING" = true ]; then
+                brew install zip
+              fi
+              # unzip is typically pre-installed on macOS
+            else
+              echo "zip/unzip utilities appear to be missing and Homebrew not found"
+              echo "Please install zip/unzip manually"
+              exit 1
+            fi
+          else
+            echo "Unsupported OS. Please install zip/unzip manually"
+            exit 1
+          fi
+
+          echo "zip/unzip utilities installed successfully"
+        else
+          echo "zip and unzip are already available"
+          zip --version || true
+          unzip -v || true
+        fi
+
+    - name: Install GitHub CLI if not present
+      shell: bash
+      run: |
+        if ! command -v gh &> /dev/null; then
+          echo "GitHub CLI not found, installing..."
+
+          # Detect OS
+          if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux - assume Ubuntu/Debian
+            (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
+              && mkdir -p -m 755 /etc/apt/keyrings \
+              && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+              && cat $out | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+              && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+              && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt update
+            sudo apt install -y gh
+          elif [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            if command -v brew &> /dev/null; then
+              brew install gh
+            else
+              echo "Homebrew not found. Please install GitHub CLI manually: https://cli.github.com/"
+              exit 1
+            fi
+          else
+            echo "Unsupported OS. Please install GitHub CLI manually: https://cli.github.com/"
+            exit 1
+          fi
+
+          echo "GitHub CLI installed successfully"
+        else
+          echo "GitHub CLI already installed"
+          gh --version
+        fi

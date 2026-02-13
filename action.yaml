@@ -43,6 +43,9 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Verify and install dependencies
+      uses: ethpandaops/benchmarkoor/.github/actions/dependencies@fix-gh-action-deps
+
     - name: Build Docker image locally
       if: inputs.image == ''
       shell: bash
