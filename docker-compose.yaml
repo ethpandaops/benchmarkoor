@@ -4,9 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    cap_add:
-     # Required for dropping memory caches between tests (config.yaml#client.config.drop_memory_caches)
-      - SYS_ADMIN
+    # Required for dropping memory caches, ZFS/overlayfs datadir methods, etc.
+    privileged: true
     environment:
       - BENCHMARKOOR_GLOBAL_DROP_CACHES_PATH=/host_drop_caches
       - BENCHMARKOOR_GLOBAL_CPU_SYSFS_PATH=/host_sys_cpu
@@ -25,7 +24,18 @@ services:
       # Config file
       - ./${BENCHMARKOOR_CONFIG:-config.example.docker.yaml}:/app/config.yaml:ro
       # Temp directory (For fetching temporary files and node data dirs)
-      - ${PWD}/tmp:${PWD}/tmp
+      # rshared propagation ensures overlay mounts are visible to sibling containers
+      - type: bind
+        source: ${PWD}/tmp
+        target: ${PWD}/tmp
+        bind:
+          propagation: rshared
+      # For ZFS datadir methods, mount your ZFS data path with rshared propagation:
+      #- type: bind
+      #  source: /data-zfs
+      #  target: /data-zfs
+      #  bind:
+      #    propagation: rshared
       # Results directory
       - ./results:/app/results
     working_dir: /app
