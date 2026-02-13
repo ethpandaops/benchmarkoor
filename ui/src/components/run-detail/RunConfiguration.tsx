@@ -8,6 +8,9 @@ interface RunConfigurationProps {
   instance: InstanceConfig
   system: SystemInfo
   startBlock?: StartBlock
+  metadata?: {
+    labels?: Record<string, string>
+  }
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -42,7 +45,7 @@ function InfoItem({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-export function RunConfiguration({ instance, system, startBlock }: RunConfigurationProps) {
+export function RunConfiguration({ instance, system, startBlock, metadata }: RunConfigurationProps) {
   const [expanded, setExpanded] = useState(false)
 
   const shortImage = instance.image.includes('/') ? instance.image.split('/').pop()! : instance.image
@@ -370,6 +373,7 @@ export function RunConfiguration({ instance, system, startBlock }: RunConfigurat
                   </dd>
                 </div>
               )}
+
             </div>
           </div>
 
@@ -486,6 +490,26 @@ export function RunConfiguration({ instance, system, startBlock }: RunConfigurat
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Metadata Labels */}
+            {metadata?.labels && Object.keys(metadata.labels).length > 0 && (
+              <div className="mt-6 border-t border-gray-200 pt-6 dark:border-gray-700">
+                <h4 className="mb-3 text-sm/6 font-medium text-gray-900 dark:text-gray-100">Metadata Labels</h4>
+                <div className="overflow-x-auto rounded-xs bg-gray-100 p-2 dark:bg-gray-900">
+                  <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                    {Object.entries(metadata.labels).map(([key, value]) => (
+                      <div key={key} className="flex items-start gap-2">
+                        <span className="break-all">
+                          <span className="text-gray-500 dark:text-gray-400">{key}=</span>
+                          {value}
+                        </span>
+                        <CopyButton text={`${key}=${value}`} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>
