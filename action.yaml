@@ -44,7 +44,7 @@ runs:
   using: 'composite'
   steps:
     - name: Verify and install dependencies
-      uses: ethpandaops/benchmarkoor/.github/actions/dependencies@9e2717bc470635bfd390165b2cff7825169b8de7
+      uses: ethpandaops/benchmarkoor/.github/actions/dependencies@8c05c21f44c2dfe3461765c71b6da0b0b493ef73
 
     - name: Build Docker image locally
       if: inputs.image == ''
@@ -149,12 +149,10 @@ runs:
           ALL_SOURCE_DIRS=""
           for cfg in "${CONFIG_FILES[@]}"; do
             # Extract source_dir from client.datadirs map values and client.instances[].datadir
-            DIRS=$(yq -r '
-              [
-                (.client.datadirs // {} | .[].source_dir // empty),
-                (.client.instances // [] | .[].datadir.source_dir // empty)
-              ] | .[]
-            ' "$cfg" 2>/dev/null || true)
+            DIRS=$(yq '(
+              .client.datadirs[].source_dir,
+              .client.instances[].datadir.source_dir
+            )' "$cfg" 2>/dev/null | grep -v '^null$' || true)
             if [ -n "$DIRS" ]; then
               ALL_SOURCE_DIRS="${ALL_SOURCE_DIRS}${DIRS}"$'\n'
             fi
@@ -166,9 +164,14 @@ runs:
               dir=$(echo "$dir" | xargs)
               [ -z "$dir" ] && continue
               if [ -d "$dir" ]; then
-                stat --format=%m "$dir" 2>/dev/null || true
+                mp=$(findmnt -n -o TARGET --target "$dir" 2>/dev/null || true)
+                if [ -n "$mp" ] && [[ "$mp" == /* ]]; then
+                  echo "$mp"
+                else
+                  echo "Warning: could not determine mount point for '$dir', skipping" >&2
+                fi
               else
-                echo "Warning: datadir source_dir '$dir' does not exist, skipping"
+                echo "Warning: datadir source_dir '$dir' does not exist, skipping" >&2
               fi
             done | sort -u)
           fi
