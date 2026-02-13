@@ -1,6 +1,6 @@
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { fetchText } from '@/api/client'
+import { fetchHead } from '@/api/client'
 import type { TestEntry, AggregatedStats, StepResult } from '@/api/types'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
@@ -136,20 +136,14 @@ export function RunDetailPage() {
   const { data: result, isLoading: resultLoading, refetch: refetchResult } = useRunResult(runId)
   const { data: suite } = useSuite(config?.suite_hash ?? '')
   const { data: index } = useIndex()
-  const { data: containerLog } = useQuery({
-    queryKey: ['run', runId, 'container-log'],
-    queryFn: async () => {
-      const { data } = await fetchText(`runs/${runId}/container.log`)
-      return data
-    },
+  const { data: containerLogHead, isLoading: containerLogLoading } = useQuery({
+    queryKey: ['run', runId, 'container-log-head'],
+    queryFn: () => fetchHead(`runs/${runId}/container.log`),
     enabled: !!runId,
   })
-  const { data: benchmarkoorLog } = useQuery({
-    queryKey: ['run', runId, 'benchmarkoor-log'],
-    queryFn: async () => {
-      const { data } = await fetchText(`runs/${runId}/benchmarkoor.log`)
-      return data
-    },
+  const { data: benchmarkoorLogHead, isLoading: benchmarkoorLogLoading } = useQuery({
+    queryKey: ['run', runId, 'benchmarkoor-log-head'],
+    queryFn: () => fetchHead(`runs/${runId}/benchmarkoor.log`),
     enabled: !!runId,
   })
   const { data: blockLogs } = useBlockLogs(runId)
@@ -303,10 +297,10 @@ export function RunDetailPage() {
           </>
         )}
         <span className="text-gray-900 dark:text-gray-100">{runId}</span>
-        {(containerLog || benchmarkoorLog) && (
+        {(benchmarkoorLogLoading || benchmarkoorLogHead?.exists || containerLogLoading || containerLogHead?.exists) && (
           <div className="ml-auto flex items-center gap-2">
             <span className="font-medium text-gray-900 dark:text-gray-100">Logs:</span>
-            {benchmarkoorLog && (
+            {(benchmarkoorLogLoading || benchmarkoorLogHead?.exists) && (
               <>
                 <Link
                   to="/runs/$runId/fileviewer"
@@ -318,29 +312,26 @@ export function RunDetailPage() {
                   Benchmarkoor
                 </Link>
                 <span className="text-xs text-gray-400 dark:text-gray-500">
-                  ({formatBytes(new TextEncoder().encode(benchmarkoorLog).length)})
+                  {benchmarkoorLogLoading ? (
+                    <span className="inline-block size-3 animate-pulse rounded-full bg-gray-200 dark:bg-gray-600" />
+                  ) : benchmarkoorLogHead?.size != null ? (
+                    `(${formatBytes(benchmarkoorLogHead.size)})`
+                  ) : null}
                 </span>
-                <button
-                  onClick={() => {
-                    const blob = new Blob([benchmarkoorLog], { type: 'text/plain' })
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = 'benchmarkoor.log'
-                    document.body.appendChild(a)
-                    a.click()
-                    document.body.removeChild(a)
-                    URL.revokeObjectURL(url)
-                  }}
+                <a
+                  href={benchmarkoorLogHead?.url}
+                  download="benchmarkoor.log"
                   className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                   title="Download benchmarkoor.log"
                 >
                   <Download className="size-4" />
-                </button>
+                </a>
               </>
             )}
-            {benchmarkoorLog && containerLog && <span className="text-gray-300 dark:text-gray-600">|</span>}
-            {containerLog && (
+            {(benchmarkoorLogLoading || benchmarkoorLogHead?.exists) && (containerLogLoading || containerLogHead?.exists) && (
+              <span className="text-gray-300 dark:text-gray-600">|</span>
+            )}
+            {(containerLogLoading || containerLogHead?.exists) && (
               <>
                 <Link
                   to="/runs/$runId/fileviewer"
@@ -352,25 +343,20 @@ export function RunDetailPage() {
                   Client
                 </Link>
                 <span className="text-xs text-gray-400 dark:text-gray-500">
-                  ({formatBytes(new TextEncoder().encode(containerLog).length)})
+                  {containerLogLoading ? (
+                    <span className="inline-block size-3 animate-pulse rounded-full bg-gray-200 dark:bg-gray-600" />
+                  ) : containerLogHead?.size != null ? (
+                    `(${formatBytes(containerLogHead.size)})`
+                  ) : null}
                 </span>
-                <button
-                  onClick={() => {
-                    const blob = new Blob([containerLog], { type: 'text/plain' })
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = 'container.log'
-                    document.body.appendChild(a)
-                    a.click()
-                    document.body.removeChild(a)
-                    URL.revokeObjectURL(url)
-                  }}
+                <a
+                  href={containerLogHead?.url}
+                  download="container.log"
                   className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                   title="Download container.log"
                 >
                   <Download className="size-4" />
-                </button>
+                </a>
               </>
             )}
           </div>
