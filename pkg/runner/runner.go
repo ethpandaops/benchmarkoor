@@ -762,8 +762,37 @@ func (r *runner) runContainerLifecycle(
 		cmd = append(cmd, spec.GenesisFlag()+spec.GenesisPath())
 	}
 
-	// Append extra args if provided.
+	// Append extra args if provided, replacing any base args that share a flag prefix.
 	if len(instance.ExtraArgs) > 0 {
+		// Build set of flag prefixes from extra_args (e.g. "--config=" from "--config=mainnet.cfg").
+		prefixes := make([]string, 0, len(instance.ExtraArgs))
+		for _, arg := range instance.ExtraArgs {
+			if idx := strings.Index(arg, "="); idx != -1 {
+				prefixes = append(prefixes, arg[:idx+1])
+			}
+		}
+
+		// Remove any existing args that share a prefix with an extra arg.
+		if len(prefixes) > 0 {
+			filtered := make([]string, 0, len(cmd))
+			for _, c := range cmd {
+				override := false
+				for _, p := range prefixes {
+					if strings.HasPrefix(c, p) {
+						override = true
+
+						break
+					}
+				}
+
+				if !override {
+					filtered = append(filtered, c)
+				}
+			}
+
+			cmd = filtered
+		}
+
 		cmd = append(cmd, instance.ExtraArgs...)
 	}
 
