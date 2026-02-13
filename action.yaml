@@ -43,6 +43,10 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Verify and install dependencies
+      if: ${{ inputs.run-tests == 'true' }}
+      uses: ethpandaops/benchmarkoor/.github/actions/dependencies@bb735e31aa84b6f345b28d986253315a5f6c85ea
+
     - name: Build Docker image locally
       if: inputs.image == ''
       shell: bash
