@@ -34,12 +34,13 @@ tmp/
 *.log
 .ai_plans
 config.yaml
+summary-*.md
+/data/
+/fixtures/
+/config/
+
 
 # Root level npm (should only be in ui/)
 /node_modules/
 /package.json
 /package-lock.json
-
-/data/
-/fixtures/
-/config/
