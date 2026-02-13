@@ -21,12 +21,10 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           git-ref: ${{ github.event.pull_request.head.sha }}
           #run-args: '--log-level=debug'
+          run-config-urls: >-
+            https://raw.githubusercontent.com/ethpandaops/benchmarkoor/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-cleanup.yaml,
+            https://raw.githubusercontent.com/ethpandaops/benchmarkoor/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-clientstdout.yaml
           run-config: |
-            global:
-              log_level: debug
-              client_logs_to_stdout: true
-              cleanup_on_start: true
-
             benchmark:
               system_resource_collection_enabled: true
               tests:
