@@ -149,12 +149,10 @@ runs:
           ALL_SOURCE_DIRS=""
           for cfg in "${CONFIG_FILES[@]}"; do
             # Extract source_dir from client.datadirs map values and client.instances[].datadir
-            DIRS=$(yq -r '
-              [
-                (.client.datadirs // {} | .[].source_dir // empty),
-                (.client.instances // [] | .[].datadir.source_dir // empty)
-              ] | .[]
-            ' "$cfg" 2>/dev/null || true)
+            DIRS=$(yq '(
+              .client.datadirs[].source_dir,
+              .client.instances[].datadir.source_dir
+            )' "$cfg" 2>/dev/null | grep -v '^null$' || true)
             if [ -n "$DIRS" ]; then
               ALL_SOURCE_DIRS="${ALL_SOURCE_DIRS}${DIRS}"$'\n'
             fi
@@ -168,7 +166,7 @@ runs:
               if [ -d "$dir" ]; then
                 stat --format=%m "$dir" 2>/dev/null || true
               else
-                echo "Warning: datadir source_dir '$dir' does not exist, skipping"
+                echo "Warning: datadir source_dir '$dir' does not exist, skipping" >&2
               fi
             done | sort -u)
           fi
