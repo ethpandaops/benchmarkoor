@@ -18,6 +18,8 @@ services:
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
       # Required for dropping memory caches between tests (config.yaml#client.config.drop_memory_caches)
       - /proc/sys/vm/drop_caches:/host_drop_caches
+      # Required for CPU frequency control (config.yaml#client.config.resource_limits.cpu_freq)
+      - /sys/devices/system/cpu:/host_sys_cpu
       # Config file
       - ./${BENCHMARKOOR_CONFIG:-config.example.docker.yaml}:/app/config.yaml:ro
       # Temp directory (For fetching temporary files and node data dirs)

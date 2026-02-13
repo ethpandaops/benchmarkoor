@@ -80,6 +80,7 @@ global:
     tmp_datadir: /tmp/benchmarkoor
     tmp_cachedir: /tmp/benchmarkoor-cache
   drop_caches_path: /proc/sys/vm/drop_caches
+  cpu_sysfs_path: /sys/devices/system/cpu
 ```
 
 ### Options
@@ -93,6 +94,7 @@ global:
 | `directories.tmp_datadir` | string | system temp | Directory for temporary datadir copies |
 | `directories.tmp_cachedir` | string | `~/.cache/benchmarkoor` | Directory for executor cache (git clones, etc.) |
 | `drop_caches_path` | string | `/proc/sys/vm/drop_caches` | Path to Linux drop_caches file (for containerized environments) |
+| `cpu_sysfs_path` | string | `/sys/devices/system/cpu` | Base path for CPU sysfs files (for containerized environments where `/sys` is read-only and the host path is bind-mounted elsewhere, e.g., `/host_sys_cpu`) |
 | `github_token` | string | - | GitHub token for downloading Actions artifacts via REST API. Not needed if `gh` CLI is installed and authenticated. Requires `actions:read` scope. Can also be set via `BENCHMARKOOR_GLOBAL_GITHUB_TOKEN` env var |
 
 ## Benchmark Settings
@@ -667,6 +669,7 @@ CPU frequency settings allow you to lock CPUs to a specific frequency, control t
 - Linux only
 - Root access (requires write access to `/sys/devices/system/cpu/*/cpufreq/`)
 - cpufreq subsystem must be available
+- When running in Docker, bind-mount `/sys/devices/system/cpu` into the container and set `global.cpu_sysfs_path` to the mount point (e.g., `/host_sys_cpu`)
 
 ```yaml
 resource_limits:

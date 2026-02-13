@@ -4,6 +4,7 @@ global:
   docker_network: benchmarkoor
   cleanup_on_start: false
   drop_caches_path: /host_drop_caches
+  cpu_sysfs_path: /host_sys_cpu
 
 benchmark:
   results_dir: ./results

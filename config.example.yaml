@@ -18,6 +18,10 @@ global:
   # Optional: Override path to drop_caches file (default: /proc/sys/vm/drop_caches).
   # Useful when running in containers where the file is mounted at a different path.
   # drop_caches_path: /proc/sys/vm/drop_caches
+  # Optional: Override sysfs base path for CPU frequency control (default: /sys/devices/system/cpu).
+  # Useful when running in containers where /sys is read-only and the host path is bind-mounted
+  # at a different location (e.g., -v /sys/devices/system/cpu:/host_sys_cpu).
+  # cpu_sysfs_path: /sys/devices/system/cpu
   # Optional: GitHub token for downloading GitHub Actions artifacts via the REST API.
   # If the gh CLI is installed and authenticated, no token is needed.
   # Otherwise, provide a GitHub token with actions:read scope.

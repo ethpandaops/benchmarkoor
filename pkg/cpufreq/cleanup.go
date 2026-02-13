@@ -119,7 +119,12 @@ func ListOrphanedStateFiles(cacheDir string) ([]StateFile, error) {
 }
 
 // RestoreFromStateFile restores CPU frequency settings from a state file and removes it.
-func RestoreFromStateFile(ctx context.Context, log logrus.FieldLogger, statePath string) error {
+// sysfsBasePath is the base path for CPU sysfs files (e.g. "/sys/devices/system/cpu").
+func RestoreFromStateFile(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	statePath, sysfsBasePath string,
+) error {
 	settings, err := LoadState(statePath)
 	if err != nil {
 		return fmt.Errorf("loading state: %w", err)
@@ -129,7 +134,7 @@ func RestoreFromStateFile(ctx context.Context, log logrus.FieldLogger, statePath
 
 	// Restore turbo boost first.
 	if settings.TurboBoost != nil {
-		if err := restoreTurboBoost(settings.TurboBoost); err != nil {
+		if err := restoreTurboBoost(sysfsBasePath, settings.TurboBoost); err != nil {
 			log.WithError(err).Warn("Failed to restore turbo boost")
 		} else {
 			log.WithField("type", settings.TurboBoost.Type).Info("Restored turbo boost setting")
@@ -140,7 +145,7 @@ func RestoreFromStateFile(ctx context.Context, log logrus.FieldLogger, statePath
 	for cpuID, cpuSettings := range settings.CPUs {
 		// Restore governor.
 		if cpuSettings.Governor != "" {
-			if err := setGovernor(cpuID, cpuSettings.Governor); err != nil {
+			if err := setGovernor(sysfsBasePath, cpuID, cpuSettings.Governor); err != nil {
 				log.WithFields(logrus.Fields{
 					"cpu":      cpuID,
 					"governor": cpuSettings.Governor,
@@ -150,7 +155,7 @@ func RestoreFromStateFile(ctx context.Context, log logrus.FieldLogger, statePath
 
 		// Restore scaling frequencies (max first to ensure min <= max).
 		if cpuSettings.ScalingMaxKHz > 0 {
-			if err := setScalingMaxFreq(cpuID, cpuSettings.ScalingMaxKHz); err != nil {
+			if err := setScalingMaxFreq(sysfsBasePath, cpuID, cpuSettings.ScalingMaxKHz); err != nil {
 				log.WithFields(logrus.Fields{
 					"cpu":     cpuID,
 					"max_khz": cpuSettings.ScalingMaxKHz,
@@ -158,7 +163,7 @@ func RestoreFromStateFile(ctx context.Context, log logrus.FieldLogger, statePath
 			}
 		}
 		if cpuSettings.ScalingMinKHz > 0 {
-			if err := setScalingMinFreq(cpuID, cpuSettings.ScalingMinKHz); err != nil {
+			if err := setScalingMinFreq(sysfsBasePath, cpuID, cpuSettings.ScalingMinKHz); err != nil {
 				log.WithFields(logrus.Fields{
 					"cpu":     cpuID,
 					"min_khz": cpuSettings.ScalingMinKHz,
@@ -178,9 +183,15 @@ func RestoreFromStateFile(ctx context.Context, log logrus.FieldLogger, statePath
 }
 
 // CleanupOrphanedCPUFreqState restores settings from all orphaned state files.
-func CleanupOrphanedCPUFreqState(ctx context.Context, log logrus.FieldLogger, stateFiles []StateFile) error {
+// sysfsBasePath is the base path for CPU sysfs files (e.g. "/sys/devices/system/cpu").
+func CleanupOrphanedCPUFreqState(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	stateFiles []StateFile,
+	sysfsBasePath string,
+) error {
 	for _, sf := range stateFiles {
-		if err := RestoreFromStateFile(ctx, log, sf.Path); err != nil {
+		if err := RestoreFromStateFile(ctx, log, sf.Path, sysfsBasePath); err != nil {
 			log.WithError(err).WithField("state_file", sf.Path).Warn("Failed to restore from state file")
 			// Continue with other files.
 			continue

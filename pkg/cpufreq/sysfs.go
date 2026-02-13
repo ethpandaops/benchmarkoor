@@ -9,16 +9,10 @@ import (
 )
 
 const (
-	// sysfs paths for CPU frequency control.
-	sysfsCPUPath   = "/sys/devices/system/cpu"
-	cpufreqSubdir  = "cpufreq"
-	cpuOnlinePath  = "/sys/devices/system/cpu/online"
-	cpuPresentPath = "/sys/devices/system/cpu/present"
+	// DefaultSysfsCPUPath is the default sysfs path for CPU frequency control.
+	DefaultSysfsCPUPath = "/sys/devices/system/cpu"
 
-	// Intel turbo boost control.
-	intelNoTurboPath = "/sys/devices/system/cpu/intel_pstate/no_turbo"
-	// AMD turbo boost control.
-	amdBoostPath = "/sys/devices/system/cpu/cpufreq/boost"
+	cpufreqSubdir = "cpufreq"
 )
 
 // cpufreq sysfs files.
@@ -34,15 +28,15 @@ const (
 )
 
 // getOnlineCPUs returns the list of online CPU IDs.
-func getOnlineCPUs() ([]int, error) {
+func getOnlineCPUs(basePath string) ([]int, error) {
 	// Try to read online CPUs file first.
-	data, err := os.ReadFile(cpuOnlinePath)
+	data, err := os.ReadFile(filepath.Join(basePath, "online"))
 	if err == nil {
 		return parseCPURange(strings.TrimSpace(string(data)))
 	}
 
 	// Fall back to present CPUs if online file doesn't exist.
-	data, err = os.ReadFile(cpuPresentPath)
+	data, err = os.ReadFile(filepath.Join(basePath, "present"))
 	if err != nil {
 		return nil, fmt.Errorf("reading CPU online/present: %w", err)
 	}
@@ -95,8 +89,18 @@ func parseCPURange(rangeStr string) ([]int, error) {
 }
 
 // cpufreqPath returns the path to a cpufreq file for a given CPU.
-func cpufreqPath(cpuID int, filename string) string {
-	return filepath.Join(sysfsCPUPath, fmt.Sprintf("cpu%d", cpuID), cpufreqSubdir, filename)
+func cpufreqPath(basePath string, cpuID int, filename string) string {
+	return filepath.Join(basePath, fmt.Sprintf("cpu%d", cpuID), cpufreqSubdir, filename)
+}
+
+// intelNoTurboPath returns the path to the Intel turbo boost control file.
+func intelNoTurboPath(basePath string) string {
+	return filepath.Join(basePath, "intel_pstate", "no_turbo")
+}
+
+// amdBoostPath returns the path to the AMD turbo boost control file.
+func amdBoostPath(basePath string) string {
+	return filepath.Join(basePath, "cpufreq", "boost")
 }
 
 // readSysfsUint64 reads a uint64 value from a sysfs file.
@@ -141,58 +145,58 @@ func writeSysfsString(path, value string) error {
 }
 
 // getCPUInfoMaxFreq returns the maximum hardware frequency for a CPU in kHz.
-func getCPUInfoMaxFreq(cpuID int) (uint64, error) {
-	return readSysfsUint64(cpufreqPath(cpuID, cpuinfoMaxFreqFile))
+func getCPUInfoMaxFreq(basePath string, cpuID int) (uint64, error) {
+	return readSysfsUint64(cpufreqPath(basePath, cpuID, cpuinfoMaxFreqFile))
 }
 
 // getCPUInfoMinFreq returns the minimum hardware frequency for a CPU in kHz.
-func getCPUInfoMinFreq(cpuID int) (uint64, error) {
-	return readSysfsUint64(cpufreqPath(cpuID, cpuinfoMinFreqFile))
+func getCPUInfoMinFreq(basePath string, cpuID int) (uint64, error) {
+	return readSysfsUint64(cpufreqPath(basePath, cpuID, cpuinfoMinFreqFile))
 }
 
 // getCPUInfoCurFreq returns the current frequency for a CPU in kHz.
-func getCPUInfoCurFreq(cpuID int) (uint64, error) {
-	return readSysfsUint64(cpufreqPath(cpuID, cpuinfoCurFreqFile))
+func getCPUInfoCurFreq(basePath string, cpuID int) (uint64, error) {
+	return readSysfsUint64(cpufreqPath(basePath, cpuID, cpuinfoCurFreqFile))
 }
 
 // getScalingMaxFreq returns the current scaling maximum frequency for a CPU in kHz.
-func getScalingMaxFreq(cpuID int) (uint64, error) {
-	return readSysfsUint64(cpufreqPath(cpuID, scalingMaxFreqFile))
+func getScalingMaxFreq(basePath string, cpuID int) (uint64, error) {
+	return readSysfsUint64(cpufreqPath(basePath, cpuID, scalingMaxFreqFile))
 }
 
 // getScalingMinFreq returns the current scaling minimum frequency for a CPU in kHz.
-func getScalingMinFreq(cpuID int) (uint64, error) {
-	return readSysfsUint64(cpufreqPath(cpuID, scalingMinFreqFile))
+func getScalingMinFreq(basePath string, cpuID int) (uint64, error) {
+	return readSysfsUint64(cpufreqPath(basePath, cpuID, scalingMinFreqFile))
 }
 
 // getScalingCurFreq returns the current scaling frequency for a CPU in kHz.
-func getScalingCurFreq(cpuID int) (uint64, error) {
-	return readSysfsUint64(cpufreqPath(cpuID, scalingCurFreqFile))
+func getScalingCurFreq(basePath string, cpuID int) (uint64, error) {
+	return readSysfsUint64(cpufreqPath(basePath, cpuID, scalingCurFreqFile))
 }
 
 // setScalingMaxFreq sets the scaling maximum frequency for a CPU in kHz.
-func setScalingMaxFreq(cpuID int, kHz uint64) error {
-	return writeSysfsUint64(cpufreqPath(cpuID, scalingMaxFreqFile), kHz)
+func setScalingMaxFreq(basePath string, cpuID int, kHz uint64) error {
+	return writeSysfsUint64(cpufreqPath(basePath, cpuID, scalingMaxFreqFile), kHz)
 }
 
 // setScalingMinFreq sets the scaling minimum frequency for a CPU in kHz.
-func setScalingMinFreq(cpuID int, kHz uint64) error {
-	return writeSysfsUint64(cpufreqPath(cpuID, scalingMinFreqFile), kHz)
+func setScalingMinFreq(basePath string, cpuID int, kHz uint64) error {
+	return writeSysfsUint64(cpufreqPath(basePath, cpuID, scalingMinFreqFile), kHz)
 }
 
 // getGovernor returns the current governor for a CPU.
-func getGovernor(cpuID int) (string, error) {
-	return readSysfsString(cpufreqPath(cpuID, scalingGovernorFile))
+func getGovernor(basePath string, cpuID int) (string, error) {
+	return readSysfsString(cpufreqPath(basePath, cpuID, scalingGovernorFile))
 }
 
 // setGovernor sets the governor for a CPU.
-func setGovernor(cpuID int, governor string) error {
-	return writeSysfsString(cpufreqPath(cpuID, scalingGovernorFile), governor)
+func setGovernor(basePath string, cpuID int, governor string) error {
+	return writeSysfsString(cpufreqPath(basePath, cpuID, scalingGovernorFile), governor)
 }
 
 // getAvailableGovernors returns the list of available governors for a CPU.
-func getAvailableGovernors(cpuID int) ([]string, error) {
-	data, err := readSysfsString(cpufreqPath(cpuID, scalingAvailGovsFile))
+func getAvailableGovernors(basePath string, cpuID int) ([]string, error) {
+	data, err := readSysfsString(cpufreqPath(basePath, cpuID, scalingAvailGovsFile))
 	if err != nil {
 		return nil, err
 	}
@@ -202,37 +206,37 @@ func getAvailableGovernors(cpuID int) ([]string, error) {
 }
 
 // getCPUInfo returns comprehensive CPU frequency info for a single CPU.
-func getCPUInfo(cpuID int) (*CPUInfo, error) {
+func getCPUInfo(basePath string, cpuID int) (*CPUInfo, error) {
 	info := &CPUInfo{ID: cpuID}
 
 	// Get hardware frequency bounds.
-	if minKHz, err := getCPUInfoMinFreq(cpuID); err == nil {
+	if minKHz, err := getCPUInfoMinFreq(basePath, cpuID); err == nil {
 		info.MinFreqKHz = minKHz
 	}
-	if maxKHz, err := getCPUInfoMaxFreq(cpuID); err == nil {
+	if maxKHz, err := getCPUInfoMaxFreq(basePath, cpuID); err == nil {
 		info.MaxFreqKHz = maxKHz
 	}
 
 	// Get current frequency.
-	if curKHz, err := getScalingCurFreq(cpuID); err == nil {
+	if curKHz, err := getScalingCurFreq(basePath, cpuID); err == nil {
 		info.CurrentFreqKHz = curKHz
-	} else if curKHz, err := getCPUInfoCurFreq(cpuID); err == nil {
+	} else if curKHz, err := getCPUInfoCurFreq(basePath, cpuID); err == nil {
 		info.CurrentFreqKHz = curKHz
 	}
 
 	// Get scaling bounds.
-	if minKHz, err := getScalingMinFreq(cpuID); err == nil {
+	if minKHz, err := getScalingMinFreq(basePath, cpuID); err == nil {
 		info.ScalingMinKHz = minKHz
 	}
-	if maxKHz, err := getScalingMaxFreq(cpuID); err == nil {
+	if maxKHz, err := getScalingMaxFreq(basePath, cpuID); err == nil {
 		info.ScalingMaxKHz = maxKHz
 	}
 
 	// Get governor info.
-	if gov, err := getGovernor(cpuID); err == nil {
+	if gov, err := getGovernor(basePath, cpuID); err == nil {
 		info.Governor = gov
 	}
-	if govs, err := getAvailableGovernors(cpuID); err == nil {
+	if govs, err := getAvailableGovernors(basePath, cpuID); err == nil {
 		info.AvailGovernors = govs
 	}
 
@@ -249,24 +253,24 @@ const (
 )
 
 // detectTurboBoostType detects which turbo boost control is available.
-func detectTurboBoostType() TurboBoostType {
-	if _, err := os.Stat(intelNoTurboPath); err == nil {
+func detectTurboBoostType(basePath string) TurboBoostType {
+	if _, err := os.Stat(intelNoTurboPath(basePath)); err == nil {
 		return TurboBoostIntel
 	}
-	if _, err := os.Stat(amdBoostPath); err == nil {
+	if _, err := os.Stat(amdBoostPath(basePath)); err == nil {
 		return TurboBoostAMD
 	}
 	return TurboBoostNone
 }
 
 // GetTurboBoostEnabled returns whether turbo boost is currently enabled.
-func GetTurboBoostEnabled() (bool, TurboBoostType, error) {
-	turboType := detectTurboBoostType()
+func GetTurboBoostEnabled(basePath string) (bool, TurboBoostType, error) {
+	turboType := detectTurboBoostType(basePath)
 
 	switch turboType {
 	case TurboBoostIntel:
 		// Intel: 0 = turbo enabled, 1 = turbo disabled.
-		val, err := readSysfsUint64(intelNoTurboPath)
+		val, err := readSysfsUint64(intelNoTurboPath(basePath))
 		if err != nil {
 			return false, turboType, err
 		}
@@ -274,7 +278,7 @@ func GetTurboBoostEnabled() (bool, TurboBoostType, error) {
 
 	case TurboBoostAMD:
 		// AMD: 1 = turbo enabled, 0 = turbo disabled.
-		val, err := readSysfsUint64(amdBoostPath)
+		val, err := readSysfsUint64(amdBoostPath(basePath))
 		if err != nil {
 			return false, turboType, err
 		}
@@ -286,8 +290,8 @@ func GetTurboBoostEnabled() (bool, TurboBoostType, error) {
 }
 
 // setTurboBoost enables or disables turbo boost.
-func setTurboBoost(enabled bool) error {
-	turboType := detectTurboBoostType()
+func setTurboBoost(basePath string, enabled bool) error {
+	turboType := detectTurboBoostType(basePath)
 
 	switch turboType {
 	case TurboBoostIntel:
@@ -296,7 +300,7 @@ func setTurboBoost(enabled bool) error {
 		if !enabled {
 			val = 1
 		}
-		return writeSysfsUint64(intelNoTurboPath, val)
+		return writeSysfsUint64(intelNoTurboPath(basePath), val)
 
 	case TurboBoostAMD:
 		// AMD: 1 = turbo enabled, 0 = turbo disabled.
@@ -304,7 +308,7 @@ func setTurboBoost(enabled bool) error {
 		if enabled {
 			val = 1
 		}
-		return writeSysfsUint64(amdBoostPath, val)
+		return writeSysfsUint64(amdBoostPath(basePath), val)
 
 	default:
 		return fmt.Errorf("turbo boost control not available")
@@ -312,12 +316,12 @@ func setTurboBoost(enabled bool) error {
 }
 
 // captureTurboBoostSettings captures the current turbo boost settings.
-func captureTurboBoostSettings() (*TurboBoostSettings, error) {
-	turboType := detectTurboBoostType()
+func captureTurboBoostSettings(basePath string) (*TurboBoostSettings, error) {
+	turboType := detectTurboBoostType(basePath)
 
 	switch turboType {
 	case TurboBoostIntel:
-		val, err := readSysfsUint64(intelNoTurboPath)
+		val, err := readSysfsUint64(intelNoTurboPath(basePath))
 		if err != nil {
 			return nil, err
 		}
@@ -327,7 +331,7 @@ func captureTurboBoostSettings() (*TurboBoostSettings, error) {
 		}, nil
 
 	case TurboBoostAMD:
-		val, err := readSysfsUint64(amdBoostPath)
+		val, err := readSysfsUint64(amdBoostPath(basePath))
 		if err != nil {
 			return nil, err
 		}
@@ -342,38 +346,38 @@ func captureTurboBoostSettings() (*TurboBoostSettings, error) {
 }
 
 // restoreTurboBoost restores turbo boost to the original setting.
-func restoreTurboBoost(settings *TurboBoostSettings) error {
+func restoreTurboBoost(basePath string, settings *TurboBoostSettings) error {
 	if settings == nil {
 		return nil
 	}
 
 	switch TurboBoostType(settings.Type) {
 	case TurboBoostIntel:
-		return writeSysfsUint64(intelNoTurboPath, uint64(settings.Value))
+		return writeSysfsUint64(intelNoTurboPath(basePath), uint64(settings.Value))
 	case TurboBoostAMD:
-		return writeSysfsUint64(amdBoostPath, uint64(settings.Value))
+		return writeSysfsUint64(amdBoostPath(basePath), uint64(settings.Value))
 	default:
 		return fmt.Errorf("unknown turbo boost type: %s", settings.Type)
 	}
 }
 
 // IsCPUFreqSupported checks if CPU frequency control is supported on this system.
-func IsCPUFreqSupported() bool {
+func IsCPUFreqSupported(basePath string) bool {
 	// Check if cpufreq subsystem is available.
-	cpus, err := getOnlineCPUs()
+	cpus, err := getOnlineCPUs(basePath)
 	if err != nil || len(cpus) == 0 {
 		return false
 	}
 
 	// Check if we can read from the first CPU's cpufreq directory.
-	path := cpufreqPath(cpus[0], scalingGovernorFile)
+	path := cpufreqPath(basePath, cpus[0], scalingGovernorFile)
 	_, err = os.Stat(path)
 	return err == nil
 }
 
 // HasWriteAccess checks if we have write access to CPU frequency sysfs files.
-func HasWriteAccess() error {
-	cpus, err := getOnlineCPUs()
+func HasWriteAccess(basePath string) error {
+	cpus, err := getOnlineCPUs(basePath)
 	if err != nil {
 		return fmt.Errorf("getting online CPUs: %w", err)
 	}
@@ -383,7 +387,7 @@ func HasWriteAccess() error {
 	}
 
 	// Try to open the scaling_max_freq file for writing.
-	path := cpufreqPath(cpus[0], scalingMaxFreqFile)
+	path := cpufreqPath(basePath, cpus[0], scalingMaxFreqFile)
 	file, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
 		if os.IsPermission(err) {
@@ -397,8 +401,8 @@ func HasWriteAccess() error {
 }
 
 // ValidateGovernor checks if the specified governor is available on the system.
-func ValidateGovernor(governor string) error {
-	cpus, err := getOnlineCPUs()
+func ValidateGovernor(basePath string, governor string) error {
+	cpus, err := getOnlineCPUs(basePath)
 	if err != nil {
 		return fmt.Errorf("getting online CPUs: %w", err)
 	}
@@ -407,7 +411,7 @@ func ValidateGovernor(governor string) error {
 		return fmt.Errorf("no online CPUs found")
 	}
 
-	availGovs, err := getAvailableGovernors(cpus[0])
+	availGovs, err := getAvailableGovernors(basePath, cpus[0])
 	if err != nil {
 		return fmt.Errorf("getting available governors: %w", err)
 	}
@@ -418,12 +422,15 @@ func ValidateGovernor(governor string) error {
 		}
 	}
 
-	return fmt.Errorf("governor %q not available (available: %s)", governor, strings.Join(availGovs, ", "))
+	return fmt.Errorf(
+		"governor %q not available (available: %s)",
+		governor, strings.Join(availGovs, ", "),
+	)
 }
 
 // ValidateFrequency validates that the specified frequency is within system bounds.
-func ValidateFrequency(freqKHz uint64) error {
-	cpus, err := getOnlineCPUs()
+func ValidateFrequency(basePath string, freqKHz uint64) error {
+	cpus, err := getOnlineCPUs(basePath)
 	if err != nil {
 		return fmt.Errorf("getting online CPUs: %w", err)
 	}
@@ -433,12 +440,12 @@ func ValidateFrequency(freqKHz uint64) error {
 	}
 
 	// Check frequency against first CPU (assume all CPUs have same bounds).
-	minKHz, err := getCPUInfoMinFreq(cpus[0])
+	minKHz, err := getCPUInfoMinFreq(basePath, cpus[0])
 	if err != nil {
 		return fmt.Errorf("getting min frequency: %w", err)
 	}
 
-	maxKHz, err := getCPUInfoMaxFreq(cpus[0])
+	maxKHz, err := getCPUInfoMaxFreq(basePath, cpus[0])
 	if err != nil {
 		return fmt.Errorf("getting max frequency: %w", err)
 	}
