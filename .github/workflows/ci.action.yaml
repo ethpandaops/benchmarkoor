@@ -40,10 +40,11 @@ jobs:
               config:
                 drop_memory_caches: "steps"
                 resource_limits:
+                  # The CPU freq limit might not work on public github runners.
+                  # cpu_freq: "2100MHz"
+                  # cpu_turboboost: false
+                  # cpu_freq_governor: performance
                   cpuset_count: 2
-                  cpu_freq: "2100MHz"
-                  cpu_turboboost: false
-                  cpu_freq_governor: performance
                   memory: "4g"
                   swap_disabled: true
 
