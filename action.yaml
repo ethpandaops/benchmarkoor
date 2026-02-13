@@ -106,6 +106,10 @@ runs:
         INPUT_RUN_CONFIG: ${{ inputs.run-config }}
         INPUT_RUN_CONFIG_URL: ${{ inputs.run-config-url }}
       run: |
+        # Remove any leftover containers from a previous run
+        docker rm -f benchmarkoor-run 2>/dev/null || true
+        docker rm -f benchmarkoor-md 2>/dev/null || true
+
         mkdir -p ${{ runner.temp }}/results
 
         IMAGE="${{ steps.determine-image.outputs.image }}"
