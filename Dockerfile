@@ -25,7 +25,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Final stage
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata git
+RUN apk add --no-cache ca-certificates tzdata git zfs fuse-overlayfs
 
 WORKDIR /app
 

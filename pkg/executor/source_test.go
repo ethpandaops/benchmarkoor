@@ -56,3 +56,31 @@ func TestDiscoverTestsFromConfig_PreRunStepsNotFiltered(t *testing.T) {
 	assert.Len(t, result.Tests, 1, "only bn128 test should match filter")
 	assert.Contains(t, result.Tests[0].Name, "bn128")
 }
+
+func TestLooksLikeCommitHash(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{name: "full sha1", input: "e5011aa5f75d7a1722481f25408347fadfb7fd3c", expected: true},
+		{name: "short hash 7 chars", input: "e5011aa", expected: true},
+		{name: "short hash 8 chars", input: "e5011aa5", expected: true},
+		{name: "uppercase hex", input: "E5011AA5F75D7A17", expected: true},
+		{name: "mixed case hex", input: "e5011AA5f75d", expected: true},
+		{name: "branch name", input: "main", expected: false},
+		{name: "branch with slash", input: "feature/foo", expected: false},
+		{name: "tag semver", input: "v1.0.0", expected: false},
+		{name: "too short 6 chars", input: "e5011a", expected: false},
+		{name: "too long 41 chars", input: "e5011aa5f75d7a1722481f25408347fadfb7fd3c0", expected: false},
+		{name: "empty string", input: "", expected: false},
+		{name: "hex with non-hex char", input: "e5011gg", expected: false},
+		{name: "7 char all digits", input: "1234567", expected: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, looksLikeCommitHash(tt.input))
+		})
+	}
+}
