@@ -1198,3 +1198,182 @@ func createTestTarball(t *testing.T, path string) {
 	_, err = tw.Write(content)
 	require.NoError(t, err)
 }
+
+func TestValidate_WithValidateOpts(t *testing.T) {
+	// Create a real directory to use as a valid datadir source.
+	validDir := t.TempDir()
+
+	tests := []struct {
+		name      string
+		cfg       Config
+		opts      ValidateOpts
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "no opts validates all instance datadirs",
+			cfg: Config{
+				Client: ClientConfig{
+					Instances: []ClientInstance{
+						{
+							ID:     "good",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "copy",
+							},
+						},
+						{
+							ID:     "bad",
+							Client: "reth",
+							DataDir: &DataDirConfig{
+								SourceDir: "/nonexistent/datadir",
+								Method:    "copy",
+							},
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "does not exist",
+		},
+		{
+			name: "active instance IDs skips excluded instance datadir",
+			cfg: Config{
+				Client: ClientConfig{
+					Instances: []ClientInstance{
+						{
+							ID:     "good",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "copy",
+							},
+						},
+						{
+							ID:     "bad",
+							Client: "reth",
+							DataDir: &DataDirConfig{
+								SourceDir: "/nonexistent/datadir",
+								Method:    "copy",
+							},
+						},
+					},
+				},
+			},
+			opts: ValidateOpts{
+				ActiveInstanceIDs: map[string]struct{}{
+					"good": {},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "active instance IDs still validates included instance",
+			cfg: Config{
+				Client: ClientConfig{
+					Instances: []ClientInstance{
+						{
+							ID:     "bad",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: "/nonexistent/datadir",
+								Method:    "copy",
+							},
+						},
+					},
+				},
+			},
+			opts: ValidateOpts{
+				ActiveInstanceIDs: map[string]struct{}{
+					"bad": {},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "does not exist",
+		},
+		{
+			name: "active clients skips excluded global datadir",
+			cfg: Config{
+				Client: ClientConfig{
+					DataDirs: map[string]*DataDirConfig{
+						"geth": {
+							SourceDir: validDir,
+							Method:    "copy",
+						},
+						"reth": {
+							SourceDir: "/nonexistent/global/datadir",
+							Method:    "copy",
+						},
+					},
+					Instances: []ClientInstance{
+						{ID: "inst-1", Client: "geth"},
+					},
+				},
+			},
+			opts: ValidateOpts{
+				ActiveClients: map[string]struct{}{
+					"geth": {},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "active clients still validates included global datadir",
+			cfg: Config{
+				Client: ClientConfig{
+					DataDirs: map[string]*DataDirConfig{
+						"geth": {
+							SourceDir: "/nonexistent/global/datadir",
+							Method:    "copy",
+						},
+					},
+					Instances: []ClientInstance{
+						{ID: "inst-1", Client: "geth"},
+					},
+				},
+			},
+			opts: ValidateOpts{
+				ActiveClients: map[string]struct{}{
+					"geth": {},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "does not exist",
+		},
+		{
+			name: "empty opts maps validates everything",
+			cfg: Config{
+				Client: ClientConfig{
+					DataDirs: map[string]*DataDirConfig{
+						"reth": {
+							SourceDir: "/nonexistent/global/datadir",
+							Method:    "copy",
+						},
+					},
+					Instances: []ClientInstance{
+						{ID: "inst-1", Client: "geth"},
+					},
+				},
+			},
+			opts: ValidateOpts{
+				ActiveInstanceIDs: map[string]struct{}{},
+				ActiveClients:     map[string]struct{}{},
+			},
+			wantErr:   true,
+			errSubstr: "does not exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate(tt.opts)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

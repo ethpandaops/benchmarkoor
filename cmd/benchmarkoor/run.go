@@ -68,8 +68,34 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		cfg.Global.Metadata.Labels[k] = v
 	}
 
+	// Filter instances if limits are specified (before validation so we can
+	// scope datadir checks to active instances only).
+	instances := filterInstances(cfg.Client.Instances, limitInstanceIDs, limitInstanceClients)
+	if len(instances) == 0 {
+		return fmt.Errorf("no instances match the specified filters")
+	}
+
+	if len(instances) != len(cfg.Client.Instances) {
+		log.WithFields(logrus.Fields{
+			"total":    len(cfg.Client.Instances),
+			"filtered": len(instances),
+		}).Info("Running filtered instances")
+	}
+
+	// Build validation opts to scope datadir validation to active instances.
+	var validateOpts config.ValidateOpts
+	if len(instances) != len(cfg.Client.Instances) {
+		validateOpts.ActiveInstanceIDs = make(map[string]struct{}, len(instances))
+		validateOpts.ActiveClients = make(map[string]struct{}, len(instances))
+
+		for _, inst := range instances {
+			validateOpts.ActiveInstanceIDs[inst.ID] = struct{}{}
+			validateOpts.ActiveClients[inst.Client] = struct{}{}
+		}
+	}
+
 	// Validate configuration.
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.Validate(validateOpts); err != nil {
 		return fmt.Errorf("validating config: %w", err)
 	}
 
@@ -215,19 +241,6 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			log.WithError(err).Warn("Failed to stop runner")
 		}
 	}()
-
-	// Filter instances if limits are specified.
-	instances := filterInstances(cfg.Client.Instances, limitInstanceIDs, limitInstanceClients)
-	if len(instances) == 0 {
-		return fmt.Errorf("no instances match the specified filters")
-	}
-
-	if len(instances) != len(cfg.Client.Instances) {
-		log.WithFields(logrus.Fields{
-			"total":    len(cfg.Client.Instances),
-			"filtered": len(instances),
-		}).Info("Running filtered instances")
-	}
 
 	// Run all configured instances.
 	for _, instance := range instances {
