@@ -649,6 +649,8 @@ func bindEnvKeys(v *viper.Viper) {
 		"global.directories.tmp_datadir",
 		"global.directories.tmp_cachedir",
 		"global.github_token",
+		"global.drop_caches_path",
+		"global.cpu_sysfs_path",
 		// Benchmark settings
 		"benchmark.results_dir",
 		"benchmark.results_owner",
@@ -658,6 +660,25 @@ func bindEnvKeys(v *viper.Viper) {
 		"benchmark.tests.filter",
 		// Client settings
 		"client.config.jwt",
+		"client.config.drop_memory_caches",
+		"client.config.rollback_strategy",
+		"client.config.wait_after_rpc_ready",
+		// Client resource limits
+		"client.config.resource_limits.cpuset_count",
+		"client.config.resource_limits.memory",
+		"client.config.resource_limits.swap_disabled",
+		"client.config.resource_limits.cpu_freq",
+		"client.config.resource_limits.cpu_turboboost",
+		"client.config.resource_limits.cpu_freq_governor",
+		// Client retry new payloads syncing state
+		"client.config.retry_new_payloads_syncing_state.enabled",
+		"client.config.retry_new_payloads_syncing_state.max_retries",
+		"client.config.retry_new_payloads_syncing_state.backoff",
+		// Client bootstrap FCU
+		"client.config.bootstrap_fcu.enabled",
+		"client.config.bootstrap_fcu.max_retries",
+		"client.config.bootstrap_fcu.backoff",
+		"client.config.bootstrap_fcu.head_block_hash",
 	}
 
 	for _, key := range keys {
