@@ -20,7 +20,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           git-ref: ${{ github.event.pull_request.head.sha }}
-          run-args: '--log-level=debug'
+          #run-args: '--log-level=debug'
           run-config: |
             global:
               log_level: debug
