@@ -206,17 +206,24 @@ func (s *GitSource) prepareRepo(ctx context.Context) (string, error) {
 			return "", fmt.Errorf("creating cache directory: %w", err)
 		}
 
-		// Shallow clone with specific branch/tag.
-		cmd := exec.CommandContext(ctx, "git", "clone",
-			"--depth=1",
-			"--branch", s.cfg.Version,
-			"--single-branch",
-			s.cfg.Repo, localPath)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		if looksLikeCommitHash(s.cfg.Version) {
+			// Commit hashes can't be used with --branch, so we init + fetch instead.
+			if err := s.cloneByCommitHash(ctx, localPath); err != nil {
+				return "", err
+			}
+		} else {
+			// Shallow clone with specific branch/tag.
+			cmd := exec.CommandContext(ctx, "git", "clone",
+				"--depth=1",
+				"--branch", s.cfg.Version,
+				"--single-branch",
+				s.cfg.Repo, localPath)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
 
-		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("cloning repository: %w", err)
+			if err := cmd.Run(); err != nil {
+				return "", fmt.Errorf("cloning repository: %w", err)
+			}
 		}
 	} else {
 		log.Info("Updating cached repository")
@@ -277,6 +284,66 @@ func (s *GitSource) GetSourceInfo() (*SuiteSource, error) {
 	}
 
 	return &SuiteSource{Git: git}, nil
+}
+
+// cloneByCommitHash initializes a repo and fetches a specific commit hash.
+func (s *GitSource) cloneByCommitHash(ctx context.Context, localPath string) error {
+	// git init
+	cmd := exec.CommandContext(ctx, "git", "init", localPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("initializing repository: %w", err)
+	}
+
+	// git remote add origin <repo>
+	cmd = exec.CommandContext(ctx, "git", "-C", localPath,
+		"remote", "add", "origin", s.cfg.Repo)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("adding remote: %w", err)
+	}
+
+	// git fetch --depth=1 origin <hash>
+	cmd = exec.CommandContext(ctx, "git", "-C", localPath,
+		"fetch", "--depth=1", "origin", s.cfg.Version)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("fetching commit %s: %w", s.cfg.Version, err)
+	}
+
+	// git checkout FETCH_HEAD
+	cmd = exec.CommandContext(ctx, "git", "-C", localPath,
+		"checkout", "FETCH_HEAD")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("checking out commit %s: %w", s.cfg.Version, err)
+	}
+
+	return nil
+}
+
+// looksLikeCommitHash returns true if s looks like a git commit hash
+// (7-40 lowercase/uppercase hex characters).
+func looksLikeCommitHash(s string) bool {
+	if len(s) < 7 || len(s) > 40 {
+		return false
+	}
+
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // hashRepoURL creates a hash of the repository URL for caching.
