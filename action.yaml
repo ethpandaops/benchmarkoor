@@ -23,7 +23,7 @@ inputs:
   upload-artifacts:
     description: 'Whether to upload run results as GitHub artifacts'
     required: false
-    default: 'true'
+    default: 'false'
 
   run-config-url:
     description: 'URL for config file to download and pass via --config'
@@ -213,12 +213,20 @@ runs:
           fi
         done
 
+    - name: Create results archive
+      if: always() && inputs.upload-artifacts == 'true'
+      shell: bash
+      run: |
+        if [ -d "${{ runner.temp }}/results" ]; then
+          tar -czf "${{ runner.temp }}/benchmarkoor-results.tar.gz" -C "${{ runner.temp }}" results
+        fi
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       if: always() && inputs.upload-artifacts == 'true'
       with:
         name: benchmarkoor-${{ github.run_id }}
-        path: ${{ runner.temp }}/results
+        path: ${{ runner.temp }}/benchmarkoor-results.tar.gz
 
     - name: Cleanup
       shell: bash
@@ -228,5 +236,6 @@ runs:
         rm -rf ${{ runner.temp }}/results
         rm -f ${{ runner.temp }}/benchmarkoor-config-url.yaml
         rm -f ${{ runner.temp }}/benchmarkoor-config-inline.yaml
+        rm -f ${{ runner.temp }}/benchmarkoor-results.tar.gz
         docker rm -f benchmarkoor-run 2>/dev/null || true
         docker rm -f benchmarkoor-md 2>/dev/null || true
