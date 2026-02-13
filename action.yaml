@@ -135,19 +135,72 @@ runs:
         CONFIGEOF
         fi
 
+        # Extract unique filesystem mount points from datadir source_dir values
+        DATADIR_MOUNT_POINTS=""
+        CONFIG_FILES=()
+        for cfg in "${{ runner.temp }}"/benchmarkoor-config-url-*.yaml; do
+          [ -f "$cfg" ] && CONFIG_FILES+=("$cfg")
+        done
+        if [ -f "${{ runner.temp }}/benchmarkoor-config-inline.yaml" ]; then
+          CONFIG_FILES+=("${{ runner.temp }}/benchmarkoor-config-inline.yaml")
+        fi
+
+        if [ ${#CONFIG_FILES[@]} -gt 0 ]; then
+          ALL_SOURCE_DIRS=""
+          for cfg in "${CONFIG_FILES[@]}"; do
+            # Extract source_dir from client.datadirs map values and client.instances[].datadir
+            DIRS=$(yq -r '
+              [
+                (.client.datadirs // {} | .[].source_dir // empty),
+                (.client.instances // [] | .[].datadir.source_dir // empty)
+              ] | .[]
+            ' "$cfg" 2>/dev/null || true)
+            if [ -n "$DIRS" ]; then
+              ALL_SOURCE_DIRS="${ALL_SOURCE_DIRS}${DIRS}"$'\n'
+            fi
+          done
+
+          # Resolve each source_dir to its filesystem mountpoint, deduplicate
+          if [ -n "$ALL_SOURCE_DIRS" ]; then
+            DATADIR_MOUNT_POINTS=$(echo "$ALL_SOURCE_DIRS" | while IFS= read -r dir; do
+              dir=$(echo "$dir" | xargs)
+              [ -z "$dir" ] && continue
+              if [ -d "$dir" ]; then
+                stat --format=%m "$dir" 2>/dev/null || true
+              else
+                echo "Warning: datadir source_dir '$dir' does not exist, skipping"
+              fi
+            done | sort -u)
+          fi
+        fi
+
+        if [ -n "$DATADIR_MOUNT_POINTS" ]; then
+          echo "Detected datadir filesystem mount points for rshared propagation:"
+          echo "$DATADIR_MOUNT_POINTS"
+        fi
+
         # Build docker run command
         DOCKER_CMD="docker run --network=host --rm --name=benchmarkoor-run"
         DOCKER_CMD="$DOCKER_CMD -v /var/run/docker.sock:/var/run/docker.sock"
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}/results:/app/results"
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}:/app/configs"
-        DOCKER_CMD="$DOCKER_CMD -v /tmp:/tmp"
-        DOCKER_CMD="$DOCKER_CMD --cap-add=SYS_ADMIN"
+        DOCKER_CMD="$DOCKER_CMD --mount type=bind,source=/tmp,target=/tmp,bind-propagation=rshared"
+        DOCKER_CMD="$DOCKER_CMD --privileged"
         DOCKER_CMD="$DOCKER_CMD -v /proc/sys/vm/drop_caches:/host_drop_caches"
         DOCKER_CMD="$DOCKER_CMD -v /sys/devices/system/cpu:/host_sys_cpu"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DROP_CACHES_PATH=/host_drop_caches"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_CPU_SYSFS_PATH=/host_sys_cpu"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_DIR=/app/results"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_OWNER=$(id -u):$(id -g)"
+
+        # Add rshared mounts for datadir filesystem mount points (ZFS/overlayfs)
+        if [ -n "$DATADIR_MOUNT_POINTS" ]; then
+          while IFS= read -r mp; do
+            [ -z "$mp" ] && continue
+            DOCKER_CMD="$DOCKER_CMD --mount type=bind,source=${mp},target=${mp},bind-propagation=rshared"
+          done <<< "$DATADIR_MOUNT_POINTS"
+        fi
+
         DOCKER_CMD="$DOCKER_CMD ${IMAGE}"
         DOCKER_CMD="$DOCKER_CMD run"
 
