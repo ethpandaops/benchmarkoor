@@ -191,6 +191,7 @@ runs:
         DOCKER_CMD="$DOCKER_CMD --privileged"
         DOCKER_CMD="$DOCKER_CMD -v /proc/sys/vm/drop_caches:/host_drop_caches"
         DOCKER_CMD="$DOCKER_CMD -v /sys/devices/system/cpu:/host_sys_cpu"
+        DOCKER_CMD="$DOCKER_CMD -v /sys/fs/cgroup:/sys/fs/cgroup:ro"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DROP_CACHES_PATH=/host_drop_caches"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_CPU_SYSFS_PATH=/host_sys_cpu"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_DIR=/app/results"
