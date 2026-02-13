@@ -740,8 +740,24 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+// ValidateOpts controls optional validation behavior.
+type ValidateOpts struct {
+	// ActiveInstanceIDs limits datadir validation to instances with these IDs.
+	// When nil or empty, all instances are validated.
+	ActiveInstanceIDs map[string]struct{}
+	// ActiveClients limits global datadir validation to these client types.
+	// When nil or empty, all global datadirs are validated.
+	ActiveClients map[string]struct{}
+}
+
 // Validate checks the configuration for errors.
-func (c *Config) Validate() error {
+// When opts is provided, datadir validation is scoped to active instances/clients.
+func (c *Config) Validate(opts ...ValidateOpts) error {
+	var opt ValidateOpts
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
 	if len(c.Client.Instances) == 0 {
 		return fmt.Errorf("at least one client instance must be configured")
 	}
@@ -767,10 +783,16 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("instance %q: unknown client type %q", instance.ID, instance.Client)
 		}
 
-		// Validate instance-level datadir.
+		// Validate instance-level datadir (skip if not in active set).
 		if instance.DataDir != nil {
-			if err := instance.DataDir.Validate(fmt.Sprintf("instance %q datadir", instance.ID)); err != nil {
-				return err
+			if len(opt.ActiveInstanceIDs) == 0 {
+				if err := instance.DataDir.Validate(fmt.Sprintf("instance %q datadir", instance.ID)); err != nil {
+					return err
+				}
+			} else if _, ok := opt.ActiveInstanceIDs[instance.ID]; ok {
+				if err := instance.DataDir.Validate(fmt.Sprintf("instance %q datadir", instance.ID)); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -789,11 +811,17 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Validate global datadirs.
+	// Validate global datadirs (skip if client not in active set).
 	for client, dd := range c.Client.DataDirs {
 		if dd != nil {
-			if err := dd.Validate(fmt.Sprintf("client.datadirs.%s", client)); err != nil {
-				return err
+			if len(opt.ActiveClients) == 0 {
+				if err := dd.Validate(fmt.Sprintf("client.datadirs.%s", client)); err != nil {
+					return err
+				}
+			} else if _, ok := opt.ActiveClients[client]; ok {
+				if err := dd.Validate(fmt.Sprintf("client.datadirs.%s", client)); err != nil {
+					return err
+				}
 			}
 		}
 	}
