@@ -196,8 +196,8 @@ runs:
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_CPU_SYSFS_PATH=/host_sys_cpu"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_DIR=/app/results"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_OWNER=$(id -u):$(id -g)"
-        DOCKER_CMD="$DOCKER CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=/tmp/benchmarkoor-data"
-        DOCKER_CMD="$DOCKER CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=/tmp/benchmarkoor-cache"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=/tmp/benchmarkoor-data"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=/tmp/benchmarkoor-cache"
 
         # Add rshared mounts for datadir filesystem mount points (ZFS/overlayfs)
         if [ -n "$DATADIR_MOUNT_POINTS" ]; then
