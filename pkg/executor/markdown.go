@@ -144,12 +144,12 @@ func GenerateRunMarkdown(
 
 	writeTitle(&sb, runID)
 	writeOverview(&sb, &cfg)
+	writeTestResults(&sb, testsTotal, testsPassed, testsFailed)
+	writeStepStats(&sb, steps)
+	writeStartBlock(&sb, cfg.StartBlock)
 	writeSystem(&sb, cfg.System)
 	writeResourceLimits(&sb, cfg.Instance)
 	writeMetadata(&sb, cfg.Metadata)
-	writeStartBlock(&sb, cfg.StartBlock)
-	writeTestResults(&sb, testsTotal, testsPassed, testsFailed)
-	writeStepStats(&sb, steps)
 
 	// Failed tests section is last — it gets truncated if needed.
 	failed := collectFailedTests(result)
