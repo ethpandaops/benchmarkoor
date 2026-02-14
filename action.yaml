@@ -40,6 +40,11 @@ inputs:
     required: false
     default: ''
 
+  tmp-dir:
+    description: 'Temporary directory path used for benchmarkoor data (overlayfs) and cache'
+    required: false
+    default: '/tmp'
+
 runs:
   using: 'composite'
   steps:
@@ -187,7 +192,7 @@ runs:
         DOCKER_CMD="$DOCKER_CMD -v /var/run/docker.sock:/var/run/docker.sock"
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}/results:/app/results"
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}:/app/configs"
-        DOCKER_CMD="$DOCKER_CMD --mount type=bind,source=/tmp,target=/tmp,bind-propagation=rshared"
+        DOCKER_CMD="$DOCKER_CMD --mount type=bind,source=${{ inputs.tmp-dir }},target=${{ inputs.tmp-dir }},bind-propagation=rshared"
         DOCKER_CMD="$DOCKER_CMD --privileged"
         DOCKER_CMD="$DOCKER_CMD -v /proc/sys/vm/drop_caches:/host_drop_caches"
         DOCKER_CMD="$DOCKER_CMD -v /sys/devices/system/cpu:/host_sys_cpu"
@@ -196,8 +201,8 @@ runs:
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_CPU_SYSFS_PATH=/host_sys_cpu"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_DIR=/app/results"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_OWNER=$(id -u):$(id -g)"
-        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=/tmp"
-        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=/tmp/benchmarkoor-cache"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=${{ inputs.tmp-dir }}"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=${{ inputs.tmp-dir }}/benchmarkoor-cache"
 
         # Add rshared mounts for datadir filesystem mount points (ZFS/overlayfs)
         if [ -n "$DATADIR_MOUNT_POINTS" ]; then
