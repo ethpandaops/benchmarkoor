@@ -9,6 +9,7 @@ This document describes all configuration options for benchmarkoor. The [config.
 - [Configuration Merging](#configuration-merging)
 - [Global Settings](#global-settings)
 - [Benchmark Settings](#benchmark-settings)
+  - [Results Upload](#results-upload)
 - [Client Settings](#client-settings)
   - [Client Defaults](#client-defaults)
   - [Data Directories](#data-directories)
@@ -315,6 +316,49 @@ benchmark:
       eest_fixtures:
         github_repo: ethereum/execution-spec-tests
         github_release: benchmark@v0.0.7
+```
+
+### Results Upload
+
+The `benchmark.results_upload` section configures automatic uploading of results to remote storage after each instance run. Currently only S3-compatible storage is supported.
+
+```yaml
+benchmark:
+  results_upload:
+    s3:
+      enabled: true
+      endpoint_url: https://s3.amazonaws.com
+      region: us-east-1
+      bucket: my-benchmark-results
+      access_key_id: ${AWS_ACCESS_KEY_ID}
+      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+      prefix: results/runs
+      # storage_class: STANDARD
+      # acl: private
+      force_path_style: false
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | bool | Yes | `false` | Enable S3 upload |
+| `bucket` | string | Yes | - | S3 bucket name |
+| `endpoint_url` | string | No | AWS default | S3 endpoint URL — scheme and host only, no path (e.g., `https://<id>.r2.cloudflarestorage.com`) |
+| `region` | string | No | `us-east-1` | AWS region |
+| `access_key_id` | string | No | - | Static AWS access key ID |
+| `secret_access_key` | string | No | - | Static AWS secret access key |
+| `prefix` | string | No | `results/runs` | Key prefix for uploaded files |
+| `storage_class` | string | No | Bucket default | S3 storage class (e.g., `STANDARD`, `STANDARD_IA`) |
+| `acl` | string | No | - | Canned ACL (e.g., `private`, `public-read`) |
+| `force_path_style` | bool | No | `false` | Use path-style addressing (required for MinIO and Cloudflare R2) |
+
+**Important:** The `endpoint_url` must be the base URL without any path component. Do not include the bucket name in the URL — the SDK handles that separately via the `bucket` field. For example, use `https://<account_id>.r2.cloudflarestorage.com`, not `https://<account_id>.r2.cloudflarestorage.com/my-bucket`.
+
+When enabled, a preflight check runs before any benchmarks to verify S3 connectivity. Each instance's results directory is uploaded after the run completes (including on failure, for partial results).
+
+Results can also be uploaded manually using the `upload-results` subcommand:
+
+```bash
+benchmarkoor upload-results --method=s3 --config config.yaml --result-dir=./results/runs/<run_dir>
 ```
 
 ## Client Settings

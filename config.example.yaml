@@ -41,6 +41,27 @@ benchmark:
   # Optional: Generate stats.json per suite after benchmark (aggregates test durations
   # across runs for the UI heatmap).
   # generate_suite_stats: true
+  # Optional: Upload results to S3-compatible storage after each instance run.
+  # A preflight check verifies connectivity before any benchmarks start.
+  # results_upload:
+  #   s3:
+  #     enabled: true
+  #     # Endpoint URL (scheme + host only, no path or bucket name).
+  #     # Examples:
+  #     #   AWS:    https://s3.us-east-1.amazonaws.com
+  #     #   R2:     https://<account_id>.r2.cloudflarestorage.com
+  #     #   MinIO:  http://localhost:9000
+  #     endpoint_url: https://s3.us-east-1.amazonaws.com
+  #     region: us-east-1
+  #     bucket: my-benchmark-results
+  #     access_key_id: ${AWS_ACCESS_KEY_ID}
+  #     secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+  #     prefix: results/runs  # Default key prefix
+  #     # storage_class: STANDARD  # Optional: S3 storage class
+  #     # acl: private  # Optional: Canned ACL
+  #     # Path-style addressing: required for MinIO and Cloudflare R2.
+  #     force_path_style: false
+
   # Optional test execution configuration.
   # tests:
   #   # Optional filter to run only tests matching this pattern.

@@ -16,6 +16,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/runner"
+	"github.com/ethpandaops/benchmarkoor/pkg/upload"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -215,6 +216,25 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		log.Info("CPU frequency manager initialized")
 	}
 
+	// Create S3 uploader if configured.
+	var resultsUploader upload.Uploader
+
+	if cfg.Benchmark.ResultsUpload != nil &&
+		cfg.Benchmark.ResultsUpload.S3 != nil &&
+		cfg.Benchmark.ResultsUpload.S3.Enabled {
+		resultsUploader, err = upload.NewS3Uploader(log, cfg.Benchmark.ResultsUpload.S3)
+		if err != nil {
+			return fmt.Errorf("creating S3 uploader: %w", err)
+		}
+
+		// Fail fast: verify S3 is reachable and writable before starting benchmarks.
+		if err := resultsUploader.Preflight(ctx); err != nil {
+			return fmt.Errorf("S3 upload preflight check failed: %w", err)
+		}
+
+		log.Info("S3 upload preflight check passed")
+	}
+
 	// Create runner.
 	runnerCfg := &runner.Config{
 		ResultsDir:         cfg.Benchmark.ResultsDir,
@@ -230,7 +250,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		FullConfig:         cfg,
 	}
 
-	r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec, cpufreqMgr)
+	r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec, cpufreqMgr, resultsUploader)
 
 	if err := r.Start(ctx); err != nil {
 		return fmt.Errorf("starting runner: %w", err)

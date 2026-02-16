@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -91,12 +92,32 @@ type DirectoriesConfig struct {
 
 // BenchmarkConfig contains benchmark-specific settings.
 type BenchmarkConfig struct {
-	ResultsDir                      string      `yaml:"results_dir" mapstructure:"results_dir"`
-	ResultsOwner                    string      `yaml:"results_owner,omitempty" mapstructure:"results_owner"`
-	SystemResourceCollectionEnabled *bool       `yaml:"system_resource_collection_enabled,omitempty" mapstructure:"system_resource_collection_enabled"`
-	GenerateResultsIndex            bool        `yaml:"generate_results_index" mapstructure:"generate_results_index"`
-	GenerateSuiteStats              bool        `yaml:"generate_suite_stats" mapstructure:"generate_suite_stats"`
-	Tests                           TestsConfig `yaml:"tests,omitempty" mapstructure:"tests"`
+	ResultsDir                      string               `yaml:"results_dir" mapstructure:"results_dir"`
+	ResultsOwner                    string               `yaml:"results_owner,omitempty" mapstructure:"results_owner"`
+	SystemResourceCollectionEnabled *bool                `yaml:"system_resource_collection_enabled,omitempty" mapstructure:"system_resource_collection_enabled"`
+	GenerateResultsIndex            bool                 `yaml:"generate_results_index" mapstructure:"generate_results_index"`
+	GenerateSuiteStats              bool                 `yaml:"generate_suite_stats" mapstructure:"generate_suite_stats"`
+	ResultsUpload                   *ResultsUploadConfig `yaml:"results_upload,omitempty" mapstructure:"results_upload"`
+	Tests                           TestsConfig          `yaml:"tests,omitempty" mapstructure:"tests"`
+}
+
+// ResultsUploadConfig contains configuration for uploading results.
+type ResultsUploadConfig struct {
+	S3 *S3UploadConfig `yaml:"s3,omitempty" mapstructure:"s3"`
+}
+
+// S3UploadConfig contains S3-compatible storage upload settings.
+type S3UploadConfig struct {
+	Enabled         bool   `yaml:"enabled" mapstructure:"enabled"`
+	EndpointURL     string `yaml:"endpoint_url,omitempty" mapstructure:"endpoint_url"`
+	Region          string `yaml:"region,omitempty" mapstructure:"region"`
+	Bucket          string `yaml:"bucket" mapstructure:"bucket"`
+	AccessKeyID     string `yaml:"access_key_id,omitempty" mapstructure:"access_key_id"`
+	SecretAccessKey string `yaml:"secret_access_key,omitempty" mapstructure:"secret_access_key"`
+	Prefix          string `yaml:"prefix,omitempty" mapstructure:"prefix"`
+	StorageClass    string `yaml:"storage_class,omitempty" mapstructure:"storage_class"`
+	ACL             string `yaml:"acl,omitempty" mapstructure:"acl"`
+	ForcePathStyle  bool   `yaml:"force_path_style" mapstructure:"force_path_style"`
 }
 
 // TestsConfig contains test execution settings.
@@ -875,6 +896,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		return err
 	}
 
+	// Validate results_upload settings.
+	if err := c.validateResultsUpload(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1343,6 +1369,39 @@ func (c *Config) validateBootstrapFCU() error {
 						" 32-byte hex string, got %q", instance.ID, cfg.HeadBlockHash,
 				)
 			}
+		}
+	}
+
+	return nil
+}
+
+// validateResultsUpload validates results_upload settings.
+func (c *Config) validateResultsUpload() error {
+	if c.Benchmark.ResultsUpload == nil || c.Benchmark.ResultsUpload.S3 == nil {
+		return nil
+	}
+
+	s3Cfg := c.Benchmark.ResultsUpload.S3
+	if !s3Cfg.Enabled {
+		return nil
+	}
+
+	if s3Cfg.Bucket == "" {
+		return fmt.Errorf("results_upload.s3: bucket is required when enabled")
+	}
+
+	if s3Cfg.EndpointURL != "" {
+		u, err := url.Parse(s3Cfg.EndpointURL)
+		if err != nil {
+			return fmt.Errorf("results_upload.s3: invalid endpoint_url: %w", err)
+		}
+
+		if u.Path != "" && u.Path != "/" {
+			return fmt.Errorf(
+				"results_upload.s3: endpoint_url should not contain a path (%q); "+
+					"set only the scheme and host (e.g. %q), the bucket name is configured separately",
+				u.Path, u.Scheme+"://"+u.Host,
+			)
 		}
 	}
 
