@@ -70,37 +70,6 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		cfg.Global.Metadata.Labels[k] = v
 	}
 
-	// Filter instances if limits are specified (before validation so we can
-	// scope datadir checks to active instances only).
-	instances := filterInstances(cfg.Client.Instances, limitInstanceIDs, limitInstanceClients)
-	if len(instances) == 0 {
-		return fmt.Errorf("no instances match the specified filters")
-	}
-
-	if len(instances) != len(cfg.Client.Instances) {
-		log.WithFields(logrus.Fields{
-			"total":    len(cfg.Client.Instances),
-			"filtered": len(instances),
-		}).Info("Running filtered instances")
-	}
-
-	// Build validation opts to scope datadir validation to active instances.
-	var validateOpts config.ValidateOpts
-	if len(instances) != len(cfg.Client.Instances) {
-		validateOpts.ActiveInstanceIDs = make(map[string]struct{}, len(instances))
-		validateOpts.ActiveClients = make(map[string]struct{}, len(instances))
-
-		for _, inst := range instances {
-			validateOpts.ActiveInstanceIDs[inst.ID] = struct{}{}
-			validateOpts.ActiveClients[inst.Client] = struct{}{}
-		}
-	}
-
-	// Validate configuration.
-	if err := cfg.Validate(validateOpts); err != nil {
-		return fmt.Errorf("validating config: %w", err)
-	}
-
 	// Parse results owner configuration.
 	resultsOwner, err := fsutil.ParseOwner(cfg.Benchmark.ResultsOwner)
 	if err != nil {
@@ -126,6 +95,44 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	}()
 
 	if !cfg.Benchmark.SkipTestRun {
+		// Filter instances if limits are specified (before validation so we
+		// can scope datadir checks to active instances only).
+		instances := filterInstances(
+			cfg.Client.Instances, limitInstanceIDs, limitInstanceClients,
+		)
+		if len(instances) == 0 {
+			return fmt.Errorf("no instances match the specified filters")
+		}
+
+		if len(instances) != len(cfg.Client.Instances) {
+			log.WithFields(logrus.Fields{
+				"total":    len(cfg.Client.Instances),
+				"filtered": len(instances),
+			}).Info("Running filtered instances")
+		}
+
+		// Build validation opts to scope datadir validation to active
+		// instances.
+		var validateOpts config.ValidateOpts
+		if len(instances) != len(cfg.Client.Instances) {
+			validateOpts.ActiveInstanceIDs = make(
+				map[string]struct{}, len(instances),
+			)
+			validateOpts.ActiveClients = make(
+				map[string]struct{}, len(instances),
+			)
+
+			for _, inst := range instances {
+				validateOpts.ActiveInstanceIDs[inst.ID] = struct{}{}
+				validateOpts.ActiveClients[inst.Client] = struct{}{}
+			}
+		}
+
+		// Validate configuration.
+		if err := cfg.Validate(validateOpts); err != nil {
+			return fmt.Errorf("validating config: %w", err)
+		}
+
 		// Create Docker manager.
 		dockerMgr, err := docker.NewManager(log)
 		if err != nil {
