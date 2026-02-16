@@ -334,7 +334,7 @@ benchmark:
       bucket: my-benchmark-results
       access_key_id: ${AWS_ACCESS_KEY_ID}
       secret_access_key: ${AWS_SECRET_ACCESS_KEY}
-      prefix: results/runs
+      prefix: results
       # storage_class: STANDARD
       # acl: private
       force_path_style: false
@@ -348,7 +348,7 @@ benchmark:
 | `region` | string | No | `us-east-1` | AWS region |
 | `access_key_id` | string | No | - | Static AWS access key ID |
 | `secret_access_key` | string | No | - | Static AWS secret access key |
-| `prefix` | string | No | `results/runs` | Key prefix for uploaded files |
+| `prefix` | string | No | `results` | Base key prefix. Runs are stored under `prefix/runs/`, suites under `prefix/suites/` |
 | `storage_class` | string | No | Bucket default | S3 storage class (e.g., `STANDARD`, `STANDARD_IA`) |
 | `acl` | string | No | - | Canned ACL (e.g., `private`, `public-read`) |
 | `force_path_style` | bool | No | `false` | Use path-style addressing (required for MinIO and Cloudflare R2) |
@@ -370,7 +370,7 @@ The `generate-index-file` command also supports reading directly from S3. This i
 benchmarkoor generate-index-file --method=s3 --config config.yaml
 ```
 
-When using `--method=s3`, the command reads `config.json` and `result.json` from each run directory in the bucket, builds the index in memory, and uploads `index.json` one level above the configured prefix (e.g. prefix `demo/results/runs` places `index.json` at `demo/results/index.json`).
+When using `--method=s3`, the command reads `config.json` and `result.json` from each run directory in the bucket, builds the index in memory, and uploads `index.json` at `prefix/index.json` (e.g. prefix `demo/results` places `index.json` at `demo/results/index.json`).
 
 The `generate-suite-stats-file` command also supports reading directly from S3:
 
@@ -378,7 +378,7 @@ The `generate-suite-stats-file` command also supports reading directly from S3:
 benchmarkoor generate-suite-stats-file --method=s3 --config config.yaml
 ```
 
-When using `--method=s3`, the command reads `config.json` and `result.json` from each run, groups them by suite hash, builds per-suite stats in memory, and uploads `stats.json` to `suites/{hash}/stats.json` alongside the runs prefix.
+When using `--method=s3`, the command reads `config.json` and `result.json` from each run, groups them by suite hash, builds per-suite stats in memory, and uploads `stats.json` to `prefix/suites/{hash}/stats.json`.
 
 ## Client Settings
 

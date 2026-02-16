@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
@@ -105,12 +104,14 @@ func runSuiteStatsFileS3(cmd *cobra.Command) error {
 
 	s3Cfg := cfg.Benchmark.ResultsUpload.S3
 
-	runsPrefix := s3Cfg.Prefix
-	if runsPrefix == "" {
-		runsPrefix = "results/runs"
+	prefix := s3Cfg.Prefix
+	if prefix == "" {
+		prefix = "results"
 	}
 
-	runsPrefix = strings.TrimRight(runsPrefix, "/") + "/"
+	prefix = strings.TrimRight(prefix, "/")
+	runsPrefix := prefix + "/runs/"
+	suitesBase := prefix + "/suites/"
 
 	reader := upload.NewS3Reader(log, s3Cfg)
 	ctx := cmd.Context()
@@ -126,11 +127,6 @@ func runSuiteStatsFileS3(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("generating suite stats from S3: %w", err)
 	}
-
-	// Place suites directory one level above the runs prefix.
-	// e.g. prefix "demo/results/runs/" → "demo/results/suites/".
-	parent := path.Dir(strings.TrimRight(runsPrefix, "/"))
-	suitesBase := parent + "/suites/"
 
 	for suiteHash, stats := range allStats {
 		data, err := json.MarshalIndent(stats, "", "  ")

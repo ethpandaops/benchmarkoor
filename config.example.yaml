@@ -64,7 +64,7 @@ benchmark:
   #     bucket: my-benchmark-results
   #     access_key_id: ${AWS_ACCESS_KEY_ID}
   #     secret_access_key: ${AWS_SECRET_ACCESS_KEY}
-  #     prefix: results/runs  # Default key prefix
+  #     prefix: results  # Base key prefix (runs at prefix/runs/, suites at prefix/suites/)
   #     # storage_class: STANDARD  # Optional: S3 storage class
   #     # acl: private  # Optional: Canned ACL
   #     # Path-style addressing: required for MinIO and Cloudflare R2.

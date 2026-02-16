@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
@@ -96,12 +95,13 @@ func runIndexFileS3(cmd *cobra.Command) error {
 
 	s3Cfg := cfg.Benchmark.ResultsUpload.S3
 
-	runsPrefix := s3Cfg.Prefix
-	if runsPrefix == "" {
-		runsPrefix = "results/runs"
+	prefix := s3Cfg.Prefix
+	if prefix == "" {
+		prefix = "results"
 	}
 
-	runsPrefix = strings.TrimRight(runsPrefix, "/") + "/"
+	prefix = strings.TrimRight(prefix, "/")
+	runsPrefix := prefix + "/runs/"
 
 	reader := upload.NewS3Reader(log, s3Cfg)
 	ctx := cmd.Context()
@@ -121,9 +121,7 @@ func runIndexFileS3(cmd *cobra.Command) error {
 		return fmt.Errorf("marshaling index: %w", err)
 	}
 
-	// Place index.json one level above the runs prefix.
-	// e.g. prefix "demo/results/runs/" → key "demo/results/index.json".
-	indexKey := path.Dir(strings.TrimRight(runsPrefix, "/")) + "/index.json"
+	indexKey := prefix + "/index.json"
 
 	log.WithFields(map[string]any{
 		"key":           indexKey,

@@ -254,8 +254,9 @@ func (r *runner) Stop() error {
 
 // uploadResults uploads run results to remote storage if an uploader is configured.
 // Uses a fresh context with a 5-minute timeout so uploads complete even if the
-// parent context was cancelled.
-func (r *runner) uploadResults(runResultsDir string) {
+// parent context was cancelled. If suiteHash is non-empty, the suite directory
+// is also uploaded.
+func (r *runner) uploadResults(runResultsDir, suiteHash string) {
 	if r.uploader == nil {
 		return
 	}
@@ -267,6 +268,18 @@ func (r *runner) uploadResults(runResultsDir string) {
 
 	if err := r.uploader.Upload(ctx, runResultsDir); err != nil {
 		r.log.WithError(err).Warn("Failed to upload results to S3")
+	}
+
+	if suiteHash != "" {
+		suiteDir := filepath.Join(r.cfg.ResultsDir, "suites", suiteHash)
+
+		if _, err := os.Stat(suiteDir); err == nil {
+			r.log.WithField("suite_hash", suiteHash).Info("Uploading suite directory to S3")
+
+			if err := r.uploader.UploadSuiteDir(ctx, suiteDir); err != nil {
+				r.log.WithError(err).Warn("Failed to upload suite directory to S3")
+			}
+		}
 	}
 }
 
@@ -352,7 +365,12 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		return fmt.Errorf("creating run results directory: %w", err)
 	}
 
-	defer r.uploadResults(runResultsDir)
+	var suiteHash string
+	if r.executor != nil {
+		suiteHash = r.executor.GetSuiteHash()
+	}
+
+	defer r.uploadResults(runResultsDir, suiteHash)
 
 	// Setup benchmarkoor log file for this run.
 	benchmarkoorLogFile, err := fsutil.Create(filepath.Join(runResultsDir, "benchmarkoor.log"), r.cfg.ResultsOwner)

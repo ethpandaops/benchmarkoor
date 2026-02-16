@@ -24,13 +24,13 @@ func TestResolvePrefix(t *testing.T) {
 			name:     "custom prefix",
 			prefix:   "my-project/benchmarks",
 			baseName: "1769791126_8cec1fab_geth",
-			want:     "my-project/benchmarks/1769791126_8cec1fab_geth",
+			want:     "my-project/benchmarks/runs/1769791126_8cec1fab_geth",
 		},
 		{
 			name:     "trailing slash stripped",
 			prefix:   "my-prefix/",
 			baseName: "run123",
-			want:     "my-prefix/run123",
+			want:     "my-prefix/runs/run123",
 		},
 	}
 

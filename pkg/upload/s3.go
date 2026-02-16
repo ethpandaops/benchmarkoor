@@ -99,7 +99,16 @@ func (u *s3Uploader) Upload(ctx context.Context, localDir string) error {
 	baseName := filepath.Base(localDir)
 	prefix := u.resolvePrefix(baseName)
 
-	// Collect phase: build the list of files to upload.
+	jobs, err := u.collectJobs(localDir, prefix)
+	if err != nil {
+		return fmt.Errorf("walking directory %s: %w", localDir, err)
+	}
+
+	return u.uploadJobs(ctx, jobs, prefix)
+}
+
+// collectJobs walks a directory and builds the list of upload jobs.
+func (u *s3Uploader) collectJobs(localDir, keyPrefix string) ([]uploadJob, error) {
 	var jobs []uploadJob
 
 	err := filepath.Walk(localDir, func(path string, info os.FileInfo, walkErr error) error {
@@ -118,15 +127,17 @@ func (u *s3Uploader) Upload(ctx context.Context, localDir string) error {
 
 		jobs = append(jobs, uploadJob{
 			localPath: path,
-			key:       prefix + "/" + filepath.ToSlash(relPath),
+			key:       keyPrefix + "/" + filepath.ToSlash(relPath),
 		})
 
 		return nil
 	})
-	if err != nil {
-		return fmt.Errorf("walking directory %s: %w", localDir, err)
-	}
 
+	return jobs, err
+}
+
+// uploadJobs uploads a slice of jobs using a parallel worker pool with progress logging.
+func (u *s3Uploader) uploadJobs(ctx context.Context, jobs []uploadJob, prefix string) error {
 	total := len(jobs)
 	if total == 0 {
 		u.log.WithField("prefix", prefix).Info("No files to upload")
@@ -255,13 +266,33 @@ func (u *s3Uploader) uploadFile(ctx context.Context, localPath, key string) erro
 }
 
 // resolvePrefix builds the S3 key prefix for a run directory.
+// The configured prefix is the base (default "results"), and runs are stored
+// under prefix + "/runs/" + baseName.
 func (u *s3Uploader) resolvePrefix(baseName string) string {
 	prefix := u.cfg.Prefix
 	if prefix == "" {
-		prefix = "results/runs"
+		prefix = "results"
 	}
 
-	return strings.TrimRight(prefix, "/") + "/" + baseName
+	return strings.TrimRight(prefix, "/") + "/runs/" + baseName
+}
+
+// UploadSuiteDir uploads all files in a suite directory to S3 under
+// prefix + "/suites/" + dirname.
+func (u *s3Uploader) UploadSuiteDir(ctx context.Context, localSuiteDir string) error {
+	prefix := u.cfg.Prefix
+	if prefix == "" {
+		prefix = "results"
+	}
+
+	keyPrefix := strings.TrimRight(prefix, "/") + "/suites/" + filepath.Base(localSuiteDir)
+
+	jobs, err := u.collectJobs(localSuiteDir, keyPrefix)
+	if err != nil {
+		return fmt.Errorf("walking suite directory %s: %w", localSuiteDir, err)
+	}
+
+	return u.uploadJobs(ctx, jobs, keyPrefix)
 }
 
 // detectContentType returns a MIME type based on file extension.
