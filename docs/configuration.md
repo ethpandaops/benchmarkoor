@@ -362,6 +362,14 @@ Results can also be uploaded manually using the `upload-results` subcommand:
 benchmarkoor upload-results --method=s3 --config config.yaml --result-dir=./results/runs/<run_dir>
 ```
 
+The `generate-index-file` command also supports reading directly from S3. This is useful for regenerating `index.json` from remote data without having all results locally:
+
+```bash
+benchmarkoor generate-index-file --method=s3 --config config.yaml
+```
+
+When using `--method=s3`, the command reads `config.json` and `result.json` from each run directory in the bucket, builds the index in memory, and uploads `index.json` one level above the configured prefix (e.g. prefix `demo/results/runs` places `index.json` at `demo/results/index.json`).
+
 ## Client Settings
 
 The `client` section configures Ethereum execution clients.

@@ -29,11 +29,8 @@ type s3Uploader struct {
 // Ensure interface compliance.
 var _ Uploader = (*s3Uploader)(nil)
 
-// NewS3Uploader creates a new S3 uploader from the given configuration.
-func NewS3Uploader(
-	log logrus.FieldLogger,
-	cfg *config.S3UploadConfig,
-) (Uploader, error) {
+// newS3Client constructs an S3 client from the given configuration.
+func newS3Client(cfg *config.S3UploadConfig) *s3.Client {
 	opts := []func(*s3.Options){
 		func(o *s3.Options) {
 			if cfg.Region != "" {
@@ -58,12 +55,18 @@ func NewS3Uploader(
 		},
 	}
 
-	client := s3.New(s3.Options{}, opts...)
+	return s3.New(s3.Options{}, opts...)
+}
 
+// NewS3Uploader creates a new S3 uploader from the given configuration.
+func NewS3Uploader(
+	log logrus.FieldLogger,
+	cfg *config.S3UploadConfig,
+) (Uploader, error) {
 	return &s3Uploader{
 		log:    log.WithField("component", "s3-uploader"),
 		cfg:    cfg,
-		client: client,
+		client: newS3Client(cfg),
 	}, nil
 }
 

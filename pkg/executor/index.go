@@ -1,14 +1,18 @@
 package executor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
+	"github.com/sirupsen/logrus"
 )
 
 // Index contains the aggregated index of all benchmark runs.
@@ -313,7 +317,6 @@ func AggregateStepStats(result *RunResult) (*IndexStepsStats, int, int) {
 
 // buildIndexEntry creates an index entry from a single run directory.
 func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
-	// Read config.json.
 	configPath := filepath.Join(runDir, "config.json")
 
 	configData, err := os.ReadFile(configPath)
@@ -321,20 +324,29 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 		return nil, fmt.Errorf("reading config.json: %w", err)
 	}
 
+	resultPath := filepath.Join(runDir, "result.json")
+
+	//nolint:gosec // result.json is a trusted local file written by the tool.
+	resultData, _ := os.ReadFile(resultPath)
+
+	return buildIndexEntryFromData(runID, configData, resultData)
+}
+
+// buildIndexEntryFromData creates an index entry from raw config and result
+// JSON bytes. configData is required; resultData may be nil.
+func buildIndexEntryFromData(
+	runID string, configData, resultData []byte,
+) (*IndexEntry, error) {
 	var runConfig runConfigJSON
 	if err := json.Unmarshal(configData, &runConfig); err != nil {
 		return nil, fmt.Errorf("parsing config.json: %w", err)
 	}
 
-	// Read result.json and aggregate stats.
-	resultPath := filepath.Join(runDir, "result.json")
-
 	testStats := &IndexTestStats{
 		Steps: &IndexStepsStats{},
 	}
 
-	resultData, err := os.ReadFile(resultPath)
-	if err == nil {
+	if len(resultData) > 0 {
 		var runResult RunResult
 		if err := json.Unmarshal(resultData, &runResult); err == nil {
 			testStats.TestsTotal = len(runResult.Tests)
@@ -384,4 +396,130 @@ func WriteIndex(resultsDir string, index *Index, owner *fsutil.OwnerConfig) erro
 	}
 
 	return nil
+}
+
+// IndexObjectReader abstracts reading objects from a remote store
+// (e.g. S3) so that the executor package does not depend on upload.
+type IndexObjectReader interface {
+	// ListPrefixes lists immediate sub-prefixes under prefix.
+	ListPrefixes(ctx context.Context, prefix string) ([]string, error)
+	// GetObject returns the contents of key, or (nil, nil) when the
+	// key does not exist.
+	GetObject(ctx context.Context, key string) ([]byte, error)
+}
+
+// GenerateIndexFromS3 builds an Index by reading config.json and
+// result.json from each run stored under runsPrefix in remote storage.
+func GenerateIndexFromS3(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	reader IndexObjectReader,
+	runsPrefix string,
+) (*Index, error) {
+	// Ensure the prefix ends with "/".
+	if !strings.HasSuffix(runsPrefix, "/") {
+		runsPrefix += "/"
+	}
+
+	prefixes, err := reader.ListPrefixes(ctx, runsPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("listing run prefixes: %w", err)
+	}
+
+	indexEntries := make([]*IndexEntry, 0, len(prefixes))
+
+	for _, prefix := range prefixes {
+		// Extract run ID from prefix (e.g. "demo/results/runs/abc123/" → "abc123").
+		runID := path.Base(strings.TrimRight(prefix, "/"))
+
+		configData, err := reader.GetObject(ctx, prefix+"config.json")
+		if err != nil {
+			log.WithError(err).WithField("run_id", runID).
+				Warn("Skipping run: failed to read config.json")
+
+			continue
+		}
+
+		if configData == nil {
+			log.WithField("run_id", runID).
+				Debug("Skipping run: config.json not found")
+
+			continue
+		}
+
+		resultData, err := reader.GetObject(ctx, prefix+"result.json")
+		if err != nil {
+			log.WithError(err).WithField("run_id", runID).
+				Warn("Failed to read result.json, continuing without it")
+
+			resultData = nil
+		}
+
+		entry, err := buildIndexEntryFromData(runID, configData, resultData)
+		if err != nil {
+			log.WithError(err).WithField("run_id", runID).
+				Warn("Skipping run: failed to build index entry")
+
+			continue
+		}
+
+		indexEntries = append(indexEntries, entry)
+	}
+
+	// Override TestsTotal from suite summaries when available.
+	suitesPrefix := deriveSuitesPrefix(runsPrefix)
+	suiteTestCounts := make(map[string]int, len(indexEntries))
+
+	for _, ie := range indexEntries {
+		if ie.SuiteHash == "" {
+			continue
+		}
+
+		if _, ok := suiteTestCounts[ie.SuiteHash]; ok {
+			continue
+		}
+
+		summaryKey := suitesPrefix + ie.SuiteHash + "/summary.json"
+
+		summaryData, err := reader.GetObject(ctx, summaryKey)
+		if err != nil || summaryData == nil {
+			continue
+		}
+
+		var suiteInfo SuiteInfo
+		if err := json.Unmarshal(summaryData, &suiteInfo); err != nil {
+			continue
+		}
+
+		suiteTestCounts[ie.SuiteHash] = len(suiteInfo.Tests)
+	}
+
+	for _, ie := range indexEntries {
+		if count, ok := suiteTestCounts[ie.SuiteHash]; ok {
+			ie.Tests.TestsTotal = count
+		}
+	}
+
+	// Sort entries by timestamp, newest first.
+	sort.Slice(indexEntries, func(i, j int) bool {
+		return indexEntries[i].Timestamp > indexEntries[j].Timestamp
+	})
+
+	return &Index{
+		Generated: time.Now().Unix(),
+		Entries:   indexEntries,
+	}, nil
+}
+
+// deriveSuitesPrefix replaces the last path segment of a runs prefix
+// with "suites". For example "demo/results/runs/" → "demo/results/suites/".
+func deriveSuitesPrefix(runsPrefix string) string {
+	trimmed := strings.TrimRight(runsPrefix, "/")
+	parent := path.Dir(trimmed)
+
+	if parent == "." || parent == "" {
+		return "suites/"
+	}
+
+	return parent + "/suites/"
 }
