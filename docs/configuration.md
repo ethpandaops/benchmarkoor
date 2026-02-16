@@ -9,6 +9,7 @@ This document describes all configuration options for benchmarkoor. The [config.
 - [Configuration Merging](#configuration-merging)
 - [Global Settings](#global-settings)
 - [Benchmark Settings](#benchmark-settings)
+  - [Results Upload](#results-upload)
 - [Client Settings](#client-settings)
   - [Client Defaults](#client-defaults)
   - [Data Directories](#data-directories)
@@ -122,9 +123,12 @@ benchmark:
 |--------|------|---------|-------------|
 | `results_dir` | string | `./results` | Directory for benchmark results |
 | `results_owner` | string | - | Set ownership (user:group) for results files. Useful when running as root |
+| `skip_test_run` | bool | `false` | Skip test execution; only run post-run operations (index/stats generation) |
 | `system_resource_collection_enabled` | bool | `true` | Enable CPU/memory/disk metrics collection via cgroups/Docker Stats API |
 | `generate_results_index` | bool | `false` | Generate `index.json` aggregating all run metadata |
+| `generate_results_index_method` | string | `local` | Method for index generation: `local` (filesystem) or `s3` (read runs from S3, upload index back). Requires `results_upload.s3` when set to `s3` |
 | `generate_suite_stats` | bool | `false` | Generate `stats.json` per suite for UI heatmaps |
+| `generate_suite_stats_method` | string | `local` | Method for suite stats generation: `local` (filesystem) or `s3` (read runs from S3, upload stats back). Requires `results_upload.s3` when set to `s3` |
 | `tests.filter` | string | - | Run only tests matching this pattern |
 | `tests.source` | object | - | Test source configuration (see below) |
 
@@ -316,6 +320,66 @@ benchmark:
         github_repo: ethereum/execution-spec-tests
         github_release: benchmark@v0.0.7
 ```
+
+### Results Upload
+
+The `benchmark.results_upload` section configures automatic uploading of results to remote storage after each instance run. Currently only S3-compatible storage is supported.
+
+```yaml
+benchmark:
+  results_upload:
+    s3:
+      enabled: true
+      endpoint_url: https://s3.amazonaws.com
+      region: us-east-1
+      bucket: my-benchmark-results
+      access_key_id: ${AWS_ACCESS_KEY_ID}
+      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+      prefix: results
+      # storage_class: STANDARD
+      # acl: private
+      force_path_style: false
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | bool | Yes | `false` | Enable S3 upload |
+| `bucket` | string | Yes | - | S3 bucket name |
+| `endpoint_url` | string | No | AWS default | S3 endpoint URL — scheme and host only, no path (e.g., `https://<id>.r2.cloudflarestorage.com`) |
+| `region` | string | No | `us-east-1` | AWS region |
+| `access_key_id` | string | No | - | Static AWS access key ID |
+| `secret_access_key` | string | No | - | Static AWS secret access key |
+| `prefix` | string | No | `results` | Base key prefix. Runs are stored under `prefix/runs/`, suites under `prefix/suites/` |
+| `storage_class` | string | No | Bucket default | S3 storage class (e.g., `STANDARD`, `STANDARD_IA`) |
+| `acl` | string | No | - | Canned ACL (e.g., `private`, `public-read`) |
+| `force_path_style` | bool | No | `false` | Use path-style addressing (required for MinIO and Cloudflare R2) |
+| `parallel_uploads` | int | No | `50` | Number of concurrent file uploads |
+
+**Important:** The `endpoint_url` must be the base URL without any path component. Do not include the bucket name in the URL — the SDK handles that separately via the `bucket` field. For example, use `https://<account_id>.r2.cloudflarestorage.com`, not `https://<account_id>.r2.cloudflarestorage.com/my-bucket`.
+
+When enabled, a preflight check runs before any benchmarks to verify S3 connectivity. Each instance's results directory is uploaded after the run completes (including on failure, for partial results).
+
+Results can also be uploaded manually using the `upload-results` subcommand:
+
+```bash
+benchmarkoor upload-results --method=s3 --config config.yaml --result-dir=./results/runs/<run_dir>
+```
+
+The `generate-index-file` command also supports reading directly from S3. This is useful for regenerating `index.json` from remote data without having all results locally:
+
+```bash
+benchmarkoor generate-index-file --method=s3 --config config.yaml
+```
+
+When using `--method=s3`, the command reads `config.json` and `result.json` from each run directory in the bucket, builds the index in memory, and uploads `index.json` at `prefix/index.json` (e.g. prefix `demo/results` places `index.json` at `demo/results/index.json`).
+
+The `generate-suite-stats-file` command also supports reading directly from S3:
+
+```bash
+benchmarkoor generate-suite-stats-file --method=s3 --config config.yaml
+```
+
+When using `--method=s3`, the command reads `config.json` and `result.json` from each run, groups them by suite hash, builds per-suite stats in memory, and uploads `stats.json` to `prefix/suites/{hash}/stats.json`.
 
 ## Client Settings
 

@@ -27,6 +27,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
+	"github.com/ethpandaops/benchmarkoor/pkg/upload"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -189,6 +190,7 @@ func NewRunner(
 	registry client.Registry,
 	exec executor.Executor,
 	cpufreqMgr cpufreq.Manager,
+	uploader upload.Uploader,
 ) Runner {
 	if cfg.ReadyTimeout == 0 {
 		cfg.ReadyTimeout = DefaultReadyTimeout
@@ -202,6 +204,7 @@ func NewRunner(
 		registry:   registry,
 		executor:   exec,
 		cpufreqMgr: cpufreqMgr,
+		uploader:   uploader,
 		done:       make(chan struct{}),
 	}
 }
@@ -214,6 +217,7 @@ type runner struct {
 	registry   client.Registry
 	executor   executor.Executor
 	cpufreqMgr cpufreq.Manager
+	uploader   upload.Uploader
 	done       chan struct{}
 	wg         sync.WaitGroup
 }
@@ -246,6 +250,37 @@ func (r *runner) Stop() error {
 	r.log.Debug("Runner stopped")
 
 	return nil
+}
+
+// uploadResults uploads run results to remote storage if an uploader is configured.
+// Uses a fresh context with a 5-minute timeout so uploads complete even if the
+// parent context was cancelled. If suiteHash is non-empty, the suite directory
+// is also uploaded.
+func (r *runner) uploadResults(runResultsDir, suiteHash string) {
+	if r.uploader == nil {
+		return
+	}
+
+	r.log.WithField("dir", runResultsDir).Info("Uploading results to S3")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	if err := r.uploader.Upload(ctx, runResultsDir); err != nil {
+		r.log.WithError(err).Warn("Failed to upload results to S3")
+	}
+
+	if suiteHash != "" {
+		suiteDir := filepath.Join(r.cfg.ResultsDir, "suites", suiteHash)
+
+		if _, err := os.Stat(suiteDir); err == nil {
+			r.log.WithField("suite_hash", suiteHash).Info("Uploading suite directory to S3")
+
+			if err := r.uploader.UploadSuiteDir(ctx, suiteDir); err != nil {
+				r.log.WithError(err).Warn("Failed to upload suite directory to S3")
+			}
+		}
+	}
 }
 
 // RunAll runs all configured instances sequentially.
@@ -329,6 +364,13 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	if err := fsutil.MkdirAll(runResultsDir, 0755, r.cfg.ResultsOwner); err != nil {
 		return fmt.Errorf("creating run results directory: %w", err)
 	}
+
+	var suiteHash string
+	if r.executor != nil {
+		suiteHash = r.executor.GetSuiteHash()
+	}
+
+	defer r.uploadResults(runResultsDir, suiteHash)
 
 	// Setup benchmarkoor log file for this run.
 	benchmarkoorLogFile, err := fsutil.Create(filepath.Join(runResultsDir, "benchmarkoor.log"), r.cfg.ResultsOwner)

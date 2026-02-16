@@ -32,15 +32,49 @@ benchmark:
   results_dir: ${RESULTS_DIR:-./results}
   # Optional: Set ownership (user:group) for results files. Useful when running as root.
   # results_owner: "1000:1000"
+  # Optional: Skip test execution entirely. When enabled, only post-run operations
+  # (index generation, suite stats) are performed. Useful for regenerating stats from
+  # S3-backed results without needing Docker or test infrastructure.
+  # skip_test_run: false
   # Optional: Enable/disable system resource collection (cgroups/Docker Stats API).
   # When disabled, no CPU/memory/disk metrics will be collected during tests.
   # Useful when running in environments without cgroup access. Default: true
   # system_resource_collection_enabled: true
   # Optional: Generate index.json after benchmark (aggregates all run metadata).
   # generate_results_index: true
+  # Optional: Method for index generation: "local" (default, filesystem) or "s3"
+  # (read runs from S3, upload index.json back to the bucket).
+  # Requires results_upload.s3 to be configured when set to "s3".
+  # generate_results_index_method: local
   # Optional: Generate stats.json per suite after benchmark (aggregates test durations
   # across runs for the UI heatmap).
   # generate_suite_stats: true
+  # Optional: Method for suite stats generation: "local" (default, filesystem) or "s3"
+  # (read runs from S3, upload stats.json back to the bucket).
+  # Requires results_upload.s3 to be configured when set to "s3".
+  # generate_suite_stats_method: local
+  # Optional: Upload results to S3-compatible storage after each instance run.
+  # A preflight check verifies connectivity before any benchmarks start.
+  # results_upload:
+  #   s3:
+  #     enabled: true
+  #     # Endpoint URL (scheme + host only, no path or bucket name).
+  #     # Examples:
+  #     #   AWS:    https://s3.us-east-1.amazonaws.com
+  #     #   R2:     https://<account_id>.r2.cloudflarestorage.com
+  #     #   MinIO:  http://localhost:9000
+  #     endpoint_url: https://s3.us-east-1.amazonaws.com
+  #     region: us-east-1
+  #     bucket: my-benchmark-results
+  #     access_key_id: ${AWS_ACCESS_KEY_ID}
+  #     secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+  #     prefix: results  # Base key prefix (runs at prefix/runs/, suites at prefix/suites/)
+  #     # storage_class: STANDARD  # Optional: S3 storage class
+  #     # acl: private  # Optional: Canned ACL
+  #     # Path-style addressing: required for MinIO and Cloudflare R2.
+  #     force_path_style: false
+  #     # parallel_uploads: 50  # Number of concurrent file uploads
+
   # Optional test execution configuration.
   # tests:
   #   # Optional filter to run only tests matching this pattern.

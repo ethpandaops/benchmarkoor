@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,6 +17,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/runner"
+	"github.com/ethpandaops/benchmarkoor/pkg/upload"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -123,178 +125,183 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	// Create Docker manager.
-	dockerMgr, err := docker.NewManager(log)
-	if err != nil {
-		return fmt.Errorf("creating docker manager: %w", err)
-	}
-
-	if err := dockerMgr.Start(ctx); err != nil {
-		return fmt.Errorf("starting docker manager: %w", err)
-	}
-
-	defer func() {
-		if err := dockerMgr.Stop(); err != nil {
-			log.WithError(err).Warn("Failed to stop docker manager")
-		}
-	}()
-
-	// Perform cleanup on start if configured.
-	if cfg.Global.CleanupOnStart {
-		log.Info("Performing cleanup before start")
-
-		if err := performCleanup(ctx, dockerMgr, true); err != nil {
-			log.WithError(err).Warn("Cleanup failed")
-		}
-	}
-
-	// Create client registry.
-	registry := client.NewRegistry()
-
-	// Create executor if tests are configured.
-	var exec executor.Executor
-
-	if cfg.Benchmark.Tests.Source.IsConfigured() {
-		cacheDir := cfg.Global.Directories.TmpCacheDir
-		if cacheDir == "" {
-			var err error
-
-			cacheDir, err = getExecutorCacheDir()
-			if err != nil {
-				return fmt.Errorf("getting cache directory: %w", err)
-			}
+	if !cfg.Benchmark.SkipTestRun {
+		// Create Docker manager.
+		dockerMgr, err := docker.NewManager(log)
+		if err != nil {
+			return fmt.Errorf("creating docker manager: %w", err)
 		}
 
-		execCfg := &executor.Config{
-			Source:                          &cfg.Benchmark.Tests.Source,
-			Filter:                          cfg.Benchmark.Tests.Filter,
-			CacheDir:                        cacheDir,
-			ResultsDir:                      cfg.Benchmark.ResultsDir,
-			ResultsOwner:                    resultsOwner,
-			SystemResourceCollectionEnabled: *cfg.Benchmark.SystemResourceCollectionEnabled,
-			GitHubToken:                     cfg.Global.GitHubToken,
-		}
-
-		exec = executor.NewExecutor(log, execCfg)
-		if err := exec.Start(ctx); err != nil {
-			return fmt.Errorf("starting executor: %w", err)
+		if err := dockerMgr.Start(ctx); err != nil {
+			return fmt.Errorf("starting docker manager: %w", err)
 		}
 
 		defer func() {
-			if err := exec.Stop(); err != nil {
-				log.WithError(err).Warn("Failed to stop executor")
+			if err := dockerMgr.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop docker manager")
 			}
 		}()
 
-		log.Info("Test executor initialized")
-	}
+		// Perform cleanup on start if configured.
+		if cfg.Global.CleanupOnStart {
+			log.Info("Performing cleanup before start")
 
-	// Create CPU frequency manager if CPU frequency settings are configured.
-	var cpufreqMgr cpufreq.Manager
-	if needsCPUFreqManager(cfg) {
-		cacheDir := cfg.Global.Directories.TmpCacheDir
-		if cacheDir == "" {
-			var err error
-			cacheDir, err = getExecutorCacheDir()
-			if err != nil {
-				return fmt.Errorf("getting cache directory: %w", err)
+			if err := performCleanup(ctx, dockerMgr, true); err != nil {
+				log.WithError(err).Warn("Cleanup failed")
 			}
 		}
 
-		cpufreqMgr = cpufreq.NewManager(log, cacheDir, cfg.GetCPUSysfsPath())
-		if err := cpufreqMgr.Start(ctx); err != nil {
-			return fmt.Errorf("starting cpufreq manager: %w", err)
+		// Create client registry.
+		registry := client.NewRegistry()
+
+		// Create executor if tests are configured.
+		var exec executor.Executor
+
+		if cfg.Benchmark.Tests.Source.IsConfigured() {
+			cacheDir := cfg.Global.Directories.TmpCacheDir
+			if cacheDir == "" {
+				var err error
+
+				cacheDir, err = getExecutorCacheDir()
+				if err != nil {
+					return fmt.Errorf("getting cache directory: %w", err)
+				}
+			}
+
+			execCfg := &executor.Config{
+				Source:                          &cfg.Benchmark.Tests.Source,
+				Filter:                          cfg.Benchmark.Tests.Filter,
+				CacheDir:                        cacheDir,
+				ResultsDir:                      cfg.Benchmark.ResultsDir,
+				ResultsOwner:                    resultsOwner,
+				SystemResourceCollectionEnabled: *cfg.Benchmark.SystemResourceCollectionEnabled,
+				GitHubToken:                     cfg.Global.GitHubToken,
+			}
+
+			exec = executor.NewExecutor(log, execCfg)
+			if err := exec.Start(ctx); err != nil {
+				return fmt.Errorf("starting executor: %w", err)
+			}
+
+			defer func() {
+				if err := exec.Stop(); err != nil {
+					log.WithError(err).Warn("Failed to stop executor")
+				}
+			}()
+
+			log.Info("Test executor initialized")
+		}
+
+		// Create CPU frequency manager if CPU frequency settings are configured.
+		var cpufreqMgr cpufreq.Manager
+		if needsCPUFreqManager(cfg) {
+			cacheDir := cfg.Global.Directories.TmpCacheDir
+			if cacheDir == "" {
+				var err error
+				cacheDir, err = getExecutorCacheDir()
+				if err != nil {
+					return fmt.Errorf("getting cache directory: %w", err)
+				}
+			}
+
+			cpufreqMgr = cpufreq.NewManager(log, cacheDir, cfg.GetCPUSysfsPath())
+			if err := cpufreqMgr.Start(ctx); err != nil {
+				return fmt.Errorf("starting cpufreq manager: %w", err)
+			}
+
+			defer func() {
+				if err := cpufreqMgr.Stop(); err != nil {
+					log.WithError(err).Warn("Failed to stop cpufreq manager")
+				}
+			}()
+
+			log.Info("CPU frequency manager initialized")
+		}
+
+		// Create S3 uploader if configured.
+		var resultsUploader upload.Uploader
+
+		if cfg.Benchmark.ResultsUpload != nil &&
+			cfg.Benchmark.ResultsUpload.S3 != nil &&
+			cfg.Benchmark.ResultsUpload.S3.Enabled {
+			resultsUploader, err = upload.NewS3Uploader(log, cfg.Benchmark.ResultsUpload.S3)
+			if err != nil {
+				return fmt.Errorf("creating S3 uploader: %w", err)
+			}
+
+			// Fail fast: verify S3 is reachable and writable before starting benchmarks.
+			if err := resultsUploader.Preflight(ctx); err != nil {
+				return fmt.Errorf("S3 upload preflight check failed: %w", err)
+			}
+
+			log.Info("S3 upload preflight check passed")
+		}
+
+		// Create runner.
+		runnerCfg := &runner.Config{
+			ResultsDir:         cfg.Benchmark.ResultsDir,
+			ResultsOwner:       resultsOwner,
+			ClientLogsToStdout: cfg.Global.ClientLogsToStdout,
+			DockerNetwork:      cfg.Global.DockerNetwork,
+			JWT:                cfg.Client.Config.JWT,
+			GenesisURLs:        cfg.Client.Config.Genesis,
+			DataDirs:           cfg.Client.DataDirs,
+			TmpDataDir:         cfg.Global.Directories.TmpDataDir,
+			TmpCacheDir:        cfg.Global.Directories.TmpCacheDir,
+			TestFilter:         cfg.Benchmark.Tests.Filter,
+			FullConfig:         cfg,
+		}
+
+		r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec, cpufreqMgr, resultsUploader)
+
+		if err := r.Start(ctx); err != nil {
+			return fmt.Errorf("starting runner: %w", err)
 		}
 
 		defer func() {
-			if err := cpufreqMgr.Stop(); err != nil {
-				log.WithError(err).Warn("Failed to stop cpufreq manager")
+			if err := r.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop runner")
 			}
 		}()
 
-		log.Info("CPU frequency manager initialized")
-	}
+		// Run all configured instances.
+		for _, instance := range instances {
+			select {
+			case <-ctx.Done():
+				log.Info("Benchmark interrupted")
 
-	// Create runner.
-	runnerCfg := &runner.Config{
-		ResultsDir:         cfg.Benchmark.ResultsDir,
-		ResultsOwner:       resultsOwner,
-		ClientLogsToStdout: cfg.Global.ClientLogsToStdout,
-		DockerNetwork:      cfg.Global.DockerNetwork,
-		JWT:                cfg.Client.Config.JWT,
-		GenesisURLs:        cfg.Client.Config.Genesis,
-		DataDirs:           cfg.Client.DataDirs,
-		TmpDataDir:         cfg.Global.Directories.TmpDataDir,
-		TmpCacheDir:        cfg.Global.Directories.TmpCacheDir,
-		TestFilter:         cfg.Benchmark.Tests.Filter,
-		FullConfig:         cfg,
-	}
+				return ctx.Err()
+			default:
+			}
 
-	r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec, cpufreqMgr)
+			log.WithField("instance", instance.ID).Info("Running instance")
 
-	if err := r.Start(ctx); err != nil {
-		return fmt.Errorf("starting runner: %w", err)
-	}
+			if err := r.RunInstance(ctx, &instance); err != nil {
+				log.WithError(err).WithField("instance", instance.ID).Error("Instance failed")
 
-	defer func() {
-		if err := r.Stop(); err != nil {
-			log.WithError(err).Warn("Failed to stop runner")
-		}
-	}()
+				// Continue with next instance on failure.
+				continue
+			}
 
-	// Run all configured instances.
-	for _, instance := range instances {
-		select {
-		case <-ctx.Done():
-			log.Info("Benchmark interrupted")
-
-			return ctx.Err()
-		default:
+			log.WithField("instance", instance.ID).Info("Instance completed successfully")
 		}
 
-		log.WithField("instance", instance.ID).Info("Running instance")
-
-		if err := r.RunInstance(ctx, &instance); err != nil {
-			log.WithError(err).WithField("instance", instance.ID).Error("Instance failed")
-
-			// Continue with next instance on failure.
-			continue
-		}
-
-		log.WithField("instance", instance.ID).Info("Instance completed successfully")
+		log.Info("Benchmark completed")
+	} else {
+		log.Info("Skipping test runs (skip_test_run is enabled)")
 	}
-
-	log.Info("Benchmark completed")
 
 	// Generate results index if configured.
 	if cfg.Benchmark.GenerateResultsIndex {
-		log.Info("Generating results index")
-
-		index, err := executor.GenerateIndex(cfg.Benchmark.ResultsDir)
-		if err != nil {
+		if err := generateResultsIndex(cmd, cfg, resultsOwner); err != nil {
 			log.WithError(err).Warn("Failed to generate results index")
-		} else if err := executor.WriteIndex(cfg.Benchmark.ResultsDir, index, resultsOwner); err != nil {
-			log.WithError(err).Warn("Failed to write results index")
-		} else {
-			log.WithField("entries", len(index.Entries)).Info("Results index generated")
 		}
 	}
 
 	// Generate suite stats if configured.
 	if cfg.Benchmark.GenerateSuiteStats {
-		log.Info("Generating suite stats")
-
-		allStats, err := executor.GenerateAllSuiteStats(cfg.Benchmark.ResultsDir)
-		if err != nil {
+		if err := generateSuiteStats(cmd, cfg, resultsOwner); err != nil {
 			log.WithError(err).Warn("Failed to generate suite stats")
-		} else {
-			for suiteHash, stats := range allStats {
-				if err := executor.WriteSuiteStats(cfg.Benchmark.ResultsDir, suiteHash, stats, resultsOwner); err != nil {
-					log.WithError(err).WithField("suite", suiteHash).Warn("Failed to write suite stats")
-				}
-			}
-
-			log.WithField("suites", len(allStats)).Info("Suite stats generated")
 		}
 	}
 
@@ -334,6 +341,216 @@ func needsCPUFreqManager(cfg *config.Config) bool {
 	}
 
 	return false
+}
+
+// generateResultsIndex generates index.json using either the local filesystem or S3.
+func generateResultsIndex(
+	cmd *cobra.Command,
+	cfg *config.Config,
+	resultsOwner *fsutil.OwnerConfig,
+) error {
+	method := cfg.Benchmark.GenerateResultsIndexMethod
+
+	switch method {
+	case "", "local":
+		return generateResultsIndexLocal(cfg, resultsOwner)
+	case "s3":
+		return generateResultsIndexS3(cmd, cfg)
+	default:
+		return fmt.Errorf(
+			"unsupported generate_results_index_method %q (use \"local\" or \"s3\")",
+			method,
+		)
+	}
+}
+
+// generateResultsIndexLocal generates index.json from a local results directory.
+func generateResultsIndexLocal(
+	cfg *config.Config,
+	resultsOwner *fsutil.OwnerConfig,
+) error {
+	log.Info("Generating results index from local filesystem")
+
+	index, err := executor.GenerateIndex(cfg.Benchmark.ResultsDir)
+	if err != nil {
+		return fmt.Errorf("generating index: %w", err)
+	}
+
+	if err := executor.WriteIndex(cfg.Benchmark.ResultsDir, index, resultsOwner); err != nil {
+		return fmt.Errorf("writing index: %w", err)
+	}
+
+	log.WithField("entries", len(index.Entries)).Info("Results index generated")
+
+	return nil
+}
+
+// generateResultsIndexS3 generates index.json by reading runs from S3
+// and uploads the result back to the bucket.
+func generateResultsIndexS3(cmd *cobra.Command, cfg *config.Config) error {
+	if cfg.Benchmark.ResultsUpload == nil ||
+		cfg.Benchmark.ResultsUpload.S3 == nil ||
+		!cfg.Benchmark.ResultsUpload.S3.Enabled {
+		return fmt.Errorf(
+			"generate_results_index_method is \"s3\" but S3 upload " +
+				"is not configured or not enabled",
+		)
+	}
+
+	s3Cfg := cfg.Benchmark.ResultsUpload.S3
+
+	prefix := s3Cfg.Prefix
+	if prefix == "" {
+		prefix = "results"
+	}
+
+	prefix = strings.TrimRight(prefix, "/")
+	runsPrefix := prefix + "/runs/"
+
+	reader := upload.NewS3Reader(log, s3Cfg)
+	ctx := cmd.Context()
+
+	log.WithFields(logrus.Fields{
+		"bucket": s3Cfg.Bucket,
+		"prefix": runsPrefix,
+	}).Info("Generating results index from S3")
+
+	index, err := executor.GenerateIndexFromS3(ctx, log, reader, runsPrefix)
+	if err != nil {
+		return fmt.Errorf("generating index from S3: %w", err)
+	}
+
+	data, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling index: %w", err)
+	}
+
+	indexKey := prefix + "/index.json"
+
+	log.WithFields(logrus.Fields{
+		"key":     indexKey,
+		"entries": len(index.Entries),
+	}).Info("Uploading index.json to S3")
+
+	if err := reader.PutObject(ctx, indexKey, data, "application/json"); err != nil {
+		return fmt.Errorf("uploading index.json: %w", err)
+	}
+
+	log.WithField("entries", len(index.Entries)).
+		Info("Results index generated and uploaded to S3")
+
+	return nil
+}
+
+// generateSuiteStats generates suite stats using either the local
+// filesystem or S3, depending on the configured method.
+func generateSuiteStats(
+	cmd *cobra.Command,
+	cfg *config.Config,
+	resultsOwner *fsutil.OwnerConfig,
+) error {
+	method := cfg.Benchmark.GenerateSuiteStatsMethod
+
+	switch method {
+	case "", "local":
+		return generateSuiteStatsLocal(cfg, resultsOwner)
+	case "s3":
+		return generateSuiteStatsS3(cmd, cfg)
+	default:
+		return fmt.Errorf(
+			"unsupported generate_suite_stats_method %q"+
+				" (use \"local\" or \"s3\")",
+			method,
+		)
+	}
+}
+
+// generateSuiteStatsLocal generates suite stats from a local results directory.
+func generateSuiteStatsLocal(
+	cfg *config.Config,
+	resultsOwner *fsutil.OwnerConfig,
+) error {
+	log.Info("Generating suite stats from local filesystem")
+
+	allStats, err := executor.GenerateAllSuiteStats(cfg.Benchmark.ResultsDir)
+	if err != nil {
+		return fmt.Errorf("generating suite stats: %w", err)
+	}
+
+	for suiteHash, stats := range allStats {
+		if err := executor.WriteSuiteStats(
+			cfg.Benchmark.ResultsDir, suiteHash, stats, resultsOwner,
+		); err != nil {
+			log.WithError(err).WithField("suite", suiteHash).
+				Warn("Failed to write suite stats")
+		}
+	}
+
+	log.WithField("suites", len(allStats)).Info("Suite stats generated")
+
+	return nil
+}
+
+// generateSuiteStatsS3 generates suite stats by reading runs from S3
+// and uploads each stats.json back to the bucket.
+func generateSuiteStatsS3(cmd *cobra.Command, cfg *config.Config) error {
+	if cfg.Benchmark.ResultsUpload == nil ||
+		cfg.Benchmark.ResultsUpload.S3 == nil ||
+		!cfg.Benchmark.ResultsUpload.S3.Enabled {
+		return fmt.Errorf(
+			"generate_suite_stats_method is \"s3\" but S3 upload " +
+				"is not configured or not enabled",
+		)
+	}
+
+	s3Cfg := cfg.Benchmark.ResultsUpload.S3
+
+	prefix := s3Cfg.Prefix
+	if prefix == "" {
+		prefix = "results"
+	}
+
+	prefix = strings.TrimRight(prefix, "/")
+	runsPrefix := prefix + "/runs/"
+	suitesBase := prefix + "/suites/"
+
+	reader := upload.NewS3Reader(log, s3Cfg)
+	ctx := cmd.Context()
+
+	log.WithFields(logrus.Fields{
+		"bucket": s3Cfg.Bucket,
+		"prefix": runsPrefix,
+	}).Info("Generating suite stats from S3")
+
+	allStats, err := executor.GenerateAllSuiteStatsFromS3(
+		ctx, log, reader, runsPrefix,
+	)
+	if err != nil {
+		return fmt.Errorf("generating suite stats from S3: %w", err)
+	}
+
+	for suiteHash, stats := range allStats {
+		data, err := json.MarshalIndent(stats, "", "  ")
+		if err != nil {
+			log.WithError(err).WithField("suite", suiteHash).
+				Warn("Failed to marshal suite stats")
+
+			continue
+		}
+
+		key := suitesBase + suiteHash + "/stats.json"
+		if err := reader.PutObject(ctx, key, data, "application/json"); err != nil {
+			log.WithError(err).WithField("suite", suiteHash).
+				Warn("Failed to upload suite stats")
+
+			continue
+		}
+	}
+
+	log.WithField("suites", len(allStats)).
+		Info("Suite stats generated and uploaded to S3")
+
+	return nil
 }
 
 // filterInstances filters instances by ID and/or client type.
