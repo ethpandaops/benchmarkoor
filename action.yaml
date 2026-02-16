@@ -45,6 +45,11 @@ inputs:
     required: false
     default: '/tmp'
 
+  docker-env:
+    description: 'Newline-separated environment variables to pass into the Docker container (e.g. AWS_ACCESS_KEY_ID, MY_VAR=value)'
+    required: false
+    default: ''
+
 runs:
   using: 'composite'
   steps:
@@ -113,6 +118,7 @@ runs:
       env:
         INPUT_RUN_CONFIG: ${{ inputs.run-config }}
         INPUT_RUN_CONFIG_URLS: ${{ inputs.run-config-urls }}
+        INPUT_DOCKER_ENV: ${{ inputs.docker-env }}
       run: |
         # Remove any leftover containers from a previous run
         docker rm -f benchmarkoor-run 2>/dev/null || true
@@ -203,6 +209,15 @@ runs:
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_OWNER=$(id -u):$(id -g)"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=${{ inputs.tmp-dir }}"
         DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=${{ inputs.tmp-dir }}/benchmarkoor-cache"
+
+        # Forward user-specified environment variables into the container.
+        if [ -n "$INPUT_DOCKER_ENV" ]; then
+          while IFS= read -r env_entry; do
+            env_entry=$(echo "$env_entry" | xargs)  # trim whitespace
+            [ -z "$env_entry" ] && continue
+            DOCKER_CMD="$DOCKER_CMD -e ${env_entry}"
+          done <<< "$INPUT_DOCKER_ENV"
+        fi
 
         # Add rshared mounts for datadir filesystem mount points (ZFS/overlayfs)
         if [ -n "$DATADIR_MOUNT_POINTS" ]; then
