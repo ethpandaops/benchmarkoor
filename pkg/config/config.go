@@ -96,6 +96,7 @@ type BenchmarkConfig struct {
 	ResultsOwner                    string               `yaml:"results_owner,omitempty" mapstructure:"results_owner"`
 	SystemResourceCollectionEnabled *bool                `yaml:"system_resource_collection_enabled,omitempty" mapstructure:"system_resource_collection_enabled"`
 	GenerateResultsIndex            bool                 `yaml:"generate_results_index" mapstructure:"generate_results_index"`
+	GenerateResultsIndexMethod      string               `yaml:"generate_results_index_method,omitempty" mapstructure:"generate_results_index_method"`
 	GenerateSuiteStats              bool                 `yaml:"generate_suite_stats" mapstructure:"generate_suite_stats"`
 	ResultsUpload                   *ResultsUploadConfig `yaml:"results_upload,omitempty" mapstructure:"results_upload"`
 	Tests                           TestsConfig          `yaml:"tests,omitempty" mapstructure:"tests"`
@@ -678,6 +679,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"benchmark.results_owner",
 		"benchmark.system_resource_collection_enabled",
 		"benchmark.generate_results_index",
+		"benchmark.generate_results_index_method",
 		"benchmark.generate_suite_stats",
 		"benchmark.tests.filter",
 		// Client settings

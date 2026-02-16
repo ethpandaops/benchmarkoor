@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -288,15 +290,8 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 
 	// Generate results index if configured.
 	if cfg.Benchmark.GenerateResultsIndex {
-		log.Info("Generating results index")
-
-		index, err := executor.GenerateIndex(cfg.Benchmark.ResultsDir)
-		if err != nil {
+		if err := generateResultsIndex(cmd, cfg, resultsOwner); err != nil {
 			log.WithError(err).Warn("Failed to generate results index")
-		} else if err := executor.WriteIndex(cfg.Benchmark.ResultsDir, index, resultsOwner); err != nil {
-			log.WithError(err).Warn("Failed to write results index")
-		} else {
-			log.WithField("entries", len(index.Entries)).Info("Results index generated")
 		}
 	}
 
@@ -354,6 +349,106 @@ func needsCPUFreqManager(cfg *config.Config) bool {
 	}
 
 	return false
+}
+
+// generateResultsIndex generates index.json using either the local filesystem or S3.
+func generateResultsIndex(
+	cmd *cobra.Command,
+	cfg *config.Config,
+	resultsOwner *fsutil.OwnerConfig,
+) error {
+	method := cfg.Benchmark.GenerateResultsIndexMethod
+
+	switch method {
+	case "", "local":
+		return generateResultsIndexLocal(cfg, resultsOwner)
+	case "s3":
+		return generateResultsIndexS3(cmd, cfg)
+	default:
+		return fmt.Errorf(
+			"unsupported generate_results_index_method %q (use \"local\" or \"s3\")",
+			method,
+		)
+	}
+}
+
+// generateResultsIndexLocal generates index.json from a local results directory.
+func generateResultsIndexLocal(
+	cfg *config.Config,
+	resultsOwner *fsutil.OwnerConfig,
+) error {
+	log.Info("Generating results index from local filesystem")
+
+	index, err := executor.GenerateIndex(cfg.Benchmark.ResultsDir)
+	if err != nil {
+		return fmt.Errorf("generating index: %w", err)
+	}
+
+	if err := executor.WriteIndex(cfg.Benchmark.ResultsDir, index, resultsOwner); err != nil {
+		return fmt.Errorf("writing index: %w", err)
+	}
+
+	log.WithField("entries", len(index.Entries)).Info("Results index generated")
+
+	return nil
+}
+
+// generateResultsIndexS3 generates index.json by reading runs from S3
+// and uploads the result back to the bucket.
+func generateResultsIndexS3(cmd *cobra.Command, cfg *config.Config) error {
+	if cfg.Benchmark.ResultsUpload == nil ||
+		cfg.Benchmark.ResultsUpload.S3 == nil ||
+		!cfg.Benchmark.ResultsUpload.S3.Enabled {
+		return fmt.Errorf(
+			"generate_results_index_method is \"s3\" but S3 upload " +
+				"is not configured or not enabled",
+		)
+	}
+
+	s3Cfg := cfg.Benchmark.ResultsUpload.S3
+
+	runsPrefix := s3Cfg.Prefix
+	if runsPrefix == "" {
+		runsPrefix = "results/runs"
+	}
+
+	runsPrefix = strings.TrimRight(runsPrefix, "/") + "/"
+
+	reader := upload.NewS3Reader(log, s3Cfg)
+	ctx := cmd.Context()
+
+	log.WithFields(logrus.Fields{
+		"bucket": s3Cfg.Bucket,
+		"prefix": runsPrefix,
+	}).Info("Generating results index from S3")
+
+	index, err := executor.GenerateIndexFromS3(ctx, log, reader, runsPrefix)
+	if err != nil {
+		return fmt.Errorf("generating index from S3: %w", err)
+	}
+
+	data, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling index: %w", err)
+	}
+
+	// Place index.json one level above the runs prefix.
+	// e.g. prefix "demo/results/runs/" → key "demo/results/index.json".
+	indexKey := path.Dir(strings.TrimRight(runsPrefix, "/")) + "/index.json"
+
+	log.WithFields(logrus.Fields{
+		"key":     indexKey,
+		"entries": len(index.Entries),
+	}).Info("Uploading index.json to S3")
+
+	if err := reader.PutObject(ctx, indexKey, data, "application/json"); err != nil {
+		return fmt.Errorf("uploading index.json: %w", err)
+	}
+
+	log.WithField("entries", len(index.Entries)).
+		Info("Results index generated and uploaded to S3")
+
+	return nil
 }
 
 // filterInstances filters instances by ID and/or client type.

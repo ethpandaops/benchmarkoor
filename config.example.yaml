@@ -38,6 +38,10 @@ benchmark:
   # system_resource_collection_enabled: true
   # Optional: Generate index.json after benchmark (aggregates all run metadata).
   # generate_results_index: true
+  # Optional: Method for index generation: "local" (default, filesystem) or "s3"
+  # (read runs from S3, upload index.json back to the bucket).
+  # Requires results_upload.s3 to be configured when set to "s3".
+  # generate_results_index_method: local
   # Optional: Generate stats.json per suite after benchmark (aggregates test durations
   # across runs for the UI heatmap).
   # generate_suite_stats: true

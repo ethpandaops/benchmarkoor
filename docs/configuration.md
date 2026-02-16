@@ -125,6 +125,7 @@ benchmark:
 | `results_owner` | string | - | Set ownership (user:group) for results files. Useful when running as root |
 | `system_resource_collection_enabled` | bool | `true` | Enable CPU/memory/disk metrics collection via cgroups/Docker Stats API |
 | `generate_results_index` | bool | `false` | Generate `index.json` aggregating all run metadata |
+| `generate_results_index_method` | string | `local` | Method for index generation: `local` (filesystem) or `s3` (read runs from S3, upload index back). Requires `results_upload.s3` when set to `s3` |
 | `generate_suite_stats` | bool | `false` | Generate `stats.json` per suite for UI heatmaps |
 | `tests.filter` | string | - | Run only tests matching this pattern |
 | `tests.source` | object | - | Test source configuration (see below) |
