@@ -61,6 +61,7 @@ benchmark:
   #     # acl: private  # Optional: Canned ACL
   #     # Path-style addressing: required for MinIO and Cloudflare R2.
   #     force_path_style: false
+  #     # parallel_uploads: 50  # Number of concurrent file uploads
 
   # Optional test execution configuration.
   # tests:

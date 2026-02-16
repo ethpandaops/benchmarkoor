@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,6 +16,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 // s3Uploader implements Uploader for S3-compatible storage.
@@ -83,34 +85,38 @@ func (u *s3Uploader) Preflight(ctx context.Context) error {
 	return nil
 }
 
+// uploadJob describes a single file to upload.
+type uploadJob struct {
+	localPath string
+	key       string
+}
+
 // Upload walks localDir and uploads all files to S3 under the configured prefix.
 func (u *s3Uploader) Upload(ctx context.Context, localDir string) error {
 	baseName := filepath.Base(localDir)
 	prefix := u.resolvePrefix(baseName)
 
-	var count int
+	// Collect phase: build the list of files to upload.
+	var jobs []uploadJob
 
-	err := filepath.Walk(localDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	err := filepath.Walk(localDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 
 		if info.IsDir() {
 			return nil
 		}
 
-		relPath, err := filepath.Rel(localDir, path)
-		if err != nil {
-			return fmt.Errorf("computing relative path: %w", err)
+		relPath, relErr := filepath.Rel(localDir, path)
+		if relErr != nil {
+			return fmt.Errorf("computing relative path: %w", relErr)
 		}
 
-		key := prefix + "/" + filepath.ToSlash(relPath)
-
-		if err := u.uploadFile(ctx, path, key); err != nil {
-			return fmt.Errorf("uploading %s: %w", relPath, err)
-		}
-
-		count++
+		jobs = append(jobs, uploadJob{
+			localPath: path,
+			key:       prefix + "/" + filepath.ToSlash(relPath),
+		})
 
 		return nil
 	})
@@ -118,8 +124,90 @@ func (u *s3Uploader) Upload(ctx context.Context, localDir string) error {
 		return fmt.Errorf("walking directory %s: %w", localDir, err)
 	}
 
+	total := len(jobs)
+	if total == 0 {
+		u.log.WithField("prefix", prefix).Info("No files to upload")
+
+		return nil
+	}
+
 	u.log.WithFields(logrus.Fields{
-		"files":  count,
+		"files":            total,
+		"bucket":           u.cfg.Bucket,
+		"prefix":           prefix,
+		"parallel_uploads": u.cfg.ParallelUploads,
+	}).Info("Starting upload")
+
+	// Upload phase: fan out to workers via a channel.
+	var uploaded atomic.Int64
+
+	ch := make(chan uploadJob, u.cfg.ParallelUploads)
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	for range u.cfg.ParallelUploads {
+		g.Go(func() error {
+			for job := range ch {
+				if err := u.uploadFile(gCtx, job.localPath, job.key); err != nil {
+					return fmt.Errorf("uploading %s: %w", job.key, err)
+				}
+
+				uploaded.Add(1)
+			}
+
+			return nil
+		})
+	}
+
+	// Progress goroutine: log every 5 seconds.
+	stopProgress := make(chan struct{})
+	progressDone := make(chan struct{})
+
+	go func() {
+		defer close(progressDone)
+
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				u.log.WithFields(logrus.Fields{
+					"uploaded": uploaded.Load(),
+					"total":    total,
+				}).Info("Upload progress")
+			case <-stopProgress:
+				return
+			}
+		}
+	}()
+
+	// Feed jobs to workers.
+	for _, job := range jobs {
+		select {
+		case ch <- job:
+		case <-gCtx.Done():
+		}
+
+		if gCtx.Err() != nil {
+			break
+		}
+	}
+
+	close(ch)
+
+	uploadErr := g.Wait()
+
+	// Signal the progress goroutine to stop, then wait for it.
+	close(stopProgress)
+	<-progressDone
+
+	if uploadErr != nil {
+		return uploadErr
+	}
+
+	u.log.WithFields(logrus.Fields{
+		"files":  total,
 		"bucket": u.cfg.Bucket,
 		"prefix": prefix,
 	}).Info("Upload completed")

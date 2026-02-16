@@ -350,6 +350,7 @@ benchmark:
 | `storage_class` | string | No | Bucket default | S3 storage class (e.g., `STANDARD`, `STANDARD_IA`) |
 | `acl` | string | No | - | Canned ACL (e.g., `private`, `public-read`) |
 | `force_path_style` | bool | No | `false` | Use path-style addressing (required for MinIO and Cloudflare R2) |
+| `parallel_uploads` | int | No | `50` | Number of concurrent file uploads |
 
 **Important:** The `endpoint_url` must be the base URL without any path component. Do not include the bucket name in the URL — the SDK handles that separately via the `bucket` field. For example, use `https://<account_id>.r2.cloudflarestorage.com`, not `https://<account_id>.r2.cloudflarestorage.com/my-bucket`.
 

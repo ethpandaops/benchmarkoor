@@ -118,6 +118,7 @@ type S3UploadConfig struct {
 	StorageClass    string `yaml:"storage_class,omitempty" mapstructure:"storage_class"`
 	ACL             string `yaml:"acl,omitempty" mapstructure:"acl"`
 	ForcePathStyle  bool   `yaml:"force_path_style" mapstructure:"force_path_style"`
+	ParallelUploads int    `yaml:"parallel_uploads,omitempty" mapstructure:"parallel_uploads"`
 }
 
 // TestsConfig contains test execution settings.
@@ -732,6 +733,12 @@ func (c *Config) applyDefaults() {
 
 	if c.Client.Config.Genesis == nil {
 		c.Client.Config.Genesis = make(map[string]string, 6)
+	}
+
+	if c.Benchmark.ResultsUpload != nil &&
+		c.Benchmark.ResultsUpload.S3 != nil &&
+		c.Benchmark.ResultsUpload.S3.ParallelUploads == 0 {
+		c.Benchmark.ResultsUpload.S3.ParallelUploads = 50
 	}
 
 	// Apply defaults to global datadirs.
