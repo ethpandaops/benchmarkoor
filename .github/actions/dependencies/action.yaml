@@ -50,8 +50,6 @@ runs:
           echo "zip/unzip utilities installed successfully"
         else
           echo "zip and unzip are already available"
-          zip --version || true
-          unzip -v || true
         fi
 
     - name: Install GitHub CLI if not present
