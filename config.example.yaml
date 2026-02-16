@@ -45,6 +45,10 @@ benchmark:
   # Optional: Generate stats.json per suite after benchmark (aggregates test durations
   # across runs for the UI heatmap).
   # generate_suite_stats: true
+  # Optional: Method for suite stats generation: "local" (default, filesystem) or "s3"
+  # (read runs from S3, upload stats.json back to the bucket).
+  # Requires results_upload.s3 to be configured when set to "s3".
+  # generate_suite_stats_method: local
   # Optional: Upload results to S3-compatible storage after each instance run.
   # A preflight check verifies connectivity before any benchmarks start.
   # results_upload:

@@ -127,6 +127,7 @@ benchmark:
 | `generate_results_index` | bool | `false` | Generate `index.json` aggregating all run metadata |
 | `generate_results_index_method` | string | `local` | Method for index generation: `local` (filesystem) or `s3` (read runs from S3, upload index back). Requires `results_upload.s3` when set to `s3` |
 | `generate_suite_stats` | bool | `false` | Generate `stats.json` per suite for UI heatmaps |
+| `generate_suite_stats_method` | string | `local` | Method for suite stats generation: `local` (filesystem) or `s3` (read runs from S3, upload stats back). Requires `results_upload.s3` when set to `s3` |
 | `tests.filter` | string | - | Run only tests matching this pattern |
 | `tests.source` | object | - | Test source configuration (see below) |
 
@@ -370,6 +371,14 @@ benchmarkoor generate-index-file --method=s3 --config config.yaml
 ```
 
 When using `--method=s3`, the command reads `config.json` and `result.json` from each run directory in the bucket, builds the index in memory, and uploads `index.json` one level above the configured prefix (e.g. prefix `demo/results/runs` places `index.json` at `demo/results/index.json`).
+
+The `generate-suite-stats-file` command also supports reading directly from S3:
+
+```bash
+benchmarkoor generate-suite-stats-file --method=s3 --config config.yaml
+```
+
+When using `--method=s3`, the command reads `config.json` and `result.json` from each run, groups them by suite hash, builds per-suite stats in memory, and uploads `stats.json` to `suites/{hash}/stats.json` alongside the runs prefix.
 
 ## Client Settings
 

@@ -98,6 +98,7 @@ type BenchmarkConfig struct {
 	GenerateResultsIndex            bool                 `yaml:"generate_results_index" mapstructure:"generate_results_index"`
 	GenerateResultsIndexMethod      string               `yaml:"generate_results_index_method,omitempty" mapstructure:"generate_results_index_method"`
 	GenerateSuiteStats              bool                 `yaml:"generate_suite_stats" mapstructure:"generate_suite_stats"`
+	GenerateSuiteStatsMethod        string               `yaml:"generate_suite_stats_method,omitempty" mapstructure:"generate_suite_stats_method"`
 	ResultsUpload                   *ResultsUploadConfig `yaml:"results_upload,omitempty" mapstructure:"results_upload"`
 	Tests                           TestsConfig          `yaml:"tests,omitempty" mapstructure:"tests"`
 }
@@ -681,6 +682,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"benchmark.generate_results_index",
 		"benchmark.generate_results_index_method",
 		"benchmark.generate_suite_stats",
+		"benchmark.generate_suite_stats_method",
 		"benchmark.tests.filter",
 		// Client settings
 		"client.config.jwt",

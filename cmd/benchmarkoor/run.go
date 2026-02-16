@@ -297,19 +297,8 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 
 	// Generate suite stats if configured.
 	if cfg.Benchmark.GenerateSuiteStats {
-		log.Info("Generating suite stats")
-
-		allStats, err := executor.GenerateAllSuiteStats(cfg.Benchmark.ResultsDir)
-		if err != nil {
+		if err := generateSuiteStats(cmd, cfg, resultsOwner); err != nil {
 			log.WithError(err).Warn("Failed to generate suite stats")
-		} else {
-			for suiteHash, stats := range allStats {
-				if err := executor.WriteSuiteStats(cfg.Benchmark.ResultsDir, suiteHash, stats, resultsOwner); err != nil {
-					log.WithError(err).WithField("suite", suiteHash).Warn("Failed to write suite stats")
-				}
-			}
-
-			log.WithField("suites", len(allStats)).Info("Suite stats generated")
 		}
 	}
 
@@ -447,6 +436,120 @@ func generateResultsIndexS3(cmd *cobra.Command, cfg *config.Config) error {
 
 	log.WithField("entries", len(index.Entries)).
 		Info("Results index generated and uploaded to S3")
+
+	return nil
+}
+
+// generateSuiteStats generates suite stats using either the local
+// filesystem or S3, depending on the configured method.
+func generateSuiteStats(
+	cmd *cobra.Command,
+	cfg *config.Config,
+	resultsOwner *fsutil.OwnerConfig,
+) error {
+	method := cfg.Benchmark.GenerateSuiteStatsMethod
+
+	switch method {
+	case "", "local":
+		return generateSuiteStatsLocal(cfg, resultsOwner)
+	case "s3":
+		return generateSuiteStatsS3(cmd, cfg)
+	default:
+		return fmt.Errorf(
+			"unsupported generate_suite_stats_method %q"+
+				" (use \"local\" or \"s3\")",
+			method,
+		)
+	}
+}
+
+// generateSuiteStatsLocal generates suite stats from a local results directory.
+func generateSuiteStatsLocal(
+	cfg *config.Config,
+	resultsOwner *fsutil.OwnerConfig,
+) error {
+	log.Info("Generating suite stats from local filesystem")
+
+	allStats, err := executor.GenerateAllSuiteStats(cfg.Benchmark.ResultsDir)
+	if err != nil {
+		return fmt.Errorf("generating suite stats: %w", err)
+	}
+
+	for suiteHash, stats := range allStats {
+		if err := executor.WriteSuiteStats(
+			cfg.Benchmark.ResultsDir, suiteHash, stats, resultsOwner,
+		); err != nil {
+			log.WithError(err).WithField("suite", suiteHash).
+				Warn("Failed to write suite stats")
+		}
+	}
+
+	log.WithField("suites", len(allStats)).Info("Suite stats generated")
+
+	return nil
+}
+
+// generateSuiteStatsS3 generates suite stats by reading runs from S3
+// and uploads each stats.json back to the bucket.
+func generateSuiteStatsS3(cmd *cobra.Command, cfg *config.Config) error {
+	if cfg.Benchmark.ResultsUpload == nil ||
+		cfg.Benchmark.ResultsUpload.S3 == nil ||
+		!cfg.Benchmark.ResultsUpload.S3.Enabled {
+		return fmt.Errorf(
+			"generate_suite_stats_method is \"s3\" but S3 upload " +
+				"is not configured or not enabled",
+		)
+	}
+
+	s3Cfg := cfg.Benchmark.ResultsUpload.S3
+
+	runsPrefix := s3Cfg.Prefix
+	if runsPrefix == "" {
+		runsPrefix = "results/runs"
+	}
+
+	runsPrefix = strings.TrimRight(runsPrefix, "/") + "/"
+
+	reader := upload.NewS3Reader(log, s3Cfg)
+	ctx := cmd.Context()
+
+	log.WithFields(logrus.Fields{
+		"bucket": s3Cfg.Bucket,
+		"prefix": runsPrefix,
+	}).Info("Generating suite stats from S3")
+
+	allStats, err := executor.GenerateAllSuiteStatsFromS3(
+		ctx, log, reader, runsPrefix,
+	)
+	if err != nil {
+		return fmt.Errorf("generating suite stats from S3: %w", err)
+	}
+
+	// Place suites directory one level above the runs prefix.
+	// e.g. prefix "demo/results/runs/" → "demo/results/suites/".
+	parent := path.Dir(strings.TrimRight(runsPrefix, "/"))
+	suitesBase := parent + "/suites/"
+
+	for suiteHash, stats := range allStats {
+		data, err := json.MarshalIndent(stats, "", "  ")
+		if err != nil {
+			log.WithError(err).WithField("suite", suiteHash).
+				Warn("Failed to marshal suite stats")
+
+			continue
+		}
+
+		key := suitesBase + suiteHash + "/stats.json"
+		if err := reader.PutObject(ctx, key, data, "application/json"); err != nil {
+			log.WithError(err).WithField("suite", suiteHash).
+				Warn("Failed to upload suite stats")
+
+			continue
+		}
+	}
+
+	log.WithField("suites", len(allStats)).
+		Info("Suite stats generated and uploaded to S3")
 
 	return nil
 }
