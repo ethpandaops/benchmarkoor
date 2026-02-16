@@ -125,167 +125,171 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	// Create Docker manager.
-	dockerMgr, err := docker.NewManager(log)
-	if err != nil {
-		return fmt.Errorf("creating docker manager: %w", err)
-	}
-
-	if err := dockerMgr.Start(ctx); err != nil {
-		return fmt.Errorf("starting docker manager: %w", err)
-	}
-
-	defer func() {
-		if err := dockerMgr.Stop(); err != nil {
-			log.WithError(err).Warn("Failed to stop docker manager")
-		}
-	}()
-
-	// Perform cleanup on start if configured.
-	if cfg.Global.CleanupOnStart {
-		log.Info("Performing cleanup before start")
-
-		if err := performCleanup(ctx, dockerMgr, true); err != nil {
-			log.WithError(err).Warn("Cleanup failed")
-		}
-	}
-
-	// Create client registry.
-	registry := client.NewRegistry()
-
-	// Create executor if tests are configured.
-	var exec executor.Executor
-
-	if cfg.Benchmark.Tests.Source.IsConfigured() {
-		cacheDir := cfg.Global.Directories.TmpCacheDir
-		if cacheDir == "" {
-			var err error
-
-			cacheDir, err = getExecutorCacheDir()
-			if err != nil {
-				return fmt.Errorf("getting cache directory: %w", err)
-			}
-		}
-
-		execCfg := &executor.Config{
-			Source:                          &cfg.Benchmark.Tests.Source,
-			Filter:                          cfg.Benchmark.Tests.Filter,
-			CacheDir:                        cacheDir,
-			ResultsDir:                      cfg.Benchmark.ResultsDir,
-			ResultsOwner:                    resultsOwner,
-			SystemResourceCollectionEnabled: *cfg.Benchmark.SystemResourceCollectionEnabled,
-			GitHubToken:                     cfg.Global.GitHubToken,
-		}
-
-		exec = executor.NewExecutor(log, execCfg)
-		if err := exec.Start(ctx); err != nil {
-			return fmt.Errorf("starting executor: %w", err)
-		}
-
-		defer func() {
-			if err := exec.Stop(); err != nil {
-				log.WithError(err).Warn("Failed to stop executor")
-			}
-		}()
-
-		log.Info("Test executor initialized")
-	}
-
-	// Create CPU frequency manager if CPU frequency settings are configured.
-	var cpufreqMgr cpufreq.Manager
-	if needsCPUFreqManager(cfg) {
-		cacheDir := cfg.Global.Directories.TmpCacheDir
-		if cacheDir == "" {
-			var err error
-			cacheDir, err = getExecutorCacheDir()
-			if err != nil {
-				return fmt.Errorf("getting cache directory: %w", err)
-			}
-		}
-
-		cpufreqMgr = cpufreq.NewManager(log, cacheDir, cfg.GetCPUSysfsPath())
-		if err := cpufreqMgr.Start(ctx); err != nil {
-			return fmt.Errorf("starting cpufreq manager: %w", err)
-		}
-
-		defer func() {
-			if err := cpufreqMgr.Stop(); err != nil {
-				log.WithError(err).Warn("Failed to stop cpufreq manager")
-			}
-		}()
-
-		log.Info("CPU frequency manager initialized")
-	}
-
-	// Create S3 uploader if configured.
-	var resultsUploader upload.Uploader
-
-	if cfg.Benchmark.ResultsUpload != nil &&
-		cfg.Benchmark.ResultsUpload.S3 != nil &&
-		cfg.Benchmark.ResultsUpload.S3.Enabled {
-		resultsUploader, err = upload.NewS3Uploader(log, cfg.Benchmark.ResultsUpload.S3)
+	if !cfg.Benchmark.SkipTestRun {
+		// Create Docker manager.
+		dockerMgr, err := docker.NewManager(log)
 		if err != nil {
-			return fmt.Errorf("creating S3 uploader: %w", err)
+			return fmt.Errorf("creating docker manager: %w", err)
 		}
 
-		// Fail fast: verify S3 is reachable and writable before starting benchmarks.
-		if err := resultsUploader.Preflight(ctx); err != nil {
-			return fmt.Errorf("S3 upload preflight check failed: %w", err)
+		if err := dockerMgr.Start(ctx); err != nil {
+			return fmt.Errorf("starting docker manager: %w", err)
 		}
 
-		log.Info("S3 upload preflight check passed")
+		defer func() {
+			if err := dockerMgr.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop docker manager")
+			}
+		}()
+
+		// Perform cleanup on start if configured.
+		if cfg.Global.CleanupOnStart {
+			log.Info("Performing cleanup before start")
+
+			if err := performCleanup(ctx, dockerMgr, true); err != nil {
+				log.WithError(err).Warn("Cleanup failed")
+			}
+		}
+
+		// Create client registry.
+		registry := client.NewRegistry()
+
+		// Create executor if tests are configured.
+		var exec executor.Executor
+
+		if cfg.Benchmark.Tests.Source.IsConfigured() {
+			cacheDir := cfg.Global.Directories.TmpCacheDir
+			if cacheDir == "" {
+				var err error
+
+				cacheDir, err = getExecutorCacheDir()
+				if err != nil {
+					return fmt.Errorf("getting cache directory: %w", err)
+				}
+			}
+
+			execCfg := &executor.Config{
+				Source:                          &cfg.Benchmark.Tests.Source,
+				Filter:                          cfg.Benchmark.Tests.Filter,
+				CacheDir:                        cacheDir,
+				ResultsDir:                      cfg.Benchmark.ResultsDir,
+				ResultsOwner:                    resultsOwner,
+				SystemResourceCollectionEnabled: *cfg.Benchmark.SystemResourceCollectionEnabled,
+				GitHubToken:                     cfg.Global.GitHubToken,
+			}
+
+			exec = executor.NewExecutor(log, execCfg)
+			if err := exec.Start(ctx); err != nil {
+				return fmt.Errorf("starting executor: %w", err)
+			}
+
+			defer func() {
+				if err := exec.Stop(); err != nil {
+					log.WithError(err).Warn("Failed to stop executor")
+				}
+			}()
+
+			log.Info("Test executor initialized")
+		}
+
+		// Create CPU frequency manager if CPU frequency settings are configured.
+		var cpufreqMgr cpufreq.Manager
+		if needsCPUFreqManager(cfg) {
+			cacheDir := cfg.Global.Directories.TmpCacheDir
+			if cacheDir == "" {
+				var err error
+				cacheDir, err = getExecutorCacheDir()
+				if err != nil {
+					return fmt.Errorf("getting cache directory: %w", err)
+				}
+			}
+
+			cpufreqMgr = cpufreq.NewManager(log, cacheDir, cfg.GetCPUSysfsPath())
+			if err := cpufreqMgr.Start(ctx); err != nil {
+				return fmt.Errorf("starting cpufreq manager: %w", err)
+			}
+
+			defer func() {
+				if err := cpufreqMgr.Stop(); err != nil {
+					log.WithError(err).Warn("Failed to stop cpufreq manager")
+				}
+			}()
+
+			log.Info("CPU frequency manager initialized")
+		}
+
+		// Create S3 uploader if configured.
+		var resultsUploader upload.Uploader
+
+		if cfg.Benchmark.ResultsUpload != nil &&
+			cfg.Benchmark.ResultsUpload.S3 != nil &&
+			cfg.Benchmark.ResultsUpload.S3.Enabled {
+			resultsUploader, err = upload.NewS3Uploader(log, cfg.Benchmark.ResultsUpload.S3)
+			if err != nil {
+				return fmt.Errorf("creating S3 uploader: %w", err)
+			}
+
+			// Fail fast: verify S3 is reachable and writable before starting benchmarks.
+			if err := resultsUploader.Preflight(ctx); err != nil {
+				return fmt.Errorf("S3 upload preflight check failed: %w", err)
+			}
+
+			log.Info("S3 upload preflight check passed")
+		}
+
+		// Create runner.
+		runnerCfg := &runner.Config{
+			ResultsDir:         cfg.Benchmark.ResultsDir,
+			ResultsOwner:       resultsOwner,
+			ClientLogsToStdout: cfg.Global.ClientLogsToStdout,
+			DockerNetwork:      cfg.Global.DockerNetwork,
+			JWT:                cfg.Client.Config.JWT,
+			GenesisURLs:        cfg.Client.Config.Genesis,
+			DataDirs:           cfg.Client.DataDirs,
+			TmpDataDir:         cfg.Global.Directories.TmpDataDir,
+			TmpCacheDir:        cfg.Global.Directories.TmpCacheDir,
+			TestFilter:         cfg.Benchmark.Tests.Filter,
+			FullConfig:         cfg,
+		}
+
+		r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec, cpufreqMgr, resultsUploader)
+
+		if err := r.Start(ctx); err != nil {
+			return fmt.Errorf("starting runner: %w", err)
+		}
+
+		defer func() {
+			if err := r.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop runner")
+			}
+		}()
+
+		// Run all configured instances.
+		for _, instance := range instances {
+			select {
+			case <-ctx.Done():
+				log.Info("Benchmark interrupted")
+
+				return ctx.Err()
+			default:
+			}
+
+			log.WithField("instance", instance.ID).Info("Running instance")
+
+			if err := r.RunInstance(ctx, &instance); err != nil {
+				log.WithError(err).WithField("instance", instance.ID).Error("Instance failed")
+
+				// Continue with next instance on failure.
+				continue
+			}
+
+			log.WithField("instance", instance.ID).Info("Instance completed successfully")
+		}
+
+		log.Info("Benchmark completed")
+	} else {
+		log.Info("Skipping test runs (skip_test_run is enabled)")
 	}
-
-	// Create runner.
-	runnerCfg := &runner.Config{
-		ResultsDir:         cfg.Benchmark.ResultsDir,
-		ResultsOwner:       resultsOwner,
-		ClientLogsToStdout: cfg.Global.ClientLogsToStdout,
-		DockerNetwork:      cfg.Global.DockerNetwork,
-		JWT:                cfg.Client.Config.JWT,
-		GenesisURLs:        cfg.Client.Config.Genesis,
-		DataDirs:           cfg.Client.DataDirs,
-		TmpDataDir:         cfg.Global.Directories.TmpDataDir,
-		TmpCacheDir:        cfg.Global.Directories.TmpCacheDir,
-		TestFilter:         cfg.Benchmark.Tests.Filter,
-		FullConfig:         cfg,
-	}
-
-	r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec, cpufreqMgr, resultsUploader)
-
-	if err := r.Start(ctx); err != nil {
-		return fmt.Errorf("starting runner: %w", err)
-	}
-
-	defer func() {
-		if err := r.Stop(); err != nil {
-			log.WithError(err).Warn("Failed to stop runner")
-		}
-	}()
-
-	// Run all configured instances.
-	for _, instance := range instances {
-		select {
-		case <-ctx.Done():
-			log.Info("Benchmark interrupted")
-
-			return ctx.Err()
-		default:
-		}
-
-		log.WithField("instance", instance.ID).Info("Running instance")
-
-		if err := r.RunInstance(ctx, &instance); err != nil {
-			log.WithError(err).WithField("instance", instance.ID).Error("Instance failed")
-
-			// Continue with next instance on failure.
-			continue
-		}
-
-		log.WithField("instance", instance.ID).Info("Instance completed successfully")
-	}
-
-	log.Info("Benchmark completed")
 
 	// Generate results index if configured.
 	if cfg.Benchmark.GenerateResultsIndex {

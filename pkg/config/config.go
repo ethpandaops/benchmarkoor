@@ -94,6 +94,7 @@ type DirectoriesConfig struct {
 type BenchmarkConfig struct {
 	ResultsDir                      string               `yaml:"results_dir" mapstructure:"results_dir"`
 	ResultsOwner                    string               `yaml:"results_owner,omitempty" mapstructure:"results_owner"`
+	SkipTestRun                     bool                 `yaml:"skip_test_run" mapstructure:"skip_test_run"`
 	SystemResourceCollectionEnabled *bool                `yaml:"system_resource_collection_enabled,omitempty" mapstructure:"system_resource_collection_enabled"`
 	GenerateResultsIndex            bool                 `yaml:"generate_results_index" mapstructure:"generate_results_index"`
 	GenerateResultsIndexMethod      string               `yaml:"generate_results_index_method,omitempty" mapstructure:"generate_results_index_method"`
@@ -678,6 +679,7 @@ func bindEnvKeys(v *viper.Viper) {
 		// Benchmark settings
 		"benchmark.results_dir",
 		"benchmark.results_owner",
+		"benchmark.skip_test_run",
 		"benchmark.system_resource_collection_enabled",
 		"benchmark.generate_results_index",
 		"benchmark.generate_results_index_method",

@@ -32,6 +32,10 @@ benchmark:
   results_dir: ${RESULTS_DIR:-./results}
   # Optional: Set ownership (user:group) for results files. Useful when running as root.
   # results_owner: "1000:1000"
+  # Optional: Skip test execution entirely. When enabled, only post-run operations
+  # (index generation, suite stats) are performed. Useful for regenerating stats from
+  # S3-backed results without needing Docker or test infrastructure.
+  # skip_test_run: false
   # Optional: Enable/disable system resource collection (cgroups/Docker Stats API).
   # When disabled, no CPU/memory/disk metrics will be collected during tests.
   # Useful when running in environments without cgroup access. Default: true

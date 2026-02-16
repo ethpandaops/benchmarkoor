@@ -123,6 +123,7 @@ benchmark:
 |--------|------|---------|-------------|
 | `results_dir` | string | `./results` | Directory for benchmark results |
 | `results_owner` | string | - | Set ownership (user:group) for results files. Useful when running as root |
+| `skip_test_run` | bool | `false` | Skip test execution; only run post-run operations (index/stats generation) |
 | `system_resource_collection_enabled` | bool | `true` | Enable CPU/memory/disk metrics collection via cgroups/Docker Stats API |
 | `generate_results_index` | bool | `false` | Generate `index.json` aggregating all run metadata |
 | `generate_results_index_method` | string | `local` | Method for index generation: `local` (filesystem) or `s3` (read runs from S3, upload index back). Requires `results_upload.s3` when set to `s3` |
