@@ -15,6 +15,7 @@ interface AuthContextValue {
   isLoading: boolean
   isApiEnabled: boolean
   authConfig: AuthConfig | null
+  requiresLogin: boolean
   login: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
   isAdmin: boolean
@@ -25,6 +26,7 @@ const AuthContext = createContext<AuthContextValue>({
   isLoading: true,
   isApiEnabled: false,
   authConfig: null,
+  requiresLogin: false,
   login: async () => {},
   logout: async () => {},
   isAdmin: false,
@@ -67,14 +69,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mutationFn: ({ username, password }: { username: string; password: string }) =>
       loginApi(apiBaseUrl!, username, password),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['authMe'] })
+      queryClient.invalidateQueries()
     },
   })
 
   const logoutMutation = useMutation({
     mutationFn: () => logoutApi(apiBaseUrl!),
     onSuccess: () => {
-      queryClient.setQueryData(['authMe'], null)
+      queryClient.invalidateQueries()
     },
   })
 
@@ -87,15 +89,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await logoutMutation.mutateAsync()
+    window.location.href = '/'
   }, [logoutMutation])
 
   const isLoading = !configLoaded || (isApiEnabled && isUserLoading)
+  const requiresLogin =
+    isApiEnabled && !user && authConfig !== null && !authConfig.auth.anonymous_read
 
   const value: AuthContextValue = {
     user,
     isLoading,
     isApiEnabled,
     authConfig,
+    requiresLogin,
     login,
     logout,
     isAdmin: user?.role === 'admin',

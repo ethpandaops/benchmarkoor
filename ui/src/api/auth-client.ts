@@ -2,6 +2,7 @@ export interface AuthConfig {
   auth: {
     basic_enabled: boolean
     github_enabled: boolean
+    anonymous_read: boolean
   }
   storage?: {
     s3: {

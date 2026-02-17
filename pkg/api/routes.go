@@ -46,9 +46,11 @@ func (s *server) buildRouter() http.Handler {
 			}
 		})
 
-		// File presigning endpoints (require auth).
+		// File presigning endpoints.
 		r.Route("/files", func(r chi.Router) {
-			r.Use(s.requireAuth)
+			if !s.cfg.Auth.AnonymousRead {
+				r.Use(s.requireAuth)
+			}
 
 			if s.cfg.Server.RateLimit.Enabled {
 				r.Use(s.rateLimitMiddleware(

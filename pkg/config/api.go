@@ -53,9 +53,10 @@ type RateLimitTier struct {
 
 // APIAuthConfig contains authentication settings.
 type APIAuthConfig struct {
-	SessionTTL string           `yaml:"session_ttl" mapstructure:"session_ttl"`
-	Basic      BasicAuthConfig  `yaml:"basic,omitempty" mapstructure:"basic"`
-	GitHub     GitHubAuthConfig `yaml:"github,omitempty" mapstructure:"github"`
+	SessionTTL    string           `yaml:"session_ttl" mapstructure:"session_ttl"`
+	AnonymousRead bool             `yaml:"anonymous_read" mapstructure:"anonymous_read"`
+	Basic         BasicAuthConfig  `yaml:"basic,omitempty" mapstructure:"basic"`
+	GitHub        GitHubAuthConfig `yaml:"github,omitempty" mapstructure:"github"`
 }
 
 // BasicAuthConfig configures username/password authentication.

@@ -6,15 +6,15 @@ import { loadRuntimeConfig } from '@/config/runtime'
 import { LogIn } from 'lucide-react'
 
 export function LoginPage() {
-  const { login, authConfig, isApiEnabled } = useAuth()
+  const { login, authConfig, isApiEnabled, requiresLogin, user, isLoading } = useAuth()
   const navigate = useNavigate()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  if (!isApiEnabled) {
-    navigate({ to: '/runs' })
+  if (!isApiEnabled || (user && !isLoading)) {
+    navigate({ to: '/' })
     return null
   }
 
@@ -40,12 +40,15 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-[60vh] items-center justify-center">
+    <div className="flex min-h-[60vh] flex-col items-center justify-center">
+      {requiresLogin && (
+        <div className="mb-8 flex items-center gap-4">
+          <img src="/img/logo_black.png" alt="Benchmarkoor" className="h-16 dark:hidden" />
+          <img src="/img/logo_white.png" alt="Benchmarkoor" className="hidden h-16 dark:block" />
+          <span className="text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">Benchmarkoor</span>
+        </div>
+      )}
       <div className="w-full max-w-sm rounded-sm border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-        <h1 className="mb-6 text-center text-xl font-semibold text-gray-900 dark:text-gray-100">
-          Sign in to Benchmarkoor
-        </h1>
-
         {error && (
           <div className="mb-4 rounded-sm border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
             {error}

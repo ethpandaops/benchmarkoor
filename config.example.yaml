@@ -175,6 +175,9 @@ benchmark:
 #     #     requests_per_minute: 120  # Admin endpoints
 #   auth:
 #     session_ttl: 24h  # How long sessions last before expiring
+#     # Allow unauthenticated users to access /files/ endpoints (default: false).
+#     # When true, the UI allows browsing without login. When false, users must sign in.
+#     # anonymous_read: false
 #     # Basic (username/password) authentication.
 #     basic:
 #       enabled: true

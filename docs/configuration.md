@@ -921,11 +921,12 @@ api:
 
 At least one authentication provider must be enabled. Two providers are supported: basic (username/password) and GitHub OAuth. Both can be enabled simultaneously.
 
-#### Session Configuration
+#### General Auth Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `auth.session_ttl` | string | `24h` | Session duration as a Go duration string (e.g., `24h`, `12h`, `30m`) |
+| `auth.anonymous_read` | bool | `false` | Allow unauthenticated access to `/files/` endpoints. When `true`, the UI allows browsing without login. When `false`, users must sign in to access file data and the UI redirects to the login page |
 
 Sessions are stored in the database and cleaned up automatically every 15 minutes.
 
@@ -1117,7 +1118,7 @@ All endpoints are under the `/api/v1` prefix.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Health check (`{"status":"ok"}`) |
-| `GET` | `/config` | Public configuration (auth providers, storage settings) |
+| `GET` | `/config` | Public configuration (auth providers, `anonymous_read`, storage settings) |
 
 #### Authentication
 
@@ -1144,11 +1145,11 @@ All endpoints are under the `/api/v1` prefix.
 | `POST` | `/admin/github/user-mappings` | Create/update user mapping |
 | `DELETE` | `/admin/github/user-mappings/{id}` | Delete user mapping |
 
-#### Files (requires authentication)
+#### Files (requires authentication unless `anonymous_read` is enabled)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/files/*` | Generate a presigned S3 URL for the given file path. Returns `{"url":"..."}`. Requires [storage](#storage) to be configured |
+| `GET` | `/files/*` | Generate a presigned S3 URL for the given file path. Returns `{"url":"..."}`. Requires [storage](#storage) to be configured. Requires authentication unless `auth.anonymous_read` is `true` |
 
 ### UI Integration
 
@@ -1368,6 +1369,7 @@ api:
         requests_per_minute: 120
   auth:
     session_ttl: 24h
+    anonymous_read: false  # Set to true to allow unauthenticated file access
     basic:
       enabled: true
       users:

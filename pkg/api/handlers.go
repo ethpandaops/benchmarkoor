@@ -35,9 +35,10 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 // handleConfig returns the public auth and storage configuration.
 func (s *server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 	resp := map[string]any{
-		"auth": map[string]bool{
+		"auth": map[string]any{
 			"basic_enabled":  s.cfg.Auth.Basic.Enabled,
 			"github_enabled": s.cfg.Auth.GitHub.Enabled,
+			"anonymous_read": s.cfg.Auth.AnonymousRead,
 		},
 	}
 
