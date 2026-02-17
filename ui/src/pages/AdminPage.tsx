@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAuth } from '@/contexts/auth'
+import type { AuthConfig } from '@/api/auth-client'
 import { Modal } from '@/components/shared/Modal'
 import {
   useUsers,
@@ -16,11 +17,20 @@ import {
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 
-type Tab = 'users' | 'org-mappings' | 'user-mappings'
+type Tab = 'users' | 'github-mappings'
 
 export function AdminPage() {
-  const { isAdmin } = useAuth()
+  const { isAdmin, authConfig } = useAuth()
+
+  const tabs = useMemo(() => {
+    const result: { key: Tab; label: string }[] = []
+    if (authConfig?.auth.basic_enabled) result.push({ key: 'users', label: 'Users' })
+    if (authConfig?.auth.github_enabled) result.push({ key: 'github-mappings', label: 'GitHub Mappings' })
+    return result
+  }, [authConfig])
+
   const [activeTab, setActiveTab] = useState<Tab>('users')
+  const resolvedTab = tabs.find((t) => t.key === activeTab) ? activeTab : tabs[0]?.key
 
   if (!isAdmin) {
     return (
@@ -30,35 +40,35 @@ export function AdminPage() {
     )
   }
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: 'users', label: 'Users' },
-    { key: 'org-mappings', label: 'Org Mappings' },
-    { key: 'user-mappings', label: 'User Mappings' },
-  ]
-
   return (
     <div>
       <h1 className="mb-6 text-xl font-semibold text-gray-900 dark:text-gray-100">Admin</h1>
-      <div className="mb-6 flex gap-1 border-b border-gray-200 dark:border-gray-700">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={clsx(
-              'border-b-2 px-4 py-2 text-sm font-medium transition-colors',
-              activeTab === tab.key
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200',
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
 
-      {activeTab === 'users' && <UsersTab />}
-      {activeTab === 'org-mappings' && <OrgMappingsTab />}
-      {activeTab === 'user-mappings' && <UserMappingsTab />}
+      {authConfig && <ConfigOverview config={authConfig} />}
+
+      {tabs.length > 0 && (
+        <>
+          <div className="mb-6 flex gap-1 border-b border-gray-200 dark:border-gray-700">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={clsx(
+                  'border-b-2 px-4 py-2 text-sm font-medium transition-colors',
+                  resolvedTab === tab.key
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200',
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {resolvedTab === 'users' && <UsersTab />}
+          {resolvedTab === 'github-mappings' && <GitHubMappingsTab />}
+        </>
+      )}
     </div>
   )
 }
@@ -209,126 +219,159 @@ function UsersTab() {
   )
 }
 
-// --- Org Mappings Tab ---
+// --- GitHub Mappings Tab ---
 
-function OrgMappingsTab() {
-  const { data: mappings = [], isLoading } = useOrgMappings()
-  const upsert = useUpsertOrgMapping()
-  const remove = useDeleteOrgMapping()
-  const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ org: '', role: 'readonly' })
-  const [error, setError] = useState<string | null>(null)
+function GitHubMappingsTab() {
+  const { data: orgMappings = [], isLoading: orgLoading } = useOrgMappings()
+  const { data: userMappings = [], isLoading: userLoading } = useUserMappings()
+  const upsertOrg = useUpsertOrgMapping()
+  const removeOrg = useDeleteOrgMapping()
+  const upsertUser = useUpsertUserMapping()
+  const removeUser = useDeleteUserMapping()
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const [showAddOrg, setShowAddOrg] = useState(false)
+  const [orgForm, setOrgForm] = useState({ org: '', role: 'readonly' })
+  const [orgError, setOrgError] = useState<string | null>(null)
+
+  const [showAddUser, setShowAddUser] = useState(false)
+  const [userForm, setUserForm] = useState({ username: '', role: 'readonly' })
+  const [userError, setUserError] = useState<string | null>(null)
+
+  const handleOrgSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
+    setOrgError(null)
     try {
-      await upsert.mutateAsync(form)
-      setShowAdd(false)
-      setForm({ org: '', role: 'readonly' })
+      await upsertOrg.mutateAsync(orgForm)
+      setShowAddOrg(false)
+      setOrgForm({ org: '', role: 'readonly' })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save mapping')
+      setOrgError(err instanceof Error ? err.message : 'Failed to save mapping')
     }
   }
 
-  if (isLoading) return <div className="text-sm text-gray-500">Loading...</div>
+  const handleUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setUserError(null)
+    try {
+      await upsertUser.mutateAsync(userForm)
+      setShowAddUser(false)
+      setUserForm({ username: '', role: 'readonly' })
+    } catch (err) {
+      setUserError(err instanceof Error ? err.message : 'Failed to save mapping')
+    }
+  }
+
+  if (orgLoading || userLoading) return <div className="text-sm text-gray-500">Loading...</div>
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {mappings.length} mapping{mappings.length !== 1 ? 's' : ''}
-        </h2>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 rounded-sm bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
-        >
-          <Plus className="size-3.5" />
-          Add Mapping
-        </button>
-      </div>
-
-      <MappingTable
-        items={mappings}
-        nameKey="org"
-        nameLabel="Organization"
-        onDelete={(id) => {
-          if (confirm('Delete this mapping?')) remove.mutate(id)
-        }}
-      />
-
-      <Modal isOpen={showAdd} onClose={() => setShowAdd(false)} title="Add Org Mapping">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && <div className="rounded-sm bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{error}</div>}
-          <InputField label="Organization" value={form.org} onChange={(v) => setForm({ ...form, org: v })} required />
-          <RoleSelect value={form.role} onChange={(v) => setForm({ ...form, role: v })} />
-          <button type="submit" className="w-full rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
-            Save
+    <div className="space-y-8">
+      {/* Org Mappings */}
+      <section>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Org Mappings ({orgMappings.length})
+          </h2>
+          <button
+            onClick={() => setShowAddOrg(true)}
+            className="flex items-center gap-1.5 rounded-sm bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+          >
+            <Plus className="size-3.5" />
+            Add Mapping
           </button>
-        </form>
-      </Modal>
+        </div>
+
+        <MappingTable
+          items={orgMappings}
+          nameKey="org"
+          nameLabel="Organization"
+          onDelete={(id) => {
+            if (confirm('Delete this mapping?')) removeOrg.mutate(id)
+          }}
+        />
+
+        <Modal isOpen={showAddOrg} onClose={() => setShowAddOrg(false)} title="Add Org Mapping">
+          <form onSubmit={handleOrgSubmit} className="space-y-4">
+            {orgError && <div className="rounded-sm bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{orgError}</div>}
+            <InputField label="Organization" value={orgForm.org} onChange={(v) => setOrgForm({ ...orgForm, org: v })} required />
+            <RoleSelect value={orgForm.role} onChange={(v) => setOrgForm({ ...orgForm, role: v })} />
+            <button type="submit" className="w-full rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
+              Save
+            </button>
+          </form>
+        </Modal>
+      </section>
+
+      {/* User Mappings */}
+      <section>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            User Mappings ({userMappings.length})
+          </h2>
+          <button
+            onClick={() => setShowAddUser(true)}
+            className="flex items-center gap-1.5 rounded-sm bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+          >
+            <Plus className="size-3.5" />
+            Add Mapping
+          </button>
+        </div>
+
+        <MappingTable
+          items={userMappings}
+          nameKey="username"
+          nameLabel="Username"
+          onDelete={(id) => {
+            if (confirm('Delete this mapping?')) removeUser.mutate(id)
+          }}
+        />
+
+        <Modal isOpen={showAddUser} onClose={() => setShowAddUser(false)} title="Add User Mapping">
+          <form onSubmit={handleUserSubmit} className="space-y-4">
+            {userError && <div className="rounded-sm bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{userError}</div>}
+            <InputField label="GitHub Username" value={userForm.username} onChange={(v) => setUserForm({ ...userForm, username: v })} required />
+            <RoleSelect value={userForm.role} onChange={(v) => setUserForm({ ...userForm, role: v })} />
+            <button type="submit" className="w-full rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
+              Save
+            </button>
+          </form>
+        </Modal>
+      </section>
     </div>
   )
 }
 
-// --- User Mappings Tab ---
+// --- Config Overview ---
 
-function UserMappingsTab() {
-  const { data: mappings = [], isLoading } = useUserMappings()
-  const upsert = useUpsertUserMapping()
-  const remove = useDeleteUserMapping()
-  const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ username: '', role: 'readonly' })
-  const [error, setError] = useState<string | null>(null)
+function ConfigOverview({ config }: { config: AuthConfig }) {
+  const s3 = config.storage?.s3
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    try {
-      await upsert.mutateAsync(form)
-      setShowAdd(false)
-      setForm({ username: '', role: 'readonly' })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save mapping')
-    }
-  }
-
-  if (isLoading) return <div className="text-sm text-gray-500">Loading...</div>
+  const items: { label: string; enabled: boolean }[] = [
+    { label: 'Basic Auth', enabled: config.auth.basic_enabled },
+    { label: 'GitHub Auth', enabled: config.auth.github_enabled },
+    { label: 'S3 Storage', enabled: s3?.enabled ?? false },
+  ]
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {mappings.length} mapping{mappings.length !== 1 ? 's' : ''}
-        </h2>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 rounded-sm bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
-        >
-          <Plus className="size-3.5" />
-          Add Mapping
-        </button>
+    <div className="mb-6 rounded-sm border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
+      <h2 className="mb-2 text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Config</h2>
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+        {items.map((item) => (
+          <span key={item.label} className="flex items-center gap-1.5">
+            <span
+              className={clsx(
+                'inline-block size-2 rounded-full',
+                item.enabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600',
+              )}
+            />
+            <span className="text-gray-700 dark:text-gray-300">{item.label}</span>
+          </span>
+        ))}
       </div>
-
-      <MappingTable
-        items={mappings}
-        nameKey="username"
-        nameLabel="Username"
-        onDelete={(id) => {
-          if (confirm('Delete this mapping?')) remove.mutate(id)
-        }}
-      />
-
-      <Modal isOpen={showAdd} onClose={() => setShowAdd(false)} title="Add User Mapping">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && <div className="rounded-sm bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{error}</div>}
-          <InputField label="GitHub Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} required />
-          <RoleSelect value={form.role} onChange={(v) => setForm({ ...form, role: v })} />
-          <button type="submit" className="w-full rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
-            Save
-          </button>
-        </form>
-      </Modal>
+      {s3?.enabled && s3.discovery_paths.length > 0 && (
+        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          S3 discovery paths: {s3.discovery_paths.join(', ')}
+        </div>
+      )}
     </div>
   )
 }
