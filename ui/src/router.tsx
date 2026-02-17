@@ -6,6 +6,8 @@ import { RunDetailPage } from '@/pages/RunDetailPage'
 import { FileViewerPage } from '@/pages/FileViewerPage'
 import { SuitesPage } from '@/pages/SuitesPage'
 import { SuiteDetailPage } from '@/pages/SuiteDetailPage'
+import { LoginPage } from '@/pages/LoginPage'
+import { AdminPage } from '@/pages/AdminPage'
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -57,6 +59,27 @@ const suiteDetailRoute = createRoute({
   component: SuiteDetailPage,
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, runsRoute, runDetailRoute, fileViewerRoute, suitesRoute, suiteDetailRoute])
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/login',
+  component: LoginPage,
+})
+
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin',
+  component: AdminPage,
+})
+
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  runsRoute,
+  runDetailRoute,
+  fileViewerRoute,
+  suitesRoute,
+  suiteDetailRoute,
+  loginRoute,
+  adminRoute,
+])
 
 export const router = createRouter({ routeTree })

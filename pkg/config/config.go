@@ -60,6 +60,7 @@ type Config struct {
 	Global    GlobalConfig    `yaml:"global" mapstructure:"global"`
 	Benchmark BenchmarkConfig `yaml:"benchmark" mapstructure:"benchmark"`
 	Client    ClientConfig    `yaml:"client" mapstructure:"client"`
+	API       *APIConfig      `yaml:"api,omitempty" mapstructure:"api"`
 }
 
 // MetadataConfig contains arbitrary metadata labels for a benchmark run.
@@ -707,6 +708,20 @@ func bindEnvKeys(v *viper.Viper) {
 		"client.config.bootstrap_fcu.max_retries",
 		"client.config.bootstrap_fcu.backoff",
 		"client.config.bootstrap_fcu.head_block_hash",
+		// API settings
+		"api.server.listen",
+		"api.auth.session_ttl",
+		"api.auth.github.client_id",
+		"api.auth.github.client_secret",
+		"api.auth.github.redirect_url",
+		"api.database.driver",
+		"api.database.sqlite.path",
+		"api.database.postgres.host",
+		"api.database.postgres.port",
+		"api.database.postgres.user",
+		"api.database.postgres.password",
+		"api.database.postgres.database",
+		"api.database.postgres.ssl_mode",
 	}
 
 	for _, key := range keys {
@@ -755,6 +770,49 @@ func (c *Config) applyDefaults() {
 			}
 			// Note: ContainerDir is intentionally not defaulted here.
 			// If empty, the runner will use the client's spec.DataDir() at runtime.
+		}
+	}
+
+	// Apply API defaults.
+	if c.API != nil {
+		if c.API.Server.Listen == "" {
+			c.API.Server.Listen = ":9090"
+		}
+
+		if c.API.Auth.SessionTTL == "" {
+			c.API.Auth.SessionTTL = "24h"
+		}
+
+		if c.API.Database.Driver == "" {
+			c.API.Database.Driver = "sqlite"
+		}
+
+		if c.API.Database.Driver == "sqlite" && c.API.Database.SQLite.Path == "" {
+			c.API.Database.SQLite.Path = "benchmarkoor.db"
+		}
+
+		if c.API.Database.Driver == "postgres" {
+			if c.API.Database.Postgres.Port == 0 {
+				c.API.Database.Postgres.Port = 5432
+			}
+
+			if c.API.Database.Postgres.SSLMode == "" {
+				c.API.Database.Postgres.SSLMode = "disable"
+			}
+		}
+
+		if c.API.Server.RateLimit.Enabled {
+			if c.API.Server.RateLimit.Auth.RequestsPerMinute == 0 {
+				c.API.Server.RateLimit.Auth.RequestsPerMinute = 10
+			}
+
+			if c.API.Server.RateLimit.Public.RequestsPerMinute == 0 {
+				c.API.Server.RateLimit.Public.RequestsPerMinute = 60
+			}
+
+			if c.API.Server.RateLimit.Authenticated.RequestsPerMinute == 0 {
+				c.API.Server.RateLimit.Authenticated.RequestsPerMinute = 120
+			}
 		}
 	}
 
@@ -911,6 +969,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 
 	// Validate results_upload settings.
 	if err := c.validateResultsUpload(); err != nil {
+		return err
+	}
+
+	// Validate API settings.
+	if err := c.ValidateAPI(); err != nil {
 		return err
 	}
 
@@ -1415,6 +1478,140 @@ func (c *Config) validateResultsUpload() error {
 					"set only the scheme and host (e.g. %q), the bucket name is configured separately",
 				u.Path, u.Scheme+"://"+u.Host,
 			)
+		}
+	}
+
+	return nil
+}
+
+// validRoles contains the valid user role values.
+var validRoles = map[string]bool{
+	"admin":    true,
+	"readonly": true,
+}
+
+// ValidateAPI validates the API configuration if present.
+func (c *Config) ValidateAPI() error {
+	if c.API == nil {
+		return nil
+	}
+
+	// Validate database driver.
+	switch c.API.Database.Driver {
+	case "sqlite", "postgres":
+	default:
+		return fmt.Errorf(
+			"api.database.driver: invalid value %q (must be \"sqlite\" or \"postgres\")",
+			c.API.Database.Driver,
+		)
+	}
+
+	// Validate postgres required fields.
+	if c.API.Database.Driver == "postgres" {
+		pg := c.API.Database.Postgres
+		if pg.Host == "" {
+			return fmt.Errorf("api.database.postgres.host is required")
+		}
+
+		if pg.User == "" {
+			return fmt.Errorf("api.database.postgres.user is required")
+		}
+
+		if pg.Database == "" {
+			return fmt.Errorf("api.database.postgres.database is required")
+		}
+	}
+
+	// Validate session TTL is parseable.
+	if _, err := time.ParseDuration(c.API.Auth.SessionTTL); err != nil {
+		return fmt.Errorf(
+			"api.auth.session_ttl: invalid duration %q: %w",
+			c.API.Auth.SessionTTL, err,
+		)
+	}
+
+	// At least one auth provider must be enabled.
+	if !c.API.Auth.Basic.Enabled && !c.API.Auth.GitHub.Enabled {
+		return fmt.Errorf("api.auth: at least one auth provider must be enabled")
+	}
+
+	// Validate basic auth users.
+	if c.API.Auth.Basic.Enabled {
+		if len(c.API.Auth.Basic.Users) == 0 {
+			return fmt.Errorf(
+				"api.auth.basic: at least one user is required when enabled",
+			)
+		}
+
+		seen := make(map[string]struct{}, len(c.API.Auth.Basic.Users))
+
+		for i, u := range c.API.Auth.Basic.Users {
+			if u.Username == "" {
+				return fmt.Errorf(
+					"api.auth.basic.users[%d]: username is required", i,
+				)
+			}
+
+			if u.Password == "" {
+				return fmt.Errorf(
+					"api.auth.basic.users[%d]: password is required", i,
+				)
+			}
+
+			if !validRoles[u.Role] {
+				return fmt.Errorf(
+					"api.auth.basic.users[%d]: invalid role %q "+
+						"(must be \"admin\" or \"readonly\")",
+					i, u.Role,
+				)
+			}
+
+			if _, exists := seen[u.Username]; exists {
+				return fmt.Errorf(
+					"api.auth.basic.users[%d]: duplicate username %q",
+					i, u.Username,
+				)
+			}
+
+			seen[u.Username] = struct{}{}
+		}
+	}
+
+	// Validate GitHub auth required fields.
+	if c.API.Auth.GitHub.Enabled {
+		if c.API.Auth.GitHub.ClientID == "" {
+			return fmt.Errorf("api.auth.github.client_id is required when enabled")
+		}
+
+		if c.API.Auth.GitHub.ClientSecret == "" {
+			return fmt.Errorf(
+				"api.auth.github.client_secret is required when enabled",
+			)
+		}
+
+		if c.API.Auth.GitHub.RedirectURL == "" {
+			return fmt.Errorf(
+				"api.auth.github.redirect_url is required when enabled",
+			)
+		}
+
+		// Validate role values in mappings.
+		for org, role := range c.API.Auth.GitHub.OrgRoleMapping {
+			if !validRoles[role] {
+				return fmt.Errorf(
+					"api.auth.github.org_role_mapping[%q]: invalid role %q",
+					org, role,
+				)
+			}
+		}
+
+		for user, role := range c.API.Auth.GitHub.UserRoleMapping {
+			if !validRoles[role] {
+				return fmt.Errorf(
+					"api.auth.github.user_role_mapping[%q]: invalid role %q",
+					user, role,
+				)
+			}
 		}
 	}
 

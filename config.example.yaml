@@ -153,6 +153,63 @@ benchmark:
   #     #   local_genesis_tarball: /home/user/eest-output/benchmark_genesis.tar.gz
   #     #   # fixtures_subdir also works with local tarballs
 
+# Optional: API server for authentication and user management.
+# When configured, the UI can integrate with the API for login, admin, and role-based access.
+# Start with: benchmarkoor api --config config.yaml
+# api:
+#   server:
+#     listen: ":9090"
+#     # CORS origins for the UI. Required when the UI is served from a different origin.
+#     # When using credentials (cookies), wildcard "*" is not allowed — list specific origins.
+#     # cors_origins:
+#     #   - http://localhost:5173
+#     #   - https://benchmarkoor.example.com
+#     # Optional: Per-IP rate limiting.
+#     # rate_limit:
+#     #   enabled: true
+#     #   auth:
+#     #     requests_per_minute: 10   # Login/logout endpoints (strict)
+#     #   public:
+#     #     requests_per_minute: 60   # Health/config endpoints
+#     #   authenticated:
+#     #     requests_per_minute: 120  # Admin endpoints
+#   auth:
+#     session_ttl: 24h  # How long sessions last before expiring
+#     # Basic (username/password) authentication.
+#     basic:
+#       enabled: true
+#       users:
+#         - username: admin
+#           password: ${ADMIN_PASSWORD:-changeme}
+#           role: admin      # "admin" or "readonly"
+#         - username: viewer
+#           password: ${VIEWER_PASSWORD:-changeme}
+#           role: readonly
+#     # GitHub OAuth authentication.
+#     # github:
+#     #   enabled: true
+#     #   client_id: ${GITHUB_CLIENT_ID}
+#     #   client_secret: ${GITHUB_CLIENT_SECRET}
+#     #   redirect_url: http://localhost:9090/api/v1/auth/github/callback
+#     #   # Map GitHub orgs to roles (users in these orgs get this role).
+#     #   org_role_mapping:
+#     #     my-org: admin
+#     #     another-org: readonly
+#     #   # Map specific GitHub users to roles (takes precedence over org mapping).
+#     #   user_role_mapping:
+#     #     admin-user: admin
+#   database:
+#     driver: sqlite  # "sqlite" or "postgres"
+#     sqlite:
+#       path: benchmarkoor.db
+#     # postgres:
+#     #   host: localhost
+#     #   port: 5432
+#     #   user: benchmarkoor
+#     #   password: ${DB_PASSWORD}
+#     #   database: benchmarkoor
+#     #   ssl_mode: disable  # disable, require, verify-ca, verify-full
+
 client:
   config:
     # JWT secret for Engine API authentication (optional, has a default).

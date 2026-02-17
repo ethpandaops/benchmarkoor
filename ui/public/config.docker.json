@@ -1,0 +1,8 @@
+{
+  "dataSource": "/results",
+  "title": "Benchmarkoor Results",
+  "refreshInterval": 0,
+  "api": {
+    "baseUrl": "http://localhost:9090"
+  }
+}

@@ -118,10 +118,10 @@ docker-build-ui:
 docker-down:
 	docker compose down
 
-## docker-run-ui: Start the UI service with docker-compose (PORT=number to override port)
+## docker-run-ui: Start the UI and API services with docker-compose (PORT=number to override UI port)
 PORT?=8080
 docker-run-ui:
-	UI_PORT=$(PORT) docker compose up -d --build ui
+	UI_PORT=$(PORT) docker compose up -d --build ui api
 
 ## docker-run-benchmark: Start the benchmarkoor service with docker-compose (CLIENT=name to limit, CONFIG=file to override config)
 CONFIG?=config.example.docker.yaml

@@ -2,6 +2,7 @@ export interface RuntimeConfig {
   dataSource: string
   title?: string
   refreshInterval?: number
+  api?: { baseUrl: string }
 }
 
 let cachedConfig: RuntimeConfig | null = null

@@ -31,16 +31,31 @@ services:
         bind:
           propagation: rshared
       # For ZFS datadir methods, mount your ZFS data path with rshared propagation:
-      #- type: bind
-      #  source: /data-zfs
-      #  target: /data-zfs
-      #  bind:
-      #    propagation: rshared
+      - type: bind
+        source: /data-zfs-2
+        target: /data-zfs-2
+        bind:
+          propagation: rshared
       # Results directory
       - ./results:/app/results
     working_dir: /app
     command: ["run", "--config", "/app/config.yaml"]
     network_mode: host
+
+  api:
+    image: ethpandaops/benchmarkoor:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Config file
+      - ./${BENCHMARKOOR_CONFIG:-config.example.docker.yaml}:/app/config.yaml:ro
+      # Data directory for SQLite DB
+      - ./data:/app/data
+    working_dir: /app
+    command: ["api", "--config", "/app/config.yaml"]
+    ports:
+      - "${API_PORT:-9090}:9090"
 
   ui:
     image: ethpandaops/benchmarkoor-ui:dev
@@ -51,5 +66,7 @@ services:
       - "${UI_PORT:-8080}:80"
     volumes:
       - ./results:/usr/share/nginx/html/results:ro
+      # Override runtime config to point UI at the API service
+      - ./ui/public/config.docker.json:/usr/share/nginx/html/config.json:ro
     depends_on:
       - benchmarkoor

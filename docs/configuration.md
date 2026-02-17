@@ -16,6 +16,11 @@ This document describes all configuration options for benchmarkoor. The [config.
   - [Client Instances](#client-instances)
 - [Resource Limits](#resource-limits)
 - [Post-Test RPC Calls](#post-test-rpc-calls)
+- [API Server](#api-server)
+  - [Server Settings](#server-settings)
+  - [Authentication](#authentication)
+  - [Database](#database)
+  - [UI Integration](#ui-integration)
 - [Complete Example](#complete-example)
 
 ## Overview
@@ -873,6 +878,241 @@ client:
             filename: trace_by_hash
 ```
 
+## API Server
+
+The optional `api` section configures a standalone API server for authentication and user management. The API server is started separately from the benchmark runner using the `benchmarkoor api` subcommand.
+
+```bash
+benchmarkoor api --config config.yaml
+```
+
+When the `api` section is absent from the config, the API server cannot be started. The UI works without the API — it only integrates with the API when `api` is defined in the UI's `config.json`.
+
+### Server Settings
+
+```yaml
+api:
+  server:
+    listen: ":9090"
+    cors_origins:
+      - http://localhost:5173
+      - https://benchmarkoor.example.com
+    rate_limit:
+      enabled: true
+      auth:
+        requests_per_minute: 10
+      public:
+        requests_per_minute: 60
+      authenticated:
+        requests_per_minute: 120
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `listen` | string | `:9090` | Address and port the API server listens on |
+| `cors_origins` | []string | `["*"]` | Allowed CORS origins. When using cookies (`credentials: 'include'`), wildcard `*` is not allowed — list specific origins |
+| `rate_limit.enabled` | bool | `false` | Enable per-IP rate limiting |
+| `rate_limit.auth.requests_per_minute` | int | `10` | Rate limit for auth endpoints (login/logout) |
+| `rate_limit.public.requests_per_minute` | int | `60` | Rate limit for public endpoints (health/config) |
+| `rate_limit.authenticated.requests_per_minute` | int | `120` | Rate limit for authenticated endpoints (admin) |
+
+### Authentication
+
+At least one authentication provider must be enabled. Two providers are supported: basic (username/password) and GitHub OAuth. Both can be enabled simultaneously.
+
+#### Session Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `auth.session_ttl` | string | `24h` | Session duration as a Go duration string (e.g., `24h`, `12h`, `30m`) |
+
+Sessions are stored in the database and cleaned up automatically every 15 minutes.
+
+#### Basic Authentication
+
+```yaml
+api:
+  auth:
+    basic:
+      enabled: true
+      users:
+        - username: admin
+          password: ${ADMIN_PASSWORD}
+          role: admin
+        - username: viewer
+          password: ${VIEWER_PASSWORD}
+          role: readonly
+```
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `enabled` | bool | Yes | Enable basic authentication |
+| `users` | []object | When enabled | List of users |
+| `users[].username` | string | Yes | Username (must be unique) |
+| `users[].password` | string | Yes | Plaintext password (hashed with bcrypt on startup) |
+| `users[].role` | string | Yes | User role: `admin` or `readonly` |
+
+Config-sourced users are seeded into the database on startup. Only users with `source="config"` are updated; users created via the admin API or GitHub OAuth are preserved.
+
+#### GitHub OAuth
+
+```yaml
+api:
+  auth:
+    github:
+      enabled: true
+      client_id: ${GITHUB_CLIENT_ID}
+      client_secret: ${GITHUB_CLIENT_SECRET}
+      redirect_url: http://localhost:9090/api/v1/auth/github/callback
+      org_role_mapping:
+        my-org: admin
+        another-org: readonly
+      user_role_mapping:
+        specific-user: admin
+```
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `enabled` | bool | Yes | Enable GitHub OAuth |
+| `client_id` | string | When enabled | GitHub OAuth App client ID |
+| `client_secret` | string | When enabled | GitHub OAuth App client secret |
+| `redirect_url` | string | When enabled | OAuth callback URL (must match the GitHub App configuration) |
+| `org_role_mapping` | map[string]string | No | Map GitHub organization names to roles |
+| `user_role_mapping` | map[string]string | No | Map GitHub usernames to roles (takes precedence over org mapping) |
+
+**Role resolution order:**
+1. User-level mapping is checked first (exact username match)
+2. Org-level mapping is checked next (highest privilege wins — `admin` > `readonly`)
+3. If no mapping matches, the user is rejected
+
+**Setting up a GitHub OAuth App:**
+1. Go to GitHub Settings > Developer settings > OAuth Apps > New OAuth App
+2. Set the "Authorization callback URL" to your `redirect_url` value
+3. Note the Client ID and generate a Client Secret
+
+#### Roles
+
+| Role | Permissions |
+|------|-------------|
+| `admin` | Full access: view data, manage users, manage GitHub mappings |
+| `readonly` | View access only |
+
+### Database
+
+The API server uses a database for storing users, sessions, and GitHub role mappings. Two drivers are supported.
+
+#### SQLite (default)
+
+```yaml
+api:
+  database:
+    driver: sqlite
+    sqlite:
+      path: benchmarkoor.db
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `driver` | string | `sqlite` | Database driver |
+| `sqlite.path` | string | `benchmarkoor.db` | Path to the SQLite database file |
+
+#### PostgreSQL
+
+```yaml
+api:
+  database:
+    driver: postgres
+    postgres:
+      host: localhost
+      port: 5432
+      user: benchmarkoor
+      password: ${DB_PASSWORD}
+      database: benchmarkoor
+      ssl_mode: disable
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `driver` | string | `sqlite` | Database driver (`sqlite` or `postgres`) |
+| `postgres.host` | string | Required | PostgreSQL host |
+| `postgres.port` | int | `5432` | PostgreSQL port |
+| `postgres.user` | string | Required | Database user |
+| `postgres.password` | string | - | Database password |
+| `postgres.database` | string | Required | Database name |
+| `postgres.ssl_mode` | string | `disable` | SSL mode: `disable`, `require`, `verify-ca`, `verify-full` |
+
+### Environment Variable Overrides
+
+API configuration values can be overridden via environment variables with the `BENCHMARKOOR_` prefix:
+
+| Config Path | Environment Variable |
+|-------------|---------------------|
+| `api.server.listen` | `BENCHMARKOOR_API_SERVER_LISTEN` |
+| `api.auth.session_ttl` | `BENCHMARKOOR_API_AUTH_SESSION_TTL` |
+| `api.auth.github.client_id` | `BENCHMARKOOR_API_AUTH_GITHUB_CLIENT_ID` |
+| `api.auth.github.client_secret` | `BENCHMARKOOR_API_AUTH_GITHUB_CLIENT_SECRET` |
+| `api.database.driver` | `BENCHMARKOOR_API_DATABASE_DRIVER` |
+| `api.database.postgres.host` | `BENCHMARKOOR_API_DATABASE_POSTGRES_HOST` |
+| `api.database.postgres.password` | `BENCHMARKOOR_API_DATABASE_POSTGRES_PASSWORD` |
+
+### API Endpoints
+
+All endpoints are under the `/api/v1` prefix.
+
+#### Public
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check (`{"status":"ok"}`) |
+| `GET` | `/config` | Auth configuration (which providers are enabled) |
+
+#### Authentication
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/auth/login` | Login with username/password |
+| `POST` | `/auth/logout` | Destroy current session |
+| `GET` | `/auth/me` | Get current user (requires auth) |
+| `GET` | `/auth/github` | Initiate GitHub OAuth flow |
+| `GET` | `/auth/github/callback` | GitHub OAuth callback |
+
+#### Admin (requires `admin` role)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/admin/users` | List all users |
+| `POST` | `/admin/users` | Create a user |
+| `PUT` | `/admin/users/{id}` | Update a user |
+| `DELETE` | `/admin/users/{id}` | Delete a user |
+| `GET` | `/admin/github/org-mappings` | List org role mappings |
+| `POST` | `/admin/github/org-mappings` | Create/update org mapping |
+| `DELETE` | `/admin/github/org-mappings/{id}` | Delete org mapping |
+| `GET` | `/admin/github/user-mappings` | List user role mappings |
+| `POST` | `/admin/github/user-mappings` | Create/update user mapping |
+| `DELETE` | `/admin/github/user-mappings/{id}` | Delete user mapping |
+
+### UI Integration
+
+The UI conditionally integrates with the API when `api` is defined in the UI's `config.json`. When no API is configured, the UI works exactly as before.
+
+To enable API integration, add the `api` field to the UI's `config.json`:
+
+```json
+{
+  "dataSource": "/results",
+  "api": {
+    "baseUrl": "http://localhost:9090"
+  }
+}
+```
+
+When the API is configured, the UI provides:
+- **Login page** (`/login`) — username/password form and/or "Sign in with GitHub" button
+- **Admin page** (`/admin`) — user management, GitHub org/user role mapping management
+- **Header controls** — sign in/out button, username display, admin link (for admins)
+
+When the API is not configured, none of these features appear and the UI functions as a static results viewer.
+
 ## Examples
 
 Running stateless tests across all clients:
@@ -1049,4 +1289,49 @@ client:
         - --override.osaka=1864841831
         - --override.bpo1=1864841831
         - --override.bpo2=1864841831
+```
+
+API server with basic auth and GitHub OAuth:
+
+```yaml
+api:
+  server:
+    listen: ":9090"
+    cors_origins:
+      - https://benchmarkoor.example.com
+    rate_limit:
+      enabled: true
+      auth:
+        requests_per_minute: 10
+      public:
+        requests_per_minute: 60
+      authenticated:
+        requests_per_minute: 120
+  auth:
+    session_ttl: 24h
+    basic:
+      enabled: true
+      users:
+        - username: admin
+          password: ${ADMIN_PASSWORD}
+          role: admin
+    github:
+      enabled: true
+      client_id: ${GITHUB_CLIENT_ID}
+      client_secret: ${GITHUB_CLIENT_SECRET}
+      redirect_url: https://benchmarkoor.example.com/api/v1/auth/github/callback
+      org_role_mapping:
+        ethpandaops: admin
+      user_role_mapping:
+        specific-admin: admin
+  database:
+    driver: sqlite
+    sqlite:
+      path: /data/benchmarkoor.db
+
+# Minimal client config (required by config loader but not used by the API server).
+client:
+  instances:
+    - id: placeholder
+      client: geth
 ```

@@ -36,3 +36,21 @@ client:
       client: erigon
     - id: besu
       client: besu
+
+api:
+  server:
+    listen: ":9090"
+    cors_origins:
+      - "*"
+  auth:
+    session_ttl: 24h
+    basic:
+      enabled: true
+      users:
+        - username: admin
+          password: changeme
+          role: admin
+  database:
+    driver: sqlite
+    sqlite:
+      path: /app/data/benchmarkoor.db
