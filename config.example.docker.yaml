@@ -54,3 +54,16 @@ api:
     driver: sqlite
     sqlite:
       path: /app/data/benchmarkoor.db
+
+  #storage:
+  #  s3:
+  #    enabled: true
+  #    endpoint_url: ${S3_ENDPOINT_URL}
+  #    region: us-east-1
+  #    bucket: benchmarkoor-results
+  #    access_key_id: ${AWS_ACCESS_KEY_ID}
+  #    secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+  #    presigned_urls:
+  #      expiry: 1h
+  #    discovery_paths:
+  #      - results

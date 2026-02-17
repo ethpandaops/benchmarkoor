@@ -46,6 +46,19 @@ func (s *server) buildRouter() http.Handler {
 			}
 		})
 
+		// File presigning endpoints (require auth).
+		r.Route("/files", func(r chi.Router) {
+			r.Use(s.requireAuth)
+
+			if s.cfg.Server.RateLimit.Enabled {
+				r.Use(s.rateLimitMiddleware(
+					s.cfg.Server.RateLimit.Authenticated,
+				))
+			}
+
+			r.Get("/*", s.handlePresignedURL)
+		})
+
 		// Admin endpoints (require auth + admin role).
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireAuth)

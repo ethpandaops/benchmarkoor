@@ -31,11 +31,11 @@ services:
         bind:
           propagation: rshared
       # For ZFS datadir methods, mount your ZFS data path with rshared propagation:
-      - type: bind
-        source: /data-zfs-2
-        target: /data-zfs-2
-        bind:
-          propagation: rshared
+      #- type: bind
+      #  source: /data-zfs-2
+      #  target: /data-zfs-2
+      #  bind:
+      #    propagation: rshared
       # Results directory
       - ./results:/app/results
     working_dir: /app

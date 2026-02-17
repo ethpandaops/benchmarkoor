@@ -1172,6 +1172,135 @@ client:
 	})
 }
 
+func TestValidateAPIStorage(t *testing.T) {
+	// Helper to build a Config with API storage and minimal valid fields.
+	makeConfig := func(s3Cfg *APIS3Config) Config {
+		return Config{
+			API: &APIConfig{
+				Auth: APIAuthConfig{
+					SessionTTL: "24h",
+					Basic: BasicAuthConfig{
+						Enabled: true,
+						Users: []BasicAuthUser{
+							{Username: "admin", Password: "pass", Role: "admin"},
+						},
+					},
+				},
+				Database: APIDatabaseConfig{Driver: "sqlite"},
+				Storage:  APIStorageConfig{S3: s3Cfg},
+			},
+		}
+	}
+
+	tests := []struct {
+		name      string
+		s3Cfg     *APIS3Config
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "nil s3 config is valid",
+			s3Cfg:   nil,
+			wantErr: false,
+		},
+		{
+			name: "disabled s3 is valid",
+			s3Cfg: &APIS3Config{
+				Enabled: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid s3 config",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				Region:         "us-east-1",
+				DiscoveryPaths: []string{"results"},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing bucket",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				DiscoveryPaths: []string{"results"},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+			},
+			wantErr:   true,
+			errSubstr: "bucket is required",
+		},
+		{
+			name: "empty discovery paths",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				DiscoveryPaths: []string{},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+			},
+			wantErr:   true,
+			errSubstr: "at least one discovery_path",
+		},
+		{
+			name: "empty string in discovery paths",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				DiscoveryPaths: []string{"results", ""},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+			},
+			wantErr:   true,
+			errSubstr: "must not be empty",
+		},
+		{
+			name: "path traversal in discovery paths",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				DiscoveryPaths: []string{"results/../secrets"},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+			},
+			wantErr:   true,
+			errSubstr: "must not contain \"..\"",
+		},
+		{
+			name: "invalid expiry duration",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				DiscoveryPaths: []string{"results"},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "notaduration"},
+			},
+			wantErr:   true,
+			errSubstr: "invalid duration",
+		},
+		{
+			name: "multiple valid discovery paths",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				DiscoveryPaths: []string{"results", "archive/2024"},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "30m"},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := makeConfig(tt.s3Cfg)
+			err := cfg.validateAPIStorage()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // createTestTarball creates a minimal .tar.gz file at the given path for testing.
 func createTestTarball(t *testing.T, path string) {
 	t.Helper()

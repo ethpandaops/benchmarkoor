@@ -209,6 +209,23 @@ benchmark:
 #     #   password: ${DB_PASSWORD}
 #     #   database: benchmarkoor
 #     #   ssl_mode: disable  # disable, require, verify-ca, verify-full
+#   # Optional: S3 storage for serving benchmark results via presigned URLs.
+#   # This is separate from benchmark.results_upload.s3 (which handles uploads during runs).
+#   # The API uses this to generate presigned GET URLs so the UI can fetch files directly from S3.
+#   # storage:
+#   #   s3:
+#   #     enabled: true
+#   #     endpoint_url: https://s3.us-east-1.amazonaws.com
+#   #     region: us-east-1
+#   #     bucket: my-benchmark-results
+#   #     access_key_id: ${AWS_ACCESS_KEY_ID}
+#   #     secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+#   #     force_path_style: false  # Required for MinIO/R2
+#   #     presigned_urls:
+#   #       expiry: 1h  # How long presigned URLs are valid
+#   #     # S3 key prefixes the UI can browse. Each path should contain an index.json.
+#   #     discovery_paths:
+#   #       - results
 
 client:
   config:

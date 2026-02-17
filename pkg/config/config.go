@@ -722,6 +722,15 @@ func bindEnvKeys(v *viper.Viper) {
 		"api.database.postgres.password",
 		"api.database.postgres.database",
 		"api.database.postgres.ssl_mode",
+		// API storage settings
+		"api.storage.s3.enabled",
+		"api.storage.s3.endpoint_url",
+		"api.storage.s3.region",
+		"api.storage.s3.bucket",
+		"api.storage.s3.access_key_id",
+		"api.storage.s3.secret_access_key",
+		"api.storage.s3.force_path_style",
+		"api.storage.s3.presigned_urls.expiry",
 	}
 
 	for _, key := range keys {
@@ -798,6 +807,17 @@ func (c *Config) applyDefaults() {
 
 			if c.API.Database.Postgres.SSLMode == "" {
 				c.API.Database.Postgres.SSLMode = "disable"
+			}
+		}
+
+		// Apply S3 storage defaults.
+		if c.API.Storage.S3 != nil && c.API.Storage.S3.Enabled {
+			if c.API.Storage.S3.Region == "" {
+				c.API.Storage.S3.Region = "us-east-1"
+			}
+
+			if c.API.Storage.S3.PresignedURLs.Expiry == "" {
+				c.API.Storage.S3.PresignedURLs.Expiry = "1h"
 			}
 		}
 
@@ -1613,6 +1633,53 @@ func (c *Config) ValidateAPI() error {
 				)
 			}
 		}
+	}
+
+	// Validate storage settings.
+	if err := c.validateAPIStorage(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateAPIStorage validates the API storage configuration.
+func (c *Config) validateAPIStorage() error {
+	if c.API.Storage.S3 == nil || !c.API.Storage.S3.Enabled {
+		return nil
+	}
+
+	s3Cfg := c.API.Storage.S3
+
+	if s3Cfg.Bucket == "" {
+		return fmt.Errorf("api.storage.s3: bucket is required when enabled")
+	}
+
+	if len(s3Cfg.DiscoveryPaths) == 0 {
+		return fmt.Errorf(
+			"api.storage.s3: at least one discovery_path is required when enabled",
+		)
+	}
+
+	for i, p := range s3Cfg.DiscoveryPaths {
+		if p == "" {
+			return fmt.Errorf(
+				"api.storage.s3.discovery_paths[%d]: path must not be empty", i,
+			)
+		}
+
+		if strings.Contains(p, "..") {
+			return fmt.Errorf(
+				"api.storage.s3.discovery_paths[%d]: path must not contain \"..\"", i,
+			)
+		}
+	}
+
+	if _, err := time.ParseDuration(s3Cfg.PresignedURLs.Expiry); err != nil {
+		return fmt.Errorf(
+			"api.storage.s3.presigned_urls.expiry: invalid duration %q: %w",
+			s3Cfg.PresignedURLs.Expiry, err,
+		)
 	}
 
 	return nil

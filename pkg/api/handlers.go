@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/api/store"
+	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -31,14 +32,64 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleConfig returns the public auth configuration.
+// handleConfig returns the public auth and storage configuration.
 func (s *server) handleConfig(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"auth": map[string]bool{
 			"basic_enabled":  s.cfg.Auth.Basic.Enabled,
 			"github_enabled": s.cfg.Auth.GitHub.Enabled,
 		},
-	})
+	}
+
+	storageResp := map[string]any{
+		"s3": map[string]any{
+			"enabled":         false,
+			"discovery_paths": []string{},
+		},
+	}
+
+	if s.cfg.Storage.S3 != nil && s.cfg.Storage.S3.Enabled {
+		storageResp["s3"] = map[string]any{
+			"enabled":         true,
+			"discovery_paths": s.cfg.Storage.S3.DiscoveryPaths,
+		}
+	}
+
+	resp["storage"] = storageResp
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handlePresignedURL generates a presigned GET URL for an S3 object.
+func (s *server) handlePresignedURL(w http.ResponseWriter, r *http.Request) {
+	if s.presigner == nil {
+		writeJSON(w, http.StatusNotFound,
+			errorResponse{"storage not configured"})
+
+		return
+	}
+
+	filePath := chi.URLParam(r, "*")
+	if filePath == "" {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"file path is required"})
+
+		return
+	}
+
+	url, err := s.presigner.GeneratePresignedURL(r.Context(), filePath)
+	if err != nil {
+		s.log.WithError(err).
+			WithField("path", filePath).
+			Warn("Failed to generate presigned URL")
+
+		writeJSON(w, http.StatusForbidden,
+			errorResponse{"path not allowed or presign failed"})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
 // --- Auth handlers ---

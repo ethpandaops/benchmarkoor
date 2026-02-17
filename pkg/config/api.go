@@ -5,6 +5,30 @@ type APIConfig struct {
 	Server   APIServerConfig   `yaml:"server" mapstructure:"server"`
 	Auth     APIAuthConfig     `yaml:"auth" mapstructure:"auth"`
 	Database APIDatabaseConfig `yaml:"database" mapstructure:"database"`
+	Storage  APIStorageConfig  `yaml:"storage,omitempty" mapstructure:"storage"`
+}
+
+// APIStorageConfig contains storage backend settings for serving files.
+type APIStorageConfig struct {
+	S3 *APIS3Config `yaml:"s3,omitempty" mapstructure:"s3"`
+}
+
+// APIS3Config contains S3 settings for presigned URL generation.
+type APIS3Config struct {
+	Enabled         bool                    `yaml:"enabled" mapstructure:"enabled"`
+	EndpointURL     string                  `yaml:"endpoint_url,omitempty" mapstructure:"endpoint_url"`
+	Region          string                  `yaml:"region,omitempty" mapstructure:"region"`
+	Bucket          string                  `yaml:"bucket" mapstructure:"bucket"`
+	AccessKeyID     string                  `yaml:"access_key_id,omitempty" mapstructure:"access_key_id"`
+	SecretAccessKey string                  `yaml:"secret_access_key,omitempty" mapstructure:"secret_access_key"`
+	ForcePathStyle  bool                    `yaml:"force_path_style" mapstructure:"force_path_style"`
+	PresignedURLs   APIS3PresignedURLConfig `yaml:"presigned_urls,omitempty" mapstructure:"presigned_urls"`
+	DiscoveryPaths  []string                `yaml:"discovery_paths,omitempty" mapstructure:"discovery_paths"`
+}
+
+// APIS3PresignedURLConfig contains presigned URL generation settings.
+type APIS3PresignedURLConfig struct {
+	Expiry string `yaml:"expiry,omitempty" mapstructure:"expiry"`
 }
 
 // APIServerConfig contains HTTP server settings.

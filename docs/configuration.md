@@ -20,6 +20,7 @@ This document describes all configuration options for benchmarkoor. The [config.
   - [Server Settings](#server-settings)
   - [Authentication](#authentication)
   - [Database](#database)
+  - [Storage](#storage)
   - [UI Integration](#ui-integration)
 - [Complete Example](#complete-example)
 
@@ -1041,6 +1042,54 @@ api:
 | `postgres.database` | string | Required | Database name |
 | `postgres.ssl_mode` | string | `disable` | SSL mode: `disable`, `require`, `verify-ca`, `verify-full` |
 
+### Storage
+
+The optional `api.storage` section configures S3-compatible storage for serving benchmark result files to authenticated users via presigned URLs. This is **separate** from `benchmark.results_upload.s3` (which handles uploads during benchmark runs). The API uses this to generate presigned GET URLs so the UI can fetch files directly from S3.
+
+```yaml
+api:
+  storage:
+    s3:
+      enabled: true
+      endpoint_url: https://s3.us-east-1.amazonaws.com
+      region: us-east-1
+      bucket: my-benchmark-results
+      access_key_id: ${AWS_ACCESS_KEY_ID}
+      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+      force_path_style: false
+      presigned_urls:
+        expiry: 1h
+      discovery_paths:
+        - results
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | bool | Yes | `false` | Enable S3 presigned URL generation |
+| `bucket` | string | When enabled | - | S3 bucket name |
+| `endpoint_url` | string | No | AWS default | S3 endpoint URL (scheme + host only) |
+| `region` | string | No | `us-east-1` | AWS region |
+| `access_key_id` | string | No | - | Static AWS access key ID |
+| `secret_access_key` | string | No | - | Static AWS secret access key |
+| `force_path_style` | bool | No | `false` | Use path-style addressing (required for MinIO/R2) |
+| `presigned_urls.expiry` | string | No | `1h` | How long presigned URLs remain valid (Go duration string) |
+| `discovery_paths` | []string | When enabled | - | S3 key prefixes the UI can browse. At least one is required. Must not contain `..` |
+
+#### How It Works
+
+1. The `GET /api/v1/config` endpoint advertises which `discovery_paths` are available and whether S3 storage is enabled.
+2. The UI uses this to know where to look for `index.json` files in S3.
+3. When the UI needs a file, it requests `GET /api/v1/files/{key}` (e.g., `GET /api/v1/files/results/index.json`).
+4. The API validates the requested key is under an allowed discovery path, then returns a presigned S3 GET URL.
+5. The UI fetches the file directly from S3 using the presigned URL.
+
+#### Path Validation
+
+Requested file paths are validated before generating a presigned URL:
+- The path must be non-empty and clean (no `..`, no trailing slashes)
+- The path must fall under one of the configured `discovery_paths` prefixes
+- Partial prefix matches are rejected (e.g., `results_backup/file` does not match prefix `results`)
+
 ### Environment Variable Overrides
 
 API configuration values can be overridden via environment variables with the `BENCHMARKOOR_` prefix:
@@ -1054,6 +1103,10 @@ API configuration values can be overridden via environment variables with the `B
 | `api.database.driver` | `BENCHMARKOOR_API_DATABASE_DRIVER` |
 | `api.database.postgres.host` | `BENCHMARKOOR_API_DATABASE_POSTGRES_HOST` |
 | `api.database.postgres.password` | `BENCHMARKOOR_API_DATABASE_POSTGRES_PASSWORD` |
+| `api.storage.s3.enabled` | `BENCHMARKOOR_API_STORAGE_S3_ENABLED` |
+| `api.storage.s3.bucket` | `BENCHMARKOOR_API_STORAGE_S3_BUCKET` |
+| `api.storage.s3.access_key_id` | `BENCHMARKOOR_API_STORAGE_S3_ACCESS_KEY_ID` |
+| `api.storage.s3.secret_access_key` | `BENCHMARKOOR_API_STORAGE_S3_SECRET_ACCESS_KEY` |
 
 ### API Endpoints
 
@@ -1064,7 +1117,7 @@ All endpoints are under the `/api/v1` prefix.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Health check (`{"status":"ok"}`) |
-| `GET` | `/config` | Auth configuration (which providers are enabled) |
+| `GET` | `/config` | Public configuration (auth providers, storage settings) |
 
 #### Authentication
 
@@ -1090,6 +1143,12 @@ All endpoints are under the `/api/v1` prefix.
 | `GET` | `/admin/github/user-mappings` | List user role mappings |
 | `POST` | `/admin/github/user-mappings` | Create/update user mapping |
 | `DELETE` | `/admin/github/user-mappings/{id}` | Delete user mapping |
+
+#### Files (requires authentication)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/files/*` | Generate a presigned S3 URL for the given file path. Returns `{"url":"..."}`. Requires [storage](#storage) to be configured |
 
 ### UI Integration
 
@@ -1328,6 +1387,18 @@ api:
     driver: sqlite
     sqlite:
       path: /data/benchmarkoor.db
+  storage:
+    s3:
+      enabled: true
+      endpoint_url: https://s3.us-east-1.amazonaws.com
+      region: us-east-1
+      bucket: my-benchmark-results
+      access_key_id: ${AWS_ACCESS_KEY_ID}
+      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+      presigned_urls:
+        expiry: 1h
+      discovery_paths:
+        - results
 
 # Minimal client config (required by config loader but not used by the API server).
 client:

@@ -1,4 +1,4 @@
-import { loadRuntimeConfig, getDataUrl } from '@/config/runtime'
+import { loadRuntimeConfig, getDataUrl, isS3Mode } from '@/config/runtime'
 
 export interface FetchResult<T> {
   data: T | null
@@ -11,11 +11,27 @@ function isJsonContentType(response: Response): boolean {
   return contentType?.includes('application/json') ?? false
 }
 
+// Fetches a presigned URL from the API (with credentials for auth),
+// then fetches the actual content from S3 (without credentials).
+export async function fetchViaS3(
+  url: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const resp = await fetch(url, { credentials: 'include' })
+  if (!resp.ok) return resp
+
+  const { url: presignedUrl } = await resp.json()
+
+  return fetch(presignedUrl, init)
+}
+
 export async function fetchData<T>(path: string): Promise<FetchResult<T>> {
   const config = await loadRuntimeConfig()
   const url = getDataUrl(path, config)
 
-  const response = await fetch(url)
+  const response = isS3Mode(config)
+    ? await fetchViaS3(url)
+    : await fetch(url)
 
   if (!response.ok) {
     return { data: null, status: response.status }
@@ -65,6 +81,20 @@ export async function fetchHead(path: string): Promise<HeadResult> {
 
   return headLimiter(async () => {
     try {
+      if (isS3Mode(config)) {
+        // S3 presigned URLs are generated for GET, not HEAD.
+        // Use a GET request via the manual redirect helper and abort
+        // after receiving headers to avoid downloading the body.
+        const controller = new AbortController()
+        const response = await fetchViaS3(url, { signal: controller.signal })
+        controller.abort()
+        if (!response.ok) {
+          return { exists: false, size: null, url }
+        }
+        const contentLength = response.headers.get('content-length')
+        return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url }
+      }
+
       const response = await fetch(url, { method: 'HEAD' })
       if (!response.ok) {
         return { exists: false, size: null, url }
@@ -81,7 +111,9 @@ export async function fetchText(path: string): Promise<FetchResult<string>> {
   const config = await loadRuntimeConfig()
   const url = getDataUrl(path, config)
 
-  const response = await fetch(url)
+  const response = isS3Mode(config)
+    ? await fetchViaS3(url)
+    : await fetch(url)
 
   if (!response.ok) {
     return { data: null, status: response.status }

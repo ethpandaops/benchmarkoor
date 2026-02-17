@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -30,6 +31,7 @@ type server struct {
 	log        logrus.FieldLogger
 	cfg        *config.APIConfig
 	store      store.Store
+	presigner  *s3Presigner
 	httpServer *http.Server
 	wg         sync.WaitGroup
 	done       chan struct{}
@@ -75,6 +77,18 @@ func (s *server) Start(ctx context.Context) error {
 		}
 	}
 
+	// Initialize S3 presigner if configured.
+	if s.cfg.Storage.S3 != nil && s.cfg.Storage.S3.Enabled {
+		presigner, err := newS3Presigner(s.log, s.cfg.Storage.S3)
+		if err != nil {
+			return fmt.Errorf("initializing s3 presigner: %w", err)
+		}
+
+		s.presigner = presigner
+
+		s.log.Info("S3 presigned URL generation enabled")
+	}
+
 	// Build router and start HTTP server.
 	router := s.buildRouter()
 
@@ -106,6 +120,12 @@ func (s *server) Start(ctx context.Context) error {
 		}
 	}()
 
+	// Bind the listener synchronously so we fail fast on port conflicts.
+	ln, err := net.Listen("tcp", s.cfg.Server.Listen)
+	if err != nil {
+		return fmt.Errorf("listening on %s: %w", s.cfg.Server.Listen, err)
+	}
+
 	// Start HTTP server.
 	s.wg.Add(1)
 
@@ -115,7 +135,7 @@ func (s *server) Start(ctx context.Context) error {
 		s.log.WithField("listen", s.cfg.Server.Listen).
 			Info("API server starting")
 
-		if err := s.httpServer.ListenAndServe(); err != nil &&
+		if err := s.httpServer.Serve(ln); err != nil &&
 			err != http.ErrServerClosed {
 			s.log.WithError(err).Error("HTTP server error")
 		}

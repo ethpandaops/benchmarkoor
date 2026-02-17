@@ -3,6 +3,12 @@ export interface AuthConfig {
     basic_enabled: boolean
     github_enabled: boolean
   }
+  storage?: {
+    s3: {
+      enabled: boolean
+      discovery_paths: string[]
+    }
+  }
 }
 
 export interface AuthUser {
