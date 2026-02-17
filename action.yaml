@@ -159,10 +159,10 @@ runs:
         if [ ${#CONFIG_FILES[@]} -gt 0 ]; then
           ALL_SOURCE_DIRS=""
           for cfg in "${CONFIG_FILES[@]}"; do
-            # Extract source_dir from client.datadirs map values and client.instances[].datadir
+            # Extract source_dir from runner.client.datadirs map values and runner.instances[].datadir
             DIRS=$(yq '(
-              .client.datadirs[].source_dir,
-              .client.instances[].datadir.source_dir
+              .runner.client.datadirs[].source_dir,
+              .runner.instances[].datadir.source_dir
             )' "$cfg" 2>/dev/null | grep -v '^null$' || true)
             if [ -n "$DIRS" ]; then
               ALL_SOURCE_DIRS="${ALL_SOURCE_DIRS}${DIRS}"$'\n'
