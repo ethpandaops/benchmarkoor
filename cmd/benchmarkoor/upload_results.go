@@ -44,13 +44,13 @@ func runUploadResults(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	if cfg.Benchmark.ResultsUpload == nil ||
-		cfg.Benchmark.ResultsUpload.S3 == nil ||
-		!cfg.Benchmark.ResultsUpload.S3.Enabled {
+	if cfg.Runner.Benchmark.ResultsUpload == nil ||
+		cfg.Runner.Benchmark.ResultsUpload.S3 == nil ||
+		!cfg.Runner.Benchmark.ResultsUpload.S3.Enabled {
 		return fmt.Errorf("S3 upload is not configured or not enabled in config")
 	}
 
-	uploader, err := upload.NewS3Uploader(log, cfg.Benchmark.ResultsUpload.S3)
+	uploader, err := upload.NewS3Uploader(log, cfg.Runner.Benchmark.ResultsUpload.S3)
 	if err != nil {
 		return fmt.Errorf("creating S3 uploader: %w", err)
 	}

@@ -6,6 +6,8 @@
 
 global:
   log_level: ${LOG_LEVEL:-info}
+
+runner:
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
@@ -25,133 +27,133 @@ global:
   # Optional: GitHub token for downloading GitHub Actions artifacts via the REST API.
   # If the gh CLI is installed and authenticated, no token is needed.
   # Otherwise, provide a GitHub token with actions:read scope.
-  # Can also be set via BENCHMARKOOR_GLOBAL_GITHUB_TOKEN environment variable.
+  # Can also be set via BENCHMARKOOR_RUNNER_GITHUB_TOKEN environment variable.
   # github_token: ${GITHUB_TOKEN:-}
 
-benchmark:
-  results_dir: ${RESULTS_DIR:-./results}
-  # Optional: Set ownership (user:group) for results files. Useful when running as root.
-  # results_owner: "1000:1000"
-  # Optional: Skip test execution entirely. When enabled, only post-run operations
-  # (index generation, suite stats) are performed. Useful for regenerating stats from
-  # S3-backed results without needing Docker or test infrastructure.
-  # skip_test_run: false
-  # Optional: Enable/disable system resource collection (cgroups/Docker Stats API).
-  # When disabled, no CPU/memory/disk metrics will be collected during tests.
-  # Useful when running in environments without cgroup access. Default: true
-  # system_resource_collection_enabled: true
-  # Optional: Generate index.json after benchmark (aggregates all run metadata).
-  # generate_results_index: true
-  # Optional: Method for index generation: "local" (default, filesystem) or "s3"
-  # (read runs from S3, upload index.json back to the bucket).
-  # Requires results_upload.s3 to be configured when set to "s3".
-  # generate_results_index_method: local
-  # Optional: Generate stats.json per suite after benchmark (aggregates test durations
-  # across runs for the UI heatmap).
-  # generate_suite_stats: true
-  # Optional: Method for suite stats generation: "local" (default, filesystem) or "s3"
-  # (read runs from S3, upload stats.json back to the bucket).
-  # Requires results_upload.s3 to be configured when set to "s3".
-  # generate_suite_stats_method: local
-  # Optional: Upload results to S3-compatible storage after each instance run.
-  # A preflight check verifies connectivity before any benchmarks start.
-  # results_upload:
-  #   s3:
-  #     enabled: true
-  #     # Endpoint URL (scheme + host only, no path or bucket name).
-  #     # Examples:
-  #     #   AWS:    https://s3.us-east-1.amazonaws.com
-  #     #   R2:     https://<account_id>.r2.cloudflarestorage.com
-  #     #   MinIO:  http://localhost:9000
-  #     endpoint_url: https://s3.us-east-1.amazonaws.com
-  #     region: us-east-1
-  #     bucket: my-benchmark-results
-  #     access_key_id: ${AWS_ACCESS_KEY_ID}
-  #     secret_access_key: ${AWS_SECRET_ACCESS_KEY}
-  #     prefix: results  # Base key prefix (runs at prefix/runs/, suites at prefix/suites/)
-  #     # storage_class: STANDARD  # Optional: S3 storage class
-  #     # acl: private  # Optional: Canned ACL
-  #     # Path-style addressing: required for MinIO and Cloudflare R2.
-  #     force_path_style: false
-  #     # parallel_uploads: 50  # Number of concurrent file uploads
+  benchmark:
+    results_dir: ${RESULTS_DIR:-./results}
+    # Optional: Set ownership (user:group) for results files. Useful when running as root.
+    # results_owner: "1000:1000"
+    # Optional: Skip test execution entirely. When enabled, only post-run operations
+    # (index generation, suite stats) are performed. Useful for regenerating stats from
+    # S3-backed results without needing Docker or test infrastructure.
+    # skip_test_run: false
+    # Optional: Enable/disable system resource collection (cgroups/Docker Stats API).
+    # When disabled, no CPU/memory/disk metrics will be collected during tests.
+    # Useful when running in environments without cgroup access. Default: true
+    # system_resource_collection_enabled: true
+    # Optional: Generate index.json after benchmark (aggregates all run metadata).
+    # generate_results_index: true
+    # Optional: Method for index generation: "local" (default, filesystem) or "s3"
+    # (read runs from S3, upload index.json back to the bucket).
+    # Requires results_upload.s3 to be configured when set to "s3".
+    # generate_results_index_method: local
+    # Optional: Generate stats.json per suite after benchmark (aggregates test durations
+    # across runs for the UI heatmap).
+    # generate_suite_stats: true
+    # Optional: Method for suite stats generation: "local" (default, filesystem) or "s3"
+    # (read runs from S3, upload stats.json back to the bucket).
+    # Requires results_upload.s3 to be configured when set to "s3".
+    # generate_suite_stats_method: local
+    # Optional: Upload results to S3-compatible storage after each instance run.
+    # A preflight check verifies connectivity before any benchmarks start.
+    # results_upload:
+    #   s3:
+    #     enabled: true
+    #     # Endpoint URL (scheme + host only, no path or bucket name).
+    #     # Examples:
+    #     #   AWS:    https://s3.us-east-1.amazonaws.com
+    #     #   R2:     https://<account_id>.r2.cloudflarestorage.com
+    #     #   MinIO:  http://localhost:9000
+    #     endpoint_url: https://s3.us-east-1.amazonaws.com
+    #     region: us-east-1
+    #     bucket: my-benchmark-results
+    #     access_key_id: ${AWS_ACCESS_KEY_ID}
+    #     secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+    #     prefix: results  # Base key prefix (runs at prefix/runs/, suites at prefix/suites/)
+    #     # storage_class: STANDARD  # Optional: S3 storage class
+    #     # acl: private  # Optional: Canned ACL
+    #     # Path-style addressing: required for MinIO and Cloudflare R2.
+    #     force_path_style: false
+    #     # parallel_uploads: 50  # Number of concurrent file uploads
 
-  # Optional test execution configuration.
-  # tests:
-  #   # Optional filter to run only tests matching this pattern.
-  #   filter: ""
-  #   source:
-  #     # Option 1: Local directory source.
-  #     # local:
-  #     #   base_dir: ./benchmark-tests
-  #     #   # Optional: Pre-run steps executed before tests (glob patterns).
-  #     #   pre_run_steps:
-  #     #     - "warmup/*.txt"
-  #     #   # Test step patterns (glob patterns for setup/test/cleanup phases).
-  #     #   steps:
-  #     #     setup:
-  #     #       - "tests/setup/*.txt"
-  #     #     test:
-  #     #       - "tests/test/*.txt"
-  #     #     cleanup:
-  #     #       - "tests/cleanup/*.txt"
-  #
-  #     # Option 2: Git repository source.
-  #     # git:
-  #     #   repo: https://github.com/example/gas-benchmarks.git
-  #     #   version: main  # branch, tag, or commit hash
-  #     #   # Optional: Pre-run steps executed before tests (glob patterns).
-  #     #   pre_run_steps:
-  #     #     - "funding/*.txt"
-  #     #   # Test step patterns (glob patterns for setup/test/cleanup phases).
-  #     #   steps:
-  #     #     setup:
-  #     #       - "tests/setup/*.txt"
-  #     #     test:
-  #     #       - "tests/test/*.txt"
-  #     #     cleanup:
-  #     #       - "tests/cleanup/*.txt"
-  #
-  #     # Option 3: EEST (Ethereum Execution Spec Tests) fixtures from GitHub releases.
-  #     # Downloads fixtures directly from ethereum/execution-spec-tests releases.
-  #     # Genesis files are auto-resolved per client type from the release.
-  #     # eest_fixtures:
-  #     #   github_repo: ethereum/execution-spec-tests
-  #     #   github_release: benchmark@v0.0.7
-  #     #   # Optional: Override the subdirectory within fixtures tarball.
-  #     #   # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
-  #     #   # Optional: Override URLs for fixtures/genesis tarballs.
-  #     #   # fixtures_url: https://example.com/fixtures_benchmark.tar.gz
-  #     #   # genesis_url: https://example.com/benchmark_genesis.tar.gz
-  #
-  #     # Option 3b: EEST fixtures from GitHub Actions artifacts.
-  #     # Alternative to releases - downloads from workflow run artifacts.
-  #     # Uses the gh CLI if available, otherwise falls back to the GitHub REST API
-  #     # (requires global.github_token or BENCHMARKOOR_GLOBAL_GITHUB_TOKEN).
-  #     # eest_fixtures:
-  #     #   github_repo: ethereum/execution-spec-tests
-  #     #   fixtures_artifact_name: fixtures_benchmark_fast  # Required (instead of github_release)
-  #     #   genesis_artifact_name: benchmark_genesis         # Optional, defaults to 'benchmark_genesis'
-  #     #   # Optional: Specify a specific workflow run ID (uses latest if not specified)
-  #     #   # fixtures_artifact_run_id: "12345678901"
-  #     #   # genesis_artifact_run_id: "12345678901"
-  #     #   # fixtures_subdir also works with artifacts
-  #
-  #     # Option 3c: EEST fixtures from local directories.
-  #     # Points directly at already-extracted fixtures and genesis directories.
-  #     # No downloading or caching — useful for local development with locally-built EEST fixtures.
-  #     # eest_fixtures:
-  #     #   local_fixtures_dir: /home/user/eest-output/fixtures
-  #     #   local_genesis_dir: /home/user/eest-output/genesis
-  #     #   # fixtures_subdir also works with local directories
-  #     #   # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
-  #
-  #     # Option 3d: EEST fixtures from local .tar.gz tarballs.
-  #     # Extracts tarballs to a cache directory (keyed by content hash, re-extraction skipped
-  #     # if already cached). Useful when you have locally-built tarballs but haven't extracted them.
-  #     # eest_fixtures:
-  #     #   local_fixtures_tarball: /home/user/eest-output/fixtures_benchmark.tar.gz
-  #     #   local_genesis_tarball: /home/user/eest-output/benchmark_genesis.tar.gz
-  #     #   # fixtures_subdir also works with local tarballs
+    # Optional test execution configuration.
+    # tests:
+    #   # Optional filter to run only tests matching this pattern.
+    #   filter: ""
+    #   source:
+    #     # Option 1: Local directory source.
+    #     # local:
+    #     #   base_dir: ./benchmark-tests
+    #     #   # Optional: Pre-run steps executed before tests (glob patterns).
+    #     #   pre_run_steps:
+    #     #     - "warmup/*.txt"
+    #     #   # Test step patterns (glob patterns for setup/test/cleanup phases).
+    #     #   steps:
+    #     #     setup:
+    #     #       - "tests/setup/*.txt"
+    #     #     test:
+    #     #       - "tests/test/*.txt"
+    #     #     cleanup:
+    #     #       - "tests/cleanup/*.txt"
+    #
+    #     # Option 2: Git repository source.
+    #     # git:
+    #     #   repo: https://github.com/example/gas-benchmarks.git
+    #     #   version: main  # branch, tag, or commit hash
+    #     #   # Optional: Pre-run steps executed before tests (glob patterns).
+    #     #   pre_run_steps:
+    #     #     - "funding/*.txt"
+    #     #   # Test step patterns (glob patterns for setup/test/cleanup phases).
+    #     #   steps:
+    #     #     setup:
+    #     #       - "tests/setup/*.txt"
+    #     #     test:
+    #     #       - "tests/test/*.txt"
+    #     #     cleanup:
+    #     #       - "tests/cleanup/*.txt"
+    #
+    #     # Option 3: EEST (Ethereum Execution Spec Tests) fixtures from GitHub releases.
+    #     # Downloads fixtures directly from ethereum/execution-spec-tests releases.
+    #     # Genesis files are auto-resolved per client type from the release.
+    #     # eest_fixtures:
+    #     #   github_repo: ethereum/execution-spec-tests
+    #     #   github_release: benchmark@v0.0.7
+    #     #   # Optional: Override the subdirectory within fixtures tarball.
+    #     #   # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
+    #     #   # Optional: Override URLs for fixtures/genesis tarballs.
+    #     #   # fixtures_url: https://example.com/fixtures_benchmark.tar.gz
+    #     #   # genesis_url: https://example.com/benchmark_genesis.tar.gz
+    #
+    #     # Option 3b: EEST fixtures from GitHub Actions artifacts.
+    #     # Alternative to releases - downloads from workflow run artifacts.
+    #     # Uses the gh CLI if available, otherwise falls back to the GitHub REST API
+    #     # (requires runner.github_token or BENCHMARKOOR_RUNNER_GITHUB_TOKEN).
+    #     # eest_fixtures:
+    #     #   github_repo: ethereum/execution-spec-tests
+    #     #   fixtures_artifact_name: fixtures_benchmark_fast  # Required (instead of github_release)
+    #     #   genesis_artifact_name: benchmark_genesis         # Optional, defaults to 'benchmark_genesis'
+    #     #   # Optional: Specify a specific workflow run ID (uses latest if not specified)
+    #     #   # fixtures_artifact_run_id: "12345678901"
+    #     #   # genesis_artifact_run_id: "12345678901"
+    #     #   # fixtures_subdir also works with artifacts
+    #
+    #     # Option 3c: EEST fixtures from local directories.
+    #     # Points directly at already-extracted fixtures and genesis directories.
+    #     # No downloading or caching — useful for local development with locally-built EEST fixtures.
+    #     # eest_fixtures:
+    #     #   local_fixtures_dir: /home/user/eest-output/fixtures
+    #     #   local_genesis_dir: /home/user/eest-output/genesis
+    #     #   # fixtures_subdir also works with local directories
+    #     #   # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
+    #
+    #     # Option 3d: EEST fixtures from local .tar.gz tarballs.
+    #     # Extracts tarballs to a cache directory (keyed by content hash, re-extraction skipped
+    #     # if already cached). Useful when you have locally-built tarballs but haven't extracted them.
+    #     # eest_fixtures:
+    #     #   local_fixtures_tarball: /home/user/eest-output/fixtures_benchmark.tar.gz
+    #     #   local_genesis_tarball: /home/user/eest-output/benchmark_genesis.tar.gz
+    #     #   # fixtures_subdir also works with local tarballs
 
 # Optional: API server for authentication and user management.
 # When configured, the UI can integrate with the API for login, admin, and role-based access.
@@ -213,7 +215,7 @@ benchmark:
 #     #   database: benchmarkoor
 #     #   ssl_mode: disable  # disable, require, verify-ca, verify-full
 #   # Optional: S3 storage for serving benchmark results via presigned URLs.
-#   # This is separate from benchmark.results_upload.s3 (which handles uploads during runs).
+#   # This is separate from runner.benchmark.results_upload.s3 (which handles uploads during runs).
 #   # The API uses this to generate presigned GET URLs so the UI can fetch files directly from S3.
 #   # storage:
 #   #   s3:
@@ -230,141 +232,141 @@ benchmark:
 #   #     discovery_paths:
 #   #       - results
 
-client:
-  config:
-    # JWT secret for Engine API authentication (optional, has a default).
-    # Can be set via environment variable for security.
-    # jwt: ${JWT_SECRET:-5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae}
-    # Optional: Drop memory caches during benchmark execution (Linux only, requires root).
-    # Values: "disabled" (default), "tests" (between tests), "steps" (between setup/test/cleanup steps)
-    # drop_memory_caches: "disabled"
-    # Optional: Rollback strategy to reset client state after each test.
-    # Values: "none", "rpc-debug-setHead" (default, capture block number before test, rollback via debug_setHead after)
-    # rollback_strategy: "rpc-debug-setHead"
-    # Optional: Wait duration after RPC becomes ready before running tests.
-    # Useful for clients like Erigon that need time to complete internal sync pipelines
-    # after their RPC endpoint becomes available.
-    # wait_after_rpc_ready: 30s
-    # Optional: Retry engine_newPayload calls when client returns SYNCING status.
-    # Useful for clients with internal sync pipelines (e.g., Erigon) that may return
-    # SYNCING while still processing blocks internally.
-    # retry_new_payloads_syncing_state:
-    #   enabled: true
-    #   max_retries: 10
-    #   backoff: 1s
-    # Optional: Arbitrary RPC calls to execute after each test step.
-    # These calls are NOT timed and do NOT affect test results. Useful for collecting
-    # debug traces or other post-test data from the client.
-    # Template variables are available in params:
-    #   {{.BlockHash}}      - Hash of the latest block (e.g., "0xabc...")
-    #   {{.BlockNumber}}    - Decimal block number (e.g., "1234")
-    #   {{.BlockNumberHex}} - Hex block number with 0x prefix (e.g., "0x4d2")
-    # post_test_rpc_calls:
-    #   - method: debug_traceBlockByNumber
-    #     params: ["{{.BlockNumberHex}}", {"tracer": "callTracer"}]
-    #     dump:
-    #       enabled: true
-    #       filename: debug_traceBlockByNumber  # Written to {resultsDir}/{testName}/post_test_rpc_calls/{filename}.json
-    #   - method: debug_traceBlockByHash
-    #     params: ["{{.BlockHash}}"]
-    #     timeout: 2m  # Per-call timeout (default: 30s)
-    #     dump:
-    #       enabled: true
-    #       filename: debug_traceBlockByHash
-    # Optional: Send an engine_forkchoiceUpdatedV3 call after RPC is ready.
-    # Uses the latest block hash from eth_getBlockByNumber("latest").
-    # Retries until the client accepts the FCU with VALID status, confirming
-    # it has finished internal initialization and is ready for test execution.
-    # Supports shorthand: `bootstrap_fcu: true` (defaults to max_retries: 30, backoff: 1s)
-    # bootstrap_fcu:
-    #   enabled: true
-    #   max_retries: 30
-    #   backoff: 1s
-    # Optional: Container resource limits (applied to all instances by default).
-    # resource_limits:
-    #   # CPU pinning - use ONE of the following:
-    #   #   cpuset_count: N    - Pick N random CPUs (new random selection each run)
-    #   #   cpuset: [0, 1, 2]  - Pin to specific CPUs
-    #   cpuset_count: 4
-    #   # Memory limit (supports units: b, k, m, g, e.g., "16g", "4096m")
-    #   memory: "16g"
-    #   # Disable swap for the container (sets memory-swap equal to memory and swappiness to 0)
-    #   swap_disabled: true
-    #   # Block I/O throttling (optional)
-    #   blkio_config:
-    #     # Limit device read bandwidth (supports units: b, k, m, g)
-    #     device_read_bps:
-    #       - path: /dev/sdb
-    #         rate: '12mb'
-    #     # Limit device read IOPS (integer)
-    #     device_read_iops:
-    #       - path: /dev/sdb
-    #         rate: '120'
-    #     # Limit device write bandwidth
-    #     device_write_bps:
-    #       - path: /dev/sdb
-    #         rate: '1024k'
-    #     # Limit device write IOPS
-    #     device_write_iops:
-    #       - path: /dev/sdb
-    #         rate: '30'
-    #   # CPU frequency management (Linux only, requires root and cpufreq subsystem)
-    #   # These settings are applied to the CPUs specified by cpuset/cpuset_count,
-    #   # or all online CPUs if neither is specified.
-    #   # Fixed CPU frequency (supports: "2000MHz", "2.4GHz", "MAX")
-    #   cpu_freq: "2000MHz"
-    #   # Enable/disable turbo boost (Intel: no_turbo, AMD: boost)
-    #   cpu_turboboost: false
-    #   # CPU frequency governor (common: performance, powersave, schedutil)
-    #   # Defaults to "performance" when cpu_freq is set
-    #   cpu_freq_governor: performance
-    # Genesis file URLs per client type
-    genesis:
-      besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
-      erigon: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      geth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      nethermind: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/nethermind/zkevmgenesis.json
-      nimbus: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      reth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+  client:
+    config:
+      # JWT secret for Engine API authentication (optional, has a default).
+      # Can be set via environment variable for security.
+      # jwt: ${JWT_SECRET:-5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae}
+      # Optional: Drop memory caches during benchmark execution (Linux only, requires root).
+      # Values: "disabled" (default), "tests" (between tests), "steps" (between setup/test/cleanup steps)
+      # drop_memory_caches: "disabled"
+      # Optional: Rollback strategy to reset client state after each test.
+      # Values: "none", "rpc-debug-setHead" (default, capture block number before test, rollback via debug_setHead after)
+      # rollback_strategy: "rpc-debug-setHead"
+      # Optional: Wait duration after RPC becomes ready before running tests.
+      # Useful for clients like Erigon that need time to complete internal sync pipelines
+      # after their RPC endpoint becomes available.
+      # wait_after_rpc_ready: 30s
+      # Optional: Retry engine_newPayload calls when client returns SYNCING status.
+      # Useful for clients with internal sync pipelines (e.g., Erigon) that may return
+      # SYNCING while still processing blocks internally.
+      # retry_new_payloads_syncing_state:
+      #   enabled: true
+      #   max_retries: 10
+      #   backoff: 1s
+      # Optional: Arbitrary RPC calls to execute after each test step.
+      # These calls are NOT timed and do NOT affect test results. Useful for collecting
+      # debug traces or other post-test data from the client.
+      # Template variables are available in params:
+      #   {{.BlockHash}}      - Hash of the latest block (e.g., "0xabc...")
+      #   {{.BlockNumber}}    - Decimal block number (e.g., "1234")
+      #   {{.BlockNumberHex}} - Hex block number with 0x prefix (e.g., "0x4d2")
+      # post_test_rpc_calls:
+      #   - method: debug_traceBlockByNumber
+      #     params: ["{{.BlockNumberHex}}", {"tracer": "callTracer"}]
+      #     dump:
+      #       enabled: true
+      #       filename: debug_traceBlockByNumber  # Written to {resultsDir}/{testName}/post_test_rpc_calls/{filename}.json
+      #   - method: debug_traceBlockByHash
+      #     params: ["{{.BlockHash}}"]
+      #     timeout: 2m  # Per-call timeout (default: 30s)
+      #     dump:
+      #       enabled: true
+      #       filename: debug_traceBlockByHash
+      # Optional: Send an engine_forkchoiceUpdatedV3 call after RPC is ready.
+      # Uses the latest block hash from eth_getBlockByNumber("latest").
+      # Retries until the client accepts the FCU with VALID status, confirming
+      # it has finished internal initialization and is ready for test execution.
+      # Supports shorthand: `bootstrap_fcu: true` (defaults to max_retries: 30, backoff: 1s)
+      # bootstrap_fcu:
+      #   enabled: true
+      #   max_retries: 30
+      #   backoff: 1s
+      # Optional: Container resource limits (applied to all instances by default).
+      # resource_limits:
+      #   # CPU pinning - use ONE of the following:
+      #   #   cpuset_count: N    - Pick N random CPUs (new random selection each run)
+      #   #   cpuset: [0, 1, 2]  - Pin to specific CPUs
+      #   cpuset_count: 4
+      #   # Memory limit (supports units: b, k, m, g, e.g., "16g", "4096m")
+      #   memory: "16g"
+      #   # Disable swap for the container (sets memory-swap equal to memory and swappiness to 0)
+      #   swap_disabled: true
+      #   # Block I/O throttling (optional)
+      #   blkio_config:
+      #     # Limit device read bandwidth (supports units: b, k, m, g)
+      #     device_read_bps:
+      #       - path: /dev/sdb
+      #         rate: '12mb'
+      #     # Limit device read IOPS (integer)
+      #     device_read_iops:
+      #       - path: /dev/sdb
+      #         rate: '120'
+      #     # Limit device write bandwidth
+      #     device_write_bps:
+      #       - path: /dev/sdb
+      #         rate: '1024k'
+      #     # Limit device write IOPS
+      #     device_write_iops:
+      #       - path: /dev/sdb
+      #         rate: '30'
+      #   # CPU frequency management (Linux only, requires root and cpufreq subsystem)
+      #   # These settings are applied to the CPUs specified by cpuset/cpuset_count,
+      #   # or all online CPUs if neither is specified.
+      #   # Fixed CPU frequency (supports: "2000MHz", "2.4GHz", "MAX")
+      #   cpu_freq: "2000MHz"
+      #   # Enable/disable turbo boost (Intel: no_turbo, AMD: boost)
+      #   cpu_turboboost: false
+      #   # CPU frequency governor (common: performance, powersave, schedutil)
+      #   # Defaults to "performance" when cpu_freq is set
+      #   cpu_freq_governor: performance
+      # Genesis file URLs per client type
+      genesis:
+        besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
+        erigon: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+        geth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+        nethermind: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/nethermind/zkevmgenesis.json
+        nimbus: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+        reth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
 
-  # Default images per client (used when 'image' is not specified):
-  #   geth:       ethpandaops/geth:performance
-  #   nethermind: ethpandaops/nethermind:performance
-  #   besu:       ethpandaops/besu:performance
-  #   erigon:     ethpandaops/erigon:performance
-  #   nimbus:     statusim/nimbus-eth1:performance
-  #   reth:       ethpandaops/reth:performance
+    # Default images per client (used when 'image' is not specified):
+    #   geth:       ethpandaops/geth:performance
+    #   nethermind: ethpandaops/nethermind:performance
+    #   besu:       ethpandaops/besu:performance
+    #   erigon:     ethpandaops/erigon:performance
+    #   nimbus:     statusim/nimbus-eth1:performance
+    #   reth:       ethpandaops/reth:performance
 
-  # Optional: Pre-populated data directories per client type.
-  # When configured, the source directory is prepared and mounted into the container,
-  # and the init container is skipped (data is already initialized).
-  # datadirs:
-  #   geth:
-  #     source_dir: ./data/snapshots/geth
-  #     # container_dir: /data  # defaults to client's data directory if omitted
-  #     # Method for preparing the data directory:
-  #     #   copy           - parallel Go copy (default, works everywhere, has progress)
-  #     #   overlayfs      - uses Linux overlayfs for near-instant setup (requires root)
-  #     #   fuse-overlayfs - uses fuse-overlayfs for near-instant setup (no root required)
-  #     #                    Requires: apt install fuse-overlayfs (or equivalent)
-  #     #                    Requires: user_allow_other in /etc/fuse.conf if Docker runs as root
-  #     #                    WARNING: fuse-overlayfs is SLOW compared to overlayfs. You'll get
-  #     #                             3x Worse results.
-  #     #   zfs            - uses ZFS snapshots and clones for near-instant, copy-on-write setup
-  #     #                    Requires: source_dir must be on a ZFS filesystem
-  #     #                    Requires: root access OR ZFS delegations configured:
-  #     #                      zfs allow -u <user> clone,create,destroy,mount,snapshot <dataset>
-  #     #                    The dataset is auto-detected from the source_dir mount point.
-  #     method: copy
-  #   reth:
-  #     source_dir: ./data/snapshots/reth
-  #     # container_dir defaults to /var/lib/reth for reth
-  #     method: fuse-overlayfs  # near-instant, no root required
-  #   # Example: ZFS-backed data directory
-  #   # nethermind:
-  #   #   source_dir: /tank/benchmarkoor/nethermind-snapshot  # Must be on ZFS
-  #   #   container_dir: /nethermind/data
-  #   #   method: zfs  # near-instant via ZFS clones
+    # Optional: Pre-populated data directories per client type.
+    # When configured, the source directory is prepared and mounted into the container,
+    # and the init container is skipped (data is already initialized).
+    # datadirs:
+    #   geth:
+    #     source_dir: ./data/snapshots/geth
+    #     # container_dir: /data  # defaults to client's data directory if omitted
+    #     # Method for preparing the data directory:
+    #     #   copy           - parallel Go copy (default, works everywhere, has progress)
+    #     #   overlayfs      - uses Linux overlayfs for near-instant setup (requires root)
+    #     #   fuse-overlayfs - uses fuse-overlayfs for near-instant setup (no root required)
+    #     #                    Requires: apt install fuse-overlayfs (or equivalent)
+    #     #                    Requires: user_allow_other in /etc/fuse.conf if Docker runs as root
+    #     #                    WARNING: fuse-overlayfs is SLOW compared to overlayfs. You'll get
+    #     #                             3x Worse results.
+    #     #   zfs            - uses ZFS snapshots and clones for near-instant, copy-on-write setup
+    #     #                    Requires: source_dir must be on a ZFS filesystem
+    #     #                    Requires: root access OR ZFS delegations configured:
+    #     #                      zfs allow -u <user> clone,create,destroy,mount,snapshot <dataset>
+    #     #                    The dataset is auto-detected from the source_dir mount point.
+    #     method: copy
+    #   reth:
+    #     source_dir: ./data/snapshots/reth
+    #     # container_dir defaults to /var/lib/reth for reth
+    #     method: fuse-overlayfs  # near-instant, no root required
+    #   # Example: ZFS-backed data directory
+    #   # nethermind:
+    #   #   source_dir: /tank/benchmarkoor/nethermind-snapshot  # Must be on ZFS
+    #   #   container_dir: /nethermind/data
+    #   #   method: zfs  # near-instant via ZFS clones
 
   instances:
     - id: geth-latest

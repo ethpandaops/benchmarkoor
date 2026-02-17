@@ -1,29 +1,31 @@
 global:
   log_level: info
+
+runner:
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
 
-benchmark:
-  results_dir: ./results
-  generate_results_index: true
-  generate_suite_stats: true
-  tests:
-    # Comment out the "filter" if you want to run the full suite
-    filter: "bn128"
-    source:
-      eest_fixtures:
-        github_repo: ethereum/execution-spec-tests
-        github_release: benchmark@v0.0.7
+  benchmark:
+    results_dir: ./results
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      # Comment out the "filter" if you want to run the full suite
+      filter: "bn128"
+      source:
+        eest_fixtures:
+          github_repo: ethereum/execution-spec-tests
+          github_release: benchmark@v0.0.7
 
-client:
-  config:
-    drop_memory_caches: "steps"
-    # Set resource limits, for example, as per https://eips.ethereum.org/EIPS/eip-7870
-    # resource_limits:
-    #   cpuset_count: 4
-    #   memory: "32g"
-    #   swap_disabled: true
+  client:
+    config:
+      drop_memory_caches: "steps"
+      # Set resource limits, for example, as per https://eips.ethereum.org/EIPS/eip-7870
+      # resource_limits:
+      #   cpuset_count: 4
+      #   memory: "32g"
+      #   swap_disabled: true
 
   instances:
     - id: nethermind

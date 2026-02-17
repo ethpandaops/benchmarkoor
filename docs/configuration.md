@@ -8,11 +8,12 @@ This document describes all configuration options for benchmarkoor. The [config.
 - [Environment Variables](#environment-variables)
 - [Configuration Merging](#configuration-merging)
 - [Global Settings](#global-settings)
-- [Benchmark Settings](#benchmark-settings)
-  - [Results Upload](#results-upload)
-- [Client Settings](#client-settings)
-  - [Client Defaults](#client-defaults)
-  - [Data Directories](#data-directories)
+- [Runner Settings](#runner-settings)
+  - [Benchmark Settings](#benchmark-settings)
+    - [Results Upload](#results-upload)
+  - [Client Settings](#client-settings)
+    - [Client Defaults](#client-defaults)
+    - [Data Directories](#data-directories)
   - [Client Instances](#client-instances)
 - [Resource Limits](#resource-limits)
 - [Post-Test RPC Calls](#post-test-rpc-calls)
@@ -41,8 +42,9 @@ Example:
 ```yaml
 global:
   log_level: ${LOG_LEVEL:-info}
-benchmark:
-  results_dir: ${RESULTS_DIR:-./results}
+runner:
+  benchmark:
+    results_dir: ${RESULTS_DIR:-./results}
 ```
 
 ### Environment Variable Overrides
@@ -52,8 +54,8 @@ Configuration values can also be overridden via environment variables with the `
 | Config Path | Environment Variable |
 |-------------|---------------------|
 | `global.log_level` | `BENCHMARKOOR_GLOBAL_LOG_LEVEL` |
-| `benchmark.results_dir` | `BENCHMARKOOR_BENCHMARK_RESULTS_DIR` |
-| `client.config.jwt` | `BENCHMARKOOR_CLIENT_CONFIG_JWT` |
+| `runner.benchmark.results_dir` | `BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_DIR` |
+| `runner.client.config.jwt` | `BENCHMARKOOR_RUNNER_CLIENT_CONFIG_JWT` |
 
 ## Configuration Merging
 
@@ -75,6 +77,20 @@ The `global` section contains application-wide settings.
 ```yaml
 global:
   log_level: info
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `log_level` | string | `info` | Logging level: `debug`, `info`, `warn`, `error` |
+
+## Runner Settings
+
+The `runner` section contains all run-specific settings including benchmark configuration, client settings, and instance definitions.
+
+```yaml
+runner:
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
@@ -89,7 +105,6 @@ global:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `log_level` | string | `info` | Logging level: `debug`, `info`, `warn`, `error` |
 | `client_logs_to_stdout` | bool | `false` | Stream client container logs to stdout |
 | `docker_network` | string | `benchmarkoor` | Docker network name for containers |
 | `cleanup_on_start` | bool | `false` | Remove leftover containers/networks on startup |
@@ -97,28 +112,29 @@ global:
 | `directories.tmp_cachedir` | string | `~/.cache/benchmarkoor` | Directory for executor cache (git clones, etc.) |
 | `drop_caches_path` | string | `/proc/sys/vm/drop_caches` | Path to Linux drop_caches file (for containerized environments) |
 | `cpu_sysfs_path` | string | `/sys/devices/system/cpu` | Base path for CPU sysfs files (for containerized environments where `/sys` is read-only and the host path is bind-mounted elsewhere, e.g., `/host_sys_cpu`) |
-| `github_token` | string | - | GitHub token for downloading Actions artifacts via REST API. Not needed if `gh` CLI is installed and authenticated. Requires `actions:read` scope. Can also be set via `BENCHMARKOOR_GLOBAL_GITHUB_TOKEN` env var |
+| `github_token` | string | - | GitHub token for downloading Actions artifacts via REST API. Not needed if `gh` CLI is installed and authenticated. Requires `actions:read` scope. Can also be set via `BENCHMARKOOR_RUNNER_GITHUB_TOKEN` env var |
 
-## Benchmark Settings
+### Benchmark Settings
 
-The `benchmark` section configures test execution and results output.
+The `runner.benchmark` section configures test execution and results output.
 
 ```yaml
-benchmark:
-  results_dir: ./results
-  results_owner: "1000:1000"
-  system_resource_collection_enabled: true
-  generate_results_index: true
-  generate_suite_stats: true
-  tests:
-    filter: "erc20"
-    source:
-      git:
-        repo: https://github.com/example/benchmarks.git
-        version: main
+runner:
+  benchmark:
+    results_dir: ./results
+    results_owner: "1000:1000"
+    system_resource_collection_enabled: true
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      filter: "erc20"
+      source:
+        git:
+          repo: https://github.com/example/benchmarks.git
+          version: main
 ```
 
-### Options
+#### Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -133,11 +149,11 @@ benchmark:
 | `tests.filter` | string | - | Run only tests matching this pattern |
 | `tests.source` | object | - | Test source configuration (see below) |
 
-### Test Sources
+#### Test Sources
 
 Tests can be loaded from a local directory, a git repository, or EEST (Ethereum Execution Spec Tests) fixtures. Only one source type can be configured.
 
-#### Local Source
+##### Local Source
 
 ```yaml
 tests:
@@ -163,7 +179,7 @@ tests:
 | `steps.test` | []string | No | Glob patterns for test phase files |
 | `steps.cleanup` | []string | No | Glob patterns for cleanup phase files |
 
-#### Git Source
+##### Git Source
 
 ```yaml
 tests:
@@ -191,11 +207,11 @@ tests:
 | `steps.test` | []string | No | Glob patterns for test phase files |
 | `steps.cleanup` | []string | No | Glob patterns for cleanup phase files |
 
-#### EEST Fixtures Source
+##### EEST Fixtures Source
 
 EEST (Ethereum Execution Spec Tests) fixtures can be loaded from GitHub releases or GitHub Actions artifacts. This source type downloads fixtures from `ethereum/execution-spec-tests` and converts them to Engine API calls automatically.
 
-##### From GitHub Releases
+###### From GitHub Releases
 
 ```yaml
 tests:
@@ -216,11 +232,11 @@ tests:
 
 *Either `github_release` or `fixtures_artifact_name` is required.
 
-##### From GitHub Actions Artifacts
+###### From GitHub Actions Artifacts
 
 As an alternative to releases, you can download fixtures directly from GitHub Actions workflow artifacts. This is useful for testing with fixtures from CI builds before they're released.
 
-**Requirements:** Either the `gh` CLI must be installed and authenticated with GitHub, or `global.github_token` must be set (a token with `actions:read` scope).
+**Requirements:** Either the `gh` CLI must be installed and authenticated with GitHub, or `runner.github_token` must be set (a token with `actions:read` scope).
 
 ```yaml
 tests:
@@ -245,7 +261,7 @@ tests:
 
 *Either `github_release`, `fixtures_artifact_name`, `local_fixtures_dir`/`local_genesis_dir`, or `local_fixtures_tarball`/`local_genesis_tarball` is required. Only one mode can be used at a time.
 
-##### From Local Directories
+###### From Local Directories
 
 For local development with already-extracted EEST fixtures (e.g., built locally from the `execution-spec-tests` repository), you can point directly at the directories. No downloading or caching is performed.
 
@@ -269,7 +285,7 @@ tests:
 
 `github_repo` is not required for local modes.
 
-##### From Local Tarballs
+###### From Local Tarballs
 
 If you have locally-built `.tar.gz` tarballs (e.g., `fixtures_benchmark.tar.gz` and `benchmark_genesis.tar.gz`), you can use them directly. The tarballs are extracted to a cache directory keyed by a hash of the tarball paths, so re-extraction is skipped on subsequent runs.
 
@@ -302,7 +318,7 @@ tests:
 
 **Genesis file resolution:**
 
-When using EEST fixtures, genesis files are automatically resolved based on client type. You don't need to configure `client.config.genesis` unless you want to override the defaults.
+When using EEST fixtures, genesis files are automatically resolved based on client type. You don't need to configure `runner.client.config.genesis` unless you want to override the defaults.
 
 | Client | Genesis Path |
 |--------|--------------|
@@ -313,33 +329,35 @@ When using EEST fixtures, genesis files are automatically resolved based on clie
 **Example with filter:**
 
 ```yaml
-benchmark:
-  tests:
-    filter: "bn128"  # Only run tests matching "bn128"
-    source:
-      eest_fixtures:
-        github_repo: ethereum/execution-spec-tests
-        github_release: benchmark@v0.0.7
+runner:
+  benchmark:
+    tests:
+      filter: "bn128"  # Only run tests matching "bn128"
+      source:
+        eest_fixtures:
+          github_repo: ethereum/execution-spec-tests
+          github_release: benchmark@v0.0.7
 ```
 
-### Results Upload
+#### Results Upload
 
-The `benchmark.results_upload` section configures automatic uploading of results to remote storage after each instance run. Currently only S3-compatible storage is supported.
+The `runner.benchmark.results_upload` section configures automatic uploading of results to remote storage after each instance run. Currently only S3-compatible storage is supported.
 
 ```yaml
-benchmark:
-  results_upload:
-    s3:
-      enabled: true
-      endpoint_url: https://s3.amazonaws.com
-      region: us-east-1
-      bucket: my-benchmark-results
-      access_key_id: ${AWS_ACCESS_KEY_ID}
-      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
-      prefix: results
-      # storage_class: STANDARD
-      # acl: private
-      force_path_style: false
+runner:
+  benchmark:
+    results_upload:
+      s3:
+        enabled: true
+        endpoint_url: https://s3.amazonaws.com
+        region: us-east-1
+        bucket: my-benchmark-results
+        access_key_id: ${AWS_ACCESS_KEY_ID}
+        secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+        prefix: results
+        # storage_class: STANDARD
+        # acl: private
+        force_path_style: false
 ```
 
 | Option | Type | Required | Default | Description |
@@ -382,11 +400,11 @@ benchmarkoor generate-suite-stats-file --method=s3 --config config.yaml
 
 When using `--method=s3`, the command reads `config.json` and `result.json` from each run, groups them by suite hash, builds per-suite stats in memory, and uploads `stats.json` to `prefix/suites/{hash}/stats.json`.
 
-## Client Settings
+### Client Settings
 
-The `client` section configures Ethereum execution clients.
+The `runner.client` section configures Ethereum execution clients.
 
-### Supported Clients
+#### Supported Clients
 
 | Client | Type | Default Image |
 |--------|------|---------------|
@@ -397,23 +415,24 @@ The `client` section configures Ethereum execution clients.
 | Nimbus | `nimbus` | `statusim/nimbus-eth1:performance` |
 | Reth | `reth` | `ethpandaops/reth:performance` |
 
-### Client Defaults
+#### Client Defaults
 
-The `client.config` section sets defaults applied to all client instances.
+The `runner.client.config` section sets defaults applied to all client instances.
 
 ```yaml
-client:
-  config:
-    jwt: "5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae"
-    drop_memory_caches: "disabled"
-    rollback_strategy: "rpc-debug-setHead"  # or "none"
-    resource_limits:
-      cpuset_count: 4
-      memory: "16g"
-      swap_disabled: true
-    genesis:
-      geth: https://example.com/genesis/geth.json
-      nethermind: https://example.com/genesis/nethermind.json
+runner:
+  client:
+    config:
+      jwt: "5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae"
+      drop_memory_caches: "disabled"
+      rollback_strategy: "rpc-debug-setHead"  # or "none"
+      resource_limits:
+        cpuset_count: 4
+        memory: "16g"
+        swap_disabled: true
+      genesis:
+        geth: https://example.com/genesis/geth.json
+        nethermind: https://example.com/genesis/nethermind.json
 ```
 
 | Option | Type | Default | Description |
@@ -428,7 +447,7 @@ client:
 | `bootstrap_fcu` | bool/object | - | Send an `engine_forkchoiceUpdatedV3` after RPC is ready to confirm the client is fully synced (see [Bootstrap FCU](#bootstrap-fcu)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
-#### Drop Memory Caches
+##### Drop Memory Caches
 
 This Linux-only feature (requires root) drops page cache, dentries, and inodes between benchmark phases for more consistent results.
 
@@ -438,7 +457,7 @@ This Linux-only feature (requires root) drops page cache, dentries, and inodes b
 | `tests` | Drop caches between tests |
 | `steps` | Drop caches between all steps (setup, test, cleanup) |
 
-#### Rollback Strategy
+##### Rollback Strategy
 
 Controls whether the client state is rolled back after each test. This is useful for stateful benchmarks where tests modify chain state and you want each test to start from the same block.
 
@@ -448,7 +467,7 @@ Controls whether the client state is rolled back after each test. This is useful
 | `rpc-debug-setHead` | Capture block info before each test, then rollback via a client-specific debug RPC after the test completes (default) |
 | `container-recreate` | Stop and remove the container after each test, then create and start a fresh one |
 
-##### `rpc-debug-setHead`
+###### `rpc-debug-setHead`
 
 When `rpc-debug-setHead` is enabled, the following happens for each test:
 
@@ -459,7 +478,7 @@ When `rpc-debug-setHead` is enabled, the following happens for each test:
 
 If the rollback fails or the block number doesn't match, a warning is logged but the test is not marked as failed.
 
-##### Client-specific RPC calls
+###### Client-specific RPC calls
 
 Each client uses a different RPC method and parameter format for rollback:
 
@@ -474,7 +493,7 @@ Each client uses a different RPC method and parameter format for rollback:
 
 For clients that don't support rollback (Erigon, Nimbus), a warning is logged and the rollback step is skipped.
 
-##### `container-recreate`
+###### `container-recreate`
 
 When `container-recreate` is enabled, the runner manages the per-test loop:
 
@@ -485,14 +504,15 @@ When `container-recreate` is enabled, the runner manages the per-test loop:
 
 This strategy works with all clients since it doesn't require any client-specific RPC support.
 
-#### Wait After RPC Ready
+##### Wait After RPC Ready
 
 Some clients (e.g., Erigon) have internal sync pipelines that continue running after their RPC endpoint becomes available. The `wait_after_rpc_ready` option adds a configurable delay after the RPC health check passes, giving the client time to complete internal initialization before test execution begins.
 
 ```yaml
-client:
-  config:
-    wait_after_rpc_ready: 30s
+runner:
+  client:
+    config:
+      wait_after_rpc_ready: 30s
 ```
 
 The value is a Go duration string (e.g., `30s`, `1m`, `500ms`). If not set, no additional wait is performed.
@@ -502,17 +522,18 @@ The value is a Go duration string (e.g., `30s`, `1m`, `500ms`). If not set, no a
 - When you observe `SYNCING` responses from Engine API calls despite the RPC being available
 - When starting from pre-populated data directories where clients may need time to validate state
 
-#### Retry New Payloads Syncing State
+##### Retry New Payloads Syncing State
 
 When `engine_newPayload` returns a `SYNCING` status, it indicates the client hasn't fully processed the parent block yet. The `retry_new_payloads_syncing_state` option configures automatic retries with exponential backoff.
 
 ```yaml
-client:
-  config:
-    retry_new_payloads_syncing_state:
-      enabled: true
-      max_retries: 10
-      backoff: 1s
+runner:
+  client:
+    config:
+      retry_new_payloads_syncing_state:
+        enabled: true
+        max_retries: 10
+        backoff: 1s
 ```
 
 | Option | Type | Required | Description |
@@ -527,27 +548,29 @@ client:
 - Combined with `wait_after_rpc_ready` for clients with complex initialization
 
 
-#### Bootstrap FCU
+##### Bootstrap FCU
 
 Some clients (e.g., Erigon) may still be performing internal initialization or syncing after their RPC endpoint becomes available. The `bootstrap_fcu` option sends an `engine_forkchoiceUpdatedV3` call in a retry loop after RPC is ready, using the latest block hash from `eth_getBlockByNumber("latest")`. The client accepting the FCU with `VALID` status confirms it has finished syncing and is ready for test execution.
 
 **Shorthand** (uses defaults: `max_retries: 30`, `backoff: 1s`):
 
 ```yaml
-client:
-  config:
-    bootstrap_fcu: true
+runner:
+  client:
+    config:
+      bootstrap_fcu: true
 ```
 
 **Full configuration:**
 
 ```yaml
-client:
-  config:
-    bootstrap_fcu:
-      enabled: true
-      max_retries: 30
-      backoff: 1s
+runner:
+  client:
+    config:
+      bootstrap_fcu:
+        enabled: true
+        max_retries: 30
+        backoff: 1s
 ```
 
 | Option | Type | Required | Default | Description |
@@ -565,21 +588,22 @@ When using the `container-recreate` rollback strategy, the bootstrap FCU is sent
 - When starting from pre-populated data directories where the client needs time to validate state before processing Engine API requests
 - When you observe test failures due to the client returning errors or SYNCING responses on the first Engine API calls
 
-### Data Directories
+#### Data Directories
 
-The `client.datadirs` section configures pre-populated data directories per client type. When configured, the init container is skipped and data is mounted directly.
+The `runner.client.datadirs` section configures pre-populated data directories per client type. When configured, the init container is skipped and data is mounted directly.
 
 ```yaml
-client:
-  datadirs:
-    geth:
-      source_dir: ./data/snapshots/geth
-      # container_dir defaults to /data (geth's data directory)
-      method: copy
-    reth:
-      source_dir: ./data/snapshots/reth
-      # container_dir defaults to /var/lib/reth (reth's data directory)
-      method: overlayfs
+runner:
+  client:
+    datadirs:
+      geth:
+        source_dir: ./data/snapshots/geth
+        # container_dir defaults to /data (geth's data directory)
+        method: copy
+      reth:
+        source_dir: ./data/snapshots/reth
+        # container_dir defaults to /var/lib/reth (reth's data directory)
+        method: overlayfs
 ```
 
 | Option | Type | Default | Description |
@@ -588,7 +612,7 @@ client:
 | `container_dir` | string | Client default | Mount path inside the container. If not specified, uses the client's default data directory (e.g., `/var/lib/reth` for reth, `/data` for geth) |
 | `method` | string | `copy` | Method for preparing the data directory |
 
-#### Data Directory Methods
+##### Data Directory Methods
 
 | Method | Description | Requirements |
 |--------|-------------|--------------|
@@ -597,7 +621,7 @@ client:
 | `fuse-overlayfs` | FUSE-based overlayfs | `fuse-overlayfs` package; `user_allow_other` in `/etc/fuse.conf` if Docker runs as root. **Warning:** ~3x slower than native overlayfs |
 | `zfs` | ZFS snapshots and clones for copy-on-write setup | Source directory on ZFS filesystem; root access or ZFS delegations configured |
 
-##### ZFS Setup
+###### ZFS Setup
 
 For ZFS method without root:
 ```bash
@@ -606,7 +630,7 @@ zfs allow -u <user> clone,create,destroy,mount,snapshot <dataset>
 
 The dataset is auto-detected from the source directory mount point.
 
-##### Default Container Directories
+###### Default Container Directories
 
 When `container_dir` is not specified, the client's default data directory is used:
 
@@ -621,10 +645,10 @@ When `container_dir` is not specified, the client's default data directory is us
 
 ### Client Instances
 
-The `client.instances` array defines which client configurations to benchmark.
+The `runner.instances` array defines which client configurations to benchmark.
 
 ```yaml
-client:
+runner:
   instances:
     - id: geth-latest
       client: geth
@@ -659,19 +683,19 @@ client:
 | `extra_args` | []string | No | - | Additional arguments appended to command |
 | `restart` | string | No | - | Container restart policy |
 | `environment` | map | No | - | Additional environment variables |
-| `genesis` | string | No | From `client.config.genesis` | Override genesis file URL |
-| `datadir` | object | No | From `client.datadirs` | Instance-specific data directory config |
-| `drop_memory_caches` | string | No | From `client.config` | Instance-specific cache drop setting |
-| `rollback_strategy` | string | No | From `client.config` | Instance-specific rollback strategy |
-| `wait_after_rpc_ready` | string | No | From `client.config` | Instance-specific RPC ready wait duration |
-| `retry_new_payloads_syncing_state` | object | No | From `client.config` | Instance-specific retry config for SYNCING responses |
-| `resource_limits` | object | No | From `client.config` | Instance-specific resource limits |
-| `post_test_rpc_calls` | []object | No | From `client.config` | Instance-specific post-test RPC calls (replaces global) |
-| `bootstrap_fcu` | bool/object | No | From `client.config` | Instance-specific bootstrap FCU setting |
+| `genesis` | string | No | From `runner.client.config.genesis` | Override genesis file URL |
+| `datadir` | object | No | From `runner.client.datadirs` | Instance-specific data directory config |
+| `drop_memory_caches` | string | No | From `runner.client.config` | Instance-specific cache drop setting |
+| `rollback_strategy` | string | No | From `runner.client.config` | Instance-specific rollback strategy |
+| `wait_after_rpc_ready` | string | No | From `runner.client.config` | Instance-specific RPC ready wait duration |
+| `retry_new_payloads_syncing_state` | object | No | From `runner.client.config` | Instance-specific retry config for SYNCING responses |
+| `resource_limits` | object | No | From `runner.client.config` | Instance-specific resource limits |
+| `post_test_rpc_calls` | []object | No | From `runner.client.config` | Instance-specific post-test RPC calls (replaces global) |
+| `bootstrap_fcu` | bool/object | No | From `runner.client.config` | Instance-specific bootstrap FCU setting |
 
 ## Resource Limits
 
-Resource limits can be configured globally (`client.config.resource_limits`) or per-instance (`client.instances[].resource_limits`). Instance-level settings override global defaults.
+Resource limits can be configured globally (`runner.client.config.resource_limits`) or per-instance (`runner.instances[].resource_limits`). Instance-level settings override global defaults.
 
 ```yaml
 resource_limits:
@@ -734,7 +758,7 @@ CPU frequency settings allow you to lock CPUs to a specific frequency, control t
 - Linux only
 - Root access (requires write access to `/sys/devices/system/cpu/*/cpufreq/`)
 - cpufreq subsystem must be available
-- When running in Docker, bind-mount `/sys/devices/system/cpu` into the container and set `global.cpu_sysfs_path` to the mount point (e.g., `/host_sys_cpu`)
+- When running in Docker, bind-mount `/sys/devices/system/cpu` into the container and set `runner.cpu_sysfs_path` to the mount point (e.g., `/host_sys_cpu`)
 
 ```yaml
 resource_limits:
@@ -770,15 +794,16 @@ Common governors (availability depends on kernel configuration):
 For the most consistent benchmark results, lock the CPU frequency and disable turbo boost:
 
 ```yaml
-client:
-  config:
-    resource_limits:
-      cpuset_count: 4
-      cpu_freq: "2000MHz"
-      cpu_turboboost: false
-      cpu_freq_governor: performance
-      memory: "16g"
-      swap_disabled: true
+runner:
+  client:
+    config:
+      resource_limits:
+        cpuset_count: 4
+        cpu_freq: "2000MHz"
+        cpu_turboboost: false
+        cpu_freq_governor: performance
+        memory: "16g"
+        swap_disabled: true
 ```
 
 ## Post-Test RPC Calls
@@ -788,20 +813,21 @@ Post-test RPC calls allow you to execute arbitrary JSON-RPC calls after each tes
 Calls are made to the client's regular RPC endpoint (no JWT authentication). If a call fails, a warning is logged and the remaining calls continue.
 
 ```yaml
-client:
-  config:
-    post_test_rpc_calls:
-      - method: debug_traceBlockByNumber
-        params: ["{{.BlockNumberHex}}", {"tracer": "callTracer"}]
-        dump:
-          enabled: true
-          filename: debug_traceBlockByNumber
-      - method: debug_traceBlockByHash
-        params: ["{{.BlockHash}}"]
-        timeout: 2m  # Override default 30s timeout for slow methods
-        dump:
-          enabled: true
-          filename: debug_traceBlockByHash
+runner:
+  client:
+    config:
+      post_test_rpc_calls:
+        - method: debug_traceBlockByNumber
+          params: ["{{.BlockNumberHex}}", {"tracer": "callTracer"}]
+          dump:
+            enabled: true
+            filename: debug_traceBlockByNumber
+        - method: debug_traceBlockByHash
+          params: ["{{.BlockHash}}"]
+          timeout: 2m  # Override default 30s timeout for slow methods
+          dump:
+            enabled: true
+            filename: debug_traceBlockByHash
 ```
 
 ### Call Options
@@ -854,14 +880,15 @@ Post-test RPC calls run after the test step and before the cleanup step:
 Instance-level `post_test_rpc_calls` completely replace global defaults (not merged):
 
 ```yaml
-client:
-  config:
-    post_test_rpc_calls:
-      - method: debug_traceBlockByNumber
-        params: ["{{.BlockNumberHex}}"]
-        dump:
-          enabled: true
-          filename: trace_by_number
+runner:
+  client:
+    config:
+      post_test_rpc_calls:
+        - method: debug_traceBlockByNumber
+          params: ["{{.BlockNumberHex}}"]
+          dump:
+            enabled: true
+            filename: trace_by_number
   instances:
     - id: geth-latest
       client: geth
@@ -885,41 +912,43 @@ Running stateless tests across all clients:
 ```yaml
 global:
   log_level: info
+
+runner:
   client_logs_to_stdout: true
   cleanup_on_start: false
 
-benchmark:
-  results_dir: ./results
-  generate_results_index: true
-  generate_suite_stats: true
-  tests:
-    filter: "bn128"
-    source:
-      git:
-        repo: https://github.com/NethermindEth/gas-benchmarks.git
-        version: main
-        pre_run_steps: []
-        steps:
-          setup:
-            - eest_tests/setup/*/*
-          test:
-            - eest_tests/testing/*/*
-          cleanup: []
+  benchmark:
+    results_dir: ./results
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      filter: "bn128"
+      source:
+        git:
+          repo: https://github.com/NethermindEth/gas-benchmarks.git
+          version: main
+          pre_run_steps: []
+          steps:
+            setup:
+              - eest_tests/setup/*/*
+            test:
+              - eest_tests/testing/*/*
+            cleanup: []
 
-client:
-  config:
-    resource_limits:
-      cpuset_count: 4
-      memory: "16g"
-      swap_disabled: true
-    genesis:
-      besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
-      erigon: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      ethrex: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      geth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      nethermind: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/nethermind/zkevmgenesis.json
-      nimbus: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
-      reth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+  client:
+    config:
+      resource_limits:
+        cpuset_count: 4
+        memory: "16g"
+        swap_disabled: true
+      genesis:
+        besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
+        erigon: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+        ethrex: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+        geth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+        nethermind: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/nethermind/zkevmgenesis.json
+        nimbus: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
+        reth: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/geth/zkevmgenesis.json
 
   instances:
     - id: nethermind
@@ -939,28 +968,30 @@ Running EEST fixtures across multiple clients:
 ```yaml
 global:
   log_level: info
+
+runner:
   client_logs_to_stdout: true
   cleanup_on_start: true
 
-benchmark:
-  results_dir: ./results
-  generate_results_index: true
-  generate_suite_stats: true
-  tests:
-    filter: "bn128"  # Optional: filter tests by name
-    source:
-      eest_fixtures:
-        github_repo: ethereum/execution-spec-tests
-        github_release: benchmark@v0.0.7
+  benchmark:
+    results_dir: ./results
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      filter: "bn128"  # Optional: filter tests by name
+      source:
+        eest_fixtures:
+          github_repo: ethereum/execution-spec-tests
+          github_release: benchmark@v0.0.7
 
-client:
-  config:
-    resource_limits:
-      cpuset_count: 4
-      memory: "16g"
-      swap_disabled: true
-    # Genesis files are auto-resolved from the EEST release.
-    # No need to configure genesis URLs unless you want to override.
+  client:
+    config:
+      resource_limits:
+        cpuset_count: 4
+        memory: "16g"
+        swap_disabled: true
+      # Genesis files are auto-resolved from the EEST release.
+      # No need to configure genesis URLs unless you want to override.
 
   instances:
     - id: geth
@@ -980,25 +1011,27 @@ Running EEST fixtures from a local directory (no GitHub required):
 ```yaml
 global:
   log_level: info
+
+runner:
   client_logs_to_stdout: true
   cleanup_on_start: true
 
-benchmark:
-  results_dir: ./results
-  generate_results_index: true
-  generate_suite_stats: true
-  tests:
-    source:
-      eest_fixtures:
-        local_fixtures_dir: /home/user/execution-spec-tests/output/fixtures
-        local_genesis_dir: /home/user/execution-spec-tests/output/genesis
+  benchmark:
+    results_dir: ./results
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      source:
+        eest_fixtures:
+          local_fixtures_dir: /home/user/execution-spec-tests/output/fixtures
+          local_genesis_dir: /home/user/execution-spec-tests/output/genesis
 
-client:
-  config:
-    resource_limits:
-      cpuset_count: 4
-      memory: "16g"
-      swap_disabled: true
+  client:
+    config:
+      resource_limits:
+        cpuset_count: 4
+        memory: "16g"
+        swap_disabled: true
 
   instances:
     - id: geth
@@ -1012,36 +1045,40 @@ Running stateful tests on a geth container with an existing data directory:
 ```yaml
 global:
   log_level: info
+
+runner:
   client_logs_to_stdout: true
   cleanup_on_start: false
 
-benchmark:
-  results_dir: ./results
-  results_owner: "${UID}:${GID}"
-  generate_results_index: true
-  generate_suite_stats: true
-  tests:
-    source:
-      git:
-        repo: https://github.com/skylenet/gas-benchmarks.git
-        version: order-stateful-tests-subdirs
-        pre_run_steps:
-          - stateful_tests/gas-bump.txt
-          - stateful_tests/funding.txt
-        steps:
-          setup:
-            - stateful_tests/setup/*/*
-          test:
-            - stateful_tests/testing/*/*
-          cleanup:
-            - stateful_tests/cleanup/*/*
-client:
-  config:
-    drop_memory_caches: "steps"
-  datadirs:
-    geth:
-      source_dir: ${HOME}/data/clients/perf-devnet-2/23861500/geth
-      method: overlayfs
+  benchmark:
+    results_dir: ./results
+    results_owner: "${UID}:${GID}"
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      source:
+        git:
+          repo: https://github.com/skylenet/gas-benchmarks.git
+          version: order-stateful-tests-subdirs
+          pre_run_steps:
+            - stateful_tests/gas-bump.txt
+            - stateful_tests/funding.txt
+          steps:
+            setup:
+              - stateful_tests/setup/*/*
+            test:
+              - stateful_tests/testing/*/*
+            cleanup:
+              - stateful_tests/cleanup/*/*
+
+  client:
+    config:
+      drop_memory_caches: "steps"
+    datadirs:
+      geth:
+        source_dir: ${HOME}/data/clients/perf-devnet-2/23861500/geth
+        method: overlayfs
+
   instances:
     - id: geth
       client: geth

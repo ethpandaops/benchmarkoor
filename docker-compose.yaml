@@ -7,11 +7,11 @@ services:
     # Required for dropping memory caches, ZFS/overlayfs datadir methods, etc.
     privileged: true
     environment:
-      - BENCHMARKOOR_GLOBAL_DROP_CACHES_PATH=/host_drop_caches
-      - BENCHMARKOOR_GLOBAL_CPU_SYSFS_PATH=/host_sys_cpu
-      - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=${PWD}/tmp/data
-      - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=${PWD}/tmp/cache
-      - BENCHMARKOOR_BENCHMARK_RESULTS_OWNER=${USER_UID}:${USER_GID}
+      - BENCHMARKOOR_RUNNER_DROP_CACHES_PATH=/host_drop_caches
+      - BENCHMARKOOR_RUNNER_CPU_SYSFS_PATH=/host_sys_cpu
+      - BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_DATADIR=${PWD}/tmp/data
+      - BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_CACHEDIR=${PWD}/tmp/cache
+      - BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_OWNER=${USER_UID}:${USER_GID}
     volumes:
       # The docker socket is required to interact with docker containers
       - /var/run/docker.sock:/var/run/docker.sock:ro

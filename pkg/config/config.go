@@ -57,10 +57,24 @@ const (
 
 // Config is the root configuration for benchmarkoor.
 type Config struct {
-	Global    GlobalConfig    `yaml:"global" mapstructure:"global"`
-	Benchmark BenchmarkConfig `yaml:"benchmark" mapstructure:"benchmark"`
-	Client    ClientConfig    `yaml:"client" mapstructure:"client"`
-	API       *APIConfig      `yaml:"api,omitempty" mapstructure:"api"`
+	Global GlobalConfig `yaml:"global" mapstructure:"global"`
+	Runner RunnerConfig `yaml:"runner" mapstructure:"runner"`
+	API    *APIConfig   `yaml:"api,omitempty" mapstructure:"api"`
+}
+
+// RunnerConfig contains all run-specific configuration settings.
+type RunnerConfig struct {
+	ClientLogsToStdout bool              `yaml:"client_logs_to_stdout" mapstructure:"client_logs_to_stdout"`
+	DockerNetwork      string            `yaml:"docker_network" mapstructure:"docker_network"`
+	CleanupOnStart     bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
+	Directories        DirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
+	DropCachesPath     string            `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
+	CPUSysfsPath       string            `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
+	GitHubToken        string            `yaml:"github_token,omitempty" mapstructure:"github_token"`
+	Metadata           MetadataConfig    `yaml:"metadata,omitempty" mapstructure:"metadata"`
+	Benchmark          BenchmarkConfig   `yaml:"benchmark" mapstructure:"benchmark"`
+	Client             ClientConfig      `yaml:"client" mapstructure:"client"`
+	Instances          []ClientInstance  `yaml:"instances" mapstructure:"instances"`
 }
 
 // MetadataConfig contains arbitrary metadata labels for a benchmark run.
@@ -70,15 +84,7 @@ type MetadataConfig struct {
 
 // GlobalConfig contains global application settings.
 type GlobalConfig struct {
-	LogLevel           string            `yaml:"log_level" mapstructure:"log_level"`
-	ClientLogsToStdout bool              `yaml:"client_logs_to_stdout" mapstructure:"client_logs_to_stdout"`
-	DockerNetwork      string            `yaml:"docker_network" mapstructure:"docker_network"`
-	CleanupOnStart     bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
-	Directories        DirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
-	DropCachesPath     string            `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
-	CPUSysfsPath       string            `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
-	GitHubToken        string            `yaml:"github_token,omitempty" mapstructure:"github_token"`
-	Metadata           MetadataConfig    `yaml:"metadata,omitempty" mapstructure:"metadata"`
+	LogLevel string `yaml:"log_level" mapstructure:"log_level"`
 }
 
 // DirectoriesConfig contains directory path configurations.
@@ -557,9 +563,8 @@ func (d *DataDirConfig) Validate(prefix string) error {
 
 // ClientConfig contains client configuration settings.
 type ClientConfig struct {
-	Config    ClientDefaults            `yaml:"config" mapstructure:"config"`
-	DataDirs  map[string]*DataDirConfig `yaml:"datadirs,omitempty" mapstructure:"datadirs"`
-	Instances []ClientInstance          `yaml:"instances" mapstructure:"instances"`
+	Config   ClientDefaults            `yaml:"config" mapstructure:"config"`
+	DataDirs map[string]*DataDirConfig `yaml:"datadirs,omitempty" mapstructure:"datadirs"`
 }
 
 // ClientDefaults contains default settings for all clients.
@@ -669,45 +674,46 @@ func bindEnvKeys(v *viper.Viper) {
 	keys := []string{
 		// Global settings
 		"global.log_level",
-		"global.client_logs_to_stdout",
-		"global.docker_network",
-		"global.cleanup_on_start",
-		"global.directories.tmp_datadir",
-		"global.directories.tmp_cachedir",
-		"global.github_token",
-		"global.drop_caches_path",
-		"global.cpu_sysfs_path",
-		// Benchmark settings
-		"benchmark.results_dir",
-		"benchmark.results_owner",
-		"benchmark.skip_test_run",
-		"benchmark.system_resource_collection_enabled",
-		"benchmark.generate_results_index",
-		"benchmark.generate_results_index_method",
-		"benchmark.generate_suite_stats",
-		"benchmark.generate_suite_stats_method",
-		"benchmark.tests.filter",
-		// Client settings
-		"client.config.jwt",
-		"client.config.drop_memory_caches",
-		"client.config.rollback_strategy",
-		"client.config.wait_after_rpc_ready",
-		// Client resource limits
-		"client.config.resource_limits.cpuset_count",
-		"client.config.resource_limits.memory",
-		"client.config.resource_limits.swap_disabled",
-		"client.config.resource_limits.cpu_freq",
-		"client.config.resource_limits.cpu_turboboost",
-		"client.config.resource_limits.cpu_freq_governor",
-		// Client retry new payloads syncing state
-		"client.config.retry_new_payloads_syncing_state.enabled",
-		"client.config.retry_new_payloads_syncing_state.max_retries",
-		"client.config.retry_new_payloads_syncing_state.backoff",
-		// Client bootstrap FCU
-		"client.config.bootstrap_fcu.enabled",
-		"client.config.bootstrap_fcu.max_retries",
-		"client.config.bootstrap_fcu.backoff",
-		"client.config.bootstrap_fcu.head_block_hash",
+		// Runner settings
+		"runner.client_logs_to_stdout",
+		"runner.docker_network",
+		"runner.cleanup_on_start",
+		"runner.directories.tmp_datadir",
+		"runner.directories.tmp_cachedir",
+		"runner.github_token",
+		"runner.drop_caches_path",
+		"runner.cpu_sysfs_path",
+		// Runner benchmark settings
+		"runner.benchmark.results_dir",
+		"runner.benchmark.results_owner",
+		"runner.benchmark.skip_test_run",
+		"runner.benchmark.system_resource_collection_enabled",
+		"runner.benchmark.generate_results_index",
+		"runner.benchmark.generate_results_index_method",
+		"runner.benchmark.generate_suite_stats",
+		"runner.benchmark.generate_suite_stats_method",
+		"runner.benchmark.tests.filter",
+		// Runner client settings
+		"runner.client.config.jwt",
+		"runner.client.config.drop_memory_caches",
+		"runner.client.config.rollback_strategy",
+		"runner.client.config.wait_after_rpc_ready",
+		// Runner client resource limits
+		"runner.client.config.resource_limits.cpuset_count",
+		"runner.client.config.resource_limits.memory",
+		"runner.client.config.resource_limits.swap_disabled",
+		"runner.client.config.resource_limits.cpu_freq",
+		"runner.client.config.resource_limits.cpu_turboboost",
+		"runner.client.config.resource_limits.cpu_freq_governor",
+		// Runner client retry new payloads syncing state
+		"runner.client.config.retry_new_payloads_syncing_state.enabled",
+		"runner.client.config.retry_new_payloads_syncing_state.max_retries",
+		"runner.client.config.retry_new_payloads_syncing_state.backoff",
+		// Runner client bootstrap FCU
+		"runner.client.config.bootstrap_fcu.enabled",
+		"runner.client.config.bootstrap_fcu.max_retries",
+		"runner.client.config.bootstrap_fcu.backoff",
+		"runner.client.config.bootstrap_fcu.head_block_hash",
 		// API settings
 		"api.server.listen",
 		"api.auth.session_ttl",
@@ -744,35 +750,35 @@ func (c *Config) applyDefaults() {
 		c.Global.LogLevel = DefaultLogLevel
 	}
 
-	if c.Global.DockerNetwork == "" {
-		c.Global.DockerNetwork = DefaultDockerNetwork
+	if c.Runner.DockerNetwork == "" {
+		c.Runner.DockerNetwork = DefaultDockerNetwork
 	}
 
-	if c.Benchmark.ResultsDir == "" {
-		c.Benchmark.ResultsDir = DefaultResultsDir
+	if c.Runner.Benchmark.ResultsDir == "" {
+		c.Runner.Benchmark.ResultsDir = DefaultResultsDir
 	}
 
-	if c.Benchmark.SystemResourceCollectionEnabled == nil {
+	if c.Runner.Benchmark.SystemResourceCollectionEnabled == nil {
 		enabled := true
-		c.Benchmark.SystemResourceCollectionEnabled = &enabled
+		c.Runner.Benchmark.SystemResourceCollectionEnabled = &enabled
 	}
 
-	if c.Client.Config.JWT == "" {
-		c.Client.Config.JWT = DefaultJWT
+	if c.Runner.Client.Config.JWT == "" {
+		c.Runner.Client.Config.JWT = DefaultJWT
 	}
 
-	if c.Client.Config.Genesis == nil {
-		c.Client.Config.Genesis = make(map[string]string, 6)
+	if c.Runner.Client.Config.Genesis == nil {
+		c.Runner.Client.Config.Genesis = make(map[string]string, 6)
 	}
 
-	if c.Benchmark.ResultsUpload != nil &&
-		c.Benchmark.ResultsUpload.S3 != nil &&
-		c.Benchmark.ResultsUpload.S3.ParallelUploads == 0 {
-		c.Benchmark.ResultsUpload.S3.ParallelUploads = 50
+	if c.Runner.Benchmark.ResultsUpload != nil &&
+		c.Runner.Benchmark.ResultsUpload.S3 != nil &&
+		c.Runner.Benchmark.ResultsUpload.S3.ParallelUploads == 0 {
+		c.Runner.Benchmark.ResultsUpload.S3.ParallelUploads = 50
 	}
 
 	// Apply defaults to global datadirs.
-	for _, dd := range c.Client.DataDirs {
+	for _, dd := range c.Runner.Client.DataDirs {
 		if dd != nil {
 			if dd.Method == "" {
 				dd.Method = "copy"
@@ -836,15 +842,15 @@ func (c *Config) applyDefaults() {
 		}
 	}
 
-	for i := range c.Client.Instances {
-		if c.Client.Instances[i].PullPolicy == "" {
-			c.Client.Instances[i].PullPolicy = DefaultPullPolicy
+	for i := range c.Runner.Instances {
+		if c.Runner.Instances[i].PullPolicy == "" {
+			c.Runner.Instances[i].PullPolicy = DefaultPullPolicy
 		}
 
 		// Apply defaults to instance-level datadir.
-		if c.Client.Instances[i].DataDir != nil {
-			if c.Client.Instances[i].DataDir.Method == "" {
-				c.Client.Instances[i].DataDir.Method = "copy"
+		if c.Runner.Instances[i].DataDir != nil {
+			if c.Runner.Instances[i].DataDir.Method == "" {
+				c.Runner.Instances[i].DataDir.Method = "copy"
 			}
 			// Note: ContainerDir is intentionally not defaulted here.
 			// If empty, the runner will use the client's spec.DataDir() at runtime.
@@ -870,13 +876,13 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		opt = opts[0]
 	}
 
-	if len(c.Client.Instances) == 0 {
+	if len(c.Runner.Instances) == 0 {
 		return fmt.Errorf("at least one client instance must be configured")
 	}
 
-	seenIDs := make(map[string]struct{}, len(c.Client.Instances))
+	seenIDs := make(map[string]struct{}, len(c.Runner.Instances))
 
-	for i, instance := range c.Client.Instances {
+	for i, instance := range c.Runner.Instances {
 		if instance.ID == "" {
 			return fmt.Errorf("instance %d: id is required", i)
 		}
@@ -917,14 +923,14 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 	}
 
 	// Validate global resource limits.
-	if c.Client.Config.ResourceLimits != nil {
-		if err := c.Client.Config.ResourceLimits.Validate("client.config.resource_limits"); err != nil {
+	if c.Runner.Client.Config.ResourceLimits != nil {
+		if err := c.Runner.Client.Config.ResourceLimits.Validate("runner.client.config.resource_limits"); err != nil {
 			return err
 		}
 	}
 
 	// Validate global datadirs (skip if client not in active set).
-	for client, dd := range c.Client.DataDirs {
+	for client, dd := range c.Runner.Client.DataDirs {
 		if dd != nil {
 			if len(opt.ActiveClients) == 0 {
 				if err := dd.Validate(fmt.Sprintf("client.datadirs.%s", client)); err != nil {
@@ -938,8 +944,8 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		}
 	}
 
-	if c.Benchmark.ResultsDir != "" {
-		dir := filepath.Dir(c.Benchmark.ResultsDir)
+	if c.Runner.Benchmark.ResultsDir != "" {
+		dir := filepath.Dir(c.Runner.Benchmark.ResultsDir)
 		if dir != "." && dir != ".." {
 			if _, err := os.Stat(dir); os.IsNotExist(err) {
 				return fmt.Errorf("results directory parent %q does not exist", dir)
@@ -948,7 +954,7 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 	}
 
 	// Validate test source configuration.
-	if err := c.Benchmark.Tests.Source.Validate(); err != nil {
+	if err := c.Runner.Benchmark.Tests.Source.Validate(); err != nil {
 		return fmt.Errorf("tests config: %w", err)
 	}
 
@@ -1085,7 +1091,7 @@ func (c *Config) GetGenesisURL(instance *ClientInstance) string {
 		return instance.Genesis
 	}
 
-	return c.Client.Config.Genesis[instance.Client]
+	return c.Runner.Client.Config.Genesis[instance.Client]
 }
 
 // GetDropMemoryCaches returns the drop_memory_caches setting for an instance.
@@ -1096,7 +1102,7 @@ func (c *Config) GetDropMemoryCaches(instance *ClientInstance) string {
 		return instance.DropMemoryCaches
 	}
 
-	return c.Client.Config.DropMemoryCaches
+	return c.Runner.Client.Config.DropMemoryCaches
 }
 
 // validRollbackStrategies contains valid values for rollback_strategy.
@@ -1115,8 +1121,8 @@ func (c *Config) GetRollbackStrategy(instance *ClientInstance) string {
 		return instance.RollbackStrategy
 	}
 
-	if c.Client.Config.RollbackStrategy != "" {
-		return c.Client.Config.RollbackStrategy
+	if c.Runner.Client.Config.RollbackStrategy != "" {
+		return c.Runner.Client.Config.RollbackStrategy
 	}
 
 	return RollbackStrategyRPCDebugSetHead
@@ -1125,8 +1131,8 @@ func (c *Config) GetRollbackStrategy(instance *ClientInstance) string {
 // GetDropCachesPath returns the path to the drop_caches file.
 // Returns the configured path or the default (/proc/sys/vm/drop_caches).
 func (c *Config) GetDropCachesPath() string {
-	if c.Global.DropCachesPath != "" {
-		return c.Global.DropCachesPath
+	if c.Runner.DropCachesPath != "" {
+		return c.Runner.DropCachesPath
 	}
 
 	return DefaultDropCachesPath
@@ -1135,8 +1141,8 @@ func (c *Config) GetDropCachesPath() string {
 // GetCPUSysfsPath returns the sysfs base path for CPU frequency control.
 // Returns the configured path or the default (/sys/devices/system/cpu).
 func (c *Config) GetCPUSysfsPath() string {
-	if c.Global.CPUSysfsPath != "" {
-		return c.Global.CPUSysfsPath
+	if c.Runner.CPUSysfsPath != "" {
+		return c.Runner.CPUSysfsPath
 	}
 
 	return DefaultCPUSysfsPath
@@ -1150,7 +1156,7 @@ func (c *Config) GetResourceLimits(instance *ClientInstance) *ResourceLimits {
 		return instance.ResourceLimits
 	}
 
-	return c.Client.Config.ResourceLimits
+	return c.Runner.Client.Config.ResourceLimits
 }
 
 // GetRetryNewPayloadsSyncingState returns the retry config for an instance.
@@ -1161,7 +1167,7 @@ func (c *Config) GetRetryNewPayloadsSyncingState(instance *ClientInstance) *Retr
 		return instance.RetryNewPayloadsSyncingState
 	}
 
-	return c.Client.Config.RetryNewPayloadsSyncingState
+	return c.Runner.Client.Config.RetryNewPayloadsSyncingState
 }
 
 // GetWaitAfterRPCReady returns the duration to wait after RPC becomes ready.
@@ -1174,7 +1180,7 @@ func (c *Config) GetWaitAfterRPCReady(instance *ClientInstance) time.Duration {
 	if instance.WaitAfterRPCReady != "" {
 		waitStr = instance.WaitAfterRPCReady
 	} else {
-		waitStr = c.Client.Config.WaitAfterRPCReady
+		waitStr = c.Runner.Client.Config.WaitAfterRPCReady
 	}
 
 	if waitStr == "" {
@@ -1197,7 +1203,7 @@ func (c *Config) GetPostTestRPCCalls(instance *ClientInstance) []PostTestRPCCall
 		return instance.PostTestRPCCalls
 	}
 
-	return c.Client.Config.PostTestRPCCalls
+	return c.Runner.Client.Config.PostTestRPCCalls
 }
 
 // GetBootstrapFCU returns the bootstrap FCU config for an instance.
@@ -1208,7 +1214,7 @@ func (c *Config) GetBootstrapFCU(instance *ClientInstance) *BootstrapFCUConfig {
 		return instance.BootstrapFCU
 	}
 
-	return c.Client.Config.BootstrapFCU
+	return c.Runner.Client.Config.BootstrapFCU
 }
 
 // validateDropMemoryCaches validates drop_memory_caches settings and checks permissions.
@@ -1216,7 +1222,7 @@ func (c *Config) validateDropMemoryCaches() error {
 	// Check all instances for valid values and if feature is enabled.
 	enabled := false
 
-	for _, instance := range c.Client.Instances {
+	for _, instance := range c.Runner.Instances {
 		value := c.GetDropMemoryCaches(&instance)
 
 		if !validDropMemoryCachesValues[value] {
@@ -1236,7 +1242,7 @@ func (c *Config) validateDropMemoryCaches() error {
 	dropCachesPath := c.GetDropCachesPath()
 
 	// Check OS - drop_memory_caches is Linux-only (skip if custom path is configured).
-	if c.Global.DropCachesPath == "" && runtime.GOOS != "linux" {
+	if c.Runner.DropCachesPath == "" && runtime.GOOS != "linux" {
 		return fmt.Errorf("drop_memory_caches is only supported on Linux (current OS: %s)", runtime.GOOS)
 	}
 
@@ -1257,7 +1263,7 @@ func (c *Config) validateDropMemoryCaches() error {
 
 // validateRollbackStrategy validates rollback_strategy settings for all instances.
 func (c *Config) validateRollbackStrategy() error {
-	for _, instance := range c.Client.Instances {
+	for _, instance := range c.Runner.Instances {
 		value := c.GetRollbackStrategy(&instance)
 
 		if !validRollbackStrategies[value] {
@@ -1279,7 +1285,7 @@ func (c *Config) validateCPUFreq() error {
 	// Check all instances for CPU frequency settings.
 	enabled := false
 
-	for _, instance := range c.Client.Instances {
+	for _, instance := range c.Runner.Instances {
 		limits := c.GetResourceLimits(&instance)
 		if limits == nil {
 			continue
@@ -1314,7 +1320,7 @@ func (c *Config) validateCPUFreq() error {
 	}
 
 	// Validate each instance's settings.
-	for _, instance := range c.Client.Instances {
+	for _, instance := range c.Runner.Instances {
 		limits := c.GetResourceLimits(&instance)
 		if limits == nil {
 			continue
@@ -1345,7 +1351,7 @@ func (c *Config) validateCPUFreq() error {
 
 // validateRetryNewPayloadsSyncingState validates retry_new_payloads_syncing_state settings.
 func (c *Config) validateRetryNewPayloadsSyncingState() error {
-	for _, instance := range c.Client.Instances {
+	for _, instance := range c.Runner.Instances {
 		cfg := c.GetRetryNewPayloadsSyncingState(&instance)
 		if cfg == nil || !cfg.Enabled {
 			continue
@@ -1372,10 +1378,10 @@ func (c *Config) validateRetryNewPayloadsSyncingState() error {
 
 // validateWaitAfterRPCReady validates wait_after_rpc_ready settings.
 func (c *Config) validateWaitAfterRPCReady() error {
-	for _, instance := range c.Client.Instances {
+	for _, instance := range c.Runner.Instances {
 		waitStr := instance.WaitAfterRPCReady
 		if waitStr == "" {
-			waitStr = c.Client.Config.WaitAfterRPCReady
+			waitStr = c.Runner.Client.Config.WaitAfterRPCReady
 		}
 
 		if waitStr != "" {
@@ -1392,14 +1398,14 @@ func (c *Config) validateWaitAfterRPCReady() error {
 // validatePostTestRPCCalls validates post_test_rpc_calls settings.
 func (c *Config) validatePostTestRPCCalls() error {
 	// Validate global-level calls.
-	for i, call := range c.Client.Config.PostTestRPCCalls {
+	for i, call := range c.Runner.Client.Config.PostTestRPCCalls {
 		if err := validatePostTestRPCCall(call, fmt.Sprintf("client.config.post_test_rpc_calls[%d]", i)); err != nil {
 			return err
 		}
 	}
 
 	// Validate instance-level calls.
-	for _, instance := range c.Client.Instances {
+	for _, instance := range c.Runner.Instances {
 		for i, call := range instance.PostTestRPCCalls {
 			prefix := fmt.Sprintf("instance %q post_test_rpc_calls[%d]", instance.ID, i)
 			if err := validatePostTestRPCCall(call, prefix); err != nil {
@@ -1437,7 +1443,7 @@ func validatePostTestRPCCall(call PostTestRPCCall, prefix string) error {
 
 // validateBootstrapFCU validates bootstrap_fcu settings.
 func (c *Config) validateBootstrapFCU() error {
-	for _, instance := range c.Client.Instances {
+	for _, instance := range c.Runner.Instances {
 		cfg := c.GetBootstrapFCU(&instance)
 		if cfg == nil || !cfg.Enabled {
 			continue
@@ -1473,11 +1479,11 @@ func (c *Config) validateBootstrapFCU() error {
 
 // validateResultsUpload validates results_upload settings.
 func (c *Config) validateResultsUpload() error {
-	if c.Benchmark.ResultsUpload == nil || c.Benchmark.ResultsUpload.S3 == nil {
+	if c.Runner.Benchmark.ResultsUpload == nil || c.Runner.Benchmark.ResultsUpload.S3 == nil {
 		return nil
 	}
 
-	s3Cfg := c.Benchmark.ResultsUpload.S3
+	s3Cfg := c.Runner.Benchmark.ResultsUpload.S3
 	if !s3Cfg.Enabled {
 		return nil
 	}
@@ -1727,38 +1733,38 @@ func bootstrapFCUDecodeHook() mapstructure.DecodeHookFuncType {
 	}
 }
 
-// rawClientConfig is a minimal struct used to re-parse environment map keys
+// rawRunnerConfig is a minimal struct used to re-parse environment map keys
 // with their original casing, since Viper lowercases all map keys internally.
-type rawClientConfig struct {
-	Client struct {
+type rawRunnerConfig struct {
+	Runner struct {
 		Instances []struct {
 			ID          string            `yaml:"id"`
 			Environment map[string]string `yaml:"environment"`
 		} `yaml:"instances"`
-	} `yaml:"client"`
+	} `yaml:"runner"`
 }
 
 // restoreEnvironmentKeyCasing re-parses the raw YAML to recover the original
 // casing of environment variable keys that Viper lowercased.
 func restoreEnvironmentKeyCasing(cfg *Config, rawYAMLs []string) {
-	envByID := make(map[string]map[string]string, len(cfg.Client.Instances))
+	envByID := make(map[string]map[string]string, len(cfg.Runner.Instances))
 
 	for _, raw := range rawYAMLs {
-		var parsed rawClientConfig
+		var parsed rawRunnerConfig
 		if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil {
 			continue
 		}
 
-		for _, inst := range parsed.Client.Instances {
+		for _, inst := range parsed.Runner.Instances {
 			if inst.Environment != nil {
 				envByID[inst.ID] = inst.Environment
 			}
 		}
 	}
 
-	for i := range cfg.Client.Instances {
-		if orig, ok := envByID[cfg.Client.Instances[i].ID]; ok {
-			cfg.Client.Instances[i].Environment = orig
+	for i := range cfg.Runner.Instances {
+		if orig, ok := envByID[cfg.Runner.Instances[i].ID]; ok {
+			cfg.Runner.Instances[i].Environment = orig
 		}
 	}
 }

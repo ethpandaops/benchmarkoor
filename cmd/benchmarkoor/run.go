@@ -63,21 +63,21 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("invalid metadata label %q: must be key=value", entry)
 		}
 
-		if cfg.Global.Metadata.Labels == nil {
-			cfg.Global.Metadata.Labels = make(map[string]string, len(metadataLabels))
+		if cfg.Runner.Metadata.Labels == nil {
+			cfg.Runner.Metadata.Labels = make(map[string]string, len(metadataLabels))
 		}
 
-		cfg.Global.Metadata.Labels[k] = v
+		cfg.Runner.Metadata.Labels[k] = v
 	}
 
 	// Parse results owner configuration.
-	resultsOwner, err := fsutil.ParseOwner(cfg.Benchmark.ResultsOwner)
+	resultsOwner, err := fsutil.ParseOwner(cfg.Runner.Benchmark.ResultsOwner)
 	if err != nil {
 		return fmt.Errorf("parsing results_owner: %w", err)
 	}
 
 	// Use consistent log format when client logs go to stdout.
-	if cfg.Global.ClientLogsToStdout {
+	if cfg.Runner.ClientLogsToStdout {
 		log.SetFormatter(&consistentFormatter{prefix: "🔵"})
 	}
 
@@ -94,19 +94,19 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	if !cfg.Benchmark.SkipTestRun {
+	if !cfg.Runner.Benchmark.SkipTestRun {
 		// Filter instances if limits are specified (before validation so we
 		// can scope datadir checks to active instances only).
 		instances := filterInstances(
-			cfg.Client.Instances, limitInstanceIDs, limitInstanceClients,
+			cfg.Runner.Instances, limitInstanceIDs, limitInstanceClients,
 		)
 		if len(instances) == 0 {
 			return fmt.Errorf("no instances match the specified filters")
 		}
 
-		if len(instances) != len(cfg.Client.Instances) {
+		if len(instances) != len(cfg.Runner.Instances) {
 			log.WithFields(logrus.Fields{
-				"total":    len(cfg.Client.Instances),
+				"total":    len(cfg.Runner.Instances),
 				"filtered": len(instances),
 			}).Info("Running filtered instances")
 		}
@@ -114,7 +114,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		// Build validation opts to scope datadir validation to active
 		// instances.
 		var validateOpts config.ValidateOpts
-		if len(instances) != len(cfg.Client.Instances) {
+		if len(instances) != len(cfg.Runner.Instances) {
 			validateOpts.ActiveInstanceIDs = make(
 				map[string]struct{}, len(instances),
 			)
@@ -150,7 +150,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		}()
 
 		// Perform cleanup on start if configured.
-		if cfg.Global.CleanupOnStart {
+		if cfg.Runner.CleanupOnStart {
 			log.Info("Performing cleanup before start")
 
 			if err := performCleanup(ctx, dockerMgr, true); err != nil {
@@ -164,8 +164,8 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		// Create executor if tests are configured.
 		var exec executor.Executor
 
-		if cfg.Benchmark.Tests.Source.IsConfigured() {
-			cacheDir := cfg.Global.Directories.TmpCacheDir
+		if cfg.Runner.Benchmark.Tests.Source.IsConfigured() {
+			cacheDir := cfg.Runner.Directories.TmpCacheDir
 			if cacheDir == "" {
 				var err error
 
@@ -176,13 +176,13 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			}
 
 			execCfg := &executor.Config{
-				Source:                          &cfg.Benchmark.Tests.Source,
-				Filter:                          cfg.Benchmark.Tests.Filter,
+				Source:                          &cfg.Runner.Benchmark.Tests.Source,
+				Filter:                          cfg.Runner.Benchmark.Tests.Filter,
 				CacheDir:                        cacheDir,
-				ResultsDir:                      cfg.Benchmark.ResultsDir,
+				ResultsDir:                      cfg.Runner.Benchmark.ResultsDir,
 				ResultsOwner:                    resultsOwner,
-				SystemResourceCollectionEnabled: *cfg.Benchmark.SystemResourceCollectionEnabled,
-				GitHubToken:                     cfg.Global.GitHubToken,
+				SystemResourceCollectionEnabled: *cfg.Runner.Benchmark.SystemResourceCollectionEnabled,
+				GitHubToken:                     cfg.Runner.GitHubToken,
 			}
 
 			exec = executor.NewExecutor(log, execCfg)
@@ -202,7 +202,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		// Create CPU frequency manager if CPU frequency settings are configured.
 		var cpufreqMgr cpufreq.Manager
 		if needsCPUFreqManager(cfg) {
-			cacheDir := cfg.Global.Directories.TmpCacheDir
+			cacheDir := cfg.Runner.Directories.TmpCacheDir
 			if cacheDir == "" {
 				var err error
 				cacheDir, err = getExecutorCacheDir()
@@ -228,10 +228,10 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		// Create S3 uploader if configured.
 		var resultsUploader upload.Uploader
 
-		if cfg.Benchmark.ResultsUpload != nil &&
-			cfg.Benchmark.ResultsUpload.S3 != nil &&
-			cfg.Benchmark.ResultsUpload.S3.Enabled {
-			resultsUploader, err = upload.NewS3Uploader(log, cfg.Benchmark.ResultsUpload.S3)
+		if cfg.Runner.Benchmark.ResultsUpload != nil &&
+			cfg.Runner.Benchmark.ResultsUpload.S3 != nil &&
+			cfg.Runner.Benchmark.ResultsUpload.S3.Enabled {
+			resultsUploader, err = upload.NewS3Uploader(log, cfg.Runner.Benchmark.ResultsUpload.S3)
 			if err != nil {
 				return fmt.Errorf("creating S3 uploader: %w", err)
 			}
@@ -246,16 +246,16 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 
 		// Create runner.
 		runnerCfg := &runner.Config{
-			ResultsDir:         cfg.Benchmark.ResultsDir,
+			ResultsDir:         cfg.Runner.Benchmark.ResultsDir,
 			ResultsOwner:       resultsOwner,
-			ClientLogsToStdout: cfg.Global.ClientLogsToStdout,
-			DockerNetwork:      cfg.Global.DockerNetwork,
-			JWT:                cfg.Client.Config.JWT,
-			GenesisURLs:        cfg.Client.Config.Genesis,
-			DataDirs:           cfg.Client.DataDirs,
-			TmpDataDir:         cfg.Global.Directories.TmpDataDir,
-			TmpCacheDir:        cfg.Global.Directories.TmpCacheDir,
-			TestFilter:         cfg.Benchmark.Tests.Filter,
+			ClientLogsToStdout: cfg.Runner.ClientLogsToStdout,
+			DockerNetwork:      cfg.Runner.DockerNetwork,
+			JWT:                cfg.Runner.Client.Config.JWT,
+			GenesisURLs:        cfg.Runner.Client.Config.Genesis,
+			DataDirs:           cfg.Runner.Client.DataDirs,
+			TmpDataDir:         cfg.Runner.Directories.TmpDataDir,
+			TmpCacheDir:        cfg.Runner.Directories.TmpCacheDir,
+			TestFilter:         cfg.Runner.Benchmark.Tests.Filter,
 			FullConfig:         cfg,
 		}
 
@@ -299,14 +299,14 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate results index if configured.
-	if cfg.Benchmark.GenerateResultsIndex {
+	if cfg.Runner.Benchmark.GenerateResultsIndex {
 		if err := generateResultsIndex(cmd, cfg, resultsOwner); err != nil {
 			log.WithError(err).Warn("Failed to generate results index")
 		}
 	}
 
 	// Generate suite stats if configured.
-	if cfg.Benchmark.GenerateSuiteStats {
+	if cfg.Runner.Benchmark.GenerateSuiteStats {
 		if err := generateSuiteStats(cmd, cfg, resultsOwner); err != nil {
 			log.WithError(err).Warn("Failed to generate suite stats")
 		}
@@ -328,16 +328,16 @@ func getExecutorCacheDir() (string, error) {
 // needsCPUFreqManager returns true if any instance has CPU frequency settings configured.
 func needsCPUFreqManager(cfg *config.Config) bool {
 	// Check global resource limits.
-	if cfg.Client.Config.ResourceLimits != nil {
-		if cfg.Client.Config.ResourceLimits.CPUFreq != "" ||
-			cfg.Client.Config.ResourceLimits.CPUTurboBoost != nil ||
-			cfg.Client.Config.ResourceLimits.CPUGovernor != "" {
+	if cfg.Runner.Client.Config.ResourceLimits != nil {
+		if cfg.Runner.Client.Config.ResourceLimits.CPUFreq != "" ||
+			cfg.Runner.Client.Config.ResourceLimits.CPUTurboBoost != nil ||
+			cfg.Runner.Client.Config.ResourceLimits.CPUGovernor != "" {
 			return true
 		}
 	}
 
 	// Check instance-level resource limits.
-	for _, instance := range cfg.Client.Instances {
+	for _, instance := range cfg.Runner.Instances {
 		if instance.ResourceLimits != nil {
 			if instance.ResourceLimits.CPUFreq != "" ||
 				instance.ResourceLimits.CPUTurboBoost != nil ||
@@ -356,7 +356,7 @@ func generateResultsIndex(
 	cfg *config.Config,
 	resultsOwner *fsutil.OwnerConfig,
 ) error {
-	method := cfg.Benchmark.GenerateResultsIndexMethod
+	method := cfg.Runner.Benchmark.GenerateResultsIndexMethod
 
 	switch method {
 	case "", "local":
@@ -378,12 +378,12 @@ func generateResultsIndexLocal(
 ) error {
 	log.Info("Generating results index from local filesystem")
 
-	index, err := executor.GenerateIndex(cfg.Benchmark.ResultsDir)
+	index, err := executor.GenerateIndex(cfg.Runner.Benchmark.ResultsDir)
 	if err != nil {
 		return fmt.Errorf("generating index: %w", err)
 	}
 
-	if err := executor.WriteIndex(cfg.Benchmark.ResultsDir, index, resultsOwner); err != nil {
+	if err := executor.WriteIndex(cfg.Runner.Benchmark.ResultsDir, index, resultsOwner); err != nil {
 		return fmt.Errorf("writing index: %w", err)
 	}
 
@@ -395,16 +395,16 @@ func generateResultsIndexLocal(
 // generateResultsIndexS3 generates index.json by reading runs from S3
 // and uploads the result back to the bucket.
 func generateResultsIndexS3(cmd *cobra.Command, cfg *config.Config) error {
-	if cfg.Benchmark.ResultsUpload == nil ||
-		cfg.Benchmark.ResultsUpload.S3 == nil ||
-		!cfg.Benchmark.ResultsUpload.S3.Enabled {
+	if cfg.Runner.Benchmark.ResultsUpload == nil ||
+		cfg.Runner.Benchmark.ResultsUpload.S3 == nil ||
+		!cfg.Runner.Benchmark.ResultsUpload.S3.Enabled {
 		return fmt.Errorf(
 			"generate_results_index_method is \"s3\" but S3 upload " +
 				"is not configured or not enabled",
 		)
 	}
 
-	s3Cfg := cfg.Benchmark.ResultsUpload.S3
+	s3Cfg := cfg.Runner.Benchmark.ResultsUpload.S3
 
 	prefix := s3Cfg.Prefix
 	if prefix == "" {
@@ -456,7 +456,7 @@ func generateSuiteStats(
 	cfg *config.Config,
 	resultsOwner *fsutil.OwnerConfig,
 ) error {
-	method := cfg.Benchmark.GenerateSuiteStatsMethod
+	method := cfg.Runner.Benchmark.GenerateSuiteStatsMethod
 
 	switch method {
 	case "", "local":
@@ -479,14 +479,14 @@ func generateSuiteStatsLocal(
 ) error {
 	log.Info("Generating suite stats from local filesystem")
 
-	allStats, err := executor.GenerateAllSuiteStats(cfg.Benchmark.ResultsDir)
+	allStats, err := executor.GenerateAllSuiteStats(cfg.Runner.Benchmark.ResultsDir)
 	if err != nil {
 		return fmt.Errorf("generating suite stats: %w", err)
 	}
 
 	for suiteHash, stats := range allStats {
 		if err := executor.WriteSuiteStats(
-			cfg.Benchmark.ResultsDir, suiteHash, stats, resultsOwner,
+			cfg.Runner.Benchmark.ResultsDir, suiteHash, stats, resultsOwner,
 		); err != nil {
 			log.WithError(err).WithField("suite", suiteHash).
 				Warn("Failed to write suite stats")
@@ -501,16 +501,16 @@ func generateSuiteStatsLocal(
 // generateSuiteStatsS3 generates suite stats by reading runs from S3
 // and uploads each stats.json back to the bucket.
 func generateSuiteStatsS3(cmd *cobra.Command, cfg *config.Config) error {
-	if cfg.Benchmark.ResultsUpload == nil ||
-		cfg.Benchmark.ResultsUpload.S3 == nil ||
-		!cfg.Benchmark.ResultsUpload.S3.Enabled {
+	if cfg.Runner.Benchmark.ResultsUpload == nil ||
+		cfg.Runner.Benchmark.ResultsUpload.S3 == nil ||
+		!cfg.Runner.Benchmark.ResultsUpload.S3.Enabled {
 		return fmt.Errorf(
 			"generate_suite_stats_method is \"s3\" but S3 upload " +
 				"is not configured or not enabled",
 		)
 	}
 
-	s3Cfg := cfg.Benchmark.ResultsUpload.S3
+	s3Cfg := cfg.Runner.Benchmark.ResultsUpload.S3
 
 	prefix := s3Cfg.Prefix
 	if prefix == "" {

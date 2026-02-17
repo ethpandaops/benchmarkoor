@@ -84,7 +84,7 @@ func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 		if s.githubToken == "" {
 			return nil, fmt.Errorf(
 				"GitHub token is required for artifact downloads. " +
-					"Set global.github_token in config or BENCHMARKOOR_GLOBAL_GITHUB_TOKEN env var",
+					"Set runner.github_token in config or BENCHMARKOOR_RUNNER_GITHUB_TOKEN env var",
 			)
 		}
 

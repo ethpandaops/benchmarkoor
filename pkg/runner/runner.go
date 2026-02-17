@@ -983,8 +983,8 @@ func (r *runner) runContainerLifecycle(
 	}
 
 	// Attach metadata labels if configured.
-	if r.cfg.FullConfig != nil && len(r.cfg.FullConfig.Global.Metadata.Labels) > 0 {
-		runConfig.Metadata = &r.cfg.FullConfig.Global.Metadata
+	if r.cfg.FullConfig != nil && len(r.cfg.FullConfig.Runner.Metadata.Labels) > 0 {
+		runConfig.Metadata = &r.cfg.FullConfig.Runner.Metadata
 	}
 
 	if len(params.GenesisGroups) > 0 {

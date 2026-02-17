@@ -175,7 +175,7 @@ api:
 
 ## Storage
 
-The optional `api.storage` section configures S3-compatible storage for serving benchmark result files to authenticated users via presigned URLs. This is **separate** from `benchmark.results_upload.s3` (which handles uploads during benchmark runs). The API uses this to generate presigned GET URLs so the UI can fetch files directly from S3.
+The optional `api.storage` section configures S3-compatible storage for serving benchmark result files to authenticated users via presigned URLs. This is **separate** from `runner.benchmark.results_upload.s3` (which handles uploads during benchmark runs). The API uses this to generate presigned GET URLs so the UI can fetch files directly from S3.
 
 ```yaml
 api:
