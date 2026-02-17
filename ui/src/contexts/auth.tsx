@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { loadRuntimeConfig } from '@/config/runtime'
 import {
@@ -6,35 +6,9 @@ import {
   fetchMe,
   login as loginApi,
   logout as logoutApi,
-  type AuthConfig,
-  type AuthUser,
 } from '@/api/auth-client'
-
-interface AuthContextValue {
-  user: AuthUser | null
-  isLoading: boolean
-  isApiEnabled: boolean
-  authConfig: AuthConfig | null
-  requiresLogin: boolean
-  login: (username: string, password: string) => Promise<void>
-  logout: () => Promise<void>
-  isAdmin: boolean
-}
-
-const AuthContext = createContext<AuthContextValue>({
-  user: null,
-  isLoading: true,
-  isApiEnabled: false,
-  authConfig: null,
-  requiresLogin: false,
-  login: async () => {},
-  logout: async () => {},
-  isAdmin: false,
-})
-
-export function useAuth() {
-  return useContext(AuthContext)
-}
+import { AuthContext } from '@/contexts/AuthContext'
+import type { AuthContextValue } from '@/contexts/AuthContext'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient()

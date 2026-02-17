@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useAuth } from '@/contexts/auth'
+import { useAuth } from '@/hooks/useAuth'
 import type { AuthConfig } from '@/api/auth-client'
 import { Modal } from '@/components/shared/Modal'
 import {

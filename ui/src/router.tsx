@@ -1,8 +1,5 @@
-import { useEffect } from 'react'
-import { createRouter, createRootRoute, createRoute, redirect, Outlet, useNavigate, useLocation } from '@tanstack/react-router'
-import { Header } from '@/components/layout/Header'
-import { Footer } from '@/components/layout/Footer'
-import { useAuth } from '@/contexts/auth'
+import { createRouter, createRootRoute, createRoute, redirect } from '@tanstack/react-router'
+import { RootLayout } from '@/components/layout/RootLayout'
 import { RunsPage } from '@/pages/RunsPage'
 import { RunDetailPage } from '@/pages/RunDetailPage'
 import { FileViewerPage } from '@/pages/FileViewerPage'
@@ -10,28 +7,6 @@ import { SuitesPage } from '@/pages/SuitesPage'
 import { SuiteDetailPage } from '@/pages/SuiteDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { AdminPage } from '@/pages/AdminPage'
-
-function RootLayout() {
-  const { requiresLogin, isLoading } = useAuth()
-  const navigate = useNavigate()
-  const location = useLocation()
-
-  useEffect(() => {
-    if (!isLoading && requiresLogin && location.pathname !== '/login') {
-      navigate({ to: '/login' })
-    }
-  }, [isLoading, requiresLogin, location.pathname, navigate])
-
-  return (
-    <div className="flex min-h-dvh flex-col bg-gray-50 dark:bg-gray-900">
-      {!requiresLogin && <Header />}
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">
-        <Outlet />
-      </main>
-      <Footer />
-    </div>
-  )
-}
 
 const rootRoute = createRootRoute({
   component: RootLayout,

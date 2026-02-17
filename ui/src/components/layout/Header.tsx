@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useMatchRoute, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { Sun, Moon, LogIn, LogOut, Shield, User } from 'lucide-react'
-import { useAuth } from '@/contexts/auth'
+import { useAuth } from '@/hooks/useAuth'
 
 function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
   const matchRoute = useMatchRoute()

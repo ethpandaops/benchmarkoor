@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { useAuth } from '@/contexts/auth'
+import { useAuth } from '@/hooks/useAuth'
 import { getGitHubAuthUrl } from '@/api/auth-client'
 import { loadRuntimeConfig } from '@/config/runtime'
 import { LogIn } from 'lucide-react'
