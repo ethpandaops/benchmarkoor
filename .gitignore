@@ -32,6 +32,7 @@ Thumbs.db
 results/
 tmp/
 *.log
+*.db
 .ai_plans
 config.yaml
 summary-*.md

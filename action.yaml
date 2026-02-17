@@ -203,12 +203,12 @@ runs:
         DOCKER_CMD="$DOCKER_CMD -v /proc/sys/vm/drop_caches:/host_drop_caches"
         DOCKER_CMD="$DOCKER_CMD -v /sys/devices/system/cpu:/host_sys_cpu"
         DOCKER_CMD="$DOCKER_CMD -v /sys/fs/cgroup:/sys/fs/cgroup:ro"
-        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DROP_CACHES_PATH=/host_drop_caches"
-        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_CPU_SYSFS_PATH=/host_sys_cpu"
-        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_DIR=/app/results"
-        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_BENCHMARK_RESULTS_OWNER=$(id -u):$(id -g)"
-        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=${{ inputs.tmp-dir }}"
-        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=${{ inputs.tmp-dir }}/benchmarkoor-cache"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_RUNNER_DROP_CACHES_PATH=/host_drop_caches"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_RUNNER_CPU_SYSFS_PATH=/host_sys_cpu"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_DIR=/app/results"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_OWNER=$(id -u):$(id -g)"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_DATADIR=${{ inputs.tmp-dir }}"
+        DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_CACHEDIR=${{ inputs.tmp-dir }}/benchmarkoor-cache"
 
         # Forward user-specified environment variables into the container.
         if [ -n "$INPUT_DOCKER_ENV" ]; then

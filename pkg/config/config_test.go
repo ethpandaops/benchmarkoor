@@ -16,23 +16,24 @@ func TestLoad_EnvVarOverrides(t *testing.T) {
 	configContent := `
 global:
   log_level: info
+runner:
   docker_network: test-network
   client_logs_to_stdout: false
   cleanup_on_start: false
   directories:
     tmp_datadir: /tmp/original
     tmp_cachedir: /cache/original
-benchmark:
-  results_dir: ./original-results
-  generate_results_index: false
-  generate_suite_stats: false
-  tests:
-    filter: "original-filter"
-client:
-  config:
-    jwt: original-jwt
-    genesis:
-      geth: http://example.com/genesis.json
+  benchmark:
+    results_dir: ./original-results
+    generate_results_index: false
+    generate_suite_stats: false
+    tests:
+      filter: "original-filter"
+  client:
+    config:
+      jwt: original-jwt
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: test-instance
       client: geth
@@ -52,9 +53,9 @@ client:
 			envVars: map[string]string{},
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, "info", cfg.Global.LogLevel)
-				assert.Equal(t, "test-network", cfg.Global.DockerNetwork)
-				assert.Equal(t, "./original-results", cfg.Benchmark.ResultsDir)
-				assert.Equal(t, "original-jwt", cfg.Client.Config.JWT)
+				assert.Equal(t, "test-network", cfg.Runner.DockerNetwork)
+				assert.Equal(t, "./original-results", cfg.Runner.Benchmark.ResultsDir)
+				assert.Equal(t, "original-jwt", cfg.Runner.Client.Config.JWT)
 			},
 		},
 		{
@@ -69,106 +70,106 @@ client:
 		{
 			name: "string override - docker_network",
 			envVars: map[string]string{
-				"BENCHMARKOOR_GLOBAL_DOCKER_NETWORK": "custom-network",
+				"BENCHMARKOOR_RUNNER_DOCKER_NETWORK": "custom-network",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "custom-network", cfg.Global.DockerNetwork)
+				assert.Equal(t, "custom-network", cfg.Runner.DockerNetwork)
 			},
 		},
 		{
 			name: "boolean override - cleanup_on_start true",
 			envVars: map[string]string{
-				"BENCHMARKOOR_GLOBAL_CLEANUP_ON_START": "true",
+				"BENCHMARKOOR_RUNNER_CLEANUP_ON_START": "true",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.True(t, cfg.Global.CleanupOnStart)
+				assert.True(t, cfg.Runner.CleanupOnStart)
 			},
 		},
 		{
 			name: "boolean override - client_logs_to_stdout true",
 			envVars: map[string]string{
-				"BENCHMARKOOR_GLOBAL_CLIENT_LOGS_TO_STDOUT": "true",
+				"BENCHMARKOOR_RUNNER_CLIENT_LOGS_TO_STDOUT": "true",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.True(t, cfg.Global.ClientLogsToStdout)
+				assert.True(t, cfg.Runner.ClientLogsToStdout)
 			},
 		},
 		{
 			name: "nested field override - directories.tmp_datadir",
 			envVars: map[string]string{
-				"BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR": "/tmp/custom-datadir",
+				"BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_DATADIR": "/tmp/custom-datadir",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "/tmp/custom-datadir", cfg.Global.Directories.TmpDataDir)
+				assert.Equal(t, "/tmp/custom-datadir", cfg.Runner.Directories.TmpDataDir)
 			},
 		},
 		{
 			name: "nested field override - directories.tmp_cachedir",
 			envVars: map[string]string{
-				"BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR": "/cache/custom",
+				"BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_CACHEDIR": "/cache/custom",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "/cache/custom", cfg.Global.Directories.TmpCacheDir)
+				assert.Equal(t, "/cache/custom", cfg.Runner.Directories.TmpCacheDir)
 			},
 		},
 		{
 			name: "benchmark override - results_dir",
 			envVars: map[string]string{
-				"BENCHMARKOOR_BENCHMARK_RESULTS_DIR": "/tmp/test-results",
+				"BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_DIR": "/tmp/test-results",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "/tmp/test-results", cfg.Benchmark.ResultsDir)
+				assert.Equal(t, "/tmp/test-results", cfg.Runner.Benchmark.ResultsDir)
 			},
 		},
 		{
 			name: "benchmark override - tests.filter",
 			envVars: map[string]string{
-				"BENCHMARKOOR_BENCHMARK_TESTS_FILTER": "custom-filter",
+				"BENCHMARKOOR_RUNNER_BENCHMARK_TESTS_FILTER": "custom-filter",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "custom-filter", cfg.Benchmark.Tests.Filter)
+				assert.Equal(t, "custom-filter", cfg.Runner.Benchmark.Tests.Filter)
 			},
 		},
 		{
 			name: "client override - config.jwt",
 			envVars: map[string]string{
-				"BENCHMARKOOR_CLIENT_CONFIG_JWT": "env-jwt-secret",
+				"BENCHMARKOOR_RUNNER_CLIENT_CONFIG_JWT": "env-jwt-secret",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "env-jwt-secret", cfg.Client.Config.JWT)
+				assert.Equal(t, "env-jwt-secret", cfg.Runner.Client.Config.JWT)
 			},
 		},
 		{
 			name: "boolean override - generate_results_index",
 			envVars: map[string]string{
-				"BENCHMARKOOR_BENCHMARK_GENERATE_RESULTS_INDEX": "true",
+				"BENCHMARKOOR_RUNNER_BENCHMARK_GENERATE_RESULTS_INDEX": "true",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.True(t, cfg.Benchmark.GenerateResultsIndex)
+				assert.True(t, cfg.Runner.Benchmark.GenerateResultsIndex)
 			},
 		},
 		{
 			name: "boolean override - generate_suite_stats",
 			envVars: map[string]string{
-				"BENCHMARKOOR_BENCHMARK_GENERATE_SUITE_STATS": "true",
+				"BENCHMARKOOR_RUNNER_BENCHMARK_GENERATE_SUITE_STATS": "true",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.True(t, cfg.Benchmark.GenerateSuiteStats)
+				assert.True(t, cfg.Runner.Benchmark.GenerateSuiteStats)
 			},
 		},
 		{
 			name: "multiple overrides",
 			envVars: map[string]string{
-				"BENCHMARKOOR_GLOBAL_LOG_LEVEL":        "trace",
-				"BENCHMARKOOR_GLOBAL_DOCKER_NETWORK":   "multi-network",
-				"BENCHMARKOOR_BENCHMARK_RESULTS_DIR":   "/results/multi",
-				"BENCHMARKOOR_GLOBAL_CLEANUP_ON_START": "true",
+				"BENCHMARKOOR_GLOBAL_LOG_LEVEL":             "trace",
+				"BENCHMARKOOR_RUNNER_DOCKER_NETWORK":        "multi-network",
+				"BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_DIR": "/results/multi",
+				"BENCHMARKOOR_RUNNER_CLEANUP_ON_START":      "true",
 			},
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, "trace", cfg.Global.LogLevel)
-				assert.Equal(t, "multi-network", cfg.Global.DockerNetwork)
-				assert.Equal(t, "/results/multi", cfg.Benchmark.ResultsDir)
-				assert.True(t, cfg.Global.CleanupOnStart)
+				assert.Equal(t, "multi-network", cfg.Runner.DockerNetwork)
+				assert.Equal(t, "/results/multi", cfg.Runner.Benchmark.ResultsDir)
+				assert.True(t, cfg.Runner.CleanupOnStart)
 			},
 		},
 	}
@@ -191,10 +192,11 @@ client:
 func TestLoad_DefaultsAppliedWhenEmpty(t *testing.T) {
 	// Create a minimal config with only required fields.
 	configContent := `
-client:
-  config:
-    genesis:
-      geth: http://example.com/genesis.json
+runner:
+  client:
+    config:
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: test-instance
       client: geth
@@ -209,19 +211,20 @@ client:
 
 	// Verify defaults are applied.
 	assert.Equal(t, DefaultLogLevel, cfg.Global.LogLevel)
-	assert.Equal(t, DefaultDockerNetwork, cfg.Global.DockerNetwork)
-	assert.Equal(t, DefaultResultsDir, cfg.Benchmark.ResultsDir)
-	assert.Equal(t, DefaultJWT, cfg.Client.Config.JWT)
-	assert.Equal(t, DefaultPullPolicy, cfg.Client.Instances[0].PullPolicy)
+	assert.Equal(t, DefaultDockerNetwork, cfg.Runner.DockerNetwork)
+	assert.Equal(t, DefaultResultsDir, cfg.Runner.Benchmark.ResultsDir)
+	assert.Equal(t, DefaultJWT, cfg.Runner.Client.Config.JWT)
+	assert.Equal(t, DefaultPullPolicy, cfg.Runner.Instances[0].PullPolicy)
 }
 
 func TestLoad_EnvVarOverridesDefaults(t *testing.T) {
 	// Create a minimal config without log_level set.
 	configContent := `
-client:
-  config:
-    genesis:
-      geth: http://example.com/genesis.json
+runner:
+  client:
+    config:
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: test-instance
       client: geth
@@ -598,9 +601,11 @@ func TestGetPostTestRPCCalls(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{
-				Client: ClientConfig{
-					Config: ClientDefaults{
-						PostTestRPCCalls: tt.global,
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							PostTestRPCCalls: tt.global,
+						},
 					},
 				},
 			}
@@ -623,10 +628,12 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 		{
 			name: "valid global call",
 			cfg: Config{
-				Client: ClientConfig{
-					Config: ClientDefaults{
-						PostTestRPCCalls: []PostTestRPCCall{
-							{Method: "debug_traceBlockByNumber", Params: []any{"latest"}},
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							PostTestRPCCalls: []PostTestRPCCall{
+								{Method: "debug_traceBlockByNumber", Params: []any{"latest"}},
+							},
 						},
 					},
 					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
@@ -637,10 +644,12 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 		{
 			name: "missing method",
 			cfg: Config{
-				Client: ClientConfig{
-					Config: ClientDefaults{
-						PostTestRPCCalls: []PostTestRPCCall{
-							{Params: []any{"latest"}},
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							PostTestRPCCalls: []PostTestRPCCall{
+								{Params: []any{"latest"}},
+							},
 						},
 					},
 					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
@@ -652,12 +661,14 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 		{
 			name: "dump enabled without filename",
 			cfg: Config{
-				Client: ClientConfig{
-					Config: ClientDefaults{
-						PostTestRPCCalls: []PostTestRPCCall{
-							{
-								Method: "debug_traceBlockByNumber",
-								Dump:   DumpConfig{Enabled: true},
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							PostTestRPCCalls: []PostTestRPCCall{
+								{
+									Method: "debug_traceBlockByNumber",
+									Dump:   DumpConfig{Enabled: true},
+								},
 							},
 						},
 					},
@@ -670,14 +681,16 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 		{
 			name: "dump enabled with filename is valid",
 			cfg: Config{
-				Client: ClientConfig{
-					Config: ClientDefaults{
-						PostTestRPCCalls: []PostTestRPCCall{
-							{
-								Method: "debug_traceBlockByNumber",
-								Dump: DumpConfig{
-									Enabled:  true,
-									Filename: "trace",
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							PostTestRPCCalls: []PostTestRPCCall{
+								{
+									Method: "debug_traceBlockByNumber",
+									Dump: DumpConfig{
+										Enabled:  true,
+										Filename: "trace",
+									},
 								},
 							},
 						},
@@ -690,7 +703,7 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 		{
 			name: "instance-level missing method",
 			cfg: Config{
-				Client: ClientConfig{
+				Runner: RunnerConfig{
 					Instances: []ClientInstance{
 						{
 							ID:     "test",
@@ -708,10 +721,12 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 		{
 			name: "valid timeout",
 			cfg: Config{
-				Client: ClientConfig{
-					Config: ClientDefaults{
-						PostTestRPCCalls: []PostTestRPCCall{
-							{Method: "debug_executionWitness", Timeout: "2m"},
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							PostTestRPCCalls: []PostTestRPCCall{
+								{Method: "debug_executionWitness", Timeout: "2m"},
+							},
 						},
 					},
 					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
@@ -722,10 +737,12 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 		{
 			name: "invalid timeout string",
 			cfg: Config{
-				Client: ClientConfig{
-					Config: ClientDefaults{
-						PostTestRPCCalls: []PostTestRPCCall{
-							{Method: "debug_executionWitness", Timeout: "notaduration"},
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							PostTestRPCCalls: []PostTestRPCCall{
+								{Method: "debug_executionWitness", Timeout: "notaduration"},
+							},
 						},
 					},
 					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
@@ -737,10 +754,12 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 		{
 			name: "negative timeout",
 			cfg: Config{
-				Client: ClientConfig{
-					Config: ClientDefaults{
-						PostTestRPCCalls: []PostTestRPCCall{
-							{Method: "debug_executionWitness", Timeout: "-5s"},
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							PostTestRPCCalls: []PostTestRPCCall{
+								{Method: "debug_executionWitness", Timeout: "-5s"},
+							},
 						},
 					},
 					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
@@ -752,10 +771,12 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 		{
 			name: "zero timeout",
 			cfg: Config{
-				Client: ClientConfig{
-					Config: ClientDefaults{
-						PostTestRPCCalls: []PostTestRPCCall{
-							{Method: "debug_executionWitness", Timeout: "0s"},
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							PostTestRPCCalls: []PostTestRPCCall{
+								{Method: "debug_executionWitness", Timeout: "0s"},
+							},
 						},
 					},
 					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
@@ -782,16 +803,17 @@ func TestValidatePostTestRPCCalls(t *testing.T) {
 func TestDumpConfigDecodeHook(t *testing.T) {
 	// Test that dump: true gets decoded to DumpConfig{Enabled: true}.
 	configContent := `
-client:
-  config:
-    genesis:
-      geth: http://example.com/genesis.json
-    post_test_rpc_calls:
-      - method: debug_traceBlockByNumber
-        params: ["latest"]
-        dump:
-          enabled: true
-          filename: trace
+runner:
+  client:
+    config:
+      genesis:
+        geth: http://example.com/genesis.json
+      post_test_rpc_calls:
+        - method: debug_traceBlockByNumber
+          params: ["latest"]
+          dump:
+            enabled: true
+            filename: trace
   instances:
     - id: test-instance
       client: geth
@@ -803,10 +825,10 @@ client:
 	cfg, err := Load(configPath)
 	require.NoError(t, err)
 
-	require.Len(t, cfg.Client.Config.PostTestRPCCalls, 1)
-	assert.Equal(t, "debug_traceBlockByNumber", cfg.Client.Config.PostTestRPCCalls[0].Method)
-	assert.True(t, cfg.Client.Config.PostTestRPCCalls[0].Dump.Enabled)
-	assert.Equal(t, "trace", cfg.Client.Config.PostTestRPCCalls[0].Dump.Filename)
+	require.Len(t, cfg.Runner.Client.Config.PostTestRPCCalls, 1)
+	assert.Equal(t, "debug_traceBlockByNumber", cfg.Runner.Client.Config.PostTestRPCCalls[0].Method)
+	assert.True(t, cfg.Runner.Client.Config.PostTestRPCCalls[0].Dump.Enabled)
+	assert.Equal(t, "trace", cfg.Runner.Client.Config.PostTestRPCCalls[0].Dump.Filename)
 }
 
 func TestSourceConfig_IsConfigured(t *testing.T) {
@@ -889,9 +911,11 @@ func TestGetBootstrapFCU(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{
-				Client: ClientConfig{
-					Config: ClientDefaults{
-						BootstrapFCU: tt.global,
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							BootstrapFCU: tt.global,
+						},
 					},
 				},
 			}
@@ -906,13 +930,13 @@ func TestGetBootstrapFCU(t *testing.T) {
 
 func TestLoad_PreservesEnvironmentKeyCasing(t *testing.T) {
 	configContent := `
-global:
+runner:
   docker_network: test-network
-client:
-  config:
-    jwt: test-jwt
-    genesis:
-      geth: http://example.com/genesis.json
+  client:
+    config:
+      jwt: test-jwt
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: test-instance
       client: geth
@@ -926,9 +950,9 @@ client:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err)
-	require.Len(t, cfg.Client.Instances, 1)
+	require.Len(t, cfg.Runner.Instances, 1)
 
-	env := cfg.Client.Instances[0].Environment
+	env := cfg.Runner.Instances[0].Environment
 	assert.Equal(t, "512", env["MAX_REORG_DEPTH"])
 	assert.Equal(t, "value", env["SOME_lower_Mixed"])
 
@@ -940,11 +964,12 @@ client:
 func TestLoad_BootstrapFCU(t *testing.T) {
 	t.Run("shorthand bool true", func(t *testing.T) {
 		configContent := `
-client:
-  config:
-    bootstrap_fcu: true
-    genesis:
-      geth: http://example.com/genesis.json
+runner:
+  client:
+    config:
+      bootstrap_fcu: true
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: inherits-global
       client: geth
@@ -960,32 +985,33 @@ client:
 		require.NoError(t, err)
 
 		// Global default decoded from bool shorthand.
-		require.NotNil(t, cfg.Client.Config.BootstrapFCU)
-		assert.True(t, cfg.Client.Config.BootstrapFCU.Enabled)
-		assert.Equal(t, 30, cfg.Client.Config.BootstrapFCU.MaxRetries)
-		assert.Equal(t, "1s", cfg.Client.Config.BootstrapFCU.Backoff)
+		require.NotNil(t, cfg.Runner.Client.Config.BootstrapFCU)
+		assert.True(t, cfg.Runner.Client.Config.BootstrapFCU.Enabled)
+		assert.Equal(t, 30, cfg.Runner.Client.Config.BootstrapFCU.MaxRetries)
+		assert.Equal(t, "1s", cfg.Runner.Client.Config.BootstrapFCU.Backoff)
 
 		// First instance inherits global.
-		fcuCfg := cfg.GetBootstrapFCU(&cfg.Client.Instances[0])
+		fcuCfg := cfg.GetBootstrapFCU(&cfg.Runner.Instances[0])
 		require.NotNil(t, fcuCfg)
 		assert.True(t, fcuCfg.Enabled)
 
 		// Second instance overrides to false.
-		fcuCfg = cfg.GetBootstrapFCU(&cfg.Client.Instances[1])
+		fcuCfg = cfg.GetBootstrapFCU(&cfg.Runner.Instances[1])
 		require.NotNil(t, fcuCfg)
 		assert.False(t, fcuCfg.Enabled)
 	})
 
 	t.Run("full struct config", func(t *testing.T) {
 		configContent := `
-client:
-  config:
-    bootstrap_fcu:
-      enabled: true
-      max_retries: 10
-      backoff: 2s
-    genesis:
-      geth: http://example.com/genesis.json
+runner:
+  client:
+    config:
+      bootstrap_fcu:
+        enabled: true
+        max_retries: 10
+        backoff: 2s
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: test-instance
       client: geth
@@ -997,12 +1023,12 @@ client:
 		cfg, err := Load(configPath)
 		require.NoError(t, err)
 
-		require.NotNil(t, cfg.Client.Config.BootstrapFCU)
-		assert.True(t, cfg.Client.Config.BootstrapFCU.Enabled)
-		assert.Equal(t, 10, cfg.Client.Config.BootstrapFCU.MaxRetries)
-		assert.Equal(t, "2s", cfg.Client.Config.BootstrapFCU.Backoff)
+		require.NotNil(t, cfg.Runner.Client.Config.BootstrapFCU)
+		assert.True(t, cfg.Runner.Client.Config.BootstrapFCU.Enabled)
+		assert.Equal(t, 10, cfg.Runner.Client.Config.BootstrapFCU.MaxRetries)
+		assert.Equal(t, "2s", cfg.Runner.Client.Config.BootstrapFCU.Backoff)
 
-		fcuCfg := cfg.GetBootstrapFCU(&cfg.Client.Instances[0])
+		fcuCfg := cfg.GetBootstrapFCU(&cfg.Runner.Instances[0])
 		require.NotNil(t, fcuCfg)
 		assert.Equal(t, 10, fcuCfg.MaxRetries)
 		assert.Equal(t, "2s", fcuCfg.Backoff)
@@ -1010,10 +1036,11 @@ client:
 
 	t.Run("not configured returns nil", func(t *testing.T) {
 		configContent := `
-client:
-  config:
-    genesis:
-      geth: http://example.com/genesis.json
+runner:
+  client:
+    config:
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: test-instance
       client: geth
@@ -1025,21 +1052,22 @@ client:
 		cfg, err := Load(configPath)
 		require.NoError(t, err)
 
-		assert.Nil(t, cfg.Client.Config.BootstrapFCU)
-		assert.Nil(t, cfg.GetBootstrapFCU(&cfg.Client.Instances[0]))
+		assert.Nil(t, cfg.Runner.Client.Config.BootstrapFCU)
+		assert.Nil(t, cfg.GetBootstrapFCU(&cfg.Runner.Instances[0]))
 	})
 
 	t.Run("with block_hash", func(t *testing.T) {
 		configContent := `
-client:
-  config:
-    bootstrap_fcu:
-      enabled: true
-      max_retries: 10
-      backoff: 2s
-      head_block_hash: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-    genesis:
-      geth: http://example.com/genesis.json
+runner:
+  client:
+    config:
+      bootstrap_fcu:
+        enabled: true
+        max_retries: 10
+        backoff: 2s
+        head_block_hash: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: test-instance
       client: geth
@@ -1051,14 +1079,14 @@ client:
 		cfg, err := Load(configPath)
 		require.NoError(t, err)
 
-		require.NotNil(t, cfg.Client.Config.BootstrapFCU)
-		assert.True(t, cfg.Client.Config.BootstrapFCU.Enabled)
+		require.NotNil(t, cfg.Runner.Client.Config.BootstrapFCU)
+		assert.True(t, cfg.Runner.Client.Config.BootstrapFCU.Enabled)
 		assert.Equal(t,
 			"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-			cfg.Client.Config.BootstrapFCU.HeadBlockHash,
+			cfg.Runner.Client.Config.BootstrapFCU.HeadBlockHash,
 		)
 
-		fcuCfg := cfg.GetBootstrapFCU(&cfg.Client.Instances[0])
+		fcuCfg := cfg.GetBootstrapFCU(&cfg.Runner.Instances[0])
 		require.NotNil(t, fcuCfg)
 		assert.Equal(t,
 			"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
@@ -1079,13 +1107,15 @@ client:
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				cfg := Config{
-					Client: ClientConfig{
-						Config: ClientDefaults{
-							BootstrapFCU: &BootstrapFCUConfig{
-								Enabled:       true,
-								MaxRetries:    10,
-								Backoff:       "2s",
-								HeadBlockHash: tt.blockHash,
+					Runner: RunnerConfig{
+						Client: ClientConfig{
+							Config: ClientDefaults{
+								BootstrapFCU: &BootstrapFCUConfig{
+									Enabled:       true,
+									MaxRetries:    10,
+									Backoff:       "2s",
+									HeadBlockHash: tt.blockHash,
+								},
 							},
 						},
 						Instances: []ClientInstance{{ID: "test", Client: "geth"}},
@@ -1103,15 +1133,15 @@ client:
 func TestLoad_MetadataLabels(t *testing.T) {
 	t.Run("parses labels from yaml", func(t *testing.T) {
 		configContent := `
-global:
+runner:
   metadata:
     labels:
       env: production
       team: platform
-client:
-  config:
-    genesis:
-      geth: http://example.com/genesis.json
+  client:
+    config:
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: test-instance
       client: geth
@@ -1123,17 +1153,18 @@ client:
 		cfg, err := Load(configPath)
 		require.NoError(t, err)
 
-		require.Len(t, cfg.Global.Metadata.Labels, 2)
-		assert.Equal(t, "production", cfg.Global.Metadata.Labels["env"])
-		assert.Equal(t, "platform", cfg.Global.Metadata.Labels["team"])
+		require.Len(t, cfg.Runner.Metadata.Labels, 2)
+		assert.Equal(t, "production", cfg.Runner.Metadata.Labels["env"])
+		assert.Equal(t, "platform", cfg.Runner.Metadata.Labels["team"])
 	})
 
 	t.Run("empty metadata produces no errors", func(t *testing.T) {
 		configContent := `
-client:
-  config:
-    genesis:
-      geth: http://example.com/genesis.json
+runner:
+  client:
+    config:
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: test-instance
       client: geth
@@ -1145,18 +1176,18 @@ client:
 		cfg, err := Load(configPath)
 		require.NoError(t, err)
 
-		assert.Nil(t, cfg.Global.Metadata.Labels)
+		assert.Nil(t, cfg.Runner.Metadata.Labels)
 	})
 
 	t.Run("empty labels map produces no errors", func(t *testing.T) {
 		configContent := `
-global:
+runner:
   metadata:
     labels: {}
-client:
-  config:
-    genesis:
-      geth: http://example.com/genesis.json
+  client:
+    config:
+      genesis:
+        geth: http://example.com/genesis.json
   instances:
     - id: test-instance
       client: geth
@@ -1168,8 +1199,137 @@ client:
 		cfg, err := Load(configPath)
 		require.NoError(t, err)
 
-		assert.Empty(t, cfg.Global.Metadata.Labels)
+		assert.Empty(t, cfg.Runner.Metadata.Labels)
 	})
+}
+
+func TestValidateAPIStorage(t *testing.T) {
+	// Helper to build a Config with API storage and minimal valid fields.
+	makeConfig := func(s3Cfg *APIS3Config) Config {
+		return Config{
+			API: &APIConfig{
+				Auth: APIAuthConfig{
+					SessionTTL: "24h",
+					Basic: BasicAuthConfig{
+						Enabled: true,
+						Users: []BasicAuthUser{
+							{Username: "admin", Password: "pass", Role: "admin"},
+						},
+					},
+				},
+				Database: APIDatabaseConfig{Driver: "sqlite"},
+				Storage:  APIStorageConfig{S3: s3Cfg},
+			},
+		}
+	}
+
+	tests := []struct {
+		name      string
+		s3Cfg     *APIS3Config
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "nil s3 config is valid",
+			s3Cfg:   nil,
+			wantErr: false,
+		},
+		{
+			name: "disabled s3 is valid",
+			s3Cfg: &APIS3Config{
+				Enabled: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid s3 config",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				Region:         "us-east-1",
+				DiscoveryPaths: []string{"results"},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing bucket",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				DiscoveryPaths: []string{"results"},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+			},
+			wantErr:   true,
+			errSubstr: "bucket is required",
+		},
+		{
+			name: "empty discovery paths",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				DiscoveryPaths: []string{},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+			},
+			wantErr:   true,
+			errSubstr: "at least one discovery_path",
+		},
+		{
+			name: "empty string in discovery paths",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				DiscoveryPaths: []string{"results", ""},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+			},
+			wantErr:   true,
+			errSubstr: "must not be empty",
+		},
+		{
+			name: "path traversal in discovery paths",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				DiscoveryPaths: []string{"results/../secrets"},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+			},
+			wantErr:   true,
+			errSubstr: "must not contain \"..\"",
+		},
+		{
+			name: "invalid expiry duration",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				DiscoveryPaths: []string{"results"},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "notaduration"},
+			},
+			wantErr:   true,
+			errSubstr: "invalid duration",
+		},
+		{
+			name: "multiple valid discovery paths",
+			s3Cfg: &APIS3Config{
+				Enabled:        true,
+				Bucket:         "my-bucket",
+				DiscoveryPaths: []string{"results", "archive/2024"},
+				PresignedURLs:  APIS3PresignedURLConfig{Expiry: "30m"},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := makeConfig(tt.s3Cfg)
+			err := cfg.validateAPIStorage()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 // createTestTarball creates a minimal .tar.gz file at the given path for testing.
@@ -1213,7 +1373,7 @@ func TestValidate_WithValidateOpts(t *testing.T) {
 		{
 			name: "no opts validates all instance datadirs",
 			cfg: Config{
-				Client: ClientConfig{
+				Runner: RunnerConfig{
 					Instances: []ClientInstance{
 						{
 							ID:     "good",
@@ -1240,7 +1400,7 @@ func TestValidate_WithValidateOpts(t *testing.T) {
 		{
 			name: "active instance IDs skips excluded instance datadir",
 			cfg: Config{
-				Client: ClientConfig{
+				Runner: RunnerConfig{
 					Instances: []ClientInstance{
 						{
 							ID:     "good",
@@ -1271,7 +1431,7 @@ func TestValidate_WithValidateOpts(t *testing.T) {
 		{
 			name: "active instance IDs still validates included instance",
 			cfg: Config{
-				Client: ClientConfig{
+				Runner: RunnerConfig{
 					Instances: []ClientInstance{
 						{
 							ID:     "bad",
@@ -1295,15 +1455,17 @@ func TestValidate_WithValidateOpts(t *testing.T) {
 		{
 			name: "active clients skips excluded global datadir",
 			cfg: Config{
-				Client: ClientConfig{
-					DataDirs: map[string]*DataDirConfig{
-						"geth": {
-							SourceDir: validDir,
-							Method:    "copy",
-						},
-						"reth": {
-							SourceDir: "/nonexistent/global/datadir",
-							Method:    "copy",
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						DataDirs: map[string]*DataDirConfig{
+							"geth": {
+								SourceDir: validDir,
+								Method:    "copy",
+							},
+							"reth": {
+								SourceDir: "/nonexistent/global/datadir",
+								Method:    "copy",
+							},
 						},
 					},
 					Instances: []ClientInstance{
@@ -1321,11 +1483,13 @@ func TestValidate_WithValidateOpts(t *testing.T) {
 		{
 			name: "active clients still validates included global datadir",
 			cfg: Config{
-				Client: ClientConfig{
-					DataDirs: map[string]*DataDirConfig{
-						"geth": {
-							SourceDir: "/nonexistent/global/datadir",
-							Method:    "copy",
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						DataDirs: map[string]*DataDirConfig{
+							"geth": {
+								SourceDir: "/nonexistent/global/datadir",
+								Method:    "copy",
+							},
 						},
 					},
 					Instances: []ClientInstance{
@@ -1344,11 +1508,13 @@ func TestValidate_WithValidateOpts(t *testing.T) {
 		{
 			name: "empty opts maps validates everything",
 			cfg: Config{
-				Client: ClientConfig{
-					DataDirs: map[string]*DataDirConfig{
-						"reth": {
-							SourceDir: "/nonexistent/global/datadir",
-							Method:    "copy",
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						DataDirs: map[string]*DataDirConfig{
+							"reth": {
+								SourceDir: "/nonexistent/global/datadir",
+								Method:    "copy",
+							},
 						},
 					},
 					Instances: []ClientInstance{

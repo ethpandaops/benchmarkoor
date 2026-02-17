@@ -94,15 +94,15 @@ func runSuiteStatsFileS3(cmd *cobra.Command) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	if cfg.Benchmark.ResultsUpload == nil ||
-		cfg.Benchmark.ResultsUpload.S3 == nil ||
-		!cfg.Benchmark.ResultsUpload.S3.Enabled {
+	if cfg.Runner.Benchmark.ResultsUpload == nil ||
+		cfg.Runner.Benchmark.ResultsUpload.S3 == nil ||
+		!cfg.Runner.Benchmark.ResultsUpload.S3.Enabled {
 		return fmt.Errorf(
 			"S3 upload is not configured or not enabled in config",
 		)
 	}
 
-	s3Cfg := cfg.Benchmark.ResultsUpload.S3
+	s3Cfg := cfg.Runner.Benchmark.ResultsUpload.S3
 
 	prefix := s3Cfg.Prefix
 	if prefix == "" {

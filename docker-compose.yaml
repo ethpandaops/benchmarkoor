@@ -7,11 +7,11 @@ services:
     # Required for dropping memory caches, ZFS/overlayfs datadir methods, etc.
     privileged: true
     environment:
-      - BENCHMARKOOR_GLOBAL_DROP_CACHES_PATH=/host_drop_caches
-      - BENCHMARKOOR_GLOBAL_CPU_SYSFS_PATH=/host_sys_cpu
-      - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_DATADIR=${PWD}/tmp/data
-      - BENCHMARKOOR_GLOBAL_DIRECTORIES_TMP_CACHEDIR=${PWD}/tmp/cache
-      - BENCHMARKOOR_BENCHMARK_RESULTS_OWNER=${USER_UID}:${USER_GID}
+      - BENCHMARKOOR_RUNNER_DROP_CACHES_PATH=/host_drop_caches
+      - BENCHMARKOOR_RUNNER_CPU_SYSFS_PATH=/host_sys_cpu
+      - BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_DATADIR=${PWD}/tmp/data
+      - BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_CACHEDIR=${PWD}/tmp/cache
+      - BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_OWNER=${USER_UID}:${USER_GID}
     volumes:
       # The docker socket is required to interact with docker containers
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -32,8 +32,8 @@ services:
           propagation: rshared
       # For ZFS datadir methods, mount your ZFS data path with rshared propagation:
       #- type: bind
-      #  source: /data-zfs
-      #  target: /data-zfs
+      #  source: /data-zfs-2
+      #  target: /data-zfs-2
       #  bind:
       #    propagation: rshared
       # Results directory
@@ -41,6 +41,21 @@ services:
     working_dir: /app
     command: ["run", "--config", "/app/config.yaml"]
     network_mode: host
+
+  api:
+    image: ethpandaops/benchmarkoor:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Config file
+      - ./${BENCHMARKOOR_CONFIG:-config.example.docker.yaml}:/app/config.yaml:ro
+      # Data directory for SQLite DB
+      - ./data:/app/data
+    working_dir: /app
+    command: ["api", "--config", "/app/config.yaml"]
+    ports:
+      - "${API_PORT:-9090}:9090"
 
   ui:
     image: ethpandaops/benchmarkoor-ui:dev
@@ -51,5 +66,7 @@ services:
       - "${UI_PORT:-8080}:80"
     volumes:
       - ./results:/usr/share/nginx/html/results:ro
+      # Override runtime config to point UI at the API service
+      - ./ui/public/config.docker.json:/usr/share/nginx/html/config.json:ro
     depends_on:
       - benchmarkoor

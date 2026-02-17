@@ -25,26 +25,27 @@ jobs:
             https://raw.githubusercontent.com/ethpandaops/benchmarkoor/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-cleanup.yaml,
             https://raw.githubusercontent.com/ethpandaops/benchmarkoor/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-clientstdout.yaml
           run-config: |
-            benchmark:
-              system_resource_collection_enabled: true
-              tests:
-                filter: "bn128"
-                source:
-                  eest_fixtures:
-                    github_repo: ethereum/execution-spec-tests
-                    github_release: benchmark@v0.0.5
+            runner:
+              benchmark:
+                system_resource_collection_enabled: true
+                tests:
+                  filter: "bn128"
+                  source:
+                    eest_fixtures:
+                      github_repo: ethereum/execution-spec-tests
+                      github_release: benchmark@v0.0.5
 
-            client:
-              config:
-                drop_memory_caches: "steps"
-                resource_limits:
-                  # The CPU freq limit might not work on public github runners.
-                  # cpu_freq: "2100MHz"
-                  # cpu_turboboost: false
-                  # cpu_freq_governor: performance
-                  cpuset_count: 2
-                  memory: "4g"
-                  swap_disabled: true
+              client:
+                config:
+                  drop_memory_caches: "steps"
+                  resource_limits:
+                    # The CPU freq limit might not work on public github runners.
+                    # cpu_freq: "2100MHz"
+                    # cpu_turboboost: false
+                    # cpu_freq_governor: performance
+                    cpuset_count: 2
+                    memory: "4g"
+                    swap_disabled: true
 
               instances:
                 - id: geth

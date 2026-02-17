@@ -23,6 +23,11 @@ func (s *rethSpec) DefaultCommand() []string {
 		"node",
 		// Data directory - should always point to /data
 		"--datadir=/var/lib/reth",
+		// Peering / Syncing
+		//"--disable-discovery",
+		//"--netrestrict=127.0.0.1/32",
+		//"--max-peers=0",
+		//"--trusted-only",
 		// "Public" JSON RPC API
 		"--http",
 		"--http.addr=0.0.0.0",
