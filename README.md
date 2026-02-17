@@ -17,13 +17,13 @@ Benchmarkoor is a benchmarking tool for Ethereum execution clients. It runs stan
 
 The easiest way to get started is using Docker Compose:
 
-Start the UI. By default it will be listening on [http://localhost:8080](http://localhost:8080)
+Start the UI and API. By default the UI will be listening on [http://localhost:8080](http://localhost:8080) and the API on [http://localhost:9090](http://localhost:9090).
 ```bash
-# Starts the UI on default port 8080
-make docker-run-ui
+# Starts the UI (port 8080) and API (port 9090)
+make docker-run
 
-# Alternatively, you can also choose your own port like
-make docker-run-ui UI_PORT=3000
+# Alternatively, you can also choose your own ports like
+make docker-run UI_PORT=3000 API_PORT=9091
 ```
 
 Next we'll run a benchmark. By default it will use the  [config.example.docker.yaml](config.example.docker.yaml) configuration file. By default, it just runs a subset of tests, via the `filter: bn128`. Have a look at the file and change it as you want. If you're just experimenting, you can leave it as it is.
