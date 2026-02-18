@@ -317,6 +317,8 @@ export function SuiteDetailPage() {
         {suite.filter && <Badge variant="info">Filter: {suite.filter}</Badge>}
       </div>
 
+      <SuiteSource title="Source" source={suite.source} />
+
       <TabGroup selectedIndex={getTabIndex()} onChange={handleTabChange}>
         <TabList className="flex gap-1 rounded-sm bg-gray-100 p-1 dark:bg-gray-800">
           <Tab
@@ -561,7 +563,6 @@ export function SuiteDetailPage() {
             )}
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
-            <SuiteSource title="Source" source={suite.source} />
             {suite.tests.some((t) => t.eest?.info?.opcode_count && Object.keys(t.eest.info.opcode_count).length > 0) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
                 <OpcodeHeatmapSection tests={suite.tests} onTestClick={handleDetailChange} />
@@ -583,7 +584,6 @@ export function SuiteDetailPage() {
           </TabPanel>
           {hasPreRunSteps && (
             <TabPanel className="flex flex-col gap-4">
-              <SuiteSource title="Source" source={suite.source} />
               <TestFilesList
                 files={suite.pre_run_steps!}
                 suiteHash={suiteHash}
