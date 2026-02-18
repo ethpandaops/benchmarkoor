@@ -18,6 +18,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set build version info
+        run: |
+          VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "VERSION=${VERSION}" >> .build-version
+          echo "COMMIT=${COMMIT}" >> .build-version
+          echo "DATE=${DATE}" >> .build-version
+          echo "Writing build version: VERSION=${VERSION} COMMIT=${COMMIT} DATE=${DATE}"
 
       - name: Deploy docker images
         uses: ethpandaops/actions/docker-build-push@7d7b7bfe36fe4cfa538acd0e23706a23ce07c3ac # master

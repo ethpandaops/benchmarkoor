@@ -17,8 +17,11 @@ ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown
 
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build \
+# Build the binary. If .build-version exists (CI), source it to override ARG defaults.
+RUN if [ -f .build-version ]; then \
+      . ./.build-version; \
+    fi && \
+    CGO_ENABLED=0 GOOS=linux go build \
     -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o /benchmarkoor ./cmd/benchmarkoor
 
