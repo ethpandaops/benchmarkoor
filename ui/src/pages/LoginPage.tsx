@@ -42,10 +42,10 @@ export function LoginPage() {
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center">
       {requiresLogin && (
-        <div className="mb-8 flex items-center gap-4">
-          <img src="/img/logo_black.png" alt="Benchmarkoor" className="h-16 dark:hidden" />
-          <img src="/img/logo_white.png" alt="Benchmarkoor" className="hidden h-16 dark:block" />
-          <span className="text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">Benchmarkoor</span>
+        <div className="mb-8 flex flex-col items-center gap-2">
+          <img src="/img/logo_black.png" alt="Benchmarkoor" className="h-28 dark:hidden" />
+          <img src="/img/logo_white.png" alt="Benchmarkoor" className="hidden h-28 dark:block" />
+          <span className="text-3xl font-semibold text-gray-900 dark:text-gray-100">Benchmarkoor</span>
         </div>
       )}
       <div className="w-full max-w-sm rounded-sm border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
@@ -88,7 +88,7 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex w-full items-center justify-center gap-2 rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
+              className="flex w-full items-center justify-center gap-2 rounded-sm bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
             >
               <LogIn className="size-4" />
               {isSubmitting ? 'Signing in...' : 'Sign in'}

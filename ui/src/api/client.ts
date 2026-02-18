@@ -5,6 +5,13 @@ export interface FetchResult<T> {
   status: number
 }
 
+// Append a cache-busting query parameter rounded to the current minute.
+// Requests within the same minute share the same cache key.
+function cacheBustUrl(url: string): string {
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}_t=${Math.floor(Date.now() / 60000)}`
+}
+
 // Check if the content type indicates JSON
 function isJsonContentType(response: Response): boolean {
   const contentType = response.headers.get('content-type')
@@ -17,7 +24,7 @@ export async function fetchViaS3(
   url: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const resp = await fetch(url, { credentials: 'include' })
+  const resp = await fetch(cacheBustUrl(url), { credentials: 'include' })
   if (!resp.ok) return resp
 
   const { url: presignedUrl } = await resp.json()
@@ -31,7 +38,7 @@ export async function fetchData<T>(path: string): Promise<FetchResult<T>> {
 
   const response = isS3Mode(config)
     ? await fetchViaS3(url)
-    : await fetch(url)
+    : await fetch(cacheBustUrl(url))
 
   if (!response.ok) {
     return { data: null, status: response.status }
@@ -113,7 +120,7 @@ export async function fetchText(path: string): Promise<FetchResult<string>> {
 
   const response = isS3Mode(config)
     ? await fetchViaS3(url)
-    : await fetch(url)
+    : await fetch(cacheBustUrl(url))
 
   if (!response.ok) {
     return { data: null, status: response.status }

@@ -25,7 +25,7 @@ import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
 import { BlockLogsDashboard } from '@/components/run-detail/block-logs-dashboard'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
-import { Flame, Download } from 'lucide-react'
+import { Flame, Download, Github, ExternalLink } from 'lucide-react'
 
 // Step types that can be included in MGas/s calculation
 export type StepTypeOption = 'setup' | 'test' | 'cleanup'
@@ -518,6 +518,92 @@ export function RunDetailPage() {
           </div>
         )}
       </div>
+
+      {config.metadata?.labels && (() => {
+        const gh = Object.entries(config.metadata.labels)
+          .filter(([k]) => k.startsWith('github.'))
+          .reduce<Record<string, string>>((acc, [k, v]) => { acc[k.replace('github.', '')] = v; return acc }, {})
+        if (Object.keys(gh).length === 0) return null
+        const repoUrl = gh.repository ? `https://github.com/${gh.repository}` : undefined
+        const commitUrl = repoUrl && gh.sha ? `${repoUrl}/commit/${gh.sha}` : undefined
+        const runUrl = repoUrl && gh.run_id ? `${repoUrl}/actions/runs/${gh.run_id}` : undefined
+        const jobUrl = runUrl && gh.job_id ? `${runUrl}#step:0:0` : undefined
+        return (
+          <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
+            <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+              <Github className="size-4 text-gray-500 dark:text-gray-400" />
+              <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">GitHub</h3>
+              {runUrl && (
+                <a href={runUrl} target="_blank" rel="noopener noreferrer" className="ml-auto flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
+                  View workflow run <ExternalLink className="size-3" />
+                </a>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-x-8 gap-y-2 px-4 py-3 text-sm/6 sm:grid-cols-3 lg:grid-cols-4">
+              {gh.repository && (
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Repository</p>
+                  {repoUrl ? (
+                    <a href={repoUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{gh.repository}</a>
+                  ) : (
+                    <p className="font-medium text-gray-900 dark:text-gray-100">{gh.repository}</p>
+                  )}
+                </div>
+              )}
+              {gh.workflow && (
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Workflow</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{gh.workflow}</p>
+                </div>
+              )}
+              {gh.ref && (
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Ref</p>
+                  <p className="font-mono text-xs font-medium text-gray-900 dark:text-gray-100">{gh.ref.replace('refs/heads/', '').replace('refs/tags/', '')}</p>
+                </div>
+              )}
+              {gh.event_name && (
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Event</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{gh.event_name}</p>
+                </div>
+              )}
+              {gh.sha && (
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Commit</p>
+                  {commitUrl ? (
+                    <a href={commitUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{gh.sha.slice(0, 8)}</a>
+                  ) : (
+                    <p className="font-mono text-xs font-medium text-gray-900 dark:text-gray-100">{gh.sha.slice(0, 8)}</p>
+                  )}
+                </div>
+              )}
+              {gh.actor && (
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Actor</p>
+                  <a href={`https://github.com/${gh.actor}`} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{gh.actor}</a>
+                </div>
+              )}
+              {gh.job && (
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Job</p>
+                  {jobUrl ? (
+                    <a href={jobUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{gh.job}</a>
+                  ) : (
+                    <p className="font-medium text-gray-900 dark:text-gray-100">{gh.job}</p>
+                  )}
+                </div>
+              )}
+              {gh.run_number && (
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Run Number</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">#{gh.run_number}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       <RunConfiguration instance={config.instance} system={config.system} startBlock={config.start_block} metadata={config.metadata} />
 

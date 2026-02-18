@@ -36,3 +36,4 @@ coverage.html
 # Misc
 *.log
 .ai_plans/
+!.build-version

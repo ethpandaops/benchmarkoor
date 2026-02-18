@@ -12,6 +12,7 @@ interface ResourceChartsProps {
   xAxisMode?: XAxisMode
   onXAxisModeChange?: (mode: XAxisMode) => void
   onRunClick?: (runId: string) => void
+  hideControls?: boolean
 }
 
 interface DataPoint {
@@ -237,9 +238,7 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
       legend: {
         type: 'scroll',
         bottom: 0,
-        textStyle: { color: textColor, fontSize: 10 },
-        itemWidth: 12,
-        itemHeight: 8,
+        textStyle: { color: textColor },
       },
       grid: {
         left: '3%',
@@ -281,11 +280,11 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
   }
 
   return (
-    <div className="rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
+    <div className="rounded-sm bg-gray-50 p-3 dark:bg-gray-700/50">
       <h4 className="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">{metric.label}</h4>
       <ReactECharts
         option={option}
-        style={{ height: '200px', width: '100%' }}
+        style={{ height: '250px', width: '100%' }}
         opts={{ renderer: 'svg' }}
         onEvents={{ click: handleChartClick }}
       />
@@ -299,6 +298,7 @@ export function ResourceCharts({
   xAxisMode: controlledMode,
   onXAxisModeChange,
   onRunClick,
+  hideControls = false,
 }: ResourceChartsProps) {
   const [internalMode, setInternalMode] = useState<XAxisMode>('runCount')
   const xAxisMode = controlledMode ?? internalMode
@@ -325,32 +325,34 @@ export function ResourceCharts({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
-          <button
-            onClick={() => setXAxisMode('runCount')}
-            className={clsx(
-              'px-3 py-1 text-xs/5 font-medium transition-colors',
-              xAxisMode === 'runCount'
-                ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
-                : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
-            )}
-          >
-            Run #
-          </button>
-          <button
-            onClick={() => setXAxisMode('time')}
-            className={clsx(
-              'border-l border-gray-300 px-3 py-1 text-xs/5 font-medium transition-colors dark:border-gray-600',
-              xAxisMode === 'time'
-                ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
-                : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
-            )}
-          >
-            Time
-          </button>
+      {!hideControls && (
+        <div className="flex justify-end">
+          <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
+            <button
+              onClick={() => setXAxisMode('runCount')}
+              className={clsx(
+                'px-3 py-1 text-xs/5 font-medium transition-colors',
+                xAxisMode === 'runCount'
+                  ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+              )}
+            >
+              Run #
+            </button>
+            <button
+              onClick={() => setXAxisMode('time')}
+              className={clsx(
+                'border-l border-gray-300 px-3 py-1 text-xs/5 font-medium transition-colors dark:border-gray-600',
+                xAxisMode === 'time'
+                  ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+              )}
+            >
+              Time
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {METRICS.map((metric) => (
@@ -365,7 +367,7 @@ export function ResourceCharts({
         ))}
       </div>
 
-      {xAxisMode === 'runCount' && (
+      {!hideControls && xAxisMode === 'runCount' && (
         <div className="flex justify-end text-xs/5 text-gray-500 dark:text-gray-400">
           <span>← Older runs | More recent →</span>
         </div>
