@@ -19,7 +19,7 @@ export function ErrorState({ title = 'Error', message, retry }: ErrorStateProps)
       {retry && (
         <button
           onClick={retry}
-          className="rounded-sm bg-blue-600 px-3 py-2 text-sm/6 font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+          className="rounded-sm bg-gray-800 px-3 py-2 text-sm/6 font-medium text-white hover:bg-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
         >
           Try again
         </button>

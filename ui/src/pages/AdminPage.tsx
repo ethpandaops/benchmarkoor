@@ -125,7 +125,7 @@ function UsersTab() {
         </h2>
         <button
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1.5 rounded-sm bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+          className="flex items-center gap-1.5 rounded-sm bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
         >
           <Plus className="size-3.5" />
           Create User
@@ -199,7 +199,7 @@ function UsersTab() {
           <InputField label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} required />
           <InputField label="Password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required type="password" />
           <RoleSelect value={form.role} onChange={(v) => setForm({ ...form, role: v })} />
-          <button type="submit" className="w-full rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
+          <button type="submit" className="w-full rounded-sm bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200">
             Create
           </button>
         </form>
@@ -210,7 +210,7 @@ function UsersTab() {
           {error && <div className="rounded-sm bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{error}</div>}
           <InputField label="New Password (leave blank to keep)" value={editForm.password} onChange={(v) => setEditForm({ ...editForm, password: v })} type="password" />
           <RoleSelect value={editForm.role} onChange={(v) => setEditForm({ ...editForm, role: v })} />
-          <button type="submit" className="w-full rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
+          <button type="submit" className="w-full rounded-sm bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200">
             Save
           </button>
         </form>
@@ -273,7 +273,7 @@ function GitHubMappingsTab() {
           </h2>
           <button
             onClick={() => setShowAddOrg(true)}
-            className="flex items-center gap-1.5 rounded-sm bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+            className="flex items-center gap-1.5 rounded-sm bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
           >
             <Plus className="size-3.5" />
             Add Mapping
@@ -294,7 +294,7 @@ function GitHubMappingsTab() {
             {orgError && <div className="rounded-sm bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{orgError}</div>}
             <InputField label="Organization" value={orgForm.org} onChange={(v) => setOrgForm({ ...orgForm, org: v })} required />
             <RoleSelect value={orgForm.role} onChange={(v) => setOrgForm({ ...orgForm, role: v })} />
-            <button type="submit" className="w-full rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
+            <button type="submit" className="w-full rounded-sm bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200">
               Save
             </button>
           </form>
@@ -309,7 +309,7 @@ function GitHubMappingsTab() {
           </h2>
           <button
             onClick={() => setShowAddUser(true)}
-            className="flex items-center gap-1.5 rounded-sm bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+            className="flex items-center gap-1.5 rounded-sm bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
           >
             <Plus className="size-3.5" />
             Add Mapping
@@ -330,7 +330,7 @@ function GitHubMappingsTab() {
             {userError && <div className="rounded-sm bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">{userError}</div>}
             <InputField label="GitHub Username" value={userForm.username} onChange={(v) => setUserForm({ ...userForm, username: v })} required />
             <RoleSelect value={userForm.role} onChange={(v) => setUserForm({ ...userForm, role: v })} />
-            <button type="submit" className="w-full rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
+            <button type="submit" className="w-full rounded-sm bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200">
               Save
             </button>
           </form>
