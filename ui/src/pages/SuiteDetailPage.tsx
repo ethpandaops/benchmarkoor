@@ -470,6 +470,11 @@ export function SuiteDetailPage() {
                           </button>
                         </div>
                       </div>
+                      <div className="flex items-center gap-3">
+                        <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
+                        <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Performance</span>
+                        <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
+                      </div>
                       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                         <div className="rounded-sm bg-gray-50 p-3 dark:bg-gray-700/50">
                           <DurationChart

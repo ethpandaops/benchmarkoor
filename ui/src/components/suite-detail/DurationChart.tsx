@@ -292,7 +292,7 @@ export function DurationChart({
       )}
       <ReactECharts
         option={option}
-        style={{ height: '300px', width: '100%' }}
+        style={{ height: '250px', width: '100%' }}
         opts={{ renderer: 'svg' }}
         onEvents={{ click: handleChartClick }}
       />
