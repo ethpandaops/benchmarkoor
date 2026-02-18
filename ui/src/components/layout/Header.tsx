@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link, useMatchRoute, useNavigate, useLocation } from '@tanstack/react-router'
+import { Link, useMatchRoute, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
@@ -97,12 +97,6 @@ function AuthControls({ onNavigate }: { onNavigate?: () => void }) {
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const location = useLocation()
-
-  // Close mobile menu on route change.
-  useEffect(() => {
-    setMobileOpen(false)
-  }, [location.pathname])
 
   const closeMobile = () => setMobileOpen(false)
 

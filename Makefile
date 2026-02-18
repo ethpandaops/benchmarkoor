@@ -110,6 +110,7 @@ docker-build-core:
 ## docker-build-ui: Build the UI Docker image
 docker-build-ui:
 	docker build \
+		--build-arg APP_VERSION=$(VERSION) \
 		-t $(DOCKER_IMAGE_UI):$(DOCKER_TAG) \
 		-t $(DOCKER_IMAGE_UI):latest \
 		-f Dockerfile.ui .

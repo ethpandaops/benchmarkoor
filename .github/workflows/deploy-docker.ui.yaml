@@ -19,6 +19,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Set app version from git
+        run: |
+          VERSION=$(git describe --tags --always 2>/dev/null || git rev-parse --short HEAD)
+          echo "Setting VITE_APP_VERSION=${VERSION}"
+          # Write a .env file that Vite picks up at build time
+          echo "VITE_APP_VERSION=${VERSION}" > ui/.env.production
+
       - name: Deploy docker images
         uses: ethpandaops/actions/docker-build-push@7d7b7bfe36fe4cfa538acd0e23706a23ce07c3ac # master
         with:

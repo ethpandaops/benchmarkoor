@@ -1,5 +1,7 @@
 import packageJson from '../../../package.json'
 
+const appVersion = import.meta.env.VITE_APP_VERSION || packageJson.version
+
 export function Footer() {
   return (
     <footer className="border-t border-gray-200 bg-white py-6 dark:border-gray-800 dark:bg-gray-900">
@@ -14,7 +16,7 @@ export function Footer() {
           ethpandaops/benchmarkoor
         </a>
         <span className="mx-2">•</span>
-        <span>v{packageJson.version}</span>
+        <span>v{appVersion}</span>
       </div>
     </footer>
   )
