@@ -149,7 +149,9 @@ export function RunsTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-          {sortedEntries.map((entry) => (
+          {sortedEntries.map((entry) => {
+            const hasFailures = entry.status !== 'container_died' && entry.status !== 'cancelled' && entry.tests.tests_total - entry.tests.tests_passed > 0
+            return (
             <tr
               key={entry.run_id}
               onClick={() => navigate({ to: '/runs/$runId', params: { runId: entry.run_id } })}
@@ -157,13 +159,15 @@ export function RunsTable({
                 'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
                 entry.status === 'container_died' && 'bg-red-50/50 dark:bg-red-900/10',
                 entry.status === 'cancelled' && 'bg-yellow-50/50 dark:bg-yellow-900/10',
+                hasFailures && 'bg-orange-50/50 dark:bg-orange-900/10',
               )}
             >
               <td className={clsx(
                 'whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400 border-l-3',
                 entry.status === 'container_died' && 'border-red-400 dark:border-red-500',
                 entry.status === 'cancelled' && 'border-yellow-400 dark:border-yellow-500',
-                entry.status !== 'container_died' && entry.status !== 'cancelled' && 'border-transparent',
+                hasFailures && 'border-orange-400 dark:border-orange-500',
+                entry.status !== 'container_died' && entry.status !== 'cancelled' && !hasFailures && 'border-transparent',
               )}>
                 <span title={formatRelativeTime(entry.timestamp)}>{formatTimestamp(entry.timestamp)}</span>
               </td>
@@ -233,7 +237,7 @@ export function RunsTable({
                 )
               })()}
             </tr>
-          ))}
+          )})}
         </tbody>
       </table>
     </div>
