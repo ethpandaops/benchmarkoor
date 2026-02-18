@@ -280,7 +280,7 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
   }
 
   return (
-    <div>
+    <div className="rounded-sm bg-gray-50 p-3 dark:bg-gray-700/50">
       <h4 className="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">{metric.label}</h4>
       <ReactECharts
         option={option}

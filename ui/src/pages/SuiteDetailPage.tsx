@@ -471,24 +471,28 @@ export function SuiteDetailPage() {
                         </div>
                       </div>
                       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                        <DurationChart
-                          runs={chartRuns}
-                          isDark={isDark}
-                          xAxisMode={chartMode}
-                          onXAxisModeChange={handleChartModeChange}
-                          onRunClick={handleRunClick}
-                          stepFilter={stepFilter}
-                          hideControls
-                        />
-                        <MGasChart
-                          runs={chartRuns}
-                          isDark={isDark}
-                          xAxisMode={chartMode}
-                          onXAxisModeChange={handleChartModeChange}
-                          onRunClick={handleRunClick}
-                          stepFilter={stepFilter}
-                          hideControls
-                        />
+                        <div className="rounded-sm bg-gray-50 p-3 dark:bg-gray-700/50">
+                          <DurationChart
+                            runs={chartRuns}
+                            isDark={isDark}
+                            xAxisMode={chartMode}
+                            onXAxisModeChange={handleChartModeChange}
+                            onRunClick={handleRunClick}
+                            stepFilter={stepFilter}
+                            hideControls
+                          />
+                        </div>
+                        <div className="rounded-sm bg-gray-50 p-3 dark:bg-gray-700/50">
+                          <MGasChart
+                            runs={chartRuns}
+                            isDark={isDark}
+                            xAxisMode={chartMode}
+                            onXAxisModeChange={handleChartModeChange}
+                            onRunClick={handleRunClick}
+                            stepFilter={stepFilter}
+                            hideControls
+                          />
+                        </div>
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="h-px grow bg-gray-200 dark:bg-gray-700" />

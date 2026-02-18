@@ -221,10 +221,6 @@ export function MGasChart({
       },
       yAxis: {
         type: 'value',
-        name: 'MGas/s',
-        nameTextStyle: {
-          color: textColor,
-        },
         axisLabel: {
           color: textColor,
           formatter: (value: number) => value.toFixed(1),
@@ -266,6 +262,7 @@ export function MGasChart({
 
   return (
     <div className="flex flex-col gap-2">
+      <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300">MGas/s</h4>
       {!hideControls && (
         <div className="flex justify-end">
           <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">

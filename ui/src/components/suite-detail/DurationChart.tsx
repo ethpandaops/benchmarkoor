@@ -223,10 +223,6 @@ export function DurationChart({
       },
       yAxis: {
         type: 'value',
-        name: 'Duration',
-        nameTextStyle: {
-          color: textColor,
-        },
         axisLabel: {
           color: textColor,
           formatter: (value: number) => formatDuration(value),
@@ -265,6 +261,7 @@ export function DurationChart({
 
   return (
     <div className="flex flex-col gap-2">
+      <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300">Duration</h4>
       {!hideControls && (
         <div className="flex justify-end">
           <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
