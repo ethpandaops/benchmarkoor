@@ -15,6 +15,12 @@ export function RootLayout() {
     }
   }, [isLoading, requiresLogin, location.pathname, navigate])
 
+  // While auth state is loading, render a minimal shell to avoid flashing
+  // the navbar and page content before redirecting to login.
+  if (isLoading) {
+    return <div className="flex min-h-dvh flex-col bg-gray-50 dark:bg-gray-900" />
+  }
+
   return (
     <div className="flex min-h-dvh flex-col bg-gray-50 dark:bg-gray-900">
       {!requiresLogin && <Header />}
