@@ -12,6 +12,7 @@ interface MGasChartProps {
   onXAxisModeChange?: (mode: XAxisMode) => void
   onRunClick?: (runId: string) => void
   stepFilter?: IndexStepType[]
+  hideControls?: boolean
 }
 
 interface DataPoint {
@@ -50,6 +51,7 @@ export function MGasChart({
   onXAxisModeChange,
   onRunClick,
   stepFilter = ALL_INDEX_STEP_TYPES,
+  hideControls = false,
 }: MGasChartProps) {
   const [internalMode, setInternalMode] = useState<XAxisMode>('runCount')
   const xAxisMode = controlledMode ?? internalMode
@@ -264,39 +266,41 @@ export function MGasChart({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex justify-end">
-        <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
-          <button
-            onClick={() => setXAxisMode('runCount')}
-            className={clsx(
-              'px-3 py-1 text-xs/5 font-medium transition-colors',
-              xAxisMode === 'runCount'
-                ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
-                : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
-            )}
-          >
-            Run #
-          </button>
-          <button
-            onClick={() => setXAxisMode('time')}
-            className={clsx(
-              'border-l border-gray-300 px-3 py-1 text-xs/5 font-medium transition-colors dark:border-gray-600',
-              xAxisMode === 'time'
-                ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
-                : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
-            )}
-          >
-            Time
-          </button>
+      {!hideControls && (
+        <div className="flex justify-end">
+          <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
+            <button
+              onClick={() => setXAxisMode('runCount')}
+              className={clsx(
+                'px-3 py-1 text-xs/5 font-medium transition-colors',
+                xAxisMode === 'runCount'
+                  ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+              )}
+            >
+              Run #
+            </button>
+            <button
+              onClick={() => setXAxisMode('time')}
+              className={clsx(
+                'border-l border-gray-300 px-3 py-1 text-xs/5 font-medium transition-colors dark:border-gray-600',
+                xAxisMode === 'time'
+                  ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+              )}
+            >
+              Time
+            </button>
+          </div>
         </div>
-      </div>
+      )}
       <ReactECharts
         option={option}
         style={{ height: '300px', width: '100%' }}
         opts={{ renderer: 'svg' }}
         onEvents={{ click: handleChartClick }}
       />
-      {xAxisMode === 'runCount' && (
+      {!hideControls && xAxisMode === 'runCount' && (
         <div className="flex justify-end text-xs/5 text-gray-500 dark:text-gray-400">
           <span>← Older runs | More recent →</span>
         </div>

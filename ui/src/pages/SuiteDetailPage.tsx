@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
-import { ChevronRight, LayoutGrid, Clock, Zap, Cpu, Flame, Grid3X3 } from 'lucide-react'
+import { ChevronRight, LayoutGrid, Clock, Flame, Grid3X3 } from 'lucide-react'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
@@ -79,12 +79,10 @@ export function SuiteDetailPage() {
     opcodeSort?: OpcodeSortMode
     q?: string
     chartMode?: XAxisMode
-    mgasChartMode?: XAxisMode
-    resourceChartMode?: XAxisMode
     heatmapColor?: ColorNormalization
     steps?: string
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', mgasChartMode = 'runCount', resourceChartMode = 'runCount', heatmapColor = 'suite' } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite' } = search
   const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: suiteStats } = useSuiteStats(suiteHash)
@@ -94,8 +92,7 @@ export function SuiteDetailPage() {
   const [heatmapExpanded, setHeatmapExpanded] = useState(true)
   const [slowestTestsExpanded, setSlowestTestsExpanded] = useState(true)
   const [chartExpanded, setChartExpanded] = useState(true)
-  const [mgasChartExpanded, setMgasChartExpanded] = useState(true)
-  const [resourceChartsExpanded, setResourceChartsExpanded] = useState(true)
+
   const [isDark, setIsDark] = useState(() => {
     if (typeof window === 'undefined') return false
     return document.documentElement.classList.contains('dark')
@@ -256,23 +253,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, mgasChartMode, resourceChartMode, heatmapColor, steps: serializeStepFilter(stepFilter) },
-    })
-  }
-
-  const handleMgasChartModeChange = (mode: XAxisMode) => {
-    navigate({
-      to: '/suites/$suiteHash',
-      params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode: mode, resourceChartMode, heatmapColor, steps: serializeStepFilter(stepFilter) },
-    })
-  }
-
-  const handleResourceChartModeChange = (mode: XAxisMode) => {
-    navigate({
-      to: '/suites/$suiteHash',
-      params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode, resourceChartMode: mode, heatmapColor, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, heatmapColor, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -280,7 +261,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode, resourceChartMode, heatmapColor: mode, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, heatmapColor: mode, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -288,7 +269,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, mgasChartMode, resourceChartMode, heatmapColor, steps: serializeStepFilter(steps) },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, heatmapColor, steps: serializeStepFilter(steps) },
     })
   }
 
@@ -416,18 +397,44 @@ export function SuiteDetailPage() {
                     </div>
                   )}
                 </div>
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                    <button
-                      onClick={() => setChartExpanded(!chartExpanded)}
-                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-                    >
-                      <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', chartExpanded && 'rotate-90')} />
-                      <Clock className="size-4 text-gray-400 dark:text-gray-500" />
-                      Duration Chart
-                    </button>
-                    {chartExpanded && (
-                      <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                  <button
+                    onClick={() => setChartExpanded(!chartExpanded)}
+                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
+                  >
+                    <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', chartExpanded && 'rotate-90')} />
+                    <Clock className="size-4 text-gray-400 dark:text-gray-500" />
+                    Run Charts
+                  </button>
+                  {chartExpanded && (
+                    <div className="flex flex-col gap-4 border-t border-gray-200 p-4 dark:border-gray-700">
+                      <div className="flex justify-end">
+                        <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
+                          <button
+                            onClick={() => handleChartModeChange('runCount')}
+                            className={clsx(
+                              'px-3 py-1 text-xs/5 font-medium transition-colors',
+                              chartMode === 'runCount'
+                                ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                                : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+                            )}
+                          >
+                            Run #
+                          </button>
+                          <button
+                            onClick={() => handleChartModeChange('time')}
+                            className={clsx(
+                              'border-l border-gray-300 px-3 py-1 text-xs/5 font-medium transition-colors dark:border-gray-600',
+                              chartMode === 'time'
+                                ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                                : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+                            )}
+                          >
+                            Time
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                         <DurationChart
                           runs={completedRuns}
                           isDark={isDark}
@@ -435,51 +442,36 @@ export function SuiteDetailPage() {
                           onXAxisModeChange={handleChartModeChange}
                           onRunClick={handleRunClick}
                           stepFilter={stepFilter}
+                          hideControls
                         />
-                      </div>
-                    )}
-                  </div>
-                  <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                    <button
-                      onClick={() => setMgasChartExpanded(!mgasChartExpanded)}
-                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-                    >
-                      <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', mgasChartExpanded && 'rotate-90')} />
-                      <Zap className="size-4 text-gray-400 dark:text-gray-500" />
-                      MGas/s Chart
-                    </button>
-                    {mgasChartExpanded && (
-                      <div className="border-t border-gray-200 p-4 dark:border-gray-700">
                         <MGasChart
                           runs={completedRuns}
                           isDark={isDark}
-                          xAxisMode={mgasChartMode}
-                          onXAxisModeChange={handleMgasChartModeChange}
+                          xAxisMode={chartMode}
+                          onXAxisModeChange={handleChartModeChange}
                           onRunClick={handleRunClick}
                           stepFilter={stepFilter}
+                          hideControls
                         />
                       </div>
-                    )}
-                  </div>
-                </div>
-                <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                  <button
-                    onClick={() => setResourceChartsExpanded(!resourceChartsExpanded)}
-                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-                  >
-                    <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', resourceChartsExpanded && 'rotate-90')} />
-                    <Cpu className="size-4 text-gray-400 dark:text-gray-500" />
-                    Resource Usage
-                  </button>
-                  {resourceChartsExpanded && (
-                    <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                      <div className="flex items-center gap-3">
+                        <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
+                        <span className="text-xs font-medium text-gray-400 dark:text-gray-500">System Resources</span>
+                        <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
+                      </div>
                       <ResourceCharts
                         runs={completedRuns}
                         isDark={isDark}
-                        xAxisMode={resourceChartMode}
-                        onXAxisModeChange={handleResourceChartModeChange}
+                        xAxisMode={chartMode}
+                        onXAxisModeChange={handleChartModeChange}
                         onRunClick={handleRunClick}
+                        hideControls
                       />
+                      {chartMode === 'runCount' && (
+                        <div className="flex justify-end text-xs/5 text-gray-500 dark:text-gray-400">
+                          <span>&larr; Older runs | More recent &rarr;</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
