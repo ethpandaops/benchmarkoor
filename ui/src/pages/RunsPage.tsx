@@ -135,9 +135,9 @@ export function RunsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">Benchmark Runs ({filteredEntries.length})</h1>
-        <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">Runs ({filteredEntries.length})</h1>
+        <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-2">
             <span className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">Metric steps:</span>
             <div className="flex items-center gap-1">
@@ -163,19 +163,21 @@ export function RunsPage() {
               ))}
             </div>
           </div>
-          <RunFilters
-            clients={clients}
-            selectedClient={client}
-            onClientChange={handleClientChange}
-            images={images}
-            selectedImage={image}
-            onImageChange={handleImageChange}
-            suites={suites}
-            selectedSuite={suite}
-            onSuiteChange={handleSuiteChange}
-            selectedStatus={status}
-            onStatusChange={handleStatusChange}
-          />
+          <div className="flex flex-wrap items-center justify-end gap-4">
+            <RunFilters
+              clients={clients}
+              selectedClient={client}
+              onClientChange={handleClientChange}
+              images={images}
+              selectedImage={image}
+              onImageChange={handleImageChange}
+              suites={suites}
+              selectedSuite={suite}
+              onSuiteChange={handleSuiteChange}
+              selectedStatus={status}
+              onStatusChange={handleStatusChange}
+            />
+          </div>
         </div>
       </div>
 
