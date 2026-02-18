@@ -26,6 +26,18 @@
   --color-gray-950: #09090b;
 }
 
+/* Scale down on mobile by reducing the root font size so all rem-based
+   sizing (Tailwind) shrinks proportionally. Restores to 16px at md. */
+html {
+  font-size: 13px;
+}
+
+@media (min-width: 768px) {
+  html {
+    font-size: 16px;
+  }
+}
+
 /* Light mode: dimmed sepia palette to reduce brightness */
 :root:not(.dark) {
   --color-white: oklch(0.96 0.012 80);
