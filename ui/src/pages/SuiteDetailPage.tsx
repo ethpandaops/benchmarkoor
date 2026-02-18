@@ -79,10 +79,12 @@ export function SuiteDetailPage() {
     opcodeSort?: OpcodeSortMode
     q?: string
     chartMode?: XAxisMode
+    chartPassingOnly?: string
     heatmapColor?: ColorNormalization
     steps?: string
   }
   const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite' } = search
+  const chartPassingOnly = search.chartPassingOnly !== 'false'
   const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: suiteStats } = useSuiteStats(suiteHash)
@@ -116,6 +118,11 @@ export function SuiteDetailPage() {
   const completedRuns = useMemo(() => {
     return suiteRunsAll.filter((entry) => !entry.status || entry.status === 'completed')
   }, [suiteRunsAll])
+
+  const chartRuns = useMemo(() => {
+    if (!chartPassingOnly) return completedRuns
+    return completedRuns.filter((entry) => entry.tests.tests_total === entry.tests.tests_passed)
+  }, [completedRuns, chartPassingOnly])
 
   const clients = useMemo(() => {
     const clientSet = new Set(suiteRunsAll.map((e) => e.instance.client))
@@ -249,11 +256,21 @@ export function SuiteDetailPage() {
     })
   }
 
+  const chartPassingOnlyParam = chartPassingOnly ? undefined : 'false'
+
   const handleChartModeChange = (mode: XAxisMode) => {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, heatmapColor, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter) },
+    })
+  }
+
+  const handleChartPassingOnlyChange = (passingOnly: boolean) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: passingOnly ? undefined : 'false', heatmapColor, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -261,7 +278,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, heatmapColor: mode, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor: mode, steps: serializeStepFilter(stepFilter) },
     })
   }
 
@@ -269,7 +286,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, heatmapColor, steps: serializeStepFilter(steps) },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(steps) },
     })
   }
 
@@ -408,7 +425,26 @@ export function SuiteDetailPage() {
                   </button>
                   {chartExpanded && (
                     <div className="flex flex-col gap-4 border-t border-gray-200 p-4 dark:border-gray-700">
-                      <div className="flex justify-end">
+                      <div className="flex items-center justify-end gap-4">
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Passing runs only</span>
+                          <button
+                            role="switch"
+                            aria-checked={chartPassingOnly}
+                            onClick={() => handleChartPassingOnlyChange(!chartPassingOnly)}
+                            className={clsx(
+                              'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
+                              chartPassingOnly ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600',
+                            )}
+                          >
+                            <span
+                              className={clsx(
+                                'inline-block size-3.5 rounded-full bg-white transition-transform',
+                                chartPassingOnly ? 'translate-x-4.5' : 'translate-x-0.5',
+                              )}
+                            />
+                          </button>
+                        </label>
                         <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
                           <button
                             onClick={() => handleChartModeChange('runCount')}
@@ -436,7 +472,7 @@ export function SuiteDetailPage() {
                       </div>
                       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                         <DurationChart
-                          runs={completedRuns}
+                          runs={chartRuns}
                           isDark={isDark}
                           xAxisMode={chartMode}
                           onXAxisModeChange={handleChartModeChange}
@@ -445,7 +481,7 @@ export function SuiteDetailPage() {
                           hideControls
                         />
                         <MGasChart
-                          runs={completedRuns}
+                          runs={chartRuns}
                           isDark={isDark}
                           xAxisMode={chartMode}
                           onXAxisModeChange={handleChartModeChange}
@@ -460,7 +496,7 @@ export function SuiteDetailPage() {
                         <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
                       </div>
                       <ResourceCharts
-                        runs={completedRuns}
+                        runs={chartRuns}
                         isDark={isDark}
                         xAxisMode={chartMode}
                         onXAxisModeChange={handleChartModeChange}
