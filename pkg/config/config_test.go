@@ -189,6 +189,66 @@ runner:
 	}
 }
 
+func TestExpandEnvWithDefaults(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		envVars  map[string]string
+		expected string
+	}{
+		{
+			name:     "default used when var is unset",
+			input:    "${TEST_EXPAND_UNSET:-fallback}",
+			expected: "fallback",
+		},
+		{
+			name:     "default used when var is empty",
+			input:    "${TEST_EXPAND_EMPTY:-fallback}",
+			envVars:  map[string]string{"TEST_EXPAND_EMPTY": ""},
+			expected: "fallback",
+		},
+		{
+			name:     "var value used when set",
+			input:    "${TEST_EXPAND_SET:-fallback}",
+			envVars:  map[string]string{"TEST_EXPAND_SET": "actual"},
+			expected: "actual",
+		},
+		{
+			name:     "plain var returns empty when unset",
+			input:    "${TEST_EXPAND_PLAIN_UNSET}",
+			expected: "",
+		},
+		{
+			name:     "plain var returns value when set",
+			input:    "${TEST_EXPAND_PLAIN_SET}",
+			envVars:  map[string]string{"TEST_EXPAND_PLAIN_SET": "hello"},
+			expected: "hello",
+		},
+		{
+			name:     "default containing colons",
+			input:    "${TEST_EXPAND_URL:-http://localhost:8080}",
+			expected: "http://localhost:8080",
+		},
+		{
+			name:     "multiple expansions in one string",
+			input:    "${TEST_EXPAND_A:-alpha}_${TEST_EXPAND_B:-beta}",
+			envVars:  map[string]string{"TEST_EXPAND_A": "one"},
+			expected: "one_beta",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.envVars {
+				t.Setenv(k, v)
+			}
+
+			result := os.Expand(tt.input, expandEnvWithDefaults)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestLoad_DefaultsAppliedWhenEmpty(t *testing.T) {
 	// Create a minimal config with only required fields.
 	configContent := `

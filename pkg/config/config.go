@@ -602,9 +602,27 @@ type ClientInstance struct {
 	BootstrapFCU                 *BootstrapFCUConfig            `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 }
 
+// expandEnvWithDefaults is a mapping function for os.Expand that supports
+// bash-style default values: ${VAR:-default} returns "default" when VAR is
+// unset or empty. Plain variable references (${VAR} / $VAR) behave like
+// os.Getenv.
+func expandEnvWithDefaults(s string) string {
+	name, defaultVal, hasDefault := strings.Cut(s, ":-")
+	if hasDefault {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+
+		return defaultVal
+	}
+
+	return os.Getenv(s)
+}
+
 // Load reads and parses configuration files from the given paths.
 // When multiple paths are provided, configs are merged in order (later values override earlier).
-// Environment variables can be substituted in config values using ${VAR} or $VAR syntax.
+// Environment variables can be substituted in config values using ${VAR}, $VAR, or
+// ${VAR:-default} syntax (the default is used when VAR is unset or empty).
 // Additionally, environment variables with the prefix BENCHMARKOOR_ can override config values.
 // For example, BENCHMARKOOR_GLOBAL_LOG_LEVEL overrides global.log_level.
 func Load(paths ...string) (*Config, error) {
@@ -632,7 +650,7 @@ func Load(paths ...string) (*Config, error) {
 			return nil, fmt.Errorf("reading config file %q: %w", path, err)
 		}
 
-		expanded := os.ExpandEnv(string(content))
+		expanded := os.Expand(string(content), expandEnvWithDefaults)
 		rawYAMLs = append(rawYAMLs, expanded)
 
 		if i == 0 {
