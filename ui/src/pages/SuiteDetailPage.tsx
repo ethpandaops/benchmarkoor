@@ -15,7 +15,8 @@ import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
-import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
+import { RunsTable } from '@/components/runs/RunsTable'
+import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -144,8 +145,9 @@ export function SuiteDetailPage() {
     })
   }, [suiteRunsAll, client, image, status])
 
-  const totalRunsPages = Math.ceil(filteredRuns.length / runsPageSize)
-  const paginatedRuns = filteredRuns.slice((runsPage - 1) * runsPageSize, runsPage * runsPageSize)
+  const sortedRuns = useMemo(() => sortIndexEntries(filteredRuns, sortBy, sortDir, stepFilter), [filteredRuns, sortBy, sortDir, stepFilter])
+  const totalRunsPages = Math.ceil(sortedRuns.length / runsPageSize)
+  const paginatedRuns = sortedRuns.slice((runsPage - 1) * runsPageSize, runsPage * runsPageSize)
 
   const handleRunsPageSizeChange = (newSize: number) => {
     setRunsPageSize(newSize)
@@ -217,6 +219,7 @@ export function SuiteDetailPage() {
   }
 
   const handleSortChange = (newSortBy: SortColumn, newSortDir: SortDirection) => {
+    setRunsPage(1)
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },

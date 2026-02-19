@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, getIndexAggregatedStats } from '@/api/types'
@@ -8,16 +7,13 @@ import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
 import { formatDuration, formatNumber } from '@/utils/format'
+import { type SortColumn, type SortDirection } from './sortEntries'
 
 // Calculates MGas/s from gas_used and gas_used_duration
 function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number | undefined {
   if (gasUsedDuration <= 0 || gasUsed <= 0) return undefined
   return (gasUsed * 1000) / gasUsedDuration
 }
-
-
-export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'mgas' | 'failed' | 'passed' | 'total'
-export type SortDirection = 'asc' | 'desc'
 
 interface RunsTableProps {
   entries: IndexEntry[]
@@ -88,50 +84,6 @@ export function RunsTable({
     }
   }
 
-  const sortedEntries = useMemo(() => {
-    return [...entries].sort((a, b) => {
-      let comparison = 0
-      const statsA = getIndexAggregatedStats(a, stepFilter)
-      const statsB = getIndexAggregatedStats(b, stepFilter)
-      switch (sortBy) {
-        case 'timestamp':
-          comparison = a.timestamp - b.timestamp
-          break
-        case 'client':
-          comparison = a.instance.client.localeCompare(b.instance.client)
-          break
-        case 'image':
-          comparison = a.instance.image.localeCompare(b.instance.image)
-          break
-        case 'suite':
-          comparison = (a.suite_hash ?? '').localeCompare(b.suite_hash ?? '')
-          break
-        case 'duration': {
-          const durA = (a.timestamp_end ?? a.timestamp) - a.timestamp
-          const durB = (b.timestamp_end ?? b.timestamp) - b.timestamp
-          comparison = durA - durB
-          break
-        }
-        case 'mgas': {
-          const mgasA = calculateMGasPerSec(statsA.gasUsed, statsA.gasUsedDuration) ?? -Infinity
-          const mgasB = calculateMGasPerSec(statsB.gasUsed, statsB.gasUsedDuration) ?? -Infinity
-          comparison = mgasA - mgasB
-          break
-        }
-        case 'failed':
-          comparison = (a.tests.tests_total - a.tests.tests_passed) - (b.tests.tests_total - b.tests.tests_passed)
-          break
-        case 'passed':
-          comparison = a.tests.tests_passed - b.tests.tests_passed
-          break
-        case 'total':
-          comparison = a.tests.tests_total - b.tests.tests_total
-          break
-      }
-      return sortDir === 'asc' ? comparison : -comparison
-    })
-  }, [entries, sortBy, sortDir, stepFilter])
-
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
       <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -149,7 +101,7 @@ export function RunsTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-          {sortedEntries.map((entry) => {
+          {entries.map((entry) => {
             const hasFailures = entry.status !== 'container_died' && entry.status !== 'cancelled' && entry.tests.tests_total - entry.tests.tests_passed > 0
             return (
             <tr
