@@ -30,7 +30,9 @@ type Store interface {
 	// Session CRUD.
 	CreateSession(ctx context.Context, session *Session) error
 	GetSessionByToken(ctx context.Context, token string) (*Session, error)
+	ListSessions(ctx context.Context) ([]Session, error)
 	DeleteSession(ctx context.Context, token string) error
+	DeleteSessionByID(ctx context.Context, id uint) error
 	DeleteExpiredSessions(ctx context.Context) error
 
 	// GitHub org mapping CRUD.
@@ -221,11 +223,31 @@ func (s *store) GetSessionByToken(
 	return &session, nil
 }
 
+func (s *store) ListSessions(ctx context.Context) ([]Session, error) {
+	var sessions []Session
+	if err := s.db.WithContext(ctx).
+		Order("id ASC").
+		Find(&sessions).Error; err != nil {
+		return nil, fmt.Errorf("listing sessions: %w", err)
+	}
+
+	return sessions, nil
+}
+
 func (s *store) DeleteSession(ctx context.Context, token string) error {
 	if err := s.db.WithContext(ctx).
 		Where("token = ?", token).
 		Delete(&Session{}).Error; err != nil {
 		return fmt.Errorf("deleting session: %w", err)
+	}
+
+	return nil
+}
+
+func (s *store) DeleteSessionByID(ctx context.Context, id uint) error {
+	if err := s.db.WithContext(ctx).
+		Delete(&Session{}, id).Error; err != nil {
+		return fmt.Errorf("deleting session by id: %w", err)
 	}
 
 	return nil

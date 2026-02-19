@@ -250,6 +250,8 @@ All endpoints are under the `/api/v1` prefix.
 | `POST` | `/admin/users` | Create a user |
 | `PUT` | `/admin/users/{id}` | Update a user |
 | `DELETE` | `/admin/users/{id}` | Delete a user |
+| `GET` | `/admin/sessions` | List all active sessions |
+| `DELETE` | `/admin/sessions/{id}` | Revoke a session |
 | `GET` | `/admin/github/org-mappings` | List org role mappings |
 | `POST` | `/admin/github/org-mappings` | Create/update org mapping |
 | `DELETE` | `/admin/github/org-mappings/{id}` | Delete org mapping |
@@ -298,7 +300,7 @@ To enable API integration, add the `api` field to the UI's `config.json`:
 
 When the API is configured, the UI provides:
 - **Login page** (`/login`) — username/password form and/or "Sign in with GitHub" button
-- **Admin page** (`/admin`) — user management, GitHub org/user role mapping management
+- **Admin page** (`/admin`) — user management, session management, GitHub org/user role mapping management
 - **Header controls** — sign in/out button, username display, admin link (for admins)
 
 When the API is not configured, none of these features appear and the UI functions as a static results viewer.

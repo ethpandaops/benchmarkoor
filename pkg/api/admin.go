@@ -205,6 +205,91 @@ func (s *server) handleDeleteUser(
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// --- Session management ---
+
+type sessionResponse struct {
+	ID        uint   `json:"id"`
+	UserID    uint   `json:"user_id"`
+	Username  string `json:"username"`
+	Source    string `json:"source"`
+	ExpiresAt string `json:"expires_at"`
+	CreatedAt string `json:"created_at"`
+}
+
+// handleListSessions returns all sessions with resolved usernames.
+func (s *server) handleListSessions(
+	w http.ResponseWriter, r *http.Request,
+) {
+	sessions, err := s.store.ListSessions(r.Context())
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list sessions")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	users, err := s.store.ListUsers(r.Context())
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list users")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	type userInfo struct {
+		Username string
+		Source   string
+	}
+
+	userMap := make(map[uint]userInfo, len(users))
+	for i := range users {
+		userMap[users[i].ID] = userInfo{
+			Username: users[i].Username,
+			Source:   users[i].Source,
+		}
+	}
+
+	resp := make([]sessionResponse, 0, len(sessions))
+	for i := range sessions {
+		info := userMap[sessions[i].UserID]
+		resp = append(resp, sessionResponse{
+			ID:        sessions[i].ID,
+			UserID:    sessions[i].UserID,
+			Username:  info.Username,
+			Source:    info.Source,
+			ExpiresAt: sessions[i].ExpiresAt.Format("2006-01-02T15:04:05Z"),
+			CreatedAt: sessions[i].CreatedAt.Format("2006-01-02T15:04:05Z"),
+		})
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleDeleteSessionByID revokes a session by ID.
+func (s *server) handleDeleteSessionByID(
+	w http.ResponseWriter, r *http.Request,
+) {
+	id, err := parseIDParam(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{err.Error()})
+
+		return
+	}
+
+	if err := s.store.DeleteSessionByID(r.Context(), id); err != nil {
+		s.log.WithError(err).Error("Failed to delete session")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // --- GitHub org mapping management ---
 
 type orgMappingRequest struct {
