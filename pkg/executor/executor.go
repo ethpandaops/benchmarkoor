@@ -318,7 +318,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			}
 		}
 
-		log := e.log.WithField("test", test.Name)
+		log := e.log.WithFields(logrus.Fields{
+			"test": test.Name,
+			"pos":  fmt.Sprintf("%d/%d", i+1, len(tests)),
+		})
 		log.Info("Running test")
 
 		// Capture block info for rollback before the test starts.
