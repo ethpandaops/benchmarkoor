@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Outlet, useNavigate, useLocation } from '@tanstack/react-router'
 import { useAuth } from '@/hooks/useAuth'
 import { Header } from '@/components/layout/Header'
+import { ApiDownBanner } from '@/components/layout/ApiDownBanner'
 import { Footer } from '@/components/layout/Footer'
 
 export function RootLayout() {
@@ -24,6 +25,7 @@ export function RootLayout() {
   return (
     <div className="flex min-h-dvh flex-col bg-gray-50 dark:bg-gray-900">
       {!requiresLogin && <Header />}
+      <ApiDownBanner />
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">
         <Outlet />
       </main>

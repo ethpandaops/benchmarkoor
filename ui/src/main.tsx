@@ -1,9 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryCache, MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { AuthProvider } from '@/contexts/auth'
 import { loadRuntimeConfig } from '@/config/runtime'
+import { reportApiDown, reportApiUp } from '@/api/api-status-events'
 import { router } from './router'
 import './index.css'
 
@@ -34,8 +35,24 @@ function handleOAuthCallback(): boolean {
   return true
 }
 
+function isNetworkError(error: unknown): boolean {
+  return error instanceof TypeError
+}
+
 if (!handleOAuthCallback()) {
+  const queryCache = new QueryCache({
+    onError: (error) => { if (isNetworkError(error)) reportApiDown() },
+    onSuccess: () => reportApiUp(),
+  })
+
+  const mutationCache = new MutationCache({
+    onError: (error) => { if (isNetworkError(error)) reportApiDown() },
+    onSuccess: () => reportApiUp(),
+  })
+
   const queryClient = new QueryClient({
+    queryCache,
+    mutationCache,
     defaultOptions: {
       queries: {
         staleTime: 30_000,
