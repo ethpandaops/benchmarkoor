@@ -2,7 +2,8 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo, useState, useEffect } from 'react'
 import { useIndex } from '@/api/hooks/useIndex'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
-import { RunsTable, type SortColumn, type SortDirection } from '@/components/runs/RunsTable'
+import { RunsTable } from '@/components/runs/RunsTable'
+import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
 import { Pagination } from '@/components/shared/Pagination'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -77,8 +78,9 @@ export function RunsPage() {
     })
   }, [index, client, image, suite, status])
 
-  const totalPages = Math.ceil(filteredEntries.length / localPageSize)
-  const paginatedEntries = filteredEntries.slice((localPage - 1) * localPageSize, localPage * localPageSize)
+  const sortedEntries = useMemo(() => sortIndexEntries(filteredEntries, sortBy, sortDir, stepFilter), [filteredEntries, sortBy, sortDir, stepFilter])
+  const totalPages = Math.ceil(sortedEntries.length / localPageSize)
+  const paginatedEntries = sortedEntries.slice((localPage - 1) * localPageSize, localPage * localPageSize)
 
   const handlePageChange = (newPage: number) => {
     setLocalPage(newPage)
@@ -112,7 +114,8 @@ export function RunsPage() {
   }
 
   const handleSortChange = (newSortBy: SortColumn, newSortDir: SortDirection) => {
-    navigate({ to: '/runs', search: { page: localPage, pageSize: localPageSize, client, image, suite, status, sortBy: newSortBy, sortDir: newSortDir, steps } })
+    setLocalPage(1)
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, status, sortBy: newSortBy, sortDir: newSortDir, steps } })
   }
 
   const handleStepFilterChange = (newFilter: IndexStepType[]) => {
