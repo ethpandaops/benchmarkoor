@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useAuth } from '@/hooks/useAuth'
 import type { AuthConfig } from '@/api/auth-client'
 import { Modal } from '@/components/shared/Modal'
@@ -7,6 +8,8 @@ import {
   useCreateUser,
   useUpdateUser,
   useDeleteUser,
+  useSessions,
+  useDeleteSession,
   useOrgMappings,
   useUpsertOrgMapping,
   useDeleteOrgMapping,
@@ -17,7 +20,7 @@ import {
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 
-type Tab = 'users' | 'github-mappings'
+type Tab = 'users' | 'github-mappings' | 'sessions'
 
 export function AdminPage() {
   const { isAdmin, authConfig } = useAuth()
@@ -26,11 +29,18 @@ export function AdminPage() {
     const result: { key: Tab; label: string }[] = []
     if (authConfig?.auth.basic_enabled) result.push({ key: 'users', label: 'Users' })
     if (authConfig?.auth.github_enabled) result.push({ key: 'github-mappings', label: 'GitHub Mappings' })
+    result.push({ key: 'sessions', label: 'Sessions' })
     return result
   }, [authConfig])
 
-  const [activeTab, setActiveTab] = useState<Tab>('users')
+  const navigate = useNavigate()
+  const search = useSearch({ from: '/admin' }) as { tab?: string }
+  const activeTab = (search.tab as Tab) || tabs[0]?.key
   const resolvedTab = tabs.find((t) => t.key === activeTab) ? activeTab : tabs[0]?.key
+
+  const setActiveTab = (tab: Tab) => {
+    navigate({ to: '/admin', search: { tab } })
+  }
 
   if (!isAdmin) {
     return (
@@ -67,6 +77,7 @@ export function AdminPage() {
 
           {resolvedTab === 'users' && <UsersTab />}
           {resolvedTab === 'github-mappings' && <GitHubMappingsTab />}
+          {resolvedTab === 'sessions' && <SessionsTab />}
         </>
       )}
     </div>
@@ -215,6 +226,106 @@ function UsersTab() {
           </button>
         </form>
       </Modal>
+    </div>
+  )
+}
+
+// --- Sessions Tab ---
+
+function formatTimestamp(iso: string): string {
+  const date = new Date(iso)
+  const now = new Date()
+  const diffMs = date.getTime() - now.getTime()
+  const absDiffMs = Math.abs(diffMs)
+  const isPast = diffMs < 0
+
+  const minutes = Math.floor(absDiffMs / 60000)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+
+  let relative: string
+  if (minutes < 1) relative = 'just now'
+  else if (minutes < 60) relative = `${minutes}m ${isPast ? 'ago' : 'from now'}`
+  else if (hours < 24) relative = `${hours}h ${isPast ? 'ago' : 'from now'}`
+  else relative = `${days}d ${isPast ? 'ago' : 'from now'}`
+
+  return `${relative} (${date.toLocaleString()})`
+}
+
+function SessionsTab() {
+  const { data: sessions = [], isLoading } = useSessions()
+  const deleteSession = useDeleteSession()
+
+  if (isLoading) return <div className="text-sm text-gray-500">Loading...</div>
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          {sessions.length} session{sessions.length !== 1 ? 's' : ''}
+        </h2>
+      </div>
+
+      <div className="overflow-hidden rounded-sm border border-gray-200 dark:border-gray-700">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-gray-50 text-xs text-gray-500 uppercase dark:bg-gray-800 dark:text-gray-400">
+            <tr>
+              <th className="px-4 py-2">Username</th>
+              <th className="px-4 py-2">Source</th>
+              <th className="px-4 py-2">Created</th>
+              <th className="px-4 py-2">Expires</th>
+              <th className="px-4 py-2 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {sessions.map((s) => (
+              <tr key={s.id} className="bg-white dark:bg-gray-900">
+                <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">
+                  {s.username || `User #${s.user_id}`}
+                </td>
+                <td className="px-4 py-2">
+                  <span
+                    className={clsx(
+                      'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
+                      s.source === 'github'
+                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                        : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+                    )}
+                  >
+                    {s.source}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                  {formatTimestamp(s.created_at)}
+                </td>
+                <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                  {formatTimestamp(s.expires_at)}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <button
+                    onClick={() => {
+                      if (confirm(`Revoke session for "${s.username || `User #${s.user_id}`}"?`)) {
+                        deleteSession.mutate(s.id)
+                      }
+                    }}
+                    className="rounded-sm p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                    title="Revoke session"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {sessions.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                  No active sessions
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

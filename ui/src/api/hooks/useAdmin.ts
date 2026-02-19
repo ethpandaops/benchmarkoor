@@ -33,6 +33,32 @@ async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return resp.json()
 }
 
+// Sessions
+export interface AdminSession {
+  id: number
+  user_id: number
+  username: string
+  source: string
+  expires_at: string
+  created_at: string
+}
+
+export function useSessions() {
+  return useQuery<AdminSession[]>({
+    queryKey: ['admin', 'sessions'],
+    queryFn: () => adminFetch('/api/v1/admin/sessions'),
+  })
+}
+
+export function useDeleteSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      adminFetch(`/api/v1/admin/sessions/${id}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'sessions'] }),
+  })
+}
+
 // Users
 export function useUsers() {
   return useQuery<AuthUser[]>({
