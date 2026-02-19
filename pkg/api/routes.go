@@ -78,6 +78,10 @@ func (s *server) buildRouter() http.Handler {
 			r.Put("/users/{id}", s.handleUpdateUser)
 			r.Delete("/users/{id}", s.handleDeleteUser)
 
+			// Session management.
+			r.Get("/sessions", s.handleListSessions)
+			r.Delete("/sessions/{id}", s.handleDeleteSessionByID)
+
 			// GitHub org mappings.
 			r.Get("/github/org-mappings", s.handleListOrgMappings)
 			r.Post("/github/org-mappings", s.handleUpsertOrgMapping)
