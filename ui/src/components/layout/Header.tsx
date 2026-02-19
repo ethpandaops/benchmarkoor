@@ -80,7 +80,11 @@ function AuthControls({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex items-center gap-2">
       {isAdmin && <NavLink to="/admin" onClick={onNavigate}>Admin</NavLink>}
       <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
-        <User className="size-4" />
+        {user.source === 'github' ? (
+          <img src={`https://github.com/${user.username}.png`} alt="" className="size-6 rounded-full" />
+        ) : (
+          <User className="size-4" />
+        )}
         <span>{user.username}</span>
         {isAdmin && <Shield className="size-3 text-purple-500" />}
       </div>
