@@ -71,14 +71,12 @@ func (m *manager) RestoreContainer(
 ) (string, error) {
 	m.log.WithField("name", opts.Name).Info("Restoring container from checkpoint")
 
-	ignoreRootFS := true
 	fileLocks := true
 	keep := true
 
 	restoreOpts := &containers.RestoreOptions{
 		ImportArchive: &exportPath,
 		Name:          &opts.Name,
-		IgnoreRootfs:  &ignoreRootFS,
 		FileLocks:     &fileLocks,
 		Keep:          &keep,
 	}
