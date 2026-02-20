@@ -2984,16 +2984,14 @@ func (r *runner) runTestsWithCheckpointRestore(
 			testLog.WithError(execErr).Error("Test execution failed")
 		}
 
-		// Stop and clean up the restored container.
-		if stopErr := r.docker.StopContainer(ctx, restoredID); stopErr != nil {
-			testLog.WithError(stopErr).Warn("Failed to stop restored container")
-		}
-
-		waitForLogDrain(logDone, logCancel, logDrainTimeout)
-
+		// Force-remove the restored container (kills it immediately).
+		// No graceful stop needed — the test is done and the container
+		// state will be rebuilt from checkpoint for the next test.
 		if rmErr := r.docker.RemoveContainer(ctx, restoredID); rmErr != nil {
 			testLog.WithError(rmErr).Warn("Failed to remove restored container")
 		}
+
+		waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
 		// Aggregate results.
 		if result != nil {
