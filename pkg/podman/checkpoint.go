@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/containers/podman/v5/pkg/bindings/containers"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
@@ -42,13 +45,23 @@ func (m *manager) CheckpointContainer(
 ) error {
 	m.log.WithField("container", containerID[:12]).Info("Checkpointing container")
 
+	// Drop all non-LISTEN TCP connections before checkpointing. CRIU
+	// cannot restore TCP sockets bound to the old container IP, and
+	// restored containers get a new address. Killing connections here
+	// avoids the need for --tcp-established / --tcp-close workarounds.
+	if err := m.dropTCPConnections(ctx, containerID); err != nil {
+		m.log.WithError(err).Warn("Failed to drop TCP connections before checkpoint")
+	}
+
 	fileLocks := true
 	keep := true
+	tcpEstablished := true
 
 	_, err := containers.Checkpoint(m.conn, containerID, &containers.CheckpointOptions{
-		Export:    &exportPath,
-		FileLocks: &fileLocks,
-		Keep:      &keep,
+		Export:         &exportPath,
+		FileLocks:      &fileLocks,
+		Keep:           &keep,
+		TCPEstablished: &tcpEstablished,
 	})
 	if err != nil {
 		m.logCRIUDumpLog(containerID)
@@ -73,12 +86,16 @@ func (m *manager) RestoreContainer(
 
 	fileLocks := true
 	keep := true
+	tcpEstablished := true
+	tcpClose := true
 
 	restoreOpts := &containers.RestoreOptions{
-		ImportArchive: &exportPath,
-		Name:          &opts.Name,
-		FileLocks:     &fileLocks,
-		Keep:          &keep,
+		ImportArchive:  &exportPath,
+		Name:           &opts.Name,
+		FileLocks:      &fileLocks,
+		Keep:           &keep,
+		TCPEstablished: &tcpEstablished,
+		TCPClose:       &tcpClose,
 	}
 
 	report, err := containers.Restore(m.conn, "", restoreOpts)
@@ -93,6 +110,62 @@ func (m *manager) RestoreContainer(
 	m.log.WithField("id", containerID[:12]).Info("Container restored successfully")
 
 	return containerID, nil
+}
+
+// dropTCPConnections blocks new outgoing TCP connections and kills all
+// existing non-LISTEN TCP sockets inside the container's network namespace.
+// This two-step approach (block then kill) avoids a race where the process
+// opens new connections between the kill and the CRIU freeze.
+func (m *manager) dropTCPConnections(ctx context.Context, containerID string) error {
+	inspect, err := containers.Inspect(m.conn, containerID, nil)
+	if err != nil {
+		return fmt.Errorf("inspecting container: %w", err)
+	}
+
+	pid := inspect.State.Pid
+	if pid <= 0 {
+		return fmt.Errorf("container %s has no running PID", containerID[:12])
+	}
+
+	pidStr := strconv.Itoa(pid)
+
+	// Step 1: Reject new outgoing TCP connections via iptables. Using
+	// REJECT (not DROP) so connect() fails immediately with ECONNREFUSED,
+	// allowing the process to close the fd. DROP would leave sockets stuck
+	// in SYN_SENT. The rule is ephemeral — restored containers get a new
+	// network namespace.
+	//nolint:gosec // pid comes from Podman inspect, not user input.
+	if out, err := exec.CommandContext(ctx,
+		"nsenter", "-t", pidStr, "-n",
+		"iptables", "-A", "OUTPUT", "-p", "tcp",
+		"--tcp-flags", "SYN", "SYN",
+		"-m", "state", "--state", "NEW",
+		"-j", "REJECT", "--reject-with", "tcp-reset",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("iptables block failed: %w: %s", err, string(out))
+	}
+
+	// Step 2: Kill all non-listening TCP sockets.
+	//nolint:gosec // pid comes from Podman inspect, not user input.
+	if out, err := exec.CommandContext(ctx,
+		"nsenter", "-t", pidStr, "-n",
+		"ss", "-K", "state", "all", "exclude", "listening",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("ss -K failed: %w: %s", err, string(out))
+	}
+
+	// Step 3: Wait for the process's async runtime to notice the
+	// destroyed sockets (via epoll errors) and close the fds.
+	m.log.WithField("container", containerID[:12]).
+		Info("Blocked outgoing TCP and dropped existing connections, waiting for fd cleanup")
+
+	select {
+	case <-time.After(10 * time.Second):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	return nil
 }
 
 // logCRIUDumpLog reads and logs the CRIU dump.log from the container's
