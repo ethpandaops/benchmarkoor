@@ -167,31 +167,45 @@ func (r *cgroupReader) readIOStats() (readBytes, writeBytes, readOps, writeOps u
 }
 
 // detectCgroupPath finds the cgroup v2 path for a container.
-// Checks both systemd and cgroupfs driver paths.
+// Checks Docker and Podman paths for both systemd and cgroupfs drivers.
 func detectCgroupPath(containerID string) string {
 	// Common cgroup v2 base path.
 	cgroupBase := "/sys/fs/cgroup"
 
-	// Try systemd driver path: /sys/fs/cgroup/system.slice/docker-{id}.scope/
-	systemdPath := filepath.Join(cgroupBase, "system.slice", "docker-"+containerID+".scope")
-	if isValidCgroupPath(systemdPath) {
-		return systemdPath
+	// Candidate paths in priority order.
+	candidates := []string{
+		// Docker systemd: /sys/fs/cgroup/system.slice/docker-{id}.scope
+		filepath.Join(cgroupBase, "system.slice", "docker-"+containerID+".scope"),
+		// Docker cgroupfs: /sys/fs/cgroup/docker/{id}
+		filepath.Join(cgroupBase, "docker", containerID),
+		// Podman systemd (rootful): /sys/fs/cgroup/machine.slice/libpod-{id}.scope/container
+		filepath.Join(cgroupBase, "machine.slice", "libpod-"+containerID+".scope", "container"),
+		// Podman systemd (rootful, no sub-cgroup): /sys/fs/cgroup/machine.slice/libpod-{id}.scope
+		filepath.Join(cgroupBase, "machine.slice", "libpod-"+containerID+".scope"),
+		// Podman cgroupfs: /sys/fs/cgroup/libpod_parent/libpod-{id}
+		filepath.Join(cgroupBase, "libpod_parent", "libpod-"+containerID),
 	}
 
-	// Try cgroupfs driver path: /sys/fs/cgroup/docker/{id}/
-	cgroupfsPath := filepath.Join(cgroupBase, "docker", containerID)
-	if isValidCgroupPath(cgroupfsPath) {
-		return cgroupfsPath
+	for _, path := range candidates {
+		if isValidCgroupPath(path) {
+			return path
+		}
 	}
 
-	// Try short container ID (first 12 characters) for systemd.
+	// Try short container ID (first 12 characters) for systemd paths.
 	if len(containerID) >= 12 {
 		shortID := containerID[:12]
 
-		// Some systems use full ID, others use short ID.
-		systemdShortPath := filepath.Join(cgroupBase, "system.slice", "docker-"+shortID+".scope")
-		if isValidCgroupPath(systemdShortPath) {
-			return systemdShortPath
+		shortCandidates := []string{
+			filepath.Join(cgroupBase, "system.slice", "docker-"+shortID+".scope"),
+			filepath.Join(cgroupBase, "machine.slice", "libpod-"+shortID+".scope", "container"),
+			filepath.Join(cgroupBase, "machine.slice", "libpod-"+shortID+".scope"),
+		}
+
+		for _, path := range shortCandidates {
+			if isValidCgroupPath(path) {
+				return path
+			}
 		}
 	}
 

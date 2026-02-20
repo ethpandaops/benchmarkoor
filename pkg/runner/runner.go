@@ -11,12 +11,14 @@ import (
 	mrand "math/rand/v2"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/go-units"
 	"github.com/ethpandaops/benchmarkoor/pkg/blocklog"
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
@@ -27,6 +29,8 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
+	"github.com/ethpandaops/benchmarkoor/pkg/podman"
+	"github.com/ethpandaops/benchmarkoor/pkg/stats"
 	"github.com/ethpandaops/benchmarkoor/pkg/upload"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/host"
@@ -161,6 +165,7 @@ type ResolvedThrottleDevice struct {
 type ResolvedInstance struct {
 	ID                           string                                `json:"id"`
 	Client                       string                                `json:"client"`
+	ContainerRuntime             string                                `json:"container_runtime,omitempty"`
 	Image                        string                                `json:"image"`
 	ImageSHA256                  string                                `json:"image_sha256,omitempty"`
 	Entrypoint                   []string                              `json:"entrypoint,omitempty"`
@@ -186,7 +191,7 @@ type ResolvedInstance struct {
 func NewRunner(
 	log *logrus.Logger,
 	cfg *Config,
-	dockerMgr docker.Manager,
+	containerMgr docker.ContainerManager,
 	registry client.Registry,
 	exec executor.Executor,
 	cpufreqMgr cpufreq.Manager,
@@ -200,7 +205,7 @@ func NewRunner(
 		logger:     log,
 		log:        log.WithField("component", "runner"),
 		cfg:        cfg,
-		docker:     dockerMgr,
+		docker:     containerMgr,
 		registry:   registry,
 		executor:   exec,
 		cpufreqMgr: cpufreqMgr,
@@ -213,7 +218,7 @@ type runner struct {
 	logger     *logrus.Logger     // The actual logger (for hook management)
 	log        logrus.FieldLogger // The field logger (for logging with fields)
 	cfg        *Config
-	docker     docker.Manager
+	docker     docker.ContainerManager
 	registry   client.Registry
 	executor   executor.Executor
 	cpufreqMgr cpufreq.Manager
@@ -224,6 +229,16 @@ type runner struct {
 
 // Ensure interface compliance.
 var _ Runner = (*runner)(nil)
+
+// getDockerClient returns the underlying Docker client if the container manager
+// is a Docker manager, or nil otherwise (e.g., when using Podman).
+func (r *runner) getDockerClient() *dockerclient.Client {
+	if dm, ok := r.docker.(docker.Manager); ok {
+		return dm.GetClient()
+	}
+
+	return nil
+}
 
 // Start initializes the runner.
 func (r *runner) Start(ctx context.Context) error {
@@ -851,6 +866,34 @@ func (r *runner) runContainerLifecycle(
 		env[k] = v
 	}
 
+	// When using checkpoint-restore, apply CRIU-compatibility env overrides.
+	if r.cfg.FullConfig != nil &&
+		r.cfg.FullConfig.GetRollbackStrategy(instance) == config.RollbackStrategyCheckpointRestore {
+		// Disable MPTCP so CRIU can checkpoint TCP sockets. CRIU does not
+		// support MPTCP (protocol 262) and recent Go versions enable it
+		// by default.
+		if _, ok := env["GODEBUG"]; !ok {
+			env["GODEBUG"] = "multipathtcp=0"
+		}
+
+		// .NET uses inotify for file watching, config reload, and
+		// diagnostics. CRIU cannot dump inotify watches on deleted
+		// files or overlayfs handles. Disable all .NET inotify
+		// sources for Nethermind to allow checkpointing.
+		if client.ClientType(instance.Client) == client.ClientNethermind {
+			dotnetEnvDefaults := map[string]string{
+				"DOTNET_USE_POLLING_FILE_WATCHER":         "true",
+				"DOTNET_HOSTBUILDER_RELOADCONFIGONCHANGE": "false",
+				"DOTNET_EnableDiagnostics":                "0",
+			}
+			for k, v := range dotnetEnvDefaults {
+				if _, ok := env[k]; !ok {
+					env[k] = v
+				}
+			}
+		}
+	}
+
 	// Resolve drop_memory_caches setting.
 	var dropMemoryCaches string
 	if r.cfg.FullConfig != nil {
@@ -941,8 +984,14 @@ func (r *runner) runContainerLifecycle(
 		Timestamp: params.RunTimestamp,
 		System:    getSystemInfo(),
 		Instance: &ResolvedInstance{
-			ID:          instance.ID,
-			Client:      instance.Client,
+			ID:     instance.ID,
+			Client: instance.Client,
+			ContainerRuntime: func() string {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetContainerRuntime()
+				}
+				return "docker"
+			}(),
 			Image:       imageName,
 			ImageSHA256: imageDigest,
 			Entrypoint:  instance.Entrypoint,
@@ -1313,7 +1362,8 @@ func (r *runner) runContainerLifecycle(
 			rollbackStrategy = r.cfg.FullConfig.GetRollbackStrategy(instance)
 		}
 
-		isRunnerLevel := rollbackStrategy == config.RollbackStrategyContainerRecreate
+		isRunnerLevel := rollbackStrategy == config.RollbackStrategyContainerRecreate ||
+			rollbackStrategy == config.RollbackStrategyCheckpointRestore
 
 		var (
 			result  *executor.ExecutionResult
@@ -1328,12 +1378,22 @@ func (r *runner) runContainerLifecycle(
 			localCleanupOnce.Do(func() { close(localCleanupStarted) })
 			execCancel()
 
-			result, execErr = r.runTestsWithContainerStrategy(
-				ctx, params, spec, containerID, containerIP,
-				rollbackStrategy, dropMemoryCaches, dropCachesPath,
-				runResultsDir, &logCancel, &logDone, benchmarkoorLogFile,
-				&localCleanupFuncs, localCleanupStarted,
-			)
+			switch rollbackStrategy {
+			case config.RollbackStrategyCheckpointRestore:
+				result, execErr = r.runTestsWithCheckpointRestore(
+					ctx, params, spec, containerID, containerIP,
+					dropMemoryCaches, dropCachesPath,
+					runResultsDir, &logCancel, &logDone, benchmarkoorLogFile,
+					&localCleanupFuncs, localCleanupStarted,
+				)
+			default:
+				result, execErr = r.runTestsWithContainerStrategy(
+					ctx, params, spec, containerID, containerIP,
+					rollbackStrategy, dropMemoryCaches, dropCachesPath,
+					runResultsDir, &logCancel, &logDone, benchmarkoorLogFile,
+					&localCleanupFuncs, localCleanupStarted,
+				)
+			}
 		} else {
 			execOpts := &executor.ExecuteOptions{
 				EngineEndpoint: fmt.Sprintf(
@@ -1343,7 +1403,7 @@ func (r *runner) runContainerLifecycle(
 				ResultsDir:            runResultsDir,
 				Filter:                r.cfg.TestFilter,
 				ContainerID:           containerID,
-				DockerClient:          r.docker.GetClient(),
+				DockerClient:          r.getDockerClient(),
 				DropMemoryCaches:      dropMemoryCaches,
 				DropCachesPath:        dropCachesPath,
 				RollbackStrategy:      rollbackStrategy,
@@ -1742,7 +1802,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			ResultsDir:       resultsDir,
 			Filter:           r.cfg.TestFilter,
 			ContainerID:      currentContainerID,
-			DockerClient:     r.docker.GetClient(),
+			DockerClient:     r.getDockerClient(),
 			DropMemoryCaches: dropMemoryCaches,
 			DropCachesPath:   dropCachesPath,
 			RollbackStrategy: config.RollbackStrategyNone,
@@ -2673,4 +2733,406 @@ func logCPUFreqInfo(log logrus.FieldLogger, mgr cpufreq.Manager, targetCPUs []in
 			"scaling_max": cpufreq.FormatFrequency(info.ScalingMaxKHz),
 		}).Info("CPU frequency info")
 	}
+}
+
+// runTestsWithCheckpointRestore executes tests using Podman checkpoint/restore
+// combined with ZFS snapshots. After the initial container reaches RPC readiness,
+// the method checkpoints the container's memory state and takes a ZFS snapshot.
+// For each test, it creates a ZFS clone and restores the container from the
+// checkpoint — the client process resumes mid-execution without restart or RPC
+// polling.
+//
+//nolint:gocognit,cyclop // Per-test checkpoint/restore is inherently complex.
+func (r *runner) runTestsWithCheckpointRestore(
+	ctx context.Context,
+	params *containerRunParams,
+	spec client.Spec,
+	containerID string,
+	containerIP string,
+	dropMemoryCaches string,
+	dropCachesPath string,
+	resultsDir string,
+	logCancel *context.CancelFunc,
+	logDone *chan struct{},
+	benchmarkoorLog *os.File,
+	cleanupFuncs *[]func(),
+	cleanupStarted chan struct{},
+) (*executor.ExecutionResult, error) {
+	log := r.log.WithFields(logrus.Fields{
+		"instance": params.Instance.ID,
+		"run_id":   params.RunID,
+		"strategy": "checkpoint-restore",
+	})
+
+	// Type-assert the container manager to CheckpointManager.
+	cpMgr, ok := r.docker.(podman.CheckpointManager)
+	if !ok {
+		return nil, fmt.Errorf("container manager does not support checkpoint/restore")
+	}
+
+	// Resolve the test list.
+	tests := params.Tests
+	if tests == nil {
+		tests = r.executor.GetTests()
+	}
+
+	if len(tests) == 0 {
+		return &executor.ExecutionResult{}, nil
+	}
+
+	log.WithField("tests", len(tests)).Info(
+		"Running tests with checkpoint-restore strategy",
+	)
+
+	zfsMgr := datadir.NewCheckpointZFSManager(r.log)
+
+	// Find the data mount source — this is the ZFS clone path the
+	// container is using (e.g., /pool/data/benchmarkoor-clone-geth/...).
+	dataMountSource := ""
+
+	containerDir := params.DataDirCfg.ContainerDir
+	if containerDir == "" {
+		containerDir = spec.DataDir()
+	}
+
+	for _, mnt := range params.ContainerSpec.Mounts {
+		if mnt.Target == containerDir {
+			dataMountSource = mnt.Source
+
+			break
+		}
+	}
+
+	if dataMountSource == "" {
+		return nil, fmt.Errorf("could not find data mount for %s in container spec", containerDir)
+	}
+
+	// 1. Run pre-run steps on the live container before checkpointing.
+	//    These steps (e.g., genesis setup) must be baked into the
+	//    checkpoint so every restored container starts post-pre-run.
+	engineEndpoint := fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort())
+
+	preRunOpts := &executor.ExecuteOptions{
+		EngineEndpoint: engineEndpoint,
+		JWT:            r.cfg.JWT,
+		ResultsDir:     resultsDir,
+	}
+
+	if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {
+		return nil, fmt.Errorf("running pre-run steps before checkpoint: %w", err)
+	} else if n > 0 {
+		log.WithField("steps", n).Info("Pre-run steps completed before checkpoint")
+	}
+
+	// 2. Decide checkpoint export path: tmpfs (RAM) or disk.
+	//
+	// When checkpoint_tmpfs_threshold is configured and the container's
+	// current memory usage is under the threshold, store the checkpoint
+	// on a tmpfs mount to eliminate disk I/O during restores.
+	exportPath := filepath.Join(resultsDir, "checkpoint.tar")
+	tmpfsDir := ""
+
+	thresholdStr := r.cfg.FullConfig.GetCheckpointTmpfsThreshold(params.Instance)
+	if thresholdStr != "" {
+		threshold, parseErr := config.ParseByteSize(thresholdStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing checkpoint_tmpfs_threshold: %w", parseErr)
+		}
+
+		// Read container memory usage before checkpoint.
+		reader, readerErr := stats.NewReader(
+			r.log, r.getDockerClient(), containerID,
+		)
+		if readerErr != nil {
+			log.WithError(readerErr).Warn(
+				"Failed to create stats reader for tmpfs decision, using disk",
+			)
+		} else {
+			containerStats, statsErr := reader.ReadStats()
+			_ = reader.Close()
+
+			if statsErr != nil {
+				log.WithError(statsErr).Warn(
+					"Failed to read container stats for tmpfs decision, using disk",
+				)
+			} else if containerStats.Memory > 0 && containerStats.Memory <= threshold {
+				dir, mkErr := os.MkdirTemp("", "benchmarkoor-cp-tmpfs-")
+				if mkErr != nil {
+					log.WithError(mkErr).Warn(
+						"Failed to create tmpfs dir, using disk",
+					)
+				} else {
+					// Mount tmpfs with 2x the container memory to
+					// accommodate the checkpoint archive overhead.
+					tmpfsSize := containerStats.Memory * 2
+
+					//nolint:gosec // Arguments are computed, not user-supplied.
+					mountCmd := exec.CommandContext(
+						ctx, "mount", "-t", "tmpfs",
+						"-o", fmt.Sprintf("size=%d", tmpfsSize),
+						"tmpfs", dir,
+					)
+					if mountOut, mountErr := mountCmd.CombinedOutput(); mountErr != nil {
+						log.WithError(mountErr).WithField(
+							"output", string(mountOut),
+						).Warn("Failed to mount tmpfs, using disk")
+
+						_ = os.Remove(dir)
+					} else {
+						tmpfsDir = dir
+						exportPath = filepath.Join(dir, "checkpoint.tar")
+
+						log.WithFields(logrus.Fields{
+							"memory_bytes":    containerStats.Memory,
+							"threshold_bytes": threshold,
+							"tmpfs_size":      tmpfsSize,
+						}).Info("Using tmpfs for checkpoint storage")
+					}
+				}
+			} else {
+				log.WithFields(logrus.Fields{
+					"memory_bytes":    containerStats.Memory,
+					"threshold_bytes": threshold,
+				}).Info("Container memory exceeds tmpfs threshold, using disk")
+			}
+		}
+	}
+
+	// 3. Checkpoint the running container.
+	//
+	// Close idle HTTP connections first so there are no ESTABLISHED TCP
+	// connections inside the container (from RPC readiness checks). CRIU
+	// refuses to checkpoint established connections without --tcp-established,
+	// and restoring them fails when the container IP changes.
+	http.DefaultClient.CloseIdleConnections()
+	time.Sleep(200 * time.Millisecond) // Let server-side sockets close.
+
+	if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath); err != nil {
+		return nil, fmt.Errorf("checkpointing container: %w", err)
+	}
+
+	defer func() {
+		_ = os.Remove(exportPath)
+
+		if tmpfsDir != "" {
+			//nolint:gosec // Path is from os.MkdirTemp, not user-supplied.
+			if umountErr := exec.Command("umount", tmpfsDir).Run(); umountErr != nil {
+				log.WithError(umountErr).Warn("Failed to unmount tmpfs")
+			}
+
+			_ = os.Remove(tmpfsDir)
+		}
+	}()
+
+	// Wait for log drain after checkpoint (container has stopped).
+	waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+	// 4. Flush dirty pages and snapshot the data directory.
+	//
+	// The checkpointed process used mmap (MAP_SHARED) for its database,
+	// so dirty pages may still be in the page cache. Sync ensures they
+	// are written to ZFS before the snapshot, so the snapshot captures
+	// the exact filesystem state that matches the checkpointed memory.
+	if syncErr := exec.Command("sync").Run(); syncErr != nil {
+		log.WithError(syncErr).Warn("Failed to sync before ZFS snapshot")
+	}
+
+	snapshot, err := zfsMgr.SnapshotReady(ctx, &datadir.CheckpointConfig{
+		DataDir:    dataMountSource,
+		InstanceID: params.Instance.ID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating ready-state ZFS snapshot: %w", err)
+	}
+
+	defer func() {
+		if destroyErr := zfsMgr.DestroySnapshot(snapshot); destroyErr != nil {
+			log.WithError(destroyErr).Warn("Failed to destroy ready-state snapshot")
+		}
+	}()
+
+	log.Info("Container checkpointed, starting per-test restore loop")
+
+	// 5. Per-test restore loop.
+	combined := &executor.ExecutionResult{}
+	startTime := time.Now()
+
+	for i, test := range tests {
+		select {
+		case <-ctx.Done():
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, ctx.Err()
+		default:
+		}
+
+		testLog := log.WithFields(logrus.Fields{
+			"test":  test.Name,
+			"index": fmt.Sprintf("%d/%d", i+1, len(tests)),
+		})
+
+		testLog.Info("Preparing test: rolling back ZFS and restoring container")
+
+		// Rollback the ZFS clone to the ready-state snapshot so the
+		// container restores onto clean data at the same mount path.
+		if err := zfsMgr.RollbackToReady(ctx, snapshot); err != nil {
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, fmt.Errorf("rolling back ZFS for test %d: %w", i, err)
+		}
+
+		// Drop Linux page caches after ZFS rollback. The previous test's
+		// mmap writes (MAP_SHARED) leave stale pages in the VFS cache.
+		// ZFS rollback resets on-disk data but does NOT invalidate these
+		// cached pages, so the restored process would read stale data.
+		if dropCachesPath != "" {
+			if cacheErr := os.WriteFile(dropCachesPath, []byte("3"), 0); cacheErr != nil {
+				testLog.WithError(cacheErr).Warn("Failed to drop page caches after ZFS rollback")
+			}
+		}
+
+		// Restore container from checkpoint.
+		restoreName := fmt.Sprintf("%s-restore-%d", params.ContainerSpec.Name, i)
+
+		restoredID, err := cpMgr.RestoreContainer(ctx, exportPath, &podman.RestoreOptions{
+			Name:        restoreName,
+			NetworkName: r.cfg.DockerNetwork,
+		})
+		if err != nil {
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, fmt.Errorf("restoring container for test %d: %w", i, err)
+		}
+
+		// Register cleanup for this iteration.
+		iterID := restoredID
+
+		*cleanupFuncs = append(*cleanupFuncs, func() {
+			if rmErr := r.docker.RemoveContainer(
+				context.Background(), iterID,
+			); rmErr != nil {
+				testLog.WithError(rmErr).Warn("Failed to remove restored container")
+			}
+		})
+
+		// Get container IP.
+		restoredIP, err := r.docker.GetContainerIP(
+			ctx, restoredID, r.cfg.DockerNetwork,
+		)
+		if err != nil {
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, fmt.Errorf("getting container IP for test %d: %w", i, err)
+		}
+
+		// Start log streaming for restored container.
+		var logCtx context.Context
+		var newLogCancel context.CancelFunc
+
+		logCtx, newLogCancel = context.WithCancel(ctx)
+		*logCancel = newLogCancel
+
+		logFilePath := filepath.Join(resultsDir, "container.log")
+
+		logFile, logErr := os.OpenFile(
+			logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
+		)
+		if logErr != nil {
+			newLogCancel()
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, fmt.Errorf("opening log file for test %d: %w", i, logErr)
+		}
+
+		*cleanupFuncs = append(*cleanupFuncs, func() { _ = logFile.Close() })
+
+		newLogDone := make(chan struct{})
+		*logDone = newLogDone
+
+		r.wg.Add(1)
+
+		go func() {
+			defer r.wg.Done()
+			defer close(newLogDone)
+
+			if streamErr := r.streamLogs(
+				logCtx, params.Instance.ID, restoredID, logFile,
+				benchmarkoorLog,
+				&containerLogInfo{
+					Name:             restoreName,
+					ContainerID:      restoredID,
+					Image:            params.ContainerSpec.Image,
+					GenesisGroupHash: params.GenesisGroupHash,
+				},
+				params.BlockLogCollector,
+			); streamErr != nil {
+				select {
+				case <-cleanupStarted:
+				default:
+					testLog.WithError(streamErr).Debug("Log streaming ended")
+				}
+			}
+		}()
+
+		// No waitForRPC needed — process resumes at checkpoint state.
+		testLog.Info("Executing test (restored from checkpoint)")
+
+		// Execute single test with no executor-level rollback.
+		execOpts := &executor.ExecuteOptions{
+			EngineEndpoint: fmt.Sprintf(
+				"http://%s:%d", restoredIP, spec.EnginePort(),
+			),
+			JWT:              r.cfg.JWT,
+			ResultsDir:       resultsDir,
+			Filter:           r.cfg.TestFilter,
+			ContainerID:      restoredID,
+			DockerClient:     r.getDockerClient(),
+			DropMemoryCaches: dropMemoryCaches,
+			DropCachesPath:   dropCachesPath,
+			RollbackStrategy: config.RollbackStrategyNone,
+			RPCEndpoint: fmt.Sprintf(
+				"http://%s:%d", restoredIP, spec.RPCPort(),
+			),
+			Tests:                         []*executor.TestWithSteps{test},
+			BlockLogCollector:             params.BlockLogCollector,
+			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
+		}
+
+		result, execErr := r.executor.ExecuteTests(ctx, execOpts)
+		if execErr != nil {
+			testLog.WithError(execErr).Error("Test execution failed")
+		}
+
+		// Force-remove the restored container (kills it immediately).
+		// No graceful stop needed — the test is done and the container
+		// state will be rebuilt from checkpoint for the next test.
+		if rmErr := r.docker.RemoveContainer(ctx, restoredID); rmErr != nil {
+			testLog.WithError(rmErr).Warn("Failed to remove restored container")
+		}
+
+		waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+		// Aggregate results.
+		if result != nil {
+			combined.TotalTests += result.TotalTests
+			combined.Passed += result.Passed
+			combined.Failed += result.Failed
+
+			if result.StatsReaderType != "" {
+				combined.StatsReaderType = result.StatsReaderType
+			}
+
+			if result.ContainerDied {
+				combined.ContainerDied = true
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, nil
+			}
+		}
+	}
+
+	combined.TotalDuration = time.Since(startTime)
+
+	return combined, nil
 }

@@ -297,6 +297,24 @@ func (p *zfsProvider) getMountpoint(ctx context.Context, dataset string) (string
 	return mountpoint, nil
 }
 
+// rollbackSnapshot rolls a ZFS dataset back to the given snapshot, discarding
+// all changes made since the snapshot was created.
+func (p *zfsProvider) rollbackSnapshot(ctx context.Context, snapshotName string) error {
+	p.log.WithField("snapshot", snapshotName).Info("Rolling back ZFS snapshot")
+
+	//nolint:gosec // Command args are controlled by the application.
+	cmd := exec.CommandContext(ctx, "zfs", "rollback", snapshotName)
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf(
+			"rolling back ZFS snapshot %q: %w (output: %s)",
+			snapshotName, err, string(output),
+		)
+	}
+
+	return nil
+}
+
 // destroyClone destroys a ZFS clone dataset.
 func (p *zfsProvider) destroyClone(cloneDataset string) error {
 	p.log.WithField("clone_dataset", cloneDataset).Info("Destroying ZFS clone")
@@ -382,8 +400,11 @@ func ListOrphanedZFSResources(ctx context.Context) ([]ZFSOrphanedResource, error
 		name := fields[0]
 		resourceType := fields[1]
 
-		// Check for benchmarkoor clones (filesystem type with benchmarkoor-clone in name).
-		if resourceType == "filesystem" && strings.Contains(name, "/benchmarkoor-clone-") {
+		// Check for benchmarkoor clones (filesystem type with benchmarkoor-clone or
+		// benchmarkoor-cp prefix, the latter used by checkpoint-restore strategy).
+		if resourceType == "filesystem" &&
+			(strings.Contains(name, "/benchmarkoor-clone-") ||
+				strings.Contains(name, "/benchmarkoor-cp-")) {
 			resources = append(resources, ZFSOrphanedResource{
 				Name: name,
 				Type: "clone",

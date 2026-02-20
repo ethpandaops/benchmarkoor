@@ -58,7 +58,7 @@ func runCleanup(cmd *cobra.Command, args []string) error {
 }
 
 // performCleanup lists and removes all benchmarkoor resources.
-func performCleanup(ctx context.Context, dockerMgr docker.Manager, force bool) error {
+func performCleanup(ctx context.Context, dockerMgr docker.ContainerManager, force bool) error {
 	// List containers.
 	containers, err := dockerMgr.ListContainers(ctx)
 	if err != nil {

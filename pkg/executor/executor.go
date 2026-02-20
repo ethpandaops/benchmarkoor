@@ -34,6 +34,12 @@ type Executor interface {
 	// ExecuteTests runs all tests against the specified endpoint.
 	ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*ExecutionResult, error)
 
+	// RunPreRunSteps executes the suite's pre-run steps (if any) against the
+	// given endpoint. This is used by checkpoint-restore to run pre-run steps
+	// on the live container before checkpointing, so the checkpointed state
+	// includes the pre-run effects. Returns the number of steps executed.
+	RunPreRunSteps(ctx context.Context, opts *ExecuteOptions) (int, error)
+
 	// GetSuiteHash returns the hash of the test suite.
 	GetSuiteHash() string
 
@@ -213,6 +219,51 @@ func (e *executor) GetSource() Source {
 	return e.source
 }
 
+// RunPreRunSteps executes the suite's pre-run steps against the given endpoint.
+// This is used by checkpoint-restore to run pre-run steps on the live container
+// before checkpointing. Returns the number of steps executed.
+func (e *executor) RunPreRunSteps(ctx context.Context, opts *ExecuteOptions) (int, error) {
+	if e.prepared == nil {
+		return 0, fmt.Errorf("executor not prepared: call Start first")
+	}
+
+	if len(e.prepared.PreRunSteps) == 0 {
+		return 0, nil
+	}
+
+	e.log.WithField("pre_run_steps", len(e.prepared.PreRunSteps)).Info("Running pre-run steps")
+
+	for _, step := range e.prepared.PreRunSteps {
+		select {
+		case <-ctx.Done():
+			return 0, fmt.Errorf("context cancelled during pre-run steps: %w", ctx.Err())
+		default:
+		}
+
+		log := e.log.WithField("step", step.Name)
+		log.Info("Running pre-run step")
+
+		preRunResult := NewTestResult(step.Name)
+		if err := e.runStepFile(ctx, opts, step, preRunResult, false); err != nil {
+			log.WithError(err).Warn("Pre-run step failed")
+
+			if ctx.Err() != nil {
+				return 0, fmt.Errorf("context cancelled during pre-run step execution: %w", ctx.Err())
+			}
+		} else {
+			if err := WriteStepResults(
+				opts.ResultsDir, step.Name, StepTypePreRun, preRunResult, e.cfg.ResultsOwner,
+			); err != nil {
+				log.WithError(err).Warn("Failed to write pre-run step results")
+			}
+		}
+	}
+
+	e.log.Info("Pre-run steps completed")
+
+	return len(e.prepared.PreRunSteps), nil
+}
+
 // ExecuteTests runs all tests against the specified Engine API endpoint.
 // If the context is cancelled (e.g., due to container death), execution stops
 // but partial results are still written.
@@ -252,6 +303,11 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	// Track if execution was interrupted.
 	var interrupted bool
 	var interruptReason string
+
+	// Track passed/failed counts directly from the test loop to avoid
+	// miscounts when the results directory is shared across calls.
+	testsPassed := 0
+	testsFailed := 0
 
 	// Determine cache dropping behavior.
 	dropBetweenTests := opts.DropMemoryCaches == "tests" || opts.DropMemoryCaches == "steps"
@@ -364,6 +420,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					goto writeResults
 				}
 			} else {
+				if setupResult.Failed > 0 {
+					testPassed = false
+				}
+
 				// Write setup results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeSetup, setupResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write setup results")
@@ -396,6 +456,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					goto writeResults
 				}
 			} else {
+				if testResult.Failed > 0 {
+					testPassed = false
+				}
+
 				// Write test results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeTest, testResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write test results")
@@ -433,6 +497,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					goto writeResults
 				}
 			} else {
+				if cleanupResult.Failed > 0 {
+					testPassed = false
+				}
+
 				// Write cleanup results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeCleanup, cleanupResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write cleanup results")
@@ -467,8 +535,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		}
 
 		if testPassed {
+			testsPassed++
 			log.Info("Test completed successfully")
 		} else {
+			testsFailed++
 			log.Warn("Test completed with failures")
 		}
 	}
@@ -494,36 +564,16 @@ writeResults:
 		}
 	}
 
-	// Count passed/failed from whatever results were written.
-	// We scan the results directory to count actual test outcomes.
+	// Use loop-tracked counts (not GenerateRunResult) to avoid miscounting
+	// when the results directory is shared across multiple executor calls.
+	result.Passed = testsPassed
+	result.Failed = testsFailed
+
+	// Write the run result file.
 	runResult, err := GenerateRunResult(opts.ResultsDir)
 	if err != nil {
 		e.log.WithError(err).Warn("Failed to generate run result")
 	} else {
-		// Count passed/failed tests from the generated result.
-		for _, test := range runResult.Tests {
-			passed := true
-			if test.Steps != nil {
-				if test.Steps.Setup != nil && test.Steps.Setup.Aggregated.Failed > 0 {
-					passed = false
-				}
-
-				if test.Steps.Test != nil && test.Steps.Test.Aggregated.Failed > 0 {
-					passed = false
-				}
-
-				if test.Steps.Cleanup != nil && test.Steps.Cleanup.Aggregated.Failed > 0 {
-					passed = false
-				}
-			}
-
-			if passed {
-				result.Passed++
-			} else {
-				result.Failed++
-			}
-		}
-
 		if err := WriteRunResult(opts.ResultsDir, runResult, e.cfg.ResultsOwner); err != nil {
 			e.log.WithError(err).Warn("Failed to write run result")
 		} else {
