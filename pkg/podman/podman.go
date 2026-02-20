@@ -233,10 +233,12 @@ func (m *manager) StopContainer(ctx context.Context, containerID string) error {
 func (m *manager) RemoveContainer(ctx context.Context, containerID string) error {
 	force := true
 	vols := true
+	timeout := uint(0) // SIGKILL immediately, skip SIGTERM grace period.
 
 	if _, err := containers.Remove(m.conn, containerID, &containers.RemoveOptions{
 		Force:   &force,
 		Volumes: &vols,
+		Timeout: &timeout,
 	}); err != nil {
 		return fmt.Errorf("removing container %s: %w", containerID[:12], err)
 	}
