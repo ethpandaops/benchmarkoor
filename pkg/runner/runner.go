@@ -2927,9 +2927,16 @@ func (r *runner) runTestsWithCheckpointRestore(
 	// Wait for log drain after checkpoint (container has stopped).
 	waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
-	// 4. Snapshot the data directory AFTER the checkpoint. The process is
-	//    now frozen and all I/O has been flushed, so the snapshot captures
-	//    the exact filesystem state that matches the checkpointed memory.
+	// 4. Flush dirty pages and snapshot the data directory.
+	//
+	// The checkpointed process used mmap (MAP_SHARED) for its database,
+	// so dirty pages may still be in the page cache. Sync ensures they
+	// are written to ZFS before the snapshot, so the snapshot captures
+	// the exact filesystem state that matches the checkpointed memory.
+	if syncErr := exec.Command("sync").Run(); syncErr != nil {
+		log.WithError(syncErr).Warn("Failed to sync before ZFS snapshot")
+	}
+
 	snapshot, err := zfsMgr.SnapshotReady(ctx, &datadir.CheckpointConfig{
 		DataDir:    dataMountSource,
 		InstanceID: params.Instance.ID,
@@ -2972,6 +2979,16 @@ func (r *runner) runTestsWithCheckpointRestore(
 			combined.TotalDuration = time.Since(startTime)
 
 			return combined, fmt.Errorf("rolling back ZFS for test %d: %w", i, err)
+		}
+
+		// Drop Linux page caches after ZFS rollback. The previous test's
+		// mmap writes (MAP_SHARED) leave stale pages in the VFS cache.
+		// ZFS rollback resets on-disk data but does NOT invalidate these
+		// cached pages, so the restored process would read stale data.
+		if dropCachesPath != "" {
+			if cacheErr := os.WriteFile(dropCachesPath, []byte("3"), 0); cacheErr != nil {
+				testLog.WithError(cacheErr).Warn("Failed to drop page caches after ZFS rollback")
+			}
 		}
 
 		// Restore container from checkpoint.
