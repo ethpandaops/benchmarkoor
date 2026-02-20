@@ -304,6 +304,11 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	var interrupted bool
 	var interruptReason string
 
+	// Track passed/failed counts directly from the test loop to avoid
+	// miscounts when the results directory is shared across calls.
+	testsPassed := 0
+	testsFailed := 0
+
 	// Determine cache dropping behavior.
 	dropBetweenTests := opts.DropMemoryCaches == "tests" || opts.DropMemoryCaches == "steps"
 	dropBetweenSteps := opts.DropMemoryCaches == "steps"
@@ -518,8 +523,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		}
 
 		if testPassed {
+			testsPassed++
 			log.Info("Test completed successfully")
 		} else {
+			testsFailed++
 			log.Warn("Test completed with failures")
 		}
 	}
@@ -545,36 +552,16 @@ writeResults:
 		}
 	}
 
-	// Count passed/failed from whatever results were written.
-	// We scan the results directory to count actual test outcomes.
+	// Use loop-tracked counts (not GenerateRunResult) to avoid miscounting
+	// when the results directory is shared across multiple executor calls.
+	result.Passed = testsPassed
+	result.Failed = testsFailed
+
+	// Write the run result file.
 	runResult, err := GenerateRunResult(opts.ResultsDir)
 	if err != nil {
 		e.log.WithError(err).Warn("Failed to generate run result")
 	} else {
-		// Count passed/failed tests from the generated result.
-		for _, test := range runResult.Tests {
-			passed := true
-			if test.Steps != nil {
-				if test.Steps.Setup != nil && test.Steps.Setup.Aggregated.Failed > 0 {
-					passed = false
-				}
-
-				if test.Steps.Test != nil && test.Steps.Test.Aggregated.Failed > 0 {
-					passed = false
-				}
-
-				if test.Steps.Cleanup != nil && test.Steps.Cleanup.Aggregated.Failed > 0 {
-					passed = false
-				}
-			}
-
-			if passed {
-				result.Passed++
-			} else {
-				result.Failed++
-			}
-		}
-
 		if err := WriteRunResult(opts.ResultsDir, runResult, e.cfg.ResultsOwner); err != nil {
 			e.log.WithError(err).Warn("Failed to write run result")
 		} else {
