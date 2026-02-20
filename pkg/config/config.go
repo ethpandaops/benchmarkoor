@@ -53,6 +53,12 @@ const (
 	// RollbackStrategyContainerRecreate recreates the container between tests.
 	// The data volume persists, so the client restarts from the same datadir.
 	RollbackStrategyContainerRecreate = "container-recreate"
+
+	// RollbackStrategyCheckpointRestore uses Podman's CRIU-based checkpoint/restore
+	// to snapshot the container's memory state + ZFS snapshot the datadir after RPC
+	// is ready, then instantly restore both per-test.
+	// Requires container_runtime: "podman" and datadir.method: "zfs".
+	RollbackStrategyCheckpointRestore = "checkpoint-restore"
 )
 
 // Config is the root configuration for benchmarkoor.
@@ -64,6 +70,7 @@ type Config struct {
 
 // RunnerConfig contains all run-specific configuration settings.
 type RunnerConfig struct {
+	ContainerRuntime   string            `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
 	ClientLogsToStdout bool              `yaml:"client_logs_to_stdout" mapstructure:"client_logs_to_stdout"`
 	DockerNetwork      string            `yaml:"docker_network" mapstructure:"docker_network"`
 	CleanupOnStart     bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
@@ -693,6 +700,7 @@ func bindEnvKeys(v *viper.Viper) {
 		// Global settings
 		"global.log_level",
 		// Runner settings
+		"runner.container_runtime",
 		"runner.client_logs_to_stdout",
 		"runner.docker_network",
 		"runner.cleanup_on_start",
@@ -878,12 +886,24 @@ func (c *Config) applyDefaults() {
 
 // ValidateOpts controls optional validation behavior.
 type ValidateOpts struct {
-	// ActiveInstanceIDs limits datadir validation to instances with these IDs.
+	// ActiveInstanceIDs limits validation to instances with these IDs.
 	// When nil or empty, all instances are validated.
 	ActiveInstanceIDs map[string]struct{}
 	// ActiveClients limits global datadir validation to these client types.
 	// When nil or empty, all global datadirs are validated.
 	ActiveClients map[string]struct{}
+}
+
+// isInstanceActive returns true if the instance should be validated.
+// When ActiveInstanceIDs is nil or empty, all instances are active.
+func (o ValidateOpts) isInstanceActive(id string) bool {
+	if len(o.ActiveInstanceIDs) == 0 {
+		return true
+	}
+
+	_, ok := o.ActiveInstanceIDs[id]
+
+	return ok
 }
 
 // Validate checks the configuration for errors.
@@ -976,8 +996,13 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		return fmt.Errorf("tests config: %w", err)
 	}
 
+	// Validate container_runtime setting.
+	if err := c.validateContainerRuntime(); err != nil {
+		return err
+	}
+
 	// Validate rollback_strategy settings.
-	if err := c.validateRollbackStrategy(); err != nil {
+	if err := c.validateRollbackStrategy(opt); err != nil {
 		return err
 	}
 
@@ -1129,6 +1154,38 @@ var validRollbackStrategies = map[string]bool{
 	RollbackStrategyNone:              true, // Explicitly disabled
 	RollbackStrategyRPCDebugSetHead:   true, // Rollback via debug_setHead RPC
 	RollbackStrategyContainerRecreate: true, // Recreate container between tests
+	RollbackStrategyCheckpointRestore: true, // Podman checkpoint/restore + ZFS
+}
+
+// validContainerRuntimes contains valid values for container_runtime.
+var validContainerRuntimes = map[string]bool{
+	"":       true, // Unset (defaults to "docker")
+	"docker": true,
+	"podman": true,
+}
+
+// resolveDataDir returns the effective datadir config for an instance.
+// Instance-level datadir takes precedence over global datadirs.
+func (c *Config) resolveDataDir(instance *ClientInstance) *DataDirConfig {
+	if instance.DataDir != nil {
+		return instance.DataDir
+	}
+
+	if c.Runner.Client.DataDirs != nil {
+		return c.Runner.Client.DataDirs[instance.Client]
+	}
+
+	return nil
+}
+
+// GetContainerRuntime returns the container runtime to use.
+// Returns "docker" if unset or empty.
+func (c *Config) GetContainerRuntime() string {
+	if c.Runner.ContainerRuntime != "" {
+		return c.Runner.ContainerRuntime
+	}
+
+	return "docker"
 }
 
 // GetRollbackStrategy returns the rollback_strategy setting for an instance.
@@ -1279,20 +1336,59 @@ func (c *Config) validateDropMemoryCaches() error {
 	return nil
 }
 
-// validateRollbackStrategy validates rollback_strategy settings for all instances.
-func (c *Config) validateRollbackStrategy() error {
+// validateRollbackStrategy validates rollback_strategy settings for active instances.
+func (c *Config) validateRollbackStrategy(opt ValidateOpts) error {
 	for _, instance := range c.Runner.Instances {
+		if !opt.isInstanceActive(instance.ID) {
+			continue
+		}
+
 		value := c.GetRollbackStrategy(&instance)
 
 		if !validRollbackStrategies[value] {
 			return fmt.Errorf(
-				"instance %q: invalid rollback_strategy value %q (must be %q, %q, or %q)",
+				"instance %q: invalid rollback_strategy value %q"+
+					" (must be %q, %q, %q, or %q)",
 				instance.ID, value,
 				RollbackStrategyNone,
 				RollbackStrategyRPCDebugSetHead,
 				RollbackStrategyContainerRecreate,
+				RollbackStrategyCheckpointRestore,
 			)
 		}
+
+		// checkpoint-restore requires podman runtime.
+		if value == RollbackStrategyCheckpointRestore {
+			if c.GetContainerRuntime() != "podman" {
+				return fmt.Errorf(
+					"instance %q: rollback_strategy %q requires"+
+						" container_runtime: \"podman\"",
+					instance.ID, value,
+				)
+			}
+
+			// checkpoint-restore requires ZFS datadir.
+			dd := c.resolveDataDir(&instance)
+			if dd == nil || dd.Method != "zfs" {
+				return fmt.Errorf(
+					"instance %q: rollback_strategy %q requires"+
+						" datadir.method: \"zfs\"",
+					instance.ID, value,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateContainerRuntime validates the container_runtime field.
+func (c *Config) validateContainerRuntime() error {
+	if !validContainerRuntimes[c.Runner.ContainerRuntime] {
+		return fmt.Errorf(
+			"invalid container_runtime %q (must be \"docker\" or \"podman\")",
+			c.Runner.ContainerRuntime,
+		)
 	}
 
 	return nil

@@ -382,8 +382,11 @@ func ListOrphanedZFSResources(ctx context.Context) ([]ZFSOrphanedResource, error
 		name := fields[0]
 		resourceType := fields[1]
 
-		// Check for benchmarkoor clones (filesystem type with benchmarkoor-clone in name).
-		if resourceType == "filesystem" && strings.Contains(name, "/benchmarkoor-clone-") {
+		// Check for benchmarkoor clones (filesystem type with benchmarkoor-clone or
+		// benchmarkoor-cp prefix, the latter used by checkpoint-restore strategy).
+		if resourceType == "filesystem" &&
+			(strings.Contains(name, "/benchmarkoor-clone-") ||
+				strings.Contains(name, "/benchmarkoor-cp-")) {
 			resources = append(resources, ZFSOrphanedResource{
 				Name: name,
 				Type: "clone",

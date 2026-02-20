@@ -8,6 +8,10 @@ global:
   log_level: ${LOG_LEVEL:-info}
 
 runner:
+  # Container runtime: "docker" (default) or "podman".
+  # Podman is required for the "checkpoint-restore" rollback strategy.
+  # When using Podman, ensure the socket is active: sudo systemctl start podman.socket
+  # container_runtime: docker
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
@@ -241,7 +245,12 @@ runner:
       # Values: "disabled" (default), "tests" (between tests), "steps" (between setup/test/cleanup steps)
       # drop_memory_caches: "disabled"
       # Optional: Rollback strategy to reset client state after each test.
-      # Values: "none", "rpc-debug-setHead" (default, capture block number before test, rollback via debug_setHead after)
+      # Values:
+      #   "none"                - Do not rollback
+      #   "rpc-debug-setHead"   - Capture block number before test, rollback via debug_setHead after (default)
+      #   "container-recreate"  - Stop and remove the container after each test, recreate from same datadir
+      #   "checkpoint-restore"  - Podman CRIU checkpoint/restore + ZFS snapshots for instant per-test restore.
+      #                           Requires: container_runtime: "podman" and datadir.method: "zfs"
       # rollback_strategy: "rpc-debug-setHead"
       # Optional: Wait duration after RPC becomes ready before running tests.
       # Useful for clients like Erigon that need time to complete internal sync pipelines

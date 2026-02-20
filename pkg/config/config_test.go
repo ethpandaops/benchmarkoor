@@ -1419,6 +1419,280 @@ func createTestTarball(t *testing.T, path string) {
 	require.NoError(t, err)
 }
 
+func TestValidateContainerRuntime(t *testing.T) {
+	tests := []struct {
+		name      string
+		runtime   string
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "empty string is valid (defaults to docker)",
+			runtime: "",
+			wantErr: false,
+		},
+		{
+			name:    "docker is valid",
+			runtime: "docker",
+			wantErr: false,
+		},
+		{
+			name:    "podman is valid",
+			runtime: "podman",
+			wantErr: false,
+		},
+		{
+			name:      "invalid runtime rejected",
+			runtime:   "containerd",
+			wantErr:   true,
+			errSubstr: "invalid container_runtime",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: tt.runtime,
+					Instances:        []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			}
+			err := cfg.validateContainerRuntime()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateRollbackStrategy_CheckpointRestore(t *testing.T) {
+	validDir := t.TempDir()
+
+	tests := []struct {
+		name      string
+		cfg       Config
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "checkpoint-restore valid with podman and zfs",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "zfs",
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "checkpoint-restore requires podman runtime",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "zfs",
+							},
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "requires container_runtime: \"podman\"",
+		},
+		{
+			name: "checkpoint-restore requires podman - explicit docker rejected",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "docker",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "zfs",
+							},
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "requires container_runtime: \"podman\"",
+		},
+		{
+			name: "checkpoint-restore requires zfs datadir method",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "copy",
+							},
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "requires datadir.method: \"zfs\"",
+		},
+		{
+			name: "checkpoint-restore requires datadir configured",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "requires datadir.method: \"zfs\"",
+		},
+		{
+			name: "checkpoint-restore with zfs from global datadirs",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+						DataDirs: map[string]*DataDirConfig{
+							"geth": {
+								SourceDir: validDir,
+								Method:    "zfs",
+							},
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "checkpoint-restore instance-level strategy with podman and zfs",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Instances: []ClientInstance{
+						{
+							ID:               "test",
+							Client:           "geth",
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "zfs",
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.validateRollbackStrategy(ValidateOpts{})
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestGetContainerRuntime(t *testing.T) {
+	tests := []struct {
+		name     string
+		runtime  string
+		expected string
+	}{
+		{
+			name:     "empty defaults to docker",
+			runtime:  "",
+			expected: "docker",
+		},
+		{
+			name:     "docker returns docker",
+			runtime:  "docker",
+			expected: "docker",
+		},
+		{
+			name:     "podman returns podman",
+			runtime:  "podman",
+			expected: "podman",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: tt.runtime,
+				},
+			}
+			assert.Equal(t, tt.expected, cfg.GetContainerRuntime())
+		})
+	}
+}
+
 func TestValidate_WithValidateOpts(t *testing.T) {
 	// Create a real directory to use as a valid datadir source.
 	validDir := t.TempDir()
