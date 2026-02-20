@@ -3,6 +3,8 @@ package podman
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/containers/podman/v5/pkg/bindings/containers"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
@@ -24,9 +26,8 @@ type CheckpointManager interface {
 
 // RestoreOptions configures how a container is restored from a checkpoint.
 type RestoreOptions struct {
-	Name        string         // New container name.
-	Mounts      []docker.Mount // Override mounts (e.g., for ZFS clone).
-	NetworkName string         // Network to attach the restored container to.
+	Name        string // New container name.
+	NetworkName string // Network to attach the restored container to.
 }
 
 // Ensure interface compliance.
@@ -41,10 +42,17 @@ func (m *manager) CheckpointContainer(
 ) error {
 	m.log.WithField("container", containerID[:12]).Info("Checkpointing container")
 
+	fileLocks := true
+	keep := true
+
 	_, err := containers.Checkpoint(m.conn, containerID, &containers.CheckpointOptions{
-		Export: &exportPath,
+		Export:    &exportPath,
+		FileLocks: &fileLocks,
+		Keep:      &keep,
 	})
 	if err != nil {
+		m.logCRIUDumpLog(containerID)
+
 		return fmt.Errorf("checkpointing container %s: %w", containerID[:12], err)
 	}
 
@@ -64,15 +72,21 @@ func (m *manager) RestoreContainer(
 	m.log.WithField("name", opts.Name).Info("Restoring container from checkpoint")
 
 	ignoreRootFS := true
+	fileLocks := true
+	keep := true
 
 	restoreOpts := &containers.RestoreOptions{
 		ImportArchive: &exportPath,
 		Name:          &opts.Name,
 		IgnoreRootfs:  &ignoreRootFS,
+		FileLocks:     &fileLocks,
+		Keep:          &keep,
 	}
 
 	report, err := containers.Restore(m.conn, "", restoreOpts)
 	if err != nil {
+		m.logCRIURestoreLog(opts.Name)
+
 		return "", fmt.Errorf("restoring container from %s: %w", exportPath, err)
 	}
 
@@ -81,4 +95,48 @@ func (m *manager) RestoreContainer(
 	m.log.WithField("id", containerID[:12]).Info("Container restored successfully")
 
 	return containerID, nil
+}
+
+// logCRIUDumpLog reads and logs the CRIU dump.log from the container's
+// work-path directory. This provides detailed error information when a
+// checkpoint operation fails.
+func (m *manager) logCRIUDumpLog(containerID string) {
+	m.logCRIULog(containerID, "dump.log")
+}
+
+// logCRIURestoreLog looks up a container by name and logs its CRIU
+// restore.log. On restore failure the container ID is unknown, so we
+// resolve it via inspect-by-name.
+func (m *manager) logCRIURestoreLog(containerName string) {
+	inspect, err := containers.Inspect(m.conn, containerName, nil)
+	if err != nil {
+		m.log.WithError(err).Debug("Could not inspect container for restore log")
+
+		return
+	}
+
+	m.logCRIULog(inspect.ID, "restore.log")
+}
+
+// logCRIULog reads and logs the specified CRIU log file from a container's
+// work-path directory.
+func (m *manager) logCRIULog(containerID, logFile string) {
+	workPath := filepath.Join(
+		"/var/lib/containers/storage/overlay-containers",
+		containerID,
+		"userdata",
+		logFile,
+	)
+
+	data, err := os.ReadFile(workPath)
+	if err != nil {
+		m.log.WithError(err).WithField("path", workPath).
+			Debug("Could not read CRIU log")
+
+		return
+	}
+
+	m.log.WithField("criu_log", string(data)).
+		WithField("file", logFile).
+		Error("CRIU log contents")
 }

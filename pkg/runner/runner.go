@@ -864,6 +864,16 @@ func (r *runner) runContainerLifecycle(
 		env[k] = v
 	}
 
+	// When using checkpoint-restore, disable MPTCP so CRIU can checkpoint
+	// TCP sockets. CRIU does not support MPTCP (protocol 262) and recent
+	// Go versions enable it by default.
+	if r.cfg.FullConfig != nil &&
+		r.cfg.FullConfig.GetRollbackStrategy(instance) == config.RollbackStrategyCheckpointRestore {
+		if _, ok := env["GODEBUG"]; !ok {
+			env["GODEBUG"] = "multipathtcp=0"
+		}
+	}
+
 	// Resolve drop_memory_caches setting.
 	var dropMemoryCaches string
 	if r.cfg.FullConfig != nil {
@@ -2754,11 +2764,71 @@ func (r *runner) runTestsWithCheckpointRestore(
 		"Running tests with checkpoint-restore strategy",
 	)
 
-	// 1. Create ZFS snapshot of the ready-state data directory.
 	zfsMgr := datadir.NewCheckpointZFSManager(r.log)
 
+	// Find the data mount source — this is the ZFS clone path the
+	// container is using (e.g., /pool/data/benchmarkoor-clone-geth/...).
+	dataMountSource := ""
+
+	containerDir := params.DataDirCfg.ContainerDir
+	if containerDir == "" {
+		containerDir = spec.DataDir()
+	}
+
+	for _, mnt := range params.ContainerSpec.Mounts {
+		if mnt.Target == containerDir {
+			dataMountSource = mnt.Source
+
+			break
+		}
+	}
+
+	if dataMountSource == "" {
+		return nil, fmt.Errorf("could not find data mount for %s in container spec", containerDir)
+	}
+
+	// 1. Run pre-run steps on the live container before checkpointing.
+	//    These steps (e.g., genesis setup) must be baked into the
+	//    checkpoint so every restored container starts post-pre-run.
+	engineEndpoint := fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort())
+
+	preRunOpts := &executor.ExecuteOptions{
+		EngineEndpoint: engineEndpoint,
+		JWT:            r.cfg.JWT,
+		ResultsDir:     resultsDir,
+	}
+
+	if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {
+		return nil, fmt.Errorf("running pre-run steps before checkpoint: %w", err)
+	} else if n > 0 {
+		log.WithField("steps", n).Info("Pre-run steps completed before checkpoint")
+	}
+
+	// 2. Checkpoint the running container.
+	//
+	// Close idle HTTP connections first so there are no ESTABLISHED TCP
+	// connections inside the container (from RPC readiness checks). CRIU
+	// refuses to checkpoint established connections without --tcp-established,
+	// and restoring them fails when the container IP changes.
+	http.DefaultClient.CloseIdleConnections()
+	time.Sleep(200 * time.Millisecond) // Let server-side sockets close.
+
+	exportPath := filepath.Join(resultsDir, "checkpoint.tar")
+
+	if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath); err != nil {
+		return nil, fmt.Errorf("checkpointing container: %w", err)
+	}
+
+	defer func() { _ = os.Remove(exportPath) }()
+
+	// Wait for log drain after checkpoint (container has stopped).
+	waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+	// 3. Snapshot the data directory AFTER the checkpoint. The process is
+	//    now frozen and all I/O has been flushed, so the snapshot captures
+	//    the exact filesystem state that matches the checkpointed memory.
 	snapshot, err := zfsMgr.SnapshotReady(ctx, &datadir.CheckpointConfig{
-		SourceDir:  params.DataDirCfg.SourceDir,
+		DataDir:    dataMountSource,
 		InstanceID: params.Instance.ID,
 	})
 	if err != nil {
@@ -2771,21 +2841,9 @@ func (r *runner) runTestsWithCheckpointRestore(
 		}
 	}()
 
-	// 2. Checkpoint the running container.
-	exportPath := filepath.Join(resultsDir, "checkpoint.tar")
-
-	if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath); err != nil {
-		return nil, fmt.Errorf("checkpointing container: %w", err)
-	}
-
-	defer func() { _ = os.Remove(exportPath) }()
-
-	// Wait for log drain after checkpoint (container has stopped).
-	waitForLogDrain(logDone, logCancel, logDrainTimeout)
-
 	log.Info("Container checkpointed, starting per-test restore loop")
 
-	// 3. Per-test restore loop.
+	// 4. Per-test restore loop.
 	combined := &executor.ExecutionResult{}
 	startTime := time.Now()
 
@@ -2803,36 +2861,24 @@ func (r *runner) runTestsWithCheckpointRestore(
 			"index": fmt.Sprintf("%d/%d", i+1, len(tests)),
 		})
 
-		// Create ZFS clone for this test.
-		testID := fmt.Sprintf("%s-%d", params.Instance.ID, i)
+		testLog.Info("Preparing test: rolling back ZFS and restoring container")
 
-		clone, err := zfsMgr.CloneForTest(ctx, snapshot, testID)
-		if err != nil {
+		// Rollback the ZFS clone to the ready-state snapshot so the
+		// container restores onto clean data at the same mount path.
+		if err := zfsMgr.RollbackToReady(ctx, snapshot); err != nil {
 			combined.TotalDuration = time.Since(startTime)
 
-			return combined, fmt.Errorf("creating ZFS clone for test %d: %w", i, err)
-		}
-
-		// Determine the container mount target.
-		containerDir := params.DataDirCfg.ContainerDir
-		if containerDir == "" {
-			containerDir = spec.DataDir()
+			return combined, fmt.Errorf("rolling back ZFS for test %d: %w", i, err)
 		}
 
 		// Restore container from checkpoint.
 		restoreName := fmt.Sprintf("%s-restore-%d", params.ContainerSpec.Name, i)
 
 		restoredID, err := cpMgr.RestoreContainer(ctx, exportPath, &podman.RestoreOptions{
-			Name: restoreName,
-			Mounts: []docker.Mount{{
-				Type:   "bind",
-				Source: clone.MountPath,
-				Target: containerDir,
-			}},
+			Name:        restoreName,
 			NetworkName: r.cfg.DockerNetwork,
 		})
 		if err != nil {
-			_ = clone.Cleanup()
 			combined.TotalDuration = time.Since(startTime)
 
 			return combined, fmt.Errorf("restoring container for test %d: %w", i, err)
@@ -2840,17 +2886,12 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		// Register cleanup for this iteration.
 		iterID := restoredID
-		iterClone := clone
 
 		*cleanupFuncs = append(*cleanupFuncs, func() {
 			if rmErr := r.docker.RemoveContainer(
 				context.Background(), iterID,
 			); rmErr != nil {
 				testLog.WithError(rmErr).Warn("Failed to remove restored container")
-			}
-
-			if cloneErr := iterClone.Cleanup(); cloneErr != nil {
-				testLog.WithError(cloneErr).Warn("Failed to cleanup ZFS clone")
 			}
 		})
 
@@ -2952,10 +2993,6 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		if rmErr := r.docker.RemoveContainer(ctx, restoredID); rmErr != nil {
 			testLog.WithError(rmErr).Warn("Failed to remove restored container")
-		}
-
-		if cloneErr := clone.Cleanup(); cloneErr != nil {
-			testLog.WithError(cloneErr).Warn("Failed to cleanup ZFS clone")
 		}
 
 		// Aggregate results.

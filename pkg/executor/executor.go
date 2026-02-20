@@ -34,6 +34,12 @@ type Executor interface {
 	// ExecuteTests runs all tests against the specified endpoint.
 	ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*ExecutionResult, error)
 
+	// RunPreRunSteps executes the suite's pre-run steps (if any) against the
+	// given endpoint. This is used by checkpoint-restore to run pre-run steps
+	// on the live container before checkpointing, so the checkpointed state
+	// includes the pre-run effects. Returns the number of steps executed.
+	RunPreRunSteps(ctx context.Context, opts *ExecuteOptions) (int, error)
+
 	// GetSuiteHash returns the hash of the test suite.
 	GetSuiteHash() string
 
@@ -211,6 +217,51 @@ func (e *executor) GetTests() []*TestWithSteps {
 // GetSource returns the underlying source.
 func (e *executor) GetSource() Source {
 	return e.source
+}
+
+// RunPreRunSteps executes the suite's pre-run steps against the given endpoint.
+// This is used by checkpoint-restore to run pre-run steps on the live container
+// before checkpointing. Returns the number of steps executed.
+func (e *executor) RunPreRunSteps(ctx context.Context, opts *ExecuteOptions) (int, error) {
+	if e.prepared == nil {
+		return 0, fmt.Errorf("executor not prepared: call Start first")
+	}
+
+	if len(e.prepared.PreRunSteps) == 0 {
+		return 0, nil
+	}
+
+	e.log.WithField("pre_run_steps", len(e.prepared.PreRunSteps)).Info("Running pre-run steps")
+
+	for _, step := range e.prepared.PreRunSteps {
+		select {
+		case <-ctx.Done():
+			return 0, fmt.Errorf("context cancelled during pre-run steps: %w", ctx.Err())
+		default:
+		}
+
+		log := e.log.WithField("step", step.Name)
+		log.Info("Running pre-run step")
+
+		preRunResult := NewTestResult(step.Name)
+		if err := e.runStepFile(ctx, opts, step, preRunResult, false); err != nil {
+			log.WithError(err).Warn("Pre-run step failed")
+
+			if ctx.Err() != nil {
+				return 0, fmt.Errorf("context cancelled during pre-run step execution: %w", ctx.Err())
+			}
+		} else {
+			if err := WriteStepResults(
+				opts.ResultsDir, step.Name, StepTypePreRun, preRunResult, e.cfg.ResultsOwner,
+			); err != nil {
+				log.WithError(err).Warn("Failed to write pre-run step results")
+			}
+		}
+	}
+
+	e.log.Info("Pre-run steps completed")
+
+	return len(e.prepared.PreRunSteps), nil
 }
 
 // ExecuteTests runs all tests against the specified Engine API endpoint.

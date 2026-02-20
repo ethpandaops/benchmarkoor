@@ -303,6 +303,21 @@ func (m *manager) StreamLogs(
 	showStdout := true
 	showStderr := true
 
+	// Derive a context from m.conn (carries Podman connection info) that
+	// also cancels when the caller's ctx is cancelled. This ensures that
+	// follow-mode log streaming terminates when the caller cancels (e.g.,
+	// after a container checkpoint).
+	logConn, cancel := context.WithCancel(m.conn)
+	defer cancel()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			cancel()
+		case <-logConn.Done():
+		}
+	}()
+
 	stdoutCh := make(chan string, 100)
 	stderrCh := make(chan string, 100)
 
@@ -332,13 +347,17 @@ func (m *manager) StreamLogs(
 		}
 	}()
 
-	err := containers.Logs(m.conn, containerID, &containers.LogOptions{
+	err := containers.Logs(logConn, containerID, &containers.LogOptions{
 		Follow: &follow,
 		Stdout: &showStdout,
 		Stderr: &showStderr,
 	}, stdoutCh, stderrCh)
 
-	// Channels are closed by Logs when it returns.
+	// Podman's Logs does not close the channels on return. Close them so
+	// the reader goroutines exit their range loops.
+	close(stdoutCh)
+	close(stderrCh)
+
 	wg.Wait()
 
 	if err != nil {
