@@ -866,13 +866,31 @@ func (r *runner) runContainerLifecycle(
 		env[k] = v
 	}
 
-	// When using checkpoint-restore, disable MPTCP so CRIU can checkpoint
-	// TCP sockets. CRIU does not support MPTCP (protocol 262) and recent
-	// Go versions enable it by default.
+	// When using checkpoint-restore, apply CRIU-compatibility env overrides.
 	if r.cfg.FullConfig != nil &&
 		r.cfg.FullConfig.GetRollbackStrategy(instance) == config.RollbackStrategyCheckpointRestore {
+		// Disable MPTCP so CRIU can checkpoint TCP sockets. CRIU does not
+		// support MPTCP (protocol 262) and recent Go versions enable it
+		// by default.
 		if _, ok := env["GODEBUG"]; !ok {
 			env["GODEBUG"] = "multipathtcp=0"
+		}
+
+		// .NET uses inotify for file watching, config reload, and
+		// diagnostics. CRIU cannot dump inotify watches on deleted
+		// files or overlayfs handles. Disable all .NET inotify
+		// sources for Nethermind to allow checkpointing.
+		if client.ClientType(instance.Client) == client.ClientNethermind {
+			dotnetEnvDefaults := map[string]string{
+				"DOTNET_USE_POLLING_FILE_WATCHER":         "true",
+				"DOTNET_HOSTBUILDER_RELOADCONFIGONCHANGE": "false",
+				"DOTNET_EnableDiagnostics":                "0",
+			}
+			for k, v := range dotnetEnvDefaults {
+				if _, ok := env[k]; !ok {
+					env[k] = v
+				}
+			}
 		}
 	}
 
