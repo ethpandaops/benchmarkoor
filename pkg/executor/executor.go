@@ -420,6 +420,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					goto writeResults
 				}
 			} else {
+				if setupResult.Failed > 0 {
+					testPassed = false
+				}
+
 				// Write setup results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeSetup, setupResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write setup results")
@@ -452,6 +456,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					goto writeResults
 				}
 			} else {
+				if testResult.Failed > 0 {
+					testPassed = false
+				}
+
 				// Write test results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeTest, testResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write test results")
@@ -489,6 +497,10 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					goto writeResults
 				}
 			} else {
+				if cleanupResult.Failed > 0 {
+					testPassed = false
+				}
+
 				// Write cleanup results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeCleanup, cleanupResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write cleanup results")
