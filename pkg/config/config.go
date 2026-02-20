@@ -585,6 +585,7 @@ type ClientDefaults struct {
 	WaitAfterRPCReady            string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 	PostTestRPCCalls             []PostTestRPCCall              `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
 	BootstrapFCU                 *BootstrapFCUConfig            `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
+	CheckpointTmpfsThreshold     string                         `yaml:"checkpoint_tmpfs_threshold,omitempty" mapstructure:"checkpoint_tmpfs_threshold"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
@@ -607,6 +608,7 @@ type ClientInstance struct {
 	WaitAfterRPCReady            string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 	PostTestRPCCalls             []PostTestRPCCall              `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
 	BootstrapFCU                 *BootstrapFCUConfig            `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
+	CheckpointTmpfsThreshold     string                         `yaml:"checkpoint_tmpfs_threshold,omitempty" mapstructure:"checkpoint_tmpfs_threshold"`
 }
 
 // expandEnvWithDefaults is a mapping function for os.Expand that supports
@@ -1292,6 +1294,37 @@ func (c *Config) GetBootstrapFCU(instance *ClientInstance) *BootstrapFCUConfig {
 	return c.Runner.Client.Config.BootstrapFCU
 }
 
+// GetCheckpointTmpfsThreshold returns the checkpoint_tmpfs_threshold for an instance.
+// Instance-level setting takes precedence over global default.
+// Returns empty string if not configured (feature disabled).
+func (c *Config) GetCheckpointTmpfsThreshold(instance *ClientInstance) string {
+	if instance.CheckpointTmpfsThreshold != "" {
+		return instance.CheckpointTmpfsThreshold
+	}
+
+	return c.Runner.Client.Config.CheckpointTmpfsThreshold
+}
+
+// ParseByteSize parses a human-readable byte size string into bytes.
+// Uses the same format as resource_limits.memory (Docker go-units):
+// e.g. "32g", "512m", "1024k", "1073741824".
+func ParseByteSize(s string) (uint64, error) {
+	if s == "" {
+		return 0, fmt.Errorf("empty string")
+	}
+
+	n, err := units.RAMInBytes(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid byte size %q: %w", s, err)
+	}
+
+	if n < 0 {
+		return 0, fmt.Errorf("invalid byte size %q: negative value", s)
+	}
+
+	return uint64(n), nil
+}
+
 // validateDropMemoryCaches validates drop_memory_caches settings and checks permissions.
 func (c *Config) validateDropMemoryCaches() error {
 	// Check all instances for valid values and if feature is enabled.
@@ -1374,6 +1407,17 @@ func (c *Config) validateRollbackStrategy(opt ValidateOpts) error {
 					"instance %q: rollback_strategy %q requires"+
 						" datadir.method: \"zfs\"",
 					instance.ID, value,
+				)
+			}
+		}
+
+		// Validate checkpoint_tmpfs_threshold if set.
+		threshold := c.GetCheckpointTmpfsThreshold(&instance)
+		if threshold != "" {
+			if _, err := ParseByteSize(threshold); err != nil {
+				return fmt.Errorf(
+					"instance %q: invalid checkpoint_tmpfs_threshold %q: %w",
+					instance.ID, threshold, err,
 				)
 			}
 		}

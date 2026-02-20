@@ -1392,6 +1392,93 @@ func TestValidateAPIStorage(t *testing.T) {
 	}
 }
 
+func TestParseByteSize(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		expected  uint64
+		wantErr   bool
+		errSubstr string
+	}{
+		{name: "docker-style gigabytes", input: "8g", expected: 8 * 1024 * 1024 * 1024},
+		{name: "docker-style megabytes", input: "512m", expected: 512 * 1024 * 1024},
+		{name: "docker-style kilobytes", input: "1024k", expected: 1024 * 1024},
+		{name: "uppercase suffix", input: "8G", expected: 8 * 1024 * 1024 * 1024},
+		{name: "long suffix GB", input: "8GB", expected: 8 * 1024 * 1024 * 1024},
+		{name: "long suffix MB", input: "512MB", expected: 512 * 1024 * 1024},
+		{name: "raw bytes", input: "1073741824", expected: 1073741824},
+		{name: "zero", input: "0", expected: 0},
+		{name: "invalid string", input: "abc", wantErr: true, errSubstr: "invalid byte size"},
+		{name: "empty string", input: "", wantErr: true, errSubstr: "empty string"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ParseByteSize(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestGetCheckpointTmpfsThreshold(t *testing.T) {
+	tests := []struct {
+		name     string
+		global   string
+		instance string
+		expected string
+	}{
+		{
+			name:     "both empty returns empty (disabled)",
+			global:   "",
+			instance: "",
+			expected: "",
+		},
+		{
+			name:     "global set, instance empty inherits global",
+			global:   "8g",
+			instance: "",
+			expected: "8g",
+		},
+		{
+			name:     "instance overrides global",
+			global:   "8g",
+			instance: "4g",
+			expected: "4g",
+		},
+		{
+			name:     "instance set, global empty",
+			global:   "",
+			instance: "2g",
+			expected: "2g",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							CheckpointTmpfsThreshold: tt.global,
+						},
+					},
+				},
+			}
+			instance := &ClientInstance{
+				CheckpointTmpfsThreshold: tt.instance,
+			}
+			result := cfg.GetCheckpointTmpfsThreshold(instance)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 // createTestTarball creates a minimal .tar.gz file at the given path for testing.
 func createTestTarball(t *testing.T, path string) {
 	t.Helper()

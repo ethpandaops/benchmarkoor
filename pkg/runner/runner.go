@@ -11,6 +11,7 @@ import (
 	mrand "math/rand/v2"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
 	"github.com/ethpandaops/benchmarkoor/pkg/podman"
+	"github.com/ethpandaops/benchmarkoor/pkg/stats"
 	"github.com/ethpandaops/benchmarkoor/pkg/upload"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/host"
@@ -2804,7 +2806,81 @@ func (r *runner) runTestsWithCheckpointRestore(
 		log.WithField("steps", n).Info("Pre-run steps completed before checkpoint")
 	}
 
-	// 2. Checkpoint the running container.
+	// 2. Decide checkpoint export path: tmpfs (RAM) or disk.
+	//
+	// When checkpoint_tmpfs_threshold is configured and the container's
+	// current memory usage is under the threshold, store the checkpoint
+	// on a tmpfs mount to eliminate disk I/O during restores.
+	exportPath := filepath.Join(resultsDir, "checkpoint.tar")
+	tmpfsDir := ""
+
+	thresholdStr := r.cfg.FullConfig.GetCheckpointTmpfsThreshold(params.Instance)
+	if thresholdStr != "" {
+		threshold, parseErr := config.ParseByteSize(thresholdStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing checkpoint_tmpfs_threshold: %w", parseErr)
+		}
+
+		// Read container memory usage before checkpoint.
+		reader, readerErr := stats.NewReader(
+			r.log, r.getDockerClient(), containerID,
+		)
+		if readerErr != nil {
+			log.WithError(readerErr).Warn(
+				"Failed to create stats reader for tmpfs decision, using disk",
+			)
+		} else {
+			containerStats, statsErr := reader.ReadStats()
+			_ = reader.Close()
+
+			if statsErr != nil {
+				log.WithError(statsErr).Warn(
+					"Failed to read container stats for tmpfs decision, using disk",
+				)
+			} else if containerStats.Memory > 0 && containerStats.Memory <= threshold {
+				dir, mkErr := os.MkdirTemp("", "benchmarkoor-cp-tmpfs-")
+				if mkErr != nil {
+					log.WithError(mkErr).Warn(
+						"Failed to create tmpfs dir, using disk",
+					)
+				} else {
+					// Mount tmpfs with 2x the container memory to
+					// accommodate the checkpoint archive overhead.
+					tmpfsSize := containerStats.Memory * 2
+
+					//nolint:gosec // Arguments are computed, not user-supplied.
+					mountCmd := exec.CommandContext(
+						ctx, "mount", "-t", "tmpfs",
+						"-o", fmt.Sprintf("size=%d", tmpfsSize),
+						"tmpfs", dir,
+					)
+					if mountOut, mountErr := mountCmd.CombinedOutput(); mountErr != nil {
+						log.WithError(mountErr).WithField(
+							"output", string(mountOut),
+						).Warn("Failed to mount tmpfs, using disk")
+
+						_ = os.Remove(dir)
+					} else {
+						tmpfsDir = dir
+						exportPath = filepath.Join(dir, "checkpoint.tar")
+
+						log.WithFields(logrus.Fields{
+							"memory_bytes":    containerStats.Memory,
+							"threshold_bytes": threshold,
+							"tmpfs_size":      tmpfsSize,
+						}).Info("Using tmpfs for checkpoint storage")
+					}
+				}
+			} else {
+				log.WithFields(logrus.Fields{
+					"memory_bytes":    containerStats.Memory,
+					"threshold_bytes": threshold,
+				}).Info("Container memory exceeds tmpfs threshold, using disk")
+			}
+		}
+	}
+
+	// 3. Checkpoint the running container.
 	//
 	// Close idle HTTP connections first so there are no ESTABLISHED TCP
 	// connections inside the container (from RPC readiness checks). CRIU
@@ -2813,18 +2889,27 @@ func (r *runner) runTestsWithCheckpointRestore(
 	http.DefaultClient.CloseIdleConnections()
 	time.Sleep(200 * time.Millisecond) // Let server-side sockets close.
 
-	exportPath := filepath.Join(resultsDir, "checkpoint.tar")
-
 	if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath); err != nil {
 		return nil, fmt.Errorf("checkpointing container: %w", err)
 	}
 
-	defer func() { _ = os.Remove(exportPath) }()
+	defer func() {
+		_ = os.Remove(exportPath)
+
+		if tmpfsDir != "" {
+			//nolint:gosec // Path is from os.MkdirTemp, not user-supplied.
+			if umountErr := exec.Command("umount", tmpfsDir).Run(); umountErr != nil {
+				log.WithError(umountErr).Warn("Failed to unmount tmpfs")
+			}
+
+			_ = os.Remove(tmpfsDir)
+		}
+	}()
 
 	// Wait for log drain after checkpoint (container has stopped).
 	waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
-	// 3. Snapshot the data directory AFTER the checkpoint. The process is
+	// 4. Snapshot the data directory AFTER the checkpoint. The process is
 	//    now frozen and all I/O has been flushed, so the snapshot captures
 	//    the exact filesystem state that matches the checkpointed memory.
 	snapshot, err := zfsMgr.SnapshotReady(ctx, &datadir.CheckpointConfig{
@@ -2843,7 +2928,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 	log.Info("Container checkpointed, starting per-test restore loop")
 
-	// 4. Per-test restore loop.
+	// 5. Per-test restore loop.
 	combined := &executor.ExecutionResult{}
 	startTime := time.Now()
 

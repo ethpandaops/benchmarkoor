@@ -458,6 +458,7 @@ runner:
 | `jwt` | string | `5a64f1...` | JWT secret for Engine API authentication |
 | `drop_memory_caches` | string | `disabled` | When to drop Linux memory caches (see below) |
 | `rollback_strategy` | string | `rpc-debug-setHead` | Rollback strategy after each test (see below) |
+| `checkpoint_tmpfs_threshold` | string | - | Store checkpoint on tmpfs when container memory is under this threshold (see [Checkpoint tmpfs Threshold](#checkpoint-tmpfs-threshold)) |
 | `wait_after_rpc_ready` | string | - | Duration to wait after RPC becomes ready (see below) |
 | `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
@@ -558,6 +559,22 @@ runner:
     - id: geth
       client: geth
 ```
+
+##### Checkpoint tmpfs Threshold
+
+When using the `checkpoint-restore` rollback strategy, the checkpoint file (a tar archive of the container's memory state) is read from disk on every restore. For containers with moderate memory usage, storing the checkpoint on a tmpfs (RAM-backed filesystem) eliminates disk I/O and speeds up restores.
+
+When `checkpoint_tmpfs_threshold` is set, the runner checks the container's memory usage before checkpointing. If the memory is under the threshold, the checkpoint is stored on a tmpfs mount sized at 2x the container's memory. Otherwise, it falls back to disk storage.
+
+```yaml
+runner:
+  client:
+    config:
+      rollback_strategy: checkpoint-restore
+      checkpoint_tmpfs_threshold: "8g"
+```
+
+The value uses the same format as `resource_limits.memory` (Docker go-units): e.g., `"8g"`, `"512m"`, `"1024k"`, or raw bytes. If not set, checkpoints are always stored on disk.
 
 ##### Wait After RPC Ready
 
@@ -742,6 +759,7 @@ runner:
 | `datadir` | object | No | From `runner.client.datadirs` | Instance-specific data directory config |
 | `drop_memory_caches` | string | No | From `runner.client.config` | Instance-specific cache drop setting |
 | `rollback_strategy` | string | No | From `runner.client.config` | Instance-specific rollback strategy |
+| `checkpoint_tmpfs_threshold` | string | No | From `runner.client.config` | Instance-specific checkpoint tmpfs threshold |
 | `wait_after_rpc_ready` | string | No | From `runner.client.config` | Instance-specific RPC ready wait duration |
 | `retry_new_payloads_syncing_state` | object | No | From `runner.client.config` | Instance-specific retry config for SYNCING responses |
 | `resource_limits` | object | No | From `runner.client.config` | Instance-specific resource limits |

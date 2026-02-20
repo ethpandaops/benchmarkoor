@@ -252,6 +252,12 @@ runner:
       #   "checkpoint-restore"  - Podman CRIU checkpoint/restore + ZFS snapshots for instant per-test restore.
       #                           Requires: container_runtime: "podman" and datadir.method: "zfs"
       # rollback_strategy: "rpc-debug-setHead"
+      # Optional: Store checkpoint on tmpfs (RAM) when container memory is under this threshold.
+      # Only applies to the "checkpoint-restore" rollback strategy. When set, the container's
+      # memory usage is checked before checkpointing — if under the threshold, the checkpoint
+      # is stored on a tmpfs mount instead of disk, eliminating I/O during restores.
+      # Uses the same format as resource_limits.memory (e.g., "8g", "512m").
+      # checkpoint_tmpfs_threshold: "8g"
       # Optional: Wait duration after RPC becomes ready before running tests.
       # Useful for clients like Erigon that need time to complete internal sync pipelines
       # after their RPC endpoint becomes available.
@@ -396,6 +402,7 @@ runner:
       #   container_dir: /data
       # drop_memory_caches: "steps"  # Instance-level override (optional)
       # rollback_strategy: "rpc-debug-setHead"  # Instance-level override (optional)
+      # checkpoint_tmpfs_threshold: "8g"  # Instance-level override (optional)
       # wait_after_rpc_ready: 60s  # Instance-level override (optional)
       # retry_new_payloads_syncing_state:  # Instance-level override (optional)
       #   enabled: true
