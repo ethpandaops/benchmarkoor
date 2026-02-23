@@ -88,6 +88,46 @@ runs:
           gh --version
         fi
 
+    - name: Setup Podman and CRIU
+      shell: bash
+      run: |
+        # Ensure podman is available (pre-installed on ubuntu-latest)
+        if command -v podman &> /dev/null; then
+          echo "Podman already installed"
+          podman --version
+        else
+          echo "Installing podman..."
+          sudo apt-get update
+          sudo apt-get install -y podman
+        fi
+
+        # Install CRIU for checkpoint-restore support
+        # CRIU is not in Ubuntu 24.04 default repos; use the official PPA.
+        if command -v criu &> /dev/null; then
+          echo "CRIU already installed"
+          criu --version
+        else
+          echo "Installing CRIU..."
+          if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            sudo add-apt-repository -y ppa:criu/ppa
+            sudo apt-get update
+            sudo apt-get install -y criu
+          else
+            echo "CRIU installation not supported on this OS, skipping"
+          fi
+        fi
+
+        # Start the rootful podman socket
+        sudo systemctl start podman.socket
+        echo "Podman socket started"
+
+        # Verify socket is accessible
+        if [ -S /run/podman/podman.sock ]; then
+          echo "Podman socket is available at /run/podman/podman.sock"
+        else
+          echo "WARNING: Podman socket not found at /run/podman/podman.sock"
+        fi
+
     - name: Install yq if not present
       shell: bash
       run: |

@@ -54,7 +54,7 @@ runs:
   using: 'composite'
   steps:
     - name: Verify and install dependencies
-      uses: ethpandaops/benchmarkoor/.github/actions/dependencies@1c774dde601d095c153116761ffbe917c653be9a
+      uses: ethpandaops/benchmarkoor/.github/actions/dependencies@a998868ed103e6bb92bf8b41b8a43df206279955
 
     - name: Build Docker image locally
       if: inputs.image == ''
@@ -196,6 +196,8 @@ runs:
         # Build docker run command
         DOCKER_CMD="docker run --network=host --rm --name=benchmarkoor-run"
         DOCKER_CMD="$DOCKER_CMD -v /var/run/docker.sock:/var/run/docker.sock"
+        DOCKER_CMD="$DOCKER_CMD -v /run/podman/podman.sock:/run/podman/podman.sock"
+        DOCKER_CMD="$DOCKER_CMD -v /var/lib/containers:/var/lib/containers:rshared"
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}/results:/app/results"
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}:/app/configs"
         DOCKER_CMD="$DOCKER_CMD --mount type=bind,source=${{ inputs.tmp-dir }},target=${{ inputs.tmp-dir }},bind-propagation=rshared"

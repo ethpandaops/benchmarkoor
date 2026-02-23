@@ -9,13 +9,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pr-benchmark:
+  pr-benchmark-docker:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Run Benchmarkoor Test
+      - name: Run Benchmarkoor Test (Docker)
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -50,3 +50,43 @@ jobs:
               instances:
                 - id: geth
                   client: geth
+
+  pr-benchmark-podman:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run Benchmarkoor Test (Podman)
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-ref: ${{ github.event.pull_request.head.sha }}
+          #run-args: '--log-level=debug'
+          run-config-urls: >-
+            https://raw.githubusercontent.com/ethpandaops/benchmarkoor/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-cleanup.yaml,
+            https://raw.githubusercontent.com/ethpandaops/benchmarkoor/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-clientstdout.yaml
+          run-config: |
+            runner:
+              container_runtime: podman
+
+              benchmark:
+                system_resource_collection_enabled: true
+                tests:
+                  filter: "bn128"
+                  source:
+                    eest_fixtures:
+                      github_repo: ethereum/execution-spec-tests
+                      github_release: benchmark@v0.0.5
+
+              client:
+                config:
+                  drop_memory_caches: "steps"
+                  resource_limits:
+                    cpuset_count: 2
+                    memory: "4g"
+                    swap_disabled: true
+
+              instances:
+                - id: nethermind
+                  client: nethermind
