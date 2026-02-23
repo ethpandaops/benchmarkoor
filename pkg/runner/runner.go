@@ -3155,7 +3155,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 		*cleanupFuncs = append(*cleanupFuncs, func() {
 			if rmErr := r.docker.RemoveContainer(
 				context.Background(), iterID,
-			); rmErr != nil {
+			); rmErr != nil && !isContainerNotFound(rmErr) {
 				testLog.WithError(rmErr).Warn("Failed to remove restored container")
 			}
 		})
@@ -3252,7 +3252,8 @@ func (r *runner) runTestsWithCheckpointRestore(
 		// Force-remove the restored container (kills it immediately).
 		// No graceful stop needed — the test is done and the container
 		// state will be rebuilt from checkpoint for the next test.
-		if rmErr := r.docker.RemoveContainer(ctx, restoredID); rmErr != nil {
+		if rmErr := r.docker.RemoveContainer(ctx, restoredID); rmErr != nil &&
+			!isContainerNotFound(rmErr) {
 			testLog.WithError(rmErr).Warn("Failed to remove restored container")
 		}
 
@@ -3280,4 +3281,11 @@ func (r *runner) runTestsWithCheckpointRestore(
 	combined.TotalDuration = time.Since(startTime)
 
 	return combined, nil
+}
+
+// isContainerNotFound returns true if the error indicates the container no
+// longer exists. This is expected when cleanup runs after a container was
+// already removed (e.g., restored containers removed after each test).
+func isContainerNotFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such container")
 }
