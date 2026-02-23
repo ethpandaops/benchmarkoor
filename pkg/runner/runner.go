@@ -907,28 +907,7 @@ func (r *runner) runContainerLifecycle(
 			env["GODEBUG"] = "multipathtcp=0"
 		}
 
-		// .NET uses inotify for file watching, config reload, and
-		// diagnostics. CRIU cannot dump inotify watches on deleted
-		// files or overlayfs handles. These env vars disable the
-		// .NET host builder's inotify usage for Nethermind.
 		if client.ClientType(instance.Client) == client.ClientNethermind {
-			dotnetEnvDefaults := map[string]string{
-				"DOTNET_USE_POLLING_FILE_WATCHER":              "1",
-				"ASPNETCORE_USE_POLLING_FILE_WATCHER":          "true",
-				"DOTNET_HOSTBUILDER_RELOADCONFIGONCHANGE":      "false",
-				"ASPNETCORE_HOSTBUILDER_RELOADCONFIGONCHANGE":  "false",
-				"DOTNET_hostBuilder:reloadConfigOnChange":      "false",
-				"DOTNET_hostBuilder__reloadConfigOnChange":     "false",
-				"ASPNETCORE_hostBuilder:reloadConfigOnChange":  "false",
-				"ASPNETCORE_hostBuilder__reloadConfigOnChange": "false",
-				"DOTNET_EnableDiagnostics":                     "0",
-			}
-			for k, v := range dotnetEnvDefaults {
-				if _, ok := env[k]; !ok {
-					env[k] = v
-				}
-			}
-
 			// NLog's autoReload uses FileSystemWatcher (inotify) on the
 			// overlay rootfs. CRIU cannot dump inotify watches on overlayfs
 			// (open_by_handle_at fails). Extract NLog.config from the image,
