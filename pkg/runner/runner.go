@@ -1765,54 +1765,24 @@ func (r *runner) runTestsWithContainerStrategy(
 			})
 
 			// Start fresh log streaming.
-			var logCtx context.Context
-			var newLogCancel context.CancelFunc
-			logCtx, newLogCancel = context.WithCancel(ctx)
-			*logCancel = newLogCancel
-
-			// Open log file for this container (append mode).
-			recreateLogPath := filepath.Join(resultsDir, "container.log")
-			recreateLogFile, logErr := os.OpenFile(
-				recreateLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
-			)
-			if logErr != nil {
-				(*logCancel)()
+			if err := r.startLogStreaming(
+				ctx, resultsDir,
+				params.Instance.ID, newID,
+				benchmarkoorLog, &containerLogInfo{
+					Name:             newSpec.Name,
+					ContainerID:      newID,
+					Image:            newSpec.Image,
+					GenesisGroupHash: params.GenesisGroupHash,
+				},
+				params.BlockLogCollector, cleanupStarted,
+				logDone, logCancel, cleanupFuncs,
+			); err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf("opening log file for test %d: %w", i, logErr)
+				return combined, fmt.Errorf(
+					"log streaming for test %d: %w", i, err,
+				)
 			}
-
-			*cleanupFuncs = append(*cleanupFuncs, func() {
-				_ = recreateLogFile.Close()
-			})
-
-			newLogDone := make(chan struct{})
-			*logDone = newLogDone
-
-			r.wg.Add(1)
-
-			go func() {
-				defer r.wg.Done()
-				defer close(newLogDone)
-
-				if err := r.streamLogs(
-					logCtx, params.Instance.ID, newID, recreateLogFile,
-					benchmarkoorLog,
-					&containerLogInfo{
-						Name:             newSpec.Name,
-						ContainerID:      newID,
-						Image:            newSpec.Image,
-						GenesisGroupHash: params.GenesisGroupHash,
-					},
-					params.BlockLogCollector,
-				); err != nil {
-					select {
-					case <-cleanupStarted:
-					default:
-						testLog.WithError(err).Debug("Log streaming ended")
-					}
-				}
-			}()
 
 			// Start the new container.
 			if err := r.containerMgr.StartContainer(ctx, newID); err != nil {
@@ -2239,6 +2209,62 @@ func (r *runner) streamLogs(
 	_, _ = fmt.Fprintf(file, "#CONTAINER:END\n")
 
 	return streamErr
+}
+
+// startLogStreaming opens the container log file in append mode, registers a
+// file-close cleanup, and launches a goroutine that streams container logs.
+// It writes through logDone/logCancel so the caller (and waitForLogDrain)
+// can drain and clean up the streaming goroutine.
+func (r *runner) startLogStreaming(
+	ctx context.Context,
+	resultsDir string,
+	instanceID, containerID string,
+	benchmarkoorLog io.Writer,
+	logInfo *containerLogInfo,
+	blockLogCollector blocklog.Collector,
+	cleanupStarted <-chan struct{},
+	logDone *chan struct{},
+	logCancel *context.CancelFunc,
+	cleanupFuncs *[]func(),
+) error {
+	logCtx, cancel := context.WithCancel(ctx)
+	*logCancel = cancel
+
+	logFilePath := filepath.Join(resultsDir, "container.log")
+
+	logFile, err := os.OpenFile(
+		logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
+	)
+	if err != nil {
+		cancel()
+
+		return fmt.Errorf("opening container log file: %w", err)
+	}
+
+	*cleanupFuncs = append(*cleanupFuncs, func() { _ = logFile.Close() })
+
+	done := make(chan struct{})
+	*logDone = done
+
+	r.wg.Add(1)
+
+	go func() {
+		defer r.wg.Done()
+		defer close(done)
+
+		if streamErr := r.streamLogs(
+			logCtx, instanceID, containerID, logFile,
+			benchmarkoorLog, logInfo, blockLogCollector,
+		); streamErr != nil {
+			select {
+			case <-cleanupStarted:
+			default:
+				r.log.WithError(streamErr).Debug("Log streaming ended")
+			}
+		}
+	}()
+
+	return nil
 }
 
 // waitForLogDrain waits for the log-streaming goroutine to finish (signalled
@@ -2933,57 +2959,22 @@ func (r *runner) runTestsWithCheckpointRestore(
 		containerIP = newIP
 
 		// Restart log streaming for the restarted container.
-		var logCtx context.Context
-
-		var newLogCancel context.CancelFunc
-
-		logCtx, newLogCancel = context.WithCancel(ctx)
-		*logCancel = newLogCancel
-
-		logFilePath := filepath.Join(resultsDir, "container.log")
-
-		logFile, logErr := os.OpenFile(
-			logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
-		)
-		if logErr != nil {
-			newLogCancel()
-
+		if logErr := r.startLogStreaming(
+			ctx, resultsDir,
+			params.Instance.ID, containerID,
+			benchmarkoorLog, &containerLogInfo{
+				Name:             params.ContainerSpec.Name,
+				ContainerID:      containerID,
+				Image:            params.ContainerSpec.Image,
+				GenesisGroupHash: params.GenesisGroupHash,
+			},
+			params.BlockLogCollector, cleanupStarted,
+			logDone, logCancel, cleanupFuncs,
+		); logErr != nil {
 			return nil, fmt.Errorf(
-				"opening log file after checkpoint restart: %w", logErr,
+				"log streaming after checkpoint restart: %w", logErr,
 			)
 		}
-
-		*cleanupFuncs = append(*cleanupFuncs, func() { _ = logFile.Close() })
-
-		newLogDone := make(chan struct{})
-		*logDone = newLogDone
-
-		r.wg.Add(1)
-
-		go func() {
-			defer r.wg.Done()
-			defer close(newLogDone)
-
-			if streamErr := r.streamLogs(
-				logCtx, params.Instance.ID, containerID, logFile,
-				benchmarkoorLog,
-				&containerLogInfo{
-					Name:             params.ContainerSpec.Name,
-					ContainerID:      containerID,
-					Image:            params.ContainerSpec.Image,
-					GenesisGroupHash: params.GenesisGroupHash,
-				},
-				params.BlockLogCollector,
-			); streamErr != nil {
-				select {
-				case <-cleanupStarted:
-				default:
-					log.WithError(streamErr).Debug(
-						"Log streaming ended after checkpoint restart",
-					)
-				}
-			}
-		}()
 
 		// Wait for RPC readiness on the restarted container.
 		if _, err := r.waitForRPC(ctx, containerIP, spec.RPCPort()); err != nil {
@@ -3291,53 +3282,24 @@ func (r *runner) runTestsWithCheckpointRestore(
 		}
 
 		// Start log streaming for restored container.
-		var logCtx context.Context
-		var newLogCancel context.CancelFunc
-
-		logCtx, newLogCancel = context.WithCancel(ctx)
-		*logCancel = newLogCancel
-
-		logFilePath := filepath.Join(resultsDir, "container.log")
-
-		logFile, logErr := os.OpenFile(
-			logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
-		)
-		if logErr != nil {
-			newLogCancel()
+		if logErr := r.startLogStreaming(
+			ctx, resultsDir,
+			params.Instance.ID, restoredID,
+			benchmarkoorLog, &containerLogInfo{
+				Name:             restoreName,
+				ContainerID:      restoredID,
+				Image:            params.ContainerSpec.Image,
+				GenesisGroupHash: params.GenesisGroupHash,
+			},
+			params.BlockLogCollector, cleanupStarted,
+			logDone, logCancel, cleanupFuncs,
+		); logErr != nil {
 			combined.TotalDuration = time.Since(startTime)
 
-			return combined, fmt.Errorf("opening log file for test %d: %w", i, logErr)
+			return combined, fmt.Errorf(
+				"log streaming for test %d: %w", i, logErr,
+			)
 		}
-
-		*cleanupFuncs = append(*cleanupFuncs, func() { _ = logFile.Close() })
-
-		newLogDone := make(chan struct{})
-		*logDone = newLogDone
-
-		r.wg.Add(1)
-
-		go func() {
-			defer r.wg.Done()
-			defer close(newLogDone)
-
-			if streamErr := r.streamLogs(
-				logCtx, params.Instance.ID, restoredID, logFile,
-				benchmarkoorLog,
-				&containerLogInfo{
-					Name:             restoreName,
-					ContainerID:      restoredID,
-					Image:            params.ContainerSpec.Image,
-					GenesisGroupHash: params.GenesisGroupHash,
-				},
-				params.BlockLogCollector,
-			); streamErr != nil {
-				select {
-				case <-cleanupStarted:
-				default:
-					testLog.WithError(streamErr).Debug("Log streaming ended")
-				}
-			}
-		}()
 
 		// No waitForRPC needed — process resumes at checkpoint state.
 		testLog.Info("Executing test (restored from checkpoint)")
