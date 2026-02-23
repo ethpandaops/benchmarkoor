@@ -459,6 +459,7 @@ runner:
 | `drop_memory_caches` | string | `disabled` | When to drop Linux memory caches (see below) |
 | `rollback_strategy` | string | `rpc-debug-setHead` | Rollback strategy after each test (see below) |
 | `checkpoint_tmpfs_threshold` | string | - | Store checkpoint on tmpfs when container memory is under this threshold (see [Checkpoint tmpfs Threshold](#checkpoint-tmpfs-threshold)) |
+| `checkpoint_wait_after_tcp_drop_connections` | string | `10s` | How long to wait after dropping TCP connections before checkpointing, giving the process time to close fds (Go duration string) |
 | `wait_after_rpc_ready` | string | - | Duration to wait after RPC becomes ready (see below) |
 | `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
@@ -485,7 +486,7 @@ Controls whether the client state is rolled back after each test. This is useful
 | `none` | Do not rollback |
 | `rpc-debug-setHead` | Capture block info before each test, then rollback via a client-specific debug RPC after the test completes (default) |
 | `container-recreate` | Stop and remove the container after each test, then create and start a fresh one |
-| `checkpoint-restore` | Use Podman's CRIU-based checkpoint/restore to snapshot container memory state + ZFS snapshot the datadir, then instantly restore both per-test. Requires `container_runtime: "podman"` and `datadir.method: "zfs"` |
+| `checkpoint-restore` | Use Podman's CRIU-based checkpoint/restore to snapshot container memory state and the data directory, then instantly restore both per-test. Requires `container_runtime: "podman"`. When `datadir.method: "zfs"` is configured, uses ZFS snapshots for rollback. Without a datadir, uses copy-based rollback (`cp -a` snapshot, `rsync --delete` restore) |
 
 ###### `rpc-debug-setHead`
 
@@ -526,24 +527,30 @@ This strategy works with all clients since it doesn't require any client-specifi
 
 ###### `checkpoint-restore`
 
-When `checkpoint-restore` is enabled, the runner uses Podman's native CRIU-based checkpoint/restore combined with ZFS snapshots to eliminate per-test container lifecycle overhead. This is significantly faster than `container-recreate` for large test suites because the client process resumes mid-execution without restart or RPC polling.
+When `checkpoint-restore` is enabled, the runner uses Podman's native CRIU-based checkpoint/restore to eliminate per-test container lifecycle overhead. This is significantly faster than `container-recreate` for large test suites because the client process resumes mid-execution without restart or RPC polling.
+
+Two data-directory rollback modes are supported:
+- **ZFS snapshots** (when `datadir.method: "zfs"` is configured): instant copy-on-write rollback.
+- **Copy-based** (when no datadir is configured, e.g., EEST tests): `cp -a` snapshot, `rsync --delete` restore. The data directory is bind-mounted from a host temp directory.
 
 **Requirements:**
 - `container_runtime: "podman"` must be set
-- `datadir.method: "zfs"` must be configured for the instance
 - CRIU must be installed on the host
 - Podman must be running as root (rootful mode)
+- If a datadir is configured, it must use `method: "zfs"`
 
 **Flow:**
 
 1. The container starts and the runner waits for the RPC endpoint to become ready.
-2. After RPC is ready (and any configured wait period), a ZFS snapshot of the datadir is taken and the container is checkpointed (memory state exported to a file). The container stops.
+2. After RPC is ready (and any configured wait period), the data directory is snapshotted (ZFS snapshot or file copy) and the container is checkpointed (memory state exported to a file). The container stops.
 3. For each test:
-   - A ZFS clone is created from the snapshot (instant, copy-on-write).
-   - The container is restored from the checkpoint with the clone mounted as the datadir. The client process resumes at the exact point it was checkpointed — **no startup, no RPC polling**.
+   - The data directory is rolled back to the snapshot (ZFS rollback or rsync restore).
+   - The container is restored from the checkpoint. The client process resumes at the exact point it was checkpointed — **no startup, no RPC polling**.
    - The test executes.
-   - The restored container is stopped and removed, and the ZFS clone is destroyed.
-4. After all tests, the ZFS snapshot and checkpoint export file are cleaned up.
+   - The restored container is stopped and removed.
+4. After all tests, the snapshot and checkpoint export file are cleaned up.
+
+**With ZFS datadir:**
 
 ```yaml
 runner:
@@ -555,6 +562,19 @@ runner:
       geth:
         source_dir: /tank/data/geth
         method: zfs
+  instances:
+    - id: geth
+      client: geth
+```
+
+**Without datadir (e.g., EEST tests):**
+
+```yaml
+runner:
+  container_runtime: podman
+  client:
+    config:
+      rollback_strategy: checkpoint-restore
   instances:
     - id: geth
       client: geth
@@ -760,6 +780,7 @@ runner:
 | `drop_memory_caches` | string | No | From `runner.client.config` | Instance-specific cache drop setting |
 | `rollback_strategy` | string | No | From `runner.client.config` | Instance-specific rollback strategy |
 | `checkpoint_tmpfs_threshold` | string | No | From `runner.client.config` | Instance-specific checkpoint tmpfs threshold |
+| `checkpoint_wait_after_tcp_drop_connections` | string | No | From `runner.client.config` | Instance-specific wait duration after TCP drop |
 | `wait_after_rpc_ready` | string | No | From `runner.client.config` | Instance-specific RPC ready wait duration |
 | `retry_new_payloads_syncing_state` | object | No | From `runner.client.config` | Instance-specific retry config for SYNCING responses |
 | `resource_limits` | object | No | From `runner.client.config` | Instance-specific resource limits |
