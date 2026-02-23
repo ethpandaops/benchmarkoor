@@ -347,22 +347,23 @@ func formatStartMarker(marker string, info *containerLogInfo) string {
 
 // containerRunParams contains parameters for a single container lifecycle run.
 type containerRunParams struct {
-	Instance          *config.ClientInstance
-	RunID             string
-	RunTimestamp      int64
-	RunResultsDir     string
-	BenchmarkoorLog   *os.File
-	LogHook           *fileHook
-	GenesisSource     string                    // Path or URL to genesis file.
-	Tests             []*executor.TestWithSteps // Optional test subset (nil = all).
-	GenesisGroupHash  string                    // Non-empty when running a specific genesis group.
-	GenesisGroups     map[string]string         // All genesis hash → path mappings (multi-genesis).
-	ImageName         string                    // Resolved image name (pulled once by caller).
-	ImageDigest       string                    // Image SHA256 digest (resolved once by caller).
-	ContainerSpec     *docker.ContainerSpec     // Saved for container-recreate strategy.
-	DataDirCfg        *config.DataDirConfig     // Resolved datadir config (nil if not using datadir).
-	UseDataDir        bool                      // Whether a pre-populated datadir is used.
-	BlockLogCollector blocklog.Collector        // Optional collector for capturing block logs.
+	Instance             *config.ClientInstance
+	RunID                string
+	RunTimestamp         int64
+	RunResultsDir        string
+	BenchmarkoorLog      *os.File
+	LogHook              *fileHook
+	GenesisSource        string                    // Path or URL to genesis file.
+	Tests                []*executor.TestWithSteps // Optional test subset (nil = all).
+	GenesisGroupHash     string                    // Non-empty when running a specific genesis group.
+	GenesisGroups        map[string]string         // All genesis hash → path mappings (multi-genesis).
+	ImageName            string                    // Resolved image name (pulled once by caller).
+	ImageDigest          string                    // Image SHA256 digest (resolved once by caller).
+	ContainerSpec        *docker.ContainerSpec     // Saved for container-recreate strategy.
+	DataDirCfg           *config.DataDirConfig     // Resolved datadir config (nil if not using datadir).
+	UseDataDir           bool                      // Whether a pre-populated datadir is used.
+	BlockLogCollector    blocklog.Collector        // Optional collector for capturing block logs.
+	AccumulatedTestCount *TestCounts               // Shared across genesis groups for accumulation.
 }
 
 // RunInstance runs a single client instance through its lifecycle.
@@ -456,6 +457,9 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 					)
 				}
 
+				// Shared test counts accumulator across all genesis groups.
+				accumulatedTestCounts := &TestCounts{}
+
 				for i, group := range groups {
 					groupGenesis := genesisGroups[group.GenesisHash]
 					if groupGenesis == "" {
@@ -473,18 +477,19 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 					}).Info("Running genesis group")
 
 					params := &containerRunParams{
-						Instance:         instance,
-						RunID:            runID,
-						RunTimestamp:     runTimestamp,
-						RunResultsDir:    runResultsDir,
-						BenchmarkoorLog:  benchmarkoorLogFile,
-						LogHook:          logHook,
-						GenesisSource:    groupGenesis,
-						Tests:            group.Tests,
-						GenesisGroupHash: group.GenesisHash,
-						GenesisGroups:    genesisGroups,
-						ImageName:        imageName,
-						ImageDigest:      imageDigest,
+						Instance:             instance,
+						RunID:                runID,
+						RunTimestamp:         runTimestamp,
+						RunResultsDir:        runResultsDir,
+						BenchmarkoorLog:      benchmarkoorLogFile,
+						LogHook:              logHook,
+						GenesisSource:        groupGenesis,
+						Tests:                group.Tests,
+						GenesisGroupHash:     group.GenesisHash,
+						GenesisGroups:        genesisGroups,
+						ImageName:            imageName,
+						ImageDigest:          imageDigest,
+						AccumulatedTestCount: accumulatedTestCounts,
 					}
 
 					if err := r.runContainerLifecycle(
@@ -1472,11 +1477,25 @@ func (r *runner) runContainerLifecycle(
 			}
 
 			mu.Lock()
-			runConfig.TestCounts = &TestCounts{
-				Total:  suiteTotal,
-				Passed: result.Passed,
-				Failed: result.Failed,
+
+			if params.AccumulatedTestCount != nil {
+				// Multi-genesis mode: accumulate counts across groups.
+				params.AccumulatedTestCount.Total = suiteTotal
+				params.AccumulatedTestCount.Passed += result.Passed
+				params.AccumulatedTestCount.Failed += result.Failed
+				runConfig.TestCounts = &TestCounts{
+					Total:  params.AccumulatedTestCount.Total,
+					Passed: params.AccumulatedTestCount.Passed,
+					Failed: params.AccumulatedTestCount.Failed,
+				}
+			} else {
+				runConfig.TestCounts = &TestCounts{
+					Total:  suiteTotal,
+					Passed: result.Passed,
+					Failed: result.Failed,
+				}
 			}
+
 			mu.Unlock()
 
 			if result.StatsReaderType != "" {
