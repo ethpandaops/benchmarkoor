@@ -170,11 +170,28 @@ func (m *manager) CreateContainer(
 		}
 	}
 
-	// Convert mounts.
+	// Convert mounts. Docker-style "volume" mounts must be mapped to Podman's
+	// NamedVolume type; OCI runtimes (crun/runc) don't recognise "volume" as a
+	// mount type and would fail with "No such device".
 	if len(spec.Mounts) > 0 {
 		s.Mounts = make([]specs.Mount, 0, len(spec.Mounts))
 
 		for _, mnt := range spec.Mounts {
+			if mnt.Type == "volume" {
+				nv := &specgen.NamedVolume{
+					Name: mnt.Source,
+					Dest: mnt.Target,
+				}
+
+				if mnt.ReadOnly {
+					nv.Options = append(nv.Options, "ro")
+				}
+
+				s.Volumes = append(s.Volumes, nv)
+
+				continue
+			}
+
 			m := specs.Mount{
 				Destination: mnt.Target,
 				Source:      mnt.Source,
