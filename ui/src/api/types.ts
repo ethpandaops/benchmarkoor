@@ -217,6 +217,7 @@ export interface CheckpointRestoreStrategyOptions {
 export interface InstanceConfig {
   id: string
   client: string
+  container_runtime?: string
   image: string
   image_sha256?: string
   entrypoint?: string[]
