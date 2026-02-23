@@ -212,9 +212,44 @@ export function RunConfiguration({ instance, system, startBlock, metadata }: Run
                           ? 'Rolls back the client to a previous block via a debug RPC call after each test.'
                           : instance.rollback_strategy === 'container-recreate'
                             ? 'Stops and removes the container after each test, then creates a fresh one with the same configuration.'
-                            : `Strategy: ${instance.rollback_strategy}`}
+                            : instance.rollback_strategy === 'container-checkpoint-restore'
+                              ? 'Uses Podman CRIU checkpoint/restore to snapshot and instantly restore container memory state and data directory per-test.'
+                              : `Strategy: ${instance.rollback_strategy}`}
                       </div>
                     </div>
+                  </dd>
+                </div>
+              )}
+
+              {instance.checkpoint_restore_strategy_options && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+                    Checkpoint Restore Options
+                  </dt>
+                  <dd className="mt-1 overflow-x-auto rounded-sm bg-gray-100 p-2 dark:bg-gray-900">
+                    <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                      {instance.checkpoint_restore_strategy_options.tmpfs_threshold && (
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">tmpfs_threshold: </span>
+                          {instance.checkpoint_restore_strategy_options.tmpfs_threshold}
+                        </div>
+                      )}
+                      {instance.checkpoint_restore_strategy_options.wait_after_tcp_drop_connections && (
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">wait_after_tcp_drop_connections: </span>
+                          {instance.checkpoint_restore_strategy_options.wait_after_tcp_drop_connections}
+                        </div>
+                      )}
+                      {instance.checkpoint_restore_strategy_options.restart_container !== undefined && (
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">restart_container: </span>
+                          {instance.checkpoint_restore_strategy_options.restart_container ? 'true' : 'false'}
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Options for the container-checkpoint-restore rollback strategy.
+                    </p>
                   </dd>
                 </div>
               )}

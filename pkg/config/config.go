@@ -361,9 +361,9 @@ type RetryNewPayloadsSyncingConfig struct {
 // CheckpointRestoreStrategyOptions configures options for the checkpoint-restore
 // rollback strategy (CRIU-based checkpoint/restore with Podman).
 type CheckpointRestoreStrategyOptions struct {
-	TmpfsThreshold        string `yaml:"tmpfs_threshold,omitempty" mapstructure:"tmpfs_threshold"`
-	WaitAfterTCPDropConns string `yaml:"wait_after_tcp_drop_connections,omitempty" mapstructure:"wait_after_tcp_drop_connections"`
-	RestartContainer      bool   `yaml:"restart_container,omitempty" mapstructure:"restart_container"`
+	TmpfsThreshold        string `yaml:"tmpfs_threshold,omitempty" mapstructure:"tmpfs_threshold" json:"tmpfs_threshold,omitempty"`
+	WaitAfterTCPDropConns string `yaml:"wait_after_tcp_drop_connections,omitempty" mapstructure:"wait_after_tcp_drop_connections" json:"wait_after_tcp_drop_connections,omitempty"`
+	RestartContainer      bool   `yaml:"restart_container,omitempty" mapstructure:"restart_container" json:"restart_container,omitempty"`
 }
 
 // BootstrapFCUConfig configures the bootstrap FCU call used to confirm the
