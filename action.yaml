@@ -54,7 +54,7 @@ runs:
   using: 'composite'
   steps:
     - name: Verify and install dependencies
-      uses: ethpandaops/benchmarkoor/.github/actions/dependencies@a998868ed103e6bb92bf8b41b8a43df206279955
+      uses: ethpandaops/benchmarkoor/.github/actions/dependencies@914f4ae7d79437a9eb3fcae6b463f4a8b6470252
 
     - name: Build Docker image locally
       if: inputs.image == ''
