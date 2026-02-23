@@ -611,6 +611,31 @@ func (r *runner) runContainerLifecycle(
 			Source: prepared.MountPath,
 			Target: containerDir,
 		}
+	} else if r.cfg.FullConfig != nil &&
+		r.cfg.FullConfig.GetRollbackStrategy(instance) == config.RollbackStrategyCheckpointRestore {
+		// Checkpoint-restore without a pre-populated datadir uses a bind
+		// mount to a host temp directory so the copy-based rollback
+		// manager can snapshot and rsync the data between tests.
+		tmpDir, mkErr := os.MkdirTemp("", fmt.Sprintf("benchmarkoor-cpdata-%s-", instance.ID))
+		if mkErr != nil {
+			return fmt.Errorf("creating temp dir for checkpoint-restore data: %w", mkErr)
+		}
+
+		localCleanupFuncs = append(localCleanupFuncs, func() {
+			if rmErr := os.RemoveAll(tmpDir); rmErr != nil {
+				log.WithError(rmErr).Warn("Failed to remove checkpoint data temp dir")
+			}
+		})
+
+		log.WithField("path", tmpDir).Info(
+			"Using bind mount for checkpoint-restore (no datadir)",
+		)
+
+		dataMount = docker.Mount{
+			Type:   "bind",
+			Source: tmpDir,
+			Target: spec.DataDir(),
+		}
 	} else {
 		volumeSuffix := instance.ID
 		if params.GenesisGroupHash != "" {
@@ -2735,12 +2760,15 @@ func logCPUFreqInfo(log logrus.FieldLogger, mgr cpufreq.Manager, targetCPUs []in
 	}
 }
 
-// runTestsWithCheckpointRestore executes tests using Podman checkpoint/restore
-// combined with ZFS snapshots. After the initial container reaches RPC readiness,
-// the method checkpoints the container's memory state and takes a ZFS snapshot.
-// For each test, it creates a ZFS clone and restores the container from the
-// checkpoint — the client process resumes mid-execution without restart or RPC
-// polling.
+// runTestsWithCheckpointRestore executes tests using Podman checkpoint/restore.
+// After the initial container reaches RPC readiness, the method checkpoints the
+// container's memory state and snapshots the data directory. For each test, it
+// rolls back the data directory and restores the container from the checkpoint —
+// the client process resumes mid-execution without restart or RPC polling.
+//
+// Two data-directory rollback strategies are supported:
+//   - ZFS snapshots (when datadir.method is "zfs"): instant copy-on-write rollback.
+//   - Copy-based (when no datadir is configured): cp -a snapshot, rsync restore.
 //
 //nolint:gocognit,cyclop // Per-test checkpoint/restore is inherently complex.
 func (r *runner) runTestsWithCheckpointRestore(
@@ -2784,15 +2812,15 @@ func (r *runner) runTestsWithCheckpointRestore(
 		"Running tests with checkpoint-restore strategy",
 	)
 
-	zfsMgr := datadir.NewCheckpointZFSManager(r.log)
+	useZFS := params.DataDirCfg != nil && params.DataDirCfg.Method == "zfs"
 
-	// Find the data mount source — this is the ZFS clone path the
-	// container is using (e.g., /pool/data/benchmarkoor-clone-geth/...).
+	// Find the data mount source — this is the host path the container
+	// mounts for its data directory.
 	dataMountSource := ""
 
-	containerDir := params.DataDirCfg.ContainerDir
-	if containerDir == "" {
-		containerDir = spec.DataDir()
+	containerDir := spec.DataDir()
+	if params.DataDirCfg != nil && params.DataDirCfg.ContainerDir != "" {
+		containerDir = params.DataDirCfg.ContainerDir
 	}
 
 	for _, mnt := range params.ContainerSpec.Mounts {
@@ -2931,25 +2959,70 @@ func (r *runner) runTestsWithCheckpointRestore(
 	//
 	// The checkpointed process used mmap (MAP_SHARED) for its database,
 	// so dirty pages may still be in the page cache. Sync ensures they
-	// are written to ZFS before the snapshot, so the snapshot captures
-	// the exact filesystem state that matches the checkpointed memory.
+	// are flushed before the snapshot, so the snapshot captures the exact
+	// filesystem state that matches the checkpointed memory.
 	if syncErr := exec.Command("sync").Run(); syncErr != nil {
-		log.WithError(syncErr).Warn("Failed to sync before ZFS snapshot")
+		log.WithError(syncErr).Warn("Failed to sync before data directory snapshot")
 	}
 
-	snapshot, err := zfsMgr.SnapshotReady(ctx, &datadir.CheckpointConfig{
-		DataDir:    dataMountSource,
-		InstanceID: params.Instance.ID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("creating ready-state ZFS snapshot: %w", err)
+	// Create the data directory snapshot using either ZFS or copy-based
+	// strategy. Both are abstracted behind rollback/cleanup callbacks.
+	type snapshotRollback struct {
+		rollback func(ctx context.Context) error
+		cleanup  func()
 	}
 
-	defer func() {
-		if destroyErr := zfsMgr.DestroySnapshot(snapshot); destroyErr != nil {
-			log.WithError(destroyErr).Warn("Failed to destroy ready-state snapshot")
+	var sr snapshotRollback
+
+	if useZFS {
+		zfsMgr := datadir.NewCheckpointZFSManager(r.log)
+
+		snapshot, snapErr := zfsMgr.SnapshotReady(ctx, &datadir.CheckpointConfig{
+			DataDir:    dataMountSource,
+			InstanceID: params.Instance.ID,
+		})
+		if snapErr != nil {
+			return nil, fmt.Errorf("creating ready-state ZFS snapshot: %w", snapErr)
 		}
-	}()
+
+		sr = snapshotRollback{
+			rollback: func(ctx context.Context) error {
+				return zfsMgr.RollbackToReady(ctx, snapshot)
+			},
+			cleanup: func() {
+				if destroyErr := zfsMgr.DestroySnapshot(snapshot); destroyErr != nil {
+					log.WithError(destroyErr).Warn(
+						"Failed to destroy ready-state ZFS snapshot",
+					)
+				}
+			},
+		}
+	} else {
+		copyMgr := datadir.NewCheckpointCopyManager(r.log)
+
+		snapshot, snapErr := copyMgr.SnapshotReady(ctx, &datadir.CheckpointConfig{
+			DataDir:    dataMountSource,
+			InstanceID: params.Instance.ID,
+		})
+		if snapErr != nil {
+			return nil, fmt.Errorf("creating ready-state copy snapshot: %w", snapErr)
+		}
+
+		sr = snapshotRollback{
+			rollback: func(ctx context.Context) error {
+				return copyMgr.RollbackToReady(ctx, snapshot)
+			},
+			cleanup: func() {
+				if destroyErr := copyMgr.DestroySnapshot(snapshot); destroyErr != nil {
+					log.WithError(destroyErr).Warn(
+						"Failed to destroy ready-state copy snapshot",
+					)
+				}
+			},
+		}
+	}
+
+	defer sr.cleanup()
 
 	log.Info("Container checkpointed, starting per-test restore loop")
 
@@ -2971,23 +3044,23 @@ func (r *runner) runTestsWithCheckpointRestore(
 			"index": fmt.Sprintf("%d/%d", i+1, len(tests)),
 		})
 
-		testLog.Info("Preparing test: rolling back ZFS and restoring container")
+		testLog.Info("Preparing test: rolling back data directory and restoring container")
 
-		// Rollback the ZFS clone to the ready-state snapshot so the
-		// container restores onto clean data at the same mount path.
-		if err := zfsMgr.RollbackToReady(ctx, snapshot); err != nil {
+		// Roll back the data directory to the ready-state snapshot so
+		// the container restores onto clean data at the same mount path.
+		if err := sr.rollback(ctx); err != nil {
 			combined.TotalDuration = time.Since(startTime)
 
-			return combined, fmt.Errorf("rolling back ZFS for test %d: %w", i, err)
+			return combined, fmt.Errorf("rolling back data directory for test %d: %w", i, err)
 		}
 
-		// Drop Linux page caches after ZFS rollback. The previous test's
+		// Drop Linux page caches after rollback. The previous test's
 		// mmap writes (MAP_SHARED) leave stale pages in the VFS cache.
-		// ZFS rollback resets on-disk data but does NOT invalidate these
+		// Rollback resets on-disk data but does NOT invalidate these
 		// cached pages, so the restored process would read stale data.
 		if dropCachesPath != "" {
 			if cacheErr := os.WriteFile(dropCachesPath, []byte("3"), 0); cacheErr != nil {
-				testLog.WithError(cacheErr).Warn("Failed to drop page caches after ZFS rollback")
+				testLog.WithError(cacheErr).Warn("Failed to drop page caches after rollback")
 			}
 		}
 

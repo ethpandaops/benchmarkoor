@@ -1661,10 +1661,10 @@ func TestValidateRollbackStrategy_CheckpointRestore(t *testing.T) {
 				},
 			},
 			wantErr:   true,
-			errSubstr: "requires datadir.method: \"zfs\"",
+			errSubstr: "with datadir requires datadir.method: \"zfs\"",
 		},
 		{
-			name: "checkpoint-restore requires datadir configured",
+			name: "checkpoint-restore without datadir is valid (copy-based rollback)",
 			cfg: Config{
 				Runner: RunnerConfig{
 					ContainerRuntime: "podman",
@@ -1681,8 +1681,7 @@ func TestValidateRollbackStrategy_CheckpointRestore(t *testing.T) {
 					},
 				},
 			},
-			wantErr:   true,
-			errSubstr: "requires datadir.method: \"zfs\"",
+			wantErr: false,
 		},
 		{
 			name: "checkpoint-restore with zfs from global datadirs",

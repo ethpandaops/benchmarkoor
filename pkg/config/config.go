@@ -1400,12 +1400,14 @@ func (c *Config) validateRollbackStrategy(opt ValidateOpts) error {
 				)
 			}
 
-			// checkpoint-restore requires ZFS datadir.
+			// checkpoint-restore with a configured datadir requires ZFS
+			// (ZFS snapshots for rollback). Without a datadir, copy-based
+			// rollback is used instead, so no restriction applies.
 			dd := c.resolveDataDir(&instance)
-			if dd == nil || dd.Method != "zfs" {
+			if dd != nil && dd.Method != "zfs" {
 				return fmt.Errorf(
-					"instance %q: rollback_strategy %q requires"+
-						" datadir.method: \"zfs\"",
+					"instance %q: rollback_strategy %q with datadir"+
+						" requires datadir.method: \"zfs\"",
 					instance.ID, value,
 				)
 			}
