@@ -93,6 +93,7 @@ func (m *manager) RestoreContainer(
 	keep := true
 	tcpEstablished := true
 	tcpClose := true
+	ignoreVolumes := true
 
 	restoreOpts := &containers.RestoreOptions{
 		ImportArchive:  &exportPath,
@@ -101,6 +102,7 @@ func (m *manager) RestoreContainer(
 		Keep:           &keep,
 		TCPEstablished: &tcpEstablished,
 		TCPClose:       &tcpClose,
+		IgnoreVolumes:  &ignoreVolumes,
 	}
 
 	report, err := containers.Restore(m.conn, "", restoreOpts)
