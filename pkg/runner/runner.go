@@ -1429,6 +1429,18 @@ func (r *runner) runContainerLifecycle(
 			rollbackStrategy = r.cfg.FullConfig.GetRollbackStrategy(instance)
 		}
 
+		// Fail fast if checkpoint-restore prerequisites are not met.
+		if rollbackStrategy == config.RollbackStrategyCheckpointRestore {
+			cpMgr, ok := r.containerMgr.(podman.CheckpointManager)
+			if !ok {
+				return fmt.Errorf("container manager does not support checkpoint/restore")
+			}
+
+			if err := cpMgr.ValidateCheckpointSupport(ctx); err != nil {
+				return fmt.Errorf("checkpoint/restore prerequisites not met: %w", err)
+			}
+		}
+
 		isRunnerLevel := rollbackStrategy == config.RollbackStrategyContainerRecreate ||
 			rollbackStrategy == config.RollbackStrategyCheckpointRestore
 

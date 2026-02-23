@@ -18,6 +18,10 @@ import (
 type CheckpointManager interface {
 	docker.ContainerManager
 
+	// ValidateCheckpointSupport checks that CRIU is installed and
+	// operational. Call this early to fail fast before starting containers.
+	ValidateCheckpointSupport(ctx context.Context) error
+
 	// CheckpointContainer checkpoints a running container and exports
 	// the checkpoint data to exportPath. The container stops after
 	// checkpointing. waitAfterTCPDrop controls how long to wait after
@@ -45,6 +49,34 @@ type RestoreOptions struct {
 
 // Ensure interface compliance.
 var _ CheckpointManager = (*manager)(nil)
+
+// ValidateCheckpointSupport verifies that CRIU is installed and able to
+// perform checkpoint/restore operations on this system.
+func (m *manager) ValidateCheckpointSupport(ctx context.Context) error {
+	criuPath, err := exec.LookPath("criu")
+	if err != nil {
+		return fmt.Errorf(
+			"criu binary not found in PATH: %w\n"+
+				"Install CRIU: https://criu.org/Installation",
+			err,
+		)
+	}
+
+	m.log.WithField("path", criuPath).Debug("Found CRIU binary")
+
+	//nolint:gosec // criuPath comes from LookPath, not user input.
+	out, err := exec.CommandContext(ctx, criuPath, "check").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf(
+			"criu check failed — checkpoint/restore may not work: %w\nOutput: %s",
+			err, string(out),
+		)
+	}
+
+	m.log.Debug("CRIU checkpoint support validated")
+
+	return nil
+}
 
 // CheckpointContainer checkpoints a running container and exports the state
 // to the given file path. The container stops as part of the checkpoint.

@@ -11,6 +11,7 @@ import (
 	"github.com/containers/podman/v5/pkg/bindings/containers"
 	"github.com/containers/podman/v5/pkg/bindings/images"
 	"github.com/containers/podman/v5/pkg/bindings/network"
+	"github.com/containers/podman/v5/pkg/bindings/system"
 	"github.com/containers/podman/v5/pkg/bindings/volumes"
 	entitiesTypes "github.com/containers/podman/v5/pkg/domain/entities/types"
 	"github.com/containers/podman/v5/pkg/specgen"
@@ -55,15 +56,36 @@ func NewManager(log logrus.FieldLogger) (docker.ContainerManager, error) {
 	}, nil
 }
 
-// Start initializes the Podman connection.
+// Start initializes the Podman connection and validates the runtime mode.
 func (m *manager) Start(ctx context.Context) error {
 	conn, err := bindings.NewConnection(ctx, DefaultSocket)
 	if err != nil {
-		return fmt.Errorf("connecting to podman socket: %w", err)
+		return fmt.Errorf(
+			"connecting to podman socket (%s): %w\n"+
+				"Ensure the Podman service is running: systemctl start podman.socket",
+			DefaultSocket, err,
+		)
 	}
 
 	m.conn = conn
-	m.log.Debug("Connected to Podman daemon")
+
+	// Validate the connection and check runtime mode.
+	info, err := system.Info(m.conn, nil)
+	if err != nil {
+		return fmt.Errorf("querying podman info: %w", err)
+	}
+
+	if info.Host.Security.Rootless {
+		return fmt.Errorf(
+			"podman is running in rootless mode, but benchmarkoor requires rootful podman; " +
+				"run the podman service as root or use: sudo systemctl start podman.socket",
+		)
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"version": info.Version.Version,
+		"runtime": info.Host.OCIRuntime.Name,
+	}).Debug("Connected to Podman daemon")
 
 	return nil
 }
