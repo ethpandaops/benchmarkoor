@@ -908,17 +908,68 @@ func (r *runner) runContainerLifecycle(
 
 		// .NET uses inotify for file watching, config reload, and
 		// diagnostics. CRIU cannot dump inotify watches on deleted
-		// files or overlayfs handles. Disable all .NET inotify
-		// sources for Nethermind to allow checkpointing.
+		// files or overlayfs handles. These env vars disable the
+		// .NET host builder's inotify usage for Nethermind.
 		if client.ClientType(instance.Client) == client.ClientNethermind {
 			dotnetEnvDefaults := map[string]string{
-				"DOTNET_USE_POLLING_FILE_WATCHER":         "true",
-				"DOTNET_HOSTBUILDER_RELOADCONFIGONCHANGE": "false",
-				"DOTNET_EnableDiagnostics":                "0",
+				"DOTNET_USE_POLLING_FILE_WATCHER":              "1",
+				"ASPNETCORE_USE_POLLING_FILE_WATCHER":          "true",
+				"DOTNET_HOSTBUILDER_RELOADCONFIGONCHANGE":      "false",
+				"ASPNETCORE_HOSTBUILDER_RELOADCONFIGONCHANGE":  "false",
+				"DOTNET_hostBuilder:reloadConfigOnChange":      "false",
+				"DOTNET_hostBuilder__reloadConfigOnChange":     "false",
+				"ASPNETCORE_hostBuilder:reloadConfigOnChange":  "false",
+				"ASPNETCORE_hostBuilder__reloadConfigOnChange": "false",
+				"DOTNET_EnableDiagnostics":                     "0",
 			}
 			for k, v := range dotnetEnvDefaults {
 				if _, ok := env[k]; !ok {
 					env[k] = v
+				}
+			}
+
+			// NLog's autoReload uses FileSystemWatcher (inotify) on the
+			// overlay rootfs. CRIU cannot dump inotify watches on overlayfs
+			// (open_by_handle_at fails). Extract NLog.config from the image,
+			// patch autoReload to false, and bind-mount the patched copy so
+			// NLog never creates the FileSystemWatcher.
+			cpMgr, ok := r.docker.(podman.CheckpointManager)
+			if ok {
+				nlogContent, nlogErr := cpMgr.ReadFileFromImage(
+					ctx, imageName, "/nethermind/NLog.config",
+				)
+				if nlogErr != nil {
+					log.WithError(nlogErr).Warn(
+						"Failed to extract NLog.config from image",
+					)
+				} else {
+					patched := strings.Replace(
+						string(nlogContent),
+						`autoReload="true"`,
+						`autoReload="false"`,
+						1,
+					)
+
+					nlogFile := filepath.Join(tempDir, "NLog.config")
+					if writeErr := os.WriteFile(
+						nlogFile, []byte(patched), 0644,
+					); writeErr != nil {
+						log.WithError(writeErr).Warn(
+							"Failed to write patched NLog.config",
+						)
+					} else {
+						mounts = append(mounts, docker.Mount{
+							Type:     "bind",
+							Source:   nlogFile,
+							Target:   "/nethermind/NLog.config",
+							ReadOnly: true,
+						})
+
+						log.Info(
+							"Bind-mounted patched NLog.config " +
+								"(autoReload=false) for CRIU compatibility",
+						)
+					}
 				}
 			}
 		}

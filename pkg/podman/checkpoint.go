@@ -29,6 +29,11 @@ type CheckpointManager interface {
 	// RestoreContainer creates and starts a new container from a checkpoint
 	// export file. Returns the new container's ID.
 	RestoreContainer(ctx context.Context, exportPath string, opts *RestoreOptions) (string, error)
+
+	// ReadFileFromImage extracts a file from an OCI image by running a
+	// throwaway container. Used to read config files that need patching
+	// before the real container starts.
+	ReadFileFromImage(ctx context.Context, imageName, filePath string) ([]byte, error)
 }
 
 // RestoreOptions configures how a container is restored from a checkpoint.
@@ -117,6 +122,24 @@ func (m *manager) RestoreContainer(
 	m.log.WithField("id", containerID[:12]).Info("Container restored successfully")
 
 	return containerID, nil
+}
+
+// ReadFileFromImage extracts a file from an OCI image by running a throwaway
+// container with "cat". The image must already be pulled.
+func (m *manager) ReadFileFromImage(
+	ctx context.Context,
+	imageName, filePath string,
+) ([]byte, error) {
+	//nolint:gosec // imageName and filePath come from trusted internal callers.
+	out, err := exec.CommandContext(ctx,
+		"podman", "run", "--rm", "--entrypoint", "",
+		imageName, "cat", filePath,
+	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("reading %s from image %s: %w", filePath, imageName, err)
+	}
+
+	return out, nil
 }
 
 // dropTCPConnections blocks new outgoing TCP connections and kills all
