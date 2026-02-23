@@ -2866,7 +2866,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 	log := r.log.WithFields(logrus.Fields{
 		"instance": params.Instance.ID,
 		"run_id":   params.RunID,
-		"strategy": "checkpoint-restore",
+		"strategy": "container-checkpoint-restore",
 	})
 
 	// Type-assert the container manager to CheckpointManager.

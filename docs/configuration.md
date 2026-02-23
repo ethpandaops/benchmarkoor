@@ -124,7 +124,7 @@ Benchmarkoor supports both Docker and Podman as container runtimes. The runtime 
 | Value | Description |
 |-------|-------------|
 | `docker` | Use Docker (default) |
-| `podman` | Use Podman. Required for `checkpoint-restore` rollback strategy. Connects via `/run/podman/podman.sock` |
+| `podman` | Use Podman. Required for `container-checkpoint-restore` rollback strategy. Connects via `/run/podman/podman.sock` |
 
 When using Podman, ensure the Podman socket is active:
 
@@ -485,7 +485,7 @@ Controls whether the client state is rolled back after each test. This is useful
 | `none` | Do not rollback |
 | `rpc-debug-setHead` | Capture block info before each test, then rollback via a client-specific debug RPC after the test completes (default) |
 | `container-recreate` | Stop and remove the container after each test, then create and start a fresh one |
-| `checkpoint-restore` | Use Podman's CRIU-based checkpoint/restore to snapshot container memory state and the data directory, then instantly restore both per-test. Requires `container_runtime: "podman"`. When `datadir.method: "zfs"` is configured, uses ZFS snapshots for rollback. Without a datadir, uses copy-based rollback (`cp -a` snapshot, `rsync --delete` restore) |
+| `container-checkpoint-restore` | Use Podman's CRIU-based checkpoint/restore to snapshot container memory state and the data directory, then instantly restore both per-test. Requires `container_runtime: "podman"`. When `datadir.method: "zfs"` is configured, uses ZFS snapshots for rollback. Without a datadir, uses copy-based rollback (`cp -a` snapshot, `rsync --delete` restore) |
 
 ###### `rpc-debug-setHead`
 
@@ -524,9 +524,9 @@ When `container-recreate` is enabled, the runner manages the per-test loop:
 
 This strategy works with all clients since it doesn't require any client-specific RPC support.
 
-###### `checkpoint-restore`
+###### `container-checkpoint-restore`
 
-When `checkpoint-restore` is enabled, the runner uses Podman's native CRIU-based checkpoint/restore to eliminate per-test container lifecycle overhead. This is significantly faster than `container-recreate` for large test suites because the client process resumes mid-execution without restart or RPC polling.
+When `container-checkpoint-restore` is enabled, the runner uses Podman's native CRIU-based checkpoint/restore to eliminate per-test container lifecycle overhead. This is significantly faster than `container-recreate` for large test suites because the client process resumes mid-execution without restart or RPC polling.
 
 Two data-directory rollback modes are supported:
 - **ZFS snapshots** (when `datadir.method: "zfs"` is configured): instant copy-on-write rollback.
@@ -556,7 +556,7 @@ runner:
   container_runtime: podman
   client:
     config:
-      rollback_strategy: checkpoint-restore
+      rollback_strategy: container-checkpoint-restore
     datadirs:
       geth:
         source_dir: /tank/data/geth
@@ -573,7 +573,7 @@ runner:
   container_runtime: podman
   client:
     config:
-      rollback_strategy: checkpoint-restore
+      rollback_strategy: container-checkpoint-restore
   instances:
     - id: geth
       client: geth
@@ -581,7 +581,7 @@ runner:
 
 ##### Checkpoint Restore Strategy Options
 
-Options for the `checkpoint-restore` rollback strategy, nested under `checkpoint_restore_strategy_options`:
+Options for the `container-checkpoint-restore` rollback strategy, nested under `checkpoint_restore_strategy_options`:
 
 | Sub-option | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -593,7 +593,7 @@ Options for the `checkpoint-restore` rollback strategy, nested under `checkpoint
 runner:
   client:
     config:
-      rollback_strategy: checkpoint-restore
+      rollback_strategy: container-checkpoint-restore
       checkpoint_restore_strategy_options:
         tmpfs_threshold: "8g"
         wait_after_tcp_drop_connections: "10s"
@@ -677,7 +677,7 @@ runner:
 
 The FCU call sets `headBlockHash` to the latest block, with `safeBlockHash` and `finalizedBlockHash` set to the zero hash and no payload attributes. The response must have `VALID` status. If the call fails, it is retried up to `max_retries` times with `backoff` between attempts. If all attempts fail, the run is aborted.
 
-When using the `container-recreate` rollback strategy, the bootstrap FCU is sent after each container recreate. When using `checkpoint-restore`, the bootstrap FCU is sent once before the checkpoint is taken.
+When using the `container-recreate` rollback strategy, the bootstrap FCU is sent after each container recreate. When using `container-checkpoint-restore`, the bootstrap FCU is sent once before the checkpoint is taken.
 
 **When to use:**
 - When clients may still be performing internal initialization or syncing after RPC becomes available (e.g., Erigon's staged sync)

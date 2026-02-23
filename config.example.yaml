@@ -9,7 +9,7 @@ global:
 
 runner:
   # Container runtime: "docker" (default) or "podman".
-  # Podman is required for the "checkpoint-restore" rollback strategy.
+  # Podman is required for the "container-checkpoint-restore" rollback strategy.
   # When using Podman, ensure the socket is active: sudo systemctl start podman.socket
   # container_runtime: docker
   client_logs_to_stdout: true
@@ -249,12 +249,12 @@ runner:
       #   "none"                - Do not rollback
       #   "rpc-debug-setHead"   - Capture block number before test, rollback via debug_setHead after (default)
       #   "container-recreate"  - Stop and remove the container after each test, recreate from same datadir
-      #   "checkpoint-restore"  - Podman CRIU checkpoint/restore for instant per-test restore.
+      #   "container-checkpoint-restore"  - Podman CRIU checkpoint/restore for instant per-test restore.
       #                           Requires: container_runtime: "podman"
       #                           With datadir: requires datadir.method: "zfs" (ZFS snapshot rollback)
       #                           Without datadir: uses copy-based rollback (cp -a + rsync)
       # rollback_strategy: "rpc-debug-setHead"
-      # Optional: Checkpoint-restore strategy options. Only apply to the "checkpoint-restore"
+      # Optional: Checkpoint-restore strategy options. Only apply to the "container-checkpoint-restore"
       # rollback strategy.
       # checkpoint_restore_strategy_options:
       #   # Store checkpoint on tmpfs (RAM) when container memory is under this threshold.

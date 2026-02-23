@@ -58,7 +58,7 @@ const (
 	// to snapshot the container's memory state + ZFS snapshot the datadir after RPC
 	// is ready, then instantly restore both per-test.
 	// Requires container_runtime: "podman" and datadir.method: "zfs".
-	RollbackStrategyCheckpointRestore = "checkpoint-restore"
+	RollbackStrategyCheckpointRestore = "container-checkpoint-restore"
 )
 
 // Config is the root configuration for benchmarkoor.
