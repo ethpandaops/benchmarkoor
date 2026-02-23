@@ -11,6 +11,7 @@ import (
 
 	"github.com/containers/podman/v5/pkg/bindings/containers"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/sirupsen/logrus"
 )
 
 // CheckpointManager extends ContainerManager with checkpoint/restore support.
@@ -63,15 +64,19 @@ func (m *manager) CheckpointContainer(
 		m.log.WithError(err).Warn("Failed to drop TCP connections before checkpoint")
 	}
 
+	checkpointStart := time.Now()
+
 	fileLocks := true
 	keep := true
 	tcpEstablished := true
+	printStats := true
 
-	_, err := containers.Checkpoint(m.conn, containerID, &containers.CheckpointOptions{
+	report, err := containers.Checkpoint(m.conn, containerID, &containers.CheckpointOptions{
 		Export:         &exportPath,
 		FileLocks:      &fileLocks,
 		Keep:           &keep,
 		TCPEstablished: &tcpEstablished,
+		PrintStats:     &printStats,
 	})
 	if err != nil {
 		m.logCRIUDumpLog(containerID)
@@ -79,7 +84,22 @@ func (m *manager) CheckpointContainer(
 		return fmt.Errorf("checkpointing container %s: %w", containerID[:12], err)
 	}
 
-	m.log.WithField("export", exportPath).Info("Container checkpointed successfully")
+	fields := logrus.Fields{
+		"export":           exportPath,
+		"duration":         time.Since(checkpointStart).Round(time.Millisecond),
+		"runtime_duration": time.Duration(report.RuntimeDuration) * time.Microsecond,
+	}
+
+	if s := report.CRIUStatistics; s != nil {
+		fields["freezing_time"] = time.Duration(s.FreezingTime) * time.Microsecond
+		fields["frozen_time"] = time.Duration(s.FrozenTime) * time.Microsecond
+		fields["memdump_time"] = time.Duration(s.MemdumpTime) * time.Microsecond
+		fields["memwrite_time"] = time.Duration(s.MemwriteTime) * time.Microsecond
+		fields["pages_scanned"] = s.PagesScanned
+		fields["pages_written"] = s.PagesWritten
+	}
+
+	m.log.WithFields(fields).Info("Container checkpointed successfully")
 
 	return nil
 }
@@ -94,11 +114,14 @@ func (m *manager) RestoreContainer(
 ) (string, error) {
 	m.log.WithField("name", opts.Name).Info("Restoring container from checkpoint")
 
+	restoreStart := time.Now()
+
 	fileLocks := true
 	keep := true
 	tcpEstablished := true
 	tcpClose := true
 	ignoreVolumes := true
+	printStats := true
 
 	restoreOpts := &containers.RestoreOptions{
 		ImportArchive:  &exportPath,
@@ -108,6 +131,7 @@ func (m *manager) RestoreContainer(
 		TCPEstablished: &tcpEstablished,
 		TCPClose:       &tcpClose,
 		IgnoreVolumes:  &ignoreVolumes,
+		PrintStats:     &printStats,
 	}
 
 	report, err := containers.Restore(m.conn, "", restoreOpts)
@@ -119,7 +143,21 @@ func (m *manager) RestoreContainer(
 
 	containerID := report.Id
 
-	m.log.WithField("id", containerID[:12]).Info("Container restored successfully")
+	fields := logrus.Fields{
+		"id":               containerID[:12],
+		"duration":         time.Since(restoreStart).Round(time.Millisecond),
+		"runtime_duration": time.Duration(report.RuntimeDuration) * time.Microsecond,
+	}
+
+	if s := report.CRIUStatistics; s != nil {
+		fields["forking_time"] = time.Duration(s.ForkingTime) * time.Microsecond
+		fields["restore_time"] = time.Duration(s.RestoreTime) * time.Microsecond
+		fields["pages_compared"] = s.PagesCompared
+		fields["pages_skipped_cow"] = s.PagesSkippedCow
+		fields["pages_restored"] = s.PagesRestored
+	}
+
+	m.log.WithFields(fields).Info("Container restored successfully")
 
 	return containerID, nil
 }
