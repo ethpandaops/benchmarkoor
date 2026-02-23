@@ -2954,7 +2954,9 @@ func (r *runner) runTestsWithCheckpointRestore(
 	http.DefaultClient.CloseIdleConnections()
 	time.Sleep(200 * time.Millisecond) // Let server-side sockets close.
 
-	if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath); err != nil {
+	waitAfterTCPDrop := r.cfg.FullConfig.GetCheckpointWaitAfterTCPDropConns(params.Instance)
+
+	if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath, waitAfterTCPDrop); err != nil {
 		return nil, fmt.Errorf("checkpointing container: %w", err)
 	}
 

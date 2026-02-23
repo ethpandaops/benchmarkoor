@@ -19,8 +19,12 @@ type CheckpointManager interface {
 
 	// CheckpointContainer checkpoints a running container and exports
 	// the checkpoint data to exportPath. The container stops after
-	// checkpointing.
-	CheckpointContainer(ctx context.Context, containerID string, exportPath string) error
+	// checkpointing. waitAfterTCPDrop controls how long to wait after
+	// dropping TCP connections for fd cleanup before the actual checkpoint.
+	CheckpointContainer(
+		ctx context.Context, containerID string, exportPath string,
+		waitAfterTCPDrop time.Duration,
+	) error
 
 	// RestoreContainer creates and starts a new container from a checkpoint
 	// export file. Returns the new container's ID.
@@ -42,6 +46,7 @@ func (m *manager) CheckpointContainer(
 	ctx context.Context,
 	containerID string,
 	exportPath string,
+	waitAfterTCPDrop time.Duration,
 ) error {
 	m.log.WithField("container", containerID[:12]).Info("Checkpointing container")
 
@@ -49,7 +54,7 @@ func (m *manager) CheckpointContainer(
 	// cannot restore TCP sockets bound to the old container IP, and
 	// restored containers get a new address. Killing connections here
 	// avoids the need for --tcp-established / --tcp-close workarounds.
-	if err := m.dropTCPConnections(ctx, containerID); err != nil {
+	if err := m.dropTCPConnections(ctx, containerID, waitAfterTCPDrop); err != nil {
 		m.log.WithError(err).Warn("Failed to drop TCP connections before checkpoint")
 	}
 
@@ -116,7 +121,11 @@ func (m *manager) RestoreContainer(
 // existing non-LISTEN TCP sockets inside the container's network namespace.
 // This two-step approach (block then kill) avoids a race where the process
 // opens new connections between the kill and the CRIU freeze.
-func (m *manager) dropTCPConnections(ctx context.Context, containerID string) error {
+func (m *manager) dropTCPConnections(
+	ctx context.Context,
+	containerID string,
+	waitAfterDrop time.Duration,
+) error {
 	inspect, err := containers.Inspect(m.conn, containerID, nil)
 	if err != nil {
 		return fmt.Errorf("inspecting container: %w", err)
@@ -160,7 +169,7 @@ func (m *manager) dropTCPConnections(ctx context.Context, containerID string) er
 		Info("Blocked outgoing TCP and dropped existing connections, waiting for fd cleanup")
 
 	select {
-	case <-time.After(10 * time.Second):
+	case <-time.After(waitAfterDrop):
 	case <-ctx.Done():
 		return ctx.Err()
 	}
