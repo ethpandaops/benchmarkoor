@@ -587,6 +587,7 @@ type ClientDefaults struct {
 	BootstrapFCU                    *BootstrapFCUConfig            `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointTmpfsThreshold        string                         `yaml:"checkpoint_tmpfs_threshold,omitempty" mapstructure:"checkpoint_tmpfs_threshold"`
 	CheckpointWaitAfterTCPDropConns string                         `yaml:"checkpoint_wait_after_tcp_drop_connections,omitempty" mapstructure:"checkpoint_wait_after_tcp_drop_connections"`
+	CheckpointRestartContainer      bool                           `yaml:"checkpoint_restart_container,omitempty" mapstructure:"checkpoint_restart_container"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
@@ -611,6 +612,7 @@ type ClientInstance struct {
 	BootstrapFCU                    *BootstrapFCUConfig            `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointTmpfsThreshold        string                         `yaml:"checkpoint_tmpfs_threshold,omitempty" mapstructure:"checkpoint_tmpfs_threshold"`
 	CheckpointWaitAfterTCPDropConns string                         `yaml:"checkpoint_wait_after_tcp_drop_connections,omitempty" mapstructure:"checkpoint_wait_after_tcp_drop_connections"`
+	CheckpointRestartContainer      bool                           `yaml:"checkpoint_restart_container,omitempty" mapstructure:"checkpoint_restart_container"`
 }
 
 // expandEnvWithDefaults is a mapping function for os.Expand that supports
@@ -1330,6 +1332,18 @@ func (c *Config) GetCheckpointWaitAfterTCPDropConns(
 	}
 
 	return d
+}
+
+// GetCheckpointRestartContainer returns whether the container should be
+// restarted before taking a CRIU checkpoint. Restarting ensures a clean
+// process state (cold caches, clean DB shutdown) for a reliable checkpoint.
+// Instance-level setting takes precedence over global default.
+func (c *Config) GetCheckpointRestartContainer(instance *ClientInstance) bool {
+	if instance.CheckpointRestartContainer {
+		return true
+	}
+
+	return c.Runner.Client.Config.CheckpointRestartContainer
 }
 
 // ParseByteSize parses a human-readable byte size string into bytes.

@@ -2905,7 +2905,114 @@ func (r *runner) runTestsWithCheckpointRestore(
 		return nil, fmt.Errorf("could not find data mount for %s in container spec", containerDir)
 	}
 
-	// 1. Run pre-run steps on the live container before checkpointing.
+	// 1. Optionally restart the container before checkpointing.
+	//    Some clients (e.g., Erigon with MDBX) keep in-memory caches or
+	//    dirty state that interferes with CRIU checkpoint/restore. A
+	//    stop+start cycle gives us a cold-start process with a cleanly
+	//    shut-down database — ideal for a reliable checkpoint.
+	if r.cfg.FullConfig.GetCheckpointRestartContainer(params.Instance) {
+		log.Info("Restarting container before checkpoint for clean process state")
+
+		if err := r.docker.StopContainer(ctx, containerID); err != nil {
+			return nil, fmt.Errorf("stopping container before checkpoint restart: %w", err)
+		}
+
+		// Drain logs from the stopped container.
+		waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+		if err := r.docker.StartContainer(ctx, containerID); err != nil {
+			return nil, fmt.Errorf("starting container after checkpoint restart: %w", err)
+		}
+
+		// IP may change after restart; refresh it.
+		newIP, err := r.docker.GetContainerIP(
+			ctx, containerID, r.cfg.DockerNetwork,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("getting container IP after checkpoint restart: %w", err)
+		}
+
+		containerIP = newIP
+
+		// Restart log streaming for the restarted container.
+		var logCtx context.Context
+
+		var newLogCancel context.CancelFunc
+
+		logCtx, newLogCancel = context.WithCancel(ctx)
+		*logCancel = newLogCancel
+
+		logFilePath := filepath.Join(resultsDir, "container.log")
+
+		logFile, logErr := os.OpenFile(
+			logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
+		)
+		if logErr != nil {
+			newLogCancel()
+
+			return nil, fmt.Errorf(
+				"opening log file after checkpoint restart: %w", logErr,
+			)
+		}
+
+		*cleanupFuncs = append(*cleanupFuncs, func() { _ = logFile.Close() })
+
+		newLogDone := make(chan struct{})
+		*logDone = newLogDone
+
+		r.wg.Add(1)
+
+		go func() {
+			defer r.wg.Done()
+			defer close(newLogDone)
+
+			if streamErr := r.streamLogs(
+				logCtx, params.Instance.ID, containerID, logFile,
+				benchmarkoorLog,
+				&containerLogInfo{
+					Name:             params.ContainerSpec.Name,
+					ContainerID:      containerID,
+					Image:            params.ContainerSpec.Image,
+					GenesisGroupHash: params.GenesisGroupHash,
+				},
+				params.BlockLogCollector,
+			); streamErr != nil {
+				select {
+				case <-cleanupStarted:
+				default:
+					log.WithError(streamErr).Debug(
+						"Log streaming ended after checkpoint restart",
+					)
+				}
+			}
+		}()
+
+		// Wait for RPC readiness on the restarted container.
+		if _, err := r.waitForRPC(ctx, containerIP, spec.RPCPort()); err != nil {
+			return nil, fmt.Errorf(
+				"waiting for RPC after checkpoint restart: %w", err,
+			)
+		}
+
+		// Honour the post-RPC-ready wait if configured.
+		if waitDuration := r.cfg.FullConfig.GetWaitAfterRPCReady(
+			params.Instance,
+		); waitDuration > 0 {
+			log.WithField("duration", waitDuration).Info(
+				"Waiting after RPC ready (post-restart)",
+			)
+
+			select {
+			case <-time.After(waitDuration):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		log.Info("Container restarted and RPC ready, proceeding to checkpoint")
+	}
+
+	// 2. Run pre-run steps on the live container before checkpointing.
 	//    These steps (e.g., genesis setup) must be baked into the
 	//    checkpoint so every restored container starts post-pre-run.
 	engineEndpoint := fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort())
@@ -2922,7 +3029,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 		log.WithField("steps", n).Info("Pre-run steps completed before checkpoint")
 	}
 
-	// 2. Decide checkpoint export path: tmpfs (RAM) or disk.
+	// 3. Decide checkpoint export path: tmpfs (RAM) or disk.
 	//
 	// When checkpoint_tmpfs_threshold is configured and the container's
 	// current memory usage is under the threshold, store the checkpoint
@@ -2996,7 +3103,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 		}
 	}
 
-	// 3. Checkpoint the running container.
+	// 4. Checkpoint the running container.
 	//
 	// Close idle HTTP connections first so there are no ESTABLISHED TCP
 	// connections inside the container (from RPC readiness checks). CRIU
@@ -3027,7 +3134,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 	// Wait for log drain after checkpoint (container has stopped).
 	waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
-	// 4. Flush dirty pages and snapshot the data directory.
+	// 5. Flush dirty pages and snapshot the data directory.
 	//
 	// The checkpointed process used mmap (MAP_SHARED) for its database,
 	// so dirty pages may still be in the page cache. Sync ensures they
@@ -3098,7 +3205,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 	log.Info("Container checkpointed, starting per-test restore loop")
 
-	// 5. Per-test restore loop.
+	// 6. Per-test restore loop.
 	combined := &executor.ExecutionResult{}
 	startTime := time.Now()
 
