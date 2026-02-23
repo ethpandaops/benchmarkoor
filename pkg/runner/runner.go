@@ -203,29 +203,29 @@ func NewRunner(
 	}
 
 	return &runner{
-		logger:     log,
-		log:        log.WithField("component", "runner"),
-		cfg:        cfg,
-		docker:     containerMgr,
-		registry:   registry,
-		executor:   exec,
-		cpufreqMgr: cpufreqMgr,
-		uploader:   uploader,
-		done:       make(chan struct{}),
+		logger:       log,
+		log:          log.WithField("component", "runner"),
+		cfg:          cfg,
+		containerMgr: containerMgr,
+		registry:     registry,
+		executor:     exec,
+		cpufreqMgr:   cpufreqMgr,
+		uploader:     uploader,
+		done:         make(chan struct{}),
 	}
 }
 
 type runner struct {
-	logger     *logrus.Logger     // The actual logger (for hook management)
-	log        logrus.FieldLogger // The field logger (for logging with fields)
-	cfg        *Config
-	docker     docker.ContainerManager
-	registry   client.Registry
-	executor   executor.Executor
-	cpufreqMgr cpufreq.Manager
-	uploader   upload.Uploader
-	done       chan struct{}
-	wg         sync.WaitGroup
+	logger       *logrus.Logger     // The actual logger (for hook management)
+	log          logrus.FieldLogger // The field logger (for logging with fields)
+	cfg          *Config
+	containerMgr docker.ContainerManager
+	registry     client.Registry
+	executor     executor.Executor
+	cpufreqMgr   cpufreq.Manager
+	uploader     upload.Uploader
+	done         chan struct{}
+	wg           sync.WaitGroup
 }
 
 // Ensure interface compliance.
@@ -234,7 +234,7 @@ var _ Runner = (*runner)(nil)
 // getDockerClient returns the underlying Docker client if the container manager
 // is a Docker manager, or nil otherwise (e.g., when using Podman).
 func (r *runner) getDockerClient() *dockerclient.Client {
-	if dm, ok := r.docker.(docker.Manager); ok {
+	if dm, ok := r.containerMgr.(docker.Manager); ok {
 		return dm.GetClient()
 	}
 
@@ -248,9 +248,9 @@ func (r *runner) Start(ctx context.Context) error {
 		return fmt.Errorf("creating results directory: %w", err)
 	}
 
-	// Ensure Docker network exists.
-	if err := r.docker.EnsureNetwork(ctx, r.cfg.DockerNetwork); err != nil {
-		return fmt.Errorf("ensuring docker network: %w", err)
+	// Ensure container network exists.
+	if err := r.containerMgr.EnsureNetwork(ctx, r.cfg.DockerNetwork); err != nil {
+		return fmt.Errorf("ensuring container network: %w", err)
 	}
 
 	r.log.Debug("Runner started")
@@ -425,11 +425,11 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		imageName = spec.DefaultImage()
 	}
 
-	if err := r.docker.PullImage(ctx, imageName, instance.PullPolicy); err != nil {
+	if err := r.containerMgr.PullImage(ctx, imageName, instance.PullPolicy); err != nil {
 		return fmt.Errorf("pulling image: %w", err)
 	}
 
-	imageDigest, err := r.docker.GetImageDigest(ctx, imageName)
+	imageDigest, err := r.containerMgr.GetImageDigest(ctx, imageName)
 	if err != nil {
 		log.WithError(err).Warn("Failed to get image digest")
 	} else {
@@ -577,7 +577,7 @@ func (r *runner) runContainerLifecycle(
 		}
 	}()
 
-	// Setup data directory: either Docker volume or copied datadir.
+	// Setup data directory: either container volume or copied datadir.
 	// Each container lifecycle gets a fresh volume/datadir.
 	var dataMount docker.Mount
 
@@ -656,14 +656,14 @@ func (r *runner) runContainerLifecycle(
 			"benchmarkoor.managed-by": "benchmarkoor",
 		}
 
-		if err := r.docker.CreateVolume(
+		if err := r.containerMgr.CreateVolume(
 			ctx, volumeName, volumeLabels,
 		); err != nil {
 			return fmt.Errorf("creating volume: %w", err)
 		}
 
 		localCleanupFuncs = append(localCleanupFuncs, func() {
-			if rmErr := r.docker.RemoveVolume(
+			if rmErr := r.containerMgr.RemoveVolume(
 				context.Background(), volumeName,
 			); rmErr != nil {
 				log.WithError(rmErr).Warn("Failed to remove volume")
@@ -818,7 +818,7 @@ func (r *runner) runContainerLifecycle(
 			)
 		}
 
-		if err := r.docker.RunInitContainer(
+		if err := r.containerMgr.RunInitContainer(
 			ctx, initSpec, initStdout, initStderr,
 		); err != nil {
 			_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
@@ -913,7 +913,7 @@ func (r *runner) runContainerLifecycle(
 			// (open_by_handle_at fails). Extract NLog.config from the image,
 			// patch autoReload to false, and bind-mount the patched copy so
 			// NLog never creates the FileSystemWatcher.
-			cpMgr, ok := r.docker.(podman.CheckpointManager)
+			cpMgr, ok := r.containerMgr.(podman.CheckpointManager)
 			if ok {
 				nlogContent, nlogErr := cpMgr.ReadFileFromImage(
 					ctx, imageName, "/nethermind/NLog.config",
@@ -962,7 +962,7 @@ func (r *runner) runContainerLifecycle(
 	}
 
 	// Resolve resource limits.
-	var dockerResourceLimits *docker.ResourceLimits
+	var containerResourceLimits *docker.ResourceLimits
 	var resolvedResourceLimits *ResolvedResourceLimits
 	var targetCPUs []int // CPUs to apply cpu_freq settings to
 
@@ -971,8 +971,8 @@ func (r *runner) runContainerLifecycle(
 		if resourceLimitsCfg != nil {
 			var err error
 
-			dockerResourceLimits, resolvedResourceLimits, err =
-				buildDockerResourceLimits(resourceLimitsCfg)
+			containerResourceLimits, resolvedResourceLimits, err =
+				buildContainerResourceLimits(resourceLimitsCfg)
 			if err != nil {
 				return fmt.Errorf("building resource limits: %w", err)
 			}
@@ -1136,7 +1136,7 @@ func (r *runner) runContainerLifecycle(
 		Env:            env,
 		Mounts:         mounts,
 		NetworkName:    r.cfg.DockerNetwork,
-		ResourceLimits: dockerResourceLimits,
+		ResourceLimits: containerResourceLimits,
 		Labels: map[string]string{
 			"benchmarkoor.instance":   instance.ID,
 			"benchmarkoor.client":     instance.Client,
@@ -1151,7 +1151,7 @@ func (r *runner) runContainerLifecycle(
 	params.UseDataDir = useDataDir
 
 	// Create container.
-	containerID, err := r.docker.CreateContainer(ctx, containerSpec)
+	containerID, err := r.containerMgr.CreateContainer(ctx, containerSpec)
 	if err != nil {
 		return fmt.Errorf("creating container: %w", err)
 	}
@@ -1218,7 +1218,7 @@ func (r *runner) runContainerLifecycle(
 	localCleanupFuncs = append(localCleanupFuncs, func() {
 		log.Info("Removing container")
 
-		if rmErr := r.docker.RemoveContainer(
+		if rmErr := r.containerMgr.RemoveContainer(
 			context.Background(), containerID,
 		); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove container")
@@ -1226,7 +1226,7 @@ func (r *runner) runContainerLifecycle(
 	})
 
 	// Start container.
-	if err := r.docker.StartContainer(ctx, containerID); err != nil {
+	if err := r.containerMgr.StartContainer(ctx, containerID); err != nil {
 		return fmt.Errorf("starting container: %w", err)
 	}
 
@@ -1241,7 +1241,7 @@ func (r *runner) runContainerLifecycle(
 	var containerOOMKilled *bool
 	var mu sync.Mutex
 
-	containerExitCh, containerErrCh := r.docker.WaitForContainerExit(
+	containerExitCh, containerErrCh := r.containerMgr.WaitForContainerExit(
 		ctx, containerID,
 	)
 
@@ -1285,7 +1285,7 @@ func (r *runner) runContainerLifecycle(
 	}()
 
 	// Get container IP for health checks.
-	containerIP, err := r.docker.GetContainerIP(
+	containerIP, err := r.containerMgr.GetContainerIP(
 		ctx, containerID, r.cfg.DockerNetwork,
 	)
 	if err != nil {
@@ -1672,7 +1672,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			testLog.Info("Recreating container for next test")
 
 			// Stop container first so Docker flushes remaining logs.
-			if err := r.docker.StopContainer(
+			if err := r.containerMgr.StopContainer(
 				ctx, currentContainerID,
 			); err != nil {
 				testLog.WithError(err).Warn("Failed to stop container")
@@ -1682,7 +1682,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
 			// Remove the stopped container.
-			if err := r.docker.RemoveContainer(
+			if err := r.containerMgr.RemoveContainer(
 				ctx, currentContainerID,
 			); err != nil {
 				testLog.WithError(err).Warn("Failed to remove container")
@@ -1732,7 +1732,7 @@ func (r *runner) runTestsWithContainerStrategy(
 				}
 			}
 
-			newID, err := r.docker.CreateContainer(ctx, &newSpec)
+			newID, err := r.containerMgr.CreateContainer(ctx, &newSpec)
 			if err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
@@ -1743,7 +1743,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			// Update cleanup to remove this container on exit.
 			*cleanupFuncs = append(*cleanupFuncs, func() {
-				if rmErr := r.docker.RemoveContainer(
+				if rmErr := r.containerMgr.RemoveContainer(
 					context.Background(), newID,
 				); rmErr != nil {
 					testLog.WithError(rmErr).Warn(
@@ -1803,7 +1803,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			}()
 
 			// Start the new container.
-			if err := r.docker.StartContainer(ctx, newID); err != nil {
+			if err := r.containerMgr.StartContainer(ctx, newID); err != nil {
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
@@ -1811,7 +1811,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			}
 
 			// Get new container IP.
-			newIP, err := r.docker.GetContainerIP(
+			newIP, err := r.containerMgr.GetContainerIP(
 				ctx, newID, r.cfg.DockerNetwork,
 			)
 			if err != nil {
@@ -1978,7 +1978,7 @@ func (r *runner) createFreshDataMount(
 		}, cleanup, nil
 	}
 
-	// Docker volume path.
+	// Container volume path.
 	volumeSuffix := params.Instance.ID
 	if params.GenesisGroupHash != "" {
 		volumeSuffix = params.Instance.ID + "-" + params.GenesisGroupHash
@@ -1994,14 +1994,14 @@ func (r *runner) createFreshDataMount(
 		"benchmarkoor.managed-by": "benchmarkoor",
 	}
 
-	if err := r.docker.CreateVolume(ctx, volumeName, volumeLabels); err != nil {
+	if err := r.containerMgr.CreateVolume(ctx, volumeName, volumeLabels); err != nil {
 		return docker.Mount{}, nil, fmt.Errorf("creating volume: %w", err)
 	}
 
 	log.WithField("volume", volumeName).Debug("Created fresh volume")
 
 	cleanup := func() {
-		if rmErr := r.docker.RemoveVolume(
+		if rmErr := r.containerMgr.RemoveVolume(
 			context.Background(), volumeName,
 		); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove recreate volume")
@@ -2081,7 +2081,7 @@ func (r *runner) runInitForRecreate(
 		initStderr = io.MultiWriter(initFile, stdoutPW, logPW)
 	}
 
-	if err := r.docker.RunInitContainer(
+	if err := r.containerMgr.RunInitContainer(
 		ctx, initSpec, initStdout, initStderr,
 	); err != nil {
 		_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
@@ -2221,7 +2221,7 @@ func (r *runner) streamLogs(
 		stderr = io.MultiWriter(baseWriter, stdoutPrefixWriter, logFilePrefixWriter)
 	}
 
-	streamErr := r.docker.StreamLogs(ctx, containerID, stdout, stderr)
+	streamErr := r.containerMgr.StreamLogs(ctx, containerID, stdout, stderr)
 
 	// Write end marker (best-effort, even if streaming failed).
 	_, _ = fmt.Fprintf(file, "#CONTAINER:END\n")
@@ -2630,13 +2630,13 @@ func cpusetString(cpus []int) string {
 	return strings.Join(strs, ",")
 }
 
-// buildDockerResourceLimits builds docker.ResourceLimits from config.ResourceLimits.
-func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimits, *ResolvedResourceLimits, error) {
+// buildContainerResourceLimits builds docker.ResourceLimits from config.ResourceLimits.
+func buildContainerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimits, *ResolvedResourceLimits, error) {
 	if cfg == nil {
 		return nil, nil, nil
 	}
 
-	dockerLimits := &docker.ResourceLimits{}
+	containerLimits := &docker.ResourceLimits{}
 	resolved := &ResolvedResourceLimits{}
 
 	// Handle CPU pinning.
@@ -2646,11 +2646,11 @@ func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimi
 			return nil, nil, fmt.Errorf("selecting random CPUs: %w", err)
 		}
 
-		dockerLimits.CpusetCpus = cpusetString(cpus)
-		resolved.CpusetCpus = dockerLimits.CpusetCpus
+		containerLimits.CpusetCpus = cpusetString(cpus)
+		resolved.CpusetCpus = containerLimits.CpusetCpus
 	} else if len(cfg.Cpuset) > 0 {
-		dockerLimits.CpusetCpus = cpusetString(cfg.Cpuset)
-		resolved.CpusetCpus = dockerLimits.CpusetCpus
+		containerLimits.CpusetCpus = cpusetString(cfg.Cpuset)
+		resolved.CpusetCpus = containerLimits.CpusetCpus
 	}
 
 	// Handle memory limit.
@@ -2660,17 +2660,17 @@ func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimi
 			return nil, nil, fmt.Errorf("parsing memory limit: %w", err)
 		}
 
-		dockerLimits.MemoryBytes = memBytes
+		containerLimits.MemoryBytes = memBytes
 		resolved.Memory = cfg.Memory
 		resolved.MemoryBytes = memBytes
 
 		// Handle swap.
 		if cfg.SwapDisabled {
 			// Set memory-swap equal to memory to disable swap.
-			dockerLimits.MemorySwapBytes = memBytes
+			containerLimits.MemorySwapBytes = memBytes
 			// Set swappiness to 0.
 			swappiness := int64(0)
-			dockerLimits.MemorySwappiness = &swappiness
+			containerLimits.MemorySwappiness = &swappiness
 			resolved.SwapDisabled = true
 		}
 	}
@@ -2682,22 +2682,22 @@ func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimi
 
 		// Process device_read_bps.
 		if len(blkioCfg.DeviceReadBps) > 0 {
-			dockerLimits.BlkioDeviceReadBps, resolvedBlkio.DeviceReadBps = convertBlkioDevicesBps(blkioCfg.DeviceReadBps)
+			containerLimits.BlkioDeviceReadBps, resolvedBlkio.DeviceReadBps = convertBlkioDevicesBps(blkioCfg.DeviceReadBps)
 		}
 
 		// Process device_write_bps.
 		if len(blkioCfg.DeviceWriteBps) > 0 {
-			dockerLimits.BlkioDeviceWriteBps, resolvedBlkio.DeviceWriteBps = convertBlkioDevicesBps(blkioCfg.DeviceWriteBps)
+			containerLimits.BlkioDeviceWriteBps, resolvedBlkio.DeviceWriteBps = convertBlkioDevicesBps(blkioCfg.DeviceWriteBps)
 		}
 
 		// Process device_read_iops.
 		if len(blkioCfg.DeviceReadIOps) > 0 {
-			dockerLimits.BlkioDeviceReadIOps, resolvedBlkio.DeviceReadIOps = convertBlkioDevicesIOps(blkioCfg.DeviceReadIOps)
+			containerLimits.BlkioDeviceReadIOps, resolvedBlkio.DeviceReadIOps = convertBlkioDevicesIOps(blkioCfg.DeviceReadIOps)
 		}
 
 		// Process device_write_iops.
 		if len(blkioCfg.DeviceWriteIOps) > 0 {
-			dockerLimits.BlkioDeviceWriteIOps, resolvedBlkio.DeviceWriteIOps = convertBlkioDevicesIOps(blkioCfg.DeviceWriteIOps)
+			containerLimits.BlkioDeviceWriteIOps, resolvedBlkio.DeviceWriteIOps = convertBlkioDevicesIOps(blkioCfg.DeviceWriteIOps)
 		}
 
 		// Only set if we have any blkio config.
@@ -2707,7 +2707,7 @@ func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimi
 		}
 	}
 
-	return dockerLimits, resolved, nil
+	return containerLimits, resolved, nil
 }
 
 // convertBlkioDevicesBps converts config blkio devices with bps rates to docker and resolved formats.
@@ -2849,7 +2849,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 	})
 
 	// Type-assert the container manager to CheckpointManager.
-	cpMgr, ok := r.docker.(podman.CheckpointManager)
+	cpMgr, ok := r.containerMgr.(podman.CheckpointManager)
 	if !ok {
 		return nil, fmt.Errorf("container manager does not support checkpoint/restore")
 	}
@@ -2899,19 +2899,19 @@ func (r *runner) runTestsWithCheckpointRestore(
 	if r.cfg.FullConfig.GetCheckpointRestartContainer(params.Instance) {
 		log.Info("Restarting container before checkpoint for clean process state")
 
-		if err := r.docker.StopContainer(ctx, containerID); err != nil {
+		if err := r.containerMgr.StopContainer(ctx, containerID); err != nil {
 			return nil, fmt.Errorf("stopping container before checkpoint restart: %w", err)
 		}
 
 		// Drain logs from the stopped container.
 		waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
-		if err := r.docker.StartContainer(ctx, containerID); err != nil {
+		if err := r.containerMgr.StartContainer(ctx, containerID); err != nil {
 			return nil, fmt.Errorf("starting container after checkpoint restart: %w", err)
 		}
 
 		// IP may change after restart; refresh it.
-		newIP, err := r.docker.GetContainerIP(
+		newIP, err := r.containerMgr.GetContainerIP(
 			ctx, containerID, r.cfg.DockerNetwork,
 		)
 		if err != nil {
@@ -3254,7 +3254,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 		iterID := restoredID
 
 		*cleanupFuncs = append(*cleanupFuncs, func() {
-			if rmErr := r.docker.RemoveContainer(
+			if rmErr := r.containerMgr.RemoveContainer(
 				context.Background(), iterID,
 			); rmErr != nil && !isContainerNotFound(rmErr) {
 				testLog.WithError(rmErr).Warn("Failed to remove restored container")
@@ -3262,7 +3262,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 		})
 
 		// Get container IP.
-		restoredIP, err := r.docker.GetContainerIP(
+		restoredIP, err := r.containerMgr.GetContainerIP(
 			ctx, restoredID, r.cfg.DockerNetwork,
 		)
 		if err != nil {
@@ -3353,7 +3353,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 		// Force-remove the restored container (kills it immediately).
 		// No graceful stop needed — the test is done and the container
 		// state will be rebuilt from checkpoint for the next test.
-		if rmErr := r.docker.RemoveContainer(ctx, restoredID); rmErr != nil &&
+		if rmErr := r.containerMgr.RemoveContainer(ctx, restoredID); rmErr != nil &&
 			!isContainerNotFound(rmErr) {
 			testLog.WithError(rmErr).Warn("Failed to remove restored container")
 		}

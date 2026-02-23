@@ -19,7 +19,7 @@ var forceCleanup bool
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
 	Short: "Remove dangling benchmarkoor containers, volumes, and filesystem resources",
-	Long: `Remove all Docker containers, volumes, and filesystem resources created by benchmarkoor.
+	Long: `Remove all containers, volumes, and filesystem resources created by benchmarkoor.
 This is useful for cleaning up after failed runs or interrupted benchmarks.
 
 Filesystem resources that may be left behind if the process was killed:
@@ -38,35 +38,35 @@ func init() {
 func runCleanup(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// Create Docker manager.
-	dockerMgr, err := docker.NewManager(log)
+	// Create container manager.
+	containerMgr, err := docker.NewManager(log)
 	if err != nil {
-		return fmt.Errorf("creating docker manager: %w", err)
+		return fmt.Errorf("creating container manager: %w", err)
 	}
 
-	if err := dockerMgr.Start(ctx); err != nil {
-		return fmt.Errorf("starting docker manager: %w", err)
+	if err := containerMgr.Start(ctx); err != nil {
+		return fmt.Errorf("starting container manager: %w", err)
 	}
 
 	defer func() {
-		if err := dockerMgr.Stop(); err != nil {
-			log.WithError(err).Warn("Failed to stop docker manager")
+		if err := containerMgr.Stop(); err != nil {
+			log.WithError(err).Warn("Failed to stop container manager")
 		}
 	}()
 
-	return performCleanup(ctx, dockerMgr, forceCleanup)
+	return performCleanup(ctx, containerMgr, forceCleanup)
 }
 
 // performCleanup lists and removes all benchmarkoor resources.
-func performCleanup(ctx context.Context, dockerMgr docker.ContainerManager, force bool) error {
+func performCleanup(ctx context.Context, containerMgr docker.ContainerManager, force bool) error {
 	// List containers.
-	containers, err := dockerMgr.ListContainers(ctx)
+	containers, err := containerMgr.ListContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("listing containers: %w", err)
 	}
 
 	// List volumes.
-	volumes, err := dockerMgr.ListVolumes(ctx)
+	volumes, err := containerMgr.ListVolumes(ctx)
 	if err != nil {
 		return fmt.Errorf("listing volumes: %w", err)
 	}
@@ -162,7 +162,7 @@ func performCleanup(ctx context.Context, dockerMgr docker.ContainerManager, forc
 	for _, c := range containers {
 		log.WithField("container", c.Name).Info("Removing container")
 
-		if err := dockerMgr.RemoveContainer(ctx, c.ID); err != nil {
+		if err := containerMgr.RemoveContainer(ctx, c.ID); err != nil {
 			log.WithError(err).WithField("container", c.Name).Warn("Failed to remove container")
 		}
 	}
@@ -171,7 +171,7 @@ func performCleanup(ctx context.Context, dockerMgr docker.ContainerManager, forc
 	for _, v := range volumes {
 		log.WithField("volume", v.Name).Info("Removing volume")
 
-		if err := dockerMgr.RemoveVolume(ctx, v.Name); err != nil {
+		if err := containerMgr.RemoveVolume(ctx, v.Name); err != nil {
 			log.WithError(err).WithField("volume", v.Name).Warn("Failed to remove volume")
 		}
 	}
