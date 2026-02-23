@@ -210,6 +210,7 @@ export interface PostTestRPCCallConfig {
 
 export interface CheckpointRestoreStrategyOptions {
   tmpfs_threshold?: string
+  tmpfs_max_size?: string
   wait_after_tcp_drop_connections?: string
   restart_container?: boolean
 }

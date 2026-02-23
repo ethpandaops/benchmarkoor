@@ -362,6 +362,7 @@ type RetryNewPayloadsSyncingConfig struct {
 // rollback strategy (CRIU-based checkpoint/restore with Podman).
 type CheckpointRestoreStrategyOptions struct {
 	TmpfsThreshold        string `yaml:"tmpfs_threshold,omitempty" mapstructure:"tmpfs_threshold" json:"tmpfs_threshold,omitempty"`
+	TmpfsMaxSize          string `yaml:"tmpfs_max_size,omitempty" mapstructure:"tmpfs_max_size" json:"tmpfs_max_size,omitempty"`
 	WaitAfterTCPDropConns string `yaml:"wait_after_tcp_drop_connections,omitempty" mapstructure:"wait_after_tcp_drop_connections" json:"wait_after_tcp_drop_connections,omitempty"`
 	RestartContainer      bool   `yaml:"restart_container,omitempty" mapstructure:"restart_container" json:"restart_container,omitempty"`
 }
@@ -1327,6 +1328,23 @@ func (c *Config) GetCheckpointTmpfsThreshold(instance *ClientInstance) string {
 	return opts.TmpfsThreshold
 }
 
+// GetCheckpointTmpfsMaxSize returns the explicit tmpfs mount size cap for an
+// instance. Returns 0 when not configured (caller should fall back to a
+// default such as 2x the tmpfs threshold).
+func (c *Config) GetCheckpointTmpfsMaxSize(instance *ClientInstance) uint64 {
+	opts := c.GetCheckpointRestoreStrategyOptions(instance)
+	if opts == nil || opts.TmpfsMaxSize == "" {
+		return 0
+	}
+
+	size, err := ParseByteSize(opts.TmpfsMaxSize)
+	if err != nil {
+		return 0
+	}
+
+	return size
+}
+
 // GetCheckpointWaitAfterTCPDropConns returns the duration to wait after
 // dropping TCP connections before checkpointing. Instance-level setting
 // takes precedence over global default. Returns 10s if not configured.
@@ -1476,6 +1494,17 @@ func (c *Config) validateRollbackStrategy(opt ValidateOpts) error {
 				return fmt.Errorf(
 					"instance %q: invalid checkpoint_restore_strategy_options.tmpfs_threshold %q: %w",
 					instance.ID, threshold, err,
+				)
+			}
+		}
+
+		// Validate checkpoint_restore_strategy_options.tmpfs_max_size if set.
+		opts := c.GetCheckpointRestoreStrategyOptions(&instance)
+		if opts != nil && opts.TmpfsMaxSize != "" {
+			if _, err := ParseByteSize(opts.TmpfsMaxSize); err != nil {
+				return fmt.Errorf(
+					"instance %q: invalid checkpoint_restore_strategy_options.tmpfs_max_size %q: %w",
+					instance.ID, opts.TmpfsMaxSize, err,
 				)
 			}
 		}

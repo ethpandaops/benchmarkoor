@@ -586,6 +586,7 @@ Options for the `container-checkpoint-restore` rollback strategy, nested under `
 | Sub-option | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `tmpfs_threshold` | string | - | Store checkpoint on tmpfs (RAM) when container memory is under this threshold. Uses the same format as `resource_limits.memory` (Docker go-units): e.g., `"8g"`, `"512m"`, `"1024k"`, or raw bytes. If not set, checkpoints are always stored on disk. |
+| `tmpfs_max_size` | string | 2× `tmpfs_threshold` | Maximum size of the tmpfs mount for checkpoint storage. Same format as `tmpfs_threshold` (e.g., `"16g"`, `"1024m"`). When not set, defaults to twice the `tmpfs_threshold` value. |
 | `wait_after_tcp_drop_connections` | string | `10s` | How long to wait after dropping TCP connections before checkpointing, giving the process time to close file descriptors (Go duration string). |
 | `restart_container` | bool | `false` | Whether to restart the container before taking a CRIU checkpoint. Restarting ensures a clean process state (cold caches, clean DB shutdown). |
 
@@ -596,6 +597,7 @@ runner:
       rollback_strategy: container-checkpoint-restore
       checkpoint_restore_strategy_options:
         tmpfs_threshold: "8g"
+        tmpfs_max_size: "16g"
         wait_after_tcp_drop_connections: "10s"
         restart_container: false
 ```

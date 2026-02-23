@@ -3065,9 +3065,16 @@ func (r *runner) runTestsWithCheckpointRestore(
 						"Failed to create tmpfs dir, using disk",
 					)
 				} else {
-					// Mount tmpfs with 2x the container memory to
-					// accommodate the checkpoint archive overhead.
-					tmpfsSize := containerStats.Memory * 2
+					// Mount tmpfs sized to the configured max, or
+					// 2x the threshold as a default.
+					tmpfsMaxSize := r.cfg.FullConfig.GetCheckpointTmpfsMaxSize(params.Instance)
+
+					var tmpfsSize uint64
+					if tmpfsMaxSize > 0 {
+						tmpfsSize = tmpfsMaxSize
+					} else {
+						tmpfsSize = threshold * 2
+					}
 
 					//nolint:gosec // Arguments are computed, not user-supplied.
 					mountCmd := exec.CommandContext(

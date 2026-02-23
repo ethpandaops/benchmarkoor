@@ -260,6 +260,9 @@ runner:
       #   # Store checkpoint on tmpfs (RAM) when container memory is under this threshold.
       #   # Uses the same format as resource_limits.memory (e.g., "8g", "512m").
       #   tmpfs_threshold: "8g"
+      #   # Maximum size of the tmpfs mount for checkpoint storage.
+      #   # Defaults to 2x tmpfs_threshold if not set. Same format (e.g., "16g", "512m").
+      #   # tmpfs_max_size: "16g"
       #   # How long to wait after dropping TCP connections before the CRIU checkpoint.
       #   # After blocking new outgoing TCP connections and killing existing sockets, this
       #   # delay gives the process time to close the file descriptors.
@@ -414,6 +417,7 @@ runner:
       # rollback_strategy: "rpc-debug-setHead"  # Instance-level override (optional)
       # checkpoint_restore_strategy_options:  # Instance-level override (optional, replaces global)
       #   tmpfs_threshold: "8g"
+      #   tmpfs_max_size: "16g"
       #   wait_after_tcp_drop_connections: "10s"
       # wait_after_rpc_ready: 60s  # Instance-level override (optional)
       # retry_new_payloads_syncing_state:  # Instance-level override (optional)
