@@ -3118,22 +3118,30 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		testLog.Info("Preparing test: rolling back data directory and restoring container")
 
+		// Flush dirty pages and drop caches BEFORE rollback. The killed
+		// container's MAP_SHARED mmap writes leave dirty pages in the
+		// page cache. Writing to drop_caches triggers a sync first, which
+		// would write those stale pages onto the rolled-back dataset —
+		// effectively undoing the rollback for recently-written blocks
+		// (e.g. MDBX meta-pages). By syncing and dropping caches before
+		// the rollback, we ensure no dirty pages survive to corrupt the
+		// post-rollback state.
+		if dropCachesPath != "" {
+			if syncErr := exec.Command("sync").Run(); syncErr != nil {
+				testLog.WithError(syncErr).Warn("Failed to sync before rollback")
+			}
+
+			if cacheErr := os.WriteFile(dropCachesPath, []byte("3"), 0); cacheErr != nil {
+				testLog.WithError(cacheErr).Warn("Failed to drop page caches before rollback")
+			}
+		}
+
 		// Roll back the data directory to the ready-state snapshot so
 		// the container restores onto clean data at the same mount path.
 		if err := sr.rollback(ctx); err != nil {
 			combined.TotalDuration = time.Since(startTime)
 
 			return combined, fmt.Errorf("rolling back data directory for test %d: %w", i, err)
-		}
-
-		// Drop Linux page caches after rollback. The previous test's
-		// mmap writes (MAP_SHARED) leave stale pages in the VFS cache.
-		// Rollback resets on-disk data but does NOT invalidate these
-		// cached pages, so the restored process would read stale data.
-		if dropCachesPath != "" {
-			if cacheErr := os.WriteFile(dropCachesPath, []byte("3"), 0); cacheErr != nil {
-				testLog.WithError(cacheErr).Warn("Failed to drop page caches after rollback")
-			}
 		}
 
 		// Restore container from checkpoint.
