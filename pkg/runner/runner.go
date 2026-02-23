@@ -163,28 +163,29 @@ type ResolvedThrottleDevice struct {
 
 // ResolvedInstance contains the resolved configuration for a client instance.
 type ResolvedInstance struct {
-	ID                           string                                `json:"id"`
-	Client                       string                                `json:"client"`
-	ContainerRuntime             string                                `json:"container_runtime,omitempty"`
-	Image                        string                                `json:"image"`
-	ImageSHA256                  string                                `json:"image_sha256,omitempty"`
-	Entrypoint                   []string                              `json:"entrypoint,omitempty"`
-	Command                      []string                              `json:"command,omitempty"`
-	ExtraArgs                    []string                              `json:"extra_args,omitempty"`
-	PullPolicy                   string                                `json:"pull_policy"`
-	Restart                      string                                `json:"restart,omitempty"`
-	Environment                  map[string]string                     `json:"environment,omitempty"`
-	Genesis                      string                                `json:"genesis,omitempty"`
-	GenesisGroups                map[string]string                     `json:"genesis_groups,omitempty"`
-	DataDir                      *config.DataDirConfig                 `json:"datadir,omitempty"`
-	ClientVersion                string                                `json:"client_version,omitempty"`
-	RollbackStrategy             string                                `json:"rollback_strategy,omitempty"`
-	DropMemoryCaches             string                                `json:"drop_memory_caches,omitempty"`
-	WaitAfterRPCReady            string                                `json:"wait_after_rpc_ready,omitempty"`
-	RetryNewPayloadsSyncingState *config.RetryNewPayloadsSyncingConfig `json:"retry_new_payloads_syncing_state,omitempty"`
-	ResourceLimits               *ResolvedResourceLimits               `json:"resource_limits,omitempty"`
-	PostTestRPCCalls             []config.PostTestRPCCall              `json:"post_test_rpc_calls,omitempty"`
-	BootstrapFCU                 *config.BootstrapFCUConfig            `json:"bootstrap_fcu,omitempty"`
+	ID                               string                                   `json:"id"`
+	Client                           string                                   `json:"client"`
+	ContainerRuntime                 string                                   `json:"container_runtime,omitempty"`
+	Image                            string                                   `json:"image"`
+	ImageSHA256                      string                                   `json:"image_sha256,omitempty"`
+	Entrypoint                       []string                                 `json:"entrypoint,omitempty"`
+	Command                          []string                                 `json:"command,omitempty"`
+	ExtraArgs                        []string                                 `json:"extra_args,omitempty"`
+	PullPolicy                       string                                   `json:"pull_policy"`
+	Restart                          string                                   `json:"restart,omitempty"`
+	Environment                      map[string]string                        `json:"environment,omitempty"`
+	Genesis                          string                                   `json:"genesis,omitempty"`
+	GenesisGroups                    map[string]string                        `json:"genesis_groups,omitempty"`
+	DataDir                          *config.DataDirConfig                    `json:"datadir,omitempty"`
+	ClientVersion                    string                                   `json:"client_version,omitempty"`
+	RollbackStrategy                 string                                   `json:"rollback_strategy,omitempty"`
+	DropMemoryCaches                 string                                   `json:"drop_memory_caches,omitempty"`
+	WaitAfterRPCReady                string                                   `json:"wait_after_rpc_ready,omitempty"`
+	RetryNewPayloadsSyncingState     *config.RetryNewPayloadsSyncingConfig    `json:"retry_new_payloads_syncing_state,omitempty"`
+	ResourceLimits                   *ResolvedResourceLimits                  `json:"resource_limits,omitempty"`
+	PostTestRPCCalls                 []config.PostTestRPCCall                 `json:"post_test_rpc_calls,omitempty"`
+	BootstrapFCU                     *config.BootstrapFCUConfig               `json:"bootstrap_fcu,omitempty"`
+	CheckpointRestoreStrategyOptions *config.CheckpointRestoreStrategyOptions `json:"checkpoint_restore_strategy_options,omitempty"`
 }
 
 // NewRunner creates a new runner instance.
@@ -1106,6 +1107,12 @@ func (r *runner) runContainerLifecycle(
 			BootstrapFCU: func() *config.BootstrapFCUConfig {
 				if r.cfg.FullConfig != nil {
 					return r.cfg.FullConfig.GetBootstrapFCU(instance)
+				}
+				return nil
+			}(),
+			CheckpointRestoreStrategyOptions: func() *config.CheckpointRestoreStrategyOptions {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetCheckpointRestoreStrategyOptions(instance)
 				}
 				return nil
 			}(),

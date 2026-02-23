@@ -1461,17 +1461,27 @@ func TestGetCheckpointTmpfsThreshold(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var globalOpts *CheckpointRestoreStrategyOptions
+			if tt.global != "" {
+				globalOpts = &CheckpointRestoreStrategyOptions{TmpfsThreshold: tt.global}
+			}
+
+			var instanceOpts *CheckpointRestoreStrategyOptions
+			if tt.instance != "" {
+				instanceOpts = &CheckpointRestoreStrategyOptions{TmpfsThreshold: tt.instance}
+			}
+
 			cfg := &Config{
 				Runner: RunnerConfig{
 					Client: ClientConfig{
 						Config: ClientDefaults{
-							CheckpointTmpfsThreshold: tt.global,
+							CheckpointRestoreStrategyOptions: globalOpts,
 						},
 					},
 				},
 			}
 			instance := &ClientInstance{
-				CheckpointTmpfsThreshold: tt.instance,
+				CheckpointRestoreStrategyOptions: instanceOpts,
 			}
 			result := cfg.GetCheckpointTmpfsThreshold(instance)
 			assert.Equal(t, tt.expected, result)

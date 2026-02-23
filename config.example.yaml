@@ -254,18 +254,20 @@ runner:
       #                           With datadir: requires datadir.method: "zfs" (ZFS snapshot rollback)
       #                           Without datadir: uses copy-based rollback (cp -a + rsync)
       # rollback_strategy: "rpc-debug-setHead"
-      # Optional: Store checkpoint on tmpfs (RAM) when container memory is under this threshold.
-      # Only applies to the "checkpoint-restore" rollback strategy. When set, the container's
-      # memory usage is checked before checkpointing — if under the threshold, the checkpoint
-      # is stored on a tmpfs mount instead of disk, eliminating I/O during restores.
-      # Uses the same format as resource_limits.memory (e.g., "8g", "512m").
-      # checkpoint_tmpfs_threshold: "8g"
-      # Optional: How long to wait after dropping TCP connections before the CRIU checkpoint.
-      # Only applies to the "checkpoint-restore" rollback strategy. After blocking new outgoing
-      # TCP connections and killing existing sockets, this delay gives the process time to notice
-      # the destroyed sockets (via epoll errors) and close the file descriptors.
-      # Default: 10s. Go duration string (e.g., "10s", "5s", "30s").
-      # checkpoint_wait_after_tcp_drop_connections: "10s"
+      # Optional: Checkpoint-restore strategy options. Only apply to the "checkpoint-restore"
+      # rollback strategy.
+      # checkpoint_restore_strategy_options:
+      #   # Store checkpoint on tmpfs (RAM) when container memory is under this threshold.
+      #   # Uses the same format as resource_limits.memory (e.g., "8g", "512m").
+      #   tmpfs_threshold: "8g"
+      #   # How long to wait after dropping TCP connections before the CRIU checkpoint.
+      #   # After blocking new outgoing TCP connections and killing existing sockets, this
+      #   # delay gives the process time to close the file descriptors.
+      #   # Default: 10s. Go duration string (e.g., "10s", "5s", "30s").
+      #   wait_after_tcp_drop_connections: "10s"
+      #   # Whether to restart the container before taking a CRIU checkpoint.
+      #   # Restarting ensures a clean process state (cold caches, clean DB shutdown).
+      #   restart_container: false
       # Optional: Wait duration after RPC becomes ready before running tests.
       # Useful for clients like Erigon that need time to complete internal sync pipelines
       # after their RPC endpoint becomes available.
@@ -410,8 +412,9 @@ runner:
       #   container_dir: /data
       # drop_memory_caches: "steps"  # Instance-level override (optional)
       # rollback_strategy: "rpc-debug-setHead"  # Instance-level override (optional)
-      # checkpoint_tmpfs_threshold: "8g"  # Instance-level override (optional)
-      # checkpoint_wait_after_tcp_drop_connections: "10s"  # Instance-level override (optional)
+      # checkpoint_restore_strategy_options:  # Instance-level override (optional, replaces global)
+      #   tmpfs_threshold: "8g"
+      #   wait_after_tcp_drop_connections: "10s"
       # wait_after_rpc_ready: 60s  # Instance-level override (optional)
       # retry_new_payloads_syncing_state:  # Instance-level override (optional)
       #   enabled: true

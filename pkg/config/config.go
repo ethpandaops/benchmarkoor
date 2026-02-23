@@ -358,6 +358,14 @@ type RetryNewPayloadsSyncingConfig struct {
 	Backoff    string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
 }
 
+// CheckpointRestoreStrategyOptions configures options for the checkpoint-restore
+// rollback strategy (CRIU-based checkpoint/restore with Podman).
+type CheckpointRestoreStrategyOptions struct {
+	TmpfsThreshold        string `yaml:"tmpfs_threshold,omitempty" mapstructure:"tmpfs_threshold"`
+	WaitAfterTCPDropConns string `yaml:"wait_after_tcp_drop_connections,omitempty" mapstructure:"wait_after_tcp_drop_connections"`
+	RestartContainer      bool   `yaml:"restart_container,omitempty" mapstructure:"restart_container"`
+}
+
 // BootstrapFCUConfig configures the bootstrap FCU call used to confirm the
 // client is fully synced and ready for test execution.
 type BootstrapFCUConfig struct {
@@ -576,43 +584,39 @@ type ClientConfig struct {
 
 // ClientDefaults contains default settings for all clients.
 type ClientDefaults struct {
-	JWT                             string                         `yaml:"jwt" mapstructure:"jwt"`
-	Genesis                         map[string]string              `yaml:"genesis" mapstructure:"genesis"`
-	DropMemoryCaches                string                         `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
-	RollbackStrategy                string                         `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
-	ResourceLimits                  *ResourceLimits                `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
-	RetryNewPayloadsSyncingState    *RetryNewPayloadsSyncingConfig `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
-	WaitAfterRPCReady               string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
-	PostTestRPCCalls                []PostTestRPCCall              `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
-	BootstrapFCU                    *BootstrapFCUConfig            `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
-	CheckpointTmpfsThreshold        string                         `yaml:"checkpoint_tmpfs_threshold,omitempty" mapstructure:"checkpoint_tmpfs_threshold"`
-	CheckpointWaitAfterTCPDropConns string                         `yaml:"checkpoint_wait_after_tcp_drop_connections,omitempty" mapstructure:"checkpoint_wait_after_tcp_drop_connections"`
-	CheckpointRestartContainer      bool                           `yaml:"checkpoint_restart_container,omitempty" mapstructure:"checkpoint_restart_container"`
+	JWT                              string                            `yaml:"jwt" mapstructure:"jwt"`
+	Genesis                          map[string]string                 `yaml:"genesis" mapstructure:"genesis"`
+	DropMemoryCaches                 string                            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
+	RollbackStrategy                 string                            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
+	ResourceLimits                   *ResourceLimits                   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
+	RetryNewPayloadsSyncingState     *RetryNewPayloadsSyncingConfig    `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
+	WaitAfterRPCReady                string                            `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
+	PostTestRPCCalls                 []PostTestRPCCall                 `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
+	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
+	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
 type ClientInstance struct {
-	ID                              string                         `yaml:"id" mapstructure:"id"`
-	Client                          string                         `yaml:"client" mapstructure:"client"`
-	Image                           string                         `yaml:"image,omitempty" mapstructure:"image"`
-	Entrypoint                      []string                       `yaml:"entrypoint,omitempty" mapstructure:"entrypoint"`
-	Command                         []string                       `yaml:"command,omitempty" mapstructure:"command"`
-	ExtraArgs                       []string                       `yaml:"extra_args,omitempty" mapstructure:"extra_args"`
-	PullPolicy                      string                         `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
-	Restart                         string                         `yaml:"restart,omitempty" mapstructure:"restart"`
-	Environment                     map[string]string              `yaml:"environment,omitempty" mapstructure:"environment"`
-	Genesis                         string                         `yaml:"genesis,omitempty" mapstructure:"genesis"`
-	DataDir                         *DataDirConfig                 `yaml:"datadir,omitempty" mapstructure:"datadir"`
-	DropMemoryCaches                string                         `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
-	RollbackStrategy                string                         `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
-	ResourceLimits                  *ResourceLimits                `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
-	RetryNewPayloadsSyncingState    *RetryNewPayloadsSyncingConfig `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
-	WaitAfterRPCReady               string                         `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
-	PostTestRPCCalls                []PostTestRPCCall              `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
-	BootstrapFCU                    *BootstrapFCUConfig            `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
-	CheckpointTmpfsThreshold        string                         `yaml:"checkpoint_tmpfs_threshold,omitempty" mapstructure:"checkpoint_tmpfs_threshold"`
-	CheckpointWaitAfterTCPDropConns string                         `yaml:"checkpoint_wait_after_tcp_drop_connections,omitempty" mapstructure:"checkpoint_wait_after_tcp_drop_connections"`
-	CheckpointRestartContainer      bool                           `yaml:"checkpoint_restart_container,omitempty" mapstructure:"checkpoint_restart_container"`
+	ID                               string                            `yaml:"id" mapstructure:"id"`
+	Client                           string                            `yaml:"client" mapstructure:"client"`
+	Image                            string                            `yaml:"image,omitempty" mapstructure:"image"`
+	Entrypoint                       []string                          `yaml:"entrypoint,omitempty" mapstructure:"entrypoint"`
+	Command                          []string                          `yaml:"command,omitempty" mapstructure:"command"`
+	ExtraArgs                        []string                          `yaml:"extra_args,omitempty" mapstructure:"extra_args"`
+	PullPolicy                       string                            `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
+	Restart                          string                            `yaml:"restart,omitempty" mapstructure:"restart"`
+	Environment                      map[string]string                 `yaml:"environment,omitempty" mapstructure:"environment"`
+	Genesis                          string                            `yaml:"genesis,omitempty" mapstructure:"genesis"`
+	DataDir                          *DataDirConfig                    `yaml:"datadir,omitempty" mapstructure:"datadir"`
+	DropMemoryCaches                 string                            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
+	RollbackStrategy                 string                            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
+	ResourceLimits                   *ResourceLimits                   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
+	RetryNewPayloadsSyncingState     *RetryNewPayloadsSyncingConfig    `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
+	WaitAfterRPCReady                string                            `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
+	PostTestRPCCalls                 []PostTestRPCCall                 `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
+	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
+	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
 }
 
 // expandEnvWithDefaults is a mapping function for os.Expand that supports
@@ -1298,15 +1302,29 @@ func (c *Config) GetBootstrapFCU(instance *ClientInstance) *BootstrapFCUConfig {
 	return c.Runner.Client.Config.BootstrapFCU
 }
 
-// GetCheckpointTmpfsThreshold returns the checkpoint_tmpfs_threshold for an instance.
+// GetCheckpointRestoreStrategyOptions returns the checkpoint-restore strategy
+// options for an instance. Instance-level config (when non-nil) fully replaces
+// the global default. Returns nil if not configured at either level.
+func (c *Config) GetCheckpointRestoreStrategyOptions(
+	instance *ClientInstance,
+) *CheckpointRestoreStrategyOptions {
+	if instance.CheckpointRestoreStrategyOptions != nil {
+		return instance.CheckpointRestoreStrategyOptions
+	}
+
+	return c.Runner.Client.Config.CheckpointRestoreStrategyOptions
+}
+
+// GetCheckpointTmpfsThreshold returns the tmpfs_threshold for an instance.
 // Instance-level setting takes precedence over global default.
 // Returns empty string if not configured (feature disabled).
 func (c *Config) GetCheckpointTmpfsThreshold(instance *ClientInstance) string {
-	if instance.CheckpointTmpfsThreshold != "" {
-		return instance.CheckpointTmpfsThreshold
+	opts := c.GetCheckpointRestoreStrategyOptions(instance)
+	if opts == nil {
+		return ""
 	}
 
-	return c.Runner.Client.Config.CheckpointTmpfsThreshold
+	return opts.TmpfsThreshold
 }
 
 // GetCheckpointWaitAfterTCPDropConns returns the duration to wait after
@@ -1317,16 +1335,12 @@ func (c *Config) GetCheckpointWaitAfterTCPDropConns(
 ) time.Duration {
 	const defaultWait = 10 * time.Second
 
-	raw := instance.CheckpointWaitAfterTCPDropConns
-	if raw == "" {
-		raw = c.Runner.Client.Config.CheckpointWaitAfterTCPDropConns
-	}
-
-	if raw == "" {
+	opts := c.GetCheckpointRestoreStrategyOptions(instance)
+	if opts == nil || opts.WaitAfterTCPDropConns == "" {
 		return defaultWait
 	}
 
-	d, err := time.ParseDuration(raw)
+	d, err := time.ParseDuration(opts.WaitAfterTCPDropConns)
 	if err != nil {
 		return defaultWait
 	}
@@ -1339,11 +1353,12 @@ func (c *Config) GetCheckpointWaitAfterTCPDropConns(
 // process state (cold caches, clean DB shutdown) for a reliable checkpoint.
 // Instance-level setting takes precedence over global default.
 func (c *Config) GetCheckpointRestartContainer(instance *ClientInstance) bool {
-	if instance.CheckpointRestartContainer {
-		return true
+	opts := c.GetCheckpointRestoreStrategyOptions(instance)
+	if opts == nil {
+		return false
 	}
 
-	return c.Runner.Client.Config.CheckpointRestartContainer
+	return opts.RestartContainer
 }
 
 // ParseByteSize parses a human-readable byte size string into bytes.
@@ -1454,12 +1469,12 @@ func (c *Config) validateRollbackStrategy(opt ValidateOpts) error {
 			}
 		}
 
-		// Validate checkpoint_tmpfs_threshold if set.
+		// Validate checkpoint_restore_strategy_options.tmpfs_threshold if set.
 		threshold := c.GetCheckpointTmpfsThreshold(&instance)
 		if threshold != "" {
 			if _, err := ParseByteSize(threshold); err != nil {
 				return fmt.Errorf(
-					"instance %q: invalid checkpoint_tmpfs_threshold %q: %w",
+					"instance %q: invalid checkpoint_restore_strategy_options.tmpfs_threshold %q: %w",
 					instance.ID, threshold, err,
 				)
 			}
