@@ -273,6 +273,7 @@ function SessionsTab() {
               <th className="px-4 py-2">Username</th>
               <th className="px-4 py-2">Source</th>
               <th className="px-4 py-2">Created</th>
+              <th className="px-4 py-2">Last Active</th>
               <th className="px-4 py-2">Expires</th>
               <th className="px-4 py-2 text-right">Actions</th>
             </tr>
@@ -299,6 +300,9 @@ function SessionsTab() {
                   {formatTimestamp(s.created_at)}
                 </td>
                 <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                  {s.last_active_at ? formatTimestamp(s.last_active_at) : 'Never'}
+                </td>
+                <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
                   {formatTimestamp(s.expires_at)}
                 </td>
                 <td className="px-4 py-2 text-right">
@@ -318,7 +322,7 @@ function SessionsTab() {
             ))}
             {sessions.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
                   No active sessions
                 </td>
               </tr>

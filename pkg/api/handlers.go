@@ -166,7 +166,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	session := &store.Session{
 		Token:     token,
 		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(ttl),
+		ExpiresAt: time.Now().UTC().Add(ttl),
 	}
 
 	if err := s.store.CreateSession(r.Context(), session); err != nil {
