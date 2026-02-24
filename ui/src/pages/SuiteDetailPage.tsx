@@ -197,11 +197,14 @@ export function SuiteDetailPage() {
   }
 
   const hasPreRunSteps = suite.pre_run_steps && suite.pre_run_steps.length > 0
-  const preRunStepsTabIndex = hasPreRunSteps ? 2 : -1
+
+  // Tab order: runs(0), tests(1), pre_run_steps(2, conditional), source(last)
+  const sourceTabIndex = hasPreRunSteps ? 3 : 2
 
   const getTabIndex = () => {
     if (tab === 'tests') return 1
-    if (tab === 'pre_run_steps' && hasPreRunSteps) return preRunStepsTabIndex
+    if (tab === 'pre_run_steps' && hasPreRunSteps) return 2
+    if (tab === 'source') return sourceTabIndex
     return 0 // runs is default
   }
 
@@ -211,6 +214,8 @@ export function SuiteDetailPage() {
       newTab = 'runs'
     } else if (index === 1) {
       newTab = 'tests'
+    } else if (index === sourceTabIndex) {
+      newTab = 'source'
     } else {
       newTab = 'pre_run_steps'
     }
@@ -380,8 +385,6 @@ export function SuiteDetailPage() {
         </div>
       </div>
 
-      <SuiteSource title="Source" source={suite.source} />
-
       <TabGroup selectedIndex={getTabIndex()} onChange={handleTabChange}>
         <TabList className="flex gap-1 rounded-sm bg-gray-100 p-1 dark:bg-gray-800">
           <Tab
@@ -425,6 +428,18 @@ export function SuiteDetailPage() {
               <Badge variant="default">{suite.pre_run_steps!.length}</Badge>
             </Tab>
           )}
+          <Tab
+            className={({ selected }) =>
+              clsx(
+                'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                selected
+                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+              )
+            }
+          >
+            Source
+          </Tab>
         </TabList>
         <TabPanels className="mt-4">
           <TabPanel>
@@ -693,6 +708,9 @@ export function SuiteDetailPage() {
               />
             </TabPanel>
           )}
+          <TabPanel>
+            <SuiteSource title="Source" source={suite.source} />
+          </TabPanel>
         </TabPanels>
       </TabGroup>
     </div>
