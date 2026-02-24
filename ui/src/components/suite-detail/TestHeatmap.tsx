@@ -1,10 +1,11 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { ChevronUp } from 'lucide-react'
+import { ChevronUp, Flame, Maximize2, X } from 'lucide-react'
 import { type SuiteStats, type SuiteTest, type IndexStepType, ALL_INDEX_STEP_TYPES, getRunDurationAggregatedStats } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Pagination } from '@/components/shared/Pagination'
+import { Spinner } from '@/components/shared/Spinner'
 import { formatTimestamp } from '@/utils/date'
 
 const DEFAULT_PAGE_SIZE = 20
@@ -138,6 +139,7 @@ interface TestHeatmapProps {
   stats: SuiteStats
   testFiles?: SuiteTest[]
   isDark: boolean
+  isLoading?: boolean
   stepFilter?: IndexStepType[]
   searchQuery?: string
   onSearchChange?: (query: string | undefined) => void
@@ -148,7 +150,7 @@ interface TestHeatmapProps {
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | (typeof STAT_COLUMNS)[number]
 
-export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -159,6 +161,20 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
   const [showClientStat, setShowClientStat] = useState(true)
   const showTestName = showTestNameProp ?? false
   const [useRegex, setUseRegex] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    if (!fullscreen) return
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false)
+    }
+    document.addEventListener('keydown', handleKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+      document.body.style.overflow = ''
+    }
+  }, [fullscreen])
 
   const { allTests, clients } = useMemo(() => {
     // Build lookup map from test name to 1-based index
@@ -390,16 +406,73 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
     setTooltip(null)
   }
 
+  const header = (
+    <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+      <div className="flex items-center gap-3">
+        <h3 className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+          <Flame className="size-4 text-gray-400 dark:text-gray-500" />
+          Test Heatmap
+        </h3>
+        {isLoading && <Spinner size="sm" />}
+        <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
+          {search ? `${filteredTests.length} / ${allTests.length}` : allTests.length} tests
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          placeholder={useRegex ? 'Regex pattern...' : 'Filter tests...'}
+          className={clsx(
+            'rounded-xs border bg-white px-3 py-1 text-sm placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
+            useRegex && search && (() => { try { new RegExp(search); return false } catch { return true } })()
+              ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
+              : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
+          )}
+        />
+        <button
+          onClick={() => setUseRegex(!useRegex)}
+          title={useRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
+          className={clsx(
+            'rounded-xs px-1.5 py-1 font-mono text-sm transition-colors',
+            useRegex
+              ? 'bg-blue-500 text-white'
+              : 'border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+          )}
+        >
+          .*
+        </button>
+        <button
+          onClick={() => setFullscreen(!fullscreen)}
+          className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+          title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {fullscreen ? <X className="size-4" /> : <Maximize2 className="size-4" />}
+        </button>
+      </div>
+    </div>
+  )
+
   if (allTests.length === 0) {
     return (
-      <p className="py-4 text-center text-sm/6 text-gray-500 dark:text-gray-400">
-        No test performance data available.
-      </p>
+      <div className={
+        fullscreen
+          ? 'fixed inset-0 z-40 flex flex-col overflow-auto bg-white dark:bg-gray-900'
+          : 'overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800'
+      }>
+        <div className={fullscreen ? 'sticky top-0 z-10 bg-white dark:bg-gray-900' : ''}>
+          {header}
+        </div>
+        <p className="py-4 text-center text-sm/6 text-gray-500 dark:text-gray-400">
+          No test performance data available.
+        </p>
+      </div>
     )
   }
 
-  return (
-    <div className="relative flex flex-col gap-4">
+  const content = (
+    <div className="relative flex flex-col gap-4 p-4">
       {/* Controls */}
       <div className="flex items-start justify-between gap-x-6 gap-y-2">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -475,34 +548,8 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
             </div>
           </div>
 
-          {/* Search filter & pagination */}
+          {/* Pagination */}
           <div className="flex shrink-0 flex-col items-end gap-1.5">
-            <div className="flex items-center gap-1.5">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder={useRegex ? 'Regex pattern...' : 'Filter tests...'}
-              className={clsx(
-                'w-48 rounded-sm border bg-white px-2 py-0.5 text-xs/5 text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500',
-                useRegex && search && (() => { try { new RegExp(search); return false } catch { return true } })()
-                  ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
-                  : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
-              )}
-            />
-            <button
-              onClick={() => setUseRegex(!useRegex)}
-              title={useRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
-              className={clsx(
-                'rounded-sm px-1.5 py-0.5 font-mono text-xs/5 transition-colors',
-                useRegex
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-white text-gray-500 ring-1 ring-gray-300 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700',
-              )}
-            >
-              .*
-            </button>
-            </div>
             <div className="flex items-center gap-1.5">
               <span className="text-xs/5 text-gray-500 dark:text-gray-400">Show</span>
               <select
@@ -522,11 +569,11 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
           </div>
       </div>
 
-      <div className="max-h-[75vh] overflow-auto">
+      <div className={fullscreen ? 'min-h-0 flex-1 overflow-auto' : 'max-h-[75vh] overflow-auto'}>
         <table className="w-full border-collapse text-sm/6">
           <thead className="sticky top-0 z-20">
             <tr>
-              <th className="sticky left-0 z-30 bg-white px-2 py-2 text-right dark:bg-gray-800">
+              <th className={clsx('sticky left-0 z-30 px-2 py-2 text-right', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
                 <button
                   onClick={() => handleSort('testNumber')}
                   className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
@@ -538,12 +585,12 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
                 </button>
               </th>
               {clients.map((client) => (
-                <th key={client} className="bg-white px-1 py-2 text-center dark:bg-gray-800">
+                <th key={client} className={clsx('px-1 py-2 text-center', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
                   <ClientBadge client={client} />
                 </th>
               ))}
               {STAT_COLUMNS.map((col) => (
-                <th key={col} className="bg-white px-2 py-2 text-right dark:bg-gray-800">
+                <th key={col} className={clsx('px-2 py-2 text-right', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
                   <button
                     onClick={() => handleSort(col)}
                     className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -574,7 +621,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
               )}
               <tr className={clsx(showTestName ? 'border-t-0' : 'border-t border-gray-200 dark:border-gray-700')}>
                 <td
-                  className="sticky left-0 z-10 bg-white px-2 py-1.5 text-right font-mono text-xs/5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                  className={clsx('sticky left-0 z-10 px-2 py-1.5 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}
                   title={test.name}
                 >
                   {test.testNumber ?? '-'}
@@ -763,6 +810,21 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
           </div>
         </div>
       )}
+    </div>
+  )
+
+  return (
+    <div className={
+      fullscreen
+        ? 'fixed inset-0 z-40 flex flex-col overflow-auto bg-white dark:bg-gray-900'
+        : 'overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800'
+    }>
+      <div className={fullscreen ? 'sticky top-0 z-10 bg-white dark:bg-gray-900' : ''}>
+        {header}
+      </div>
+      <div className={fullscreen ? 'flex-1' : ''}>
+        {content}
+      </div>
     </div>
   )
 }
