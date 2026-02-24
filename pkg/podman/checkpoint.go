@@ -177,6 +177,7 @@ func (m *manager) RestoreContainer(
 
 	fields := logrus.Fields{
 		"id":               containerID[:12],
+		"export":           exportPath,
 		"duration":         time.Since(restoreStart).Round(time.Millisecond),
 		"runtime_duration": time.Duration(report.RuntimeDuration) * time.Microsecond,
 	}
