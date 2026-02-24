@@ -567,17 +567,18 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
             {paginatedTests.map((test) => (
               <Fragment key={test.name}>
               {showTestName && (
-                <tr className="border-t border-gray-200 dark:border-gray-700">
+                <tr className="border-t border-gray-100 bg-gray-50/80 dark:border-gray-700/50 dark:bg-gray-900/60">
                   <td
                     colSpan={clients.length + 1 + STAT_COLUMNS.length}
-                    className="truncate px-2 py-0.5 font-mono text-xs/5 text-gray-500 dark:text-gray-400"
+                    className="truncate px-3 py-1 font-mono text-xs/5 text-gray-400 dark:text-gray-500"
                     title={test.name}
                   >
+                    <span className="mr-1.5 font-sans text-gray-300 dark:text-gray-600">&#9656;</span>
                     <HighlightedName name={test.name} search={search} useRegex={useRegex} />
                   </td>
                 </tr>
               )}
-              <tr className={clsx('border-t border-gray-200 dark:border-gray-700', showTestName && 'border-t-0')}>
+              <tr className={clsx(showTestName ? 'border-t-0' : 'border-t border-gray-200 dark:border-gray-700')}>
                 <td
                   className="sticky left-0 z-10 bg-white px-2 py-1.5 text-right font-mono text-xs/5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
                   title={test.name}
