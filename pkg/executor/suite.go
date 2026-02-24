@@ -10,17 +10,19 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/eest"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 )
 
 // SuiteInfo contains information about a test suite.
 type SuiteInfo struct {
-	Hash        string       `json:"hash"`
-	Source      *SuiteSource `json:"source"`
-	Filter      string       `json:"filter,omitempty"`
-	PreRunSteps []SuiteFile  `json:"pre_run_steps,omitempty"`
-	Tests       []SuiteTest  `json:"tests"`
+	Hash        string                 `json:"hash"`
+	Source      *SuiteSource           `json:"source"`
+	Filter      string                 `json:"filter,omitempty"`
+	Metadata    *config.MetadataConfig `json:"metadata,omitempty"`
+	PreRunSteps []SuiteFile            `json:"pre_run_steps,omitempty"`
+	Tests       []SuiteTest            `json:"tests"`
 }
 
 // SuiteSource contains source information for the suite.
@@ -139,78 +141,95 @@ func CreateSuiteOutput(
 ) error {
 	suiteDir := filepath.Join(resultsDir, "suites", hash)
 
+	suiteExists := false
+
 	// Check if suite already exists.
 	if _, err := os.Stat(suiteDir); err == nil {
-		// Suite already exists, skip creation.
-		return nil
+		suiteExists = true
 	}
 
-	// Create suite directory.
-	if err := fsutil.MkdirAll(suiteDir, 0755, owner); err != nil {
-		return fmt.Errorf("creating suite dir: %w", err)
-	}
-
-	// Copy pre-run steps.
-	// Structure: <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
-	for _, f := range prepared.PreRunSteps {
-		suiteFile, err := copyPreRunStepFile(suiteDir, f, owner)
-		if err != nil {
-			return fmt.Errorf("copying pre-run step: %w", err)
+	if !suiteExists {
+		// Create suite directory.
+		if err := fsutil.MkdirAll(suiteDir, 0755, owner); err != nil {
+			return fmt.Errorf("creating suite dir: %w", err)
 		}
 
-		info.PreRunSteps = append(info.PreRunSteps, *suiteFile)
-	}
-
-	// Copy test files and build SuiteTest entries.
-	// New structure: <suite_dir>/<test_name>/{setup,test,cleanup}.request
-	for _, test := range prepared.Tests {
-		suiteTest := SuiteTest{
-			Name:        test.Name,
-			GenesisHash: test.GenesisHash,
-		}
-
-		if test.EESTInfo != nil {
-			suiteTest.EEST = &SuiteTestEEST{Info: test.EESTInfo}
-		}
-
-		// Create test directory.
-		testDir := filepath.Join(suiteDir, test.Name)
-		if err := fsutil.MkdirAll(testDir, 0755, owner); err != nil {
-			return fmt.Errorf("creating test dir for %s: %w", test.Name, err)
-		}
-
-		if test.Setup != nil {
-			suiteFile, err := copyTestStepFile(testDir, "setup", test.Setup, owner)
+		// Copy pre-run steps.
+		// Structure: <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
+		for _, f := range prepared.PreRunSteps {
+			suiteFile, err := copyPreRunStepFile(suiteDir, f, owner)
 			if err != nil {
-				return fmt.Errorf("copying setup file: %w", err)
+				return fmt.Errorf("copying pre-run step: %w", err)
 			}
 
-			suiteTest.Setup = suiteFile
+			info.PreRunSteps = append(info.PreRunSteps, *suiteFile)
 		}
 
-		if test.Test != nil {
-			suiteFile, err := copyTestStepFile(testDir, "test", test.Test, owner)
-			if err != nil {
-				return fmt.Errorf("copying test file: %w", err)
+		// Copy test files and build SuiteTest entries.
+		// New structure: <suite_dir>/<test_name>/{setup,test,cleanup}.request
+		for _, test := range prepared.Tests {
+			suiteTest := SuiteTest{
+				Name:        test.Name,
+				GenesisHash: test.GenesisHash,
 			}
 
-			suiteTest.Test = suiteFile
-		}
-
-		if test.Cleanup != nil {
-			suiteFile, err := copyTestStepFile(testDir, "cleanup", test.Cleanup, owner)
-			if err != nil {
-				return fmt.Errorf("copying cleanup file: %w", err)
+			if test.EESTInfo != nil {
+				suiteTest.EEST = &SuiteTestEEST{Info: test.EESTInfo}
 			}
 
-			suiteTest.Cleanup = suiteFile
-		}
+			// Create test directory.
+			testDir := filepath.Join(suiteDir, test.Name)
+			if err := fsutil.MkdirAll(testDir, 0755, owner); err != nil {
+				return fmt.Errorf("creating test dir for %s: %w", test.Name, err)
+			}
 
-		info.Tests = append(info.Tests, suiteTest)
+			if test.Setup != nil {
+				suiteFile, err := copyTestStepFile(testDir, "setup", test.Setup, owner)
+				if err != nil {
+					return fmt.Errorf("copying setup file: %w", err)
+				}
+
+				suiteTest.Setup = suiteFile
+			}
+
+			if test.Test != nil {
+				suiteFile, err := copyTestStepFile(testDir, "test", test.Test, owner)
+				if err != nil {
+					return fmt.Errorf("copying test file: %w", err)
+				}
+
+				suiteTest.Test = suiteFile
+			}
+
+			if test.Cleanup != nil {
+				suiteFile, err := copyTestStepFile(testDir, "cleanup", test.Cleanup, owner)
+				if err != nil {
+					return fmt.Errorf("copying cleanup file: %w", err)
+				}
+
+				suiteTest.Cleanup = suiteFile
+			}
+
+			info.Tests = append(info.Tests, suiteTest)
+		}
 	}
 
-	// Write summary.json.
+	// Always write summary.json — metadata (e.g. labels) can change between
+	// runs without affecting the suite hash, so we update it every time.
 	summaryPath := filepath.Join(suiteDir, "summary.json")
+
+	// If the suite already existed, read the existing summary to preserve
+	// test/step file references, then overlay the new info fields.
+	if suiteExists {
+		existingData, readErr := os.ReadFile(summaryPath)
+		if readErr == nil {
+			var existing SuiteInfo
+			if jsonErr := json.Unmarshal(existingData, &existing); jsonErr == nil {
+				info.PreRunSteps = existing.PreRunSteps
+				info.Tests = existing.Tests
+			}
+		}
+	}
 
 	summaryData, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {

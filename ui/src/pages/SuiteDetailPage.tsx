@@ -307,15 +307,42 @@ export function SuiteDetailPage() {
           Suites
         </Link>
         <span>/</span>
-        <span className="font-mono text-gray-900 dark:text-gray-100">{suiteHash}</span>
+        <span className="font-mono text-gray-900 dark:text-gray-100">
+          {suite.metadata?.labels?.name ?? suiteHash}
+        </span>
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <JDenticon value={suite.hash} size={40} className="shrink-0 rounded-xs" />
-          <h1 className="font-mono text-2xl/8 font-bold text-gray-900 dark:text-gray-100">{suite.hash}</h1>
+          <div className="flex flex-col">
+            {suite.metadata?.labels?.name ? (
+              <>
+                <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">
+                  {suite.metadata.labels.name}
+                </h1>
+                <span className="font-mono text-sm/6 text-gray-500 dark:text-gray-400">
+                  {suite.hash}
+                </span>
+              </>
+            ) : (
+              <h1 className="font-mono text-2xl/8 font-bold text-gray-900 dark:text-gray-100">
+                {suite.hash}
+              </h1>
+            )}
+          </div>
         </div>
-        {suite.filter && <Badge variant="info">Filter: {suite.filter}</Badge>}
+        <div className="flex flex-wrap items-center gap-2">
+          {suite.filter && <Badge variant="info">Filter: {suite.filter}</Badge>}
+          {suite.metadata?.labels &&
+            Object.entries(suite.metadata.labels)
+              .filter(([key]) => key !== 'name')
+              .map(([key, value]) => (
+                <Badge key={key} variant="default">
+                  {key}: {value}
+                </Badge>
+              ))}
+        </div>
       </div>
 
       <SuiteSource title="Source" source={suite.source} />

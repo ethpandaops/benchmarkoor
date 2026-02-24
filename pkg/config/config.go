@@ -140,8 +140,9 @@ type S3UploadConfig struct {
 
 // TestsConfig contains test execution settings.
 type TestsConfig struct {
-	Filter string       `yaml:"filter,omitempty" mapstructure:"filter"`
-	Source SourceConfig `yaml:"source,omitempty" mapstructure:"source"`
+	Filter   string         `yaml:"filter,omitempty" mapstructure:"filter"`
+	Metadata MetadataConfig `yaml:"metadata,omitempty" mapstructure:"metadata"`
+	Source   SourceConfig   `yaml:"source,omitempty" mapstructure:"source"`
 }
 
 // SourceConfig defines where to find test files.

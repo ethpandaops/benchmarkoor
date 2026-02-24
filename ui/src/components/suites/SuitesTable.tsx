@@ -87,14 +87,19 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
       <td className="whitespace-nowrap px-6 py-4">
         <div className="flex items-center gap-2">
           <JDenticon value={suite.hash} size={24} className="shrink-0 rounded-xs" />
-          <Link
-            to="/suites/$suiteHash"
-            params={{ suiteHash: suite.hash }}
-            onClick={(e) => e.stopPropagation()}
-            className="font-mono text-sm/6 font-medium text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
-          >
-            {suite.hash}
-          </Link>
+          <div className="flex flex-col">
+            <Link
+              to="/suites/$suiteHash"
+              params={{ suiteHash: suite.hash }}
+              onClick={(e) => e.stopPropagation()}
+              className="text-sm/6 font-medium text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              {suiteInfo?.metadata?.labels?.name ?? <span className="font-mono">{suite.hash}</span>}
+            </Link>
+            {suiteInfo?.metadata?.labels?.name && (
+              <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{suite.hash}</span>
+            )}
+          </div>
         </div>
       </td>
       <td className="whitespace-nowrap px-6 py-4">
@@ -165,7 +170,7 @@ export function SuitesTable({
         <thead className="bg-gray-50 dark:bg-gray-900">
           <tr>
             <SortableHeader label="Last Run" column="lastRun" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <SortableHeader label="Suite Hash" column="hash" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+            <SortableHeader label="Suite" column="hash" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <StaticHeader label="Source" />
             <StaticHeader label="Pre-Run Steps" />
             <StaticHeader label="Filter" />

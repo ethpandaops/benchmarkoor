@@ -92,6 +92,13 @@ runner:
     # tests:
     #   # Optional filter to run only tests matching this pattern.
     #   filter: ""
+    #   # Optional: Metadata labels for the test suite.
+    #   # Labels appear in the suite's summary.json and are shown in the UI.
+    #   # The special "name" label is used as the display name for the suite.
+    #   # metadata:
+    #   #   labels:
+    #   #     name: "EIP-7934 BN128 Benchmarks"
+    #   #     category: precompile
     #   source:
     #     # Option 1: Local directory source.
     #     # local:

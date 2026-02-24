@@ -184,9 +184,16 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 				}
 			}
 
+			// Pass suite metadata to executor only when labels are present.
+			var suiteMetadata *config.MetadataConfig
+			if len(cfg.Runner.Benchmark.Tests.Metadata.Labels) > 0 {
+				suiteMetadata = &cfg.Runner.Benchmark.Tests.Metadata
+			}
+
 			execCfg := &executor.Config{
 				Source:                          &cfg.Runner.Benchmark.Tests.Source,
 				Filter:                          cfg.Runner.Benchmark.Tests.Filter,
+				Metadata:                        suiteMetadata,
 				CacheDir:                        cacheDir,
 				ResultsDir:                      cfg.Runner.Benchmark.ResultsDir,
 				ResultsOwner:                    resultsOwner,
