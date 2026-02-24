@@ -101,31 +101,38 @@ runs:
           sudo apt-get install -y podman
         fi
 
-        # Install CRIU for checkpoint-restore support
+        # Install CRIU for checkpoint-restore support.
         # CRIU is not in Ubuntu 24.04 default repos; use the official PPA.
-        if command -v criu &> /dev/null; then
-          echo "CRIU already installed"
-          criu --version
+        if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+          sudo add-apt-repository -y ppa:criu/ppa
+          sudo apt-get update
+          sudo apt-get install -y criu
+          echo "CRIU installed: $(criu --version 2>&1 | head -1)"
         else
-          echo "Installing CRIU..."
-          if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            sudo add-apt-repository -y ppa:criu/ppa
-            sudo apt-get update
-            sudo apt-get install -y criu
-          else
-            echo "CRIU installation not supported on this OS, skipping"
-          fi
+          echo "CRIU installation not supported on this OS, skipping"
         fi
+
+        # Replace crun with a release binary that has +CRIU support.
+        # Ubuntu 24.04's crun 1.14.1 is compiled without +CRIU;
+        # checkpoint/restore requires a crun linked against libcriu.
+        CRUN_VERSION="1.26"
+        echo "Installing crun ${CRUN_VERSION} with CRIU support..."
+        sudo curl -fsSL -o /usr/bin/crun \
+          "https://github.com/containers/crun/releases/download/${CRUN_VERSION}/crun-${CRUN_VERSION}-linux-amd64"
+        sudo chmod +x /usr/bin/crun
+        echo "crun installed: $(crun --version | head -2)"
 
         # Start the rootful podman socket
         sudo systemctl start podman.socket
         echo "Podman socket started"
 
-        # Verify socket is accessible
-        if [ -S /run/podman/podman.sock ]; then
+        # Verify socket is accessible. systemd socket activation creates
+        # the socket file lazily on first connection, so trigger it with
+        # a podman command instead of checking the file directly.
+        if sudo podman info --format '{{.Host.RemoteSocket.Exists}}' 2>/dev/null | grep -q true; then
           echo "Podman socket is available at /run/podman/podman.sock"
         else
-          echo "WARNING: Podman socket not found at /run/podman/podman.sock"
+          echo "WARNING: Podman socket not available"
         fi
 
         # Print runtime info for debugging
