@@ -103,7 +103,7 @@ export function RunFilters({
     { value: 'passing', label: 'Passing only' },
     { value: 'failing', label: 'Has failures' },
   ]
-  const suiteOptions = suites ? [{ value: '' as const, label: 'All suites' }, ...suites.map((s) => ({ value: s.hash, label: s.name ?? s.hash }))] : []
+  const suiteOptions = suites ? [{ value: '' as const, label: 'All suites' }, ...suites.map((s) => ({ value: s.hash, label: s.name ? `${s.name} (${s.hash.slice(0, 4)})` : s.hash }))] : []
 
   return (
     <div className="flex flex-wrap items-center gap-4">
