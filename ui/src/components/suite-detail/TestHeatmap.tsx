@@ -466,12 +466,10 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = 
     return (
       <div className={
         fullscreen
-          ? 'fixed inset-0 z-40 flex flex-col overflow-auto bg-white dark:bg-gray-900'
+          ? 'fixed inset-0 z-40 flex flex-col overflow-hidden bg-white dark:bg-gray-900'
           : 'overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800'
       }>
-        <div className={fullscreen ? 'sticky top-0 z-10 bg-white dark:bg-gray-900' : ''}>
-          {header}
-        </div>
+        {header}
         <p className="py-4 text-center text-sm/6 text-gray-500 dark:text-gray-400">
           No test performance data available.
         </p>
@@ -479,106 +477,106 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = 
     )
   }
 
-  const content = (
-    <div className="relative flex flex-col gap-4 p-4">
-      {/* Controls */}
-      <div className="flex items-start justify-between gap-x-6 gap-y-2">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-            {/* Threshold control */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
-              <input
-                type="range"
-                min={MIN_THRESHOLD}
-                max={MAX_THRESHOLD}
-                value={threshold}
-                onChange={(e) => handleThresholdChange(Number(e.target.value))}
-                className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
-              />
-              <input
-                type="number"
-                min={MIN_THRESHOLD}
-                max={MAX_THRESHOLD}
-                value={threshold}
-                onChange={(e) => handleThresholdChange(Number(e.target.value))}
-                className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-              />
-              <span className="text-xs/5 text-gray-500 dark:text-gray-400">MGas/s</span>
-              {threshold !== DEFAULT_THRESHOLD && (
-                <button
-                  onClick={() => setThreshold(DEFAULT_THRESHOLD)}
-                  className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                >
-                  Reset
-                </button>
-              )}
-            </div>
-
-            {/* Client stat toggle */}
-            <label className="flex cursor-pointer items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={showClientStat}
-                onChange={(e) => setShowClientStat(e.target.checked)}
-                className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
-              />
-              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Client stats</span>
-            </label>
-
-            {/* Show test name toggle */}
-            <label className="flex cursor-pointer items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={showTestName}
-                onChange={(e) => onShowTestNameChange?.(e.target.checked)}
-                className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
-              />
-              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Test name</span>
-            </label>
-
-            {/* Separator */}
-            <div className="hidden h-4 w-px bg-gray-200 sm:block dark:bg-gray-700" />
-
-            {/* Runs per client */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Runs per client:</span>
-              <select
-                value={runsPerClient}
-                onChange={(e) => setRunsPerClient(Number(e.target.value))}
-                className="rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+  const controls = (
+    <div className={clsx('flex items-start justify-between gap-x-6 gap-y-2', fullscreen ? 'shrink-0 px-4 pt-4 pb-2' : 'px-4 pt-4')}>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          {/* Threshold control */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
+            <input
+              type="range"
+              min={MIN_THRESHOLD}
+              max={MAX_THRESHOLD}
+              value={threshold}
+              onChange={(e) => handleThresholdChange(Number(e.target.value))}
+              className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+            />
+            <input
+              type="number"
+              min={MIN_THRESHOLD}
+              max={MAX_THRESHOLD}
+              value={threshold}
+              onChange={(e) => handleThresholdChange(Number(e.target.value))}
+              className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+            />
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">MGas/s</span>
+            {threshold !== DEFAULT_THRESHOLD && (
+              <button
+                onClick={() => setThreshold(DEFAULT_THRESHOLD)}
+                className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
               >
-                {RUNS_PER_CLIENT_OPTIONS.map((count) => (
-                  <option key={count} value={count}>
-                    {count}
-                  </option>
-                ))}
-              </select>
-            </div>
+                Reset
+              </button>
+            )}
           </div>
 
-          {/* Pagination */}
-          <div className="flex shrink-0 flex-col items-end gap-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Show</span>
-              <select
-                value={pageSize}
-                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-                className="rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-              >
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-              <span className="text-xs/5 text-gray-500 dark:text-gray-400">per page</span>
-            </div>
-            {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />}
-          </div>
-      </div>
+          {/* Client stat toggle */}
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={showClientStat}
+              onChange={(e) => setShowClientStat(e.target.checked)}
+              className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+            />
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Client stats</span>
+          </label>
 
-      <div className={fullscreen ? 'min-h-0 flex-1 overflow-auto' : 'max-h-[75vh] overflow-auto'}>
-        <table className="w-full border-collapse text-sm/6">
+          {/* Show test name toggle */}
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={showTestName}
+              onChange={(e) => onShowTestNameChange?.(e.target.checked)}
+              className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+            />
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Test name</span>
+          </label>
+
+          {/* Separator */}
+          <div className="hidden h-4 w-px bg-gray-200 sm:block dark:bg-gray-700" />
+
+          {/* Runs per client */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Runs per client:</span>
+            <select
+              value={runsPerClient}
+              onChange={(e) => setRunsPerClient(Number(e.target.value))}
+              className="rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+            >
+              {RUNS_PER_CLIENT_OPTIONS.map((count) => (
+                <option key={count} value={count}>
+                  {count}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Pagination */}
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Show</span>
+            <select
+              value={pageSize}
+              onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+              className="rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">per page</span>
+          </div>
+          {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />}
+        </div>
+    </div>
+  )
+
+  const tableContent = (
+    <div className={fullscreen ? 'min-h-0 flex-1 overflow-auto px-4' : 'max-h-[75vh] overflow-auto px-4'}>
+      <table className="w-full border-collapse text-sm/6">
           <thead className="sticky top-0 z-20">
             <tr>
               <th className={clsx('sticky left-0 z-30 px-2 py-2 text-right', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
@@ -728,8 +726,11 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = 
             ))}
           </tbody>
         </table>
-      </div>
+    </div>
+  )
 
+  const bottomSection = (
+    <div className={clsx('flex flex-col gap-4', fullscreen ? 'shrink-0 px-4 pb-4' : 'px-4 pb-4')}>
       {/* Distribution Histogram */}
       {histogramData.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -773,7 +774,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = 
       )}
 
       {/* Legend and pagination */}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
           <span className="flex items-center gap-1">
             <span>&gt;{threshold * 2}</span>
@@ -795,6 +796,19 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = 
         </div>
         <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
       </div>
+    </div>
+  )
+
+  return (
+    <div className={
+      fullscreen
+        ? 'fixed inset-0 z-40 flex flex-col overflow-hidden bg-white dark:bg-gray-900'
+        : 'overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800'
+    }>
+      {header}
+      {controls}
+      {tableContent}
+      {bottomSection}
 
       {/* Tooltip */}
       {tooltip && (
@@ -818,21 +832,6 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = 
           </div>
         </div>
       )}
-    </div>
-  )
-
-  return (
-    <div className={
-      fullscreen
-        ? 'fixed inset-0 z-40 flex flex-col overflow-auto bg-white dark:bg-gray-900'
-        : 'overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800'
-    }>
-      <div className={fullscreen ? 'sticky top-0 z-10 bg-white dark:bg-gray-900' : ''}>
-        {header}
-      </div>
-      <div className={fullscreen ? 'flex-1' : ''}>
-        {content}
-      </div>
     </div>
   )
 }
