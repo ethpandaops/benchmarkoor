@@ -401,131 +401,125 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
   return (
     <div className="relative flex flex-col gap-4">
       {/* Controls */}
-      <div className="flex items-start gap-x-6 gap-y-2">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        {/* Threshold control */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
-          <input
-            type="range"
-            min={MIN_THRESHOLD}
-            max={MAX_THRESHOLD}
-            value={threshold}
-            onChange={(e) => handleThresholdChange(Number(e.target.value))}
-            className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
-          />
-          <input
-            type="number"
-            min={MIN_THRESHOLD}
-            max={MAX_THRESHOLD}
-            value={threshold}
-            onChange={(e) => handleThresholdChange(Number(e.target.value))}
-            className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-          />
-          <span className="text-xs/5 text-gray-500 dark:text-gray-400">MGas/s</span>
-          {threshold !== DEFAULT_THRESHOLD && (
+      <div className="flex items-start justify-between gap-x-6 gap-y-2">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            {/* Threshold control */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
+              <input
+                type="range"
+                min={MIN_THRESHOLD}
+                max={MAX_THRESHOLD}
+                value={threshold}
+                onChange={(e) => handleThresholdChange(Number(e.target.value))}
+                className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+              />
+              <input
+                type="number"
+                min={MIN_THRESHOLD}
+                max={MAX_THRESHOLD}
+                value={threshold}
+                onChange={(e) => handleThresholdChange(Number(e.target.value))}
+                className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              />
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400">MGas/s</span>
+              {threshold !== DEFAULT_THRESHOLD && (
+                <button
+                  onClick={() => setThreshold(DEFAULT_THRESHOLD)}
+                  className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+
+            {/* Client stat toggle */}
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={showClientStat}
+                onChange={(e) => setShowClientStat(e.target.checked)}
+                className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+              />
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Client stats</span>
+            </label>
+
+            {/* Show test name toggle */}
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={showTestName}
+                onChange={(e) => onShowTestNameChange?.(e.target.checked)}
+                className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+              />
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Test name</span>
+            </label>
+
+            {/* Separator */}
+            <div className="hidden h-4 w-px bg-gray-200 sm:block dark:bg-gray-700" />
+
+            {/* Runs per client */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Runs per client:</span>
+              <select
+                value={runsPerClient}
+                onChange={(e) => setRunsPerClient(Number(e.target.value))}
+                className="rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              >
+                {RUNS_PER_CLIENT_OPTIONS.map((count) => (
+                  <option key={count} value={count}>
+                    {count}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Search filter & pagination */}
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder={useRegex ? 'Regex pattern...' : 'Filter tests...'}
+              className={clsx(
+                'w-48 rounded-sm border bg-white px-2 py-0.5 text-xs/5 text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500',
+                useRegex && search && (() => { try { new RegExp(search); return false } catch { return true } })()
+                  ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
+                  : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
+              )}
+            />
             <button
-              onClick={() => setThreshold(DEFAULT_THRESHOLD)}
-              className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+              onClick={() => setUseRegex(!useRegex)}
+              title={useRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
+              className={clsx(
+                'rounded-sm px-1.5 py-0.5 font-mono text-xs/5 transition-colors',
+                useRegex
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-white text-gray-500 ring-1 ring-gray-300 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700',
+              )}
             >
-              Reset
+              .*
             </button>
-          )}
-        </div>
-
-        {/* Runs per client selector */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Runs per client:</span>
-          <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
-            {RUNS_PER_CLIENT_OPTIONS.map((option) => (
-              <button
-                key={option}
-                onClick={() => setRunsPerClient(option)}
-                className={clsx(
-                  'px-2 py-0.5 text-xs/5 transition-colors first:rounded-l-sm last:rounded-r-sm',
-                  option === runsPerClient
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
-                )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Show</span>
+              <select
+                value={pageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                className="rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
               >
-                {option}
-              </button>
-            ))}
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400">per page</span>
+            </div>
+            {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />}
           </div>
-        </div>
-
-        {/* Client stat toggle */}
-        <label className="flex cursor-pointer items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={showClientStat}
-            onChange={(e) => setShowClientStat(e.target.checked)}
-            className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
-          />
-          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Client stats</span>
-        </label>
-
-        {/* Show test name toggle */}
-        <label className="flex cursor-pointer items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={showTestName}
-            onChange={(e) => onShowTestNameChange?.(e.target.checked)}
-            className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
-          />
-          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Test name</span>
-        </label>
-
-        {/* Page size selector */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Per page:</span>
-          <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
-            {PAGE_SIZE_OPTIONS.map((option) => (
-              <button
-                key={option}
-                onClick={() => handlePageSizeChange(option)}
-                className={clsx(
-                  'px-2 py-0.5 text-xs/5 transition-colors first:rounded-l-sm last:rounded-r-sm',
-                  option === pageSize
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
-                )}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        </div>
-
-        {/* Search filter */}
-        <div className="flex shrink-0 items-center gap-1.5">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder={useRegex ? 'Regex pattern...' : 'Filter tests...'}
-            className={clsx(
-              'w-48 rounded-sm border bg-white px-2 py-0.5 text-xs/5 text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500',
-              useRegex && search && (() => { try { new RegExp(search); return false } catch { return true } })()
-                ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
-                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
-            )}
-          />
-          <button
-            onClick={() => setUseRegex(!useRegex)}
-            title={useRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
-            className={clsx(
-              'rounded-sm px-1.5 py-0.5 font-mono text-xs/5 transition-colors',
-              useRegex
-                ? 'bg-blue-500 text-white'
-                : 'bg-white text-gray-500 ring-1 ring-gray-300 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700',
-            )}
-          >
-            .*
-          </button>
-        </div>
       </div>
 
       <div className="overflow-x-auto">
