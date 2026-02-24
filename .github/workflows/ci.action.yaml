@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pr-benchmark-docker:
+  docker:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -51,7 +51,7 @@ jobs:
                 - id: geth
                   client: geth
 
-  pr-benchmark-podman:
+  podman:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
