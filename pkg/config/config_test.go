@@ -1973,3 +1973,58 @@ func TestValidate_WithValidateOpts(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_TestsMetadataLabels(t *testing.T) {
+	t.Run("parses suite-level labels from yaml", func(t *testing.T) {
+		configContent := `
+runner:
+  benchmark:
+    tests:
+      metadata:
+        labels:
+          name: "EIP-7934 BN128 Benchmarks"
+          category: precompile
+  client:
+    config:
+      genesis:
+        geth: http://example.com/genesis.json
+  instances:
+    - id: test-instance
+      client: geth
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		require.Len(t, cfg.Runner.Benchmark.Tests.Metadata.Labels, 2)
+		assert.Equal(t, "EIP-7934 BN128 Benchmarks", cfg.Runner.Benchmark.Tests.Metadata.Labels["name"])
+		assert.Equal(t, "precompile", cfg.Runner.Benchmark.Tests.Metadata.Labels["category"])
+	})
+
+	t.Run("empty tests metadata produces no errors", func(t *testing.T) {
+		configContent := `
+runner:
+  benchmark:
+    tests:
+      filter: "some-filter"
+  client:
+    config:
+      genesis:
+        geth: http://example.com/genesis.json
+  instances:
+    - id: test-instance
+      client: geth
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		assert.Nil(t, cfg.Runner.Benchmark.Tests.Metadata.Labels)
+	})
+}

@@ -89,6 +89,7 @@ type ExecutionResult struct {
 type Config struct {
 	Source                          *config.SourceConfig
 	Filter                          string
+	Metadata                        *config.MetadataConfig // Suite-level metadata labels
 	CacheDir                        string
 	ResultsDir                      string
 	ResultsOwner                    *fsutil.OwnerConfig // Optional file ownership for results directory
@@ -168,9 +169,10 @@ func (e *executor) createSuiteOutput() error {
 
 	// Build suite info.
 	suiteInfo := &SuiteInfo{
-		Hash:   hash,
-		Source: sourceInfo,
-		Filter: e.cfg.Filter,
+		Hash:     hash,
+		Source:   sourceInfo,
+		Filter:   e.cfg.Filter,
+		Metadata: e.cfg.Metadata,
 	}
 
 	// Create suite output directory.

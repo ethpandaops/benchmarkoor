@@ -367,6 +367,9 @@ export interface SuiteInfo {
   hash: string
   source: SourceInfo
   filter?: string
+  metadata?: {
+    labels?: Record<string, string>
+  }
   pre_run_steps?: SuiteFile[]
   tests: SuiteTest[]
 }

@@ -7,6 +7,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { fetchText } from '@/api/client'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
+import { useSuite } from '@/api/hooks/useSuite'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
@@ -376,6 +377,7 @@ export function FileViewerPage() {
   const hasScrolledRef = useRef(false)
 
   const { data: config } = useRunConfig(runId)
+  const { data: suite } = useSuite(config?.suite_hash ?? '')
 
   const {
     data: fileContent,
@@ -504,10 +506,10 @@ export function FileViewerPage() {
             <Link
               to="/suites/$suiteHash"
               params={{ suiteHash: config.suite_hash }}
-              className="flex items-center gap-1.5 font-mono hover:text-gray-700 dark:hover:text-gray-300"
+              className={`flex items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300${suite?.metadata?.labels?.name ? '' : ' font-mono'}`}
             >
               <JDenticon value={config.suite_hash} size={16} className="shrink-0 rounded-xs" />
-              {config.suite_hash}
+              {suite?.metadata?.labels?.name ?? config.suite_hash}
             </Link>
             <span>/</span>
           </>

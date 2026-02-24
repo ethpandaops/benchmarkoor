@@ -15,6 +15,13 @@ runner:
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
+  # Optional: Arbitrary key-value labels attached to this benchmark run.
+  # Labels appear in the run's config.json and can be used for filtering/organization.
+  # Can also be set via CLI: --metadata.label=env=production --metadata.label=team=platform
+  # metadata:
+  #   labels:
+  #     env: production
+  #     team: platform
   # Optional directory configurations.
   # directories:
   #   # Directory for temporary datadir copies (defaults to system temp).
@@ -85,6 +92,13 @@ runner:
     # tests:
     #   # Optional filter to run only tests matching this pattern.
     #   filter: ""
+    #   # Optional: Metadata labels for the test suite.
+    #   # Labels appear in the suite's summary.json and are shown in the UI.
+    #   # The special "name" label is used as the display name for the suite.
+    #   # metadata:
+    #   #   labels:
+    #   #     name: "EIP-7934 BN128 Benchmarks"
+    #   #     category: precompile
     #   source:
     #     # Option 1: Local directory source.
     #     # local:

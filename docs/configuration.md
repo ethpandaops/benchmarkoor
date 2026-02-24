@@ -10,7 +10,9 @@ This document describes all configuration options for benchmarkoor. The [config.
 - [Global Settings](#global-settings)
 - [Runner Settings](#runner-settings)
   - [Container Runtime](#container-runtime)
+  - [Metadata Labels](#metadata-labels)
   - [Benchmark Settings](#benchmark-settings)
+    - [Suite Metadata Labels](#suite-metadata-labels)
     - [Results Upload](#results-upload)
   - [Client Settings](#client-settings)
     - [Client Defaults](#client-defaults)
@@ -115,6 +117,7 @@ runner:
 | `directories.tmp_cachedir` | string | `~/.cache/benchmarkoor` | Directory for executor cache (git clones, etc.) |
 | `drop_caches_path` | string | `/proc/sys/vm/drop_caches` | Path to Linux drop_caches file (for containerized environments) |
 | `cpu_sysfs_path` | string | `/sys/devices/system/cpu` | Base path for CPU sysfs files (for containerized environments where `/sys` is read-only and the host path is bind-mounted elsewhere, e.g., `/host_sys_cpu`) |
+| `metadata.labels` | map[string]string | - | Arbitrary key-value labels attached to the run (see [Metadata Labels](#metadata-labels)) |
 | `github_token` | string | - | GitHub token for downloading Actions artifacts via REST API. Not needed if `gh` CLI is installed and authenticated. Requires `actions:read` scope. Can also be set via `BENCHMARKOOR_RUNNER_GITHUB_TOKEN` env var |
 
 #### Container Runtime
@@ -131,6 +134,28 @@ When using Podman, ensure the Podman socket is active:
 ```bash
 sudo systemctl start podman.socket
 ```
+
+#### Metadata Labels
+
+The `runner.metadata.labels` field attaches arbitrary key-value pairs to a benchmark run. Labels are included in the output `config.json` and can be used for filtering and organization (e.g., in the UI or CI pipelines).
+
+```yaml
+runner:
+  metadata:
+    labels:
+      env: production
+      team: platform
+```
+
+Labels can also be set (or overridden) via the CLI flag `--metadata.label`:
+
+```bash
+benchmarkoor run --config config.yaml \
+  --metadata.label=env=production \
+  --metadata.label=team=platform
+```
+
+When the same key is set in both the config file and the CLI, the CLI value wins.
 
 ### Benchmark Settings
 
@@ -165,7 +190,28 @@ runner:
 | `generate_suite_stats` | bool | `false` | Generate `stats.json` per suite for UI heatmaps |
 | `generate_suite_stats_method` | string | `local` | Method for suite stats generation: `local` (filesystem) or `s3` (read runs from S3, upload stats back). Requires `results_upload.s3` when set to `s3` |
 | `tests.filter` | string | - | Run only tests matching this pattern |
+| `tests.metadata.labels` | map[string]string | - | Arbitrary key-value labels for the test suite (see [Suite Metadata Labels](#suite-metadata-labels)) |
 | `tests.source` | object | - | Test source configuration (see below) |
+
+#### Suite Metadata Labels
+
+The `runner.benchmark.tests.metadata.labels` field attaches arbitrary key-value pairs to a test suite. Labels are written to the suite's `summary.json` and displayed in the UI.
+
+The special `name` label is used as the display name for the suite throughout the UI (breadcrumbs, tables, detail pages) instead of the suite hash.
+
+```yaml
+runner:
+  benchmark:
+    tests:
+      metadata:
+        labels:
+          name: "EIP-7934 BN128 Benchmarks"
+          category: precompile
+      source:
+        # ...
+```
+
+> **Note:** Labels do not affect the suite hash. The hash is computed from test file contents only, so changing labels does not create a new suite.
 
 #### Test Sources
 

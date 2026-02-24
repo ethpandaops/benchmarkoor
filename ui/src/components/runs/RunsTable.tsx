@@ -1,6 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, getIndexAggregatedStats } from '@/api/types'
+import { useSuite } from '@/api/hooks/useSuite'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
@@ -64,6 +65,27 @@ function SortableHeader({
       {label}
       <SortIcon direction={isActive ? currentDirection : 'asc'} active={isActive} />
     </th>
+  )
+}
+
+function SuiteCell({ suiteHash }: { suiteHash: string }) {
+  const { data: suiteInfo } = useSuite(suiteHash)
+  const name = suiteInfo?.metadata?.labels?.name
+  const tooltip = name ? `${name} (${suiteHash})` : suiteHash
+
+  return (
+    <div className="flex items-center gap-2">
+      <JDenticon value={suiteHash} size={20} className="shrink-0 rounded-xs" />
+      <Link
+        to="/suites/$suiteHash"
+        params={{ suiteHash }}
+        onClick={(e) => e.stopPropagation()}
+        className="text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+        title={tooltip}
+      >
+        {suiteHash.slice(0, 4)}
+      </Link>
+    </div>
   )
 }
 
@@ -132,18 +154,7 @@ export function RunsTable({
               {showSuite && (
                 <td className="whitespace-nowrap px-6 py-4 font-mono text-sm/6">
                   {entry.suite_hash ? (
-                    <div className="flex items-center gap-2">
-                      <JDenticon value={entry.suite_hash} size={20} className="shrink-0 rounded-xs" />
-                      <Link
-                        to="/suites/$suiteHash"
-                        params={{ suiteHash: entry.suite_hash }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
-                        title={entry.suite_hash}
-                      >
-                        {entry.suite_hash.slice(0, 4)}
-                      </Link>
-                    </div>
+                    <SuiteCell suiteHash={entry.suite_hash} />
                   ) : (
                     <span className="text-gray-400 dark:text-gray-500">-</span>
                   )}
