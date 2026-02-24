@@ -29,7 +29,7 @@ RUN if [ -f .build-version ]; then \
 # Final stage
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata git zfs fuse-overlayfs && \
+RUN apk add --no-cache ca-certificates tzdata git zfs fuse-overlayfs rsync && \
     apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/edge/testing criu
 
 WORKDIR /app
