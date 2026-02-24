@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/containers/podman/v5/pkg/bindings"
 	"github.com/containers/podman/v5/pkg/bindings/containers"
@@ -340,6 +341,14 @@ func (m *manager) StreamLogs(
 	containerID string,
 	stdout, stderr io.Writer,
 ) error {
+	// Unlike Docker's ContainerLogs (which waits for a "created" container
+	// to start producing output), Podman's Logs API returns immediately
+	// with EOF when the container hasn't started yet. Poll until the
+	// container is running so we don't silently lose all log output.
+	if err := m.waitForRunning(ctx, containerID); err != nil {
+		return fmt.Errorf("waiting for container to start: %w", err)
+	}
+
 	follow := true
 	showStdout := true
 	showStderr := true
@@ -406,6 +415,28 @@ func (m *manager) StreamLogs(
 	}
 
 	return nil
+}
+
+// waitForRunning polls container state until it is running or the context is
+// cancelled. This is necessary because Podman's Logs API (unlike Docker's)
+// returns immediately with EOF for containers in "created" state.
+func (m *manager) waitForRunning(ctx context.Context, containerID string) error {
+	for {
+		inspect, err := containers.Inspect(m.conn, containerID, nil)
+		if err != nil {
+			return fmt.Errorf("inspecting container: %w", err)
+		}
+
+		if inspect.State != nil && inspect.State.Running {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // PullImage pulls a container image.
