@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { ChevronUp, Flame, Maximize2, X } from 'lucide-react'
 import { type SuiteStats, type SuiteTest, type IndexStepType, ALL_INDEX_STEP_TYPES, getRunDurationAggregatedStats } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
+import { JDenticon } from '@/components/shared/JDenticon'
 import { Pagination } from '@/components/shared/Pagination'
 import { Spinner } from '@/components/shared/Spinner'
 import { formatTimestamp } from '@/utils/date'
@@ -140,6 +141,8 @@ interface TestHeatmapProps {
   testFiles?: SuiteTest[]
   isDark: boolean
   isLoading?: boolean
+  suiteHash?: string
+  suiteName?: string
   stepFilter?: IndexStepType[]
   searchQuery?: string
   onSearchChange?: (query: string | undefined) => void
@@ -154,7 +157,7 @@ interface TestHeatmapProps {
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | (typeof STAT_COLUMNS)[number]
 
-export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange, useRegex: useRegexProp, onUseRegexChange, fullscreen: fullscreenProp, onFullscreenChange }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, suiteName, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange, useRegex: useRegexProp, onUseRegexChange, fullscreen: fullscreenProp, onFullscreenChange }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -417,6 +420,15 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = 
   const header = (
     <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
       <div className="flex items-center gap-3">
+        {fullscreen && suiteHash && (
+          <div className="flex items-center gap-2">
+            <JDenticon value={suiteHash} size={24} className="shrink-0 rounded-xs" />
+            <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              {suiteName ?? suiteHash}
+            </span>
+            <span className="text-gray-300 dark:text-gray-600">/</span>
+          </div>
+        )}
         <h3 className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
           <Flame className="size-4 text-gray-400 dark:text-gray-500" />
           Test Heatmap
