@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import clsx from 'clsx'
 import type { IndexEntry, ResourceTotals } from '@/api/types'
@@ -13,6 +13,8 @@ interface ResourceChartsProps {
   onXAxisModeChange?: (mode: XAxisMode) => void
   onRunClick?: (runId: string) => void
   hideControls?: boolean
+  zoomRange?: { start: number; end: number }
+  onZoomChange?: (range: { start: number; end: number }) => void
 }
 
 interface DataPoint {
@@ -112,9 +114,12 @@ interface SingleChartProps {
   isDark: boolean
   xAxisMode: XAxisMode
   onRunClick?: (runId: string) => void
+  isLargeDataset: boolean
+  zoomRange: { start: number; end: number }
+  onZoom: (start: number, end: number) => void
 }
 
-function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChartProps) {
+function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick, isLargeDataset, zoomRange, onZoom }: SingleChartProps) {
   const { clientGroups: chartData, maxRunIndex } = useMemo(() => {
     const clientGroups = new Map<string, DataPoint[]>()
     let maxRunIndex = 1
@@ -162,16 +167,17 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
           ? [d.timestamp, d.value, d.runIndex, d.runId, d.image]
           : [d.runIndex, d.value, d.timestamp, d.runId, d.image],
       ),
-      showSymbol: true,
-      symbolSize: 6,
-      lineStyle: { width: 2 },
+      showSymbol: !isLargeDataset,
+      symbolSize: isLargeDataset ? 4 : 6,
+      lineStyle: { width: isLargeDataset ? 1.5 : 2 },
+      sampling: isLargeDataset ? ('lttb' as const) : undefined,
       itemStyle: { color: CLIENT_COLORS[client] ?? DEFAULT_COLOR },
       emphasis: {
         itemStyle: { borderWidth: 2, borderColor: '#fff' },
       },
       cursor: 'pointer',
     }))
-  }, [chartData, xAxisMode])
+  }, [chartData, xAxisMode, isLargeDataset])
 
   const option = useMemo(() => {
     const textColor = isDark ? '#e5e7eb' : '#374151'
@@ -237,13 +243,13 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
       },
       legend: {
         type: 'scroll',
-        bottom: 0,
+        bottom: isLargeDataset ? 25 : 0,
         textStyle: { color: textColor },
       },
       grid: {
         left: '3%',
         right: '4%',
-        bottom: '18%',
+        bottom: isLargeDataset ? 50 : '18%',
         top: '10%',
         containLabel: true,
       },
@@ -262,9 +268,61 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
         axisLine: { lineStyle: { color: axisLineColor } },
         splitLine: { lineStyle: { color: splitLineColor } },
       },
+      ...(isLargeDataset
+        ? {
+            dataZoom: [
+              {
+                type: 'slider' as const,
+                xAxisIndex: 0,
+                start: zoomRange.start,
+                end: zoomRange.end,
+                height: 20,
+                bottom: 5,
+                borderColor: axisLineColor,
+                fillerColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.1)',
+                backgroundColor: isDark ? '#374151' : '#f3f4f6',
+                dataBackground: {
+                  lineStyle: { color: isDark ? '#6b7280' : '#9ca3af' },
+                  areaStyle: { color: isDark ? '#4b5563' : '#e5e7eb' },
+                },
+                selectedDataBackground: {
+                  lineStyle: { color: '#3b82f6' },
+                  areaStyle: { color: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)' },
+                },
+                handleStyle: { color: '#3b82f6', borderColor: '#3b82f6' },
+                moveHandleStyle: { color: isDark ? '#9ca3af' : '#6b7280' },
+                emphasis: {
+                  handleStyle: { color: '#60a5fa', borderColor: '#60a5fa' },
+                },
+                textStyle: { color: textColor },
+              },
+              {
+                type: 'inside' as const,
+                xAxisIndex: 0,
+                start: zoomRange.start,
+                end: zoomRange.end,
+                zoomOnMouseWheel: true,
+                moveOnMouseMove: true,
+                moveOnMouseWheel: false,
+              },
+            ],
+          }
+        : {}),
+      animation: !isLargeDataset,
       series,
     }
-  }, [series, isDark, xAxisMode, metric, maxRunIndex])
+  }, [series, isDark, xAxisMode, metric, maxRunIndex, isLargeDataset, zoomRange])
+
+  const handleDataZoom = useCallback(
+    (params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
+      if (params.batch && params.batch.length > 0) {
+        onZoom(params.batch[0].start, params.batch[0].end)
+      } else if (params.start !== undefined && params.end !== undefined) {
+        onZoom(params.start, params.end)
+      }
+    },
+    [onZoom],
+  )
 
   const handleChartClick = (params: { value?: [number, number, number, string, string] }) => {
     if (params.value && onRunClick) {
@@ -286,7 +344,7 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick }: SingleChar
         option={option}
         style={{ height: '250px', width: '100%' }}
         opts={{ renderer: 'svg' }}
-        onEvents={{ click: handleChartClick }}
+        onEvents={{ click: handleChartClick, ...(isLargeDataset && { datazoom: handleDataZoom }) }}
       />
     </div>
   )
@@ -299,6 +357,8 @@ export function ResourceCharts({
   onXAxisModeChange,
   onRunClick,
   hideControls = false,
+  zoomRange: controlledZoom,
+  onZoomChange,
 }: ResourceChartsProps) {
   const [internalMode, setInternalMode] = useState<XAxisMode>('runCount')
   const xAxisMode = controlledMode ?? internalMode
@@ -310,6 +370,25 @@ export function ResourceCharts({
       setInternalMode(mode)
     }
   }
+
+  const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
+  const activeZoom = controlledZoom ?? internalZoom
+
+  const handleZoom = useCallback((start: number, end: number) => {
+    const newRange = { start, end }
+    if (onZoomChange) onZoomChange(newRange)
+    else setInternalZoom(newRange)
+  }, [onZoomChange])
+
+  const isLargeDataset = useMemo(() => {
+    const clientCounts = new Map<string, number>()
+    for (const run of runs) {
+      const client = run.instance.client
+      clientCounts.set(client, (clientCounts.get(client) ?? 0) + 1)
+    }
+    const maxCount = Math.max(...Array.from(clientCounts.values()), 0)
+    return maxCount > 30
+  }, [runs])
 
   const hasResourceData = useMemo(() => {
     return runs.some((run) => getAggregatedResourceTotals(run) !== undefined)
@@ -363,6 +442,9 @@ export function ResourceCharts({
             isDark={isDark}
             xAxisMode={xAxisMode}
             onRunClick={onRunClick}
+            isLargeDataset={isLargeDataset}
+            zoomRange={activeZoom}
+            onZoom={handleZoom}
           />
         ))}
       </div>
