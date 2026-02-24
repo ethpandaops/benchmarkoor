@@ -9,13 +9,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pr-benchmark:
+  docker:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Run Benchmarkoor Test
+      - name: Run Benchmarkoor Test (Docker)
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -29,11 +29,11 @@ jobs:
               benchmark:
                 system_resource_collection_enabled: true
                 tests:
-                  filter: "bn128"
+                  filter: "bn128_mul-benchmark"
                   source:
                     eest_fixtures:
                       github_repo: ethereum/execution-spec-tests
-                      github_release: benchmark@v0.0.5
+                      github_release: benchmark@v0.0.7
 
               client:
                 config:
@@ -50,3 +50,88 @@ jobs:
               instances:
                 - id: geth
                   client: geth
+
+  podman:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run Benchmarkoor Test (Podman)
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-ref: ${{ github.event.pull_request.head.sha }}
+          #run-args: '--log-level=debug'
+          run-config-urls: >-
+            https://raw.githubusercontent.com/ethpandaops/benchmarkoor/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-cleanup.yaml,
+            https://raw.githubusercontent.com/ethpandaops/benchmarkoor/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-clientstdout.yaml
+          run-config: |
+            runner:
+              container_runtime: podman
+
+              benchmark:
+                system_resource_collection_enabled: true
+                tests:
+                  filter: "bn128_mul-benchmark"
+                  source:
+                    eest_fixtures:
+                      github_repo: ethereum/execution-spec-tests
+                      github_release: benchmark@v0.0.7
+
+              client:
+                config:
+                  drop_memory_caches: "steps"
+                  resource_limits:
+                    cpuset_count: 2
+                    memory: "4g"
+                    swap_disabled: true
+
+              instances:
+                - id: nethermind
+                  client: nethermind
+
+  podman-checkpoint-restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run Benchmarkoor Test (Podman) with "Container Checkpoint/Restore" strategy
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-ref: ${{ github.event.pull_request.head.sha }}
+          #run-args: '--log-level=debug'
+          run-config-urls: >-
+            https://raw.githubusercontent.com/ethpandaops/benchmarkoor/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-cleanup.yaml,
+            https://raw.githubusercontent.com/ethpandaops/benchmarkoor/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-clientstdout.yaml
+          run-config: |
+            runner:
+              container_runtime: podman
+
+              benchmark:
+                system_resource_collection_enabled: true
+                tests:
+                  filter: "bn128_mul-benchmark"
+                  source:
+                    eest_fixtures:
+                      github_repo: ethereum/execution-spec-tests
+                      github_release: benchmark@v0.0.7
+
+              client:
+                config:
+                  rollback_strategy: container-checkpoint-restore
+                  checkpoint_restore_strategy_options:
+                    wait_after_tcp_drop_connections: 1s
+                    restart_container: true
+                    tmpfs_threshold: "1g"
+                    tmpfs_max_size: "2g"
+                  resource_limits:
+                    cpuset_count: 2
+                    memory: "4g"
+                    swap_disabled: true
+
+              instances:
+                - id: reth
+                  client: reth

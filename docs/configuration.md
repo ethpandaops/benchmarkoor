@@ -9,6 +9,7 @@ This document describes all configuration options for benchmarkoor. The [config.
 - [Configuration Merging](#configuration-merging)
 - [Global Settings](#global-settings)
 - [Runner Settings](#runner-settings)
+  - [Container Runtime](#container-runtime)
   - [Benchmark Settings](#benchmark-settings)
     - [Results Upload](#results-upload)
   - [Client Settings](#client-settings)
@@ -91,6 +92,7 @@ The `runner` section contains all run-specific settings including benchmark conf
 
 ```yaml
 runner:
+  container_runtime: docker
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
@@ -105,6 +107,7 @@ runner:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `container_runtime` | string | `docker` | Container runtime to use: `docker` or `podman`. See [Container Runtime](#container-runtime) |
 | `client_logs_to_stdout` | bool | `false` | Stream client container logs to stdout |
 | `docker_network` | string | `benchmarkoor` | Docker network name for containers |
 | `cleanup_on_start` | bool | `false` | Remove leftover containers/networks on startup |
@@ -113,6 +116,21 @@ runner:
 | `drop_caches_path` | string | `/proc/sys/vm/drop_caches` | Path to Linux drop_caches file (for containerized environments) |
 | `cpu_sysfs_path` | string | `/sys/devices/system/cpu` | Base path for CPU sysfs files (for containerized environments where `/sys` is read-only and the host path is bind-mounted elsewhere, e.g., `/host_sys_cpu`) |
 | `github_token` | string | - | GitHub token for downloading Actions artifacts via REST API. Not needed if `gh` CLI is installed and authenticated. Requires `actions:read` scope. Can also be set via `BENCHMARKOOR_RUNNER_GITHUB_TOKEN` env var |
+
+#### Container Runtime
+
+Benchmarkoor supports both Docker and Podman as container runtimes. The runtime is selected via the `container_runtime` field.
+
+| Value | Description |
+|-------|-------------|
+| `docker` | Use Docker (default) |
+| `podman` | Use Podman. Required for `container-checkpoint-restore` rollback strategy. Connects via `/run/podman/podman.sock` |
+
+When using Podman, ensure the Podman socket is active:
+
+```bash
+sudo systemctl start podman.socket
+```
 
 ### Benchmark Settings
 
@@ -440,6 +458,7 @@ runner:
 | `jwt` | string | `5a64f1...` | JWT secret for Engine API authentication |
 | `drop_memory_caches` | string | `disabled` | When to drop Linux memory caches (see below) |
 | `rollback_strategy` | string | `rpc-debug-setHead` | Rollback strategy after each test (see below) |
+| `checkpoint_restore_strategy_options` | object | - | Options for the checkpoint-restore rollback strategy (see [Checkpoint Restore Strategy Options](#checkpoint-restore-strategy-options)) |
 | `wait_after_rpc_ready` | string | - | Duration to wait after RPC becomes ready (see below) |
 | `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
@@ -466,6 +485,7 @@ Controls whether the client state is rolled back after each test. This is useful
 | `none` | Do not rollback |
 | `rpc-debug-setHead` | Capture block info before each test, then rollback via a client-specific debug RPC after the test completes (default) |
 | `container-recreate` | Stop and remove the container after each test, then create and start a fresh one |
+| `container-checkpoint-restore` | Use Podman's CRIU-based checkpoint/restore to snapshot container memory state and the data directory, then instantly restore both per-test. Requires `container_runtime: "podman"`. When `datadir.method: "zfs"` is configured, uses ZFS snapshots for rollback. Without a datadir, uses copy-based rollback (`cp -a` snapshot, `rsync --delete` restore). Other `datadir.methods` are not supported.|
 
 ###### `rpc-debug-setHead`
 
@@ -503,6 +523,84 @@ When `container-recreate` is enabled, the runner manages the per-test loop:
 4. The runner waits for the RPC endpoint to become ready and the configured wait period before running the next test.
 
 This strategy works with all clients since it doesn't require any client-specific RPC support.
+
+###### `container-checkpoint-restore`
+
+When `container-checkpoint-restore` is enabled, the runner uses Podman's native CRIU-based checkpoint/restore to eliminate per-test container lifecycle overhead. This is significantly faster than `container-recreate` for large test suites because the client process resumes mid-execution without restart or RPC polling.
+
+Two data-directory rollback modes are supported:
+- **ZFS snapshots** (when `datadir.method: "zfs"` is configured): instant copy-on-write rollback.
+- **Copy-based** (when no datadir is configured, e.g., EEST tests): `cp -a` snapshot, `rsync --delete` restore. The data directory is bind-mounted from a host temp directory.
+
+**Requirements:**
+- `container_runtime: "podman"` must be set
+- CRIU must be installed on the host
+- Podman must be running as root (rootful mode)
+- If a datadir is configured, it must use `method: "zfs"`
+
+**Flow:**
+
+1. The container starts and the runner waits for the RPC endpoint to become ready.
+2. After RPC is ready (and any configured wait period), the data directory is snapshotted (ZFS snapshot or file copy) and the container is checkpointed (memory state exported to a file). The container stops.
+3. For each test:
+   - The data directory is rolled back to the snapshot (ZFS rollback or rsync restore).
+   - The container is restored from the checkpoint. The client process resumes at the exact point it was checkpointed — **no startup, no RPC polling**.
+   - The test executes.
+   - The restored container is stopped and removed.
+4. After all tests, the snapshot and checkpoint export file are cleaned up.
+
+**With ZFS datadir:**
+
+```yaml
+runner:
+  container_runtime: podman
+  client:
+    config:
+      rollback_strategy: container-checkpoint-restore
+    datadirs:
+      geth:
+        source_dir: /tank/data/geth
+        method: zfs
+  instances:
+    - id: geth
+      client: geth
+```
+
+**Without datadir (e.g., EEST tests):**
+
+```yaml
+runner:
+  container_runtime: podman
+  client:
+    config:
+      rollback_strategy: container-checkpoint-restore
+  instances:
+    - id: geth
+      client: geth
+```
+
+##### Checkpoint Restore Strategy Options
+
+Options for the `container-checkpoint-restore` rollback strategy, nested under `checkpoint_restore_strategy_options`:
+
+| Sub-option | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `tmpfs_threshold` | string | - | Store checkpoint on tmpfs (RAM) when container memory is under this threshold. Uses the same format as `resource_limits.memory` (Docker go-units): e.g., `"8g"`, `"512m"`, `"1024k"`, or raw bytes. If not set, checkpoints are always stored on disk. |
+| `tmpfs_max_size` | string | 2× `tmpfs_threshold` | Maximum size of the tmpfs mount for checkpoint storage. Same format as `tmpfs_threshold` (e.g., `"16g"`, `"1024m"`). When not set, defaults to twice the `tmpfs_threshold` value. |
+| `wait_after_tcp_drop_connections` | string | `10s` | How long to wait after dropping TCP connections before checkpointing, giving the process time to close file descriptors (Go duration string). |
+| `restart_container` | bool | `false` | Whether to restart the container before taking a CRIU checkpoint. Restarting ensures a clean process state (cold caches, clean DB shutdown). |
+
+```yaml
+runner:
+  client:
+    config:
+      rollback_strategy: container-checkpoint-restore
+      checkpoint_restore_strategy_options:
+        tmpfs_threshold: "8g"
+        tmpfs_max_size: "16g"
+        wait_after_tcp_drop_connections: "10s"
+        restart_container: false
+```
 
 ##### Wait After RPC Ready
 
@@ -581,7 +679,7 @@ runner:
 
 The FCU call sets `headBlockHash` to the latest block, with `safeBlockHash` and `finalizedBlockHash` set to the zero hash and no payload attributes. The response must have `VALID` status. If the call fails, it is retried up to `max_retries` times with `backoff` between attempts. If all attempts fail, the run is aborted.
 
-When using the `container-recreate` rollback strategy, the bootstrap FCU is sent after each container recreate.
+When using the `container-recreate` rollback strategy, the bootstrap FCU is sent after each container recreate. When using `container-checkpoint-restore`, the bootstrap FCU is sent once before the checkpoint is taken.
 
 **When to use:**
 - When clients may still be performing internal initialization or syncing after RPC becomes available (e.g., Erigon's staged sync)
@@ -687,6 +785,7 @@ runner:
 | `datadir` | object | No | From `runner.client.datadirs` | Instance-specific data directory config |
 | `drop_memory_caches` | string | No | From `runner.client.config` | Instance-specific cache drop setting |
 | `rollback_strategy` | string | No | From `runner.client.config` | Instance-specific rollback strategy |
+| `checkpoint_restore_strategy_options` | object | No | From `runner.client.config` | Instance-specific checkpoint-restore strategy options (replaces global) |
 | `wait_after_rpc_ready` | string | No | From `runner.client.config` | Instance-specific RPC ready wait duration |
 | `retry_new_payloads_syncing_state` | object | No | From `runner.client.config` | Instance-specific retry config for SYNCING responses |
 | `resource_limits` | object | No | From `runner.client.config` | Instance-specific resource limits |

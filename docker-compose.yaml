@@ -6,6 +6,9 @@ services:
       dockerfile: Dockerfile
     # Required for dropping memory caches, ZFS/overlayfs datadir methods, etc.
     privileged: true
+    # Share host PID namespace so nsenter can access /proc/<pid>/ns/net
+    # for dropping TCP connections before checkpoint-restore.
+    pid: host
     environment:
       - BENCHMARKOOR_RUNNER_DROP_CACHES_PATH=/host_drop_caches
       - BENCHMARKOOR_RUNNER_CPU_SYSFS_PATH=/host_sys_cpu
@@ -15,6 +18,10 @@ services:
     volumes:
       # The docker socket is required to interact with docker containers
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # The podman socket is required when using container_runtime: podman
+      - /run/podman/podman.sock:/run/podman/podman.sock
+      # Podman container storage, required for checkpoint-restore
+      - /var/lib/containers:/var/lib/containers:rshared
       # The cgroups path is recommended when on Linux systems to fetch system metrics
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
       # Required for dropping memory caches between tests (config.yaml#client.config.drop_memory_caches)

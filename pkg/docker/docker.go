@@ -20,8 +20,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Manager handles Docker operations for benchmarkoor.
-type Manager interface {
+// ContainerManager defines container runtime operations.
+// Both Docker and Podman implementations satisfy this interface.
+type ContainerManager interface {
 	Start(ctx context.Context) error
 	Stop() error
 
@@ -56,12 +57,17 @@ type Manager interface {
 	ListContainers(ctx context.Context) ([]ContainerInfo, error)
 	ListVolumes(ctx context.Context) ([]VolumeInfo, error)
 
-	// GetClient returns the underlying Docker client for direct API access.
-	GetClient() *client.Client
-
 	// WaitForContainerExit returns channels that signal when a container exits.
 	// The statusCh receives exit info (code + OOM status), errCh receives any wait errors.
 	WaitForContainerExit(ctx context.Context, containerID string) (<-chan ContainerExitInfo, <-chan error)
+}
+
+// Manager extends ContainerManager with Docker-specific functionality.
+type Manager interface {
+	ContainerManager
+
+	// GetClient returns the underlying Docker client for direct API access.
+	GetClient() *client.Client
 }
 
 // ResourceLimits defines container resource constraints.
@@ -94,6 +100,8 @@ type ContainerSpec struct {
 	NetworkName    string
 	Labels         map[string]string
 	ResourceLimits *ResourceLimits
+	CapAdd         []string // Additional Linux capabilities (e.g., "SYS_PTRACE" for CRIU).
+	SecurityOpt    []string // Security options (e.g., "seccomp=unconfined").
 }
 
 // Mount defines a volume mount.
@@ -244,6 +252,8 @@ func (m *manager) CreateContainer(ctx context.Context, spec *ContainerSpec) (str
 	hostCfg := &container.HostConfig{
 		Mounts:      mounts,
 		NetworkMode: container.NetworkMode(spec.NetworkName),
+		CapAdd:      spec.CapAdd,
+		SecurityOpt: spec.SecurityOpt,
 	}
 
 	// Apply resource limits if configured.

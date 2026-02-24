@@ -22,13 +22,17 @@ RUN if [ -f .build-version ]; then \
       . ./.build-version; \
     fi && \
     CGO_ENABLED=0 GOOS=linux go build \
+    -tags "exclude_graphdriver_btrfs,exclude_graphdriver_devicemapper,containers_image_openpgp" \
     -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o /benchmarkoor ./cmd/benchmarkoor
 
 # Final stage
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata git zfs fuse-overlayfs
+RUN apk add --no-cache ca-certificates tzdata git zfs fuse-overlayfs rsync iptables iproute2 && \
+    if [ "$(uname -m)" = "x86_64" ]; then \
+      apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/edge/testing criu; \
+    fi
 
 WORKDIR /app
 

@@ -1392,6 +1392,103 @@ func TestValidateAPIStorage(t *testing.T) {
 	}
 }
 
+func TestParseByteSize(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		expected  uint64
+		wantErr   bool
+		errSubstr string
+	}{
+		{name: "docker-style gigabytes", input: "8g", expected: 8 * 1024 * 1024 * 1024},
+		{name: "docker-style megabytes", input: "512m", expected: 512 * 1024 * 1024},
+		{name: "docker-style kilobytes", input: "1024k", expected: 1024 * 1024},
+		{name: "uppercase suffix", input: "8G", expected: 8 * 1024 * 1024 * 1024},
+		{name: "long suffix GB", input: "8GB", expected: 8 * 1024 * 1024 * 1024},
+		{name: "long suffix MB", input: "512MB", expected: 512 * 1024 * 1024},
+		{name: "raw bytes", input: "1073741824", expected: 1073741824},
+		{name: "zero", input: "0", expected: 0},
+		{name: "invalid string", input: "abc", wantErr: true, errSubstr: "invalid byte size"},
+		{name: "empty string", input: "", wantErr: true, errSubstr: "empty string"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ParseByteSize(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestGetCheckpointTmpfsThreshold(t *testing.T) {
+	tests := []struct {
+		name     string
+		global   string
+		instance string
+		expected string
+	}{
+		{
+			name:     "both empty returns empty (disabled)",
+			global:   "",
+			instance: "",
+			expected: "",
+		},
+		{
+			name:     "global set, instance empty inherits global",
+			global:   "8g",
+			instance: "",
+			expected: "8g",
+		},
+		{
+			name:     "instance overrides global",
+			global:   "8g",
+			instance: "4g",
+			expected: "4g",
+		},
+		{
+			name:     "instance set, global empty",
+			global:   "",
+			instance: "2g",
+			expected: "2g",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var globalOpts *CheckpointRestoreStrategyOptions
+			if tt.global != "" {
+				globalOpts = &CheckpointRestoreStrategyOptions{TmpfsThreshold: tt.global}
+			}
+
+			var instanceOpts *CheckpointRestoreStrategyOptions
+			if tt.instance != "" {
+				instanceOpts = &CheckpointRestoreStrategyOptions{TmpfsThreshold: tt.instance}
+			}
+
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							CheckpointRestoreStrategyOptions: globalOpts,
+						},
+					},
+				},
+			}
+			instance := &ClientInstance{
+				CheckpointRestoreStrategyOptions: instanceOpts,
+			}
+			result := cfg.GetCheckpointTmpfsThreshold(instance)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 // createTestTarball creates a minimal .tar.gz file at the given path for testing.
 func createTestTarball(t *testing.T, path string) {
 	t.Helper()
@@ -1417,6 +1514,279 @@ func createTestTarball(t *testing.T, path string) {
 
 	_, err = tw.Write(content)
 	require.NoError(t, err)
+}
+
+func TestValidateContainerRuntime(t *testing.T) {
+	tests := []struct {
+		name      string
+		runtime   string
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "empty string is valid (defaults to docker)",
+			runtime: "",
+			wantErr: false,
+		},
+		{
+			name:    "docker is valid",
+			runtime: "docker",
+			wantErr: false,
+		},
+		{
+			name:    "podman is valid",
+			runtime: "podman",
+			wantErr: false,
+		},
+		{
+			name:      "invalid runtime rejected",
+			runtime:   "containerd",
+			wantErr:   true,
+			errSubstr: "invalid container_runtime",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: tt.runtime,
+					Instances:        []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			}
+			err := cfg.validateContainerRuntime()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateRollbackStrategy_CheckpointRestore(t *testing.T) {
+	validDir := t.TempDir()
+
+	tests := []struct {
+		name      string
+		cfg       Config
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "checkpoint-restore valid with podman and zfs",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "zfs",
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "checkpoint-restore requires podman runtime",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "zfs",
+							},
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "requires container_runtime: \"podman\"",
+		},
+		{
+			name: "checkpoint-restore requires podman - explicit docker rejected",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "docker",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "zfs",
+							},
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "requires container_runtime: \"podman\"",
+		},
+		{
+			name: "checkpoint-restore requires zfs datadir method",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "copy",
+							},
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "with datadir requires datadir.method: \"zfs\"",
+		},
+		{
+			name: "checkpoint-restore without datadir is valid (copy-based rollback)",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "checkpoint-restore with zfs from global datadirs",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+						DataDirs: map[string]*DataDirConfig{
+							"geth": {
+								SourceDir: validDir,
+								Method:    "zfs",
+							},
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "checkpoint-restore instance-level strategy with podman and zfs",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Instances: []ClientInstance{
+						{
+							ID:               "test",
+							Client:           "geth",
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "zfs",
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.validateRollbackStrategy(ValidateOpts{})
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestGetContainerRuntime(t *testing.T) {
+	tests := []struct {
+		name     string
+		runtime  string
+		expected string
+	}{
+		{
+			name:     "empty defaults to docker",
+			runtime:  "",
+			expected: "docker",
+		},
+		{
+			name:     "docker returns docker",
+			runtime:  "docker",
+			expected: "docker",
+		},
+		{
+			name:     "podman returns podman",
+			runtime:  "podman",
+			expected: "podman",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: tt.runtime,
+				},
+			}
+			assert.Equal(t, tt.expected, cfg.GetContainerRuntime())
+		})
+	}
 }
 
 func TestValidate_WithValidateOpts(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
+	"github.com/ethpandaops/benchmarkoor/pkg/podman"
 	"github.com/ethpandaops/benchmarkoor/pkg/runner"
 	"github.com/ethpandaops/benchmarkoor/pkg/upload"
 	"github.com/sirupsen/logrus"
@@ -133,19 +134,27 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("validating config: %w", err)
 		}
 
-		// Create Docker manager.
-		dockerMgr, err := docker.NewManager(log)
-		if err != nil {
-			return fmt.Errorf("creating docker manager: %w", err)
+		// Create container manager based on configured runtime.
+		var containerMgr docker.ContainerManager
+
+		switch cfg.GetContainerRuntime() {
+		case "podman":
+			containerMgr, err = podman.NewManager(log)
+		default:
+			containerMgr, err = docker.NewManager(log)
 		}
 
-		if err := dockerMgr.Start(ctx); err != nil {
-			return fmt.Errorf("starting docker manager: %w", err)
+		if err != nil {
+			return fmt.Errorf("creating container manager: %w", err)
+		}
+
+		if err := containerMgr.Start(ctx); err != nil {
+			return fmt.Errorf("starting container manager: %w", err)
 		}
 
 		defer func() {
-			if err := dockerMgr.Stop(); err != nil {
-				log.WithError(err).Warn("Failed to stop docker manager")
+			if err := containerMgr.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop container manager")
 			}
 		}()
 
@@ -153,7 +162,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		if cfg.Runner.CleanupOnStart {
 			log.Info("Performing cleanup before start")
 
-			if err := performCleanup(ctx, dockerMgr, true); err != nil {
+			if err := performCleanup(ctx, containerMgr, true); err != nil {
 				log.WithError(err).Warn("Cleanup failed")
 			}
 		}
@@ -259,7 +268,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			FullConfig:         cfg,
 		}
 
-		r := runner.NewRunner(log, runnerCfg, dockerMgr, registry, exec, cpufreqMgr, resultsUploader)
+		r := runner.NewRunner(log, runnerCfg, containerMgr, registry, exec, cpufreqMgr, resultsUploader)
 
 		if err := r.Start(ctx); err != nil {
 			return fmt.Errorf("starting runner: %w", err)

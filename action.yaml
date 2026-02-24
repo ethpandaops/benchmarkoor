@@ -54,7 +54,7 @@ runs:
   using: 'composite'
   steps:
     - name: Verify and install dependencies
-      uses: ethpandaops/benchmarkoor/.github/actions/dependencies@1c774dde601d095c153116761ffbe917c653be9a
+      uses: ethpandaops/benchmarkoor/.github/actions/dependencies@2eb17d99d458aa6fba6fe4091223328f3aee2bfc
 
     - name: Build Docker image locally
       if: inputs.image == ''
@@ -196,10 +196,12 @@ runs:
         # Build docker run command
         DOCKER_CMD="docker run --network=host --rm --name=benchmarkoor-run"
         DOCKER_CMD="$DOCKER_CMD -v /var/run/docker.sock:/var/run/docker.sock"
+        DOCKER_CMD="$DOCKER_CMD -v /run/podman/podman.sock:/run/podman/podman.sock"
+        DOCKER_CMD="$DOCKER_CMD -v /var/lib/containers:/var/lib/containers:rshared"
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}/results:/app/results"
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}:/app/configs"
         DOCKER_CMD="$DOCKER_CMD --mount type=bind,source=${{ inputs.tmp-dir }},target=${{ inputs.tmp-dir }},bind-propagation=rshared"
-        DOCKER_CMD="$DOCKER_CMD --privileged"
+        DOCKER_CMD="$DOCKER_CMD --privileged --pid=host"
         DOCKER_CMD="$DOCKER_CMD -v /proc/sys/vm/drop_caches:/host_drop_caches"
         DOCKER_CMD="$DOCKER_CMD -v /sys/devices/system/cpu:/host_sys_cpu"
         DOCKER_CMD="$DOCKER_CMD -v /sys/fs/cgroup:/sys/fs/cgroup:ro"

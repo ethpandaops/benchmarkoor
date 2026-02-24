@@ -11,12 +11,14 @@ import (
 	mrand "math/rand/v2"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/go-units"
 	"github.com/ethpandaops/benchmarkoor/pkg/blocklog"
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
@@ -27,6 +29,8 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
+	"github.com/ethpandaops/benchmarkoor/pkg/podman"
+	"github.com/ethpandaops/benchmarkoor/pkg/stats"
 	"github.com/ethpandaops/benchmarkoor/pkg/upload"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/host"
@@ -159,34 +163,36 @@ type ResolvedThrottleDevice struct {
 
 // ResolvedInstance contains the resolved configuration for a client instance.
 type ResolvedInstance struct {
-	ID                           string                                `json:"id"`
-	Client                       string                                `json:"client"`
-	Image                        string                                `json:"image"`
-	ImageSHA256                  string                                `json:"image_sha256,omitempty"`
-	Entrypoint                   []string                              `json:"entrypoint,omitempty"`
-	Command                      []string                              `json:"command,omitempty"`
-	ExtraArgs                    []string                              `json:"extra_args,omitempty"`
-	PullPolicy                   string                                `json:"pull_policy"`
-	Restart                      string                                `json:"restart,omitempty"`
-	Environment                  map[string]string                     `json:"environment,omitempty"`
-	Genesis                      string                                `json:"genesis,omitempty"`
-	GenesisGroups                map[string]string                     `json:"genesis_groups,omitempty"`
-	DataDir                      *config.DataDirConfig                 `json:"datadir,omitempty"`
-	ClientVersion                string                                `json:"client_version,omitempty"`
-	RollbackStrategy             string                                `json:"rollback_strategy,omitempty"`
-	DropMemoryCaches             string                                `json:"drop_memory_caches,omitempty"`
-	WaitAfterRPCReady            string                                `json:"wait_after_rpc_ready,omitempty"`
-	RetryNewPayloadsSyncingState *config.RetryNewPayloadsSyncingConfig `json:"retry_new_payloads_syncing_state,omitempty"`
-	ResourceLimits               *ResolvedResourceLimits               `json:"resource_limits,omitempty"`
-	PostTestRPCCalls             []config.PostTestRPCCall              `json:"post_test_rpc_calls,omitempty"`
-	BootstrapFCU                 *config.BootstrapFCUConfig            `json:"bootstrap_fcu,omitempty"`
+	ID                               string                                   `json:"id"`
+	Client                           string                                   `json:"client"`
+	ContainerRuntime                 string                                   `json:"container_runtime,omitempty"`
+	Image                            string                                   `json:"image"`
+	ImageSHA256                      string                                   `json:"image_sha256,omitempty"`
+	Entrypoint                       []string                                 `json:"entrypoint,omitempty"`
+	Command                          []string                                 `json:"command,omitempty"`
+	ExtraArgs                        []string                                 `json:"extra_args,omitempty"`
+	PullPolicy                       string                                   `json:"pull_policy"`
+	Restart                          string                                   `json:"restart,omitempty"`
+	Environment                      map[string]string                        `json:"environment,omitempty"`
+	Genesis                          string                                   `json:"genesis,omitempty"`
+	GenesisGroups                    map[string]string                        `json:"genesis_groups,omitempty"`
+	DataDir                          *config.DataDirConfig                    `json:"datadir,omitempty"`
+	ClientVersion                    string                                   `json:"client_version,omitempty"`
+	RollbackStrategy                 string                                   `json:"rollback_strategy,omitempty"`
+	DropMemoryCaches                 string                                   `json:"drop_memory_caches,omitempty"`
+	WaitAfterRPCReady                string                                   `json:"wait_after_rpc_ready,omitempty"`
+	RetryNewPayloadsSyncingState     *config.RetryNewPayloadsSyncingConfig    `json:"retry_new_payloads_syncing_state,omitempty"`
+	ResourceLimits                   *ResolvedResourceLimits                  `json:"resource_limits,omitempty"`
+	PostTestRPCCalls                 []config.PostTestRPCCall                 `json:"post_test_rpc_calls,omitempty"`
+	BootstrapFCU                     *config.BootstrapFCUConfig               `json:"bootstrap_fcu,omitempty"`
+	CheckpointRestoreStrategyOptions *config.CheckpointRestoreStrategyOptions `json:"checkpoint_restore_strategy_options,omitempty"`
 }
 
 // NewRunner creates a new runner instance.
 func NewRunner(
 	log *logrus.Logger,
 	cfg *Config,
-	dockerMgr docker.Manager,
+	containerMgr docker.ContainerManager,
 	registry client.Registry,
 	exec executor.Executor,
 	cpufreqMgr cpufreq.Manager,
@@ -197,33 +203,43 @@ func NewRunner(
 	}
 
 	return &runner{
-		logger:     log,
-		log:        log.WithField("component", "runner"),
-		cfg:        cfg,
-		docker:     dockerMgr,
-		registry:   registry,
-		executor:   exec,
-		cpufreqMgr: cpufreqMgr,
-		uploader:   uploader,
-		done:       make(chan struct{}),
+		logger:       log,
+		log:          log.WithField("component", "runner"),
+		cfg:          cfg,
+		containerMgr: containerMgr,
+		registry:     registry,
+		executor:     exec,
+		cpufreqMgr:   cpufreqMgr,
+		uploader:     uploader,
+		done:         make(chan struct{}),
 	}
 }
 
 type runner struct {
-	logger     *logrus.Logger     // The actual logger (for hook management)
-	log        logrus.FieldLogger // The field logger (for logging with fields)
-	cfg        *Config
-	docker     docker.Manager
-	registry   client.Registry
-	executor   executor.Executor
-	cpufreqMgr cpufreq.Manager
-	uploader   upload.Uploader
-	done       chan struct{}
-	wg         sync.WaitGroup
+	logger       *logrus.Logger     // The actual logger (for hook management)
+	log          logrus.FieldLogger // The field logger (for logging with fields)
+	cfg          *Config
+	containerMgr docker.ContainerManager
+	registry     client.Registry
+	executor     executor.Executor
+	cpufreqMgr   cpufreq.Manager
+	uploader     upload.Uploader
+	done         chan struct{}
+	wg           sync.WaitGroup
 }
 
 // Ensure interface compliance.
 var _ Runner = (*runner)(nil)
+
+// getDockerClient returns the underlying Docker client if the container manager
+// is a Docker manager, or nil otherwise (e.g., when using Podman).
+func (r *runner) getDockerClient() *dockerclient.Client {
+	if dm, ok := r.containerMgr.(docker.Manager); ok {
+		return dm.GetClient()
+	}
+
+	return nil
+}
 
 // Start initializes the runner.
 func (r *runner) Start(ctx context.Context) error {
@@ -232,9 +248,9 @@ func (r *runner) Start(ctx context.Context) error {
 		return fmt.Errorf("creating results directory: %w", err)
 	}
 
-	// Ensure Docker network exists.
-	if err := r.docker.EnsureNetwork(ctx, r.cfg.DockerNetwork); err != nil {
-		return fmt.Errorf("ensuring docker network: %w", err)
+	// Ensure container network exists.
+	if err := r.containerMgr.EnsureNetwork(ctx, r.cfg.DockerNetwork); err != nil {
+		return fmt.Errorf("ensuring container network: %w", err)
 	}
 
 	r.log.Debug("Runner started")
@@ -332,22 +348,23 @@ func formatStartMarker(marker string, info *containerLogInfo) string {
 
 // containerRunParams contains parameters for a single container lifecycle run.
 type containerRunParams struct {
-	Instance          *config.ClientInstance
-	RunID             string
-	RunTimestamp      int64
-	RunResultsDir     string
-	BenchmarkoorLog   *os.File
-	LogHook           *fileHook
-	GenesisSource     string                    // Path or URL to genesis file.
-	Tests             []*executor.TestWithSteps // Optional test subset (nil = all).
-	GenesisGroupHash  string                    // Non-empty when running a specific genesis group.
-	GenesisGroups     map[string]string         // All genesis hash → path mappings (multi-genesis).
-	ImageName         string                    // Resolved image name (pulled once by caller).
-	ImageDigest       string                    // Image SHA256 digest (resolved once by caller).
-	ContainerSpec     *docker.ContainerSpec     // Saved for container-recreate strategy.
-	DataDirCfg        *config.DataDirConfig     // Resolved datadir config (nil if not using datadir).
-	UseDataDir        bool                      // Whether a pre-populated datadir is used.
-	BlockLogCollector blocklog.Collector        // Optional collector for capturing block logs.
+	Instance             *config.ClientInstance
+	RunID                string
+	RunTimestamp         int64
+	RunResultsDir        string
+	BenchmarkoorLog      *os.File
+	LogHook              *fileHook
+	GenesisSource        string                    // Path or URL to genesis file.
+	Tests                []*executor.TestWithSteps // Optional test subset (nil = all).
+	GenesisGroupHash     string                    // Non-empty when running a specific genesis group.
+	GenesisGroups        map[string]string         // All genesis hash → path mappings (multi-genesis).
+	ImageName            string                    // Resolved image name (pulled once by caller).
+	ImageDigest          string                    // Image SHA256 digest (resolved once by caller).
+	ContainerSpec        *docker.ContainerSpec     // Saved for container-recreate strategy.
+	DataDirCfg           *config.DataDirConfig     // Resolved datadir config (nil if not using datadir).
+	UseDataDir           bool                      // Whether a pre-populated datadir is used.
+	BlockLogCollector    blocklog.Collector        // Optional collector for capturing block logs.
+	AccumulatedTestCount *TestCounts               // Shared across genesis groups for accumulation.
 }
 
 // RunInstance runs a single client instance through its lifecycle.
@@ -408,11 +425,11 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		imageName = spec.DefaultImage()
 	}
 
-	if err := r.docker.PullImage(ctx, imageName, instance.PullPolicy); err != nil {
+	if err := r.containerMgr.PullImage(ctx, imageName, instance.PullPolicy); err != nil {
 		return fmt.Errorf("pulling image: %w", err)
 	}
 
-	imageDigest, err := r.docker.GetImageDigest(ctx, imageName)
+	imageDigest, err := r.containerMgr.GetImageDigest(ctx, imageName)
 	if err != nil {
 		log.WithError(err).Warn("Failed to get image digest")
 	} else {
@@ -441,6 +458,9 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 					)
 				}
 
+				// Shared test counts accumulator across all genesis groups.
+				accumulatedTestCounts := &TestCounts{}
+
 				for i, group := range groups {
 					groupGenesis := genesisGroups[group.GenesisHash]
 					if groupGenesis == "" {
@@ -458,18 +478,19 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 					}).Info("Running genesis group")
 
 					params := &containerRunParams{
-						Instance:         instance,
-						RunID:            runID,
-						RunTimestamp:     runTimestamp,
-						RunResultsDir:    runResultsDir,
-						BenchmarkoorLog:  benchmarkoorLogFile,
-						LogHook:          logHook,
-						GenesisSource:    groupGenesis,
-						Tests:            group.Tests,
-						GenesisGroupHash: group.GenesisHash,
-						GenesisGroups:    genesisGroups,
-						ImageName:        imageName,
-						ImageDigest:      imageDigest,
+						Instance:             instance,
+						RunID:                runID,
+						RunTimestamp:         runTimestamp,
+						RunResultsDir:        runResultsDir,
+						BenchmarkoorLog:      benchmarkoorLogFile,
+						LogHook:              logHook,
+						GenesisSource:        groupGenesis,
+						Tests:                group.Tests,
+						GenesisGroupHash:     group.GenesisHash,
+						GenesisGroups:        genesisGroups,
+						ImageName:            imageName,
+						ImageDigest:          imageDigest,
+						AccumulatedTestCount: accumulatedTestCounts,
 					}
 
 					if err := r.runContainerLifecycle(
@@ -556,7 +577,7 @@ func (r *runner) runContainerLifecycle(
 		}
 	}()
 
-	// Setup data directory: either Docker volume or copied datadir.
+	// Setup data directory: either container volume or copied datadir.
 	// Each container lifecycle gets a fresh volume/datadir.
 	var dataMount docker.Mount
 
@@ -596,6 +617,31 @@ func (r *runner) runContainerLifecycle(
 			Source: prepared.MountPath,
 			Target: containerDir,
 		}
+	} else if r.cfg.FullConfig != nil &&
+		r.cfg.FullConfig.GetRollbackStrategy(instance) == config.RollbackStrategyCheckpointRestore {
+		// Checkpoint-restore without a pre-populated datadir uses a bind
+		// mount to a host temp directory so the copy-based rollback
+		// manager can snapshot and rsync the data between tests.
+		tmpDir, mkErr := os.MkdirTemp("", fmt.Sprintf("benchmarkoor-cpdata-%s-", instance.ID))
+		if mkErr != nil {
+			return fmt.Errorf("creating temp dir for checkpoint-restore data: %w", mkErr)
+		}
+
+		localCleanupFuncs = append(localCleanupFuncs, func() {
+			if rmErr := os.RemoveAll(tmpDir); rmErr != nil {
+				log.WithError(rmErr).Warn("Failed to remove checkpoint data temp dir")
+			}
+		})
+
+		log.WithField("path", tmpDir).Info(
+			"Using bind mount for checkpoint-restore (no datadir)",
+		)
+
+		dataMount = docker.Mount{
+			Type:   "bind",
+			Source: tmpDir,
+			Target: spec.DataDir(),
+		}
 	} else {
 		volumeSuffix := instance.ID
 		if params.GenesisGroupHash != "" {
@@ -610,14 +656,14 @@ func (r *runner) runContainerLifecycle(
 			"benchmarkoor.managed-by": "benchmarkoor",
 		}
 
-		if err := r.docker.CreateVolume(
+		if err := r.containerMgr.CreateVolume(
 			ctx, volumeName, volumeLabels,
 		); err != nil {
 			return fmt.Errorf("creating volume: %w", err)
 		}
 
 		localCleanupFuncs = append(localCleanupFuncs, func() {
-			if rmErr := r.docker.RemoveVolume(
+			if rmErr := r.containerMgr.RemoveVolume(
 				context.Background(), volumeName,
 			); rmErr != nil {
 				log.WithError(rmErr).Warn("Failed to remove volume")
@@ -772,7 +818,7 @@ func (r *runner) runContainerLifecycle(
 			)
 		}
 
-		if err := r.docker.RunInitContainer(
+		if err := r.containerMgr.RunInitContainer(
 			ctx, initSpec, initStdout, initStderr,
 		); err != nil {
 			_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
@@ -851,6 +897,64 @@ func (r *runner) runContainerLifecycle(
 		env[k] = v
 	}
 
+	// When using checkpoint-restore, apply CRIU-compatibility env overrides.
+	if r.cfg.FullConfig != nil &&
+		r.cfg.FullConfig.GetRollbackStrategy(instance) == config.RollbackStrategyCheckpointRestore {
+		// Disable MPTCP so CRIU can checkpoint TCP sockets. CRIU does not
+		// support MPTCP (protocol 262) and recent Go versions enable it
+		// by default.
+		if _, ok := env["GODEBUG"]; !ok {
+			env["GODEBUG"] = "multipathtcp=0"
+		}
+
+		if client.ClientType(instance.Client) == client.ClientNethermind {
+			// NLog's autoReload uses FileSystemWatcher (inotify) on the
+			// overlay rootfs. CRIU cannot dump inotify watches on overlayfs
+			// (open_by_handle_at fails). Extract NLog.config from the image,
+			// patch autoReload to false, and bind-mount the patched copy so
+			// NLog never creates the FileSystemWatcher.
+			cpMgr, ok := r.containerMgr.(podman.CheckpointManager)
+			if ok {
+				nlogContent, nlogErr := cpMgr.ReadFileFromImage(
+					ctx, imageName, "/nethermind/NLog.config",
+				)
+				if nlogErr != nil {
+					log.WithError(nlogErr).Warn(
+						"Failed to extract NLog.config from image",
+					)
+				} else {
+					patched := strings.Replace(
+						string(nlogContent),
+						`autoReload="true"`,
+						`autoReload="false"`,
+						1,
+					)
+
+					nlogFile := filepath.Join(tempDir, "NLog.config")
+					if writeErr := os.WriteFile(
+						nlogFile, []byte(patched), 0644,
+					); writeErr != nil {
+						log.WithError(writeErr).Warn(
+							"Failed to write patched NLog.config",
+						)
+					} else {
+						mounts = append(mounts, docker.Mount{
+							Type:     "bind",
+							Source:   nlogFile,
+							Target:   "/nethermind/NLog.config",
+							ReadOnly: true,
+						})
+
+						log.Info(
+							"Bind-mounted patched NLog.config " +
+								"(autoReload=false) for CRIU compatibility",
+						)
+					}
+				}
+			}
+		}
+	}
+
 	// Resolve drop_memory_caches setting.
 	var dropMemoryCaches string
 	if r.cfg.FullConfig != nil {
@@ -858,7 +962,7 @@ func (r *runner) runContainerLifecycle(
 	}
 
 	// Resolve resource limits.
-	var dockerResourceLimits *docker.ResourceLimits
+	var containerResourceLimits *docker.ResourceLimits
 	var resolvedResourceLimits *ResolvedResourceLimits
 	var targetCPUs []int // CPUs to apply cpu_freq settings to
 
@@ -867,8 +971,8 @@ func (r *runner) runContainerLifecycle(
 		if resourceLimitsCfg != nil {
 			var err error
 
-			dockerResourceLimits, resolvedResourceLimits, err =
-				buildDockerResourceLimits(resourceLimitsCfg)
+			containerResourceLimits, resolvedResourceLimits, err =
+				buildContainerResourceLimits(resourceLimitsCfg)
 			if err != nil {
 				return fmt.Errorf("building resource limits: %w", err)
 			}
@@ -941,8 +1045,14 @@ func (r *runner) runContainerLifecycle(
 		Timestamp: params.RunTimestamp,
 		System:    getSystemInfo(),
 		Instance: &ResolvedInstance{
-			ID:          instance.ID,
-			Client:      instance.Client,
+			ID:     instance.ID,
+			Client: instance.Client,
+			ContainerRuntime: func() string {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetContainerRuntime()
+				}
+				return "docker"
+			}(),
 			Image:       imageName,
 			ImageSHA256: imageDigest,
 			Entrypoint:  instance.Entrypoint,
@@ -976,6 +1086,12 @@ func (r *runner) runContainerLifecycle(
 			BootstrapFCU: func() *config.BootstrapFCUConfig {
 				if r.cfg.FullConfig != nil {
 					return r.cfg.FullConfig.GetBootstrapFCU(instance)
+				}
+				return nil
+			}(),
+			CheckpointRestoreStrategyOptions: func() *config.CheckpointRestoreStrategyOptions {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetCheckpointRestoreStrategyOptions(instance)
 				}
 				return nil
 			}(),
@@ -1020,7 +1136,7 @@ func (r *runner) runContainerLifecycle(
 		Env:            env,
 		Mounts:         mounts,
 		NetworkName:    r.cfg.DockerNetwork,
-		ResourceLimits: dockerResourceLimits,
+		ResourceLimits: containerResourceLimits,
 		Labels: map[string]string{
 			"benchmarkoor.instance":   instance.ID,
 			"benchmarkoor.client":     instance.Client,
@@ -1035,7 +1151,7 @@ func (r *runner) runContainerLifecycle(
 	params.UseDataDir = useDataDir
 
 	// Create container.
-	containerID, err := r.docker.CreateContainer(ctx, containerSpec)
+	containerID, err := r.containerMgr.CreateContainer(ctx, containerSpec)
 	if err != nil {
 		return fmt.Errorf("creating container: %w", err)
 	}
@@ -1102,7 +1218,7 @@ func (r *runner) runContainerLifecycle(
 	localCleanupFuncs = append(localCleanupFuncs, func() {
 		log.Info("Removing container")
 
-		if rmErr := r.docker.RemoveContainer(
+		if rmErr := r.containerMgr.RemoveContainer(
 			context.Background(), containerID,
 		); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove container")
@@ -1110,7 +1226,7 @@ func (r *runner) runContainerLifecycle(
 	})
 
 	// Start container.
-	if err := r.docker.StartContainer(ctx, containerID); err != nil {
+	if err := r.containerMgr.StartContainer(ctx, containerID); err != nil {
 		return fmt.Errorf("starting container: %w", err)
 	}
 
@@ -1125,7 +1241,7 @@ func (r *runner) runContainerLifecycle(
 	var containerOOMKilled *bool
 	var mu sync.Mutex
 
-	containerExitCh, containerErrCh := r.docker.WaitForContainerExit(
+	containerExitCh, containerErrCh := r.containerMgr.WaitForContainerExit(
 		ctx, containerID,
 	)
 
@@ -1169,7 +1285,7 @@ func (r *runner) runContainerLifecycle(
 	}()
 
 	// Get container IP for health checks.
-	containerIP, err := r.docker.GetContainerIP(
+	containerIP, err := r.containerMgr.GetContainerIP(
 		ctx, containerID, r.cfg.DockerNetwork,
 	)
 	if err != nil {
@@ -1313,7 +1429,20 @@ func (r *runner) runContainerLifecycle(
 			rollbackStrategy = r.cfg.FullConfig.GetRollbackStrategy(instance)
 		}
 
-		isRunnerLevel := rollbackStrategy == config.RollbackStrategyContainerRecreate
+		// Fail fast if checkpoint-restore prerequisites are not met.
+		if rollbackStrategy == config.RollbackStrategyCheckpointRestore {
+			cpMgr, ok := r.containerMgr.(podman.CheckpointManager)
+			if !ok {
+				return fmt.Errorf("container manager does not support checkpoint/restore")
+			}
+
+			if err := cpMgr.ValidateCheckpointSupport(ctx); err != nil {
+				return fmt.Errorf("checkpoint/restore prerequisites not met: %w", err)
+			}
+		}
+
+		isRunnerLevel := rollbackStrategy == config.RollbackStrategyContainerRecreate ||
+			rollbackStrategy == config.RollbackStrategyCheckpointRestore
 
 		var (
 			result  *executor.ExecutionResult
@@ -1328,12 +1457,22 @@ func (r *runner) runContainerLifecycle(
 			localCleanupOnce.Do(func() { close(localCleanupStarted) })
 			execCancel()
 
-			result, execErr = r.runTestsWithContainerStrategy(
-				ctx, params, spec, containerID, containerIP,
-				rollbackStrategy, dropMemoryCaches, dropCachesPath,
-				runResultsDir, &logCancel, &logDone, benchmarkoorLogFile,
-				&localCleanupFuncs, localCleanupStarted,
-			)
+			switch rollbackStrategy {
+			case config.RollbackStrategyCheckpointRestore:
+				result, execErr = r.runTestsWithCheckpointRestore(
+					ctx, params, spec, containerID, containerIP,
+					dropMemoryCaches, dropCachesPath,
+					runResultsDir, &logCancel, &logDone, benchmarkoorLogFile,
+					&localCleanupFuncs, localCleanupStarted,
+				)
+			default:
+				result, execErr = r.runTestsWithContainerStrategy(
+					ctx, params, spec, containerID, containerIP,
+					rollbackStrategy, dropMemoryCaches, dropCachesPath,
+					runResultsDir, &logCancel, &logDone, benchmarkoorLogFile,
+					&localCleanupFuncs, localCleanupStarted,
+				)
+			}
 		} else {
 			execOpts := &executor.ExecuteOptions{
 				EngineEndpoint: fmt.Sprintf(
@@ -1343,7 +1482,7 @@ func (r *runner) runContainerLifecycle(
 				ResultsDir:            runResultsDir,
 				Filter:                r.cfg.TestFilter,
 				ContainerID:           containerID,
-				DockerClient:          r.docker.GetClient(),
+				DockerClient:          r.getDockerClient(),
 				DropMemoryCaches:      dropMemoryCaches,
 				DropCachesPath:        dropCachesPath,
 				RollbackStrategy:      rollbackStrategy,
@@ -1387,11 +1526,25 @@ func (r *runner) runContainerLifecycle(
 			}
 
 			mu.Lock()
-			runConfig.TestCounts = &TestCounts{
-				Total:  suiteTotal,
-				Passed: result.Passed,
-				Failed: result.Failed,
+
+			if params.AccumulatedTestCount != nil {
+				// Multi-genesis mode: accumulate counts across groups.
+				params.AccumulatedTestCount.Total = suiteTotal
+				params.AccumulatedTestCount.Passed += result.Passed
+				params.AccumulatedTestCount.Failed += result.Failed
+				runConfig.TestCounts = &TestCounts{
+					Total:  params.AccumulatedTestCount.Total,
+					Passed: params.AccumulatedTestCount.Passed,
+					Failed: params.AccumulatedTestCount.Failed,
+				}
+			} else {
+				runConfig.TestCounts = &TestCounts{
+					Total:  suiteTotal,
+					Passed: result.Passed,
+					Failed: result.Failed,
+				}
 			}
+
 			mu.Unlock()
 
 			if result.StatsReaderType != "" {
@@ -1531,7 +1684,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			testLog.Info("Recreating container for next test")
 
 			// Stop container first so Docker flushes remaining logs.
-			if err := r.docker.StopContainer(
+			if err := r.containerMgr.StopContainer(
 				ctx, currentContainerID,
 			); err != nil {
 				testLog.WithError(err).Warn("Failed to stop container")
@@ -1541,7 +1694,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
 			// Remove the stopped container.
-			if err := r.docker.RemoveContainer(
+			if err := r.containerMgr.RemoveContainer(
 				ctx, currentContainerID,
 			); err != nil {
 				testLog.WithError(err).Warn("Failed to remove container")
@@ -1591,7 +1744,7 @@ func (r *runner) runTestsWithContainerStrategy(
 				}
 			}
 
-			newID, err := r.docker.CreateContainer(ctx, &newSpec)
+			newID, err := r.containerMgr.CreateContainer(ctx, &newSpec)
 			if err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
@@ -1602,7 +1755,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			// Update cleanup to remove this container on exit.
 			*cleanupFuncs = append(*cleanupFuncs, func() {
-				if rmErr := r.docker.RemoveContainer(
+				if rmErr := r.containerMgr.RemoveContainer(
 					context.Background(), newID,
 				); rmErr != nil {
 					testLog.WithError(rmErr).Warn(
@@ -1612,57 +1765,27 @@ func (r *runner) runTestsWithContainerStrategy(
 			})
 
 			// Start fresh log streaming.
-			var logCtx context.Context
-			var newLogCancel context.CancelFunc
-			logCtx, newLogCancel = context.WithCancel(ctx)
-			*logCancel = newLogCancel
-
-			// Open log file for this container (append mode).
-			recreateLogPath := filepath.Join(resultsDir, "container.log")
-			recreateLogFile, logErr := os.OpenFile(
-				recreateLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
-			)
-			if logErr != nil {
-				(*logCancel)()
+			if err := r.startLogStreaming(
+				ctx, resultsDir,
+				params.Instance.ID, newID,
+				benchmarkoorLog, &containerLogInfo{
+					Name:             newSpec.Name,
+					ContainerID:      newID,
+					Image:            newSpec.Image,
+					GenesisGroupHash: params.GenesisGroupHash,
+				},
+				params.BlockLogCollector, cleanupStarted,
+				logDone, logCancel, cleanupFuncs,
+			); err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf("opening log file for test %d: %w", i, logErr)
+				return combined, fmt.Errorf(
+					"log streaming for test %d: %w", i, err,
+				)
 			}
 
-			*cleanupFuncs = append(*cleanupFuncs, func() {
-				_ = recreateLogFile.Close()
-			})
-
-			newLogDone := make(chan struct{})
-			*logDone = newLogDone
-
-			r.wg.Add(1)
-
-			go func() {
-				defer r.wg.Done()
-				defer close(newLogDone)
-
-				if err := r.streamLogs(
-					logCtx, params.Instance.ID, newID, recreateLogFile,
-					benchmarkoorLog,
-					&containerLogInfo{
-						Name:             newSpec.Name,
-						ContainerID:      newID,
-						Image:            newSpec.Image,
-						GenesisGroupHash: params.GenesisGroupHash,
-					},
-					params.BlockLogCollector,
-				); err != nil {
-					select {
-					case <-cleanupStarted:
-					default:
-						testLog.WithError(err).Debug("Log streaming ended")
-					}
-				}
-			}()
-
 			// Start the new container.
-			if err := r.docker.StartContainer(ctx, newID); err != nil {
+			if err := r.containerMgr.StartContainer(ctx, newID); err != nil {
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
@@ -1670,7 +1793,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			}
 
 			// Get new container IP.
-			newIP, err := r.docker.GetContainerIP(
+			newIP, err := r.containerMgr.GetContainerIP(
 				ctx, newID, r.cfg.DockerNetwork,
 			)
 			if err != nil {
@@ -1742,7 +1865,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			ResultsDir:       resultsDir,
 			Filter:           r.cfg.TestFilter,
 			ContainerID:      currentContainerID,
-			DockerClient:     r.docker.GetClient(),
+			DockerClient:     r.getDockerClient(),
 			DropMemoryCaches: dropMemoryCaches,
 			DropCachesPath:   dropCachesPath,
 			RollbackStrategy: config.RollbackStrategyNone,
@@ -1837,7 +1960,7 @@ func (r *runner) createFreshDataMount(
 		}, cleanup, nil
 	}
 
-	// Docker volume path.
+	// Container volume path.
 	volumeSuffix := params.Instance.ID
 	if params.GenesisGroupHash != "" {
 		volumeSuffix = params.Instance.ID + "-" + params.GenesisGroupHash
@@ -1853,14 +1976,14 @@ func (r *runner) createFreshDataMount(
 		"benchmarkoor.managed-by": "benchmarkoor",
 	}
 
-	if err := r.docker.CreateVolume(ctx, volumeName, volumeLabels); err != nil {
+	if err := r.containerMgr.CreateVolume(ctx, volumeName, volumeLabels); err != nil {
 		return docker.Mount{}, nil, fmt.Errorf("creating volume: %w", err)
 	}
 
 	log.WithField("volume", volumeName).Debug("Created fresh volume")
 
 	cleanup := func() {
-		if rmErr := r.docker.RemoveVolume(
+		if rmErr := r.containerMgr.RemoveVolume(
 			context.Background(), volumeName,
 		); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove recreate volume")
@@ -1940,7 +2063,7 @@ func (r *runner) runInitForRecreate(
 		initStderr = io.MultiWriter(initFile, stdoutPW, logPW)
 	}
 
-	if err := r.docker.RunInitContainer(
+	if err := r.containerMgr.RunInitContainer(
 		ctx, initSpec, initStdout, initStderr,
 	); err != nil {
 		_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
@@ -2080,12 +2203,68 @@ func (r *runner) streamLogs(
 		stderr = io.MultiWriter(baseWriter, stdoutPrefixWriter, logFilePrefixWriter)
 	}
 
-	streamErr := r.docker.StreamLogs(ctx, containerID, stdout, stderr)
+	streamErr := r.containerMgr.StreamLogs(ctx, containerID, stdout, stderr)
 
 	// Write end marker (best-effort, even if streaming failed).
 	_, _ = fmt.Fprintf(file, "#CONTAINER:END\n")
 
 	return streamErr
+}
+
+// startLogStreaming opens the container log file in append mode, registers a
+// file-close cleanup, and launches a goroutine that streams container logs.
+// It writes through logDone/logCancel so the caller (and waitForLogDrain)
+// can drain and clean up the streaming goroutine.
+func (r *runner) startLogStreaming(
+	ctx context.Context,
+	resultsDir string,
+	instanceID, containerID string,
+	benchmarkoorLog io.Writer,
+	logInfo *containerLogInfo,
+	blockLogCollector blocklog.Collector,
+	cleanupStarted <-chan struct{},
+	logDone *chan struct{},
+	logCancel *context.CancelFunc,
+	cleanupFuncs *[]func(),
+) error {
+	logCtx, cancel := context.WithCancel(ctx)
+	*logCancel = cancel
+
+	logFilePath := filepath.Join(resultsDir, "container.log")
+
+	logFile, err := os.OpenFile(
+		logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644,
+	)
+	if err != nil {
+		cancel()
+
+		return fmt.Errorf("opening container log file: %w", err)
+	}
+
+	*cleanupFuncs = append(*cleanupFuncs, func() { _ = logFile.Close() })
+
+	done := make(chan struct{})
+	*logDone = done
+
+	r.wg.Add(1)
+
+	go func() {
+		defer r.wg.Done()
+		defer close(done)
+
+		if streamErr := r.streamLogs(
+			logCtx, instanceID, containerID, logFile,
+			benchmarkoorLog, logInfo, blockLogCollector,
+		); streamErr != nil {
+			select {
+			case <-cleanupStarted:
+			default:
+				r.log.WithError(streamErr).Debug("Log streaming ended")
+			}
+		}
+	}()
+
+	return nil
 }
 
 // waitForLogDrain waits for the log-streaming goroutine to finish (signalled
@@ -2489,13 +2668,13 @@ func cpusetString(cpus []int) string {
 	return strings.Join(strs, ",")
 }
 
-// buildDockerResourceLimits builds docker.ResourceLimits from config.ResourceLimits.
-func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimits, *ResolvedResourceLimits, error) {
+// buildContainerResourceLimits builds docker.ResourceLimits from config.ResourceLimits.
+func buildContainerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimits, *ResolvedResourceLimits, error) {
 	if cfg == nil {
 		return nil, nil, nil
 	}
 
-	dockerLimits := &docker.ResourceLimits{}
+	containerLimits := &docker.ResourceLimits{}
 	resolved := &ResolvedResourceLimits{}
 
 	// Handle CPU pinning.
@@ -2505,11 +2684,11 @@ func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimi
 			return nil, nil, fmt.Errorf("selecting random CPUs: %w", err)
 		}
 
-		dockerLimits.CpusetCpus = cpusetString(cpus)
-		resolved.CpusetCpus = dockerLimits.CpusetCpus
+		containerLimits.CpusetCpus = cpusetString(cpus)
+		resolved.CpusetCpus = containerLimits.CpusetCpus
 	} else if len(cfg.Cpuset) > 0 {
-		dockerLimits.CpusetCpus = cpusetString(cfg.Cpuset)
-		resolved.CpusetCpus = dockerLimits.CpusetCpus
+		containerLimits.CpusetCpus = cpusetString(cfg.Cpuset)
+		resolved.CpusetCpus = containerLimits.CpusetCpus
 	}
 
 	// Handle memory limit.
@@ -2519,17 +2698,17 @@ func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimi
 			return nil, nil, fmt.Errorf("parsing memory limit: %w", err)
 		}
 
-		dockerLimits.MemoryBytes = memBytes
+		containerLimits.MemoryBytes = memBytes
 		resolved.Memory = cfg.Memory
 		resolved.MemoryBytes = memBytes
 
 		// Handle swap.
 		if cfg.SwapDisabled {
 			// Set memory-swap equal to memory to disable swap.
-			dockerLimits.MemorySwapBytes = memBytes
+			containerLimits.MemorySwapBytes = memBytes
 			// Set swappiness to 0.
 			swappiness := int64(0)
-			dockerLimits.MemorySwappiness = &swappiness
+			containerLimits.MemorySwappiness = &swappiness
 			resolved.SwapDisabled = true
 		}
 	}
@@ -2541,22 +2720,22 @@ func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimi
 
 		// Process device_read_bps.
 		if len(blkioCfg.DeviceReadBps) > 0 {
-			dockerLimits.BlkioDeviceReadBps, resolvedBlkio.DeviceReadBps = convertBlkioDevicesBps(blkioCfg.DeviceReadBps)
+			containerLimits.BlkioDeviceReadBps, resolvedBlkio.DeviceReadBps = convertBlkioDevicesBps(blkioCfg.DeviceReadBps)
 		}
 
 		// Process device_write_bps.
 		if len(blkioCfg.DeviceWriteBps) > 0 {
-			dockerLimits.BlkioDeviceWriteBps, resolvedBlkio.DeviceWriteBps = convertBlkioDevicesBps(blkioCfg.DeviceWriteBps)
+			containerLimits.BlkioDeviceWriteBps, resolvedBlkio.DeviceWriteBps = convertBlkioDevicesBps(blkioCfg.DeviceWriteBps)
 		}
 
 		// Process device_read_iops.
 		if len(blkioCfg.DeviceReadIOps) > 0 {
-			dockerLimits.BlkioDeviceReadIOps, resolvedBlkio.DeviceReadIOps = convertBlkioDevicesIOps(blkioCfg.DeviceReadIOps)
+			containerLimits.BlkioDeviceReadIOps, resolvedBlkio.DeviceReadIOps = convertBlkioDevicesIOps(blkioCfg.DeviceReadIOps)
 		}
 
 		// Process device_write_iops.
 		if len(blkioCfg.DeviceWriteIOps) > 0 {
-			dockerLimits.BlkioDeviceWriteIOps, resolvedBlkio.DeviceWriteIOps = convertBlkioDevicesIOps(blkioCfg.DeviceWriteIOps)
+			containerLimits.BlkioDeviceWriteIOps, resolvedBlkio.DeviceWriteIOps = convertBlkioDevicesIOps(blkioCfg.DeviceWriteIOps)
 		}
 
 		// Only set if we have any blkio config.
@@ -2566,7 +2745,7 @@ func buildDockerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimi
 		}
 	}
 
-	return dockerLimits, resolved, nil
+	return containerLimits, resolved, nil
 }
 
 // convertBlkioDevicesBps converts config blkio devices with bps rates to docker and resolved formats.
@@ -2673,4 +2852,522 @@ func logCPUFreqInfo(log logrus.FieldLogger, mgr cpufreq.Manager, targetCPUs []in
 			"scaling_max": cpufreq.FormatFrequency(info.ScalingMaxKHz),
 		}).Info("CPU frequency info")
 	}
+}
+
+// runTestsWithCheckpointRestore executes tests using Podman checkpoint/restore.
+// After the initial container reaches RPC readiness, the method checkpoints the
+// container's memory state and snapshots the data directory. For each test, it
+// rolls back the data directory and restores the container from the checkpoint —
+// the client process resumes mid-execution without restart or RPC polling.
+//
+// Two data-directory rollback strategies are supported:
+//   - ZFS snapshots (when datadir.method is "zfs"): instant copy-on-write rollback.
+//   - Copy-based (when no datadir is configured): cp -a snapshot, rsync restore.
+//
+//nolint:gocognit,cyclop // Per-test checkpoint/restore is inherently complex.
+func (r *runner) runTestsWithCheckpointRestore(
+	ctx context.Context,
+	params *containerRunParams,
+	spec client.Spec,
+	containerID string,
+	containerIP string,
+	dropMemoryCaches string,
+	dropCachesPath string,
+	resultsDir string,
+	logCancel *context.CancelFunc,
+	logDone *chan struct{},
+	benchmarkoorLog *os.File,
+	cleanupFuncs *[]func(),
+	cleanupStarted chan struct{},
+) (*executor.ExecutionResult, error) {
+	log := r.log.WithFields(logrus.Fields{
+		"instance": params.Instance.ID,
+		"run_id":   params.RunID,
+		"strategy": "container-checkpoint-restore",
+	})
+
+	// Type-assert the container manager to CheckpointManager.
+	cpMgr, ok := r.containerMgr.(podman.CheckpointManager)
+	if !ok {
+		return nil, fmt.Errorf("container manager does not support checkpoint/restore")
+	}
+
+	// Resolve the test list.
+	tests := params.Tests
+	if tests == nil {
+		tests = r.executor.GetTests()
+	}
+
+	if len(tests) == 0 {
+		return &executor.ExecutionResult{}, nil
+	}
+
+	log.WithField("tests", len(tests)).Info(
+		"Running tests with checkpoint-restore strategy",
+	)
+
+	useZFS := params.DataDirCfg != nil && params.DataDirCfg.Method == "zfs"
+
+	// Find the data mount source — this is the host path the container
+	// mounts for its data directory.
+	dataMountSource := ""
+
+	containerDir := spec.DataDir()
+	if params.DataDirCfg != nil && params.DataDirCfg.ContainerDir != "" {
+		containerDir = params.DataDirCfg.ContainerDir
+	}
+
+	for _, mnt := range params.ContainerSpec.Mounts {
+		if mnt.Target == containerDir {
+			dataMountSource = mnt.Source
+
+			break
+		}
+	}
+
+	if dataMountSource == "" {
+		return nil, fmt.Errorf("could not find data mount for %s in container spec", containerDir)
+	}
+
+	// 1. Optionally restart the container before checkpointing.
+	//    Some clients (e.g., Erigon with MDBX) keep in-memory caches or
+	//    dirty state that interferes with CRIU checkpoint/restore. A
+	//    stop+start cycle gives us a cold-start process with a cleanly
+	//    shut-down database — ideal for a reliable checkpoint.
+	if r.cfg.FullConfig.GetCheckpointRestartContainer(params.Instance) {
+		log.Info("Restarting container before checkpoint for clean process state")
+
+		if err := r.containerMgr.StopContainer(ctx, containerID); err != nil {
+			return nil, fmt.Errorf("stopping container before checkpoint restart: %w", err)
+		}
+
+		// Drain logs from the stopped container.
+		waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+		if err := r.containerMgr.StartContainer(ctx, containerID); err != nil {
+			return nil, fmt.Errorf("starting container after checkpoint restart: %w", err)
+		}
+
+		// IP may change after restart; refresh it.
+		newIP, err := r.containerMgr.GetContainerIP(
+			ctx, containerID, r.cfg.DockerNetwork,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("getting container IP after checkpoint restart: %w", err)
+		}
+
+		containerIP = newIP
+
+		// Restart log streaming for the restarted container.
+		if logErr := r.startLogStreaming(
+			ctx, resultsDir,
+			params.Instance.ID, containerID,
+			benchmarkoorLog, &containerLogInfo{
+				Name:             params.ContainerSpec.Name,
+				ContainerID:      containerID,
+				Image:            params.ContainerSpec.Image,
+				GenesisGroupHash: params.GenesisGroupHash,
+			},
+			params.BlockLogCollector, cleanupStarted,
+			logDone, logCancel, cleanupFuncs,
+		); logErr != nil {
+			return nil, fmt.Errorf(
+				"log streaming after checkpoint restart: %w", logErr,
+			)
+		}
+
+		// Wait for RPC readiness on the restarted container.
+		if _, err := r.waitForRPC(ctx, containerIP, spec.RPCPort()); err != nil {
+			return nil, fmt.Errorf(
+				"waiting for RPC after checkpoint restart: %w", err,
+			)
+		}
+
+		// Honour the post-RPC-ready wait if configured.
+		if waitDuration := r.cfg.FullConfig.GetWaitAfterRPCReady(
+			params.Instance,
+		); waitDuration > 0 {
+			log.WithField("duration", waitDuration).Info(
+				"Waiting after RPC ready (post-restart)",
+			)
+
+			select {
+			case <-time.After(waitDuration):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		log.Info("Container restarted and RPC ready, proceeding to checkpoint")
+	}
+
+	// 2. Run pre-run steps on the live container before checkpointing.
+	//    These steps (e.g., genesis setup) must be baked into the
+	//    checkpoint so every restored container starts post-pre-run.
+	engineEndpoint := fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort())
+
+	preRunOpts := &executor.ExecuteOptions{
+		EngineEndpoint: engineEndpoint,
+		JWT:            r.cfg.JWT,
+		ResultsDir:     resultsDir,
+	}
+
+	if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {
+		return nil, fmt.Errorf("running pre-run steps before checkpoint: %w", err)
+	} else if n > 0 {
+		log.WithField("steps", n).Info("Pre-run steps completed before checkpoint")
+	}
+
+	// 3. Decide checkpoint export path: tmpfs (RAM) or disk.
+	//
+	// When checkpoint_tmpfs_threshold is configured and the container's
+	// current memory usage is under the threshold, store the checkpoint
+	// on a tmpfs mount to eliminate disk I/O during restores.
+	exportPath := filepath.Join(resultsDir, "checkpoint.tar")
+	tmpfsDir := ""
+
+	thresholdStr := r.cfg.FullConfig.GetCheckpointTmpfsThreshold(params.Instance)
+	if thresholdStr != "" {
+		threshold, parseErr := config.ParseByteSize(thresholdStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing checkpoint_tmpfs_threshold: %w", parseErr)
+		}
+
+		// Read container memory usage before checkpoint.
+		reader, readerErr := stats.NewReader(
+			r.log, r.getDockerClient(), containerID,
+		)
+		if readerErr != nil {
+			log.WithError(readerErr).Warn(
+				"Failed to create stats reader for tmpfs decision, using disk",
+			)
+		} else {
+			containerStats, statsErr := reader.ReadStats()
+			_ = reader.Close()
+
+			if statsErr != nil {
+				log.WithError(statsErr).Warn(
+					"Failed to read container stats for tmpfs decision, using disk",
+				)
+			} else if containerStats.Memory > 0 && containerStats.Memory <= threshold {
+				dir, mkErr := os.MkdirTemp("", "benchmarkoor-cp-tmpfs-")
+				if mkErr != nil {
+					log.WithError(mkErr).Warn(
+						"Failed to create tmpfs dir, using disk",
+					)
+				} else {
+					// Mount tmpfs sized to the configured max, or
+					// 2x the threshold as a default.
+					tmpfsMaxSize := r.cfg.FullConfig.GetCheckpointTmpfsMaxSize(params.Instance)
+
+					var tmpfsSize uint64
+					if tmpfsMaxSize > 0 {
+						tmpfsSize = tmpfsMaxSize
+					} else {
+						tmpfsSize = threshold * 2
+					}
+
+					//nolint:gosec // Arguments are computed, not user-supplied.
+					mountCmd := exec.CommandContext(
+						ctx, "mount", "-t", "tmpfs",
+						"-o", fmt.Sprintf("size=%d", tmpfsSize),
+						"tmpfs", dir,
+					)
+					if mountOut, mountErr := mountCmd.CombinedOutput(); mountErr != nil {
+						log.WithError(mountErr).WithField(
+							"output", string(mountOut),
+						).Warn("Failed to mount tmpfs, using disk")
+
+						_ = os.Remove(dir)
+					} else {
+						tmpfsDir = dir
+						exportPath = filepath.Join(dir, "checkpoint.tar")
+
+						log.WithFields(logrus.Fields{
+							"memory_bytes":    containerStats.Memory,
+							"threshold_bytes": threshold,
+							"tmpfs_size":      tmpfsSize,
+						}).Info("Using tmpfs for checkpoint storage")
+					}
+				}
+			} else {
+				log.WithFields(logrus.Fields{
+					"memory_bytes":    containerStats.Memory,
+					"threshold_bytes": threshold,
+				}).Info("Container memory exceeds tmpfs threshold, using disk")
+			}
+		}
+	}
+
+	// 4. Checkpoint the running container.
+	//
+	// Close idle HTTP connections first so there are no ESTABLISHED TCP
+	// connections inside the container (from RPC readiness checks). CRIU
+	// refuses to checkpoint established connections without --tcp-established,
+	// and restoring them fails when the container IP changes.
+	http.DefaultClient.CloseIdleConnections()
+	time.Sleep(200 * time.Millisecond) // Let server-side sockets close.
+
+	waitAfterTCPDrop := r.cfg.FullConfig.GetCheckpointWaitAfterTCPDropConns(params.Instance)
+
+	if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath, waitAfterTCPDrop); err != nil {
+		return nil, fmt.Errorf("checkpointing container: %w", err)
+	}
+
+	defer func() {
+		_ = os.Remove(exportPath)
+
+		if tmpfsDir != "" {
+			//nolint:gosec // Path is from os.MkdirTemp, not user-supplied.
+			if umountErr := exec.Command("umount", tmpfsDir).Run(); umountErr != nil {
+				log.WithError(umountErr).Warn("Failed to unmount tmpfs")
+			}
+
+			_ = os.Remove(tmpfsDir)
+		}
+	}()
+
+	// Wait for log drain after checkpoint (container has stopped).
+	waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+	// 5. Flush dirty pages and snapshot the data directory.
+	//
+	// The checkpointed process used mmap (MAP_SHARED) for its database,
+	// so dirty pages may still be in the page cache. Sync ensures they
+	// are flushed before the snapshot, so the snapshot captures the exact
+	// filesystem state that matches the checkpointed memory.
+	if syncErr := exec.Command("sync").Run(); syncErr != nil {
+		log.WithError(syncErr).Warn("Failed to sync before data directory snapshot")
+	}
+
+	// Create the data directory snapshot using either ZFS or copy-based
+	// strategy. Both are abstracted behind rollback/cleanup callbacks.
+	type snapshotRollback struct {
+		rollback func(ctx context.Context) error
+		cleanup  func()
+	}
+
+	var sr snapshotRollback
+
+	if useZFS {
+		zfsMgr := datadir.NewCheckpointZFSManager(r.log)
+
+		snapshot, snapErr := zfsMgr.SnapshotReady(ctx, &datadir.CheckpointConfig{
+			DataDir:    dataMountSource,
+			InstanceID: params.Instance.ID,
+		})
+		if snapErr != nil {
+			return nil, fmt.Errorf("creating ready-state ZFS snapshot: %w", snapErr)
+		}
+
+		sr = snapshotRollback{
+			rollback: func(ctx context.Context) error {
+				return zfsMgr.RollbackToReady(ctx, snapshot)
+			},
+			cleanup: func() {
+				if destroyErr := zfsMgr.DestroySnapshot(snapshot); destroyErr != nil {
+					log.WithError(destroyErr).Warn(
+						"Failed to destroy ready-state ZFS snapshot",
+					)
+				}
+			},
+		}
+	} else {
+		copyMgr := datadir.NewCheckpointCopyManager(r.log)
+
+		snapshot, snapErr := copyMgr.SnapshotReady(ctx, &datadir.CheckpointConfig{
+			DataDir:    dataMountSource,
+			InstanceID: params.Instance.ID,
+		})
+		if snapErr != nil {
+			return nil, fmt.Errorf("creating ready-state copy snapshot: %w", snapErr)
+		}
+
+		sr = snapshotRollback{
+			rollback: func(ctx context.Context) error {
+				return copyMgr.RollbackToReady(ctx, snapshot)
+			},
+			cleanup: func() {
+				if destroyErr := copyMgr.DestroySnapshot(snapshot); destroyErr != nil {
+					log.WithError(destroyErr).Warn(
+						"Failed to destroy ready-state copy snapshot",
+					)
+				}
+			},
+		}
+	}
+
+	defer sr.cleanup()
+
+	log.Info("Container checkpointed, starting per-test restore loop")
+
+	// 6. Per-test restore loop.
+	combined := &executor.ExecutionResult{}
+	startTime := time.Now()
+
+	for i, test := range tests {
+		select {
+		case <-ctx.Done():
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, ctx.Err()
+		default:
+		}
+
+		testLog := log.WithFields(logrus.Fields{
+			"test":  test.Name,
+			"index": fmt.Sprintf("%d/%d", i+1, len(tests)),
+		})
+
+		testLog.Info("Preparing test: rolling back data directory and restoring container")
+
+		// Flush dirty pages and drop caches BEFORE rollback. The killed
+		// container's MAP_SHARED mmap writes leave dirty pages in the
+		// page cache. Writing to drop_caches triggers a sync first, which
+		// would write those stale pages onto the rolled-back dataset —
+		// effectively undoing the rollback for recently-written blocks
+		// (e.g. MDBX meta-pages). By syncing and dropping caches before
+		// the rollback, we ensure no dirty pages survive to corrupt the
+		// post-rollback state.
+		if dropCachesPath != "" {
+			if syncErr := exec.Command("sync").Run(); syncErr != nil {
+				testLog.WithError(syncErr).Warn("Failed to sync before rollback")
+			}
+
+			if cacheErr := os.WriteFile(dropCachesPath, []byte("3"), 0); cacheErr != nil {
+				testLog.WithError(cacheErr).Warn("Failed to drop page caches before rollback")
+			}
+		}
+
+		// Roll back the data directory to the ready-state snapshot so
+		// the container restores onto clean data at the same mount path.
+		if err := sr.rollback(ctx); err != nil {
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, fmt.Errorf("rolling back data directory for test %d: %w", i, err)
+		}
+
+		// Restore container from checkpoint.
+		restoreName := fmt.Sprintf("%s-restore-%d", params.ContainerSpec.Name, i)
+
+		restoredID, err := cpMgr.RestoreContainer(ctx, exportPath, &podman.RestoreOptions{
+			Name:        restoreName,
+			NetworkName: r.cfg.DockerNetwork,
+		})
+		if err != nil {
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, fmt.Errorf("restoring container for test %d: %w", i, err)
+		}
+
+		// Register cleanup for this iteration.
+		iterID := restoredID
+
+		*cleanupFuncs = append(*cleanupFuncs, func() {
+			if rmErr := r.containerMgr.RemoveContainer(
+				context.Background(), iterID,
+			); rmErr != nil && !isContainerNotFound(rmErr) {
+				testLog.WithError(rmErr).Warn("Failed to remove restored container")
+			}
+		})
+
+		// Get container IP.
+		restoredIP, err := r.containerMgr.GetContainerIP(
+			ctx, restoredID, r.cfg.DockerNetwork,
+		)
+		if err != nil {
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, fmt.Errorf("getting container IP for test %d: %w", i, err)
+		}
+
+		// Start log streaming for restored container.
+		if logErr := r.startLogStreaming(
+			ctx, resultsDir,
+			params.Instance.ID, restoredID,
+			benchmarkoorLog, &containerLogInfo{
+				Name:             restoreName,
+				ContainerID:      restoredID,
+				Image:            params.ContainerSpec.Image,
+				GenesisGroupHash: params.GenesisGroupHash,
+			},
+			params.BlockLogCollector, cleanupStarted,
+			logDone, logCancel, cleanupFuncs,
+		); logErr != nil {
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, fmt.Errorf(
+				"log streaming for test %d: %w", i, logErr,
+			)
+		}
+
+		// No waitForRPC needed — process resumes at checkpoint state.
+		testLog.Info("Executing test (restored from checkpoint)")
+
+		// Execute single test with no executor-level rollback.
+		execOpts := &executor.ExecuteOptions{
+			EngineEndpoint: fmt.Sprintf(
+				"http://%s:%d", restoredIP, spec.EnginePort(),
+			),
+			JWT:              r.cfg.JWT,
+			ResultsDir:       resultsDir,
+			Filter:           r.cfg.TestFilter,
+			ContainerID:      restoredID,
+			DockerClient:     r.getDockerClient(),
+			DropMemoryCaches: dropMemoryCaches,
+			DropCachesPath:   dropCachesPath,
+			RollbackStrategy: config.RollbackStrategyNone,
+			RPCEndpoint: fmt.Sprintf(
+				"http://%s:%d", restoredIP, spec.RPCPort(),
+			),
+			Tests:                         []*executor.TestWithSteps{test},
+			BlockLogCollector:             params.BlockLogCollector,
+			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
+		}
+
+		result, execErr := r.executor.ExecuteTests(ctx, execOpts)
+		if execErr != nil {
+			testLog.WithError(execErr).Error("Test execution failed")
+		}
+
+		// Force-remove the restored container (kills it immediately).
+		// No graceful stop needed — the test is done and the container
+		// state will be rebuilt from checkpoint for the next test.
+		if rmErr := r.containerMgr.RemoveContainer(ctx, restoredID); rmErr != nil &&
+			!isContainerNotFound(rmErr) {
+			testLog.WithError(rmErr).Warn("Failed to remove restored container")
+		}
+
+		waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+		// Aggregate results.
+		if result != nil {
+			combined.TotalTests += result.TotalTests
+			combined.Passed += result.Passed
+			combined.Failed += result.Failed
+
+			if result.StatsReaderType != "" {
+				combined.StatsReaderType = result.StatsReaderType
+			}
+
+			if result.ContainerDied {
+				combined.ContainerDied = true
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, nil
+			}
+		}
+	}
+
+	combined.TotalDuration = time.Since(startTime)
+
+	return combined, nil
+}
+
+// isContainerNotFound returns true if the error indicates the container no
+// longer exists. This is expected when cleanup runs after a container was
+// already removed (e.g., restored containers removed after each test).
+func isContainerNotFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such container")
 }

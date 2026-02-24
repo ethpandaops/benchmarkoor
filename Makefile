@@ -9,6 +9,7 @@ LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.da
 
 # Go variables
 GOBIN?=$(shell go env GOPATH)/bin
+GO_BUILD_TAGS=exclude_graphdriver_btrfs,exclude_graphdriver_devicemapper,containers_image_openpgp
 
 # Directories
 UI_DIR := ui
@@ -25,7 +26,7 @@ build: build-core build-ui
 
 ## build-core: Build the Go binary
 build-core:
-	go build $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/benchmarkoor
+	go build -tags "$(GO_BUILD_TAGS)" $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/benchmarkoor
 
 ## build-ui: Build the UI
 build-ui: deps-ui
@@ -33,7 +34,7 @@ build-ui: deps-ui
 
 ## install-core: Install the binary to GOPATH/bin
 install-core:
-	go install $(LDFLAGS) ./cmd/benchmarkoor
+	go install -tags "$(GO_BUILD_TAGS)" $(LDFLAGS) ./cmd/benchmarkoor
 
 ## deps-ui: Install UI dependencies
 deps-ui:
@@ -48,20 +49,20 @@ clean:
 
 ## test-core: Run Go tests
 test-core:
-	go test -race -v ./...
+	go test -tags "$(GO_BUILD_TAGS)" -race -v ./...
 
 ## test-coverage-core: Run Go tests with coverage
 test-coverage-core:
-	go test -race -coverprofile=coverage.out -covermode=atomic ./...
+	go test -tags "$(GO_BUILD_TAGS)" -race -coverprofile=coverage.out -covermode=atomic ./...
 	go tool cover -html=coverage.out -o coverage.html
 
 ## lint-core: Run Go linter
 lint-core:
-	golangci-lint run --new-from-rev="origin/master"
+	golangci-lint run --build-tags "$(GO_BUILD_TAGS)" --new-from-rev="origin/master"
 
 ## lint-core-all: Run Go linter on all files
 lint-core-all:
-	golangci-lint run
+	golangci-lint run --build-tags "$(GO_BUILD_TAGS)"
 
 ## lint-ui: Run UI linter
 lint-ui: deps-ui

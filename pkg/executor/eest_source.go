@@ -738,11 +738,6 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 			return nil
 		}
 
-		// Apply filter if provided.
-		if s.filter != "" && !strings.Contains(path, s.filter) {
-			return nil
-		}
-
 		// Parse fixture file.
 		data, err := os.ReadFile(path)
 		if err != nil {

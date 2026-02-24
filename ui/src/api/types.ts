@@ -208,9 +208,17 @@ export interface PostTestRPCCallConfig {
   dump?: DumpConfig
 }
 
+export interface CheckpointRestoreStrategyOptions {
+  tmpfs_threshold?: string
+  tmpfs_max_size?: string
+  wait_after_tcp_drop_connections?: string
+  restart_container?: boolean
+}
+
 export interface InstanceConfig {
   id: string
   client: string
+  container_runtime?: string
   image: string
   image_sha256?: string
   entrypoint?: string[]
@@ -229,6 +237,7 @@ export interface InstanceConfig {
   retry_new_payloads_syncing_state?: RetryNewPayloadsSyncingConfig
   resource_limits?: ResourceLimitsConfig
   post_test_rpc_calls?: PostTestRPCCallConfig[]
+  checkpoint_restore_strategy_options?: CheckpointRestoreStrategyOptions
 }
 
 // result.json per run
