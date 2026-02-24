@@ -375,12 +375,17 @@ export function RunsHeatmap({
                       onMouseLeave={handleMouseLeave}
                       className={clsx(
                         'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                        run.tests.tests_total - run.tests.tests_passed > 0 && completed && 'ring-1 ring-red-500',
-                        !completed && 'ring-2 ring-red-600 dark:ring-red-500',
+                        run.tests.tests_total - run.tests.tests_passed > 0 && completed && 'ring-2 ring-inset ring-orange-500',
+                        !completed && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
                       )}
                       style={{ backgroundColor: completed ? getColorForRun(run) : '#6b7280' }}
                       title={`${formatTimestamp(run.timestamp)} - ${completed ? formatDurationMinSec(runStats.duration) : run.status}`}
                     >
+                      {completed && run.tests.tests_total - run.tests.tests_passed > 0 && (
+                        <svg className="absolute inset-0 size-5" viewBox="0 0 20 20" fill="none">
+                          <text x="10" y="15" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="system-ui">!</text>
+                        </svg>
+                      )}
                       {!completed && (
                         <svg className="absolute inset-0 size-5 text-red-600 dark:text-red-400" viewBox="0 0 20 20" fill="currentColor">
                           <path d="M4 4l12 12M4 16L16 4" stroke="currentColor" strokeWidth="2" fill="none" />
@@ -416,11 +421,15 @@ export function RunsHeatmap({
           <span>Slow</span>
         </span>
         <span>
-          <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-red-500" style={{ backgroundColor: COLORS[2] }} />
+          <span className="relative mr-1 inline-block size-3 rounded-xs ring-2 ring-inset ring-orange-500" style={{ backgroundColor: COLORS[2] }}>
+            <svg className="absolute inset-0 size-3" viewBox="0 0 12 12" fill="none">
+              <text x="6" y="9.5" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold" fontFamily="system-ui">!</text>
+            </svg>
+          </span>
           Has failures
         </span>
         <span className="flex items-center gap-1">
-          <span className="relative inline-block size-3 rounded-xs bg-gray-500 ring-2 ring-red-600">
+          <span className="relative inline-block size-3 rounded-xs bg-gray-500 ring-2 ring-inset ring-red-600">
             <svg className="absolute inset-0 size-3 text-red-600" viewBox="0 0 12 12">
               <path d="M2 2l8 8M2 10L10 2" stroke="currentColor" strokeWidth="1.5" fill="none" />
             </svg>

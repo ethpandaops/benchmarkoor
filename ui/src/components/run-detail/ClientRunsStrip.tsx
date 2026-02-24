@@ -103,11 +103,16 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter }: ClientRunsSt
                 'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110',
                 isCurrent && 'ring-2 ring-blue-500',
                 !isCurrent && 'hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                run.tests.tests_total - run.tests.tests_passed > 0 && completed && !isCurrent && 'ring-1 ring-red-500',
-                !completed && !isCurrent && 'ring-2 ring-red-600 dark:ring-red-500',
+                run.tests.tests_total - run.tests.tests_passed > 0 && completed && !isCurrent && 'ring-2 ring-inset ring-orange-500',
+                !completed && !isCurrent && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
               )}
               style={{ backgroundColor: color }}
             >
+              {completed && run.tests.tests_total - run.tests.tests_passed > 0 && (
+                <svg className="absolute inset-0 size-5" viewBox="0 0 20 20" fill="none">
+                  <text x="10" y="15" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="system-ui">!</text>
+                </svg>
+              )}
               {!completed && (
                 <svg className="absolute inset-0 size-5 text-red-600 dark:text-red-400" viewBox="0 0 20 20">
                   <path d="M4 4l12 12M4 16L16 4" stroke="currentColor" strokeWidth="2" fill="none" />
