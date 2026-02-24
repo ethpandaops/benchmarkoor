@@ -18,7 +18,7 @@ import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
-import { LoadingState } from '@/components/shared/Spinner'
+import { LoadingState, Spinner } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
 import { JDenticon } from '@/components/shared/JDenticon'
@@ -90,7 +90,7 @@ export function SuiteDetailPage() {
   const chartPassingOnly = search.chartPassingOnly !== 'false'
   const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
-  const { data: suiteStats } = useSuiteStats(suiteHash)
+  const { data: suiteStats, isLoading: suiteStatsLoading } = useSuiteStats(suiteHash)
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -631,7 +631,7 @@ export function SuiteDetailPage() {
             )}
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
-            {suiteStats && Object.keys(suiteStats).length > 0 && (
+            {(suiteStatsLoading || (suiteStats && Object.keys(suiteStats).length > 0)) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
                 <button
                   onClick={() => setSlowestTestsExpanded(!slowestTestsExpanded)}
@@ -640,10 +640,17 @@ export function SuiteDetailPage() {
                   <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', slowestTestsExpanded && 'rotate-90')} />
                   <Flame className="size-4 text-gray-400 dark:text-gray-500" />
                   Test Heatmap
+                  {suiteStatsLoading && <Spinner size="sm" />}
                 </button>
                 {slowestTestsExpanded && (
                   <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                    <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} stepFilter={stepFilter} searchQuery={hq} onSearchChange={handleHeatmapSearchChange} showTestName={hn === '1'} onShowTestNameChange={handleHeatmapShowNameChange} />
+                    {suiteStatsLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Spinner size="md" />
+                      </div>
+                    ) : (
+                      <TestHeatmap stats={suiteStats!} testFiles={suite.tests} isDark={isDark} stepFilter={stepFilter} searchQuery={hq} onSearchChange={handleHeatmapSearchChange} showTestName={hn === '1'} onShowTestNameChange={handleHeatmapShowNameChange} />
+                    )}
                   </div>
                 )}
               </div>
