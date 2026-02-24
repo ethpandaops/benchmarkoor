@@ -185,7 +185,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
       document.removeEventListener('keydown', handleKey)
       document.body.style.overflow = ''
     }
-  }, [fullscreen])
+  }, [fullscreen, setFullscreen])
 
   const { allTests, clients } = useMemo(() => {
     // Build lookup map from test name to 1-based index
