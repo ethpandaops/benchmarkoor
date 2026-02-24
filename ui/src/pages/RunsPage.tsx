@@ -73,7 +73,7 @@ export function RunsPage() {
     queries: suiteHashes.map((hash) => ({
       queryKey: ['suite', hash],
       queryFn: async () => {
-        const { data } = await fetchData<SuiteInfo>(`suites/${hash}/summary.json`)
+        const { data } = await fetchData<SuiteInfo>(`suites/${hash}/summary.json`, { cacheBustInterval: 3600 })
         return data
       },
       staleTime: Infinity,
