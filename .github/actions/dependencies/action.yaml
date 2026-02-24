@@ -116,9 +116,11 @@ runs:
         # Ubuntu 24.04's crun 1.14.1 is compiled without +CRIU;
         # checkpoint/restore requires a crun linked against libcriu.
         CRUN_VERSION="1.26"
+        CRUN_SHA256="8b37b0f8bfa170a9c338fa869902a33991101264ce0764e776a997a8d787dc83"
         echo "Installing crun ${CRUN_VERSION} with CRIU support..."
         sudo curl -fsSL -o /usr/bin/crun \
           "https://github.com/containers/crun/releases/download/${CRUN_VERSION}/crun-${CRUN_VERSION}-linux-amd64"
+        echo "${CRUN_SHA256}  /usr/bin/crun" | sha256sum --check --strict
         sudo chmod +x /usr/bin/crun
         echo "crun installed: $(crun --version | head -2)"
 
