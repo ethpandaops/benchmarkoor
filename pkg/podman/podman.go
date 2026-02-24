@@ -631,13 +631,17 @@ func (m *manager) WaitForContainerExit(
 			ExitCode: int64(exitCode),
 		}
 
-		// Inspect to check for OOM kill.
+		// Inspect to check for OOM kill. The container may already be
+		// removed by the runner's cleanup goroutine by the time we get
+		// here, so treat "no such container" as a benign race.
 		inspect, inspectErr := containers.Inspect(m.conn, containerID, nil)
 
 		if inspectErr != nil {
-			m.log.WithError(inspectErr).Warn(
-				"Failed to inspect container for OOM status",
-			)
+			if !strings.Contains(inspectErr.Error(), "no such container") {
+				m.log.WithError(inspectErr).Warn(
+					"Failed to inspect container for OOM status",
+				)
+			}
 		} else if inspect.State != nil {
 			info.OOMKilled = inspect.State.OOMKilled
 		}
