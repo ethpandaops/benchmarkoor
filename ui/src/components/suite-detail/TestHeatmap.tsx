@@ -145,12 +145,16 @@ interface TestHeatmapProps {
   onSearchChange?: (query: string | undefined) => void
   showTestName?: boolean
   onShowTestNameChange?: (show: boolean) => void
+  useRegex?: boolean
+  onUseRegexChange?: (useRegex: boolean) => void
+  fullscreen?: boolean
+  onFullscreenChange?: (fullscreen: boolean) => void
 }
 
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | (typeof STAT_COLUMNS)[number]
 
-export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange, useRegex: useRegexProp, onUseRegexChange, fullscreen: fullscreenProp, onFullscreenChange }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -160,8 +164,12 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, stepFilter = 
   const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
   const [showClientStat, setShowClientStat] = useState(true)
   const showTestName = showTestNameProp ?? false
-  const [useRegex, setUseRegex] = useState(false)
-  const [fullscreen, setFullscreen] = useState(false)
+  const [internalUseRegex, setInternalUseRegex] = useState(false)
+  const useRegex = useRegexProp ?? internalUseRegex
+  const setUseRegex = onUseRegexChange ?? setInternalUseRegex
+  const [internalFullscreen, setInternalFullscreen] = useState(false)
+  const fullscreen = fullscreenProp ?? internalFullscreen
+  const setFullscreen = onFullscreenChange ?? setInternalFullscreen
 
   useEffect(() => {
     if (!fullscreen) return
