@@ -1,6 +1,9 @@
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo, useState, useEffect } from 'react'
+import { useQueries } from '@tanstack/react-query'
 import { useIndex } from '@/api/hooks/useIndex'
+import { fetchData } from '@/api/client'
+import type { SuiteInfo } from '@/api/types'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
@@ -60,11 +63,29 @@ export function RunsPage() {
     return Array.from(imageSet).sort()
   }, [index])
 
-  const suites = useMemo(() => {
+  const suiteHashes = useMemo(() => {
     if (!index) return []
     const suiteSet = new Set(index.entries.map((e) => e.suite_hash).filter((s): s is string => !!s))
     return Array.from(suiteSet).sort()
   }, [index])
+
+  const suiteQueries = useQueries({
+    queries: suiteHashes.map((hash) => ({
+      queryKey: ['suite', hash],
+      queryFn: async () => {
+        const { data } = await fetchData<SuiteInfo>(`suites/${hash}/summary.json`)
+        return data
+      },
+      staleTime: Infinity,
+    })),
+  })
+
+  const suites = useMemo(() => {
+    return suiteHashes.map((hash, i) => {
+      const name = suiteQueries[i]?.data?.metadata?.labels?.name
+      return { hash, name }
+    })
+  }, [suiteHashes, suiteQueries])
 
   const filteredEntries = useMemo(() => {
     if (!index) return []

@@ -12,7 +12,7 @@ interface RunFiltersProps {
   onImageChange: (image: string | undefined) => void
   selectedStatus: TestStatusFilter
   onStatusChange: (status: TestStatusFilter) => void
-  suites?: string[]
+  suites?: { hash: string; name?: string }[]
   selectedSuite?: string | undefined
   onSuiteChange?: (suite: string | undefined) => void
 }
@@ -103,7 +103,7 @@ export function RunFilters({
     { value: 'passing', label: 'Passing only' },
     { value: 'failing', label: 'Has failures' },
   ]
-  const suiteOptions = suites ? [{ value: '' as const, label: 'All suites' }, ...suites.map((s) => ({ value: s, label: s }))] : []
+  const suiteOptions = suites ? [{ value: '' as const, label: 'All suites' }, ...suites.map((s) => ({ value: s.hash, label: s.name ?? s.hash }))] : []
 
   return (
     <div className="flex flex-wrap items-center gap-4">
