@@ -17,6 +17,8 @@ interface PreRunStepsTableProps {
   suitePreRunSteps?: SuiteFile[]
   runId: string
   suiteHash?: string
+  selectedStep?: string
+  onSelectedStepChange?: (stepName: string | undefined) => void
 }
 
 function SortIcon({ direction, active }: { direction: PreRunSortDirection; active: boolean }) {
@@ -86,10 +88,11 @@ export function PreRunStepsTable({
   suitePreRunSteps,
   runId,
   suiteHash,
+  selectedStep,
+  onSelectedStepChange,
 }: PreRunStepsTableProps) {
   const [sortBy, setSortBy] = useState<PreRunSortColumn>('order')
   const [sortDir, setSortDir] = useState<PreRunSortDirection>('asc')
-  const [selectedStep, setSelectedStep] = useState<string | undefined>(undefined)
 
   const handleSort = (column: PreRunSortColumn) => {
     const newDirection = sortBy === column && sortDir === 'asc' ? 'desc' : 'asc'
@@ -169,7 +172,7 @@ export function PreRunStepsTable({
               return (
                 <tr
                   key={stepName}
-                  onClick={() => setSelectedStep(stepName)}
+                  onClick={() => onSelectedStepChange?.(stepName)}
                   className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-sm/6 font-medium text-gray-500 dark:text-gray-400">
@@ -200,7 +203,7 @@ export function PreRunStepsTable({
       {selectedStep && selectedStepData && (
         <Modal
           isOpen={!!selectedStep}
-          onClose={() => setSelectedStep(undefined)}
+          onClose={() => onSelectedStepChange?.(undefined)}
           title={`Pre-Run Step #${executionOrder.get(selectedStep) ?? '?'}`}
         >
           <div className="flex flex-col gap-6">
