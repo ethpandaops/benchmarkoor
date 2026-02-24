@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, getIndexAggregatedStats, ALL_INDEX_STEP_TYPES } from '@/api/types'
@@ -13,6 +13,8 @@ interface DurationChartProps {
   onRunClick?: (runId: string) => void
   stepFilter?: IndexStepType[]
   hideControls?: boolean
+  zoomRange?: { start: number; end: number }
+  onZoomChange?: (range: { start: number; end: number }) => void
 }
 
 interface DataPoint {
@@ -56,6 +58,8 @@ export function DurationChart({
   onRunClick,
   stepFilter = ALL_INDEX_STEP_TYPES,
   hideControls = false,
+  zoomRange: controlledZoom,
+  onZoomChange,
 }: DurationChartProps) {
   const [internalMode, setInternalMode] = useState<XAxisMode>('runCount')
   const xAxisMode = controlledMode ?? internalMode
@@ -68,7 +72,10 @@ export function DurationChart({
     }
   }
 
-  const { clientGroups: chartData, maxRunIndex } = useMemo(() => {
+  const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
+  const activeZoom = controlledZoom ?? internalZoom
+
+  const { clientGroups: chartData, maxRunIndex, isLargeDataset } = useMemo(() => {
     const clientGroups = new Map<string, DataPoint[]>()
     let maxRunIndex = 1
 
@@ -99,7 +106,10 @@ export function DurationChart({
       })
     }
 
-    return { clientGroups, maxRunIndex }
+    const maxSeriesLength = Math.max(...Array.from(clientGroups.values()).map(d => d.length), 0)
+    const isLargeDataset = maxSeriesLength > 30
+
+    return { clientGroups, maxRunIndex, isLargeDataset }
   }, [runs, stepFilter])
 
   const series = useMemo(() => {
@@ -111,11 +121,12 @@ export function DurationChart({
           ? [d.timestamp, d.duration, d.runIndex, d.runId, d.image]
           : [d.runIndex, d.duration, d.timestamp, d.runId, d.image],
       ),
-      showSymbol: true,
-      symbolSize: 8,
+      showSymbol: !isLargeDataset,
+      symbolSize: isLargeDataset ? 4 : 8,
       lineStyle: {
-        width: 2,
+        width: isLargeDataset ? 1.5 : 2,
       },
+      sampling: isLargeDataset ? ('lttb' as const) : undefined,
       itemStyle: {
         color: CLIENT_COLORS[client] ?? DEFAULT_COLOR,
       },
@@ -127,7 +138,7 @@ export function DurationChart({
       },
       cursor: 'pointer',
     }))
-  }, [chartData, xAxisMode])
+  }, [chartData, xAxisMode, isLargeDataset])
 
   const option = useMemo(() => {
     const textColor = isDark ? '#e5e7eb' : '#374151'
@@ -198,7 +209,7 @@ export function DurationChart({
       },
       legend: {
         type: 'scroll',
-        bottom: 0,
+        bottom: isLargeDataset ? 25 : 0,
         textStyle: {
           color: textColor,
         },
@@ -206,7 +217,7 @@ export function DurationChart({
       grid: {
         left: '3%',
         right: '4%',
-        bottom: '15%',
+        bottom: isLargeDataset ? 50 : '15%',
         top: '10%',
         containLabel: true,
       },
@@ -238,9 +249,66 @@ export function DurationChart({
           },
         },
       },
+      ...(isLargeDataset
+        ? {
+            dataZoom: [
+              {
+                type: 'slider' as const,
+                xAxisIndex: 0,
+                start: activeZoom.start,
+                end: activeZoom.end,
+                height: 20,
+                bottom: 5,
+                borderColor: axisLineColor,
+                fillerColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.1)',
+                backgroundColor: isDark ? '#374151' : '#f3f4f6',
+                dataBackground: {
+                  lineStyle: { color: isDark ? '#6b7280' : '#9ca3af' },
+                  areaStyle: { color: isDark ? '#4b5563' : '#e5e7eb' },
+                },
+                selectedDataBackground: {
+                  lineStyle: { color: '#3b82f6' },
+                  areaStyle: { color: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)' },
+                },
+                handleStyle: { color: '#3b82f6', borderColor: '#3b82f6' },
+                moveHandleStyle: { color: isDark ? '#9ca3af' : '#6b7280' },
+                emphasis: {
+                  handleStyle: { color: '#60a5fa', borderColor: '#60a5fa' },
+                },
+                textStyle: { color: textColor },
+              },
+              {
+                type: 'inside' as const,
+                xAxisIndex: 0,
+                start: activeZoom.start,
+                end: activeZoom.end,
+                zoomOnMouseWheel: true,
+                moveOnMouseMove: true,
+                moveOnMouseWheel: false,
+              },
+            ],
+          }
+        : {}),
+      animation: !isLargeDataset,
       series,
     }
-  }, [series, isDark, xAxisMode, maxRunIndex])
+  }, [series, isDark, xAxisMode, maxRunIndex, isLargeDataset, activeZoom])
+
+  const handleDataZoom = useCallback(
+    (params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
+      let newRange: { start: number; end: number } | undefined
+      if (params.batch && params.batch.length > 0) {
+        newRange = { start: params.batch[0].start, end: params.batch[0].end }
+      } else if (params.start !== undefined && params.end !== undefined) {
+        newRange = { start: params.start, end: params.end }
+      }
+      if (newRange) {
+        if (onZoomChange) onZoomChange(newRange)
+        else setInternalZoom(newRange)
+      }
+    },
+    [onZoomChange],
+  )
 
   const handleChartClick = (params: { value?: [number, number, number, string, string] }) => {
     if (params.value && onRunClick) {
@@ -294,7 +362,7 @@ export function DurationChart({
         option={option}
         style={{ height: '250px', width: '100%' }}
         opts={{ renderer: 'svg' }}
-        onEvents={{ click: handleChartClick }}
+        onEvents={{ click: handleChartClick, ...(isLargeDataset && { datazoom: handleDataZoom }) }}
       />
       {!hideControls && xAxisMode === 'runCount' && (
         <div className="flex justify-end text-xs/5 text-gray-500 dark:text-gray-400">

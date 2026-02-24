@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useCallback, useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
@@ -98,6 +98,10 @@ export function SuiteDetailPage() {
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [heatmapExpanded, setHeatmapExpanded] = useState(true)
   const [chartExpanded, setChartExpanded] = useState(true)
+  const [chartZoomRange, setChartZoomRange] = useState({ start: 0, end: 100 })
+  const handleChartZoomChange = useCallback((range: { start: number; end: number }) => {
+    setChartZoomRange(range)
+  }, [])
 
   const [isDark, setIsDark] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -565,6 +569,8 @@ export function SuiteDetailPage() {
                             onRunClick={handleRunClick}
                             stepFilter={stepFilter}
                             hideControls
+                            zoomRange={chartZoomRange}
+                            onZoomChange={handleChartZoomChange}
                           />
                         </div>
                         <div className="rounded-sm bg-gray-50 p-3 dark:bg-gray-700/50">
@@ -576,6 +582,8 @@ export function SuiteDetailPage() {
                             onRunClick={handleRunClick}
                             stepFilter={stepFilter}
                             hideControls
+                            zoomRange={chartZoomRange}
+                            onZoomChange={handleChartZoomChange}
                           />
                         </div>
                       </div>
@@ -591,6 +599,8 @@ export function SuiteDetailPage() {
                         onXAxisModeChange={handleChartModeChange}
                         onRunClick={handleRunClick}
                         hideControls
+                        zoomRange={chartZoomRange}
+                        onZoomChange={handleChartZoomChange}
                       />
                       {chartMode === 'runCount' && (
                         <div className="flex justify-end text-xs/5 text-gray-500 dark:text-gray-400">
