@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { ChevronUp } from 'lucide-react'
@@ -64,6 +64,36 @@ function formatMGasCompact(mgas: number): string {
   return mgas.toFixed(1)
 }
 
+function splitByMatch(name: string, search: string, isRegex: boolean): { text: string; highlight: boolean }[] {
+  if (!search) return [{ text: name, highlight: false }]
+  try {
+    const pattern = isRegex ? search : search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`(${pattern})`, 'gi')
+    const parts = name.split(re)
+    if (parts.length === 1) return [{ text: name, highlight: false }]
+    return parts.filter(Boolean).map((part) => ({ text: part, highlight: re.test(part) }))
+  } catch {
+    return [{ text: name, highlight: false }]
+  }
+}
+
+function HighlightedName({ name, search, useRegex }: { name: string; search: string; useRegex: boolean }) {
+  const parts = splitByMatch(name, search, useRegex)
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.highlight ? (
+          <mark key={i} className="rounded-xs bg-yellow-200 text-yellow-900 dark:bg-yellow-700/50 dark:text-yellow-200">
+            {part.text}
+          </mark>
+        ) : (
+          <span key={i}>{part.text}</span>
+        ),
+      )}
+    </>
+  )
+}
+
 interface RunData {
   runId: string
   mgas: number
@@ -101,12 +131,16 @@ interface TestHeatmapProps {
   testFiles?: SuiteTest[]
   isDark: boolean
   stepFilter?: IndexStepType[]
+  searchQuery?: string
+  onSearchChange?: (query: string | undefined) => void
+  showTestName?: boolean
+  onShowTestNameChange?: (show: boolean) => void
 }
 
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | 'avgMgas'
 
-export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_STEP_TYPES }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -116,6 +150,8 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
   const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
   const [statDisplay, setStatDisplay] = useState<StatDisplayType>('Avg')
   const [showClientStat, setShowClientStat] = useState(true)
+  const showTestName = showTestNameProp ?? false
+  const [useRegex, setUseRegex] = useState(false)
   const [statColumnType, setStatColumnType] = useState<DistributionStatType>('Avg')
 
   const { allTests, clients } = useMemo(() => {
@@ -219,9 +255,26 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
     return { allTests: processedTests, clients }
   }, [stats, testFiles, runsPerClient, stepFilter])
 
+  const search = searchQuery ?? ''
+
+  // Filter by search query
+  const filteredTests = useMemo(() => {
+    if (!search) return allTests
+    if (useRegex) {
+      try {
+        const re = new RegExp(search, 'i')
+        return allTests.filter((t) => re.test(t.name))
+      } catch {
+        return allTests
+      }
+    }
+    const lower = search.toLowerCase()
+    return allTests.filter((t) => t.name.toLowerCase().includes(lower))
+  }, [allTests, search, useRegex])
+
   // Sort and paginate
   const sortedTests = useMemo(() => {
-    const sorted = [...allTests]
+    const sorted = [...filteredTests]
     sorted.sort((a, b) => {
       if (sortField === 'testNumber') {
         // Tests without a number go to the end
@@ -238,7 +291,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
       return bVal - aVal // Highest first (fastest)
     })
     return sorted
-  }, [allTests, sortField, sortDirection, statColumnType])
+  }, [filteredTests, sortField, sortDirection, statColumnType])
 
   const totalPages = Math.ceil(sortedTests.length / pageSize)
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -310,6 +363,11 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
     }
   }
 
+  const handleSearchChange = (value: string) => {
+    setCurrentPage(1)
+    onSearchChange?.(value || undefined)
+  }
+
   const handleMouseEnter = (test: ProcessedTest, client: string, run: RunData, event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect()
     setTooltip({
@@ -336,7 +394,8 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
   return (
     <div className="relative flex flex-col gap-4">
       {/* Controls */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+      <div className="flex items-start gap-x-6 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         {/* Threshold control */}
         <div className="flex items-center gap-2">
           <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
@@ -419,6 +478,17 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
           </div>
         </div>
 
+        {/* Show test name toggle */}
+        <label className="flex cursor-pointer items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={showTestName}
+            onChange={(e) => onShowTestNameChange?.(e.target.checked)}
+            className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+          />
+          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Test name</span>
+        </label>
+
         {/* Page size selector */}
         <div className="flex items-center gap-2">
           <span className="text-xs/5 text-gray-500 dark:text-gray-400">Per page:</span>
@@ -438,6 +508,36 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
               </button>
             ))}
           </div>
+        </div>
+
+        </div>
+
+        {/* Search filter */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder={useRegex ? 'Regex pattern...' : 'Filter tests...'}
+            className={clsx(
+              'w-48 rounded-sm border bg-white px-2 py-0.5 text-xs/5 text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500',
+              useRegex && search && (() => { try { new RegExp(search); return false } catch { return true } })()
+                ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
+                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
+            )}
+          />
+          <button
+            onClick={() => setUseRegex(!useRegex)}
+            title={useRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
+            className={clsx(
+              'rounded-sm px-1.5 py-0.5 font-mono text-xs/5 transition-colors',
+              useRegex
+                ? 'bg-blue-500 text-white'
+                : 'bg-white text-gray-500 ring-1 ring-gray-300 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700',
+            )}
+          >
+            .*
+          </button>
         </div>
       </div>
 
@@ -494,7 +594,19 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
           </thead>
           <tbody>
             {paginatedTests.map((test) => (
-              <tr key={test.name} className="border-t border-gray-200 dark:border-gray-700">
+              <Fragment key={test.name}>
+              {showTestName && (
+                <tr className="border-t border-gray-200 dark:border-gray-700">
+                  <td
+                    colSpan={clients.length + 2}
+                    className="truncate px-2 py-0.5 font-mono text-xs/5 text-gray-500 dark:text-gray-400"
+                    title={test.name}
+                  >
+                    <HighlightedName name={test.name} search={search} useRegex={useRegex} />
+                  </td>
+                </tr>
+              )}
+              <tr className={clsx('border-t border-gray-200 dark:border-gray-700', showTestName && 'border-t-0')}>
                 <td
                   className="sticky left-0 z-10 bg-white px-2 py-1.5 text-right font-mono text-xs/5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
                   title={test.name}
@@ -585,6 +697,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
                   {formatMGasCompact(statColumnType === 'Avg' ? test.avgMgas : test.minMgas)}
                 </td>
               </tr>
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -650,7 +763,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
             No data
           </span>
           <span className="text-gray-400 dark:text-gray-500">
-            {allTests.length} tests · {runsPerClient} most recent runs per client
+            {search ? `${filteredTests.length} / ${allTests.length}` : allTests.length} tests · {runsPerClient} most recent runs per client
           </span>
         </div>
         <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
