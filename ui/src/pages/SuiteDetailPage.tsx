@@ -83,8 +83,9 @@ export function SuiteDetailPage() {
     chartPassingOnly?: string
     heatmapColor?: ColorNormalization
     steps?: string
+    hq?: string
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite' } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite', hq } = search
   const chartPassingOnly = search.chartPassingOnly !== 'false'
   const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
@@ -282,6 +283,14 @@ export function SuiteDetailPage() {
       to: '/suites/$suiteHash',
       params: { suiteHash },
       search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor: mode, steps: serializeStepFilter(stepFilter) },
+    })
+  }
+
+  const handleHeatmapSearchChange = (query: string | undefined) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq: query || undefined },
     })
   }
 
@@ -562,7 +571,7 @@ export function SuiteDetailPage() {
                     </button>
                     {slowestTestsExpanded && (
                       <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                        <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} stepFilter={stepFilter} />
+                        <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} stepFilter={stepFilter} searchQuery={hq} onSearchChange={handleHeatmapSearchChange} />
                       </div>
                     )}
                   </div>

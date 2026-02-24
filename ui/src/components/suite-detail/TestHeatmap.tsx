@@ -101,12 +101,14 @@ interface TestHeatmapProps {
   testFiles?: SuiteTest[]
   isDark: boolean
   stepFilter?: IndexStepType[]
+  searchQuery?: string
+  onSearchChange?: (query: string | undefined) => void
 }
 
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | 'avgMgas'
 
-export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_STEP_TYPES }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -219,9 +221,18 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
     return { allTests: processedTests, clients }
   }, [stats, testFiles, runsPerClient, stepFilter])
 
+  const search = searchQuery ?? ''
+
+  // Filter by search query
+  const filteredTests = useMemo(() => {
+    if (!search) return allTests
+    const lower = search.toLowerCase()
+    return allTests.filter((t) => t.name.toLowerCase().includes(lower))
+  }, [allTests, search])
+
   // Sort and paginate
   const sortedTests = useMemo(() => {
-    const sorted = [...allTests]
+    const sorted = [...filteredTests]
     sorted.sort((a, b) => {
       if (sortField === 'testNumber') {
         // Tests without a number go to the end
@@ -238,7 +249,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
       return bVal - aVal // Highest first (fastest)
     })
     return sorted
-  }, [allTests, sortField, sortDirection, statColumnType])
+  }, [filteredTests, sortField, sortDirection, statColumnType])
 
   const totalPages = Math.ceil(sortedTests.length / pageSize)
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -310,6 +321,11 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
     }
   }
 
+  const handleSearchChange = (value: string) => {
+    setCurrentPage(1)
+    onSearchChange?.(value || undefined)
+  }
+
   const handleMouseEnter = (test: ProcessedTest, client: string, run: RunData, event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect()
     setTooltip({
@@ -336,7 +352,8 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
   return (
     <div className="relative flex flex-col gap-4">
       {/* Controls */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+      <div className="flex items-start gap-x-6 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         {/* Threshold control */}
         <div className="flex items-center gap-2">
           <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
@@ -438,6 +455,19 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
               </button>
             ))}
           </div>
+        </div>
+
+        </div>
+
+        {/* Search filter */}
+        <div className="flex shrink-0 items-center gap-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="Filter tests..."
+            className="w-48 rounded-sm border border-gray-300 bg-white px-2 py-0.5 text-xs/5 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+          />
         </div>
       </div>
 
@@ -650,7 +680,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
             No data
           </span>
           <span className="text-gray-400 dark:text-gray-500">
-            {allTests.length} tests · {runsPerClient} most recent runs per client
+            {search ? `${filteredTests.length} / ${allTests.length}` : allTests.length} tests · {runsPerClient} most recent runs per client
           </span>
         </div>
         <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
