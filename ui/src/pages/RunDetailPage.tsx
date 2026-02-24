@@ -118,6 +118,7 @@ export function RunDetailPage() {
     q?: string
     status?: TestStatusFilter
     testModal?: string
+    preRunModal?: string
     heatmapSort?: SortMode
     heatmapThreshold?: number
     steps?: string
@@ -130,7 +131,7 @@ export function RunDetailPage() {
   const pageSize = Number(search.pageSize) || 20
   const heatmapThreshold = search.heatmapThreshold ? Number(search.heatmapThreshold) : undefined
   const stepFilter = parseStepFilter(search.steps)
-  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt } = search
+  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, preRunModal, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, refetch: refetchResult } = useRunResult(runId)
@@ -164,6 +165,7 @@ export function RunDetailPage() {
         q: q || undefined,
         status: status !== 'all' ? status : undefined,
         testModal,
+        preRunModal,
         heatmapSort,
         heatmapThreshold,
         steps: serializeStepFilter(stepFilter),
@@ -198,6 +200,10 @@ export function RunDetailPage() {
 
   const handleTestModalChange = (testName: string | undefined) => {
     updateSearch({ testModal: testName })
+  }
+
+  const handlePreRunModalChange = (stepName: string | undefined) => {
+    updateSearch({ preRunModal: stepName })
   }
 
   const handleHeatmapSortChange = (mode: SortMode) => {
@@ -698,6 +704,8 @@ export function RunDetailPage() {
               suitePreRunSteps={suite?.pre_run_steps}
               runId={runId}
               suiteHash={config.suite_hash}
+              selectedStep={preRunModal}
+              onSelectedStepChange={handlePreRunModalChange}
             />
           )}
 
