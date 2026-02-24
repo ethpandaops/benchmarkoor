@@ -125,11 +125,13 @@ jobs:
                   checkpoint_restore_strategy_options:
                     wait_after_tcp_drop_connections: 1s
                     restart_container: true
+                    tmpfs_threshold: "1g"
+                    tmpfs_max_size: "2g"
                   resource_limits:
                     cpuset_count: 2
                     memory: "4g"
                     swap_disabled: true
 
               instances:
-                - id: besu
-                  client: besu
+                - id: reth
+                  client: reth
