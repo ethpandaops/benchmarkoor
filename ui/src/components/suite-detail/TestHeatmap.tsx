@@ -522,11 +522,11 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
           </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="max-h-[75vh] overflow-auto">
         <table className="w-full border-collapse text-sm/6">
-          <thead>
+          <thead className="sticky top-0 z-20">
             <tr>
-              <th className="sticky left-0 z-10 bg-white px-2 py-2 text-right dark:bg-gray-800">
+              <th className="sticky left-0 z-30 bg-white px-2 py-2 text-right dark:bg-gray-800">
                 <button
                   onClick={() => handleSort('testNumber')}
                   className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
@@ -538,12 +538,12 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
                 </button>
               </th>
               {clients.map((client) => (
-                <th key={client} className="px-1 py-2 text-center">
+                <th key={client} className="bg-white px-1 py-2 text-center dark:bg-gray-800">
                   <ClientBadge client={client} />
                 </th>
               ))}
               {STAT_COLUMNS.map((col) => (
-                <th key={col} className="px-2 py-2 text-right">
+                <th key={col} className="bg-white px-2 py-2 text-right dark:bg-gray-800">
                   <button
                     onClick={() => handleSort(col)}
                     className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
