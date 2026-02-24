@@ -12,6 +12,7 @@ This document describes all configuration options for benchmarkoor. The [config.
   - [Container Runtime](#container-runtime)
   - [Metadata Labels](#metadata-labels)
   - [Benchmark Settings](#benchmark-settings)
+    - [Suite Metadata Labels](#suite-metadata-labels)
     - [Results Upload](#results-upload)
   - [Client Settings](#client-settings)
     - [Client Defaults](#client-defaults)
@@ -189,7 +190,28 @@ runner:
 | `generate_suite_stats` | bool | `false` | Generate `stats.json` per suite for UI heatmaps |
 | `generate_suite_stats_method` | string | `local` | Method for suite stats generation: `local` (filesystem) or `s3` (read runs from S3, upload stats back). Requires `results_upload.s3` when set to `s3` |
 | `tests.filter` | string | - | Run only tests matching this pattern |
+| `tests.metadata.labels` | map[string]string | - | Arbitrary key-value labels for the test suite (see [Suite Metadata Labels](#suite-metadata-labels)) |
 | `tests.source` | object | - | Test source configuration (see below) |
+
+#### Suite Metadata Labels
+
+The `runner.benchmark.tests.metadata.labels` field attaches arbitrary key-value pairs to a test suite. Labels are written to the suite's `summary.json` and displayed in the UI.
+
+The special `name` label is used as the display name for the suite throughout the UI (breadcrumbs, tables, detail pages) instead of the suite hash.
+
+```yaml
+runner:
+  benchmark:
+    tests:
+      metadata:
+        labels:
+          name: "EIP-7934 BN128 Benchmarks"
+          category: precompile
+      source:
+        # ...
+```
+
+> **Note:** Labels do not affect the suite hash. The hash is computed from test file contents only, so changing labels does not create a new suite.
 
 #### Test Sources
 
