@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
-import { ChevronRight, LayoutGrid, Clock, Flame, Grid3X3 } from 'lucide-react'
+import { ChevronRight, LayoutGrid, Clock, Grid3X3 } from 'lucide-react'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
@@ -18,7 +18,7 @@ import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
-import { LoadingState } from '@/components/shared/Spinner'
+import { LoadingState, Spinner } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
 import { JDenticon } from '@/components/shared/JDenticon'
@@ -85,17 +85,18 @@ export function SuiteDetailPage() {
     steps?: string
     hq?: string
     hn?: string
+    hr?: string
+    hFs?: string
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite', hq, hn } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite', hq, hn, hr, hFs } = search
   const chartPassingOnly = search.chartPassingOnly !== 'false'
   const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
-  const { data: suiteStats } = useSuiteStats(suiteHash)
+  const { data: suiteStats, isLoading: suiteStatsLoading } = useSuiteStats(suiteHash)
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [heatmapExpanded, setHeatmapExpanded] = useState(true)
-  const [slowestTestsExpanded, setSlowestTestsExpanded] = useState(true)
   const [chartExpanded, setChartExpanded] = useState(true)
 
   const [isDark, setIsDark] = useState(() => {
@@ -196,11 +197,14 @@ export function SuiteDetailPage() {
   }
 
   const hasPreRunSteps = suite.pre_run_steps && suite.pre_run_steps.length > 0
-  const preRunStepsTabIndex = hasPreRunSteps ? 2 : -1
+
+  // Tab order: runs(0), tests(1), pre_run_steps(2, conditional), source(last)
+  const sourceTabIndex = hasPreRunSteps ? 3 : 2
 
   const getTabIndex = () => {
     if (tab === 'tests') return 1
-    if (tab === 'pre_run_steps' && hasPreRunSteps) return preRunStepsTabIndex
+    if (tab === 'pre_run_steps' && hasPreRunSteps) return 2
+    if (tab === 'source') return sourceTabIndex
     return 0 // runs is default
   }
 
@@ -210,6 +214,8 @@ export function SuiteDetailPage() {
       newTab = 'runs'
     } else if (index === 1) {
       newTab = 'tests'
+    } else if (index === sourceTabIndex) {
+      newTab = 'source'
     } else {
       newTab = 'pre_run_steps'
     }
@@ -291,7 +297,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq: query || undefined, hn },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq: query || undefined, hn, hr, hFs },
     })
   }
 
@@ -299,7 +305,23 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn: show ? '1' : undefined },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn: show ? '1' : undefined, hr, hFs },
+    })
+  }
+
+  const handleHeatmapRegexChange = (useRegex: boolean) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr: useRegex ? '1' : undefined, hFs },
+    })
+  }
+
+  const handleHeatmapFullscreenChange = (fs: boolean) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr, hFs: fs ? '1' : undefined },
     })
   }
 
@@ -363,8 +385,6 @@ export function SuiteDetailPage() {
         </div>
       </div>
 
-      <SuiteSource title="Source" source={suite.source} />
-
       <TabGroup selectedIndex={getTabIndex()} onChange={handleTabChange}>
         <TabList className="flex gap-1 rounded-sm bg-gray-100 p-1 dark:bg-gray-800">
           <Tab
@@ -408,6 +428,18 @@ export function SuiteDetailPage() {
               <Badge variant="default">{suite.pre_run_steps!.length}</Badge>
             </Tab>
           )}
+          <Tab
+            className={({ selected }) =>
+              clsx(
+                'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                selected
+                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+              )
+            }
+          >
+            Source
+          </Tab>
         </TabList>
         <TabPanels className="mt-4">
           <TabPanel>
@@ -631,22 +663,16 @@ export function SuiteDetailPage() {
             )}
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
-            {suiteStats && Object.keys(suiteStats).length > 0 && (
-              <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                <button
-                  onClick={() => setSlowestTestsExpanded(!slowestTestsExpanded)}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-                >
-                  <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', slowestTestsExpanded && 'rotate-90')} />
-                  <Flame className="size-4 text-gray-400 dark:text-gray-500" />
-                  Test Heatmap
-                </button>
-                {slowestTestsExpanded && (
-                  <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                    <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} stepFilter={stepFilter} searchQuery={hq} onSearchChange={handleHeatmapSearchChange} showTestName={hn === '1'} onShowTestNameChange={handleHeatmapShowNameChange} />
+            {(suiteStatsLoading || (suiteStats && Object.keys(suiteStats).length > 0)) && (
+              suiteStatsLoading ? (
+                <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                  <div className="flex items-center justify-center py-8">
+                    <Spinner size="md" />
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <TestHeatmap stats={suiteStats!} testFiles={suite.tests} isDark={isDark} isLoading={suiteStatsLoading} suiteHash={suiteHash} suiteName={suite.metadata?.labels?.name} stepFilter={stepFilter} searchQuery={hq} onSearchChange={handleHeatmapSearchChange} showTestName={hn === '1'} onShowTestNameChange={handleHeatmapShowNameChange} useRegex={hr === '1'} onUseRegexChange={handleHeatmapRegexChange} fullscreen={hFs === '1'} onFullscreenChange={handleHeatmapFullscreenChange} />
+              )
             )}
             {suite.tests.some((t) => t.eest?.info?.opcode_count && Object.keys(t.eest.info.opcode_count).length > 0) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
@@ -682,6 +708,9 @@ export function SuiteDetailPage() {
               />
             </TabPanel>
           )}
+          <TabPanel>
+            <SuiteSource title="Source" source={suite.source} />
+          </TabPanel>
         </TabPanels>
       </TabGroup>
     </div>

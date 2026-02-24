@@ -1,5 +1,6 @@
 import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from '@headlessui/react'
 import clsx from 'clsx'
+import { JDenticon } from '@/components/shared/JDenticon'
 
 export type TestStatusFilter = 'all' | 'passing' | 'failing'
 
@@ -12,7 +13,7 @@ interface RunFiltersProps {
   onImageChange: (image: string | undefined) => void
   selectedStatus: TestStatusFilter
   onStatusChange: (status: TestStatusFilter) => void
-  suites?: string[]
+  suites?: { hash: string; name?: string }[]
   selectedSuite?: string | undefined
   onSuiteChange?: (suite: string | undefined) => void
 }
@@ -40,7 +41,7 @@ function FilterDropdown<T extends string>({
   label: string
   value: T | ''
   onChange: (value: T | '') => void
-  options: { value: T | ''; label: string }[]
+  options: { value: T | ''; label: string; icon?: React.ReactNode }[]
   allLabel: string
   width?: string
 }) {
@@ -56,7 +57,10 @@ function FilterDropdown<T extends string>({
               width,
             )}
           >
-            <span className="block truncate">{selectedOption?.label ?? allLabel}</span>
+            <span className="flex items-center gap-1.5 truncate">
+              {selectedOption?.icon}
+              {selectedOption?.label ?? allLabel}
+            </span>
             <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
               <ChevronIcon />
             </span>
@@ -73,7 +77,10 @@ function FilterDropdown<T extends string>({
                   )
                 }
               >
-                {option.label}
+                <span className="flex items-center gap-1.5">
+                  {option.icon}
+                  {option.label}
+                </span>
               </ListboxOption>
             ))}
           </ListboxOptions>
@@ -103,7 +110,7 @@ export function RunFilters({
     { value: 'passing', label: 'Passing only' },
     { value: 'failing', label: 'Has failures' },
   ]
-  const suiteOptions = suites ? [{ value: '' as const, label: 'All suites' }, ...suites.map((s) => ({ value: s, label: s }))] : []
+  const suiteOptions = suites ? [{ value: '' as const, label: 'All suites' }, ...suites.map((s) => ({ value: s.hash, label: s.name ? `${s.name} (${s.hash.slice(0, 4)})` : s.hash, icon: <JDenticon value={s.hash} size={16} /> }))] : []
 
   return (
     <div className="flex flex-wrap items-center gap-4">

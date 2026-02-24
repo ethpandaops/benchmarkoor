@@ -5,11 +5,11 @@ export interface FetchResult<T> {
   status: number
 }
 
-// Append a cache-busting query parameter rounded to the current minute.
-// Requests within the same minute share the same cache key.
-function cacheBustUrl(url: string): string {
+// Append a cache-busting query parameter rounded to the given interval.
+// Requests within the same interval share the same cache key.
+function cacheBustUrl(url: string, intervalSec = 60): string {
   const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}_t=${Math.floor(Date.now() / 60000)}`
+  return `${url}${separator}_t=${Math.floor(Date.now() / (intervalSec * 1000))}`
 }
 
 // Check if the content type indicates JSON
@@ -23,8 +23,9 @@ function isJsonContentType(response: Response): boolean {
 export async function fetchViaS3(
   url: string,
   init?: RequestInit,
+  cacheBustInterval?: number,
 ): Promise<Response> {
-  const resp = await fetch(cacheBustUrl(url), { credentials: 'include' })
+  const resp = await fetch(cacheBustUrl(url, cacheBustInterval), { credentials: 'include' })
   if (!resp.ok) return resp
 
   const { url: presignedUrl } = await resp.json()
@@ -32,13 +33,13 @@ export async function fetchViaS3(
   return fetch(presignedUrl, init)
 }
 
-export async function fetchData<T>(path: string): Promise<FetchResult<T>> {
+export async function fetchData<T>(path: string, opts?: { cacheBustInterval?: number }): Promise<FetchResult<T>> {
   const config = await loadRuntimeConfig()
   const url = getDataUrl(path, config)
 
   const response = isS3Mode(config)
-    ? await fetchViaS3(url)
-    : await fetch(cacheBustUrl(url))
+    ? await fetchViaS3(url, undefined, opts?.cacheBustInterval)
+    : await fetch(cacheBustUrl(url, opts?.cacheBustInterval))
 
   if (!response.ok) {
     return { data: null, status: response.status }
