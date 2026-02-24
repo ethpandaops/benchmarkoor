@@ -99,7 +99,10 @@ export async function fetchHead(path: string): Promise<HeadResult> {
           return { exists: false, size: null, url }
         }
         const contentLength = response.headers.get('content-length')
-        return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url }
+        // Return the API URL with ?redirect=true so <a href> triggers a 302
+        // redirect to the presigned S3 URL, enabling direct file downloads.
+        const downloadUrl = `${url}${url.includes('?') ? '&' : '?'}redirect=true`
+        return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url: downloadUrl }
       }
 
       const response = await fetch(url, { method: 'HEAD' })

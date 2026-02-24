@@ -7,7 +7,7 @@ import { FolderOpen, Folder, Check, Copy, Download, List, ChevronDown, ChevronRi
 import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
 import { fetchHead, type HeadResult } from '@/api/client'
 import { formatBytes } from '@/utils/format'
-import { getDataUrl, loadRuntimeConfig, toAbsoluteUrl } from '@/config/runtime'
+import { getDataUrl, isS3Mode, loadRuntimeConfig, toAbsoluteUrl } from '@/config/runtime'
 import { Modal } from '@/components/shared/Modal'
 
 type DownloadListFormat = 'urls' | 'curl'
@@ -585,8 +585,10 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
 
   const downloadListText = useMemo(() => {
     if (!runtimeConfig || downloadEntries.length === 0) return ''
+    const s3 = isS3Mode(runtimeConfig)
     return downloadEntries.map((e) => {
-      const url = getDataUrl(e.path, runtimeConfig)
+      let url = getDataUrl(e.path, runtimeConfig)
+      if (s3) url += `${url.includes('?') ? '&' : '?'}redirect=true`
       return downloadFormat === 'urls'
         ? toAbsoluteUrl(url)
         : `curl -fsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`

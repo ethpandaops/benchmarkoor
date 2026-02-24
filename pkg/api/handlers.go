@@ -90,6 +90,15 @@ func (s *server) handlePresignedURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// When redirect=true, issue a 302 redirect to the presigned URL.
+	// This allows <a href="...?redirect=true"> and curl -L to download
+	// files directly without the client needing to parse JSON.
+	if r.URL.Query().Get("redirect") == "true" {
+		http.Redirect(w, r, url, http.StatusFound)
+
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
