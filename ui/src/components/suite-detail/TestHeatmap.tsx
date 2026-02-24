@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { ChevronUp } from 'lucide-react'
@@ -118,6 +118,8 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
   const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
   const [statDisplay, setStatDisplay] = useState<StatDisplayType>('Avg')
   const [showClientStat, setShowClientStat] = useState(true)
+  const [showTestName, setShowTestName] = useState(false)
+  const [useRegex, setUseRegex] = useState(false)
   const [statColumnType, setStatColumnType] = useState<DistributionStatType>('Avg')
 
   const { allTests, clients } = useMemo(() => {
@@ -226,9 +228,17 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
   // Filter by search query
   const filteredTests = useMemo(() => {
     if (!search) return allTests
+    if (useRegex) {
+      try {
+        const re = new RegExp(search, 'i')
+        return allTests.filter((t) => re.test(t.name))
+      } catch {
+        return allTests
+      }
+    }
     const lower = search.toLowerCase()
     return allTests.filter((t) => t.name.toLowerCase().includes(lower))
-  }, [allTests, search])
+  }, [allTests, search, useRegex])
 
   // Sort and paginate
   const sortedTests = useMemo(() => {
@@ -436,6 +446,17 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
           </div>
         </div>
 
+        {/* Show test name toggle */}
+        <label className="flex cursor-pointer items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={showTestName}
+            onChange={(e) => setShowTestName(e.target.checked)}
+            className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+          />
+          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Test name</span>
+        </label>
+
         {/* Page size selector */}
         <div className="flex items-center gap-2">
           <span className="text-xs/5 text-gray-500 dark:text-gray-400">Per page:</span>
@@ -460,14 +481,31 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
         </div>
 
         {/* Search filter */}
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           <input
             type="text"
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Filter tests..."
-            className="w-48 rounded-sm border border-gray-300 bg-white px-2 py-0.5 text-xs/5 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+            placeholder={useRegex ? 'Regex pattern...' : 'Filter tests...'}
+            className={clsx(
+              'w-48 rounded-sm border bg-white px-2 py-0.5 text-xs/5 text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500',
+              useRegex && search && (() => { try { new RegExp(search); return false } catch { return true } })()
+                ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
+                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
+            )}
           />
+          <button
+            onClick={() => setUseRegex(!useRegex)}
+            title={useRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
+            className={clsx(
+              'rounded-sm px-1.5 py-0.5 font-mono text-xs/5 transition-colors',
+              useRegex
+                ? 'bg-blue-500 text-white'
+                : 'bg-white text-gray-500 ring-1 ring-gray-300 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700',
+            )}
+          >
+            .*
+          </button>
         </div>
       </div>
 
@@ -524,7 +562,19 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
           </thead>
           <tbody>
             {paginatedTests.map((test) => (
-              <tr key={test.name} className="border-t border-gray-200 dark:border-gray-700">
+              <Fragment key={test.name}>
+              {showTestName && (
+                <tr className="border-t border-gray-200 dark:border-gray-700">
+                  <td
+                    colSpan={clients.length + 2}
+                    className="truncate px-2 py-0.5 font-mono text-xs/5 text-gray-500 dark:text-gray-400"
+                    title={test.name}
+                  >
+                    {test.name}
+                  </td>
+                </tr>
+              )}
+              <tr className={clsx('border-t border-gray-200 dark:border-gray-700', showTestName && 'border-t-0')}>
                 <td
                   className="sticky left-0 z-10 bg-white px-2 py-1.5 text-right font-mono text-xs/5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
                   title={test.name}
@@ -615,6 +665,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
                   {formatMGasCompact(statColumnType === 'Avg' ? test.avgMgas : test.minMgas)}
                 </td>
               </tr>
+              </Fragment>
             ))}
           </tbody>
         </table>
