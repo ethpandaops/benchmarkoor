@@ -201,7 +201,7 @@ runs:
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}/results:/app/results"
         DOCKER_CMD="$DOCKER_CMD -v ${{ runner.temp }}:/app/configs"
         DOCKER_CMD="$DOCKER_CMD --mount type=bind,source=${{ inputs.tmp-dir }},target=${{ inputs.tmp-dir }},bind-propagation=rshared"
-        DOCKER_CMD="$DOCKER_CMD --privileged"
+        DOCKER_CMD="$DOCKER_CMD --privileged --pid=host"
         DOCKER_CMD="$DOCKER_CMD -v /proc/sys/vm/drop_caches:/host_drop_caches"
         DOCKER_CMD="$DOCKER_CMD -v /sys/devices/system/cpu:/host_sys_cpu"
         DOCKER_CMD="$DOCKER_CMD -v /sys/fs/cgroup:/sys/fs/cgroup:ro"
