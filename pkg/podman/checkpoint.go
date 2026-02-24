@@ -181,6 +181,10 @@ func (m *manager) RestoreContainer(
 		"runtime_duration": time.Duration(report.RuntimeDuration) * time.Microsecond,
 	}
 
+	if fi, err := os.Stat(exportPath); err == nil {
+		fields["checkpoint_size"] = fi.Size()
+	}
+
 	if s := report.CRIUStatistics; s != nil {
 		fields["forking_time"] = time.Duration(s.ForkingTime) * time.Microsecond
 		fields["restore_time"] = time.Duration(s.RestoreTime) * time.Microsecond
