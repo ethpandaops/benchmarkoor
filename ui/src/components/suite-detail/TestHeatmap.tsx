@@ -64,6 +64,36 @@ function formatMGasCompact(mgas: number): string {
   return mgas.toFixed(1)
 }
 
+function splitByMatch(name: string, search: string, isRegex: boolean): { text: string; highlight: boolean }[] {
+  if (!search) return [{ text: name, highlight: false }]
+  try {
+    const pattern = isRegex ? search : search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`(${pattern})`, 'gi')
+    const parts = name.split(re)
+    if (parts.length === 1) return [{ text: name, highlight: false }]
+    return parts.filter(Boolean).map((part) => ({ text: part, highlight: re.test(part) }))
+  } catch {
+    return [{ text: name, highlight: false }]
+  }
+}
+
+function HighlightedName({ name, search, useRegex }: { name: string; search: string; useRegex: boolean }) {
+  const parts = splitByMatch(name, search, useRegex)
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.highlight ? (
+          <mark key={i} className="rounded-xs bg-yellow-200 text-yellow-900 dark:bg-yellow-700/50 dark:text-yellow-200">
+            {part.text}
+          </mark>
+        ) : (
+          <span key={i}>{part.text}</span>
+        ),
+      )}
+    </>
+  )
+}
+
 interface RunData {
   runId: string
   mgas: number
@@ -103,12 +133,14 @@ interface TestHeatmapProps {
   stepFilter?: IndexStepType[]
   searchQuery?: string
   onSearchChange?: (query: string | undefined) => void
+  showTestName?: boolean
+  onShowTestNameChange?: (show: boolean) => void
 }
 
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | 'avgMgas'
 
-export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -118,7 +150,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
   const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
   const [statDisplay, setStatDisplay] = useState<StatDisplayType>('Avg')
   const [showClientStat, setShowClientStat] = useState(true)
-  const [showTestName, setShowTestName] = useState(false)
+  const showTestName = showTestNameProp ?? false
   const [useRegex, setUseRegex] = useState(false)
   const [statColumnType, setStatColumnType] = useState<DistributionStatType>('Avg')
 
@@ -451,7 +483,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
           <input
             type="checkbox"
             checked={showTestName}
-            onChange={(e) => setShowTestName(e.target.checked)}
+            onChange={(e) => onShowTestNameChange?.(e.target.checked)}
             className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
           />
           <span className="text-xs/5 text-gray-500 dark:text-gray-400">Test name</span>
@@ -570,7 +602,7 @@ export function TestHeatmap({ stats, testFiles, isDark, stepFilter = ALL_INDEX_S
                     className="truncate px-2 py-0.5 font-mono text-xs/5 text-gray-500 dark:text-gray-400"
                     title={test.name}
                   >
-                    {test.name}
+                    <HighlightedName name={test.name} search={search} useRegex={useRegex} />
                   </td>
                 </tr>
               )}

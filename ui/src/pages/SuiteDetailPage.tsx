@@ -84,8 +84,9 @@ export function SuiteDetailPage() {
     heatmapColor?: ColorNormalization
     steps?: string
     hq?: string
+    hn?: string
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite', hq } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite', hq, hn } = search
   const chartPassingOnly = search.chartPassingOnly !== 'false'
   const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
@@ -290,7 +291,15 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq: query || undefined },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq: query || undefined, hn },
+    })
+  }
+
+  const handleHeatmapShowNameChange = (show: boolean) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn: show ? '1' : undefined },
     })
   }
 
@@ -559,23 +568,6 @@ export function SuiteDetailPage() {
                     </div>
                   )}
                 </div>
-                {suiteStats && Object.keys(suiteStats).length > 0 && (
-                  <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                    <button
-                      onClick={() => setSlowestTestsExpanded(!slowestTestsExpanded)}
-                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-                    >
-                      <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', slowestTestsExpanded && 'rotate-90')} />
-                      <Flame className="size-4 text-gray-400 dark:text-gray-500" />
-                      Test Heatmap
-                    </button>
-                    {slowestTestsExpanded && (
-                      <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                        <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} stepFilter={stepFilter} searchQuery={hq} onSearchChange={handleHeatmapSearchChange} />
-                      </div>
-                    )}
-                  </div>
-                )}
                 <RunFilters
                   clients={clients}
                   selectedClient={client}
@@ -639,6 +631,23 @@ export function SuiteDetailPage() {
             )}
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
+            {suiteStats && Object.keys(suiteStats).length > 0 && (
+              <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                <button
+                  onClick={() => setSlowestTestsExpanded(!slowestTestsExpanded)}
+                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
+                >
+                  <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', slowestTestsExpanded && 'rotate-90')} />
+                  <Flame className="size-4 text-gray-400 dark:text-gray-500" />
+                  Test Heatmap
+                </button>
+                {slowestTestsExpanded && (
+                  <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                    <TestHeatmap stats={suiteStats} testFiles={suite.tests} isDark={isDark} stepFilter={stepFilter} searchQuery={hq} onSearchChange={handleHeatmapSearchChange} showTestName={hn === '1'} onShowTestNameChange={handleHeatmapShowNameChange} />
+                  </div>
+                )}
+              </div>
+            )}
             {suite.tests.some((t) => t.eest?.info?.opcode_count && Object.keys(t.eest.info.opcode_count).length > 0) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
                 <OpcodeHeatmapSection tests={suite.tests} onTestClick={handleDetailChange} />
