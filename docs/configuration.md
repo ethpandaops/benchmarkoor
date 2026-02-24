@@ -10,6 +10,7 @@ This document describes all configuration options for benchmarkoor. The [config.
 - [Global Settings](#global-settings)
 - [Runner Settings](#runner-settings)
   - [Container Runtime](#container-runtime)
+  - [Metadata Labels](#metadata-labels)
   - [Benchmark Settings](#benchmark-settings)
     - [Results Upload](#results-upload)
   - [Client Settings](#client-settings)
@@ -115,6 +116,7 @@ runner:
 | `directories.tmp_cachedir` | string | `~/.cache/benchmarkoor` | Directory for executor cache (git clones, etc.) |
 | `drop_caches_path` | string | `/proc/sys/vm/drop_caches` | Path to Linux drop_caches file (for containerized environments) |
 | `cpu_sysfs_path` | string | `/sys/devices/system/cpu` | Base path for CPU sysfs files (for containerized environments where `/sys` is read-only and the host path is bind-mounted elsewhere, e.g., `/host_sys_cpu`) |
+| `metadata.labels` | map[string]string | - | Arbitrary key-value labels attached to the run (see [Metadata Labels](#metadata-labels)) |
 | `github_token` | string | - | GitHub token for downloading Actions artifacts via REST API. Not needed if `gh` CLI is installed and authenticated. Requires `actions:read` scope. Can also be set via `BENCHMARKOOR_RUNNER_GITHUB_TOKEN` env var |
 
 #### Container Runtime
@@ -131,6 +133,28 @@ When using Podman, ensure the Podman socket is active:
 ```bash
 sudo systemctl start podman.socket
 ```
+
+#### Metadata Labels
+
+The `runner.metadata.labels` field attaches arbitrary key-value pairs to a benchmark run. Labels are included in the output `config.json` and can be used for filtering and organization (e.g., in the UI or CI pipelines).
+
+```yaml
+runner:
+  metadata:
+    labels:
+      env: production
+      team: platform
+```
+
+Labels can also be set (or overridden) via the CLI flag `--metadata.label`:
+
+```bash
+benchmarkoor run --config config.yaml \
+  --metadata.label=env=production \
+  --metadata.label=team=platform
+```
+
+When the same key is set in both the config file and the CLI, the CLI value wins.
 
 ### Benchmark Settings
 
