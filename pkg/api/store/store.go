@@ -31,6 +31,7 @@ type Store interface {
 	CreateSession(ctx context.Context, session *Session) error
 	GetSessionByToken(ctx context.Context, token string) (*Session, error)
 	ListSessions(ctx context.Context) ([]Session, error)
+	UpdateSessionLastActive(ctx context.Context, id uint, t time.Time) error
 	DeleteSession(ctx context.Context, token string) error
 	DeleteSessionByID(ctx context.Context, id uint) error
 	DeleteExpiredSessions(ctx context.Context) error
@@ -234,6 +235,19 @@ func (s *store) ListSessions(ctx context.Context) ([]Session, error) {
 	return sessions, nil
 }
 
+func (s *store) UpdateSessionLastActive(
+	ctx context.Context, id uint, t time.Time,
+) error {
+	if err := s.db.WithContext(ctx).
+		Model(&Session{}).
+		Where("id = ?", id).
+		Update("last_active_at", t).Error; err != nil {
+		return fmt.Errorf("updating session last active: %w", err)
+	}
+
+	return nil
+}
+
 func (s *store) DeleteSession(ctx context.Context, token string) error {
 	if err := s.db.WithContext(ctx).
 		Where("token = ?", token).
@@ -255,7 +269,7 @@ func (s *store) DeleteSessionByID(ctx context.Context, id uint) error {
 
 func (s *store) DeleteExpiredSessions(ctx context.Context) error {
 	result := s.db.WithContext(ctx).
-		Where("expires_at < ?", time.Now()).
+		Where("expires_at < ?", time.Now().UTC()).
 		Delete(&Session{})
 	if result.Error != nil {
 		return fmt.Errorf("deleting expired sessions: %w", result.Error)

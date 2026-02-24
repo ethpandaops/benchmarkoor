@@ -41,6 +41,7 @@ export interface AdminSession {
   source: string
   expires_at: string
   created_at: string
+  last_active_at: string
 }
 
 export function useSessions() {

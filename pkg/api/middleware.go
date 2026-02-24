@@ -46,7 +46,7 @@ func (s *server) requireAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		if time.Now().After(session.ExpiresAt) {
+		if time.Now().UTC().After(session.ExpiresAt) {
 			_ = s.store.DeleteSession(r.Context(), cookie.Value)
 			writeJSON(w, http.StatusUnauthorized,
 				errorResponse{"session expired"})
@@ -60,6 +60,18 @@ func (s *server) requireAuth(next http.Handler) http.Handler {
 				errorResponse{"user not found"})
 
 			return
+		}
+
+		if session.LastActiveAt == nil ||
+			time.Since(*session.LastActiveAt) > 5*time.Minute {
+			go func() {
+				if err := s.store.UpdateSessionLastActive(
+					context.Background(), session.ID, time.Now().UTC(),
+				); err != nil {
+					s.log.WithError(err).
+						Warn("Failed to update session last active")
+				}
+			}()
 		}
 
 		ctx := context.WithValue(r.Context(), userContextKey, user)

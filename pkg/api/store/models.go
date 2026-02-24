@@ -22,11 +22,12 @@ type User struct {
 
 // Session represents an active user session.
 type Session struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Token     string    `gorm:"uniqueIndex;not null" json:"-"`
-	UserID    uint      `gorm:"not null" json:"user_id"`
-	ExpiresAt time.Time `gorm:"not null" json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           uint       `gorm:"primaryKey" json:"id"`
+	Token        string     `gorm:"uniqueIndex;not null" json:"-"`
+	UserID       uint       `gorm:"not null" json:"user_id"`
+	ExpiresAt    time.Time  `gorm:"not null" json:"expires_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	LastActiveAt *time.Time `json:"last_active_at"`
 }
 
 // GitHubOrgMapping maps a GitHub organization to a role.

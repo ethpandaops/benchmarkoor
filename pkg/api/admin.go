@@ -208,12 +208,13 @@ func (s *server) handleDeleteUser(
 // --- Session management ---
 
 type sessionResponse struct {
-	ID        uint   `json:"id"`
-	UserID    uint   `json:"user_id"`
-	Username  string `json:"username"`
-	Source    string `json:"source"`
-	ExpiresAt string `json:"expires_at"`
-	CreatedAt string `json:"created_at"`
+	ID           uint   `json:"id"`
+	UserID       uint   `json:"user_id"`
+	Username     string `json:"username"`
+	Source       string `json:"source"`
+	ExpiresAt    string `json:"expires_at"`
+	CreatedAt    string `json:"created_at"`
+	LastActiveAt string `json:"last_active_at"`
 }
 
 // handleListSessions returns all sessions with resolved usernames.
@@ -254,13 +255,20 @@ func (s *server) handleListSessions(
 	resp := make([]sessionResponse, 0, len(sessions))
 	for i := range sessions {
 		info := userMap[sessions[i].UserID]
+
+		var lastActive string
+		if sessions[i].LastActiveAt != nil {
+			lastActive = sessions[i].LastActiveAt.UTC().Format("2006-01-02T15:04:05Z")
+		}
+
 		resp = append(resp, sessionResponse{
-			ID:        sessions[i].ID,
-			UserID:    sessions[i].UserID,
-			Username:  info.Username,
-			Source:    info.Source,
-			ExpiresAt: sessions[i].ExpiresAt.Format("2006-01-02T15:04:05Z"),
-			CreatedAt: sessions[i].CreatedAt.Format("2006-01-02T15:04:05Z"),
+			ID:           sessions[i].ID,
+			UserID:       sessions[i].UserID,
+			Username:     info.Username,
+			Source:       info.Source,
+			ExpiresAt:    sessions[i].ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
+			CreatedAt:    sessions[i].CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			LastActiveAt: lastActive,
 		})
 	}
 
