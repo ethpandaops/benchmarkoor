@@ -752,7 +752,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
 
       {/* Distribution Histogram */}
       {histogramData.length > 0 && (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 border-t border-gray-200 pt-4 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution by threshold</span>
             <div className="flex items-center gap-2">
