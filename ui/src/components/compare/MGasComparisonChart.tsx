@@ -91,6 +91,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
     const maxLen = Math.max(...pointsPerRun.map((p) => p.length))
+    const clientBySeriesName = new Map(runs.map((_r, i) => [`Run ${RUN_SLOTS[i].label}`, runs[i].config.instance.client]))
 
     return {
       backgroundColor: 'transparent',
@@ -119,7 +120,9 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
           params.forEach((p) => {
             const value = p.value[1]
             const testName = p.value[2]
-            content += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;"></span>${p.seriesName}: ${value.toFixed(2)} MGas/s`
+            const client = clientBySeriesName.get(p.seriesName)
+            const clientImg = client ? `<img src="/img/clients/${client}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />` : ''
+            content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${value.toFixed(2)} MGas/s`
             if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
             content += '<br/>'
           })
