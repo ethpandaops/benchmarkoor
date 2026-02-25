@@ -150,6 +150,7 @@ func (m *manager) CreateContainer(
 	s := &specgen.SpecGenerator{}
 	s.Name = spec.Name
 	s.Image = qualifyImageName(spec.Image)
+	s.HealthLogDestination = "local"
 	s.Entrypoint = spec.Entrypoint
 	s.Command = spec.Command
 	s.Labels = spec.Labels
