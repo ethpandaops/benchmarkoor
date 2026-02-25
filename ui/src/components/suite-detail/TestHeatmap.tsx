@@ -16,6 +16,8 @@ const RUNS_PER_CLIENT_OPTIONS = [5, 10, 15, 20, 25] as const
 const BOXES_PER_ROW = 5
 const STAT_COLUMNS = ['avgMgas', 'minMgas', 'p99Mgas'] as const
 const STAT_COLUMN_LABELS: Record<(typeof STAT_COLUMNS)[number], string> = { avgMgas: 'Avg', minMgas: 'Min', p99Mgas: 'P99' }
+const STAT_TO_CLIENT_FIELD: Record<(typeof STAT_COLUMNS)[number], keyof ClientStats> = { avgMgas: 'avg', minMgas: 'min', p99Mgas: 'p99' }
+const BIN_MULTIPLIERS = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 const MIN_THRESHOLD = 10
 const MAX_THRESHOLD = 1000
 const DEFAULT_THRESHOLD = 60
@@ -85,6 +87,54 @@ function splitByMatch(name: string, search: string, isRegex: boolean): { text: s
   } catch {
     return [{ text: name, highlight: false }]
   }
+}
+
+interface HistogramBin {
+  count: number
+  height: number
+  rangeStart: number
+  rangeEnd: number
+  label: string
+  color: string
+}
+
+function computeHistogramBins(values: number[], threshold: number): { bins: HistogramBin[]; slowCount: number; fastCount: number } {
+  const counts = Array(BIN_MULTIPLIERS.length).fill(0) as number[]
+  let slowCount = 0
+  let fastCount = 0
+
+  for (const value of values) {
+    if (value < threshold) slowCount++
+    else fastCount++
+    const ratio = value / threshold
+    let binIndex = BIN_MULTIPLIERS.findIndex((_, i) => {
+      const next = BIN_MULTIPLIERS[i + 1]
+      return next === undefined ? true : ratio < next
+    })
+    if (binIndex === -1) binIndex = BIN_MULTIPLIERS.length - 1
+    counts[binIndex]++
+  }
+
+  const maxCount = Math.max(...counts)
+  const logMax = Math.log10(maxCount + 1)
+  const bins = counts.map((count, i) => {
+    const rangeStart = BIN_MULTIPLIERS[i] * threshold
+    const rangeEnd = BIN_MULTIPLIERS[i + 1] !== undefined ? BIN_MULTIPLIERS[i + 1] * threshold : Infinity
+    const midpoint =
+      BIN_MULTIPLIERS[i + 1] !== undefined
+        ? ((BIN_MULTIPLIERS[i] + BIN_MULTIPLIERS[i + 1]) / 2) * threshold
+        : BIN_MULTIPLIERS[i] * 1.25 * threshold
+    return {
+      count,
+      height: maxCount > 0 ? (Math.log10(count + 1) / logMax) * 100 : 0,
+      rangeStart,
+      rangeEnd,
+      label: BIN_MULTIPLIERS[i + 1] !== undefined ? `${rangeStart.toFixed(0)}-${rangeEnd.toFixed(0)}` : `${rangeStart.toFixed(0)}+`,
+      color: getColorByThreshold(midpoint, threshold),
+    }
+  })
+
+  return { bins, slowCount, fastCount }
 }
 
 function HighlightedName({ name, search, useRegex }: { name: string; search: string; useRegex: boolean }) {
@@ -330,47 +380,28 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   // Calculate histogram data for distribution graph
-  const histogramData = useMemo(() => {
-    if (allTests.length === 0) return []
-
-    // Create bins based on threshold: 0, 0.25x, 0.5x, 0.75x, 1x, 1.25x, 1.5x, 1.75x, 2x, 2.5x, 3x+
-    const binMultipliers = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
-    const bins = Array(binMultipliers.length).fill(0) as number[]
-
-    const histField = histogramStat
-    for (const test of allTests) {
-      const statValue = test[histField]
-      const ratio = statValue / threshold
-      let binIndex = binMultipliers.findIndex((_, i) => {
-        const next = binMultipliers[i + 1]
-        return next === undefined ? true : ratio < next
-      })
-      if (binIndex === -1) binIndex = binMultipliers.length - 1
-      bins[binIndex]++
-    }
-
-    const maxCount = Math.max(...bins)
-    const logMax = Math.log10(maxCount + 1)
-    return bins.map((count, i) => {
-      const rangeStart = binMultipliers[i] * threshold
-      const rangeEnd = binMultipliers[i + 1] !== undefined ? binMultipliers[i + 1] * threshold : Infinity
-      const midpoint =
-        binMultipliers[i + 1] !== undefined
-          ? ((binMultipliers[i] + binMultipliers[i + 1]) / 2) * threshold
-          : binMultipliers[i] * 1.25 * threshold
-      return {
-        count,
-        height: maxCount > 0 ? (Math.log10(count + 1) / logMax) * 100 : 0,
-        rangeStart,
-        rangeEnd,
-        label: binMultipliers[i + 1] !== undefined ? `${rangeStart.toFixed(0)}-${rangeEnd.toFixed(0)}` : `${rangeStart.toFixed(0)}+`,
-        color: getColorByThreshold(midpoint, threshold),
-      }
-    })
+  const { bins: histogramData, slowCount, fastCount } = useMemo(() => {
+    if (allTests.length === 0) return { bins: [] as HistogramBin[], slowCount: 0, fastCount: 0 }
+    const values = allTests.map((test) => test[histogramStat])
+    return computeHistogramBins(values, threshold)
   }, [allTests, threshold, histogramStat])
 
-  const slowCount = allTests.filter((t) => t[histogramStat] < threshold).length
-  const fastCount = allTests.filter((t) => t[histogramStat] >= threshold).length
+  // Per-client histogram data
+  const perClientHistogramData = useMemo(() => {
+    const result: Record<string, { bins: HistogramBin[]; slowCount: number; fastCount: number }> = {}
+    const field = STAT_TO_CLIENT_FIELD[histogramStat]
+    for (const client of clients) {
+      const values: number[] = []
+      for (const test of allTests) {
+        const cs = test.clientStats[client]
+        if (cs) values.push(cs[field])
+      }
+      if (values.length > 0) {
+        result[client] = computeHistogramBins(values, threshold)
+      }
+    }
+    return result
+  }, [allTests, clients, threshold, histogramStat])
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
@@ -775,40 +806,70 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
               </div>
             </div>
           </div>
-          <div className="flex items-end gap-1">
-            <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
-              <span className="text-xs/5 font-medium text-red-600 dark:text-red-400">{slowCount}</span>
-              <span className="text-xs/5 text-gray-400 dark:text-gray-500">slow</span>
-            </div>
-            <div className="relative flex h-16 flex-1 items-end gap-1">
-              {histogramData.map((bin, i) => (
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+            {/* All clients (global) */}
+            <div className="flex flex-col gap-1 rounded-sm border border-gray-200 p-2 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <span className="inline-flex w-28 items-center gap-1.5 rounded-sm bg-gray-100 px-2.5 py-0.5 text-xs/5 font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-300">All</span>
+                <div className="flex gap-2 text-xs/5 font-medium tabular-nums">
+                  <span className="text-red-600 dark:text-red-400">{slowCount} slow</span>
+                  <span className="text-green-600 dark:text-green-400">{fastCount} fast</span>
+                </div>
+              </div>
+              <div className="relative flex h-16 items-end gap-0.5">
+                {histogramData.map((bin, i) => (
+                  <div
+                    key={i}
+                    className="flex-1 rounded-t-xs transition-all hover:opacity-80"
+                    style={{
+                      height: `${bin.height}%`,
+                      backgroundColor: bin.color,
+                      minHeight: bin.count > 0 ? '2px' : '0',
+                    }}
+                    title={`${bin.label} MGas/s: ${bin.count} tests`}
+                  />
+                ))}
                 <div
-                  key={i}
-                  className="flex-1 rounded-t-xs transition-all hover:opacity-80"
-                  style={{
-                    height: `${bin.height}%`,
-                    backgroundColor: bin.color,
-                    minHeight: bin.count > 0 ? '2px' : '0',
-                  }}
-                  title={`${bin.label} MGas/s: ${bin.count} tests`}
+                  className="absolute top-0 bottom-0 w-0.5 bg-black/30 dark:bg-white/30"
+                  style={{ left: `${(4 / 11) * 100}%` }}
+                  title={`Threshold: ${threshold} MGas/s`}
                 />
-              ))}
-              {/* Threshold line - positioned at bin index 4 (1x threshold) */}
-              <div
-                className="absolute bottom-0 top-0 w-0.5 bg-black dark:bg-white"
-                style={{ left: `${(4 / 11) * 100}%` }}
-                title={`Threshold: ${threshold} MGas/s`}
-              />
+              </div>
             </div>
-            <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
-              <span className="text-xs/5 font-medium text-green-600 dark:text-green-400">{fastCount}</span>
-              <span className="text-xs/5 text-gray-400 dark:text-gray-500">fast</span>
-            </div>
-          </div>
-          <div className="flex justify-between px-9 text-xs/5 text-gray-400 dark:text-gray-500">
-            <span>0</span>
-            <span className="font-medium text-yellow-600 dark:text-yellow-400">{threshold} MGas/s (threshold)</span>
-            <span>{threshold * 3}+</span>
+            {/* Per-client */}
+            {clients.map((client) => {
+              const data = perClientHistogramData[client]
+              if (!data) return null
+              return (
+                <div key={client} className="flex flex-col gap-1 rounded-sm border border-gray-200 p-2 dark:border-gray-700">
+                  <div className="flex items-center justify-between">
+                    <ClientBadge client={client} />
+                    <div className="flex gap-2 text-xs/5 font-medium tabular-nums">
+                      <span className="text-red-600 dark:text-red-400">{data.slowCount} slow</span>
+                      <span className="text-green-600 dark:text-green-400">{data.fastCount} fast</span>
+                    </div>
+                  </div>
+                  <div className="relative flex h-16 items-end gap-0.5">
+                    {data.bins.map((bin, i) => (
+                      <div
+                        key={i}
+                        className="flex-1 rounded-t-xs transition-all hover:opacity-80"
+                        style={{
+                          height: `${bin.height}%`,
+                          backgroundColor: bin.color,
+                          minHeight: bin.count > 0 ? '2px' : '0',
+                        }}
+                        title={`${client} · ${bin.label} MGas/s: ${bin.count} tests`}
+                      />
+                    ))}
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-black/30 dark:bg-white/30"
+                      style={{ left: `${(4 / 11) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
