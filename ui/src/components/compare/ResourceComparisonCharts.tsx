@@ -260,6 +260,7 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
 
     const createTooltip = (formatter: (value: number) => string) => ({
       trigger: 'axis' as const,
+      appendToBody: true,
       backgroundColor: isDark ? '#1f2937' : '#ffffff',
       borderColor: isDark ? '#374151' : '#e5e7eb',
       textStyle: { color: textColor },
@@ -375,7 +376,7 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
   if (!hasData) return null
 
   return (
-    <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+    <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
       <div className="mb-4 flex items-center gap-2">
         <Cpu className="size-4 text-gray-400 dark:text-gray-500" />
         <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Resource Usage Comparison</h3>

@@ -105,6 +105,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
       },
       tooltip: {
         trigger: 'axis' as const,
+        appendToBody: true,
         backgroundColor: isDark ? '#1f2937' : '#ffffff',
         borderColor: isDark ? '#374151' : '#e5e7eb',
         textStyle: { color: textColor },
@@ -203,7 +204,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
   if (pointsPerRun.every((p) => p.length === 0)) return null
 
   return (
-    <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+    <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">MGas/s per Test</h3>
         <div className="flex items-center gap-2 text-xs/5">
