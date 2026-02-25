@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import type { RunConfig, RunResult, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { Duration } from '@/components/shared/Duration'
-import { formatNumber } from '@/utils/format'
+import { formatDuration, formatNumber } from '@/utils/format'
 import { formatDurationSeconds } from '@/utils/date'
 import { type CompareRun, RUN_SLOTS } from './constants'
 
@@ -48,16 +48,16 @@ function formatGas(gas: number): string {
   return `${(gas / 1_000_000).toFixed(2)} MGas`
 }
 
-function DeltaIndicator({ value, suffix = '', higherIsBetter = true }: { value: number; suffix?: string; higherIsBetter?: boolean }) {
+function DeltaIndicator({ value, formatValue, higherIsBetter = true }: { value: number; formatValue?: (v: number) => string; higherIsBetter?: boolean }) {
   if (value === 0) return <span className="text-xs/5 text-gray-400 dark:text-gray-500">-</span>
   const isPositive = value > 0
   const isGood = higherIsBetter ? isPositive : !isPositive
   const arrow = isPositive ? '\u25B2' : '\u25BC'
-  const absValue = Math.abs(value)
+  const formatted = formatValue ? formatValue(Math.abs(value)) : Math.abs(value).toFixed(2)
 
   return (
     <span className={clsx('text-xs/5 font-medium', isGood ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400')}>
-      {arrow} {absValue.toFixed(2)}{suffix}
+      {arrow} {formatted}
     </span>
   )
 }
@@ -82,6 +82,7 @@ function MetricCard({
   deltas,
   percentValues,
   higherIsBetter = true,
+  formatDelta,
 }: {
   label: string
   values: React.ReactNode[]
@@ -89,6 +90,7 @@ function MetricCard({
   deltas?: (number | undefined)[]
   percentValues?: (number | undefined)[]
   higherIsBetter?: boolean
+  formatDelta?: (v: number) => string
 }) {
   return (
     <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
@@ -105,7 +107,7 @@ function MetricCard({
               <span className="text-base/6 font-semibold text-gray-900 dark:text-gray-100">{val}</span>
               {!isBaseline && delta !== undefined && (
                 <span className="flex items-center gap-1">
-                  <DeltaIndicator value={delta} higherIsBetter={higherIsBetter} />
+                  <DeltaIndicator value={delta} formatValue={formatDelta} higherIsBetter={higherIsBetter} />
                   {percentValues && (
                     <PercentDelta a={percentValues[0]} b={percentValues[i]} higherIsBetter={higherIsBetter} />
                   )}
@@ -156,6 +158,7 @@ export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) 
         deltas={metrics.map((m, i) => i === 0 ? undefined : (m.totalDuration > 0 && metrics[0].totalDuration > 0 ? m.totalDuration - metrics[0].totalDuration : undefined))}
         percentValues={metrics.map((m) => m.totalDuration)}
         higherIsBetter={false}
+        formatDelta={(v) => formatDuration(v)}
       />
       <MetricCard
         label="Total Runtime"
@@ -164,6 +167,7 @@ export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) 
         deltas={metrics.map((m, i) => i === 0 ? undefined : (m.totalRuntime !== undefined && metrics[0].totalRuntime !== undefined ? m.totalRuntime - metrics[0].totalRuntime : undefined))}
         percentValues={metrics.map((m) => m.totalRuntime)}
         higherIsBetter={false}
+        formatDelta={(v) => formatDurationSeconds(v)}
       />
       <MetricCard
         label="Calls"
