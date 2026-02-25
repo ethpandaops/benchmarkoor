@@ -141,9 +141,7 @@ runs:
 
         # Write inline config if provided
         if [ -n "$INPUT_RUN_CONFIG" ]; then
-          cat <<'CONFIGEOF' > "${{ runner.temp }}/benchmarkoor-config-inline.yaml"
-        ${{ inputs.run-config }}
-        CONFIGEOF
+          echo "$INPUT_RUN_CONFIG" > "${{ runner.temp }}/benchmarkoor-config-inline.yaml"
         fi
 
         # Extract unique filesystem mount points from datadir source_dir values
