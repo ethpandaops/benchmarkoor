@@ -379,20 +379,20 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
   const totalPages = Math.ceil(sortedTests.length / pageSize)
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
-  // Calculate histogram data for distribution graph
+  // Calculate histogram data for distribution graph (respects search filter)
   const { bins: histogramData, slowCount, fastCount } = useMemo(() => {
-    if (allTests.length === 0) return { bins: [] as HistogramBin[], slowCount: 0, fastCount: 0 }
-    const values = allTests.map((test) => test[histogramStat])
+    if (filteredTests.length === 0) return { bins: [] as HistogramBin[], slowCount: 0, fastCount: 0 }
+    const values = filteredTests.map((test) => test[histogramStat])
     return computeHistogramBins(values, threshold)
-  }, [allTests, threshold, histogramStat])
+  }, [filteredTests, threshold, histogramStat])
 
-  // Per-client histogram data
+  // Per-client histogram data (respects search filter)
   const perClientHistogramData = useMemo(() => {
     const result: Record<string, { bins: HistogramBin[]; slowCount: number; fastCount: number }> = {}
     const field = STAT_TO_CLIENT_FIELD[histogramStat]
     for (const client of clients) {
       const values: number[] = []
-      for (const test of allTests) {
+      for (const test of filteredTests) {
         const cs = test.clientStats[client]
         if (cs) values.push(cs[field])
       }
@@ -401,7 +401,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
       }
     }
     return result
-  }, [allTests, clients, threshold, histogramStat])
+  }, [filteredTests, clients, threshold, histogramStat])
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
@@ -784,7 +784,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
       {/* Distribution Histogram */}
       {histogramData.length > 0 && (
         <div className="flex flex-col gap-1 border-t border-gray-200 pt-4 dark:border-gray-700">
-          <div className="flex items-center justify-between">
+          <div className="mb-1 flex items-center justify-between">
             <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution by threshold</span>
             <div className="flex items-center gap-2">
               <span className="text-xs/5 text-gray-500 dark:text-gray-400">Stat:</span>
