@@ -89,8 +89,11 @@ export function SuiteDetailPage() {
     hFs?: string
     hStat?: string
     hCs?: string
+    hTh?: string
+    hRpc?: string
+    hPs?: string
   }
-  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite', hq, hn, hr, hFs, hStat, hCs } = search
+  const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite', hq, hn, hr, hFs, hStat, hCs, hTh, hRpc, hPs } = search
   const chartPassingOnly = search.chartPassingOnly !== 'false'
   const stepFilter = parseStepFilter(search.steps)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
@@ -303,7 +306,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq: query || undefined, hn, hr, hFs, hStat, hCs },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq: query || undefined, hn, hr, hFs, hStat, hCs, hTh, hRpc, hPs },
     })
   }
 
@@ -311,7 +314,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn: show ? '1' : undefined, hr, hFs, hStat, hCs },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn: show ? '1' : undefined, hr, hFs, hStat, hCs, hTh, hRpc, hPs },
     })
   }
 
@@ -319,7 +322,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr: useRegex ? '1' : undefined, hFs, hStat },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr: useRegex ? '1' : undefined, hFs, hStat, hCs, hTh, hRpc, hPs },
     })
   }
 
@@ -327,7 +330,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr, hFs: fs ? '1' : undefined, hStat },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr, hFs: fs ? '1' : undefined, hStat, hCs, hTh, hRpc, hPs },
     })
   }
 
@@ -335,7 +338,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr, hFs, hStat: stat === 'avgMgas' ? undefined : stat, hCs },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr, hFs, hStat: stat === 'avgMgas' ? undefined : stat, hCs, hTh, hRpc, hPs },
     })
   }
 
@@ -343,7 +346,31 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr, hFs, hStat, hCs: show ? '1' : undefined },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr, hFs, hStat, hCs: show ? '1' : undefined, hTh, hRpc, hPs },
+    })
+  }
+
+  const handleHeatmapThresholdChange = (th: number) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr, hFs, hStat, hCs, hTh: th === 60 ? undefined : String(th), hRpc, hPs },
+    })
+  }
+
+  const handleHeatmapRunsPerClientChange = (count: number) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr, hFs, hStat, hCs, hTh, hRpc: count === 5 ? undefined : String(count), hPs },
+    })
+  }
+
+  const handleHeatmapPageSizeChange = (size: number) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq, hn, hr, hFs, hStat, hCs, hTh, hRpc, hPs: size === 20 ? undefined : String(size) },
     })
   }
 
@@ -694,12 +721,13 @@ export function SuiteDetailPage() {
             {(suiteStatsLoading || (suiteStats && Object.keys(suiteStats).length > 0)) && (
               suiteStatsLoading ? (
                 <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                  <div className="flex items-center justify-center py-8">
+                  <div className="flex items-center justify-center gap-2 py-8">
                     <Spinner size="md" />
+                    <span className="text-sm/6 text-gray-500 dark:text-gray-400">Loading test heatmap...</span>
                   </div>
                 </div>
               ) : (
-                <TestHeatmap stats={suiteStats!} testFiles={suite.tests} isDark={isDark} isLoading={suiteStatsLoading} suiteHash={suiteHash} suiteName={suite.metadata?.labels?.name} stepFilter={stepFilter} searchQuery={hq} onSearchChange={handleHeatmapSearchChange} showTestName={hn === '1'} onShowTestNameChange={handleHeatmapShowNameChange} showClientStat={hCs === '1'} onShowClientStatChange={handleHeatmapClientStatChange} useRegex={hr === '1'} onUseRegexChange={handleHeatmapRegexChange} fullscreen={hFs === '1'} onFullscreenChange={handleHeatmapFullscreenChange} histogramStat={(hStat as 'avgMgas' | 'minMgas' | 'p99Mgas') || undefined} onHistogramStatChange={handleHeatmapStatChange} />
+                <TestHeatmap stats={suiteStats!} testFiles={suite.tests} isDark={isDark} isLoading={suiteStatsLoading} suiteHash={suiteHash} suiteName={suite.metadata?.labels?.name} stepFilter={stepFilter} searchQuery={hq} onSearchChange={handleHeatmapSearchChange} showTestName={hn === '1'} onShowTestNameChange={handleHeatmapShowNameChange} showClientStat={hCs === '1'} onShowClientStatChange={handleHeatmapClientStatChange} useRegex={hr === '1'} onUseRegexChange={handleHeatmapRegexChange} fullscreen={hFs === '1'} onFullscreenChange={handleHeatmapFullscreenChange} histogramStat={(hStat as 'avgMgas' | 'minMgas' | 'p99Mgas') || undefined} onHistogramStatChange={handleHeatmapStatChange} threshold={hTh ? Number(hTh) : undefined} onThresholdChange={handleHeatmapThresholdChange} runsPerClient={hRpc ? Number(hRpc) : undefined} onRunsPerClientChange={handleHeatmapRunsPerClientChange} pageSize={hPs ? Number(hPs) : undefined} onPageSizeChange={handleHeatmapPageSizeChange} />
               )
             )}
             {suite.tests.some((t) => t.eest?.info?.opcode_count && Object.keys(t.eest.info.opcode_count).length > 0) && (
