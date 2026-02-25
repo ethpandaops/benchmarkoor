@@ -202,21 +202,28 @@ interface TestHeatmapProps {
   onUseRegexChange?: (useRegex: boolean) => void
   fullscreen?: boolean
   onFullscreenChange?: (fullscreen: boolean) => void
+  showClientStat?: boolean
+  onShowClientStatChange?: (show: boolean) => void
+  histogramStat?: (typeof STAT_COLUMNS)[number]
+  onHistogramStatChange?: (stat: (typeof STAT_COLUMNS)[number]) => void
 }
 
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | (typeof STAT_COLUMNS)[number]
 
-export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, suiteName, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange, useRegex: useRegexProp, onUseRegexChange, fullscreen: fullscreenProp, onFullscreenChange }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, suiteName, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange, useRegex: useRegexProp, onUseRegexChange, fullscreen: fullscreenProp, onFullscreenChange, showClientStat: showClientStatProp, onShowClientStatChange, histogramStat: histogramStatProp, onHistogramStatChange }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [sortField, setSortField] = useState<SortField>('avgMgas')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
-  const [histogramStat, setHistogramStat] = useState<(typeof STAT_COLUMNS)[number]>('avgMgas')
+  const [internalHistogramStat, setInternalHistogramStat] = useState<(typeof STAT_COLUMNS)[number]>('avgMgas')
+  const histogramStat = histogramStatProp ?? internalHistogramStat
+  const setHistogramStat = onHistogramStatChange ?? setInternalHistogramStat
   const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
-  const [showClientStat, setShowClientStat] = useState(true)
+  const showClientStat = showClientStatProp ?? false
+  const setShowClientStat = onShowClientStatChange ?? (() => {})
   const showTestName = showTestNameProp ?? false
   const [internalUseRegex, setInternalUseRegex] = useState(false)
   const useRegex = useRegexProp ?? internalUseRegex
@@ -622,7 +629,14 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
       <table className="w-full border-collapse text-sm/6">
           <thead className="sticky top-0 z-20">
             <tr>
-              <th className={clsx('sticky left-0 z-30 px-2 py-2 text-right', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
+              <th className={clsx('sticky left-0 z-30', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')} />
+              <th colSpan={clients.length} className={clsx(fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')} />
+              <th colSpan={STAT_COLUMNS.length} className={clsx('px-2 pt-2 pb-0 text-center text-xs/5 font-medium text-gray-400 dark:text-gray-500', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
+                MGas/s
+              </th>
+            </tr>
+            <tr>
+              <th className={clsx('sticky left-0 z-30 px-2 pt-0 pb-2 text-right', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
                 <button
                   onClick={() => handleSort('testNumber')}
                   className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
@@ -634,12 +648,12 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
                 </button>
               </th>
               {clients.map((client) => (
-                <th key={client} className={clsx('px-1 py-2 text-center', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
+                <th key={client} className={clsx('px-1 pt-0 pb-2 text-center', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
                   <ClientBadge client={client} />
                 </th>
               ))}
               {STAT_COLUMNS.map((col) => (
-                <th key={col} className={clsx('px-2 py-2 text-right', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
+                <th key={col} className={clsx('px-2 pt-0 pb-2 text-right', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
                   <button
                     onClick={() => handleSort(col)}
                     className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -784,6 +798,9 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
       {/* Distribution Histogram */}
       {histogramData.length > 0 && (
         <div className="flex flex-col gap-1 border-t border-gray-200 pt-4 dark:border-gray-700">
+          <p className="text-xs/5 text-gray-400 dark:text-gray-500">
+            Stats are computed from the {runsPerClient} most recent runs per client visible in the heatmap. Changing &quot;Runs per client&quot; alters these values.
+          </p>
           <div className="mb-1 flex items-center justify-between">
             <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution by threshold</span>
             <div className="flex items-center gap-2">
