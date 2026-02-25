@@ -97,8 +97,8 @@ function MetricCard({
   return (
     <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
       <p className="mb-2 text-sm/6 font-medium text-gray-500 dark:text-gray-400">{label}</p>
-      <table className="w-full">
-        <tbody>
+      <table className="w-full divide-y divide-gray-100 dark:divide-gray-700/50">
+        <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
           {values.map((val, i) => {
             const slot = RUN_SLOTS[i]
             const delta = deltas?.[i]
