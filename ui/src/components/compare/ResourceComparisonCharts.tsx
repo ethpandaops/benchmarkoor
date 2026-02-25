@@ -258,6 +258,18 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
       lineStyle: { width: 2 },
     })
 
+    // Map series names to client: "Run A" → client, "A Read" → client, "A Write" → client
+    const clientBySeriesName = new Map<string, string>()
+    for (let i = 0; i < runs.length; i++) {
+      const client = runs[i].config.instance.client
+      const label = RUN_SLOTS[i].label
+      clientBySeriesName.set(`Run ${label}`, client)
+      clientBySeriesName.set(`${label} Read`, client)
+      clientBySeriesName.set(`${label} Write`, client)
+      clientBySeriesName.set(`${label} Read Ops`, client)
+      clientBySeriesName.set(`${label} Write Ops`, client)
+    }
+
     const createTooltip = (formatter: (value: number) => string) => ({
       trigger: 'axis' as const,
       appendToBody: true,
@@ -274,7 +286,9 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
         params.forEach((p) => {
           const value = p.value[1]
           const testName = p.value[2]
-          content += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;"></span>${p.seriesName}: ${formatter(value)}`
+          const client = clientBySeriesName.get(p.seriesName)
+          const clientImg = client ? `<img src="/img/clients/${client}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />` : ''
+          content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${formatter(value)}`
           if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
           content += '<br/>'
         })
