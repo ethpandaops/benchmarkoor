@@ -88,12 +88,12 @@ func (m *manager) CheckpointContainer(
 ) error {
 	m.log.WithField("container", containerID[:12]).Info("Checkpointing container")
 
-	// Drop all non-LISTEN TCP connections before checkpointing. CRIU
-	// cannot restore TCP sockets bound to the old container IP, and
-	// restored containers get a new address. Killing connections here
-	// avoids the need for --tcp-established / --tcp-close workarounds.
-	if err := m.dropTCPConnections(ctx, containerID, waitAfterTCPDrop); err != nil {
-		m.log.WithError(err).Warn("Failed to drop TCP connections before checkpoint")
+	// Drop all non-LISTEN TCP connections and all UDP sockets before
+	// checkpointing. CRIU cannot restore sockets bound to the old
+	// container IP, and restored containers get a new address. Killing
+	// connections here avoids restore failures from stale socket state.
+	if err := m.dropConnections(ctx, containerID, waitAfterTCPDrop); err != nil {
+		m.log.WithError(err).Warn("Failed to drop connections before checkpoint")
 	}
 
 	checkpointStart := time.Now()
@@ -217,11 +217,13 @@ func (m *manager) ReadFileFromImage(
 	return out, nil
 }
 
-// dropTCPConnections blocks new outgoing TCP connections and kills all
-// existing non-LISTEN TCP sockets inside the container's network namespace.
-// This two-step approach (block then kill) avoids a race where the process
-// opens new connections between the kill and the CRIU freeze.
-func (m *manager) dropTCPConnections(
+// dropConnections blocks new outgoing TCP and UDP traffic, then kills all
+// non-LISTEN TCP sockets and all UDP sockets inside the container's network
+// namespace. This block-then-kill approach avoids a race where the process
+// opens new connections between the kill and the CRIU freeze. Both TCP and
+// UDP sockets must be destroyed because CRIU cannot restore sockets bound
+// to the old container IP (restored containers get a new address).
+func (m *manager) dropConnections(
 	ctx context.Context,
 	containerID string,
 	waitAfterDrop time.Duration,
@@ -251,22 +253,44 @@ func (m *manager) dropTCPConnections(
 		"-m", "state", "--state", "NEW",
 		"-j", "REJECT", "--reject-with", "tcp-reset",
 	).CombinedOutput(); err != nil {
-		return fmt.Errorf("iptables block failed: %w: %s", err, string(out))
+		return fmt.Errorf("iptables TCP block failed: %w: %s", err, string(out))
 	}
 
-	// Step 2: Kill all non-listening TCP sockets.
+	// Step 2: Drop all outgoing UDP traffic. This prevents the process
+	// from sending new datagrams while we destroy its UDP sockets.
+	//nolint:gosec // pid comes from Podman inspect, not user input.
+	if out, err := exec.CommandContext(ctx,
+		"nsenter", "-t", pidStr, "-n",
+		"iptables", "-A", "OUTPUT", "-p", "udp",
+		"-j", "DROP",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("iptables UDP block failed: %w: %s", err, string(out))
+	}
+
+	// Step 3: Kill all non-listening TCP sockets.
 	//nolint:gosec // pid comes from Podman inspect, not user input.
 	if out, err := exec.CommandContext(ctx,
 		"nsenter", "-t", pidStr, "-n",
 		"ss", "-K", "state", "all", "exclude", "listening",
 	).CombinedOutput(); err != nil {
-		return fmt.Errorf("ss -K failed: %w: %s", err, string(out))
+		return fmt.Errorf("ss -K TCP failed: %w: %s", err, string(out))
 	}
 
-	// Step 3: Wait for the process's async runtime to notice the
+	// Step 4: Kill all UDP sockets. UDP sockets bound to the container's
+	// IP cannot be rebound after restore when the container gets a new
+	// address. Unlike TCP, UDP has no "listening" state so we destroy all.
+	//nolint:gosec // pid comes from Podman inspect, not user input.
+	if out, err := exec.CommandContext(ctx,
+		"nsenter", "-t", pidStr, "-n",
+		"ss", "-K", "-u", "state", "all",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("ss -K UDP failed: %w: %s", err, string(out))
+	}
+
+	// Step 5: Wait for the process's async runtime to notice the
 	// destroyed sockets (via epoll errors) and close the fds.
 	m.log.WithField("container", containerID[:12]).
-		Info("Blocked outgoing TCP and dropped existing connections, waiting for fd cleanup")
+		Info("Blocked outgoing traffic and dropped existing connections, waiting for fd cleanup")
 
 	select {
 	case <-time.After(waitAfterDrop):
