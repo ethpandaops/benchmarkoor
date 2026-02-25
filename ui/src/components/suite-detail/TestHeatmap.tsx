@@ -164,6 +164,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
   const [sortField, setSortField] = useState<SortField>('avgMgas')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
+  const [histogramStat, setHistogramStat] = useState<(typeof STAT_COLUMNS)[number]>('avgMgas')
   const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
   const [showClientStat, setShowClientStat] = useState(true)
   const showTestName = showTestNameProp ?? false
@@ -336,7 +337,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
     const binMultipliers = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
     const bins = Array(binMultipliers.length).fill(0) as number[]
 
-    const histField = sortField === 'testNumber' ? 'avgMgas' : sortField
+    const histField = histogramStat
     for (const test of allTests) {
       const statValue = test[histField]
       const ratio = statValue / threshold
@@ -366,11 +367,10 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
         color: getColorByThreshold(midpoint, threshold),
       }
     })
-  }, [allTests, threshold, sortField])
+  }, [allTests, threshold, histogramStat])
 
-  const histField = sortField === 'testNumber' ? 'avgMgas' : sortField
-  const slowCount = allTests.filter((t) => t[histField] < threshold).length
-  const fastCount = allTests.filter((t) => t[histField] >= threshold).length
+  const slowCount = allTests.filter((t) => t[histogramStat] < threshold).length
+  const fastCount = allTests.filter((t) => t[histogramStat] >= threshold).length
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
@@ -746,7 +746,28 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
       {/* Distribution Histogram */}
       {histogramData.length > 0 && (
         <div className="flex flex-col gap-1">
-          <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution by threshold</span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution by threshold</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400">Stat:</span>
+              <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
+                {STAT_COLUMNS.map((col) => (
+                  <button
+                    key={col}
+                    onClick={() => setHistogramStat(col)}
+                    className={clsx(
+                      'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                      histogramStat === col
+                        ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                    )}
+                  >
+                    {STAT_COLUMN_LABELS[col]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
           <div className="flex items-end gap-1">
             <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
               <span className="text-xs/5 font-medium text-red-600 dark:text-red-400">{slowCount}</span>
