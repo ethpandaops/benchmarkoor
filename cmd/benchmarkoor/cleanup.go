@@ -11,6 +11,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/ethpandaops/benchmarkoor/pkg/podman"
 	"github.com/spf13/cobra"
 )
 
@@ -35,40 +36,63 @@ func init() {
 	cleanupCmd.Flags().BoolVarP(&forceCleanup, "force", "f", false, "Skip confirmation prompt")
 }
 
+// managedContainer associates a container with the manager that owns it.
+type managedContainer struct {
+	info docker.ContainerInfo
+	mgr  docker.ContainerManager
+}
+
+// managedVolume associates a volume with the manager that owns it.
+type managedVolume struct {
+	info docker.VolumeInfo
+	mgr  docker.ContainerManager
+}
+
 func runCleanup(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// Create container manager.
-	containerMgr, err := docker.NewManager(log)
-	if err != nil {
-		return fmt.Errorf("creating container manager: %w", err)
-	}
-
-	if err := containerMgr.Start(ctx); err != nil {
-		return fmt.Errorf("starting container manager: %w", err)
+	managers := buildCleanupManagers(ctx)
+	if len(managers) == 0 {
+		return fmt.Errorf("no container runtimes available (tried Docker and Podman)")
 	}
 
 	defer func() {
-		if err := containerMgr.Stop(); err != nil {
-			log.WithError(err).Warn("Failed to stop container manager")
+		for _, mgr := range managers {
+			if err := mgr.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop container manager")
+			}
 		}
 	}()
 
-	return performCleanup(ctx, containerMgr, forceCleanup)
+	return performCleanup(ctx, managers, forceCleanup)
 }
 
-// performCleanup lists and removes all benchmarkoor resources.
-func performCleanup(ctx context.Context, containerMgr docker.ContainerManager, force bool) error {
-	// List containers.
-	containers, err := containerMgr.ListContainers(ctx)
-	if err != nil {
-		return fmt.Errorf("listing containers: %w", err)
-	}
+// performCleanup lists and removes all benchmarkoor resources across all
+// provided container managers (runtimes).
+func performCleanup(ctx context.Context, managers []docker.ContainerManager, force bool) error {
+	// Collect containers and volumes from all runtimes.
+	var containers []managedContainer
 
-	// List volumes.
-	volumes, err := containerMgr.ListVolumes(ctx)
-	if err != nil {
-		return fmt.Errorf("listing volumes: %w", err)
+	var volumes []managedVolume
+
+	for _, mgr := range managers {
+		cl, err := mgr.ListContainers(ctx)
+		if err != nil {
+			log.WithError(err).Warn("Failed to list containers from a runtime")
+		}
+
+		for _, c := range cl {
+			containers = append(containers, managedContainer{info: c, mgr: mgr})
+		}
+
+		vl, err := mgr.ListVolumes(ctx)
+		if err != nil {
+			log.WithError(err).Warn("Failed to list volumes from a runtime")
+		}
+
+		for _, v := range vl {
+			volumes = append(volumes, managedVolume{info: v, mgr: mgr})
+		}
 	}
 
 	// List orphaned ZFS resources.
@@ -101,7 +125,7 @@ func performCleanup(ctx context.Context, containerMgr docker.ContainerManager, f
 		fmt.Printf("\nContainers to be removed (%d):\n", len(containers))
 
 		for _, c := range containers {
-			fmt.Printf("  - %s (%s)\n", c.Name, c.ID[:12])
+			fmt.Printf("  - %s (%s)\n", c.info.Name, c.info.ID[:12])
 		}
 	}
 
@@ -109,7 +133,7 @@ func performCleanup(ctx context.Context, containerMgr docker.ContainerManager, f
 		fmt.Printf("\nVolumes to be removed (%d):\n", len(volumes))
 
 		for _, v := range volumes {
-			fmt.Printf("  - %s\n", v.Name)
+			fmt.Printf("  - %s\n", v.info.Name)
 		}
 	}
 
@@ -160,19 +184,19 @@ func performCleanup(ctx context.Context, containerMgr docker.ContainerManager, f
 
 	// Remove containers first.
 	for _, c := range containers {
-		log.WithField("container", c.Name).Info("Removing container")
+		log.WithField("container", c.info.Name).Info("Removing container")
 
-		if err := containerMgr.RemoveContainer(ctx, c.ID); err != nil {
-			log.WithError(err).WithField("container", c.Name).Warn("Failed to remove container")
+		if err := c.mgr.RemoveContainer(ctx, c.info.ID); err != nil {
+			log.WithError(err).WithField("container", c.info.Name).Warn("Failed to remove container")
 		}
 	}
 
 	// Remove volumes.
 	for _, v := range volumes {
-		log.WithField("volume", v.Name).Info("Removing volume")
+		log.WithField("volume", v.info.Name).Info("Removing volume")
 
-		if err := containerMgr.RemoveVolume(ctx, v.Name); err != nil {
-			log.WithError(err).WithField("volume", v.Name).Warn("Failed to remove volume")
+		if err := v.mgr.RemoveVolume(ctx, v.info.Name); err != nil {
+			log.WithError(err).WithField("volume", v.info.Name).Warn("Failed to remove volume")
 		}
 	}
 
@@ -202,6 +226,35 @@ func performCleanup(ctx context.Context, containerMgr docker.ContainerManager, f
 	log.Info("Cleanup completed")
 
 	return nil
+}
+
+// buildCleanupManagers tries to create and start container managers for both
+// Docker and Podman. Runtimes that are unavailable (e.g. socket missing) are
+// silently skipped. The caller is responsible for stopping all returned managers.
+func buildCleanupManagers(ctx context.Context) []docker.ContainerManager {
+	managers := make([]docker.ContainerManager, 0, 2)
+
+	// Try Docker.
+	dockerMgr, err := docker.NewManager(log)
+	if err != nil {
+		log.WithError(err).Debug("Docker runtime not available for cleanup")
+	} else if err := dockerMgr.Start(ctx); err != nil {
+		log.WithError(err).Debug("Failed to start Docker manager for cleanup")
+	} else {
+		managers = append(managers, dockerMgr)
+	}
+
+	// Try Podman.
+	podmanMgr, err := podman.NewManager(log)
+	if err != nil {
+		log.WithError(err).Debug("Podman runtime not available for cleanup")
+	} else if err := podmanMgr.Start(ctx); err != nil {
+		log.WithError(err).Debug("Failed to start Podman manager for cleanup")
+	} else {
+		managers = append(managers, podmanMgr)
+	}
+
+	return managers
 }
 
 // getCPUFreqCacheDir returns the cache directory for CPU frequency state files.

@@ -159,11 +159,18 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		}()
 
 		// Perform cleanup on start if configured.
+		// Use all available runtimes so containers left by a previous run
+		// under a different runtime (e.g. Docker vs Podman) are also cleaned.
 		if cfg.Runner.CleanupOnStart {
 			log.Info("Performing cleanup before start")
 
-			if err := performCleanup(ctx, containerMgr, true); err != nil {
+			cleanupManagers := buildCleanupManagers(ctx)
+			if err := performCleanup(ctx, cleanupManagers, true); err != nil {
 				log.WithError(err).Warn("Cleanup failed")
+			}
+
+			for _, mgr := range cleanupManagers {
+				_ = mgr.Stop()
 			}
 		}
 
