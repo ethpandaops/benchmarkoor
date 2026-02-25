@@ -16,6 +16,9 @@ interface RunFiltersProps {
   suites?: { hash: string; name?: string }[]
   selectedSuite?: string | undefined
   onSuiteChange?: (suite: string | undefined) => void
+  strategies?: string[]
+  selectedStrategy?: string | undefined
+  onStrategyChange?: (strategy: string | undefined) => void
 }
 
 function ChevronIcon() {
@@ -102,6 +105,9 @@ export function RunFilters({
   suites,
   selectedSuite,
   onSuiteChange,
+  strategies,
+  selectedStrategy,
+  onStrategyChange,
 }: RunFiltersProps) {
   const clientOptions = [{ value: '' as const, label: 'All clients' }, ...clients.map((c) => ({ value: c, label: c }))]
   const imageOptions = [{ value: '' as const, label: 'All images' }, ...images.map((i) => ({ value: i, label: i }))]
@@ -111,6 +117,7 @@ export function RunFilters({
     { value: 'failing', label: 'Has failures' },
   ]
   const suiteOptions = suites ? [{ value: '' as const, label: 'All suites' }, ...suites.map((s) => ({ value: s.hash, label: s.name ? `${s.name} (${s.hash.slice(0, 4)})` : s.hash, icon: <JDenticon value={s.hash} size={16} /> }))] : []
+  const strategyOptions = strategies ? [{ value: '' as const, label: 'All strategies' }, ...strategies.map((s) => ({ value: s, label: s }))] : []
 
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -137,6 +144,16 @@ export function RunFilters({
           options={suiteOptions}
           allLabel="All suites"
           width="w-44"
+        />
+      )}
+      {strategies && strategies.length > 0 && onStrategyChange && (
+        <FilterDropdown
+          label="Strategy"
+          value={selectedStrategy ?? ''}
+          onChange={(v) => onStrategyChange(v || undefined)}
+          options={strategyOptions}
+          allLabel="All strategies"
+          width="w-52"
         />
       )}
       <FilterDropdown

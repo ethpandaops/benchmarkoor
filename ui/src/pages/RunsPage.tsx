@@ -24,12 +24,13 @@ export function RunsPage() {
     client?: string
     image?: string
     suite?: string
+    strategy?: string
     status?: TestStatusFilter
     sortBy?: SortColumn
     sortDir?: SortDirection
     steps?: string
   }
-  const { page = 1, pageSize = DEFAULT_PAGE_SIZE, client, image, suite, status = 'all', sortBy = 'timestamp', sortDir = 'desc', steps } = search
+  const { page = 1, pageSize = DEFAULT_PAGE_SIZE, client, image, suite, strategy, status = 'all', sortBy = 'timestamp', sortDir = 'desc', steps } = search
 
   // Parse step filter from URL
   const parseStepFilter = (stepsParam: string | undefined): IndexStepType[] => {
@@ -63,6 +64,12 @@ export function RunsPage() {
     return Array.from(imageSet).sort()
   }, [index])
 
+  const strategies = useMemo(() => {
+    if (!index) return []
+    const strategySet = new Set(index.entries.map((e) => e.instance.rollback_strategy).filter((s): s is string => !!s))
+    return Array.from(strategySet).sort()
+  }, [index])
+
   const suiteHashes = useMemo(() => {
     if (!index) return []
     const suiteSet = new Set(index.entries.map((e) => e.suite_hash).filter((s): s is string => !!s))
@@ -93,11 +100,12 @@ export function RunsPage() {
       if (client && e.instance.client !== client) return false
       if (image && e.instance.image !== image) return false
       if (suite && e.suite_hash !== suite) return false
+      if (strategy && e.instance.rollback_strategy !== strategy) return false
       if (status === 'passing' && e.tests.tests_total - e.tests.tests_passed > 0) return false
       if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
       return true
     })
-  }, [index, client, image, suite, status])
+  }, [index, client, image, suite, strategy, status])
 
   const sortedEntries = useMemo(() => sortIndexEntries(filteredEntries, sortBy, sortDir, stepFilter), [filteredEntries, sortBy, sortDir, stepFilter])
   const totalPages = Math.ceil(sortedEntries.length / localPageSize)
@@ -105,44 +113,49 @@ export function RunsPage() {
 
   const handlePageChange = (newPage: number) => {
     setLocalPage(newPage)
-    navigate({ to: '/runs', search: { page: newPage, pageSize: localPageSize, client, image, suite, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: newPage, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps } })
   }
 
   const handlePageSizeChange = (newSize: number) => {
     setLocalPageSize(newSize)
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: newSize, client, image, suite, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: newSize, client, image, suite, strategy, status, sortBy, sortDir, steps } })
   }
 
   const handleClientChange = (newClient: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client: newClient, image, suite, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client: newClient, image, suite, strategy, status, sortBy, sortDir, steps } })
   }
 
   const handleImageChange = (newImage: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image: newImage, suite, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image: newImage, suite, strategy, status, sortBy, sortDir, steps } })
   }
 
   const handleSuiteChange = (newSuite: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite: newSuite, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite: newSuite, strategy, status, sortBy, sortDir, steps } })
+  }
+
+  const handleStrategyChange = (newStrategy: string | undefined) => {
+    setLocalPage(1)
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy: newStrategy, status, sortBy, sortDir, steps } })
   }
 
   const handleStatusChange = (newStatus: TestStatusFilter) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, status: newStatus, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status: newStatus, sortBy, sortDir, steps } })
   }
 
   const handleSortChange = (newSortBy: SortColumn, newSortDir: SortDirection) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, status, sortBy: newSortBy, sortDir: newSortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy: newSortBy, sortDir: newSortDir, steps } })
   }
 
   const handleStepFilterChange = (newFilter: IndexStepType[]) => {
     const stepsParam = newFilter.length === ALL_INDEX_STEP_TYPES.length ? undefined : newFilter.join(',')
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, status, sortBy, sortDir, steps: stepsParam } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps: stepsParam } })
   }
 
   if (isLoading) {
@@ -198,6 +211,9 @@ export function RunsPage() {
               suites={suites}
               selectedSuite={suite}
               onSuiteChange={handleSuiteChange}
+              strategies={strategies}
+              selectedStrategy={strategy}
+              onStrategyChange={handleStrategyChange}
               selectedStatus={status}
               onStatusChange={handleStatusChange}
             />

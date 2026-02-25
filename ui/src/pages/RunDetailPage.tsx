@@ -381,7 +381,7 @@ export function RunDetailPage() {
       />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-        <ClientStat client={config.instance.client} runId={config.instance.id} />
+        <ClientStat client={config.instance.client} runId={config.instance.id} rollbackStrategy={config.instance.rollback_strategy} />
         {(config.test_counts || result) ? (
           <>
             <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">

@@ -16,6 +16,7 @@ export interface IndexEntry {
     id: string
     client: string
     image: string
+    rollback_strategy?: string
   }
   tests: {
     tests_total: number
