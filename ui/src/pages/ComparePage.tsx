@@ -8,6 +8,7 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { CompareHeader } from '@/components/compare/CompareHeader'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
+import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
 import { ResourceComparisonCharts } from '@/components/compare/ResourceComparisonCharts'
 import { ConfigDiff } from '@/components/compare/ConfigDiff'
@@ -124,6 +125,15 @@ export function ComparePage() {
         resultB={resultB ?? null}
         stepFilter={stepFilter}
       />
+
+      {resultA && resultB && (
+        <MGasComparisonChart
+          resultA={resultA}
+          resultB={resultB}
+          suiteTests={suite?.tests}
+          stepFilter={stepFilter}
+        />
+      )}
 
       {resultA && resultB && (
         <TestComparisonTable
