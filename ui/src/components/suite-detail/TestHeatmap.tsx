@@ -743,6 +743,13 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
 
   const bottomSection = (
     <div className={clsx('flex flex-col gap-4', fullscreen ? 'shrink-0 px-4 pb-4' : 'px-4 pb-4')}>
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex justify-end">
+          <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
+        </div>
+      )}
+
       {/* Distribution Histogram */}
       {histogramData.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -806,28 +813,25 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
         </div>
       )}
 
-      {/* Legend and pagination */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
-          <span className="flex items-center gap-1">
-            <span>&gt;{threshold * 2}</span>
-            <span className="flex gap-0.5">
-              {COLORS.map((color, i) => (
-                <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
-              ))}
-            </span>
-            <span>&lt;{threshold / 2}</span>
-            <span className="text-gray-400 dark:text-gray-500">(fill: threshold, border: per-test)</span>
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
+        <span className="flex items-center gap-1">
+          <span>&gt;{threshold * 2}</span>
+          <span className="flex gap-0.5">
+            {COLORS.map((color, i) => (
+              <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
+            ))}
           </span>
-          <span>
-            <span className="mr-1 inline-block size-3 rounded-xs bg-gray-100 dark:bg-gray-700" />
-            No data
-          </span>
-          <span className="text-gray-400 dark:text-gray-500">
-            {search ? `${filteredTests.length} / ${allTests.length}` : allTests.length} tests · {runsPerClient} most recent runs per client
-          </span>
-        </div>
-        <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
+          <span>&lt;{threshold / 2}</span>
+          <span className="text-gray-400 dark:text-gray-500">(fill: threshold, border: per-test)</span>
+        </span>
+        <span>
+          <span className="mr-1 inline-block size-3 rounded-xs bg-gray-100 dark:bg-gray-700" />
+          No data
+        </span>
+        <span className="text-gray-400 dark:text-gray-500">
+          {search ? `${filteredTests.length} / ${allTests.length}` : allTests.length} tests · {runsPerClient} most recent runs per client
+        </span>
       </div>
     </div>
   )
