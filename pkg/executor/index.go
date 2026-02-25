@@ -35,9 +35,10 @@ type IndexEntry struct {
 
 // IndexInstance contains the client instance information for the index.
 type IndexInstance struct {
-	ID     string `json:"id"`
-	Client string `json:"client"`
-	Image  string `json:"image"`
+	ID               string `json:"id"`
+	Client           string `json:"client"`
+	Image            string `json:"image"`
+	RollbackStrategy string `json:"rollback_strategy,omitempty"`
 }
 
 // IndexTestStats contains aggregated test statistics for the index.
@@ -73,9 +74,10 @@ type runConfigJSON struct {
 	Status            string `json:"status,omitempty"`
 	TerminationReason string `json:"termination_reason,omitempty"`
 	Instance          struct {
-		ID     string `json:"id"`
-		Client string `json:"client"`
-		Image  string `json:"image"`
+		ID               string `json:"id"`
+		Client           string `json:"client"`
+		Image            string `json:"image"`
+		RollbackStrategy string `json:"rollback_strategy,omitempty"`
 	} `json:"instance"`
 	TestCounts *struct {
 		Total  int `json:"total"`
@@ -374,9 +376,10 @@ func buildIndexEntryFromData(
 		Status:            runConfig.Status,
 		TerminationReason: runConfig.TerminationReason,
 		Instance: &IndexInstance{
-			ID:     runConfig.Instance.ID,
-			Client: runConfig.Instance.Client,
-			Image:  runConfig.Instance.Image,
+			ID:               runConfig.Instance.ID,
+			Client:           runConfig.Instance.Client,
+			Image:            runConfig.Instance.Image,
+			RollbackStrategy: runConfig.Instance.RollbackStrategy,
 		},
 		Tests: testStats,
 	}, nil

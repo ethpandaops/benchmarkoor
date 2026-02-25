@@ -1,6 +1,6 @@
 import { type IndexEntry, type IndexStepType, getIndexAggregatedStats } from '@/api/types'
 
-export type SortColumn = 'timestamp' | 'client' | 'image' | 'suite' | 'duration' | 'mgas' | 'failed' | 'passed' | 'total'
+export type SortColumn = 'timestamp' | 'client' | 'image' | 'strategy' | 'suite' | 'duration' | 'mgas' | 'failed' | 'passed' | 'total'
 export type SortDirection = 'asc' | 'desc'
 
 // Calculates MGas/s from gas_used and gas_used_duration
@@ -28,6 +28,9 @@ export function sortIndexEntries(
         break
       case 'image':
         comparison = a.instance.image.localeCompare(b.instance.image)
+        break
+      case 'strategy':
+        comparison = (a.instance.rollback_strategy ?? '').localeCompare(b.instance.rollback_strategy ?? '')
         break
       case 'suite':
         comparison = (a.suite_hash ?? '').localeCompare(b.suite_hash ?? '')
