@@ -30,7 +30,7 @@ export async function fetchViaS3(
 
   const { url: presignedUrl } = await resp.json()
 
-  return fetch(presignedUrl, init)
+  return fetch(presignedUrl, { ...init, cache: 'no-cache' })
 }
 
 export async function fetchData<T>(path: string, opts?: { cacheBustInterval?: number }): Promise<FetchResult<T>> {
