@@ -116,15 +116,15 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
         ) => {
           if (!params.length) return ''
           const testIndex = params[0].value[0]
-          let content = `<strong>Test #${testIndex}</strong><br/>`
+          const testName = params[0].value[2]
+          let content = `<strong>Test #${testIndex}</strong>`
+          if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
+          content += '<br/>'
           params.forEach((p) => {
             const value = p.value[1]
-            const testName = p.value[2]
             const client = clientBySeriesName.get(p.seriesName)
             const clientImg = client ? `<img src="/img/clients/${client}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />` : ''
-            content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${value.toFixed(2)} MGas/s`
-            if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
-            content += '<br/>'
+            content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${value.toFixed(2)} MGas/s<br/>`
           })
           return content
         },
