@@ -379,13 +379,13 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
       <div className="mb-4 flex items-center gap-2">
         <Cpu className="size-4 text-gray-400 dark:text-gray-500" />
         <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Resource Usage Comparison</h3>
-        <div className="ml-auto flex items-center gap-3 text-xs/5">
+        <div className="ml-auto flex items-center gap-2 text-xs/5">
           {runs.map((run) => {
             const slot = RUN_SLOTS[run.index]
             return (
-              <span key={slot.label} className="flex items-center gap-1">
-                <span className={`inline-block size-2.5 rounded-full ${slot.bgDotClass}`} />
-                <span className="text-gray-500 dark:text-gray-400">Run {slot.label}</span>
+              <span key={slot.label} className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 font-medium ${slot.badgeBgClass} ${slot.badgeTextClass}`}>
+                <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
+                {slot.label}
               </span>
             )
           })}

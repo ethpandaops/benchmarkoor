@@ -12,6 +12,8 @@ export interface RunSlot {
   textDarkClass: string
   bgDotClass: string
   diffTextClass: string
+  badgeBgClass: string
+  badgeTextClass: string
 }
 
 export const RUN_SLOTS: RunSlot[] = [
@@ -24,6 +26,8 @@ export const RUN_SLOTS: RunSlot[] = [
     textDarkClass: 'text-blue-400',
     bgDotClass: 'bg-blue-500',
     diffTextClass: 'text-blue-700 dark:text-blue-300',
+    badgeBgClass: 'bg-blue-100 dark:bg-blue-900/50',
+    badgeTextClass: 'text-blue-700 dark:text-blue-300',
   },
   {
     label: 'B',
@@ -34,6 +38,8 @@ export const RUN_SLOTS: RunSlot[] = [
     textDarkClass: 'text-amber-400',
     bgDotClass: 'bg-amber-500',
     diffTextClass: 'text-amber-700 dark:text-amber-300',
+    badgeBgClass: 'bg-amber-100 dark:bg-amber-900/50',
+    badgeTextClass: 'text-amber-700 dark:text-amber-300',
   },
   {
     label: 'C',
@@ -44,6 +50,8 @@ export const RUN_SLOTS: RunSlot[] = [
     textDarkClass: 'text-emerald-400',
     bgDotClass: 'bg-emerald-500',
     diffTextClass: 'text-emerald-700 dark:text-emerald-300',
+    badgeBgClass: 'bg-emerald-100 dark:bg-emerald-900/50',
+    badgeTextClass: 'text-emerald-700 dark:text-emerald-300',
   },
   {
     label: 'D',
@@ -54,6 +62,8 @@ export const RUN_SLOTS: RunSlot[] = [
     textDarkClass: 'text-violet-400',
     bgDotClass: 'bg-violet-500',
     diffTextClass: 'text-violet-700 dark:text-violet-300',
+    badgeBgClass: 'bg-violet-100 dark:bg-violet-900/50',
+    badgeTextClass: 'text-violet-700 dark:text-violet-300',
   },
 ]
 

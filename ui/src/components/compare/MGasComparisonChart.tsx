@@ -206,14 +206,13 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
     <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">MGas/s per Test</h3>
-        <div className="flex items-center gap-3 text-xs/5">
+        <div className="flex items-center gap-2 text-xs/5">
           {runs.map((run) => {
             const slot = RUN_SLOTS[run.index]
             return (
-              <span key={slot.label} className="flex items-center gap-1.5">
-                <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-4 rounded-full object-cover" />
-                <span className={`inline-block size-2.5 rounded-full ${slot.bgDotClass}`} />
-                <span className="text-gray-500 dark:text-gray-400">Run {slot.label}</span>
+              <span key={slot.label} className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 font-medium ${slot.badgeBgClass} ${slot.badgeTextClass}`}>
+                <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
+                {slot.label}
               </span>
             )
           })}
