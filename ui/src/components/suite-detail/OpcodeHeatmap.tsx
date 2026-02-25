@@ -27,15 +27,15 @@ const HEADER_HEIGHT_COLLAPSED = 90
 const ROW_LABEL_WIDTH = 50
 const MAX_HEIGHT = 600
 const BORDER_COLOR_LIGHT = '#e5e7eb'
-const BORDER_COLOR_DARK = '#374151'
+const BORDER_COLOR_DARK = '#3f3f46'
 const BG_LIGHT = '#ffffff'
-const BG_DARK = '#1f2937'
+const BG_DARK = '#18181b'
 const TEXT_LIGHT = '#6b7280'
-const TEXT_DARK = '#9ca3af'
+const TEXT_DARK = '#a1a1aa'
 const HEADER_BG_LIGHT = '#f9fafb'
-const HEADER_BG_DARK = '#1f2937'
+const HEADER_BG_DARK = '#18181b'
 const SEPARATOR_LIGHT = '#d1d5db'
-const SEPARATOR_DARK = '#4b5563'
+const SEPARATOR_DARK = '#52525c'
 
 function logRatio(count: number, max: number): number {
   if (count <= 0 || max <= 0) return 0
@@ -43,7 +43,7 @@ function logRatio(count: number, max: number): number {
 }
 
 const COLORS_LIGHT = ['transparent', '#eff6ff', '#dbeafe', '#bfdbfe', '#93c5fd', '#818cf8', '#7c3aed', '#6d28d9', '#5b21b6']
-const COLORS_DARK = ['transparent', 'rgba(59,130,246,0.15)', 'rgba(59,130,246,0.3)', 'rgba(99,102,241,0.4)', 'rgba(99,102,241,0.55)', 'rgba(139,92,246,0.6)', 'rgba(139,92,246,0.75)', 'rgba(168,85,247,0.85)', 'rgba(168,85,247,1)']
+const COLORS_DARK = ['transparent', '#1e293b', '#1e3a5f', '#1d4ed8', '#3b82f6', '#6366f1', '#7c3aed', '#9333ea', '#a855f7']
 
 function getColorIndex(ratio: number): number {
   if (ratio === 0) return 0
