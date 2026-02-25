@@ -88,41 +88,30 @@ function MetricCard({
   percentValues?: (number | undefined)[]
   higherIsBetter?: boolean
 }) {
-  const runCount = values.length
-  const hasDeltas = deltas?.some((d, i) => i > 0 && d !== undefined)
-
   return (
     <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-      <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">{label}</p>
-      <div className="mt-2 grid gap-2" style={{ gridTemplateColumns: `repeat(${runCount}, 1fr)` }}>
+      <p className="mb-2 text-sm/6 font-medium text-gray-500 dark:text-gray-400">{label}</p>
+      <div className="flex flex-col gap-1">
         {values.map((val, i) => {
           const slot = RUN_SLOTS[i]
+          const delta = deltas?.[i]
+          const isBaseline = i === 0
           return (
-            <div key={slot.label}>
-              <p className={clsx('text-xs/5 font-medium', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>{slot.label}</p>
-              <p className="text-lg/7 font-semibold text-gray-900 dark:text-gray-100">{val}</p>
+            <div key={slot.label} className="flex items-baseline gap-2">
+              <span className={clsx('w-3 text-xs/5 font-semibold', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>{slot.label}</span>
+              <span className="text-base/6 font-semibold text-gray-900 dark:text-gray-100">{val}</span>
+              {!isBaseline && delta !== undefined && (
+                <span className="flex items-center gap-1">
+                  <DeltaIndicator value={delta} higherIsBetter={higherIsBetter} />
+                  {percentValues && (
+                    <PercentDelta a={percentValues[0]} b={percentValues[i]} higherIsBetter={higherIsBetter} />
+                  )}
+                </span>
+              )}
             </div>
           )
         })}
       </div>
-      {hasDeltas && (
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-gray-100 pt-2 dark:border-gray-700/50">
-          <span className="text-xs/5 text-gray-400 dark:text-gray-500">vs A:</span>
-          {deltas?.slice(1).map((delta, i) => {
-            if (delta === undefined) return null
-            const slot = RUN_SLOTS[i + 1]
-            return (
-              <span key={slot.label} className="flex items-center gap-1">
-                <span className={clsx('text-xs/5 font-medium', slot.textClass)}>{slot.label}</span>
-                <DeltaIndicator value={delta} higherIsBetter={higherIsBetter} />
-                {percentValues && (
-                  <PercentDelta a={percentValues[0]} b={percentValues[i + 1]} higherIsBetter={higherIsBetter} />
-                )}
-              </span>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }
