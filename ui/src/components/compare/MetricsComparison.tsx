@@ -83,6 +83,7 @@ function MetricCard({
   percentValues,
   higherIsBetter = true,
   formatDelta,
+  extra,
 }: {
   label: string
   values: React.ReactNode[]
@@ -91,6 +92,7 @@ function MetricCard({
   percentValues?: (number | undefined)[]
   higherIsBetter?: boolean
   formatDelta?: (v: number) => string
+  extra?: React.ReactNode[]
 }) {
   const hasDeltas = deltas?.some((d, i) => i > 0 && d !== undefined)
 
@@ -114,6 +116,11 @@ function MetricCard({
                 <td className="py-0.5 align-middle text-base/6 font-semibold text-gray-900 dark:text-gray-100">
                   {val}
                 </td>
+                {extra && (
+                  <td className="py-0.5 pl-2 text-right align-middle">
+                    {extra[i]}
+                  </td>
+                )}
                 {hasDeltas && (
                   <td className="py-0.5 pl-2 text-right align-middle">
                     {!isBaseline && delta !== undefined && (
@@ -144,11 +151,11 @@ export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) 
       <MetricCard
         label="Tests"
         clients={clients}
-        values={metrics.map((m) => (
-          <span className="flex items-center gap-1">
-            {m.testCount}
-            <span className="text-xs text-green-600 dark:text-green-400">{m.passedTests}P</span>
-            {m.failedTests > 0 && <span className="text-xs text-red-600 dark:text-red-400">{m.failedTests}F</span>}
+        values={metrics.map((m) => m.testCount)}
+        extra={metrics.map((m) => (
+          <span className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-green-600 dark:text-green-400">{m.passedTests}P</span>
+            {m.failedTests > 0 && <span className="text-xs font-medium text-red-600 dark:text-red-400">{m.failedTests}F</span>}
           </span>
         ))}
       />
