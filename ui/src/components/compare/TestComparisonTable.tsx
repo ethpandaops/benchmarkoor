@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import type { RunResult, SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
-import { Duration } from '@/components/shared/Duration'
 import { Badge } from '@/components/shared/Badge'
 import { Pagination } from '@/components/shared/Pagination'
 
@@ -13,7 +12,7 @@ interface TestComparisonTableProps {
   stepFilter: StepTypeOption[]
 }
 
-type SortColumn = 'order' | 'name' | 'deltaMgas' | 'deltaTime'
+type SortColumn = 'order' | 'name' | 'deltaMgas'
 type SortDirection = 'asc' | 'desc'
 
 interface ComparedTest {
@@ -23,12 +22,9 @@ interface ComparedTest {
   statsB: AggregatedStats | undefined
   mgasA: number | undefined
   mgasB: number | undefined
-  timeA: number
-  timeB: number
   statusA: 'pass' | 'fail' | 'missing'
   statusB: 'pass' | 'fail' | 'missing'
   deltaMgas: number | undefined
-  deltaTime: number
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -101,8 +97,6 @@ export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }
       const statsB = entryB ? getAggregatedStats(entryB, stepFilter) : undefined
       const mgasA = calculateMGasPerSec(statsA)
       const mgasB = calculateMGasPerSec(statsB)
-      const timeA = statsA?.time_total ?? 0
-      const timeB = statsB?.time_total ?? 0
 
       let statusA: 'pass' | 'fail' | 'missing' = 'missing'
       if (statsA) statusA = statsA.fail > 0 ? 'fail' : 'pass'
@@ -118,12 +112,9 @@ export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }
         statsB,
         mgasA,
         mgasB,
-        timeA,
-        timeB,
         statusA,
         statusB,
         deltaMgas: mgasA !== undefined && mgasB !== undefined ? mgasB - mgasA : undefined,
-        deltaTime: timeB - timeA,
       })
     }
     return tests
@@ -148,9 +139,6 @@ export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }
           break
         case 'deltaMgas':
           cmp = (a.deltaMgas ?? 0) - (b.deltaMgas ?? 0)
-          break
-        case 'deltaTime':
-          cmp = a.deltaTime - b.deltaTime
           break
       }
       return sortDir === 'asc' ? cmp : -cmp
@@ -194,9 +182,6 @@ export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }
               <th className="px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-blue-600 dark:text-blue-400">A MGas/s</th>
               <th className="px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-amber-600 dark:text-amber-400">B MGas/s</th>
               <SortableHeader label={'\u0394 MGas/s'} column="deltaMgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
-              <th className="px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-blue-600 dark:text-blue-400">A Time</th>
-              <th className="px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-amber-600 dark:text-amber-400">B Time</th>
-              <SortableHeader label={'\u0394 Time'} column="deltaTime" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
               <th className="px-3 py-3 text-center text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
             </tr>
           </thead>
@@ -204,9 +189,6 @@ export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }
             {paginatedTests.map((test) => {
               const deltaMgasColor = test.deltaMgas !== undefined && test.deltaMgas !== 0
                 ? test.deltaMgas > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                : 'text-gray-400 dark:text-gray-500'
-              const deltaTimeColor = test.deltaTime !== 0
-                ? test.deltaTime < 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                 : 'text-gray-400 dark:text-gray-500'
 
               return (
@@ -225,17 +207,6 @@ export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }
                   </td>
                   <td className={clsx('whitespace-nowrap px-4 py-2 text-right text-sm/6 font-medium', deltaMgasColor)}>
                     {test.deltaMgas !== undefined ? `${test.deltaMgas > 0 ? '+' : ''}${test.deltaMgas.toFixed(2)}` : '-'}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                    {test.timeA > 0 ? <Duration nanoseconds={test.timeA} /> : '-'}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                    {test.timeB > 0 ? <Duration nanoseconds={test.timeB} /> : '-'}
-                  </td>
-                  <td className={clsx('whitespace-nowrap px-4 py-2 text-right text-sm/6 font-medium', deltaTimeColor)}>
-                    {test.timeA > 0 && test.timeB > 0 ? (
-                      <>{test.deltaTime > 0 ? '+' : ''}<Duration nanoseconds={Math.abs(test.deltaTime)} /></>
-                    ) : '-'}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-center">
                     <div className="flex items-center justify-center gap-1">
