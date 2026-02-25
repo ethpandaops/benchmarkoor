@@ -92,31 +92,45 @@ function MetricCard({
   higherIsBetter?: boolean
   formatDelta?: (v: number) => string
 }) {
+  const hasDeltas = deltas?.some((d, i) => i > 0 && d !== undefined)
+
   return (
     <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
       <p className="mb-2 text-sm/6 font-medium text-gray-500 dark:text-gray-400">{label}</p>
-      <div className="flex flex-col gap-1">
-        {values.map((val, i) => {
-          const slot = RUN_SLOTS[i]
-          const delta = deltas?.[i]
-          const isBaseline = i === 0
-          return (
-            <div key={slot.label} className="flex items-center gap-2">
-              <img src={`/img/clients/${clients[i]}.jpg`} alt={clients[i]} className="size-4 rounded-full object-cover" />
-              <span className={clsx('w-3 text-xs/5 font-semibold', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>{slot.label}</span>
-              <span className="text-base/6 font-semibold text-gray-900 dark:text-gray-100">{val}</span>
-              {!isBaseline && delta !== undefined && (
-                <span className="flex items-center gap-1">
-                  <DeltaIndicator value={delta} formatValue={formatDelta} higherIsBetter={higherIsBetter} />
-                  {percentValues && (
-                    <PercentDelta a={percentValues[0]} b={percentValues[i]} higherIsBetter={higherIsBetter} />
-                  )}
-                </span>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      <table className="w-full">
+        <tbody>
+          {values.map((val, i) => {
+            const slot = RUN_SLOTS[i]
+            const delta = deltas?.[i]
+            const isBaseline = i === 0
+            return (
+              <tr key={slot.label}>
+                <td className="w-5 py-0.5 align-middle">
+                  <img src={`/img/clients/${clients[i]}.jpg`} alt={clients[i]} className="size-4 rounded-full object-cover" />
+                </td>
+                <td className={clsx('w-4 py-0.5 align-middle text-xs/5 font-semibold', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
+                  {slot.label}
+                </td>
+                <td className="py-0.5 align-middle text-base/6 font-semibold text-gray-900 dark:text-gray-100">
+                  {val}
+                </td>
+                {hasDeltas && (
+                  <td className="py-0.5 pl-2 text-right align-middle">
+                    {!isBaseline && delta !== undefined && (
+                      <span className="flex items-center justify-end gap-1">
+                        <DeltaIndicator value={delta} formatValue={formatDelta} higherIsBetter={higherIsBetter} />
+                        {percentValues && (
+                          <PercentDelta a={percentValues[0]} b={percentValues[i]} higherIsBetter={higherIsBetter} />
+                        )}
+                      </span>
+                    )}
+                  </td>
+                )}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
