@@ -829,8 +829,8 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
               <div className="flex items-center justify-between">
                 <span className="inline-flex w-28 items-center gap-1.5 rounded-sm bg-gray-100 px-2.5 py-0.5 text-xs/5 font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-300">All</span>
                 <div className="flex gap-2 text-xs/5 font-medium tabular-nums">
-                  <span className="text-red-600 dark:text-red-400">{slowCount} slow</span>
-                  <span className="text-green-600 dark:text-green-400">{fastCount} fast</span>
+                  {slowCount > 0 && <span className="text-red-600 dark:text-red-400">{slowCount} slow</span>}
+                  {fastCount > 0 && <span className="text-green-600 dark:text-green-400">{fastCount} fast</span>}
                 </div>
               </div>
               <div className="relative flex h-16 items-end gap-0.5">
@@ -862,8 +862,8 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
                   <div className="flex items-center justify-between">
                     <ClientBadge client={client} />
                     <div className="flex gap-2 text-xs/5 font-medium tabular-nums">
-                      <span className="text-red-600 dark:text-red-400">{data.slowCount} slow</span>
-                      <span className="text-green-600 dark:text-green-400">{data.fastCount} fast</span>
+                      {data.slowCount > 0 && <span className="text-red-600 dark:text-red-400">{data.slowCount} slow</span>}
+                      {data.fastCount > 0 && <span className="text-green-600 dark:text-green-400">{data.fastCount} fast</span>}
                     </div>
                   </div>
                   <div className="relative flex h-16 items-end gap-0.5">
