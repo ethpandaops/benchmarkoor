@@ -153,7 +153,7 @@ export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) 
         clients={clients}
         values={metrics.map((m) => m.testCount)}
         extra={metrics.map((m) => (
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center justify-end gap-1.5">
             <span className="text-xs font-medium text-green-600 dark:text-green-400">{m.passedTests}P</span>
             {m.failedTests > 0 && <span className="text-xs font-medium text-red-600 dark:text-red-400">{m.failedTests}F</span>}
           </span>
