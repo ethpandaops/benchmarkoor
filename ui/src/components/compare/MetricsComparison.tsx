@@ -78,12 +78,14 @@ function PercentDelta({ a, b, higherIsBetter = true }: { a: number | undefined; 
 function MetricCard({
   label,
   values,
+  clients,
   deltas,
   percentValues,
   higherIsBetter = true,
 }: {
   label: string
   values: React.ReactNode[]
+  clients: string[]
   deltas?: (number | undefined)[]
   percentValues?: (number | undefined)[]
   higherIsBetter?: boolean
@@ -97,7 +99,8 @@ function MetricCard({
           const delta = deltas?.[i]
           const isBaseline = i === 0
           return (
-            <div key={slot.label} className="flex items-baseline gap-2">
+            <div key={slot.label} className="flex items-center gap-2">
+              <img src={`/img/clients/${clients[i]}.jpg`} alt={clients[i]} className="size-4 rounded-full object-cover" />
               <span className={clsx('w-3 text-xs/5 font-semibold', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>{slot.label}</span>
               <span className="text-base/6 font-semibold text-gray-900 dark:text-gray-100">{val}</span>
               {!isBaseline && delta !== undefined && (
@@ -118,12 +121,13 @@ function MetricCard({
 
 export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) {
   const metrics = runs.map((r) => computeMetrics(r.config, r.result, stepFilter))
+  const clients = runs.map((r) => r.config.instance.client)
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <MetricCard
         label="Tests"
-
+        clients={clients}
         values={metrics.map((m) => (
           <span className="flex items-center gap-1">
             {m.testCount}
@@ -134,7 +138,7 @@ export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) 
       />
       <MetricCard
         label="MGas/s"
-
+        clients={clients}
         values={metrics.map((m) => m.mgasPerSec !== undefined ? m.mgasPerSec.toFixed(2) : '-')}
         deltas={metrics.map((m, i) => i === 0 ? undefined : (m.mgasPerSec !== undefined && metrics[0].mgasPerSec !== undefined ? m.mgasPerSec - metrics[0].mgasPerSec : undefined))}
         percentValues={metrics.map((m) => m.mgasPerSec)}
@@ -142,12 +146,12 @@ export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) 
       />
       <MetricCard
         label="Total Gas"
-
+        clients={clients}
         values={metrics.map((m) => formatGas(m.totalGasUsed))}
       />
       <MetricCard
         label="Test Duration"
-
+        clients={clients}
         values={metrics.map((m) => <Duration nanoseconds={m.totalDuration} />)}
         deltas={metrics.map((m, i) => i === 0 ? undefined : (m.totalDuration > 0 && metrics[0].totalDuration > 0 ? m.totalDuration - metrics[0].totalDuration : undefined))}
         percentValues={metrics.map((m) => m.totalDuration)}
@@ -155,7 +159,7 @@ export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) 
       />
       <MetricCard
         label="Total Runtime"
-
+        clients={clients}
         values={metrics.map((m) => m.totalRuntime !== undefined ? formatDurationSeconds(m.totalRuntime) : '-')}
         deltas={metrics.map((m, i) => i === 0 ? undefined : (m.totalRuntime !== undefined && metrics[0].totalRuntime !== undefined ? m.totalRuntime - metrics[0].totalRuntime : undefined))}
         percentValues={metrics.map((m) => m.totalRuntime)}
@@ -163,7 +167,7 @@ export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) 
       />
       <MetricCard
         label="Calls"
-
+        clients={clients}
         values={metrics.map((m) => formatNumber(m.totalMsgCount))}
       />
     </div>
