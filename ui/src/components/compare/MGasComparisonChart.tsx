@@ -210,7 +210,8 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
           {runs.map((run) => {
             const slot = RUN_SLOTS[run.index]
             return (
-              <span key={slot.label} className="flex items-center gap-1">
+              <span key={slot.label} className="flex items-center gap-1.5">
+                <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-4 rounded-full object-cover" />
                 <span className={`inline-block size-2.5 rounded-full ${slot.bgDotClass}`} />
                 <span className="text-gray-500 dark:text-gray-400">Run {slot.label}</span>
               </span>
