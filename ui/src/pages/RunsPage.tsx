@@ -13,6 +13,7 @@ import { Pagination } from '@/components/shared/Pagination'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
 const DEFAULT_PAGE_SIZE = 100
@@ -167,7 +168,7 @@ export function RunsPage() {
     setSelectedRunIds((prev) => {
       const next = new Set(prev)
       if (selected) {
-        if (next.size >= 2) return prev
+        if (next.size >= MAX_COMPARE_RUNS) return prev
         next.add(runId)
       } else {
         next.delete(runId)
@@ -183,12 +184,12 @@ export function RunsPage() {
 
   // Suite match validation for selected runs
   const selectedSuiteInfo = useMemo(() => {
-    if (selectedRunIds.size < 2 || !index) return { match: false, canCompare: false }
+    if (selectedRunIds.size < MIN_COMPARE_RUNS || !index) return { match: false, canCompare: false }
     const ids = Array.from(selectedRunIds)
-    const entryA = index.entries.find((e) => e.run_id === ids[0])
-    const entryB = index.entries.find((e) => e.run_id === ids[1])
-    if (!entryA || !entryB) return { match: false, canCompare: false }
-    const match = !!entryA.suite_hash && !!entryB.suite_hash && entryA.suite_hash === entryB.suite_hash
+    const hashes = new Set(
+      ids.map((id) => index.entries.find((e) => e.run_id === id)?.suite_hash).filter(Boolean),
+    )
+    const match = hashes.size === 1
     return { match, canCompare: true }
   }, [selectedRunIds, index])
 
@@ -322,9 +323,9 @@ export function RunsPage() {
           <div className="mx-auto flex max-w-7xl items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
-                {selectedRunIds.size} of 2 selected
+                {selectedRunIds.size} of {MAX_COMPARE_RUNS} selected
               </span>
-              {selectedRunIds.size === 2 && !selectedSuiteInfo.match && (
+              {selectedRunIds.size >= MIN_COMPARE_RUNS && !selectedSuiteInfo.match && (
                 <span className="text-xs/5 text-yellow-600 dark:text-yellow-400">
                   Different suites — comparison may not be meaningful
                 </span>
@@ -338,10 +339,10 @@ export function RunsPage() {
                 Cancel
               </button>
               <button
-                disabled={selectedRunIds.size !== 2}
+                disabled={selectedRunIds.size < MIN_COMPARE_RUNS}
                 onClick={() => {
                   const ids = Array.from(selectedRunIds)
-                  navigate({ to: '/compare', search: { a: ids[0], b: ids[1] } })
+                  navigate({ to: '/compare', search: { runs: ids.join(',') } })
                 }}
                 className="rounded-sm bg-blue-600 px-4 py-1.5 text-sm/6 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >

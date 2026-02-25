@@ -23,6 +23,7 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { Pagination } from '@/components/shared/Pagination'
+import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
 const DEFAULT_PAGE_SIZE = 100
@@ -108,7 +109,7 @@ export function SuiteDetailPage() {
     setSelectedRunIds((prev) => {
       const next = new Set(prev)
       if (selected) {
-        if (next.size >= 2) return prev
+        if (next.size >= MAX_COMPARE_RUNS) return prev
         next.add(runId)
       } else {
         next.delete(runId)
@@ -808,7 +809,7 @@ export function SuiteDetailPage() {
         <div className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white px-6 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
           <div className="mx-auto flex max-w-7xl items-center justify-between">
             <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
-              {selectedRunIds.size} of 2 selected
+              {selectedRunIds.size} of {MAX_COMPARE_RUNS} selected
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -818,10 +819,10 @@ export function SuiteDetailPage() {
                 Cancel
               </button>
               <button
-                disabled={selectedRunIds.size !== 2}
+                disabled={selectedRunIds.size < MIN_COMPARE_RUNS}
                 onClick={() => {
                   const ids = Array.from(selectedRunIds)
-                  navigate({ to: '/compare', search: { a: ids[0], b: ids[1] } })
+                  navigate({ to: '/compare', search: { runs: ids.join(',') } })
                 }}
                 className="rounded-sm bg-blue-600 px-4 py-1.5 text-sm/6 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >

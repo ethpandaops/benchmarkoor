@@ -4,12 +4,10 @@ import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { Duration } from '@/components/shared/Duration'
 import { formatNumber } from '@/utils/format'
 import { formatDurationSeconds } from '@/utils/date'
+import { type CompareRun, RUN_SLOTS } from './constants'
 
 interface MetricsComparisonProps {
-  configA: RunConfig
-  configB: RunConfig
-  resultA: RunResult | null
-  resultB: RunResult | null
+  runs: CompareRun[]
   stepFilter: StepTypeOption[]
 }
 
@@ -79,103 +77,101 @@ function PercentDelta({ a, b, higherIsBetter = true }: { a: number | undefined; 
 
 function MetricCard({
   label,
-  valueA,
-  valueB,
-  delta,
-  percentA,
-  percentB,
+  values,
+  deltas,
+  percentValues,
   higherIsBetter = true,
+  runCount,
 }: {
   label: string
-  valueA: React.ReactNode
-  valueB: React.ReactNode
-  delta?: number
-  percentA?: number
-  percentB?: number
+  values: React.ReactNode[]
+  deltas?: (number | undefined)[]
+  percentValues?: (number | undefined)[]
   higherIsBetter?: boolean
+  runCount: number
 }) {
   return (
     <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
       <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">{label}</p>
-      <div className="mt-2 grid grid-cols-3 gap-2">
-        <div>
-          <p className="text-xs/5 font-medium text-blue-600 dark:text-blue-400">A</p>
-          <p className="text-lg/7 font-semibold text-gray-900 dark:text-gray-100">{valueA}</p>
-        </div>
-        <div>
-          <p className="text-xs/5 font-medium text-amber-600 dark:text-amber-400">B</p>
-          <p className="text-lg/7 font-semibold text-gray-900 dark:text-gray-100">{valueB}</p>
-        </div>
+      <div className="mt-2 grid gap-2" style={{ gridTemplateColumns: `repeat(${runCount}, 1fr) auto` }}>
+        {values.map((val, i) => {
+          const slot = RUN_SLOTS[i]
+          return (
+            <div key={slot.label}>
+              <p className={clsx('text-xs/5 font-medium', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>{slot.label}</p>
+              <p className="text-lg/7 font-semibold text-gray-900 dark:text-gray-100">{val}</p>
+            </div>
+          )
+        })}
         <div className="flex flex-col items-end justify-center gap-0.5">
-          {delta !== undefined && <DeltaIndicator value={delta} higherIsBetter={higherIsBetter} />}
-          {percentA !== undefined && percentB !== undefined && (
-            <PercentDelta a={percentA} b={percentB} higherIsBetter={higherIsBetter} />
-          )}
+          {deltas?.slice(1).map((delta, i) => {
+            if (delta === undefined) return null
+            const slot = RUN_SLOTS[i + 1]
+            return (
+              <div key={slot.label} className="flex items-center gap-1">
+                <span className={clsx('text-xs/5 font-medium', slot.textClass)}>{slot.label}:</span>
+                <DeltaIndicator value={delta} higherIsBetter={higherIsBetter} />
+                {percentValues && (
+                  <PercentDelta a={percentValues[0]} b={percentValues[i + 1]} higherIsBetter={higherIsBetter} />
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>
   )
 }
 
-export function MetricsComparison({ configA, configB, resultA, resultB, stepFilter }: MetricsComparisonProps) {
-  const a = computeMetrics(configA, resultA, stepFilter)
-  const b = computeMetrics(configB, resultB, stepFilter)
+export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) {
+  const metrics = runs.map((r) => computeMetrics(r.config, r.result, stepFilter))
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <MetricCard
         label="Tests"
-        valueA={
+        runCount={runs.length}
+        values={metrics.map((m) => (
           <span className="flex items-center gap-1">
-            {a.testCount}
-            <span className="text-xs text-green-600 dark:text-green-400">{a.passedTests}P</span>
-            {a.failedTests > 0 && <span className="text-xs text-red-600 dark:text-red-400">{a.failedTests}F</span>}
+            {m.testCount}
+            <span className="text-xs text-green-600 dark:text-green-400">{m.passedTests}P</span>
+            {m.failedTests > 0 && <span className="text-xs text-red-600 dark:text-red-400">{m.failedTests}F</span>}
           </span>
-        }
-        valueB={
-          <span className="flex items-center gap-1">
-            {b.testCount}
-            <span className="text-xs text-green-600 dark:text-green-400">{b.passedTests}P</span>
-            {b.failedTests > 0 && <span className="text-xs text-red-600 dark:text-red-400">{b.failedTests}F</span>}
-          </span>
-        }
+        ))}
       />
       <MetricCard
         label="MGas/s"
-        valueA={a.mgasPerSec !== undefined ? a.mgasPerSec.toFixed(2) : '-'}
-        valueB={b.mgasPerSec !== undefined ? b.mgasPerSec.toFixed(2) : '-'}
-        delta={a.mgasPerSec !== undefined && b.mgasPerSec !== undefined ? b.mgasPerSec - a.mgasPerSec : undefined}
-        percentA={a.mgasPerSec}
-        percentB={b.mgasPerSec}
+        runCount={runs.length}
+        values={metrics.map((m) => m.mgasPerSec !== undefined ? m.mgasPerSec.toFixed(2) : '-')}
+        deltas={metrics.map((m, i) => i === 0 ? undefined : (m.mgasPerSec !== undefined && metrics[0].mgasPerSec !== undefined ? m.mgasPerSec - metrics[0].mgasPerSec : undefined))}
+        percentValues={metrics.map((m) => m.mgasPerSec)}
         higherIsBetter
       />
       <MetricCard
         label="Total Gas"
-        valueA={formatGas(a.totalGasUsed)}
-        valueB={formatGas(b.totalGasUsed)}
+        runCount={runs.length}
+        values={metrics.map((m) => formatGas(m.totalGasUsed))}
       />
       <MetricCard
         label="Test Duration"
-        valueA={<Duration nanoseconds={a.totalDuration} />}
-        valueB={<Duration nanoseconds={b.totalDuration} />}
-        delta={a.totalDuration > 0 && b.totalDuration > 0 ? b.totalDuration - a.totalDuration : undefined}
-        percentA={a.totalDuration}
-        percentB={b.totalDuration}
+        runCount={runs.length}
+        values={metrics.map((m) => <Duration nanoseconds={m.totalDuration} />)}
+        deltas={metrics.map((m, i) => i === 0 ? undefined : (m.totalDuration > 0 && metrics[0].totalDuration > 0 ? m.totalDuration - metrics[0].totalDuration : undefined))}
+        percentValues={metrics.map((m) => m.totalDuration)}
         higherIsBetter={false}
       />
       <MetricCard
         label="Total Runtime"
-        valueA={a.totalRuntime !== undefined ? formatDurationSeconds(a.totalRuntime) : '-'}
-        valueB={b.totalRuntime !== undefined ? formatDurationSeconds(b.totalRuntime) : '-'}
-        delta={a.totalRuntime !== undefined && b.totalRuntime !== undefined ? b.totalRuntime - a.totalRuntime : undefined}
-        percentA={a.totalRuntime}
-        percentB={b.totalRuntime}
+        runCount={runs.length}
+        values={metrics.map((m) => m.totalRuntime !== undefined ? formatDurationSeconds(m.totalRuntime) : '-')}
+        deltas={metrics.map((m, i) => i === 0 ? undefined : (m.totalRuntime !== undefined && metrics[0].totalRuntime !== undefined ? m.totalRuntime - metrics[0].totalRuntime : undefined))}
+        percentValues={metrics.map((m) => m.totalRuntime)}
         higherIsBetter={false}
       />
       <MetricCard
         label="Calls"
-        valueA={formatNumber(a.totalMsgCount)}
-        valueB={formatNumber(b.totalMsgCount)}
+        runCount={runs.length}
+        values={metrics.map((m) => formatNumber(m.totalMsgCount))}
       />
     </div>
   )

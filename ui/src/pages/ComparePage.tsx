@@ -1,7 +1,9 @@
-import { Link, useSearch } from '@tanstack/react-router'
+import { useEffect } from 'react'
+import { Link, useSearch, useNavigate } from '@tanstack/react-router'
+import { useQueries } from '@tanstack/react-query'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
-import { useRunConfig } from '@/api/hooks/useRunConfig'
-import { useRunResult } from '@/api/hooks/useRunResult'
+import type { RunConfig, RunResult } from '@/api/types'
+import { fetchData } from '@/api/client'
 import { useSuite } from '@/api/hooks/useSuite'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -13,6 +15,7 @@ import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
 import { ResourceComparisonCharts } from '@/components/compare/ResourceComparisonCharts'
 import { ConfigDiff } from '@/components/compare/ConfigDiff'
 import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER } from '@/pages/RunDetailPage'
+import { MIN_COMPARE_RUNS, MAX_COMPARE_RUNS, type CompareRun } from '@/components/compare/constants'
 
 function parseStepFilter(param: string | undefined): StepTypeOption[] {
   if (!param) return DEFAULT_STEP_FILTER
@@ -21,34 +24,74 @@ function parseStepFilter(param: string | undefined): StepTypeOption[] {
 }
 
 export function ComparePage() {
+  const navigate = useNavigate()
   const search = useSearch({ from: '/compare' }) as {
+    runs?: string
     a?: string
     b?: string
     steps?: string
   }
-  const { a: runIdA, b: runIdB, steps } = search
 
-  const stepFilter = parseStepFilter(steps)
+  // Backward-compat redirect: ?a=X&b=Y → ?runs=X,Y
+  useEffect(() => {
+    if (search.a && search.b && !search.runs) {
+      navigate({
+        to: '/compare',
+        search: { runs: `${search.a},${search.b}`, steps: search.steps },
+        replace: true,
+      })
+    }
+  }, [search.a, search.b, search.runs, search.steps, navigate])
+
+  const runIds = (search.runs ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, MAX_COMPARE_RUNS)
+
+  const stepFilter = parseStepFilter(search.steps)
   const indexStepFilter: IndexStepType[] = stepFilter.filter(
     (s): s is IndexStepType => ALL_INDEX_STEP_TYPES.includes(s as IndexStepType),
   )
-  // Keep linter happy — indexStepFilter is available for future use
   void indexStepFilter
 
-  const { data: configA, isLoading: loadingConfigA, error: errorConfigA } = useRunConfig(runIdA ?? '')
-  const { data: configB, isLoading: loadingConfigB, error: errorConfigB } = useRunConfig(runIdB ?? '')
-  const { data: resultA, isLoading: loadingResultA } = useRunResult(runIdA ?? '')
-  const { data: resultB, isLoading: loadingResultB } = useRunResult(runIdB ?? '')
+  const configQueries = useQueries({
+    queries: runIds.map((runId) => ({
+      queryKey: ['run', runId, 'config'],
+      queryFn: async () => {
+        const { data, status } = await fetchData<RunConfig>(`runs/${runId}/config.json`)
+        if (!data) throw new Error(`Failed to fetch run config: ${status}`)
+        return data
+      },
+      enabled: !!runId,
+    })),
+  })
 
-  const suiteHash = configA?.suite_hash ?? configB?.suite_hash
+  const resultQueries = useQueries({
+    queries: runIds.map((runId) => ({
+      queryKey: ['run', runId, 'result'],
+      queryFn: async () => {
+        const { data } = await fetchData<RunResult>(`runs/${runId}/result.json`)
+        return data ?? null
+      },
+      enabled: !!runId,
+    })),
+  })
+
+  const suiteHash = configQueries.find((q) => q.data?.suite_hash)?.data?.suite_hash
   const { data: suite } = useSuite(suiteHash)
 
-  if (!runIdA || !runIdB) {
-    return <ErrorState message="Both run IDs (a and b) are required. Use /compare?a={runId}&b={runId}" />
+  // Handle backward-compat redirect in progress
+  if (search.a && search.b && !search.runs) {
+    return <LoadingState message="Redirecting..." />
   }
 
-  const isLoading = loadingConfigA || loadingConfigB || loadingResultA || loadingResultB
-  const error = errorConfigA || errorConfigB
+  if (runIds.length < MIN_COMPARE_RUNS) {
+    return <ErrorState message={`At least ${MIN_COMPARE_RUNS} run IDs are required. Use /compare?runs=id1,id2`} />
+  }
+
+  const isLoading = configQueries.some((q) => q.isLoading) || resultQueries.some((q) => q.isLoading)
+  const error = configQueries.find((q) => q.error)?.error
 
   if (isLoading) {
     return <LoadingState message="Loading runs for comparison..." />
@@ -58,15 +101,24 @@ export function ComparePage() {
     return <ErrorState message={error.message} />
   }
 
-  if (!configA) {
-    return <ErrorState message={`Run A not found: ${runIdA}`} />
+  // Ensure all configs loaded
+  const missingIdx = configQueries.findIndex((q) => !q.data)
+  if (missingIdx !== -1) {
+    return <ErrorState message={`Run not found: ${runIds[missingIdx]}`} />
   }
 
-  if (!configB) {
-    return <ErrorState message={`Run B not found: ${runIdB}`} />
-  }
+  const runs: CompareRun[] = runIds.map((runId, i) => ({
+    runId,
+    config: configQueries[i].data!,
+    result: resultQueries[i].data ?? null,
+    index: i,
+  }))
 
-  const suiteMismatch = configA.suite_hash && configB.suite_hash && configA.suite_hash !== configB.suite_hash
+  // Suite mismatch: check if all hashes are the same
+  const uniqueHashes = new Set(runs.map((r) => r.config.suite_hash).filter(Boolean))
+  const suiteMismatch = uniqueHashes.size > 1
+
+  const allResults = runs.every((r) => r.result !== null)
 
   return (
     <div className="flex flex-col gap-6">
@@ -98,7 +150,7 @@ export function ComparePage() {
         </div>
       )}
 
-      <CompareHeader configA={configA} configB={configB} runIdA={runIdA} runIdB={runIdB} />
+      <CompareHeader runs={runs} />
 
       <div className="flex items-center gap-2">
         <span className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">Metric steps:</span>
@@ -118,40 +170,19 @@ export function ComparePage() {
         </div>
       </div>
 
-      <MetricsComparison
-        configA={configA}
-        configB={configB}
-        resultA={resultA ?? null}
-        resultB={resultB ?? null}
-        stepFilter={stepFilter}
-      />
+      <MetricsComparison runs={runs} stepFilter={stepFilter} />
 
-      {resultA && resultB && (
-        <MGasComparisonChart
-          resultA={resultA}
-          resultB={resultB}
-          suiteTests={suite?.tests}
-          stepFilter={stepFilter}
-        />
+      {allResults && (
+        <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
       )}
 
-      {resultA && resultB && (
-        <TestComparisonTable
-          resultA={resultA}
-          resultB={resultB}
-          suiteTests={suite?.tests}
-          stepFilter={stepFilter}
-        />
+      {allResults && (
+        <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
       )}
 
-      {resultA && resultB && (
-        <ResourceComparisonCharts
-          testsA={resultA.tests}
-          testsB={resultB.tests}
-        />
-      )}
+      {allResults && <ResourceComparisonCharts runs={runs} />}
 
-      <ConfigDiff configA={configA} configB={configB} />
+      <ConfigDiff runs={runs} />
     </div>
   )
 }

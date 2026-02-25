@@ -5,12 +5,10 @@ import { ClientBadge } from '@/components/shared/ClientBadge'
 import { StrategyIcon } from '@/components/shared/StrategyIcon'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
+import { type CompareRun, RUN_SLOTS } from './constants'
 
 interface CompareHeaderProps {
-  configA: RunConfig
-  configB: RunConfig
-  runIdA: string
-  runIdB: string
+  runs: CompareRun[]
 }
 
 function RunCard({
@@ -64,11 +62,27 @@ function RunCard({
   )
 }
 
-export function CompareHeader({ configA, configB, runIdA, runIdB }: CompareHeaderProps) {
+const GRID_COLS: Record<number, string> = {
+  2: 'grid-cols-1 lg:grid-cols-2',
+  3: 'grid-cols-1 lg:grid-cols-3',
+  4: 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-4',
+}
+
+export function CompareHeader({ runs }: CompareHeaderProps) {
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <RunCard config={configA} runId={runIdA} label="Run A" accentClass="border-blue-500" />
-      <RunCard config={configB} runId={runIdB} label="Run B" accentClass="border-amber-500" />
+    <div className={clsx('grid gap-4', GRID_COLS[runs.length] ?? GRID_COLS[2])}>
+      {runs.map((run) => {
+        const slot = RUN_SLOTS[run.index]
+        return (
+          <RunCard
+            key={run.runId}
+            config={run.config}
+            runId={run.runId}
+            label={`Run ${slot.label}`}
+            accentClass={slot.borderClass}
+          />
+        )
+      })}
     </div>
   )
 }

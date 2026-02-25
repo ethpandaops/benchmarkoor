@@ -3,6 +3,7 @@ import ReactECharts from 'echarts-for-react'
 import { Cpu } from 'lucide-react'
 import type { TestEntry, ResourceTotals } from '@/api/types'
 import { formatBytes } from '@/utils/format'
+import { type CompareRun, RUN_SLOTS } from './constants'
 
 interface AggregatedResourceData {
   totals: ResourceTotals
@@ -73,8 +74,7 @@ function useDarkMode() {
 }
 
 interface ResourceComparisonChartsProps {
-  testsA: Record<string, TestEntry>
-  testsB: Record<string, TestEntry>
+  runs: CompareRun[]
 }
 
 interface ResourceDataPoint {
@@ -168,7 +168,7 @@ function ChartSection({ title, option, onZoom }: ChartSectionProps) {
   )
 }
 
-export function ResourceComparisonCharts({ testsA, testsB }: ResourceComparisonChartsProps) {
+export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -180,16 +180,18 @@ export function ResourceComparisonCharts({ testsA, testsB }: ResourceComparisonC
     }
   }, [])
 
-  const pointsA = useMemo(() => buildDataPoints(testsA), [testsA])
-  const pointsB = useMemo(() => buildDataPoints(testsB), [testsB])
+  const pointsPerRun = useMemo(
+    () => runs.map((r) => r.result ? buildDataPoints(r.result.tests) : []),
+    [runs],
+  )
 
-  const hasData = pointsA.length > 0 || pointsB.length > 0
+  const hasData = pointsPerRun.some((p) => p.length > 0)
 
   const chartOptions = useMemo(() => {
     const textColor = isDark ? '#ffffff' : '#374151'
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
-    const maxLen = Math.max(pointsA.length, pointsB.length)
+    const maxLen = Math.max(...pointsPerRun.map((p) => p.length))
 
     const baseConfig = {
       backgroundColor: 'transparent',
@@ -248,14 +250,13 @@ export function ResourceComparisonCharts({ testsA, testsB }: ResourceComparisonC
       ],
     }
 
-    const lineA = {
+    const createLineSeries = () => ({
       type: 'line' as const,
       smooth: maxLen <= 100,
       showSymbol: maxLen <= 100,
       symbolSize: 4,
       lineStyle: { width: 2 },
-    }
-    const lineB = { ...lineA }
+    })
 
     const createTooltip = (formatter: (value: number) => string) => ({
       trigger: 'axis' as const,
@@ -288,76 +289,88 @@ export function ResourceComparisonCharts({ testsA, testsB }: ResourceComparisonC
       splitLine: { lineStyle: { color: splitLineColor } },
     })
 
-    // Colors: A = blue palette, B = amber palette
-    const colorA = '#3b82f6'
-    const colorB = '#f59e0b'
+    // Build simple series (one per run)
+    const buildSimpleSeries = (field: keyof ResourceDataPoint) =>
+      runs.map((_run, i) => {
+        const slot = RUN_SLOTS[i]
+        const points = pointsPerRun[i]
+        return {
+          name: `Run ${slot.label}`,
+          ...createLineSeries(),
+          data: points.map((d) => [d.testIndex, d[field], d.testName]),
+          itemStyle: { color: slot.color },
+          areaStyle: { opacity: 0.08, color: slot.color },
+        }
+      })
+
+    // Build disk series (read solid + write dashed per run)
+    const buildDiskSeries = (readField: keyof ResourceDataPoint, writeField: keyof ResourceDataPoint) =>
+      runs.flatMap((_run, i) => {
+        const slot = RUN_SLOTS[i]
+        const points = pointsPerRun[i]
+        return [
+          {
+            name: `${slot.label} Read`,
+            ...createLineSeries(),
+            data: points.map((d) => [d.testIndex, d[readField], d.testName]),
+            itemStyle: { color: slot.color },
+            areaStyle: { opacity: 0.05, color: slot.color },
+          },
+          {
+            name: `${slot.label} Write`,
+            ...createLineSeries(),
+            data: points.map((d) => [d.testIndex, d[writeField], d.testName]),
+            itemStyle: { color: slot.colorLight },
+            areaStyle: { opacity: 0.05, color: slot.colorLight },
+            lineStyle: { width: 2, type: 'dashed' as const },
+          },
+        ]
+      })
 
     const cpuPercentOption = {
       ...baseConfig,
       tooltip: createTooltip((v) => `${v.toFixed(1)}%`),
       yAxis: createYAxis((value: number) => `${value.toFixed(0)}%`),
-      series: [
-        { name: 'Run A', ...lineA, data: pointsA.map((d) => [d.testIndex, d.cpuPercent, d.testName]), itemStyle: { color: colorA }, areaStyle: { opacity: 0.08, color: colorA } },
-        { name: 'Run B', ...lineB, data: pointsB.map((d) => [d.testIndex, d.cpuPercent, d.testName]), itemStyle: { color: colorB }, areaStyle: { opacity: 0.08, color: colorB } },
-      ],
+      series: buildSimpleSeries('cpuPercent'),
     }
 
     const memoryMBOption = {
       ...baseConfig,
       tooltip: createTooltip((v) => `${v.toFixed(1)} MB`),
       yAxis: createYAxis((value: number) => `${value.toFixed(0)} MB`),
-      series: [
-        { name: 'Run A', ...lineA, data: pointsA.map((d) => [d.testIndex, d.memoryMB, d.testName]), itemStyle: { color: colorA }, areaStyle: { opacity: 0.08, color: colorA } },
-        { name: 'Run B', ...lineB, data: pointsB.map((d) => [d.testIndex, d.memoryMB, d.testName]), itemStyle: { color: colorB }, areaStyle: { opacity: 0.08, color: colorB } },
-      ],
+      series: buildSimpleSeries('memoryMB'),
     }
 
     const cpuTimeOption = {
       ...baseConfig,
       tooltip: createTooltip(formatMicroseconds),
       yAxis: createYAxis((value: number) => formatMicroseconds(value)),
-      series: [
-        { name: 'Run A', ...lineA, data: pointsA.map((d) => [d.testIndex, d.cpuUsec, d.testName]), itemStyle: { color: colorA }, areaStyle: { opacity: 0.08, color: colorA } },
-        { name: 'Run B', ...lineB, data: pointsB.map((d) => [d.testIndex, d.cpuUsec, d.testName]), itemStyle: { color: colorB }, areaStyle: { opacity: 0.08, color: colorB } },
-      ],
+      series: buildSimpleSeries('cpuUsec'),
     }
 
     const memoryDeltaOption = {
       ...baseConfig,
       tooltip: createTooltip((v) => formatBytes(Math.abs(v)) + (v < 0 ? ' freed' : '')),
       yAxis: createYAxis((value: number) => formatBytes(Math.abs(value))),
-      series: [
-        { name: 'Run A', ...lineA, data: pointsA.map((d) => [d.testIndex, d.memoryDelta, d.testName]), itemStyle: { color: colorA }, areaStyle: { opacity: 0.08, color: colorA } },
-        { name: 'Run B', ...lineB, data: pointsB.map((d) => [d.testIndex, d.memoryDelta, d.testName]), itemStyle: { color: colorB }, areaStyle: { opacity: 0.08, color: colorB } },
-      ],
+      series: buildSimpleSeries('memoryDelta'),
     }
 
     const diskBytesOption = {
       ...baseConfig,
       tooltip: createTooltip(formatBytes),
       yAxis: createYAxis((value: number) => formatBytes(value)),
-      series: [
-        { name: 'A Read', ...lineA, data: pointsA.map((d) => [d.testIndex, d.diskRead, d.testName]), itemStyle: { color: '#3b82f6' }, areaStyle: { opacity: 0.05, color: '#3b82f6' } },
-        { name: 'A Write', ...lineA, data: pointsA.map((d) => [d.testIndex, d.diskWrite, d.testName]), itemStyle: { color: '#60a5fa' }, areaStyle: { opacity: 0.05, color: '#60a5fa' }, lineStyle: { width: 2, type: 'dashed' as const } },
-        { name: 'B Read', ...lineB, data: pointsB.map((d) => [d.testIndex, d.diskRead, d.testName]), itemStyle: { color: '#f59e0b' }, areaStyle: { opacity: 0.05, color: '#f59e0b' } },
-        { name: 'B Write', ...lineB, data: pointsB.map((d) => [d.testIndex, d.diskWrite, d.testName]), itemStyle: { color: '#fbbf24' }, areaStyle: { opacity: 0.05, color: '#fbbf24' }, lineStyle: { width: 2, type: 'dashed' as const } },
-      ],
+      series: buildDiskSeries('diskRead', 'diskWrite'),
     }
 
     const diskOpsOption = {
       ...baseConfig,
       tooltip: createTooltip((v) => formatOps(v) + ' ops'),
       yAxis: createYAxis((value: number) => formatOps(value)),
-      series: [
-        { name: 'A Read Ops', ...lineA, data: pointsA.map((d) => [d.testIndex, d.diskReadOps, d.testName]), itemStyle: { color: '#3b82f6' }, areaStyle: { opacity: 0.05, color: '#3b82f6' } },
-        { name: 'A Write Ops', ...lineA, data: pointsA.map((d) => [d.testIndex, d.diskWriteOps, d.testName]), itemStyle: { color: '#60a5fa' }, areaStyle: { opacity: 0.05, color: '#60a5fa' }, lineStyle: { width: 2, type: 'dashed' as const } },
-        { name: 'B Read Ops', ...lineB, data: pointsB.map((d) => [d.testIndex, d.diskReadOps, d.testName]), itemStyle: { color: '#f59e0b' }, areaStyle: { opacity: 0.05, color: '#f59e0b' } },
-        { name: 'B Write Ops', ...lineB, data: pointsB.map((d) => [d.testIndex, d.diskWriteOps, d.testName]), itemStyle: { color: '#fbbf24' }, areaStyle: { opacity: 0.05, color: '#fbbf24' }, lineStyle: { width: 2, type: 'dashed' as const } },
-      ],
+      series: buildDiskSeries('diskReadOps', 'diskWriteOps'),
     }
 
     return { cpuPercentOption, memoryMBOption, cpuTimeOption, memoryDeltaOption, diskBytesOption, diskOpsOption }
-  }, [pointsA, pointsB, isDark, zoomRange])
+  }, [pointsPerRun, runs, isDark, zoomRange])
 
   if (!hasData) return null
 
@@ -367,14 +380,15 @@ export function ResourceComparisonCharts({ testsA, testsB }: ResourceComparisonC
         <Cpu className="size-4 text-gray-400 dark:text-gray-500" />
         <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Resource Usage Comparison</h3>
         <div className="ml-auto flex items-center gap-3 text-xs/5">
-          <span className="flex items-center gap-1">
-            <span className="inline-block size-2.5 rounded-full bg-blue-500" />
-            <span className="text-gray-500 dark:text-gray-400">Run A</span>
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block size-2.5 rounded-full bg-amber-500" />
-            <span className="text-gray-500 dark:text-gray-400">Run B</span>
-          </span>
+          {runs.map((run) => {
+            const slot = RUN_SLOTS[run.index]
+            return (
+              <span key={slot.label} className="flex items-center gap-1">
+                <span className={`inline-block size-2.5 rounded-full ${slot.bgDotClass}`} />
+                <span className="text-gray-500 dark:text-gray-400">Run {slot.label}</span>
+              </span>
+            )
+          })}
         </div>
       </div>
 

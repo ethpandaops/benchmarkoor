@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import type { RunResult, SuiteTest, AggregatedStats } from '@/api/types'
+import type { SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { Badge } from '@/components/shared/Badge'
 import { Pagination } from '@/components/shared/Pagination'
+import { type CompareRun, RUN_SLOTS } from './constants'
 
 interface TestComparisonTableProps {
-  resultA: RunResult
-  resultB: RunResult
+  runs: CompareRun[]
   suiteTests?: SuiteTest[]
   stepFilter: StepTypeOption[]
 }
@@ -18,12 +18,8 @@ type SortDirection = 'asc' | 'desc'
 interface ComparedTest {
   name: string
   order: number
-  statsA: AggregatedStats | undefined
-  statsB: AggregatedStats | undefined
-  mgasA: number | undefined
-  mgasB: number | undefined
-  statusA: 'pass' | 'fail' | 'missing'
-  statusB: 'pass' | 'fail' | 'missing'
+  mgas: (number | undefined)[]
+  status: ('pass' | 'fail' | 'missing')[]
   deltaMgas: number | undefined
 }
 
@@ -76,14 +72,22 @@ function SortableHeader({
 
 const PAGE_SIZE = 50
 
-export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }: TestComparisonTableProps) {
+export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestComparisonTableProps) {
   const [sortBy, setSortBy] = useState<SortColumn>('order')
   const [sortDir, setSortDir] = useState<SortDirection>('asc')
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
 
   const comparedTests = useMemo(() => {
-    const allTestNames = new Set([...Object.keys(resultA.tests), ...Object.keys(resultB.tests)])
+    const allTestNames = new Set<string>()
+    for (const run of runs) {
+      if (run.result) {
+        for (const name of Object.keys(run.result.tests)) {
+          allTestNames.add(name)
+        }
+      }
+    }
+
     const suiteOrder = new Map<string, number>()
     if (suiteTests) {
       suiteTests.forEach((t, i) => suiteOrder.set(t.name, i + 1))
@@ -91,34 +95,34 @@ export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }
 
     const tests: ComparedTest[] = []
     for (const name of allTestNames) {
-      const entryA = resultA.tests[name]
-      const entryB = resultB.tests[name]
-      const statsA = entryA ? getAggregatedStats(entryA, stepFilter) : undefined
-      const statsB = entryB ? getAggregatedStats(entryB, stepFilter) : undefined
-      const mgasA = calculateMGasPerSec(statsA)
-      const mgasB = calculateMGasPerSec(statsB)
+      const mgas: (number | undefined)[] = []
+      const status: ('pass' | 'fail' | 'missing')[] = []
+      let order = suiteOrder.get(name) ?? 0
 
-      let statusA: 'pass' | 'fail' | 'missing' = 'missing'
-      if (statsA) statusA = statsA.fail > 0 ? 'fail' : 'pass'
-      let statusB: 'pass' | 'fail' | 'missing' = 'missing'
-      if (statsB) statusB = statsB.fail > 0 ? 'fail' : 'pass'
+      for (const run of runs) {
+        const entry = run.result?.tests[name]
+        const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
+        mgas.push(calculateMGasPerSec(stats))
 
-      const order = suiteOrder.get(name) ?? (entryA ? parseInt(entryA.dir, 10) || 0 : (entryB ? parseInt(entryB.dir, 10) || 0 : 0))
+        if (stats) {
+          status.push(stats.fail > 0 ? 'fail' : 'pass')
+        } else {
+          status.push('missing')
+        }
 
-      tests.push({
-        name,
-        order,
-        statsA,
-        statsB,
-        mgasA,
-        mgasB,
-        statusA,
-        statusB,
-        deltaMgas: mgasA !== undefined && mgasB !== undefined ? mgasB - mgasA : undefined,
-      })
+        if (order === 0 && entry) {
+          order = parseInt(entry.dir, 10) || 0
+        }
+      }
+
+      const deltaMgas = mgas[0] !== undefined && mgas[mgas.length - 1] !== undefined
+        ? mgas[mgas.length - 1]! - mgas[0]!
+        : undefined
+
+      tests.push({ name, order, mgas, status, deltaMgas })
     }
     return tests
-  }, [resultA, resultB, suiteTests, stepFilter])
+  }, [runs, suiteTests, stepFilter])
 
   const filteredTests = useMemo(() => {
     if (!searchQuery) return comparedTests
@@ -154,7 +158,7 @@ export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }
       setSortDir(sortDir === 'desc' ? 'asc' : 'desc')
     } else {
       setSortBy(column)
-      setSortDir(column === 'deltaMgas' ? 'asc' : 'asc')
+      setSortDir('asc')
     }
     setCurrentPage(1)
   }
@@ -179,8 +183,14 @@ export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }
             <tr>
               <SortableHeader label="#" column="order" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-12 px-3 py-3" />
               <SortableHeader label="Test Name" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-              <th className="px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-blue-600 dark:text-blue-400">A MGas/s</th>
-              <th className="px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-amber-600 dark:text-amber-400">B MGas/s</th>
+              {runs.map((run) => {
+                const slot = RUN_SLOTS[run.index]
+                return (
+                  <th key={slot.label} className={clsx('px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
+                    {slot.label} MGas/s
+                  </th>
+                )
+              })}
               <SortableHeader label={'\u0394 MGas/s'} column="deltaMgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
               <th className="px-3 py-3 text-center text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
             </tr>
@@ -199,19 +209,19 @@ export function TestComparisonTable({ resultA, resultB, suiteTests, stepFilter }
                   <td className="max-w-sm truncate px-4 py-2 text-sm/6 text-gray-900 dark:text-gray-100" title={test.name}>
                     {test.name}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-2 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                    {test.mgasA !== undefined ? test.mgasA.toFixed(2) : '-'}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                    {test.mgasB !== undefined ? test.mgasB.toFixed(2) : '-'}
-                  </td>
+                  {test.mgas.map((val, i) => (
+                    <td key={RUN_SLOTS[i].label} className="whitespace-nowrap px-4 py-2 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+                      {val !== undefined ? val.toFixed(2) : '-'}
+                    </td>
+                  ))}
                   <td className={clsx('whitespace-nowrap px-4 py-2 text-right text-sm/6 font-medium', deltaMgasColor)}>
                     {test.deltaMgas !== undefined ? `${test.deltaMgas > 0 ? '+' : ''}${test.deltaMgas.toFixed(2)}` : '-'}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-center">
                     <div className="flex items-center justify-center gap-1">
-                      <StatusDot status={test.statusA} label="A" />
-                      <StatusDot status={test.statusB} label="B" />
+                      {test.status.map((s, i) => (
+                        <StatusDot key={RUN_SLOTS[i].label} status={s} label={RUN_SLOTS[i].label} />
+                      ))}
                     </div>
                   </td>
                 </tr>
