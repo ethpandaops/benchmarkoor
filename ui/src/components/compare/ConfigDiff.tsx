@@ -25,7 +25,7 @@ function DiffRow({ label, valueA, valueB }: { label: string; valueA: string; val
 }
 
 export function ConfigDiff({ configA, configB }: ConfigDiffProps) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
 
   const instA = configA.instance
   const instB = configB.instance
