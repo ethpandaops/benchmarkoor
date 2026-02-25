@@ -315,9 +315,11 @@ func (p *zfsProvider) rollbackSnapshot(ctx context.Context, snapshotName string)
 	return nil
 }
 
-// destroyClone destroys a ZFS clone dataset.
+// destroyClone unmounts and destroys a ZFS clone dataset.
 func (p *zfsProvider) destroyClone(cloneDataset string) error {
 	p.log.WithField("clone_dataset", cloneDataset).Info("Destroying ZFS clone")
+
+	unmountZFSDataset(p.log, cloneDataset)
 
 	//nolint:gosec // Command args are controlled by the application.
 	cmd := exec.Command("zfs", "destroy", cloneDataset)
@@ -423,6 +425,29 @@ func ListOrphanedZFSResources(ctx context.Context) ([]ZFSOrphanedResource, error
 	return resources, scanner.Err()
 }
 
+// unmountZFSDataset attempts to unmount a ZFS dataset before it is destroyed.
+// It first tries a regular unmount, then falls back to a forced unmount.
+// Errors are logged as warnings because the dataset may not be mounted.
+func unmountZFSDataset(log logrus.FieldLogger, dataset string) {
+	//nolint:gosec // Command args are controlled by the application.
+	cmd := exec.Command("zfs", "unmount", dataset)
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.WithError(err).WithField("output", string(output)).
+			Debug("Regular ZFS unmount failed, trying forced unmount")
+
+		//nolint:gosec // Command args are controlled by the application.
+		forceCmd := exec.Command("zfs", "unmount", "-f", dataset)
+
+		if output, err := forceCmd.CombinedOutput(); err != nil {
+			log.WithError(err).WithFields(logrus.Fields{
+				"dataset": dataset,
+				"output":  string(output),
+			}).Debug("Forced ZFS unmount failed (dataset may not be mounted)")
+		}
+	}
+}
+
 // CleanupOrphanedZFSResources removes orphaned ZFS clones and snapshots.
 // Clones must be destroyed before their parent snapshots.
 func CleanupOrphanedZFSResources(ctx context.Context, log logrus.FieldLogger, resources []ZFSOrphanedResource) error {
@@ -437,9 +462,11 @@ func CleanupOrphanedZFSResources(ctx context.Context, log logrus.FieldLogger, re
 		}
 	}
 
-	// Destroy clones first.
+	// Destroy clones first (unmount before destroy to release busy mounts).
 	for _, clone := range clones {
 		log.WithField("clone", clone.Name).Info("Destroying orphaned ZFS clone")
+
+		unmountZFSDataset(log, clone.Name)
 
 		//nolint:gosec // Command args are controlled by the application.
 		cmd := exec.CommandContext(ctx, "zfs", "destroy", clone.Name)
