@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
-import { ChevronRight, LayoutGrid, Clock, Grid3X3 } from 'lucide-react'
+import { ChevronRight, SquareStack, LayoutGrid, Clock, Grid3X3 } from 'lucide-react'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
@@ -101,6 +101,27 @@ export function SuiteDetailPage() {
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [compareMode, setCompareMode] = useState(false)
+  const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set())
+
+  const handleSelectionChange = useCallback((runId: string, selected: boolean) => {
+    setSelectedRunIds((prev) => {
+      const next = new Set(prev)
+      if (selected) {
+        if (next.size >= 2) return prev
+        next.add(runId)
+      } else {
+        next.delete(runId)
+      }
+      return next
+    })
+  }, [])
+
+  const handleExitCompareMode = useCallback(() => {
+    setCompareMode(false)
+    setSelectedRunIds(new Set())
+  }, [])
+
   const [heatmapExpanded, setHeatmapExpanded] = useState(true)
   const [chartExpanded, setChartExpanded] = useState(true)
   const [chartZoomRange, setChartZoomRange] = useState({ start: 0, end: 100 })
@@ -655,16 +676,18 @@ export function SuiteDetailPage() {
                     </div>
                   )}
                 </div>
-                <RunFilters
-                  clients={clients}
-                  selectedClient={client}
-                  onClientChange={handleClientChange}
-                  images={images}
-                  selectedImage={image}
-                  onImageChange={handleImageChange}
-                  selectedStatus={status}
-                  onStatusChange={handleStatusChange}
-                />
+                <div className="flex flex-wrap items-end gap-4">
+                  <RunFilters
+                    clients={clients}
+                    selectedClient={client}
+                    onClientChange={handleClientChange}
+                    images={images}
+                    selectedImage={image}
+                    onImageChange={handleImageChange}
+                    selectedStatus={status}
+                    onStatusChange={handleStatusChange}
+                  />
+                </div>
                 {filteredRuns.length === 0 ? (
                   <p className="py-8 text-center text-sm/6 text-gray-500 dark:text-gray-400">
                     No runs match the selected filters.
@@ -672,7 +695,18 @@ export function SuiteDetailPage() {
                 ) : (
                   <>
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => compareMode ? handleExitCompareMode() : setCompareMode(true)}
+                          className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                            compareMode
+                              ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
+                              : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
+                          }`}
+                          title="Compare"
+                        >
+                          <SquareStack className="size-4" />
+                        </button>
                         <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
                         <select
                           value={runsPageSize}
@@ -691,7 +725,7 @@ export function SuiteDetailPage() {
                         <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
                       )}
                     </div>
-                    <RunsTable entries={paginatedRuns} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} stepFilter={stepFilter} />
+                    <RunsTable entries={paginatedRuns} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} stepFilter={stepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
@@ -769,6 +803,34 @@ export function SuiteDetailPage() {
           </TabPanel>
         </TabPanels>
       </TabGroup>
+
+      {compareMode && (
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white px-6 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
+            <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+              {selectedRunIds.size} of 2 selected
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExitCompareMode}
+                className="rounded-sm px-3 py-1.5 text-sm/6 font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={selectedRunIds.size !== 2}
+                onClick={() => {
+                  const ids = Array.from(selectedRunIds)
+                  navigate({ to: '/compare', search: { a: ids[0], b: ids[1] } })
+                }}
+                className="rounded-sm bg-blue-600 px-4 py-1.5 text-sm/6 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Compare
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
