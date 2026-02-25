@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { ChevronUp, Flame, Maximize2, X } from 'lucide-react'
@@ -74,6 +74,35 @@ function percentile(sorted: number[], p: number): number {
   const hi = Math.ceil(idx)
   if (lo === hi) return sorted[lo]
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo)
+}
+
+// Select the top N elements by a comparator without fully sorting the array.
+// Returns a new sorted (descending) array of at most n elements.
+function topN<T>(arr: T[], n: number, cmp: (a: T, b: T) => number): T[] {
+  if (arr.length <= n) {
+    return [...arr].sort(cmp)
+  }
+  // Use a simple insertion-based approach for small n
+  const result: T[] = []
+  for (const item of arr) {
+    if (result.length < n) {
+      result.push(item)
+      // Keep sorted by insertion
+      for (let i = result.length - 1; i > 0 && cmp(result[i - 1], result[i]) > 0; i--) {
+        const tmp = result[i]
+        result[i] = result[i - 1]
+        result[i - 1] = tmp
+      }
+    } else if (cmp(item, result[result.length - 1]) < 0) {
+      result[result.length - 1] = item
+      for (let i = result.length - 1; i > 0 && cmp(result[i - 1], result[i]) > 0; i--) {
+        const tmp = result[i]
+        result[i] = result[i - 1]
+        result[i - 1] = tmp
+      }
+    }
+  }
+  return result
 }
 
 function splitByMatch(name: string, search: string, isRegex: boolean): { text: string; highlight: boolean }[] {
@@ -206,22 +235,35 @@ interface TestHeatmapProps {
   onShowClientStatChange?: (show: boolean) => void
   histogramStat?: (typeof STAT_COLUMNS)[number]
   onHistogramStatChange?: (stat: (typeof STAT_COLUMNS)[number]) => void
+  threshold?: number
+  onThresholdChange?: (threshold: number) => void
+  runsPerClient?: number
+  onRunsPerClientChange?: (count: number) => void
+  pageSize?: number
+  onPageSizeChange?: (size: number) => void
 }
 
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | (typeof STAT_COLUMNS)[number]
 
-export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, suiteName, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange, useRegex: useRegexProp, onUseRegexChange, fullscreen: fullscreenProp, onFullscreenChange, showClientStat: showClientStatProp, onShowClientStatChange, histogramStat: histogramStatProp, onHistogramStatChange }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, suiteName, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange, useRegex: useRegexProp, onUseRegexChange, fullscreen: fullscreenProp, onFullscreenChange, showClientStat: showClientStatProp, onShowClientStatChange, histogramStat: histogramStatProp, onHistogramStatChange, threshold: thresholdProp, onThresholdChange, runsPerClient: runsPerClientProp, onRunsPerClientChange, pageSize: pageSizeProp, onPageSizeChange }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [internalPageSize, setInternalPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const pageSize = pageSizeProp ?? internalPageSize
+  const setPageSize = onPageSizeChange ?? setInternalPageSize
   const [sortField, setSortField] = useState<SortField>('avgMgas')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
-  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
+  const [internalThreshold, setInternalThreshold] = useState(DEFAULT_THRESHOLD)
+  const threshold = thresholdProp ?? internalThreshold
+  const setThreshold = onThresholdChange ?? setInternalThreshold
+  const deferredThreshold = useDeferredValue(threshold)
   const [internalHistogramStat, setInternalHistogramStat] = useState<(typeof STAT_COLUMNS)[number]>('avgMgas')
   const histogramStat = histogramStatProp ?? internalHistogramStat
   const setHistogramStat = onHistogramStatChange ?? setInternalHistogramStat
-  const [runsPerClient, setRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
+  const [internalRunsPerClient, setInternalRunsPerClient] = useState(DEFAULT_RUNS_PER_CLIENT)
+  const runsPerClient = runsPerClientProp ?? internalRunsPerClient
+  const setRunsPerClient = onRunsPerClientChange ?? setInternalRunsPerClient
   const showClientStat = showClientStatProp ?? false
   const setShowClientStat = onShowClientStatChange ?? (() => {})
   const showTestName = showTestNameProp ?? false
@@ -296,9 +338,8 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
 
       for (const [client, runs] of Object.entries(clientRunsMap)) {
         if (runs.length === 0) continue
-        // Sort by run_start descending (most recent first)
-        runs.sort((a, b) => b.runStart - a.runStart)
-        const recentRuns = runs.slice(0, runsPerClient)
+        // Select top N most recent runs without fully sorting
+        const recentRuns = topN(runs, runsPerClient, (a, b) => b.runStart - a.runStart)
         clientRuns[client] = recentRuns
 
         // Track the most recent run across all clients
@@ -387,11 +428,12 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   // Calculate histogram data for distribution graph (respects search filter)
+  // Use deferredThreshold so the slider stays responsive while histograms recompute
   const { bins: histogramData, slowCount, fastCount } = useMemo(() => {
     if (filteredTests.length === 0) return { bins: [] as HistogramBin[], slowCount: 0, fastCount: 0 }
     const values = filteredTests.map((test) => test[histogramStat])
-    return computeHistogramBins(values, threshold)
-  }, [filteredTests, threshold, histogramStat])
+    return computeHistogramBins(values, deferredThreshold)
+  }, [filteredTests, deferredThreshold, histogramStat])
 
   // Per-client histogram data (respects search filter)
   const perClientHistogramData = useMemo(() => {
@@ -404,11 +446,11 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
         if (cs) values.push(cs[field])
       }
       if (values.length > 0) {
-        result[client] = computeHistogramBins(values, threshold)
+        result[client] = computeHistogramBins(values, deferredThreshold)
       }
     }
     return result
-  }, [filteredTests, clients, threshold, histogramStat])
+  }, [filteredTests, clients, deferredThreshold, histogramStat])
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
