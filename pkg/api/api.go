@@ -220,7 +220,7 @@ func (s *server) Stop() error {
 	return nil
 }
 
-const defaultIndexingInterval = 60 * time.Second
+const defaultIndexingInterval = 10 * time.Minute
 
 // prepareIndexing creates the storage reader, index store, and indexer
 // without starting the background goroutine. Call indexer.Start() separately

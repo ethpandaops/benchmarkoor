@@ -2043,7 +2043,7 @@ func (c *Config) validateAPIIndexing() error {
 	// Validate interval.
 	interval := idx.Interval
 	if interval == "" {
-		interval = "60s"
+		interval = "10m"
 	}
 
 	if _, err := time.ParseDuration(interval); err != nil {

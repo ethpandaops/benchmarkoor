@@ -265,7 +265,7 @@ When enabled, the indexer runs an initial pass on startup and then re-scans at t
 api:
   indexing:
     enabled: true
-    interval: "60s"
+    interval: "10m"
     concurrency: 4
     database:
       driver: sqlite
@@ -276,7 +276,7 @@ api:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable the background indexing service |
-| `interval` | string | `60s` | How often to re-scan storage for new/updated runs (Go duration string) |
+| `interval` | string | `10m` | How often to re-scan storage for new/updated runs (Go duration string) |
 | `concurrency` | int | `4` | Number of runs to index in parallel. Higher values speed up indexing but increase I/O and memory usage. Set to `1` for sequential processing |
 | `database.driver` | string | Required | Database driver (`sqlite` or `postgres`). This is a **separate** database from the auth database |
 | `database.sqlite.path` | string | When driver=sqlite | Path to the index SQLite database file |
@@ -459,7 +459,7 @@ api:
         - results
   indexing:
     enabled: true
-    interval: "60s"
+    interval: "10m"
     concurrency: 8
     database:
       driver: sqlite
@@ -503,7 +503,7 @@ api:
         results: /data/benchmarkoor/results
   indexing:
     enabled: true
-    interval: "60s"
+    interval: "10m"
     database:
       driver: sqlite
       sqlite:
