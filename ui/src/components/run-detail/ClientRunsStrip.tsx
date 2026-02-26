@@ -37,7 +37,7 @@ function isRunCompleted(run: IndexEntry): boolean {
   return !run.status || run.status === 'completed'
 }
 
-const MAX_RUNS = 38
+const MAX_RUNS = 34
 
 interface TooltipData {
   run: IndexEntry
