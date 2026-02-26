@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/api/store"
@@ -106,6 +107,14 @@ func (s *server) handleFileRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Fall back to S3 presigned URL generation.
 	if s.presigner != nil {
+		// HEAD requests: return object metadata directly so the UI can
+		// read Content-Length without presigned URL indirection.
+		if r.Method == http.MethodHead {
+			s.handleS3Head(w, r, filePath)
+
+			return
+		}
+
 		url, err := s.presigner.GeneratePresignedURL(r.Context(), filePath)
 		if err != nil {
 			s.log.WithError(err).
@@ -134,6 +143,32 @@ func (s *server) handleFileRequest(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusNotFound,
 		errorResponse{"storage not configured"})
+}
+
+// handleS3Head retrieves object metadata from S3 and writes the
+// Content-Length and Content-Type headers so the UI can determine
+// file sizes without downloading the object.
+func (s *server) handleS3Head(
+	w http.ResponseWriter,
+	r *http.Request,
+	filePath string,
+) {
+	result, err := s.presigner.HeadObject(r.Context(), filePath)
+	if err != nil {
+		s.log.WithError(err).
+			WithField("path", filePath).
+			Debug("S3 HeadObject failed")
+
+		w.WriteHeader(http.StatusNotFound)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", result.ContentType)
+	w.Header().Set(
+		"Content-Length", strconv.FormatInt(result.ContentLength, 10),
+	)
+	w.WriteHeader(http.StatusOK)
 }
 
 // --- Auth handlers ---

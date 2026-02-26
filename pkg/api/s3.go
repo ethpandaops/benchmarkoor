@@ -25,12 +25,19 @@ type presignCacheEntry struct {
 type s3Presigner struct {
 	log            logrus.FieldLogger
 	cfg            *config.APIS3Config
+	client         *s3.Client
 	presignClient  *s3.PresignClient
 	expiry         time.Duration
 	discoveryPaths []string
 	cacheTTL       time.Duration
 	mu             sync.RWMutex
 	cache          map[string]presignCacheEntry
+}
+
+// headObjectResult holds the metadata returned by HeadObject.
+type headObjectResult struct {
+	ContentLength int64
+	ContentType   string
 }
 
 // newS3Presigner creates a new S3 presigner from the given configuration.
@@ -55,6 +62,7 @@ func newS3Presigner(
 	return &s3Presigner{
 		log:            log.WithField("component", "s3-presigner"),
 		cfg:            cfg,
+		client:         client,
 		presignClient:  presignClient,
 		expiry:         expiry,
 		discoveryPaths: paths,
@@ -107,6 +115,41 @@ func (p *s3Presigner) GeneratePresignedURL(
 	}
 
 	return result.URL, nil
+}
+
+// HeadObject retrieves object metadata from S3 for the given key.
+func (p *s3Presigner) HeadObject(
+	ctx context.Context,
+	key string,
+) (*headObjectResult, error) {
+	if !p.isAllowedPath(key) {
+		return nil, fmt.Errorf(
+			"path %q is not within any allowed discovery path", key,
+		)
+	}
+
+	out, err := p.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(p.cfg.Bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("heading object %q: %w", key, err)
+	}
+
+	ct := "application/octet-stream"
+	if out.ContentType != nil {
+		ct = *out.ContentType
+	}
+
+	var cl int64
+	if out.ContentLength != nil {
+		cl = *out.ContentLength
+	}
+
+	return &headObjectResult{
+		ContentLength: cl,
+		ContentType:   ct,
+	}, nil
 }
 
 // isAllowedPath checks that the key is clean and falls under a discovery path.

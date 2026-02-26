@@ -59,6 +59,7 @@ func (s *server) buildRouter() http.Handler {
 			}
 
 			r.Get("/*", s.handleFileRequest)
+			r.Head("/*", s.handleFileRequest)
 		})
 
 		// Admin endpoints (require auth + admin role).
@@ -104,7 +105,7 @@ func (s *server) buildRouter() http.Handler {
 // corsMiddleware returns a CORS handler configured from the API config.
 func (s *server) corsMiddleware() func(http.Handler) http.Handler {
 	opts := cors.Options{
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,
 		MaxAge:           300,
