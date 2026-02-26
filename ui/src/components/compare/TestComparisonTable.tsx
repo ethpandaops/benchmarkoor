@@ -74,6 +74,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
   const [sortBy, setSortBy] = useState<SortColumn>('order')
   const [sortDir, setSortDir] = useState<SortDirection>('asc')
   const [searchQuery, setSearchQuery] = useState('')
+  const [useRegex, setUseRegex] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
 
   const comparedTests = useMemo(() => {
@@ -116,9 +117,17 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
 
   const filteredTests = useMemo(() => {
     if (!searchQuery) return comparedTests
+    if (useRegex) {
+      try {
+        const re = new RegExp(searchQuery, 'i')
+        return comparedTests.filter((t) => re.test(t.name))
+      } catch {
+        return comparedTests
+      }
+    }
     const q = searchQuery.toLowerCase()
     return comparedTests.filter((t) => t.name.toLowerCase().includes(q))
-  }, [comparedTests, searchQuery])
+  }, [comparedTests, searchQuery, useRegex])
 
   const sortedTests = useMemo(() => {
     const sorted = [...filteredTests]
@@ -159,13 +168,32 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
         <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
           Per-Test Comparison ({filteredTests.length})
         </h3>
-        <input
-          type="text"
-          placeholder="Filter tests..."
-          value={searchQuery}
-          onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-          className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
-        />
+        <div className="flex items-center gap-1.5">
+          <input
+            type="text"
+            placeholder={useRegex ? 'Regex pattern...' : 'Filter tests...'}
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
+            className={clsx(
+              'rounded-xs border bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
+              useRegex && searchQuery && (() => { try { new RegExp(searchQuery); return false } catch { return true } })()
+                ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
+                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
+            )}
+          />
+          <button
+            onClick={() => setUseRegex(!useRegex)}
+            title={useRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
+            className={clsx(
+              'rounded-xs px-1.5 py-1 font-mono text-sm/6 transition-colors',
+              useRegex
+                ? 'bg-blue-500 text-white'
+                : 'border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+            )}
+          >
+            .*
+          </button>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
