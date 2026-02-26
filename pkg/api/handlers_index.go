@@ -148,3 +148,28 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, stats)
 }
+
+// handleRunIndexer triggers an immediate indexing pass. It returns 409 if
+// an indexing pass is already in progress.
+func (s *server) handleRunIndexer(w http.ResponseWriter, r *http.Request) {
+	if s.indexer == nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"indexing is not enabled"})
+
+		return
+	}
+
+	if started := s.indexer.RunNow(); !started {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"status":  "already_running",
+			"message": "Indexing pass already in progress",
+		})
+
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{
+		"status":  "started",
+		"message": "Indexing pass started",
+	})
+}

@@ -16,9 +16,10 @@ import {
   useUserMappings,
   useUpsertUserMapping,
   useDeleteUserMapping,
+  useRunIndexer,
 } from '@/api/hooks/useAdmin'
 import { useAdminApiKeys, useDeleteAdminApiKey } from '@/api/hooks/useApiKeys'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Play, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 
 type Tab = 'users' | 'github-mappings' | 'sessions' | 'api-keys'
@@ -540,19 +541,36 @@ function AdminAPIKeysTab() {
 function ConfigOverview({ config }: { config: AuthConfig }) {
   const s3 = config.storage?.s3
   const local = config.storage?.local
+  const indexingEnabled = config.indexing?.enabled ?? false
+
+  const runIndexer = useRunIndexer()
+  const [indexerMessage, setIndexerMessage] = useState<{ text: string; isError: boolean } | null>(null)
+
+  const handleRunIndexer = async () => {
+    setIndexerMessage(null)
+    try {
+      const result = await runIndexer.mutateAsync()
+      setIndexerMessage({ text: result.message, isError: false })
+    } catch (err) {
+      setIndexerMessage({
+        text: err instanceof Error ? err.message : 'Failed to trigger indexer',
+        isError: true,
+      })
+    }
+  }
 
   const items: { label: string; enabled: boolean }[] = [
     { label: 'Basic Auth', enabled: config.auth.basic_enabled },
     { label: 'GitHub Auth', enabled: config.auth.github_enabled },
     { label: 'S3 Storage', enabled: s3?.enabled ?? false },
     { label: 'Local Storage', enabled: local?.enabled ?? false },
-    { label: 'Indexing', enabled: config.indexing?.enabled ?? false },
+    { label: 'Indexing', enabled: indexingEnabled },
   ]
 
   return (
     <div className="mb-6 rounded-sm border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
       <h2 className="mb-2 text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Config</h2>
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
         {items.map((item) => (
           <span key={item.label} className="flex items-center gap-1.5">
             <span
@@ -564,7 +582,33 @@ function ConfigOverview({ config }: { config: AuthConfig }) {
             <span className="text-gray-700 dark:text-gray-300">{item.label}</span>
           </span>
         ))}
+        {indexingEnabled && (
+          <button
+            onClick={handleRunIndexer}
+            disabled={runIndexer.isPending}
+            className="flex items-center gap-1 rounded-sm border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            {runIndexer.isPending ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <Play className="size-3" />
+            )}
+            Run Indexer
+          </button>
+        )}
       </div>
+      {indexerMessage && (
+        <div
+          className={clsx(
+            'mt-2 text-xs',
+            indexerMessage.isError
+              ? 'text-red-600 dark:text-red-400'
+              : 'text-green-600 dark:text-green-400',
+          )}
+        >
+          {indexerMessage.text}
+        </div>
+      )}
       {s3?.enabled && s3.discovery_paths.length > 0 && (
         <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           S3 discovery paths: {s3.discovery_paths.join(', ')}

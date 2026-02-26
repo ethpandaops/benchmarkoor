@@ -24,6 +24,9 @@ const defaultConcurrency = 4
 type Indexer interface {
 	Start(ctx context.Context) error
 	Stop() error
+	// RunNow triggers an immediate indexing pass. Returns true if a
+	// new pass was kicked off, false if one is already running.
+	RunNow() bool
 }
 
 // Compile-time interface check.
@@ -35,9 +38,11 @@ type indexer struct {
 	reader      storage.Reader
 	interval    time.Duration
 	concurrency int
+	ctx         context.Context // lifecycle context set by Start
 	done        chan struct{}
 	wg          sync.WaitGroup
-	dbMu        sync.Mutex // serializes DB writes to avoid SQLite contention
+	running     atomic.Bool // prevents overlapping indexing passes
+	dbMu        sync.Mutex  // serializes DB writes to avoid SQLite contention
 }
 
 // NewIndexer creates a new background indexer.
@@ -66,6 +71,8 @@ func NewIndexer(
 // pass and then ticks at the configured interval. The first pass is
 // asynchronous so the caller (the API server) is not blocked.
 func (idx *indexer) Start(ctx context.Context) error {
+	idx.ctx = ctx
+
 	idx.log.WithFields(logrus.Fields{
 		"interval":    idx.interval.String(),
 		"concurrency": idx.concurrency,
@@ -107,8 +114,43 @@ func (idx *indexer) Stop() error {
 	return nil
 }
 
-// runPass executes one full indexing pass across all discovery paths.
+// RunNow triggers an immediate indexing pass in a background goroutine.
+// It returns true if a new pass was started, false if one is already running.
+// The running flag is claimed synchronously via CAS so concurrent callers
+// get an accurate answer before the goroutine is scheduled. The pass uses
+// the lifecycle context from Start, not a request-scoped context.
+func (idx *indexer) RunNow() bool {
+	if !idx.running.CompareAndSwap(false, true) {
+		return false
+	}
+
+	idx.wg.Add(1)
+
+	go func() {
+		defer idx.wg.Done()
+
+		idx.runPassInner(idx.ctx)
+	}()
+
+	return true
+}
+
+// runPass attempts to run one indexing pass if no other pass is active.
+// Used by the periodic ticker and initial startup pass.
 func (idx *indexer) runPass(ctx context.Context) {
+	if !idx.running.CompareAndSwap(false, true) {
+		return
+	}
+
+	idx.runPassInner(ctx)
+}
+
+// runPassInner executes one full indexing pass across all discovery paths.
+// The caller must have already set running to true; this method resets it
+// on return.
+func (idx *indexer) runPassInner(ctx context.Context) {
+	defer idx.running.Store(false)
+
 	start := time.Now()
 	paths := idx.reader.DiscoveryPaths()
 

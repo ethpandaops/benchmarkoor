@@ -28,7 +28,7 @@ async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
   })
   if (!resp.ok) {
     const data = await resp.json().catch(() => ({ error: 'Request failed' }))
-    throw new Error(data.error || `Request failed: ${resp.status}`)
+    throw new Error(data.error || data.message || `Request failed: ${resp.status}`)
   }
   return resp.json()
 }
@@ -127,6 +127,19 @@ export function useDeleteOrgMapping() {
     mutationFn: (id: number) =>
       adminFetch(`/api/v1/admin/github/org-mappings/${id}`, { method: 'DELETE' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'orgMappings'] }),
+  })
+}
+
+// Indexer
+interface RunIndexerResponse {
+  status: string
+  message: string
+}
+
+export function useRunIndexer() {
+  return useMutation<RunIndexerResponse, Error>({
+    mutationFn: () =>
+      adminFetch('/api/v1/admin/indexer/run', { method: 'POST' }),
   })
 }
 

@@ -339,6 +339,7 @@ All endpoints are under the `/api/v1` prefix.
 | `GET` | `/admin/github/user-mappings` | List user role mappings |
 | `POST` | `/admin/github/user-mappings` | Create/update user mapping |
 | `DELETE` | `/admin/github/user-mappings/{id}` | Delete user mapping |
+| `POST` | `/admin/indexer/run` | Trigger an immediate indexing pass. Returns 409 if already running. Requires [indexing](#indexing) to be enabled |
 
 ### Index (requires authentication unless `anonymous_read` is enabled)
 

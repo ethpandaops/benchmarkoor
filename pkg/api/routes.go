@@ -123,6 +123,11 @@ func (s *server) buildRouter() http.Handler {
 				s.handleUpsertUserMapping)
 			r.Delete("/github/user-mappings/{id}",
 				s.handleDeleteUserMapping)
+
+			// Indexer management.
+			if s.indexer != nil {
+				r.Post("/indexer/run", s.handleRunIndexer)
+			}
 		})
 	})
 
