@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
-import { ChevronRight, SquareStack, LayoutGrid, Clock, Grid3X3 } from 'lucide-react'
+import { ChevronRight, SquareStack, GitCompareArrows, LayoutGrid, Clock, Grid3X3 } from 'lucide-react'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
@@ -163,6 +163,24 @@ export function SuiteDetailPage() {
     const clientSet = new Set(suiteRunsAll.map((e) => e.instance.client))
     return Array.from(clientSet).sort()
   }, [suiteRunsAll])
+
+  // Most recent successful run per client, for quick cross-client comparison.
+  const recentSuccessfulPerClient = useMemo(() => {
+    const sorted = [...completedRuns].sort((a, b) => b.timestamp - a.timestamp)
+    const seen = new Set<string>()
+    const result: typeof completedRuns = []
+
+    for (const run of sorted) {
+      if (seen.has(run.instance.client)) continue
+      if (run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total) {
+        seen.add(run.instance.client)
+        result.push(run)
+      }
+      if (result.length >= MAX_COMPARE_RUNS) break
+    }
+
+    return result
+  }, [completedRuns])
 
   const images = useMemo(() => {
     const imageSet = new Set(suiteRunsAll.map((e) => e.instance.image))
@@ -551,17 +569,44 @@ export function SuiteDetailPage() {
                   </span>
                 </div>
                 <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                  <button
-                    onClick={() => setHeatmapExpanded(!heatmapExpanded)}
-                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-                  >
-                    <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', heatmapExpanded && 'rotate-90')} />
-                    <LayoutGrid className="size-4 text-gray-400 dark:text-gray-500" />
-                    Recent Runs by Client
-                  </button>
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <button
+                      onClick={() => setHeatmapExpanded(!heatmapExpanded)}
+                      className="flex items-center gap-2 text-left text-sm/6 font-medium text-gray-900 hover:text-gray-700 dark:text-gray-100 dark:hover:text-gray-300"
+                    >
+                      <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', heatmapExpanded && 'rotate-90')} />
+                      <LayoutGrid className="size-4 text-gray-400 dark:text-gray-500" />
+                      Recent Runs by Client
+                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => compareMode ? handleExitCompareMode() : setCompareMode(true)}
+                        className={clsx(
+                          'flex cursor-pointer items-center justify-center rounded-sm p-1 shadow-xs ring-1 ring-inset transition-colors',
+                          compareMode
+                            ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
+                            : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200',
+                        )}
+                        title="Compare"
+                      >
+                        <SquareStack className="size-3.5" />
+                      </button>
+                      <button
+                        disabled={recentSuccessfulPerClient.length < MIN_COMPARE_RUNS}
+                        onClick={() => {
+                          const ids = recentSuccessfulPerClient.map((r) => r.run_id)
+                          navigate({ to: '/compare', search: { runs: ids.join(',') } })
+                        }}
+                        className="flex cursor-pointer items-center justify-center rounded-sm p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                        title="Compare latest successful run per client"
+                      >
+                        <GitCompareArrows className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
                   {heatmapExpanded && (
                     <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                      <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} />
+                      <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
                     </div>
                   )}
                 </div>
@@ -707,6 +752,17 @@ export function SuiteDetailPage() {
                           title="Compare"
                         >
                           <SquareStack className="size-4" />
+                        </button>
+                        <button
+                          disabled={recentSuccessfulPerClient.length < MIN_COMPARE_RUNS}
+                          onClick={() => {
+                            const ids = recentSuccessfulPerClient.map((r) => r.run_id)
+                            navigate({ to: '/compare', search: { runs: ids.join(',') } })
+                          }}
+                          className="flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                          title="Compare latest successful run per client"
+                        >
+                          <GitCompareArrows className="size-4" />
                         </button>
                         <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
                         <select

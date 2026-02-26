@@ -136,7 +136,13 @@ export function RunsTable({
             return (
             <tr
               key={entry.run_id}
-              onClick={() => navigate({ to: '/runs/$runId', params: { runId: entry.run_id } })}
+              onClick={() => {
+                if (selectable) {
+                  onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id))
+                } else {
+                  navigate({ to: '/runs/$runId', params: { runId: entry.run_id } })
+                }
+              }}
               className={clsx(
                 'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
                 entry.status === 'container_died' && 'bg-red-50/50 dark:bg-red-900/10',
