@@ -82,6 +82,9 @@ func (s *server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	resp["storage"] = storageResp
+	resp["indexing"] = map[string]any{
+		"enabled": s.indexStore != nil,
+	}
 
 	writeJSON(w, http.StatusOK, resp)
 }

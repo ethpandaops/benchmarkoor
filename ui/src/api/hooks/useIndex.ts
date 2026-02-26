@@ -1,14 +1,52 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchData, fetchViaS3 } from '../client'
-import type { Index } from '../types'
+import type { Index, IndexEntry } from '../types'
 import {
   loadRuntimeConfig,
   isS3Mode,
   isLocalMode,
+  isIndexingEnabled,
   registerDiscoveryMapping,
 } from '@/config/runtime'
 
 const emptyIndex: Index = { generated: 0, entries: [] }
+
+// API index entry includes discovery_path for mapping.
+interface APIIndexEntry extends IndexEntry {
+  discovery_path?: string
+}
+
+interface APIIndex {
+  generated: number
+  entries: APIIndexEntry[]
+}
+
+async function fetchIndexFromAPI(): Promise<Index> {
+  const config = await loadRuntimeConfig()
+  if (!config.api?.baseUrl) return emptyIndex
+
+  const response = await fetch(`${config.api.baseUrl}/api/v1/index`, {
+    credentials: 'include',
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch index from API: ${response.status}`)
+  }
+
+  const apiIndex: APIIndex = await response.json()
+
+  // Register discovery path mappings from the API response.
+  for (const entry of apiIndex.entries) {
+    if (entry.discovery_path) {
+      registerDiscoveryMapping(entry.run_id, entry.discovery_path)
+      if (entry.suite_hash) {
+        registerDiscoveryMapping(entry.suite_hash, entry.discovery_path)
+      }
+    }
+  }
+
+  return { generated: apiIndex.generated, entries: apiIndex.entries }
+}
 
 async function fetchS3Index(): Promise<Index> {
   const config = await loadRuntimeConfig()
@@ -96,6 +134,10 @@ export function useIndex() {
     queryKey: ['index'],
     queryFn: async () => {
       const config = await loadRuntimeConfig()
+
+      if (isIndexingEnabled(config)) {
+        return fetchIndexFromAPI()
+      }
 
       if (isS3Mode(config)) {
         return fetchS3Index()

@@ -67,6 +67,24 @@ func (s *server) buildRouter() http.Handler {
 			r.Head("/*", s.handleFileRequest)
 		})
 
+		// Index endpoints (when indexing is enabled).
+		if s.indexStore != nil {
+			r.Route("/index", func(r chi.Router) {
+				if !s.cfg.Auth.AnonymousRead {
+					r.Use(s.requireAuth)
+				}
+
+				if s.cfg.Server.RateLimit.Enabled {
+					r.Use(s.rateLimitMiddleware(
+						s.cfg.Server.RateLimit.Authenticated,
+					))
+				}
+
+				r.Get("/", s.handleIndex)
+				r.Get("/suites/{hash}/stats", s.handleSuiteStats)
+			})
+		}
+
 		// Admin endpoints (require auth + admin role).
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireAuth)

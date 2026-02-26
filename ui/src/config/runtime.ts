@@ -9,12 +9,17 @@ export interface StorageConfig {
   }
 }
 
+export interface IndexingConfig {
+  enabled: boolean
+}
+
 export interface RuntimeConfig {
   dataSource: string
   title?: string
   refreshInterval?: number
   api?: { baseUrl: string }
   storage?: StorageConfig
+  indexing?: IndexingConfig
 }
 
 let cachedConfig: RuntimeConfig | null = null
@@ -40,6 +45,9 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
           if (apiConfig.storage) {
             config.storage = apiConfig.storage
           }
+          if (apiConfig.indexing) {
+            config.indexing = apiConfig.indexing
+          }
         }
       } catch {
         // API config fetch failed, continue without storage config
@@ -59,6 +67,10 @@ export function isS3Mode(config: RuntimeConfig): boolean {
 
 export function isLocalMode(config: RuntimeConfig): boolean {
   return config.storage?.local?.enabled === true
+}
+
+export function isIndexingEnabled(config: RuntimeConfig): boolean {
+  return config.indexing?.enabled === true
 }
 
 // Maps runId/suiteHash → discovery path for S3 routing
