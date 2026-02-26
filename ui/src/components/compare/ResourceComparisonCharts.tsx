@@ -318,30 +318,6 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
         }
       })
 
-    // Build disk series (read solid + write dashed per run)
-    const buildDiskSeries = (readField: keyof ResourceDataPoint, writeField: keyof ResourceDataPoint) =>
-      runs.flatMap((_run, i) => {
-        const slot = RUN_SLOTS[i]
-        const points = pointsPerRun[i]
-        return [
-          {
-            name: `${slot.label} Read`,
-            ...createLineSeries(),
-            data: points.map((d) => [d.testIndex, d[readField], d.testName]),
-            itemStyle: { color: slot.color },
-            areaStyle: { opacity: 0.05, color: slot.color },
-          },
-          {
-            name: `${slot.label} Write`,
-            ...createLineSeries(),
-            data: points.map((d) => [d.testIndex, d[writeField], d.testName]),
-            itemStyle: { color: slot.colorLight },
-            areaStyle: { opacity: 0.05, color: slot.colorLight },
-            lineStyle: { width: 2, type: 'dashed' as const },
-          },
-        ]
-      })
-
     const cpuPercentOption = {
       ...baseConfig,
       tooltip: createTooltip((v) => `${v.toFixed(1)}%`),
@@ -370,21 +346,35 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
       series: buildSimpleSeries('memoryDelta'),
     }
 
-    const diskBytesOption = {
+    const diskReadBytesOption = {
       ...baseConfig,
       tooltip: createTooltip(formatBytes),
       yAxis: createYAxis((value: number) => formatBytes(value)),
-      series: buildDiskSeries('diskRead', 'diskWrite'),
+      series: buildSimpleSeries('diskRead'),
     }
 
-    const diskOpsOption = {
+    const diskWriteBytesOption = {
+      ...baseConfig,
+      tooltip: createTooltip(formatBytes),
+      yAxis: createYAxis((value: number) => formatBytes(value)),
+      series: buildSimpleSeries('diskWrite'),
+    }
+
+    const diskReadOpsOption = {
       ...baseConfig,
       tooltip: createTooltip((v) => formatOps(v) + ' ops'),
       yAxis: createYAxis((value: number) => formatOps(value)),
-      series: buildDiskSeries('diskReadOps', 'diskWriteOps'),
+      series: buildSimpleSeries('diskReadOps'),
     }
 
-    return { cpuPercentOption, memoryMBOption, cpuTimeOption, memoryDeltaOption, diskBytesOption, diskOpsOption }
+    const diskWriteOpsOption = {
+      ...baseConfig,
+      tooltip: createTooltip((v) => formatOps(v) + ' ops'),
+      yAxis: createYAxis((value: number) => formatOps(value)),
+      series: buildSimpleSeries('diskWriteOps'),
+    }
+
+    return { cpuPercentOption, memoryMBOption, cpuTimeOption, memoryDeltaOption, diskReadBytesOption, diskWriteBytesOption, diskReadOpsOption, diskWriteOpsOption }
   }, [pointsPerRun, runs, isDark, zoomRange])
 
   if (!hasData) return null
@@ -412,8 +402,10 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
         <ChartSection title="Memory Usage (MB)" option={chartOptions.memoryMBOption} onZoom={handleZoom} />
         <ChartSection title="CPU Time" option={chartOptions.cpuTimeOption} onZoom={handleZoom} />
         <ChartSection title="Memory Delta" option={chartOptions.memoryDeltaOption} onZoom={handleZoom} />
-        <ChartSection title="Disk I/O (Bytes)" option={chartOptions.diskBytesOption} onZoom={handleZoom} />
-        <ChartSection title="Disk IOPS" option={chartOptions.diskOpsOption} onZoom={handleZoom} />
+        <ChartSection title="Disk Read (Bytes)" option={chartOptions.diskReadBytesOption} onZoom={handleZoom} />
+        <ChartSection title="Disk Write (Bytes)" option={chartOptions.diskWriteBytesOption} onZoom={handleZoom} />
+        <ChartSection title="Disk Read IOPS" option={chartOptions.diskReadOpsOption} onZoom={handleZoom} />
+        <ChartSection title="Disk Write IOPS" option={chartOptions.diskWriteOpsOption} onZoom={handleZoom} />
       </div>
 
       <p className="mt-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">
