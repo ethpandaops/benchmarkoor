@@ -12,15 +12,15 @@ interface TestComparisonTableProps {
   stepFilter: StepTypeOption[]
 }
 
-type SortColumn = 'order' | 'name' | 'deltaMgas'
+type SortColumn = 'order' | 'name' | 'avgMgas'
 type SortDirection = 'asc' | 'desc'
 
 interface ComparedTest {
   name: string
   order: number
   mgas: (number | undefined)[]
+  avgMgas: number | undefined
   status: ('pass' | 'fail' | 'missing')[]
-  deltaMgas: number | undefined
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -115,11 +115,10 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
         }
       }
 
-      const deltaMgas = mgas[0] !== undefined && mgas[mgas.length - 1] !== undefined
-        ? mgas[mgas.length - 1]! - mgas[0]!
-        : undefined
+      const defined = mgas.filter((v): v is number => v !== undefined)
+      const avgMgas = defined.length > 0 ? defined.reduce((a, b) => a + b, 0) / defined.length : undefined
 
-      tests.push({ name, order, mgas, status, deltaMgas })
+      tests.push({ name, order, mgas, avgMgas, status })
     }
     return tests
   }, [runs, suiteTests, stepFilter])
@@ -141,8 +140,8 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
         case 'name':
           cmp = a.name.localeCompare(b.name)
           break
-        case 'deltaMgas':
-          cmp = (a.deltaMgas ?? 0) - (b.deltaMgas ?? 0)
+        case 'avgMgas':
+          cmp = (a.avgMgas ?? 0) - (b.avgMgas ?? 0)
           break
       }
       return sortDir === 'asc' ? cmp : -cmp
@@ -183,6 +182,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
             <tr>
               <SortableHeader label="#" column="order" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-12 px-3 py-3" />
               <SortableHeader label="Test Name" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+              <SortableHeader label="Avg" column="avgMgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
               {runs.map((run) => {
                 const slot = RUN_SLOTS[run.index]
                 return (
@@ -194,15 +194,13 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
                   </th>
                 )
               })}
-              <SortableHeader label={'\u0394 MGas/s'} column="deltaMgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
               <th className="px-3 py-3 text-center text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {paginatedTests.map((test) => {
-              const deltaMgasColor = test.deltaMgas !== undefined && test.deltaMgas !== 0
-                ? test.deltaMgas > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                : 'text-gray-400 dark:text-gray-500'
+              const definedMgas = test.mgas.filter((v): v is number => v !== undefined)
+              const maxMgas = definedMgas.length > 0 ? Math.max(...definedMgas) : undefined
 
               return (
                 <tr key={test.name} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
@@ -212,14 +210,25 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
                   <td className="max-w-sm truncate px-4 py-2 text-sm/6 text-gray-900 dark:text-gray-100" title={test.name}>
                     {test.name}
                   </td>
-                  {test.mgas.map((val, i) => (
-                    <td key={RUN_SLOTS[i].label} className="whitespace-nowrap px-4 py-2 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-                      {val !== undefined ? val.toFixed(2) : '-'}
-                    </td>
-                  ))}
-                  <td className={clsx('whitespace-nowrap px-4 py-2 text-right text-sm/6 font-medium', deltaMgasColor)}>
-                    {test.deltaMgas !== undefined ? `${test.deltaMgas > 0 ? '+' : ''}${test.deltaMgas.toFixed(2)}` : '-'}
+                  <td className="whitespace-nowrap px-4 py-2 text-right text-sm/6 text-gray-400 dark:text-gray-500">
+                    {test.avgMgas !== undefined ? test.avgMgas.toFixed(2) : '-'}
                   </td>
+                  {test.mgas.map((val, i) => {
+                    const diff = val !== undefined && maxMgas !== undefined ? val - maxMgas : undefined
+                    const isFastest = val !== undefined && val === maxMgas
+                    return (
+                      <td key={RUN_SLOTS[i].label} className="whitespace-nowrap px-4 py-2 text-right text-sm/6">
+                        <div className={isFastest ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
+                          {val !== undefined ? val.toFixed(2) : '-'}
+                        </div>
+                        {diff !== undefined && !isFastest && (
+                          <div className="text-xs/4 text-red-500 dark:text-red-400">
+                            {diff.toFixed(2)}
+                          </div>
+                        )}
+                      </td>
+                    )
+                  })}
                   <td className="whitespace-nowrap px-3 py-2 text-center">
                     <div className="flex items-center justify-center gap-1">
                       {test.status.map((s, i) => (
