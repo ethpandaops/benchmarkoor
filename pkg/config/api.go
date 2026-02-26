@@ -2,10 +2,20 @@ package config
 
 // APIConfig contains all API server configuration.
 type APIConfig struct {
-	Server   APIServerConfig   `yaml:"server" mapstructure:"server"`
-	Auth     APIAuthConfig     `yaml:"auth" mapstructure:"auth"`
-	Database APIDatabaseConfig `yaml:"database" mapstructure:"database"`
-	Storage  APIStorageConfig  `yaml:"storage,omitempty" mapstructure:"storage"`
+	Server   APIServerConfig    `yaml:"server" mapstructure:"server"`
+	Auth     APIAuthConfig      `yaml:"auth" mapstructure:"auth"`
+	Database APIDatabaseConfig  `yaml:"database" mapstructure:"database"`
+	Storage  APIStorageConfig   `yaml:"storage,omitempty" mapstructure:"storage"`
+	Indexing *APIIndexingConfig `yaml:"indexing,omitempty" mapstructure:"indexing"`
+}
+
+// APIIndexingConfig configures the background indexing service that
+// scans storage backends and maintains a queryable index in a database.
+type APIIndexingConfig struct {
+	Enabled     bool              `yaml:"enabled" mapstructure:"enabled"`
+	Interval    string            `yaml:"interval,omitempty" mapstructure:"interval"`
+	Concurrency int               `yaml:"concurrency,omitempty" mapstructure:"concurrency"`
+	Database    APIDatabaseConfig `yaml:"database" mapstructure:"database"`
 }
 
 // APIStorageConfig contains storage backend settings for serving files.

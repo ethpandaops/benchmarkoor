@@ -33,6 +33,7 @@ results/
 tmp/
 *.log
 *.db
+*.db-journal
 .ai_plans
 config.yaml
 summary-*.md

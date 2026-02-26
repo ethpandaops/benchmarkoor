@@ -1892,6 +1892,11 @@ func (c *Config) ValidateAPI() error {
 		return err
 	}
 
+	// Validate indexing settings.
+	if err := c.validateAPIIndexing(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -2010,6 +2015,85 @@ func (c *Config) validateAPILocalStorage() error {
 			return fmt.Errorf(
 				"api.storage.local.discovery_paths[%s]: "+
 					"path must not contain \"..\"", name,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateAPIIndexing validates the indexing service configuration.
+func (c *Config) validateAPIIndexing() error {
+	idx := c.API.Indexing
+	if idx == nil || !idx.Enabled {
+		return nil
+	}
+
+	// At least one storage backend must be configured for indexing.
+	s3Enabled := c.API.Storage.S3 != nil && c.API.Storage.S3.Enabled
+	localEnabled := c.API.Storage.Local != nil && c.API.Storage.Local.Enabled
+
+	if !s3Enabled && !localEnabled {
+		return fmt.Errorf(
+			"api.indexing: at least one storage backend " +
+				"(s3 or local) must be configured when indexing is enabled",
+		)
+	}
+
+	// Validate interval.
+	interval := idx.Interval
+	if interval == "" {
+		interval = "60s"
+	}
+
+	if _, err := time.ParseDuration(interval); err != nil {
+		return fmt.Errorf(
+			"api.indexing.interval: invalid duration %q: %w",
+			idx.Interval, err,
+		)
+	}
+
+	// Validate concurrency.
+	if idx.Concurrency < 0 {
+		return fmt.Errorf(
+			"api.indexing.concurrency: must be >= 0 (0 means default)",
+		)
+	}
+
+	// Validate database driver.
+	switch idx.Database.Driver {
+	case "sqlite", "postgres":
+	default:
+		return fmt.Errorf(
+			"api.indexing.database.driver: invalid value %q "+
+				"(must be \"sqlite\" or \"postgres\")",
+			idx.Database.Driver,
+		)
+	}
+
+	if idx.Database.Driver == "sqlite" && idx.Database.SQLite.Path == "" {
+		return fmt.Errorf(
+			"api.indexing.database.sqlite.path is required",
+		)
+	}
+
+	if idx.Database.Driver == "postgres" {
+		pg := idx.Database.Postgres
+		if pg.Host == "" {
+			return fmt.Errorf(
+				"api.indexing.database.postgres.host is required",
+			)
+		}
+
+		if pg.User == "" {
+			return fmt.Errorf(
+				"api.indexing.database.postgres.user is required",
+			)
+		}
+
+		if pg.Database == "" {
+			return fmt.Errorf(
+				"api.indexing.database.postgres.database is required",
 			)
 		}
 	}

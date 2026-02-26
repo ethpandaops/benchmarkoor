@@ -2189,3 +2189,184 @@ runner:
 		assert.Nil(t, cfg.Runner.Benchmark.Tests.Metadata.Labels)
 	})
 }
+
+func TestValidateAPIIndexing(t *testing.T) {
+	// Helper to build a Config with API indexing and minimal valid fields.
+	makeConfig := func(idx *APIIndexingConfig, storage APIStorageConfig) Config {
+		return Config{
+			API: &APIConfig{
+				Auth: APIAuthConfig{
+					SessionTTL: "24h",
+					Basic: BasicAuthConfig{
+						Enabled: true,
+						Users: []BasicAuthUser{
+							{Username: "admin", Password: "pass", Role: "admin"},
+						},
+					},
+				},
+				Database: APIDatabaseConfig{Driver: "sqlite"},
+				Storage:  storage,
+				Indexing: idx,
+			},
+		}
+	}
+
+	validLocalStorage := APIStorageConfig{
+		Local: &APILocalStorageConfig{
+			Enabled:        true,
+			DiscoveryPaths: map[string]string{"results": "/tmp/results"},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		idx       *APIIndexingConfig
+		storage   APIStorageConfig
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "nil indexing config is valid",
+			idx:     nil,
+			storage: validLocalStorage,
+			wantErr: false,
+		},
+		{
+			name:    "disabled indexing is valid",
+			idx:     &APIIndexingConfig{Enabled: false},
+			storage: validLocalStorage,
+			wantErr: false,
+		},
+		{
+			name: "valid sqlite indexing config",
+			idx: &APIIndexingConfig{
+				Enabled:  true,
+				Interval: "30s",
+				Database: APIDatabaseConfig{
+					Driver: "sqlite",
+					SQLite: SQLiteDatabaseConfig{Path: "/tmp/index.db"},
+				},
+			},
+			storage: validLocalStorage,
+			wantErr: false,
+		},
+		{
+			name: "valid postgres indexing config",
+			idx: &APIIndexingConfig{
+				Enabled:  true,
+				Interval: "60s",
+				Database: APIDatabaseConfig{
+					Driver: "postgres",
+					Postgres: PostgresConfig{
+						Host:     "localhost",
+						Port:     5432,
+						User:     "bench",
+						Password: "secret",
+						Database: "indexdb",
+					},
+				},
+			},
+			storage: validLocalStorage,
+			wantErr: false,
+		},
+		{
+			name: "missing database driver",
+			idx: &APIIndexingConfig{
+				Enabled:  true,
+				Interval: "30s",
+				Database: APIDatabaseConfig{
+					Driver: "",
+				},
+			},
+			storage:   validLocalStorage,
+			wantErr:   true,
+			errSubstr: "api.indexing.database.driver",
+		},
+		{
+			name: "invalid database driver",
+			idx: &APIIndexingConfig{
+				Enabled:  true,
+				Interval: "30s",
+				Database: APIDatabaseConfig{
+					Driver: "mysql",
+				},
+			},
+			storage:   validLocalStorage,
+			wantErr:   true,
+			errSubstr: "api.indexing.database.driver",
+		},
+		{
+			name: "missing sqlite path",
+			idx: &APIIndexingConfig{
+				Enabled:  true,
+				Interval: "30s",
+				Database: APIDatabaseConfig{
+					Driver: "sqlite",
+					SQLite: SQLiteDatabaseConfig{Path: ""},
+				},
+			},
+			storage:   validLocalStorage,
+			wantErr:   true,
+			errSubstr: "api.indexing.database.sqlite.path is required",
+		},
+		{
+			name: "missing postgres host",
+			idx: &APIIndexingConfig{
+				Enabled:  true,
+				Interval: "30s",
+				Database: APIDatabaseConfig{
+					Driver: "postgres",
+					Postgres: PostgresConfig{
+						Host:     "",
+						User:     "bench",
+						Database: "indexdb",
+					},
+				},
+			},
+			storage:   validLocalStorage,
+			wantErr:   true,
+			errSubstr: "api.indexing.database.postgres.host is required",
+		},
+		{
+			name: "invalid interval duration",
+			idx: &APIIndexingConfig{
+				Enabled:  true,
+				Interval: "notaduration",
+				Database: APIDatabaseConfig{
+					Driver: "sqlite",
+					SQLite: SQLiteDatabaseConfig{Path: "/tmp/index.db"},
+				},
+			},
+			storage:   validLocalStorage,
+			wantErr:   true,
+			errSubstr: "api.indexing.interval: invalid duration",
+		},
+		{
+			name: "no storage backend configured",
+			idx: &APIIndexingConfig{
+				Enabled:  true,
+				Interval: "30s",
+				Database: APIDatabaseConfig{
+					Driver: "sqlite",
+					SQLite: SQLiteDatabaseConfig{Path: "/tmp/index.db"},
+				},
+			},
+			storage:   APIStorageConfig{},
+			wantErr:   true,
+			errSubstr: "at least one storage backend",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := makeConfig(tt.idx, tt.storage)
+			err := cfg.validateAPIIndexing()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

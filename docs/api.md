@@ -14,6 +14,7 @@ When the `api` section is absent from the config, the API server cannot be start
 - [Authentication](#authentication)
 - [Database](#database)
 - [Storage](#storage)
+- [Indexing](#indexing)
 - [API Endpoints](#api-endpoints)
 - [Environment Variable Overrides](#environment-variable-overrides)
 - [UI Integration](#ui-integration)
@@ -254,6 +255,53 @@ Requested file paths are validated before serving (both S3 and local backends):
 - Partial prefix matches are rejected (e.g., `results_backup/file` does not match prefix `results`)
 - For local storage, an additional defense-in-depth check ensures the resolved absolute path stays under the discovery root
 
+## Indexing
+
+The optional `api.indexing` section enables a background indexing service that periodically scans the configured storage backend and maintains a queryable index in a separate database. This replaces the need to manually generate `index.json` and `stats.json` files via CLI commands.
+
+When enabled, the indexer runs an initial pass on startup and then re-scans at the configured interval. Indexing is **incremental** — only new runs and runs that were previously incomplete (no `result.json` at last index time, non-terminal status) are processed. Runs are indexed in parallel using a bounded worker pool.
+
+```yaml
+api:
+  indexing:
+    enabled: true
+    interval: "60s"
+    concurrency: 4
+    database:
+      driver: sqlite
+      sqlite:
+        path: benchmarkoor-index.db
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable the background indexing service |
+| `interval` | string | `60s` | How often to re-scan storage for new/updated runs (Go duration string) |
+| `concurrency` | int | `4` | Number of runs to index in parallel. Higher values speed up indexing but increase I/O and memory usage. Set to `1` for sequential processing |
+| `database.driver` | string | Required | Database driver (`sqlite` or `postgres`). This is a **separate** database from the auth database |
+| `database.sqlite.path` | string | When driver=sqlite | Path to the index SQLite database file |
+| `database.postgres.*` | - | When driver=postgres | PostgreSQL connection settings (same schema as the [auth database](#postgresql)) |
+
+**Requirements:**
+- At least one [storage backend](#storage) (S3 or local) must be configured
+- The indexing database is separate from the auth database — use a different file path or database name
+
+**How it works:**
+
+1. On startup, the API server prepares the index database and storage reader, then starts the HTTP server.
+2. After the HTTP server is listening, the background indexer starts its first pass asynchronously.
+3. Each pass iterates over configured discovery paths and lists all run IDs from storage.
+4. New and incomplete runs are indexed in parallel (bounded by `concurrency`):
+   - `config.json` and `result.json` are read concurrently per run
+   - An index entry is built and upserted into the database
+   - If `result.json` is present, per-test durations are bulk-inserted
+5. The UI queries the index via dedicated API endpoints instead of reading raw JSON files.
+
+**When to use indexing:**
+- You have many runs and generating `index.json` / `stats.json` via CLI is slow
+- You want the UI to always show up-to-date data without manual regeneration
+- You are running the API server as a long-lived service
+
 ## API Endpoints
 
 All endpoints are under the `/api/v1` prefix.
@@ -263,7 +311,7 @@ All endpoints are under the `/api/v1` prefix.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Health check (`{"status":"ok"}`) |
-| `GET` | `/config` | Public configuration (auth providers, `anonymous_read`, storage settings) |
+| `GET` | `/config` | Public configuration (auth providers, `anonymous_read`, storage settings, indexing status) |
 
 ### Authentication
 
@@ -292,6 +340,15 @@ All endpoints are under the `/api/v1` prefix.
 | `POST` | `/admin/github/user-mappings` | Create/update user mapping |
 | `DELETE` | `/admin/github/user-mappings/{id}` | Delete user mapping |
 
+### Index (requires authentication unless `anonymous_read` is enabled)
+
+Available only when [indexing](#indexing) is enabled.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/index` | List all indexed runs across all discovery paths. Returns the same shape as `index.json` with an additional `discovery_path` field per entry. Sorted by timestamp descending |
+| `GET` | `/index/suites/{hash}/stats` | Per-test duration statistics for a suite. Returns the same shape as `stats.json`. Durations are sorted by `time_ns` descending |
+
 ### Files (requires authentication unless `anonymous_read` is enabled)
 
 | Method | Path | Description |
@@ -316,6 +373,11 @@ API configuration values can be overridden via environment variables with the `B
 | `api.storage.s3.access_key_id` | `BENCHMARKOOR_API_STORAGE_S3_ACCESS_KEY_ID` |
 | `api.storage.s3.secret_access_key` | `BENCHMARKOOR_API_STORAGE_S3_SECRET_ACCESS_KEY` |
 | `api.storage.local.enabled` | `BENCHMARKOOR_API_STORAGE_LOCAL_ENABLED` |
+| `api.indexing.enabled` | `BENCHMARKOOR_API_INDEXING_ENABLED` |
+| `api.indexing.interval` | `BENCHMARKOOR_API_INDEXING_INTERVAL` |
+| `api.indexing.concurrency` | `BENCHMARKOOR_API_INDEXING_CONCURRENCY` |
+| `api.indexing.database.driver` | `BENCHMARKOOR_API_INDEXING_DATABASE_DRIVER` |
+| `api.indexing.database.sqlite.path` | `BENCHMARKOOR_API_INDEXING_DATABASE_SQLITE_PATH` |
 
 ## UI Integration
 
@@ -337,13 +399,15 @@ When the API is configured, the UI provides:
 - **Admin page** (`/admin`) — user management, session management, GitHub org/user role mapping management
 - **Header controls** — sign in/out button, username display, admin link (for admins)
 
+When indexing is enabled, the UI automatically detects this via the `/api/v1/config` endpoint and switches to querying the index API endpoints (`/api/v1/index` and `/api/v1/index/suites/{hash}/stats`) instead of reading raw JSON files from storage. This is transparent to the user.
+
 When the API is not configured, none of these features appear and the UI functions as a static results viewer.
 
 ## Examples
 
 ### With S3 Storage
 
-API server with basic auth, GitHub OAuth, and S3 storage:
+API server with basic auth, GitHub OAuth, S3 storage, and indexing:
 
 ```yaml
 api:
@@ -393,6 +457,14 @@ api:
         expiry: 1h
       discovery_paths:
         - results
+  indexing:
+    enabled: true
+    interval: "60s"
+    concurrency: 8
+    database:
+      driver: sqlite
+      sqlite:
+        path: /data/benchmarkoor-index.db
 
 # Minimal client config (required by config loader but not used by the API server).
 client:
@@ -403,7 +475,7 @@ client:
 
 ### With Local Storage
 
-API server with basic auth and local filesystem storage (no S3 required):
+API server with basic auth, local filesystem storage, and indexing:
 
 ```yaml
 api:
@@ -429,6 +501,13 @@ api:
       enabled: true
       discovery_paths:
         results: /data/benchmarkoor/results
+  indexing:
+    enabled: true
+    interval: "60s"
+    database:
+      driver: sqlite
+      sqlite:
+        path: /data/benchmarkoor-index.db
 
 # Minimal client config (required by config loader but not used by the API server).
 client:

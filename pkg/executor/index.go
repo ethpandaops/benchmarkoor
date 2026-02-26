@@ -331,12 +331,12 @@ func buildIndexEntry(runDir, runID string) (*IndexEntry, error) {
 	//nolint:gosec // result.json is a trusted local file written by the tool.
 	resultData, _ := os.ReadFile(resultPath)
 
-	return buildIndexEntryFromData(runID, configData, resultData)
+	return BuildIndexEntryFromData(runID, configData, resultData)
 }
 
-// buildIndexEntryFromData creates an index entry from raw config and result
+// BuildIndexEntryFromData creates an index entry from raw config and result
 // JSON bytes. configData is required; resultData may be nil.
-func buildIndexEntryFromData(
+func BuildIndexEntryFromData(
 	runID string, configData, resultData []byte,
 ) (*IndexEntry, error) {
 	var runConfig runConfigJSON
@@ -458,7 +458,7 @@ func GenerateIndexFromS3(
 			resultData = nil
 		}
 
-		entry, err := buildIndexEntryFromData(runID, configData, resultData)
+		entry, err := BuildIndexEntryFromData(runID, configData, resultData)
 		if err != nil {
 			log.WithError(err).WithField("run_id", runID).
 				Warn("Skipping run: failed to build index entry")

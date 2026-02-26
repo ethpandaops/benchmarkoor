@@ -8,6 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/api/indexer"
+	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
+	"github.com/ethpandaops/benchmarkoor/pkg/api/storage"
 	"github.com/ethpandaops/benchmarkoor/pkg/api/store"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/sirupsen/logrus"
@@ -28,14 +31,17 @@ type Server interface {
 var _ Server = (*server)(nil)
 
 type server struct {
-	log         logrus.FieldLogger
-	cfg         *config.APIConfig
-	store       store.Store
-	presigner   *s3Presigner
-	localServer *localFileServer
-	httpServer  *http.Server
-	wg          sync.WaitGroup
-	done        chan struct{}
+	log           logrus.FieldLogger
+	cfg           *config.APIConfig
+	store         store.Store
+	presigner     *s3Presigner
+	localServer   *localFileServer
+	indexStore    indexstore.Store
+	indexer       indexer.Indexer
+	storageReader storage.Reader
+	httpServer    *http.Server
+	wg            sync.WaitGroup
+	done          chan struct{}
 }
 
 // NewServer creates a new API server.
@@ -97,6 +103,15 @@ func (s *server) Start(ctx context.Context) error {
 		s.log.Info("Local file serving enabled")
 	}
 
+	// Prepare the indexing service (store + reader) before building the
+	// router so that the index endpoints are wired, but do NOT start the
+	// background indexer yet — the HTTP server must be listening first.
+	if s.cfg.Indexing != nil && s.cfg.Indexing.Enabled {
+		if err := s.prepareIndexing(ctx); err != nil {
+			return fmt.Errorf("preparing indexing: %w", err)
+		}
+	}
+
 	// Build router and start HTTP server.
 	router := s.buildRouter()
 
@@ -154,6 +169,14 @@ func (s *server) Start(ctx context.Context) error {
 		}
 	}()
 
+	// Start the background indexer AFTER the API is listening so that
+	// the server is reachable while the first (potentially slow) pass runs.
+	if s.indexer != nil {
+		if err := s.indexer.Start(ctx); err != nil {
+			return fmt.Errorf("starting indexer: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -174,6 +197,18 @@ func (s *server) Stop() error {
 
 	s.wg.Wait()
 
+	if s.indexer != nil {
+		if err := s.indexer.Stop(); err != nil {
+			s.log.WithError(err).Warn("Indexer stop error")
+		}
+	}
+
+	if s.indexStore != nil {
+		if err := s.indexStore.Stop(); err != nil {
+			s.log.WithError(err).Warn("Index store stop error")
+		}
+	}
+
 	if s.store != nil {
 		if err := s.store.Stop(); err != nil {
 			return fmt.Errorf("stopping store: %w", err)
@@ -181,6 +216,54 @@ func (s *server) Stop() error {
 	}
 
 	s.log.Info("API server stopped")
+
+	return nil
+}
+
+const defaultIndexingInterval = 60 * time.Second
+
+// prepareIndexing creates the storage reader, index store, and indexer
+// without starting the background goroutine. Call indexer.Start() separately
+// after the HTTP server is listening.
+func (s *server) prepareIndexing(ctx context.Context) error {
+	// Create storage reader based on configured backend.
+	switch {
+	case s.cfg.Storage.S3 != nil && s.cfg.Storage.S3.Enabled:
+		s.storageReader = storage.NewS3Reader(s.cfg.Storage.S3)
+	case s.cfg.Storage.Local != nil && s.cfg.Storage.Local.Enabled:
+		s.storageReader = storage.NewLocalReader(s.cfg.Storage.Local)
+	default:
+		return fmt.Errorf("no storage backend configured for indexing")
+	}
+
+	// Create and start the index store (DB connection + migrations).
+	s.indexStore = indexstore.NewStore(
+		s.log, &s.cfg.Indexing.Database,
+	)
+
+	if err := s.indexStore.Start(ctx); err != nil {
+		return fmt.Errorf("starting index store: %w", err)
+	}
+
+	// Parse interval with default.
+	interval := defaultIndexingInterval
+
+	if s.cfg.Indexing.Interval != "" {
+		d, err := time.ParseDuration(s.cfg.Indexing.Interval)
+		if err != nil {
+			return fmt.Errorf("parsing indexing interval: %w", err)
+		}
+
+		interval = d
+	}
+
+	// Create the indexer (not started yet).
+	s.indexer = indexer.NewIndexer(
+		s.log, s.indexStore, s.storageReader, interval,
+		s.cfg.Indexing.Concurrency,
+	)
+
+	s.log.Info("Indexing service enabled")
 
 	return nil
 }

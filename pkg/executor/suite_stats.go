@@ -46,12 +46,12 @@ type RunDurationStepStats struct {
 	Time    int64  `json:"time_ns"`
 }
 
-// runInfo holds information about a run for grouping purposes.
-type runInfo struct {
-	runID        string
-	client       string
-	timestamp    int64
-	timestampEnd int64
+// RunInfo holds information about a run for grouping purposes.
+type RunInfo struct {
+	RunID        string
+	Client       string
+	Timestamp    int64
+	TimestampEnd int64
 }
 
 // GenerateAllSuiteStats scans the results directory and generates stats for all suites.
@@ -68,7 +68,7 @@ func GenerateAllSuiteStats(resultsDir string) (map[string]*SuiteStats, error) {
 	}
 
 	// Group runs by suite hash.
-	suiteRuns := make(map[string][]runInfo)
+	suiteRuns := make(map[string][]RunInfo)
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -98,11 +98,11 @@ func GenerateAllSuiteStats(resultsDir string) (map[string]*SuiteStats, error) {
 			continue
 		}
 
-		suiteRuns[runConfig.SuiteHash] = append(suiteRuns[runConfig.SuiteHash], runInfo{
-			runID:        runID,
-			client:       runConfig.Instance.Client,
-			timestamp:    runConfig.Timestamp,
-			timestampEnd: runConfig.TimestampEnd,
+		suiteRuns[runConfig.SuiteHash] = append(suiteRuns[runConfig.SuiteHash], RunInfo{
+			RunID:        runID,
+			Client:       runConfig.Instance.Client,
+			Timestamp:    runConfig.Timestamp,
+			TimestampEnd: runConfig.TimestampEnd,
 		})
 	}
 
@@ -122,11 +122,11 @@ func GenerateAllSuiteStats(resultsDir string) (map[string]*SuiteStats, error) {
 }
 
 // buildSuiteStats builds statistics for a single suite from its runs.
-func buildSuiteStats(runsDir string, runs []runInfo) (*SuiteStats, error) {
+func buildSuiteStats(runsDir string, runs []RunInfo) (*SuiteStats, error) {
 	stats := make(SuiteStats)
 
 	for _, run := range runs {
-		runDir := filepath.Join(runsDir, run.runID)
+		runDir := filepath.Join(runsDir, run.RunID)
 		resultPath := filepath.Join(runDir, "result.json")
 
 		resultData, err := os.ReadFile(resultPath)
@@ -135,7 +135,7 @@ func buildSuiteStats(runsDir string, runs []runInfo) (*SuiteStats, error) {
 			continue
 		}
 
-		accumulateRunResult(&stats, resultData, run)
+		AccumulateRunResult(&stats, resultData, run)
 	}
 
 	sortSuiteStats(&stats)
@@ -143,9 +143,9 @@ func buildSuiteStats(runsDir string, runs []runInfo) (*SuiteStats, error) {
 	return &stats, nil
 }
 
-// accumulateRunResult parses a result.json payload and merges its per-test
+// AccumulateRunResult parses a result.json payload and merges its per-test
 // durations into stats. Invalid JSON is silently skipped.
-func accumulateRunResult(stats *SuiteStats, resultData []byte, run runInfo) {
+func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 	var runResult RunResult
 	if err := json.Unmarshal(resultData, &runResult); err != nil {
 		return
@@ -197,12 +197,12 @@ func accumulateRunResult(stats *SuiteStats, resultData []byte, run runInfo) {
 		}
 
 		(*stats)[testName].Durations = append((*stats)[testName].Durations, &RunDuration{
-			ID:       run.runID,
-			Client:   run.client,
+			ID:       run.RunID,
+			Client:   run.Client,
 			GasUsed:  totalGasUsed,
 			Time:     totalGasUsedTime,
-			RunStart: run.timestamp,
-			RunEnd:   run.timestampEnd,
+			RunStart: run.Timestamp,
+			RunEnd:   run.TimestampEnd,
 			Steps:    stepsStats,
 		})
 	}
@@ -235,7 +235,7 @@ func GenerateAllSuiteStatsFromS3(
 	}
 
 	// Group runs by suite hash.
-	suiteRuns := make(map[string][]runInfo)
+	suiteRuns := make(map[string][]RunInfo)
 	runPrefixes := make(map[string]string) // runID → prefix
 
 	for _, prefix := range prefixes {
@@ -270,11 +270,11 @@ func GenerateAllSuiteStatsFromS3(
 
 		suiteRuns[runConfig.SuiteHash] = append(
 			suiteRuns[runConfig.SuiteHash],
-			runInfo{
-				runID:        runID,
-				client:       runConfig.Instance.Client,
-				timestamp:    runConfig.Timestamp,
-				timestampEnd: runConfig.TimestampEnd,
+			RunInfo{
+				RunID:        runID,
+				Client:       runConfig.Instance.Client,
+				Timestamp:    runConfig.Timestamp,
+				TimestampEnd: runConfig.TimestampEnd,
 			},
 		)
 		runPrefixes[runID] = prefix
@@ -287,11 +287,11 @@ func GenerateAllSuiteStatsFromS3(
 		stats := make(SuiteStats)
 
 		for _, run := range runs {
-			prefix := runPrefixes[run.runID]
+			prefix := runPrefixes[run.RunID]
 
 			resultData, err := reader.GetObject(ctx, prefix+"result.json")
 			if err != nil {
-				log.WithError(err).WithField("run_id", run.runID).
+				log.WithError(err).WithField("run_id", run.RunID).
 					Warn("Failed to read result.json, skipping")
 
 				continue
@@ -301,7 +301,7 @@ func GenerateAllSuiteStatsFromS3(
 				continue
 			}
 
-			accumulateRunResult(&stats, resultData, run)
+			AccumulateRunResult(&stats, resultData, run)
 		}
 
 		sortSuiteStats(&stats)
