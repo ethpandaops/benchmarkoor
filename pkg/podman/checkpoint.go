@@ -1,8 +1,11 @@
 package podman
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +13,7 @@ import (
 	"time"
 
 	"github.com/containers/podman/v5/pkg/bindings/containers"
+	"github.com/containers/podman/v5/pkg/specgen"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/sirupsen/logrus"
 )
@@ -199,22 +203,89 @@ func (m *manager) RestoreContainer(
 	return containerID, nil
 }
 
-// ReadFileFromImage extracts a file from an OCI image by running a throwaway
-// container with "cat". The image must already be pulled.
+// ReadFileFromImage extracts a file from an OCI image using the Podman API.
+// It creates a throwaway container (without starting it) and copies the file
+// out via the container archive endpoint. The image must already be pulled.
 func (m *manager) ReadFileFromImage(
 	ctx context.Context,
 	imageName, filePath string,
 ) ([]byte, error) {
-	//nolint:gosec // imageName and filePath come from trusted internal callers.
-	out, err := exec.CommandContext(ctx,
-		"podman", "run", "--rm", "--entrypoint", "",
-		imageName, "cat", filePath,
-	).Output()
+	imageName = qualifyImageName(imageName)
+
+	// Create a throwaway container — no need to start it, the archive
+	// API can read from the container's filesystem while it's stopped.
+	s := &specgen.SpecGenerator{}
+	s.Name = fmt.Sprintf("benchmarkoor-readfile-%d", time.Now().UnixNano())
+	s.Image = imageName
+	s.Command = []string{"true"}
+
+	resp, err := containers.CreateWithSpec(m.conn, s, nil)
 	if err != nil {
-		return nil, fmt.Errorf("reading %s from image %s: %w", filePath, imageName, err)
+		return nil, fmt.Errorf(
+			"creating throwaway container for %s: %w", imageName, err,
+		)
 	}
 
-	return out, nil
+	defer func() {
+		force := true
+		timeout := uint(0)
+
+		if _, rmErr := containers.Remove(
+			m.conn, resp.ID, &containers.RemoveOptions{
+				Force:   &force,
+				Timeout: &timeout,
+			},
+		); rmErr != nil {
+			m.log.WithError(rmErr).Debug(
+				"Failed to remove throwaway container",
+			)
+		}
+	}()
+
+	// Copy the file out as a tar archive.
+	var buf bytes.Buffer
+
+	copyFn, err := containers.CopyToArchive(
+		m.conn, resp.ID, filePath, &buf,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"copying %s from container: %w", filePath, err,
+		)
+	}
+
+	if err := copyFn(); err != nil {
+		return nil, fmt.Errorf(
+			"reading %s from image %s: %w", filePath, imageName, err,
+		)
+	}
+
+	// Extract the single file from the tar stream.
+	tr := tar.NewReader(&buf)
+
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return nil, fmt.Errorf(
+				"file %s not found in archive from %s", filePath, imageName,
+			)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("reading tar entry: %w", err)
+		}
+
+		if hdr.Typeflag == tar.TypeReg {
+			data, err := io.ReadAll(tr)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"reading %s content: %w", filePath, err,
+				)
+			}
+
+			return data, nil
+		}
+	}
 }
 
 // dropConnections blocks new outgoing TCP and UDP traffic, then kills all
