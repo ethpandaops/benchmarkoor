@@ -1,4 +1,4 @@
-import { loadRuntimeConfig, getDataUrl, isS3Mode } from '@/config/runtime'
+import { loadRuntimeConfig, getDataUrl, isS3Mode, isLocalMode } from '@/config/runtime'
 
 export interface FetchResult<T> {
   data: T | null
@@ -37,9 +37,15 @@ export async function fetchData<T>(path: string, opts?: { cacheBustInterval?: nu
   const config = await loadRuntimeConfig()
   const url = getDataUrl(path, config)
 
-  const response = isS3Mode(config)
-    ? await fetchViaS3(url, undefined, opts?.cacheBustInterval)
-    : await fetch(cacheBustUrl(url, opts?.cacheBustInterval))
+  let response: Response
+
+  if (isS3Mode(config)) {
+    response = await fetchViaS3(url, undefined, opts?.cacheBustInterval)
+  } else if (isLocalMode(config)) {
+    response = await fetch(cacheBustUrl(url, opts?.cacheBustInterval), { credentials: 'include' })
+  } else {
+    response = await fetch(cacheBustUrl(url, opts?.cacheBustInterval))
+  }
 
   if (!response.ok) {
     return { data: null, status: response.status }
@@ -106,6 +112,15 @@ export async function fetchHead(path: string): Promise<HeadResult> {
         return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url: downloadUrl }
       }
 
+      if (isLocalMode(config)) {
+        const response = await fetch(url, { method: 'HEAD', credentials: 'include' })
+        if (!response.ok) {
+          return { exists: false, size: null, url }
+        }
+        const contentLength = response.headers.get('content-length')
+        return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url }
+      }
+
       const response = await fetch(url, { method: 'HEAD' })
       if (!response.ok) {
         return { exists: false, size: null, url }
@@ -122,9 +137,15 @@ export async function fetchText(path: string): Promise<FetchResult<string>> {
   const config = await loadRuntimeConfig()
   const url = getDataUrl(path, config)
 
-  const response = isS3Mode(config)
-    ? await fetchViaS3(url)
-    : await fetch(cacheBustUrl(url))
+  let response: Response
+
+  if (isS3Mode(config)) {
+    response = await fetchViaS3(url)
+  } else if (isLocalMode(config)) {
+    response = await fetch(cacheBustUrl(url), { credentials: 'include' })
+  } else {
+    response = await fetch(cacheBustUrl(url))
+  }
 
   if (!response.ok) {
     return { data: null, status: response.status }

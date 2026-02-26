@@ -9,6 +9,10 @@ export interface AuthConfig {
       enabled: boolean
       discovery_paths: string[]
     }
+    local?: {
+      enabled: boolean
+      discovery_paths: string[]
+    }
   }
 }
 

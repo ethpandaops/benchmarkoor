@@ -3,6 +3,10 @@ export interface StorageConfig {
     enabled: boolean
     discovery_paths: string[]
   }
+  local?: {
+    enabled: boolean
+    discovery_paths: string[]
+  }
 }
 
 export interface RuntimeConfig {
@@ -53,6 +57,10 @@ export function isS3Mode(config: RuntimeConfig): boolean {
   return config.storage?.s3?.enabled === true
 }
 
+export function isLocalMode(config: RuntimeConfig): boolean {
+  return config.storage?.local?.enabled === true
+}
+
 // Maps runId/suiteHash → discovery path for S3 routing
 const discoveryPathMap = new Map<string, string>()
 
@@ -63,17 +71,22 @@ export function registerDiscoveryMapping(key: string, discoveryPath: string): vo
 export function getDiscoveryPath(key: string, config: RuntimeConfig): string {
   const mapped = discoveryPathMap.get(key)
   if (mapped) return mapped
-  // Fall back to first discovery path
-  return config.storage?.s3?.discovery_paths?.[0] ?? 'results'
+  // Fall back to first available discovery path (S3 or local)
+  return (
+    config.storage?.s3?.discovery_paths?.[0] ??
+    config.storage?.local?.discovery_paths?.[0] ??
+    'results'
+  )
 }
 
 export function getDataUrl(path: string, config: RuntimeConfig): string {
-  if (isS3Mode(config) && config.api?.baseUrl) {
-    // Extract run ID or suite hash from the path to look up the discovery path
+  // Both S3 and local mode use the same {discovery_path}/{relative_path} URL
+  // pattern. The discovery path prefix is looked up from the run/suite ID.
+  if ((isS3Mode(config) || isLocalMode(config)) && config.api?.baseUrl) {
     const runMatch = path.match(/^runs\/([^/]+)/)
     const suiteMatch = path.match(/^suites\/([^/]+)/)
     const key = runMatch?.[1] ?? suiteMatch?.[1]
-    const dp = key ? getDiscoveryPath(key, config) : (config.storage?.s3?.discovery_paths?.[0] ?? 'results')
+    const dp = key ? getDiscoveryPath(key, config) : getDiscoveryPath('', config)
     return `${config.api.baseUrl}/api/v1/files/${dp}/${path}`
   }
 

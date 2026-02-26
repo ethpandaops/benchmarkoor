@@ -459,11 +459,13 @@ function GitHubMappingsTab() {
 
 function ConfigOverview({ config }: { config: AuthConfig }) {
   const s3 = config.storage?.s3
+  const local = config.storage?.local
 
   const items: { label: string; enabled: boolean }[] = [
     { label: 'Basic Auth', enabled: config.auth.basic_enabled },
     { label: 'GitHub Auth', enabled: config.auth.github_enabled },
     { label: 'S3 Storage', enabled: s3?.enabled ?? false },
+    { label: 'Local Storage', enabled: local?.enabled ?? false },
   ]
 
   return (
@@ -485,6 +487,11 @@ function ConfigOverview({ config }: { config: AuthConfig }) {
       {s3?.enabled && s3.discovery_paths.length > 0 && (
         <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           S3 discovery paths: {s3.discovery_paths.join(', ')}
+        </div>
+      )}
+      {local?.enabled && local.discovery_paths.length > 0 && (
+        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          Local discovery paths: {local.discovery_paths.join(', ')}
         </div>
       )}
     </div>

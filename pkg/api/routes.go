@@ -46,7 +46,7 @@ func (s *server) buildRouter() http.Handler {
 			}
 		})
 
-		// File presigning endpoints.
+		// File serving endpoints (local filesystem or S3 presigned URLs).
 		r.Route("/files", func(r chi.Router) {
 			if !s.cfg.Auth.AnonymousRead {
 				r.Use(s.requireAuth)
@@ -58,7 +58,7 @@ func (s *server) buildRouter() http.Handler {
 				))
 			}
 
-			r.Get("/*", s.handlePresignedURL)
+			r.Get("/*", s.handleFileRequest)
 		})
 
 		// Admin endpoints (require auth + admin role).

@@ -1392,6 +1392,167 @@ func TestValidateAPIStorage(t *testing.T) {
 	}
 }
 
+func TestValidateAPILocalStorage(t *testing.T) {
+	makeConfig := func(
+		localCfg *APILocalStorageConfig,
+	) Config {
+		return Config{
+			API: &APIConfig{
+				Auth: APIAuthConfig{
+					SessionTTL: "24h",
+					Basic: BasicAuthConfig{
+						Enabled: true,
+						Users: []BasicAuthUser{
+							{Username: "admin", Password: "pass", Role: "admin"},
+						},
+					},
+				},
+				Database: APIDatabaseConfig{Driver: "sqlite"},
+				Storage:  APIStorageConfig{Local: localCfg},
+			},
+		}
+	}
+
+	tests := []struct {
+		name      string
+		localCfg  *APILocalStorageConfig
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:     "nil local config is valid",
+			localCfg: nil,
+			wantErr:  false,
+		},
+		{
+			name: "disabled local is valid",
+			localCfg: &APILocalStorageConfig{
+				Enabled: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid local config",
+			localCfg: &APILocalStorageConfig{
+				Enabled:        true,
+				DiscoveryPaths: map[string]string{"results": "/data/results"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty discovery paths",
+			localCfg: &APILocalStorageConfig{
+				Enabled:        true,
+				DiscoveryPaths: map[string]string{},
+			},
+			wantErr:   true,
+			errSubstr: "at least one discovery_path",
+		},
+		{
+			name: "empty value in discovery paths",
+			localCfg: &APILocalStorageConfig{
+				Enabled:        true,
+				DiscoveryPaths: map[string]string{"results": ""},
+			},
+			wantErr:   true,
+			errSubstr: "path must not be empty",
+		},
+		{
+			name: "relative path in discovery paths",
+			localCfg: &APILocalStorageConfig{
+				Enabled:        true,
+				DiscoveryPaths: map[string]string{"results": "results/data"},
+			},
+			wantErr:   true,
+			errSubstr: "must be absolute",
+		},
+		{
+			name: "path traversal in discovery paths",
+			localCfg: &APILocalStorageConfig{
+				Enabled:        true,
+				DiscoveryPaths: map[string]string{"results": "/data/../etc/passwd"},
+			},
+			wantErr:   true,
+			errSubstr: "must not contain \"..\"",
+		},
+		{
+			name: "multiple valid discovery paths",
+			localCfg: &APILocalStorageConfig{
+				Enabled: true,
+				DiscoveryPaths: map[string]string{
+					"results": "/data/results",
+					"archive": "/archive/2024",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "key with slash",
+			localCfg: &APILocalStorageConfig{
+				Enabled:        true,
+				DiscoveryPaths: map[string]string{"a/b": "/data/results"},
+			},
+			wantErr:   true,
+			errSubstr: "must not contain \"/\"",
+		},
+		{
+			name: "key with dot-dot",
+			localCfg: &APILocalStorageConfig{
+				Enabled:        true,
+				DiscoveryPaths: map[string]string{"..": "/data/results"},
+			},
+			wantErr:   true,
+			errSubstr: "key must not contain \"..\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := makeConfig(tt.localCfg)
+			err := cfg.validateAPIStorage()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateAPIStorageMutualExclusivity(t *testing.T) {
+	cfg := Config{
+		API: &APIConfig{
+			Auth: APIAuthConfig{
+				SessionTTL: "24h",
+				Basic: BasicAuthConfig{
+					Enabled: true,
+					Users: []BasicAuthUser{
+						{Username: "admin", Password: "pass", Role: "admin"},
+					},
+				},
+			},
+			Database: APIDatabaseConfig{Driver: "sqlite"},
+			Storage: APIStorageConfig{
+				S3: &APIS3Config{
+					Enabled:        true,
+					Bucket:         "my-bucket",
+					DiscoveryPaths: []string{"results"},
+					PresignedURLs:  APIS3PresignedURLConfig{Expiry: "1h"},
+				},
+				Local: &APILocalStorageConfig{
+					Enabled:        true,
+					DiscoveryPaths: map[string]string{"results": "/data/results"},
+				},
+			},
+		},
+	}
+
+	err := cfg.validateAPIStorage()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only one backend")
+}
+
 func TestParseByteSize(t *testing.T) {
 	tests := []struct {
 		name      string
