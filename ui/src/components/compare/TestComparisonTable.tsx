@@ -21,6 +21,19 @@ interface ComparedTest {
   avgMgas: number | undefined
 }
 
+// Returns an RGB color interpolated from yellow (small diff) to red (large diff)
+// based on the percentage deviation from the best value.
+function getDiffColor(diff: number, best: number): string {
+  if (best <= 0) return 'rgb(239, 68, 68)' // red
+  const pct = Math.abs(diff) / best // 0..1+
+  const t = Math.min(pct / 0.5, 1) // clamp: 0% → 0, ≥50% → 1
+  // yellow (234,179,8) → red (239,68,68)
+  const r = Math.round(234 + t * (239 - 234))
+  const g = Math.round(179 - t * (179 - 68))
+  const b = Math.round(8 + t * (68 - 8))
+  return `rgb(${r}, ${g}, ${b})`
+}
+
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
   if (!stats || stats.gas_used_time_total <= 0 || stats.gas_used_total <= 0) return undefined
   return (stats.gas_used_total * 1000) / stats.gas_used_time_total
@@ -240,7 +253,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
                           {val !== undefined ? val.toFixed(2) : '-'}
                         </div>
                         {diff !== undefined && !isFastest && (
-                          <div className="text-xs/4 text-red-500 dark:text-red-400">
+                          <div className="text-xs/4" style={{ color: getDiffColor(diff, maxMgas!) }}>
                             {diff.toFixed(2)}
                           </div>
                         )}
