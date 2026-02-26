@@ -307,3 +307,206 @@ func checkPassword(hash, password string) bool {
 		[]byte(hash), []byte(password),
 	) == nil
 }
+
+// --- API key handlers ---
+
+type createAPIKeyRequest struct {
+	Name      string  `json:"name"`
+	ExpiresAt *string `json:"expires_at,omitempty"`
+}
+
+type createAPIKeyResponse struct {
+	Key    string         `json:"key"`
+	APIKey apiKeyResponse `json:"api_key"`
+}
+
+type apiKeyResponse struct {
+	ID         uint    `json:"id"`
+	Name       string  `json:"name"`
+	KeyPrefix  string  `json:"key_prefix"`
+	UserID     uint    `json:"user_id"`
+	ExpiresAt  *string `json:"expires_at"`
+	LastUsedAt *string `json:"last_used_at"`
+	CreatedAt  string  `json:"created_at"`
+}
+
+func toAPIKeyResponse(k *store.APIKey) apiKeyResponse {
+	resp := apiKeyResponse{
+		ID:        k.ID,
+		Name:      k.Name,
+		KeyPrefix: k.KeyPrefix,
+		UserID:    k.UserID,
+		CreatedAt: k.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+	}
+
+	if k.ExpiresAt != nil {
+		s := k.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z")
+		resp.ExpiresAt = &s
+	}
+
+	if k.LastUsedAt != nil {
+		s := k.LastUsedAt.UTC().Format("2006-01-02T15:04:05Z")
+		resp.LastUsedAt = &s
+	}
+
+	return resp
+}
+
+// handleCreateAPIKey creates a new API key for the authenticated user.
+func (s *server) handleCreateAPIKey(
+	w http.ResponseWriter, r *http.Request,
+) {
+	user := userFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized,
+			errorResponse{"not authenticated"})
+
+		return
+	}
+
+	var req createAPIKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"invalid request body"})
+
+		return
+	}
+
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"name is required"})
+
+		return
+	}
+
+	var expiresAt *time.Time
+
+	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
+		t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest,
+				errorResponse{"invalid expires_at format, use RFC3339"})
+
+			return
+		}
+
+		utc := t.UTC()
+		expiresAt = &utc
+	}
+
+	plaintext, hash, prefix, err := generateAPIKey()
+	if err != nil {
+		s.log.WithError(err).Error("Failed to generate API key")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	apiKey := &store.APIKey{
+		Name:      req.Name,
+		KeyHash:   hash,
+		KeyPrefix: prefix,
+		UserID:    user.ID,
+		ExpiresAt: expiresAt,
+	}
+
+	if err := s.store.CreateAPIKey(r.Context(), apiKey); err != nil {
+		s.log.WithError(err).Error("Failed to create API key")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, createAPIKeyResponse{
+		Key:    plaintext,
+		APIKey: toAPIKeyResponse(apiKey),
+	})
+}
+
+// handleListMyAPIKeys lists API keys for the authenticated user.
+func (s *server) handleListMyAPIKeys(
+	w http.ResponseWriter, r *http.Request,
+) {
+	user := userFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized,
+			errorResponse{"not authenticated"})
+
+		return
+	}
+
+	keys, err := s.store.ListAPIKeysByUser(r.Context(), user.ID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list API keys")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	resp := make([]apiKeyResponse, 0, len(keys))
+	for i := range keys {
+		resp = append(resp, toAPIKeyResponse(&keys[i]))
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleDeleteMyAPIKey deletes an API key owned by the authenticated user.
+func (s *server) handleDeleteMyAPIKey(
+	w http.ResponseWriter, r *http.Request,
+) {
+	user := userFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized,
+			errorResponse{"not authenticated"})
+
+		return
+	}
+
+	id, err := parseIDParam(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{err.Error()})
+
+		return
+	}
+
+	// Verify ownership: list user's keys and check.
+	keys, err := s.store.ListAPIKeysByUser(r.Context(), user.ID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list API keys")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	owned := false
+	for i := range keys {
+		if keys[i].ID == id {
+			owned = true
+
+			break
+		}
+	}
+
+	if !owned {
+		writeJSON(w, http.StatusNotFound,
+			errorResponse{"api key not found"})
+
+		return
+	}
+
+	if err := s.store.DeleteAPIKey(r.Context(), id); err != nil {
+		s.log.WithError(err).Error("Failed to delete API key")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}

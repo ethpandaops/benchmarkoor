@@ -1,6 +1,8 @@
 package store
 
-import "time"
+import (
+	"time"
+)
 
 // User source constants.
 const (
@@ -28,6 +30,18 @@ type Session struct {
 	ExpiresAt    time.Time  `gorm:"not null" json:"expires_at"`
 	CreatedAt    time.Time  `json:"created_at"`
 	LastActiveAt *time.Time `json:"last_active_at"`
+}
+
+// APIKey represents a bearer token for programmatic API access.
+type APIKey struct {
+	ID         uint       `gorm:"primaryKey" json:"id"`
+	Name       string     `gorm:"not null" json:"name"`
+	KeyHash    string     `gorm:"uniqueIndex;not null" json:"-"`
+	KeyPrefix  string     `gorm:"not null" json:"key_prefix"`
+	UserID     uint       `gorm:"not null" json:"user_id"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 // GitHubOrgMapping maps a GitHub organization to a role.

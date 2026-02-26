@@ -37,6 +37,11 @@ func (s *server) buildRouter() http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(s.requireAuth)
 				r.Get("/me", s.handleMe)
+
+				// API key management (authenticated users).
+				r.Post("/api-keys", s.handleCreateAPIKey)
+				r.Get("/api-keys", s.handleListMyAPIKeys)
+				r.Delete("/api-keys/{id}", s.handleDeleteMyAPIKey)
 			})
 
 			// GitHub OAuth.
@@ -82,6 +87,10 @@ func (s *server) buildRouter() http.Handler {
 			// Session management.
 			r.Get("/sessions", s.handleListSessions)
 			r.Delete("/sessions/{id}", s.handleDeleteSessionByID)
+
+			// API key management (admin).
+			r.Get("/api-keys", s.handleListAllAPIKeys)
+			r.Delete("/api-keys/{id}", s.handleDeleteAPIKey)
 
 			// GitHub org mappings.
 			r.Get("/github/org-mappings", s.handleListOrgMappings)

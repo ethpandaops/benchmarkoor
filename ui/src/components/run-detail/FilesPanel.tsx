@@ -586,42 +586,21 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
 
   const { authConfig } = useAuth()
   const requiresAuth = authConfig != null && !authConfig.auth.anonymous_read
-  const hasBasicAuth = authConfig?.auth.basic_enabled === true
 
   const downloadListText = useMemo(() => {
     if (!runtimeConfig || downloadEntries.length === 0) return ''
     const s3 = isS3Mode(runtimeConfig)
     const needsAuth = requiresAuth && runtimeConfig.api?.baseUrl
-    const cookieFlag = needsAuth ? '-b cookies.txt ' : ''
+    const authFlag = needsAuth ? "-H \"Authorization: Bearer $BENCHMARKOOR_API_KEY\" " : ''
     const lines = downloadEntries.map((e) => {
       let url = getDataUrl(e.path, runtimeConfig)
       if (s3) url += `${url.includes('?') ? '&' : '?'}redirect=true`
       return downloadFormat === 'urls'
         ? toAbsoluteUrl(url)
-        : `curl ${cookieFlag}-fsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`
+        : `curl ${authFlag}-gfsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`
     })
-    if (downloadFormat === 'curl' && needsAuth) {
-      if (hasBasicAuth) {
-        const loginUrl = `${runtimeConfig.api!.baseUrl}/api/v1/auth/login`
-        lines.unshift(
-          `# Authenticate (replace USERNAME and PASSWORD)`,
-          `curl -c cookies.txt -sSf -X POST -H 'Content-Type: application/json' \\`,
-          `  -d '{"username":"USERNAME","password":"PASSWORD"}' \\`,
-          `  '${loginUrl}'`,
-          ``,
-        )
-      } else {
-        lines.unshift(
-          `# Paste your session cookie from browser devtools`,
-          `# (Application > Cookies > benchmarkoor_session)`,
-          `echo "benchmarkoor_session=SESSION" > cookies.txt`,
-          ``,
-        )
-      }
-      lines.push(``, `# Cleanup`, `rm -f cookies.txt`)
-    }
     return lines.join('\n')
-  }, [downloadEntries, downloadFormat, runtimeConfig, requiresAuth, hasBasicAuth])
+  }, [downloadEntries, downloadFormat, runtimeConfig, requiresAuth])
 
   const handleDownloadFile = useCallback(() => {
     if (!downloadListText) return
@@ -750,9 +729,7 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
             <div className="flex flex-col gap-1.5">
               {requiresAuth && runtimeConfig?.api?.baseUrl && (
                 <p className="text-xs/5 text-amber-600 dark:text-amber-400">
-                  {hasBasicAuth
-                    ? <>Authentication is required. Replace <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">USERNAME</code> and <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">PASSWORD</code> in the script before running.</>
-                    : <>Authentication is required. Copy your <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">benchmarkoor_session</code> cookie from browser devtools and replace <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">SESSION</code> in the script.</>}
+                  Authentication is required. Set <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">BENCHMARKOOR_API_KEY</code> to a key generated from your <a href="/api-keys" className="underline">API Keys</a> page.
                 </p>
               )}
               <p className="text-xs/5 text-gray-500 dark:text-gray-400">
@@ -760,7 +737,9 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
                 <button onClick={handleDownloadFile} className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
                   {runId}.sh
                 </button>
-                . Run with: <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">chmod +x {runId}.sh && ./{runId}.sh</code>{' '}<CopyButton text={`chmod +x ${runId}.sh && ./${runId}.sh`} />
+                {requiresAuth
+                  ? <>. Run with: <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">chmod +x {runId}.sh && BENCHMARKOOR_API_KEY="bmk_..." ./{runId}.sh</code>{' '}<CopyButton text={`chmod +x ${runId}.sh && BENCHMARKOOR_API_KEY="bmk_..." ./${runId}.sh`} /></>
+                  : <>. Run with: <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">chmod +x {runId}.sh && ./{runId}.sh</code>{' '}<CopyButton text={`chmod +x ${runId}.sh && ./${runId}.sh`} /></>}
               </p>
             </div>
           )}

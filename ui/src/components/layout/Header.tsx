@@ -51,9 +51,78 @@ function ThemeSwitcher() {
   )
 }
 
-function AuthControls({ onNavigate }: { onNavigate?: () => void }) {
-  const { user, isApiEnabled, isAdmin, logout } = useAuth()
+function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
+  const { user, isAdmin, logout } = useAuth()
   const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+
+  if (!user) return null
+
+  const handleLogout = async () => {
+    setOpen(false)
+    await logout()
+    onNavigate?.()
+    navigate({ to: '/runs' })
+  }
+
+  const handleNavigate = (to: string) => {
+    setOpen(false)
+    onNavigate?.()
+    navigate({ to })
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 rounded-sm px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/50"
+      >
+        {user.source === 'github' ? (
+          <img src={`https://github.com/${user.username}.png`} alt="" className="size-6 rounded-full" />
+        ) : (
+          <User className="size-4" />
+        )}
+        <span>{user.username}</span>
+        {isAdmin && <Shield className="size-3 text-purple-500" />}
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-50 mt-1 w-44 rounded-sm border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+            <button
+              onClick={() => handleNavigate('/api-keys')}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/50"
+            >
+              <Shield className="size-3.5" />
+              API Keys
+            </button>
+            {isAdmin && (
+              <button
+                onClick={() => handleNavigate('/admin')}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/50"
+              >
+                <User className="size-3.5" />
+                Admin
+              </button>
+            )}
+            <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
+            <button
+              onClick={handleLogout}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/50"
+            >
+              <LogOut className="size-3.5" />
+              Sign out
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function AuthControls({ onNavigate }: { onNavigate?: () => void }) {
+  const { user, isApiEnabled } = useAuth()
 
   if (!isApiEnabled) return null
 
@@ -70,33 +139,7 @@ function AuthControls({ onNavigate }: { onNavigate?: () => void }) {
     )
   }
 
-  const handleLogout = async () => {
-    await logout()
-    onNavigate?.()
-    navigate({ to: '/runs' })
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      {isAdmin && <NavLink to="/admin" onClick={onNavigate}>Admin</NavLink>}
-      <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
-        {user.source === 'github' ? (
-          <img src={`https://github.com/${user.username}.png`} alt="" className="size-6 rounded-full" />
-        ) : (
-          <User className="size-4" />
-        )}
-        <span>{user.username}</span>
-        {isAdmin && <Shield className="size-3 text-purple-500" />}
-      </div>
-      <button
-        onClick={handleLogout}
-        className="flex items-center gap-1 rounded-sm p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
-        title="Sign out"
-      >
-        <LogOut className="size-4" />
-      </button>
-    </div>
-  )
+  return <UserMenu onNavigate={onNavigate} />
 }
 
 export function Header() {
