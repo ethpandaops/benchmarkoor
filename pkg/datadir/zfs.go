@@ -449,20 +449,41 @@ func unmountZFSDataset(log logrus.FieldLogger, dataset string) {
 }
 
 // CleanupOrphanedZFSResources removes orphaned ZFS clones and snapshots.
-// Clones must be destroyed before their parent snapshots.
+// Destruction order matters due to ZFS dependency chains:
+//  1. Snapshots on clones (e.g. clone-erigon@benchmarkoor-ready-erigon)
+//  2. Clones themselves (can't be destroyed while they have child snapshots)
+//  3. Parent snapshots (can't be destroyed while dependent clones exist)
 func CleanupOrphanedZFSResources(ctx context.Context, log logrus.FieldLogger, resources []ZFSOrphanedResource) error {
-	// Separate clones and snapshots - clones must be destroyed first.
-	var clones, snapshots []ZFSOrphanedResource
+	// Separate resources into three groups based on ZFS dependency order.
+	var cloneSnapshots, clones, parentSnapshots []ZFSOrphanedResource
 
 	for _, r := range resources {
-		if r.Type == "clone" {
+		switch {
+		case r.Type == "clone":
 			clones = append(clones, r)
-		} else {
-			snapshots = append(snapshots, r)
+		case r.Type == "snapshot" && isSnapshotOnClone(r.Name):
+			cloneSnapshots = append(cloneSnapshots, r)
+		default:
+			parentSnapshots = append(parentSnapshots, r)
 		}
 	}
 
-	// Destroy clones first (unmount before destroy to release busy mounts).
+	// 1. Destroy snapshots on clones first (frees clones from having children).
+	for _, snapshot := range cloneSnapshots {
+		log.WithField("snapshot", snapshot.Name).Info("Destroying orphaned ZFS snapshot")
+
+		//nolint:gosec // Command args are controlled by the application.
+		cmd := exec.CommandContext(ctx, "zfs", "destroy", snapshot.Name)
+
+		if output, err := cmd.CombinedOutput(); err != nil {
+			log.WithError(err).WithFields(logrus.Fields{
+				"snapshot": snapshot.Name,
+				"output":   string(output),
+			}).Warn("Failed to destroy orphaned ZFS snapshot")
+		}
+	}
+
+	// 2. Destroy clones (unmount before destroy to release busy mounts).
 	for _, clone := range clones {
 		log.WithField("clone", clone.Name).Info("Destroying orphaned ZFS clone")
 
@@ -479,8 +500,8 @@ func CleanupOrphanedZFSResources(ctx context.Context, log logrus.FieldLogger, re
 		}
 	}
 
-	// Then destroy snapshots.
-	for _, snapshot := range snapshots {
+	// 3. Destroy parent snapshots (now safe since dependent clones are gone).
+	for _, snapshot := range parentSnapshots {
 		log.WithField("snapshot", snapshot.Name).Info("Destroying orphaned ZFS snapshot")
 
 		//nolint:gosec // Command args are controlled by the application.
@@ -495,4 +516,18 @@ func CleanupOrphanedZFSResources(ctx context.Context, log logrus.FieldLogger, re
 	}
 
 	return nil
+}
+
+// isSnapshotOnClone returns true if the snapshot lives on a benchmarkoor clone dataset.
+func isSnapshotOnClone(name string) bool {
+	// A snapshot name looks like "pool/dataset@snap". The part before '@' is the
+	// parent dataset. If that dataset is a benchmarkoor clone, the snapshot must
+	// be destroyed before the clone can be.
+	dataset, _, found := strings.Cut(name, "@")
+	if !found {
+		return false
+	}
+
+	return strings.Contains(dataset, "/benchmarkoor-clone-") ||
+		strings.Contains(dataset, "/benchmarkoor-cp-")
 }
