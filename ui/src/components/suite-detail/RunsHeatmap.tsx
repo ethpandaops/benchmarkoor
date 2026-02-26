@@ -80,6 +80,9 @@ interface RunsHeatmapProps {
   metricMode?: MetricMode
   onMetricModeChange?: (mode: MetricMode) => void
   stepFilter?: IndexStepType[]
+  selectable?: boolean
+  selectedRunIds?: Set<string>
+  onSelectionChange?: (runId: string, selected: boolean) => void
 }
 
 interface TooltipData {
@@ -96,6 +99,9 @@ export function RunsHeatmap({
   metricMode: controlledMetricMode,
   onMetricModeChange,
   stepFilter = ALL_INDEX_STEP_TYPES,
+  selectable = false,
+  selectedRunIds,
+  onSelectionChange,
 }: RunsHeatmapProps) {
   const navigate = useNavigate()
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
@@ -249,11 +255,15 @@ export function RunsHeatmap({
     }
   }
 
-  const handleRunClick = (runId: string) => {
-    navigate({
-      to: '/runs/$runId',
-      params: { runId },
-    })
+  const handleRunClick = (run: IndexEntry) => {
+    if (selectable) {
+      onSelectionChange?.(run.run_id, !selectedRunIds?.has(run.run_id))
+    } else {
+      navigate({
+        to: '/runs/$runId',
+        params: { runId: run.run_id },
+      })
+    }
   }
 
   const handleMouseEnter = (run: IndexEntry, event: React.MouseEvent) => {
@@ -370,13 +380,14 @@ export function RunsHeatmap({
                   return (
                     <button
                       key={run.run_id}
-                      onClick={() => handleRunClick(run.run_id)}
+                      onClick={() => handleRunClick(run)}
                       onMouseEnter={(e) => handleMouseEnter(run, e)}
                       onMouseLeave={handleMouseLeave}
                       className={clsx(
                         'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                        run.tests.tests_total - run.tests.tests_passed > 0 && completed && 'ring-2 ring-inset ring-orange-500',
-                        !completed && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
+                        selectable && selectedRunIds?.has(run.run_id) && 'scale-110 ring-2 ring-blue-500 dark:ring-blue-400',
+                        run.tests.tests_total - run.tests.tests_passed > 0 && completed && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-orange-500',
+                        !completed && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
                       )}
                       style={{ backgroundColor: completed ? getColorForRun(run) : '#6b7280' }}
                       title={`${formatTimestamp(run.timestamp)} - ${completed ? formatDurationMinSec(runStats.duration) : run.status}`}
@@ -490,7 +501,7 @@ export function RunsHeatmap({
                     ({tooltip.run.tests.tests_total} total)
                   </span>
                 </div>
-                <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
+                <div className="mt-1 text-gray-400 dark:text-gray-500">{selectable ? 'Click to select' : 'Click for details'}</div>
               </div>
             )
           })()}

@@ -7,6 +7,7 @@ import { SuitesPage } from '@/pages/SuitesPage'
 import { SuiteDetailPage } from '@/pages/SuiteDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { AdminPage } from '@/pages/AdminPage'
+import { ComparePage } from '@/pages/ComparePage'
 
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -62,6 +63,12 @@ const adminRoute = createRoute({
   component: AdminPage,
 })
 
+const compareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/compare',
+  component: ComparePage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   runsRoute,
@@ -71,6 +78,7 @@ const routeTree = rootRoute.addChildren([
   suiteDetailRoute,
   loginRoute,
   adminRoute,
+  compareRoute,
 ])
 
 export const router = createRouter({ routeTree })

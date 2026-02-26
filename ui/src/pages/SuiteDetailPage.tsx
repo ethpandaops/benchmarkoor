@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, useEffect } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
-import { ChevronRight, LayoutGrid, Clock, Grid3X3 } from 'lucide-react'
+import { ChevronRight, SquareStack, GitCompareArrows, LayoutGrid, Clock, Grid3X3 } from 'lucide-react'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
@@ -23,6 +23,7 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { Pagination } from '@/components/shared/Pagination'
+import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
 const DEFAULT_PAGE_SIZE = 100
@@ -101,6 +102,27 @@ export function SuiteDetailPage() {
   const { data: index } = useIndex()
   const [runsPage, setRunsPage] = useState(1)
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [compareMode, setCompareMode] = useState(false)
+  const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set())
+
+  const handleSelectionChange = useCallback((runId: string, selected: boolean) => {
+    setSelectedRunIds((prev) => {
+      const next = new Set(prev)
+      if (selected) {
+        if (next.size >= MAX_COMPARE_RUNS) return prev
+        next.add(runId)
+      } else {
+        next.delete(runId)
+      }
+      return next
+    })
+  }, [])
+
+  const handleExitCompareMode = useCallback(() => {
+    setCompareMode(false)
+    setSelectedRunIds(new Set())
+  }, [])
+
   const [heatmapExpanded, setHeatmapExpanded] = useState(true)
   const [chartExpanded, setChartExpanded] = useState(true)
   const [chartZoomRange, setChartZoomRange] = useState({ start: 0, end: 100 })
@@ -141,6 +163,24 @@ export function SuiteDetailPage() {
     const clientSet = new Set(suiteRunsAll.map((e) => e.instance.client))
     return Array.from(clientSet).sort()
   }, [suiteRunsAll])
+
+  // Most recent successful run per client, for quick cross-client comparison.
+  const recentSuccessfulPerClient = useMemo(() => {
+    const sorted = [...completedRuns].sort((a, b) => b.timestamp - a.timestamp)
+    const seen = new Set<string>()
+    const result: typeof completedRuns = []
+
+    for (const run of sorted) {
+      if (seen.has(run.instance.client)) continue
+      if (run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total) {
+        seen.add(run.instance.client)
+        result.push(run)
+      }
+      if (result.length >= MAX_COMPARE_RUNS) break
+    }
+
+    return result
+  }, [completedRuns])
 
   const images = useMemo(() => {
     const imageSet = new Set(suiteRunsAll.map((e) => e.instance.image))
@@ -529,17 +569,44 @@ export function SuiteDetailPage() {
                   </span>
                 </div>
                 <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                  <button
-                    onClick={() => setHeatmapExpanded(!heatmapExpanded)}
-                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-                  >
-                    <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', heatmapExpanded && 'rotate-90')} />
-                    <LayoutGrid className="size-4 text-gray-400 dark:text-gray-500" />
-                    Recent Runs by Client
-                  </button>
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <button
+                      onClick={() => setHeatmapExpanded(!heatmapExpanded)}
+                      className="flex items-center gap-2 text-left text-sm/6 font-medium text-gray-900 hover:text-gray-700 dark:text-gray-100 dark:hover:text-gray-300"
+                    >
+                      <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', heatmapExpanded && 'rotate-90')} />
+                      <LayoutGrid className="size-4 text-gray-400 dark:text-gray-500" />
+                      Recent Runs by Client
+                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => compareMode ? handleExitCompareMode() : setCompareMode(true)}
+                        className={clsx(
+                          'flex cursor-pointer items-center justify-center rounded-sm p-1 shadow-xs ring-1 ring-inset transition-colors',
+                          compareMode
+                            ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
+                            : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200',
+                        )}
+                        title="Compare"
+                      >
+                        <SquareStack className="size-3.5" />
+                      </button>
+                      <button
+                        disabled={recentSuccessfulPerClient.length < MIN_COMPARE_RUNS}
+                        onClick={() => {
+                          const ids = recentSuccessfulPerClient.map((r) => r.run_id)
+                          navigate({ to: '/compare', search: { runs: ids.join(',') } })
+                        }}
+                        className="flex cursor-pointer items-center justify-center rounded-sm p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                        title="Compare latest successful run per client"
+                      >
+                        <GitCompareArrows className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
                   {heatmapExpanded && (
                     <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-                      <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} />
+                      <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
                     </div>
                   )}
                 </div>
@@ -655,16 +722,18 @@ export function SuiteDetailPage() {
                     </div>
                   )}
                 </div>
-                <RunFilters
-                  clients={clients}
-                  selectedClient={client}
-                  onClientChange={handleClientChange}
-                  images={images}
-                  selectedImage={image}
-                  onImageChange={handleImageChange}
-                  selectedStatus={status}
-                  onStatusChange={handleStatusChange}
-                />
+                <div className="flex flex-wrap items-end gap-4">
+                  <RunFilters
+                    clients={clients}
+                    selectedClient={client}
+                    onClientChange={handleClientChange}
+                    images={images}
+                    selectedImage={image}
+                    onImageChange={handleImageChange}
+                    selectedStatus={status}
+                    onStatusChange={handleStatusChange}
+                  />
+                </div>
                 {filteredRuns.length === 0 ? (
                   <p className="py-8 text-center text-sm/6 text-gray-500 dark:text-gray-400">
                     No runs match the selected filters.
@@ -672,7 +741,29 @@ export function SuiteDetailPage() {
                 ) : (
                   <>
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => compareMode ? handleExitCompareMode() : setCompareMode(true)}
+                          className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                            compareMode
+                              ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
+                              : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
+                          }`}
+                          title="Compare"
+                        >
+                          <SquareStack className="size-4" />
+                        </button>
+                        <button
+                          disabled={recentSuccessfulPerClient.length < MIN_COMPARE_RUNS}
+                          onClick={() => {
+                            const ids = recentSuccessfulPerClient.map((r) => r.run_id)
+                            navigate({ to: '/compare', search: { runs: ids.join(',') } })
+                          }}
+                          className="flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                          title="Compare latest successful run per client"
+                        >
+                          <GitCompareArrows className="size-4" />
+                        </button>
                         <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
                         <select
                           value={runsPageSize}
@@ -691,7 +782,7 @@ export function SuiteDetailPage() {
                         <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
                       )}
                     </div>
-                    <RunsTable entries={paginatedRuns} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} stepFilter={stepFilter} />
+                    <RunsTable entries={paginatedRuns} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} stepFilter={stepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
@@ -769,6 +860,34 @@ export function SuiteDetailPage() {
           </TabPanel>
         </TabPanels>
       </TabGroup>
+
+      {compareMode && (
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white px-6 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
+            <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+              {selectedRunIds.size} of {MAX_COMPARE_RUNS} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExitCompareMode}
+                className="rounded-sm px-3 py-1.5 text-sm/6 font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={selectedRunIds.size < MIN_COMPARE_RUNS}
+                onClick={() => {
+                  const ids = Array.from(selectedRunIds)
+                  navigate({ to: '/compare', search: { runs: ids.join(',') } })
+                }}
+                className="rounded-sm bg-blue-600 px-4 py-1.5 text-sm/6 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Compare
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

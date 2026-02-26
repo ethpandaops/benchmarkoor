@@ -24,6 +24,9 @@ interface RunsTableProps {
   onSortChange?: (column: SortColumn, direction: SortDirection) => void
   showSuite?: boolean
   stepFilter?: IndexStepType[]
+  selectable?: boolean
+  selectedRunIds?: Set<string>
+  onSelectionChange?: (runId: string, selected: boolean) => void
 }
 
 function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
@@ -97,6 +100,9 @@ export function RunsTable({
   onSortChange,
   showSuite = false,
   stepFilter = ALL_INDEX_STEP_TYPES,
+  selectable = false,
+  selectedRunIds,
+  onSelectionChange,
 }: RunsTableProps) {
   const navigate = useNavigate()
 
@@ -112,6 +118,7 @@ export function RunsTable({
       <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
         <thead className="bg-gray-50 dark:bg-gray-900">
           <tr>
+            {selectable && <th className="w-10 px-3 py-3" />}
             <SortableHeader label="Timestamp" column="timestamp" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Client" column="client" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Image" column="image" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
@@ -129,14 +136,35 @@ export function RunsTable({
             return (
             <tr
               key={entry.run_id}
-              onClick={() => navigate({ to: '/runs/$runId', params: { runId: entry.run_id } })}
+              onClick={() => {
+                if (selectable) {
+                  onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id))
+                } else {
+                  navigate({ to: '/runs/$runId', params: { runId: entry.run_id } })
+                }
+              }}
               className={clsx(
                 'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
                 entry.status === 'container_died' && 'bg-red-50/50 dark:bg-red-900/10',
                 entry.status === 'cancelled' && 'bg-yellow-50/50 dark:bg-yellow-900/10',
                 hasFailures && 'bg-orange-50/50 dark:bg-orange-900/10',
+                selectable && selectedRunIds?.has(entry.run_id) && 'ring-2 ring-inset ring-blue-400 dark:ring-blue-500',
               )}
             >
+              {selectable && (
+                <td className="whitespace-nowrap px-3 py-4 text-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedRunIds?.has(entry.run_id) ?? false}
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      onSelectionChange?.(entry.run_id, e.target.checked)
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="size-4 rounded-xs border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
+                  />
+                </td>
+              )}
               <td className={clsx(
                 'whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400 border-l-3',
                 entry.status === 'container_died' && 'border-red-400 dark:border-red-500',

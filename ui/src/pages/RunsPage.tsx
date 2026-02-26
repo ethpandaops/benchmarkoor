@@ -1,5 +1,6 @@
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { useMemo, useState, useEffect } from 'react'
+import { SquareStack } from 'lucide-react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import { useIndex } from '@/api/hooks/useIndex'
 import { fetchData } from '@/api/client'
@@ -12,6 +13,7 @@ import { Pagination } from '@/components/shared/Pagination'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
 const DEFAULT_PAGE_SIZE = 100
@@ -158,6 +160,39 @@ export function RunsPage() {
     navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps: stepsParam } })
   }
 
+  // Compare mode state
+  const [compareMode, setCompareMode] = useState(false)
+  const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set())
+
+  const handleSelectionChange = useCallback((runId: string, selected: boolean) => {
+    setSelectedRunIds((prev) => {
+      const next = new Set(prev)
+      if (selected) {
+        if (next.size >= MAX_COMPARE_RUNS) return prev
+        next.add(runId)
+      } else {
+        next.delete(runId)
+      }
+      return next
+    })
+  }, [])
+
+  const handleExitCompareMode = useCallback(() => {
+    setCompareMode(false)
+    setSelectedRunIds(new Set())
+  }, [])
+
+  // Suite match validation for selected runs
+  const selectedSuiteInfo = useMemo(() => {
+    if (selectedRunIds.size < MIN_COMPARE_RUNS || !index) return { match: false, canCompare: false }
+    const ids = Array.from(selectedRunIds)
+    const hashes = new Set(
+      ids.map((id) => index.entries.find((e) => e.run_id === id)?.suite_hash).filter(Boolean),
+    )
+    const match = hashes.size === 1
+    return { match, canCompare: true }
+  }, [selectedRunIds, index])
+
   if (isLoading) {
     return <LoadingState message="Loading runs..." />
   }
@@ -200,7 +235,7 @@ export function RunsPage() {
               ))}
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-4">
+          <div className="flex flex-wrap items-end justify-end gap-4">
             <RunFilters
               clients={clients}
               selectedClient={client}
@@ -229,7 +264,18 @@ export function RunsPage() {
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => compareMode ? handleExitCompareMode() : setCompareMode(true)}
+                className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                  compareMode
+                    ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
+                    : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
+                }`}
+                title="Compare"
+              >
+                <SquareStack className="size-4" />
+              </button>
               <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
               <select
                 value={localPageSize}
@@ -248,7 +294,7 @@ export function RunsPage() {
               <Pagination currentPage={localPage} totalPages={totalPages} onPageChange={handlePageChange} />
             )}
           </div>
-          <RunsTable entries={paginatedEntries} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} showSuite stepFilter={stepFilter} />
+          <RunsTable entries={paginatedEntries} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} showSuite stepFilter={stepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
@@ -268,6 +314,41 @@ export function RunsPage() {
             {totalPages > 1 && (
               <Pagination currentPage={localPage} totalPages={totalPages} onPageChange={handlePageChange} />
             )}
+          </div>
+        </div>
+      )}
+
+      {compareMode && (
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white px-6 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+                {selectedRunIds.size} of {MAX_COMPARE_RUNS} selected
+              </span>
+              {selectedRunIds.size >= MIN_COMPARE_RUNS && !selectedSuiteInfo.match && (
+                <span className="text-xs/5 text-yellow-600 dark:text-yellow-400">
+                  Different suites — comparison may not be meaningful
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExitCompareMode}
+                className="rounded-sm px-3 py-1.5 text-sm/6 font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={selectedRunIds.size < MIN_COMPARE_RUNS}
+                onClick={() => {
+                  const ids = Array.from(selectedRunIds)
+                  navigate({ to: '/compare', search: { runs: ids.join(',') } })
+                }}
+                className="rounded-sm bg-blue-600 px-4 py-1.5 text-sm/6 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Compare
+              </button>
+            </div>
           </div>
         </div>
       )}

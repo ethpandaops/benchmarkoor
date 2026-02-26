@@ -1,3 +1,4 @@
+import { useCallback, useMemo, useState } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchHead } from '@/api/client'
@@ -25,7 +26,8 @@ import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
 import { BlockLogsDashboard } from '@/components/run-detail/block-logs-dashboard'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
-import { Flame, Download, Github, ExternalLink } from 'lucide-react'
+import { Flame, Download, Github, ExternalLink, SquareStack, GitCompareArrows } from 'lucide-react'
+import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 
 // Step types that can be included in MGas/s calculation
 export type StepTypeOption = 'setup' | 'test' | 'cleanup'
@@ -152,6 +154,40 @@ export function RunDetailPage() {
   const isLoading = configLoading || resultLoading
   const error = configError
 
+  const [compareMode, setCompareMode] = useState(false)
+  const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set())
+
+  const handleSelectionChange = useCallback((id: string, selected: boolean) => {
+    setSelectedRunIds((prev) => {
+      const next = new Set(prev)
+      if (selected) {
+        if (next.size >= MAX_COMPARE_RUNS) return prev
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
+  const handleExitCompareMode = useCallback(() => {
+    setCompareMode(false)
+    setSelectedRunIds(new Set())
+  }, [])
+
+  // Compute clientRuns and recentRuns before early returns to satisfy hooks rules.
+  const clientRuns = useMemo(() => {
+    if (!index || !config) return []
+    return index.entries.filter(
+      (r) => r.suite_hash === config.suite_hash && r.instance.client === config.instance.client,
+    )
+  }, [index, config])
+
+  const recentRuns = useMemo(() => {
+    const sorted = [...clientRuns].sort((a, b) => b.timestamp - a.timestamp)
+    return sorted.slice(0, MAX_COMPARE_RUNS)
+  }, [clientRuns])
+
   const updateSearch = (updates: Partial<typeof search>) => {
     navigate({
       to: '/runs/$runId',
@@ -253,10 +289,6 @@ export function RunDetailPage() {
   if (!config) {
     return <ErrorState message="Run not found" />
   }
-
-  const clientRuns = (index?.entries ?? []).filter(
-    (r) => r.suite_hash === config.suite_hash && r.instance.client === config.instance.client,
-  )
 
   // Map StepTypeOption[] to IndexStepType[] for the strip
   const indexStepFilter: IndexStepType[] = stepFilter.filter(
@@ -370,7 +402,35 @@ export function RunDetailPage() {
       </div>
 
       {clientRuns.length > 1 && (
-        <ClientRunsStrip runs={clientRuns} currentRunId={runId} stepFilter={indexStepFilter} />
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <ClientRunsStrip runs={clientRuns} currentRunId={runId} stepFilter={indexStepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              onClick={() => compareMode ? handleExitCompareMode() : setCompareMode(true)}
+              className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                compareMode
+                  ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
+                  : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
+              }`}
+              title="Compare"
+            >
+              <SquareStack className="size-4" />
+            </button>
+            <button
+              disabled={recentRuns.length < MIN_COMPARE_RUNS}
+              onClick={() => {
+                const ids = recentRuns.map((r) => r.run_id)
+                navigate({ to: '/compare', search: { runs: ids.join(',') } })
+              }}
+              className="flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+              title={`Compare last ${recentRuns.length} runs`}
+            >
+              <GitCompareArrows className="size-4" />
+            </button>
+          </div>
+        </div>
       )}
 
       <StatusAlert
@@ -727,6 +787,34 @@ export function RunDetailPage() {
             onTestClick={handleTestModalChange}
           />
         </>
+      )}
+
+      {compareMode && (
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white px-6 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
+            <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+              {selectedRunIds.size} of {MAX_COMPARE_RUNS} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExitCompareMode}
+                className="rounded-sm px-3 py-1.5 text-sm/6 font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={selectedRunIds.size < MIN_COMPARE_RUNS}
+                onClick={() => {
+                  const ids = Array.from(selectedRunIds)
+                  navigate({ to: '/compare', search: { runs: ids.join(',') } })
+                }}
+                className="rounded-sm bg-blue-600 px-4 py-1.5 text-sm/6 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Compare
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
