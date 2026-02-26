@@ -12,6 +12,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const maxAPIKeysPerUser = 10
+
 // errorResponse is a standard error payload.
 type errorResponse struct {
 	Error string `json:"error"`
@@ -375,6 +377,22 @@ func (s *server) handleCreateAPIKey(
 	if req.Name == "" {
 		writeJSON(w, http.StatusBadRequest,
 			errorResponse{"name is required"})
+
+		return
+	}
+
+	existing, err := s.store.ListAPIKeysByUser(r.Context(), user.ID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list API keys")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	if len(existing) >= maxAPIKeysPerUser {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"maximum number of api keys reached (10)"})
 
 		return
 	}

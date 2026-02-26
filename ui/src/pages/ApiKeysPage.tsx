@@ -5,6 +5,8 @@ import type { CreateApiKeyResponse } from '@/api/hooks/useApiKeys'
 import { Modal } from '@/components/shared/Modal'
 import { Plus, Trash2, Copy, Check, Key, AlertTriangle } from 'lucide-react'
 
+const MAX_API_KEYS = 10
+
 function formatTimestamp(iso: string): string {
   const date = new Date(iso)
   const now = new Date()
@@ -96,11 +98,12 @@ export function ApiKeysPage() {
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {keys.length} key{keys.length !== 1 ? 's' : ''}
+          {keys.length} / {MAX_API_KEYS} keys
         </h2>
         <button
           onClick={() => { setShowCreate(true); setError(null) }}
-          className="flex items-center gap-1.5 rounded-sm bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
+          disabled={keys.length >= MAX_API_KEYS}
+          className="flex items-center gap-1.5 rounded-sm bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200"
         >
           <Plus className="size-3.5" />
           Create API Key
