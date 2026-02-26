@@ -16,11 +16,13 @@ type APIStorageConfig struct {
 }
 
 // APILocalStorageConfig serves benchmark result files directly from the
-// local filesystem. Each discovery path is an absolute directory that may
-// contain an index.json and run/suite sub-directories.
+// local filesystem. Each discovery path maps a URL prefix name to an
+// absolute directory that may contain an index.json and run/suite
+// sub-directories. The map key serves as a URL path prefix, identical
+// to how S3 discovery paths work.
 type APILocalStorageConfig struct {
-	Enabled        bool     `yaml:"enabled" mapstructure:"enabled"`
-	DiscoveryPaths []string `yaml:"discovery_paths,omitempty" mapstructure:"discovery_paths"`
+	Enabled        bool              `yaml:"enabled" mapstructure:"enabled"`
+	DiscoveryPaths map[string]string `yaml:"discovery_paths,omitempty" mapstructure:"discovery_paths"`
 }
 
 // APIS3Config contains S3 settings for presigned URL generation.

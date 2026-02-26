@@ -230,20 +230,20 @@ api:
     local:
       enabled: true
       discovery_paths:
-        - /data/benchmarkoor/results
+        results: /data/benchmarkoor/results
 ```
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `enabled` | bool | Yes | `false` | Enable local file serving |
-| `discovery_paths` | []string | When enabled | - | Absolute directory paths containing benchmark results. At least one is required. Must be absolute paths, must not contain `..` |
+| `discovery_paths` | map[string]string | When enabled | - | Named prefixes mapping URL path segments to absolute directories. Keys become URL prefixes (must not contain `/` or `..`). Values must be absolute paths and must not contain `..`. At least one entry is required. |
 
 **How local mode works:**
 
-1. The `GET /api/v1/config` endpoint advertises which `discovery_paths` are available and that local storage is enabled.
-2. The UI fetches `index.json` from each discovery path via the API (with auth credentials).
-3. When the UI needs a file, it requests `GET /api/v1/files/{discovery_path}/{relative_path}`.
-4. The API validates the path, iterates over configured discovery roots, resolves the file on disk, and serves it directly.
+1. The `GET /api/v1/config` endpoint advertises the discovery path names (map keys, sorted) and that local storage is enabled.
+2. The UI iterates over each discovery path name, fetching `{name}/index.json` from the API (with auth credentials) — identical to how S3 mode works.
+3. When the UI needs a file, it requests `GET /api/v1/files/{name}/{relative_path}` (e.g., `GET /api/v1/files/results/runs/abc/results.json`).
+4. The API extracts the first path segment as the prefix name, looks up the corresponding directory, resolves the file on disk, and serves it directly.
 5. No presigned URL indirection — the API streams the file content in the response.
 
 ### Path Validation
@@ -428,7 +428,7 @@ api:
     local:
       enabled: true
       discovery_paths:
-        - /data/benchmarkoor/results
+        results: /data/benchmarkoor/results
 
 # Minimal client config (required by config loader but not used by the API server).
 client:

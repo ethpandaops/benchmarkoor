@@ -253,10 +253,11 @@ runner:
 #   #   # Only one backend (s3 or local) may be enabled at a time.
 #   #   local:
 #   #     enabled: true
-#   #     # Absolute directory paths containing benchmark results.
-#   #     # Each path should contain an index.json.
+#   #     # Named prefixes mapping URL path segments to absolute directories.
+#   #     # Each directory should contain an index.json and run/suite sub-dirs.
+#   #     # Keys become URL prefixes (e.g. /api/v1/files/results/...).
 #   #     discovery_paths:
-#   #       - /data/benchmarkoor/results
+#   #       results: /data/benchmarkoor/results
 
   client:
     config:

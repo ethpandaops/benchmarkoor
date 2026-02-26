@@ -1435,7 +1435,7 @@ func TestValidateAPILocalStorage(t *testing.T) {
 			name: "valid local config",
 			localCfg: &APILocalStorageConfig{
 				Enabled:        true,
-				DiscoveryPaths: []string{"/data/results"},
+				DiscoveryPaths: map[string]string{"results": "/data/results"},
 			},
 			wantErr: false,
 		},
@@ -1443,25 +1443,25 @@ func TestValidateAPILocalStorage(t *testing.T) {
 			name: "empty discovery paths",
 			localCfg: &APILocalStorageConfig{
 				Enabled:        true,
-				DiscoveryPaths: []string{},
+				DiscoveryPaths: map[string]string{},
 			},
 			wantErr:   true,
 			errSubstr: "at least one discovery_path",
 		},
 		{
-			name: "empty string in discovery paths",
+			name: "empty value in discovery paths",
 			localCfg: &APILocalStorageConfig{
 				Enabled:        true,
-				DiscoveryPaths: []string{"/data/results", ""},
+				DiscoveryPaths: map[string]string{"results": ""},
 			},
 			wantErr:   true,
-			errSubstr: "must not be empty",
+			errSubstr: "path must not be empty",
 		},
 		{
 			name: "relative path in discovery paths",
 			localCfg: &APILocalStorageConfig{
 				Enabled:        true,
-				DiscoveryPaths: []string{"results/data"},
+				DiscoveryPaths: map[string]string{"results": "results/data"},
 			},
 			wantErr:   true,
 			errSubstr: "must be absolute",
@@ -1470,7 +1470,7 @@ func TestValidateAPILocalStorage(t *testing.T) {
 			name: "path traversal in discovery paths",
 			localCfg: &APILocalStorageConfig{
 				Enabled:        true,
-				DiscoveryPaths: []string{"/data/../etc/passwd"},
+				DiscoveryPaths: map[string]string{"results": "/data/../etc/passwd"},
 			},
 			wantErr:   true,
 			errSubstr: "must not contain \"..\"",
@@ -1478,10 +1478,31 @@ func TestValidateAPILocalStorage(t *testing.T) {
 		{
 			name: "multiple valid discovery paths",
 			localCfg: &APILocalStorageConfig{
-				Enabled:        true,
-				DiscoveryPaths: []string{"/data/results", "/archive/2024"},
+				Enabled: true,
+				DiscoveryPaths: map[string]string{
+					"results": "/data/results",
+					"archive": "/archive/2024",
+				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "key with slash",
+			localCfg: &APILocalStorageConfig{
+				Enabled:        true,
+				DiscoveryPaths: map[string]string{"a/b": "/data/results"},
+			},
+			wantErr:   true,
+			errSubstr: "must not contain \"/\"",
+		},
+		{
+			name: "key with dot-dot",
+			localCfg: &APILocalStorageConfig{
+				Enabled:        true,
+				DiscoveryPaths: map[string]string{"..": "/data/results"},
+			},
+			wantErr:   true,
+			errSubstr: "key must not contain \"..\"",
 		},
 	}
 
@@ -1521,7 +1542,7 @@ func TestValidateAPIStorageMutualExclusivity(t *testing.T) {
 				},
 				Local: &APILocalStorageConfig{
 					Enabled:        true,
-					DiscoveryPaths: []string{"/data/results"},
+					DiscoveryPaths: map[string]string{"results": "/data/results"},
 				},
 			},
 		},

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/api/store"
@@ -62,9 +63,18 @@ func (s *server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	if s.cfg.Storage.Local != nil && s.cfg.Storage.Local.Enabled {
+		// Return just the map keys (sorted for determinism) so the UI
+		// treats local and S3 discovery paths identically.
+		keys := make([]string, 0, len(s.cfg.Storage.Local.DiscoveryPaths))
+		for k := range s.cfg.Storage.Local.DiscoveryPaths {
+			keys = append(keys, k)
+		}
+
+		sort.Strings(keys)
+
 		storageResp["local"] = map[string]any{
 			"enabled":         true,
-			"discovery_paths": s.cfg.Storage.Local.DiscoveryPaths,
+			"discovery_paths": keys,
 		}
 	}
 

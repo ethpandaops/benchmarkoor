@@ -1969,24 +1969,47 @@ func (c *Config) validateAPILocalStorage() error {
 		)
 	}
 
-	for i, p := range localCfg.DiscoveryPaths {
-		if p == "" {
+	for name, dir := range localCfg.DiscoveryPaths {
+		// Validate the map key (URL prefix).
+		if name == "" {
 			return fmt.Errorf(
-				"api.storage.local.discovery_paths[%d]: path must not be empty", i,
+				"api.storage.local.discovery_paths: key must not be empty",
 			)
 		}
 
-		if !filepath.IsAbs(p) {
+		if strings.Contains(name, "..") {
 			return fmt.Errorf(
-				"api.storage.local.discovery_paths[%d]: path must be absolute, got %q",
-				i, p,
+				"api.storage.local.discovery_paths[%s]: "+
+					"key must not contain \"..\"", name,
 			)
 		}
 
-		if strings.Contains(p, "..") {
+		if strings.Contains(name, "/") {
 			return fmt.Errorf(
-				"api.storage.local.discovery_paths[%d]: path must not contain \"..\"",
-				i,
+				"api.storage.local.discovery_paths[%s]: "+
+					"key must not contain \"/\"", name,
+			)
+		}
+
+		// Validate the map value (absolute directory path).
+		if dir == "" {
+			return fmt.Errorf(
+				"api.storage.local.discovery_paths[%s]: "+
+					"path must not be empty", name,
+			)
+		}
+
+		if !filepath.IsAbs(dir) {
+			return fmt.Errorf(
+				"api.storage.local.discovery_paths[%s]: "+
+					"path must be absolute, got %q", name, dir,
+			)
+		}
+
+		if strings.Contains(dir, "..") {
+			return fmt.Errorf(
+				"api.storage.local.discovery_paths[%s]: "+
+					"path must not contain \"..\"", name,
 			)
 		}
 	}
