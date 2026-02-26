@@ -1,7 +1,7 @@
 import type { RunConfig, RunResult } from '@/api/types'
 
 export const MIN_COMPARE_RUNS = 2
-export const MAX_COMPARE_RUNS = 4
+export const MAX_COMPARE_RUNS = 5
 
 export interface RunSlot {
   label: string
@@ -64,6 +64,18 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-violet-700 dark:text-violet-300',
     badgeBgClass: 'bg-violet-100 dark:bg-violet-900/50',
     badgeTextClass: 'text-violet-700 dark:text-violet-300',
+  },
+  {
+    label: 'E',
+    color: '#ef4444',
+    colorLight: '#f87171',
+    borderClass: 'border-red-500',
+    textClass: 'text-red-600',
+    textDarkClass: 'text-red-400',
+    bgDotClass: 'bg-red-500',
+    diffTextClass: 'text-red-700 dark:text-red-300',
+    badgeBgClass: 'bg-red-100 dark:bg-red-900/50',
+    badgeTextClass: 'text-red-700 dark:text-red-300',
   },
 ]
 
