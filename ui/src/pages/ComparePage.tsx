@@ -150,7 +150,10 @@ export function ComparePage() {
         </div>
       )}
 
-      <CompareHeader runs={runs} />
+      <CompareHeader runs={runs} onRemoveRun={(id) => {
+        const remaining = runIds.filter((r) => r !== id)
+        navigate({ to: '/compare', search: { runs: remaining.join(','), steps: search.steps } })
+      }} />
 
       <div className="flex items-center gap-2">
         <span className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">Metric steps:</span>

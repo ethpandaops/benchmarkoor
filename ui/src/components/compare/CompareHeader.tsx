@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
+import { X } from 'lucide-react'
 import type { RunConfig } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { StrategyIcon } from '@/components/shared/StrategyIcon'
@@ -9,6 +10,7 @@ import { type CompareRun, RUN_SLOTS } from './constants'
 
 interface CompareHeaderProps {
   runs: CompareRun[]
+  onRemoveRun?: (runId: string) => void
 }
 
 function RunCard({
@@ -16,14 +18,25 @@ function RunCard({
   runId,
   label,
   accentClass,
+  onRemove,
 }: {
   config: RunConfig
   runId: string
   label: string
   accentClass: string
+  onRemove?: () => void
 }) {
   return (
-    <div className={clsx('flex-1 rounded-sm border-t-3 bg-white p-4 shadow-xs dark:bg-gray-800', accentClass)}>
+    <div className={clsx('relative flex-1 rounded-sm border-t-3 bg-white p-4 shadow-xs dark:bg-gray-800', accentClass)}>
+      {onRemove && (
+        <button
+          onClick={onRemove}
+          className="absolute top-2 right-2 rounded-sm p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+          title="Remove from comparison"
+        >
+          <X className="size-3.5" />
+        </button>
+      )}
       <div className="mb-2 flex items-center gap-2">
         <span className="text-xs/5 font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
           {label}
@@ -78,7 +91,7 @@ const GRID_COLS: Record<number, string> = {
   5: 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-5',
 }
 
-export function CompareHeader({ runs }: CompareHeaderProps) {
+export function CompareHeader({ runs, onRemoveRun }: CompareHeaderProps) {
   return (
     <div className={clsx('grid gap-4', GRID_COLS[runs.length] ?? GRID_COLS[2])}>
       {runs.map((run) => {
@@ -90,6 +103,7 @@ export function CompareHeader({ runs }: CompareHeaderProps) {
             runId={run.runId}
             label={`Run ${slot.label}`}
             accentClass={slot.borderClass}
+            onRemove={onRemoveRun && runs.length > 2 ? () => onRemoveRun(run.runId) : undefined}
           />
         )
       })}
