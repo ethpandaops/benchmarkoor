@@ -218,6 +218,7 @@ func (m *manager) ReadFileFromImage(
 	s.Name = fmt.Sprintf("benchmarkoor-readfile-%d", time.Now().UnixNano())
 	s.Image = imageName
 	s.Command = []string{"true"}
+	s.HealthLogDestination = "local"
 
 	resp, err := containers.CreateWithSpec(m.conn, s, nil)
 	if err != nil {
