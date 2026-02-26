@@ -546,6 +546,7 @@ function ConfigOverview({ config }: { config: AuthConfig }) {
     { label: 'GitHub Auth', enabled: config.auth.github_enabled },
     { label: 'S3 Storage', enabled: s3?.enabled ?? false },
     { label: 'Local Storage', enabled: local?.enabled ?? false },
+    { label: 'Indexing', enabled: config.indexing?.enabled ?? false },
   ]
 
   return (

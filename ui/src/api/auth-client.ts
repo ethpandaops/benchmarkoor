@@ -14,6 +14,9 @@ export interface AuthConfig {
       discovery_paths: string[]
     }
   }
+  indexing?: {
+    enabled: boolean
+  }
 }
 
 export interface AuthUser {
