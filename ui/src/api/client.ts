@@ -95,30 +95,21 @@ export async function fetchHead(path: string): Promise<HeadResult> {
 
   return headLimiter(async () => {
     try {
-      if (isS3Mode(config)) {
-        // S3 presigned URLs are generated for GET, not HEAD.
-        // Use a GET request via the manual redirect helper and abort
-        // after receiving headers to avoid downloading the body.
-        const controller = new AbortController()
-        const response = await fetchViaS3(url, { signal: controller.signal })
-        controller.abort()
-        if (!response.ok) {
-          return { exists: false, size: null, url }
-        }
-        const contentLength = response.headers.get('content-length')
-        // Return the API URL with ?redirect=true so <a href> triggers a 302
-        // redirect to the presigned S3 URL, enabling direct file downloads.
-        const downloadUrl = `${url}${url.includes('?') ? '&' : '?'}redirect=true`
-        return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url: downloadUrl }
-      }
-
-      if (isLocalMode(config)) {
+      if (isS3Mode(config) || isLocalMode(config)) {
+        // The API handles HEAD requests for both backends: local mode uses
+        // http.ServeFile, S3 mode calls HeadObject. Both return
+        // Content-Length directly so the UI can read file sizes reliably.
         const response = await fetch(url, { method: 'HEAD', credentials: 'include' })
         if (!response.ok) {
           return { exists: false, size: null, url }
         }
         const contentLength = response.headers.get('content-length')
-        return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url }
+        // For S3, return the API URL with ?redirect=true so <a href>
+        // triggers a 302 redirect to the presigned S3 URL.
+        const downloadUrl = isS3Mode(config)
+          ? `${url}${url.includes('?') ? '&' : '?'}redirect=true`
+          : url
+        return { exists: true, size: contentLength ? parseInt(contentLength, 10) : null, url: downloadUrl }
       }
 
       const response = await fetch(url, { method: 'HEAD' })
