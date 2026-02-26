@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import type { SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
-import { Badge } from '@/components/shared/Badge'
 import { Pagination } from '@/components/shared/Pagination'
 import { type CompareRun, RUN_SLOTS } from './constants'
 
@@ -20,7 +19,6 @@ interface ComparedTest {
   order: number
   mgas: (number | undefined)[]
   avgMgas: number | undefined
-  status: ('pass' | 'fail' | 'missing')[]
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -96,19 +94,12 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
     const tests: ComparedTest[] = []
     for (const name of allTestNames) {
       const mgas: (number | undefined)[] = []
-      const status: ('pass' | 'fail' | 'missing')[] = []
       let order = suiteOrder.get(name) ?? 0
 
       for (const run of runs) {
         const entry = run.result?.tests[name]
         const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
         mgas.push(calculateMGasPerSec(stats))
-
-        if (stats) {
-          status.push(stats.fail > 0 ? 'fail' : 'pass')
-        } else {
-          status.push('missing')
-        }
 
         if (order === 0 && entry) {
           order = parseInt(entry.dir, 10) || 0
@@ -118,7 +109,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
       const defined = mgas.filter((v): v is number => v !== undefined)
       const avgMgas = defined.length > 0 ? defined.reduce((a, b) => a + b, 0) / defined.length : undefined
 
-      tests.push({ name, order, mgas, avgMgas, status })
+      tests.push({ name, order, mgas, avgMgas })
     }
     return tests
   }, [runs, suiteTests, stepFilter])
@@ -194,7 +185,6 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
                   </th>
                 )
               })}
-              <th className="px-3 py-3 text-center text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -229,13 +219,6 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
                       </td>
                     )
                   })}
-                  <td className="whitespace-nowrap px-3 py-2 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      {test.status.map((s, i) => (
-                        <StatusDot key={RUN_SLOTS[i].label} status={s} label={RUN_SLOTS[i].label} />
-                      ))}
-                    </div>
-                  </td>
                 </tr>
               )
             })}
@@ -248,16 +231,5 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
         </div>
       )}
     </div>
-  )
-}
-
-function StatusDot({ status, label }: { status: 'pass' | 'fail' | 'missing'; label: string }) {
-  if (status === 'missing') {
-    return <Badge variant="default">{label}:-</Badge>
-  }
-  return (
-    <Badge variant={status === 'pass' ? 'success' : 'error'}>
-      {label}
-    </Badge>
   )
 }
