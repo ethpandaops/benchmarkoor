@@ -67,6 +67,14 @@ func (s *server) authenticateAPIKey(
 		return
 	}
 
+	// API keys are restricted to read-only operations.
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeJSON(w, http.StatusForbidden,
+			errorResponse{"api keys are restricted to read-only operations"})
+
+		return
+	}
+
 	user, err := s.store.GetUserByID(r.Context(), apiKey.UserID)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized,
