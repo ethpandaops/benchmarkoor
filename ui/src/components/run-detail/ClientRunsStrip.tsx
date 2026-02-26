@@ -49,9 +49,12 @@ interface ClientRunsStripProps {
   runs: IndexEntry[]
   currentRunId: string
   stepFilter: IndexStepType[]
+  selectable?: boolean
+  selectedRunIds?: Set<string>
+  onSelectionChange?: (runId: string, selected: boolean) => void
 }
 
-export function ClientRunsStrip({ runs, currentRunId, stepFilter }: ClientRunsStripProps) {
+export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = false, selectedRunIds, onSelectionChange }: ClientRunsStripProps) {
   const navigate = useNavigate()
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
 
@@ -93,7 +96,13 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter }: ClientRunsSt
           return (
             <button
               key={run.run_id}
-              onClick={() => navigate({ to: '/runs/$runId', params: { runId: run.run_id } })}
+              onClick={() => {
+                if (selectable) {
+                  onSelectionChange?.(run.run_id, !selectedRunIds?.has(run.run_id))
+                } else {
+                  navigate({ to: '/runs/$runId', params: { runId: run.run_id } })
+                }
+              }}
               onMouseEnter={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect()
                 setTooltip({ run, x: rect.left + rect.width / 2, y: rect.top })
@@ -101,10 +110,11 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter }: ClientRunsSt
               onMouseLeave={() => setTooltip(null)}
               className={clsx(
                 'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110',
-                isCurrent && 'ring-2 ring-blue-500',
-                !isCurrent && 'hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                run.tests.tests_total - run.tests.tests_passed > 0 && completed && !isCurrent && 'ring-2 ring-inset ring-orange-500',
-                !completed && !isCurrent && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
+                selectable && selectedRunIds?.has(run.run_id) && 'scale-110 ring-2 ring-blue-500 dark:ring-blue-400',
+                !selectable && isCurrent && 'ring-2 ring-blue-500',
+                !selectable && !isCurrent && 'hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
+                run.tests.tests_total - run.tests.tests_passed > 0 && completed && !isCurrent && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-orange-500',
+                !completed && !isCurrent && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
               )}
               style={{ backgroundColor: color }}
             >
@@ -168,9 +178,11 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter }: ClientRunsSt
                   ({tooltip.run.tests.tests_total} total)
                 </span>
               </div>
-              {tooltip.run.run_id !== currentRunId && (
+              {selectable ? (
+                <div className="text-gray-400 dark:text-gray-500">Click to select</div>
+              ) : tooltip.run.run_id !== currentRunId ? (
                 <div className="text-gray-400 dark:text-gray-500">Click for details</div>
-              )}
+              ) : null}
             </div>
           </div>
         )
