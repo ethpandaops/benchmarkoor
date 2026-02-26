@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchData, fetchViaS3 } from '../client'
 import type { Index } from '../types'
-import { loadRuntimeConfig, isS3Mode, registerDiscoveryMapping } from '@/config/runtime'
+import { loadRuntimeConfig, isS3Mode, isLocalMode, registerDiscoveryMapping } from '@/config/runtime'
 
 const emptyIndex: Index = { generated: 0, entries: [] }
 
@@ -49,6 +49,24 @@ async function fetchS3Index(): Promise<Index> {
   return { generated, entries: allEntries }
 }
 
+// Local mode: the server searches its discovery roots internally,
+// so the UI just requests the relative path. No discovery path mapping needed.
+async function fetchLocalIndex(): Promise<Index> {
+  const config = await loadRuntimeConfig()
+  if (!config.api?.baseUrl) return emptyIndex
+
+  try {
+    const url = `${config.api.baseUrl}/api/v1/files/runs/index.json`
+    const response = await fetch(url, { credentials: 'include' })
+    if (!response.ok) return emptyIndex
+    const contentType = response.headers.get('content-type')
+    if (!contentType?.includes('application/json')) return emptyIndex
+    return await response.json()
+  } catch {
+    return emptyIndex
+  }
+}
+
 export function useIndex() {
   return useQuery({
     queryKey: ['index'],
@@ -57,6 +75,10 @@ export function useIndex() {
 
       if (isS3Mode(config)) {
         return fetchS3Index()
+      }
+
+      if (isLocalMode(config)) {
+        return fetchLocalIndex()
       }
 
       const { data, status } = await fetchData<Index>('runs/index.json')

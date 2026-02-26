@@ -1897,10 +1897,32 @@ func (c *Config) ValidateAPI() error {
 
 // validateAPIStorage validates the API storage configuration.
 func (c *Config) validateAPIStorage() error {
-	if c.API.Storage.S3 == nil || !c.API.Storage.S3.Enabled {
-		return nil
+	s3Enabled := c.API.Storage.S3 != nil && c.API.Storage.S3.Enabled
+	localEnabled := c.API.Storage.Local != nil && c.API.Storage.Local.Enabled
+
+	if s3Enabled && localEnabled {
+		return fmt.Errorf(
+			"api.storage: only one backend (s3 or local) may be enabled at a time",
+		)
 	}
 
+	if s3Enabled {
+		if err := c.validateAPIS3Storage(); err != nil {
+			return err
+		}
+	}
+
+	if localEnabled {
+		if err := c.validateAPILocalStorage(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateAPIS3Storage validates S3 storage settings.
+func (c *Config) validateAPIS3Storage() error {
 	s3Cfg := c.API.Storage.S3
 
 	if s3Cfg.Bucket == "" {
@@ -1932,6 +1954,41 @@ func (c *Config) validateAPIStorage() error {
 			"api.storage.s3.presigned_urls.expiry: invalid duration %q: %w",
 			s3Cfg.PresignedURLs.Expiry, err,
 		)
+	}
+
+	return nil
+}
+
+// validateAPILocalStorage validates local filesystem storage settings.
+func (c *Config) validateAPILocalStorage() error {
+	localCfg := c.API.Storage.Local
+
+	if len(localCfg.DiscoveryPaths) == 0 {
+		return fmt.Errorf(
+			"api.storage.local: at least one discovery_path is required when enabled",
+		)
+	}
+
+	for i, p := range localCfg.DiscoveryPaths {
+		if p == "" {
+			return fmt.Errorf(
+				"api.storage.local.discovery_paths[%d]: path must not be empty", i,
+			)
+		}
+
+		if !filepath.IsAbs(p) {
+			return fmt.Errorf(
+				"api.storage.local.discovery_paths[%d]: path must be absolute, got %q",
+				i, p,
+			)
+		}
+
+		if strings.Contains(p, "..") {
+			return fmt.Errorf(
+				"api.storage.local.discovery_paths[%d]: path must not contain \"..\"",
+				i,
+			)
+		}
 	}
 
 	return nil

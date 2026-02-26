@@ -249,6 +249,14 @@ runner:
 #   #     # S3 key prefixes the UI can browse. Each path should contain an index.json.
 #   #     discovery_paths:
 #   #       - results
+#   #   # Alternative: Serve files directly from local filesystem directories.
+#   #   # Only one backend (s3 or local) may be enabled at a time.
+#   #   local:
+#   #     enabled: true
+#   #     # Absolute directory paths containing benchmark results.
+#   #     # Each path should contain an index.json.
+#   #     discovery_paths:
+#   #       - /data/benchmarkoor/results
 
   client:
     config:

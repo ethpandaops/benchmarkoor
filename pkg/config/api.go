@@ -9,8 +9,18 @@ type APIConfig struct {
 }
 
 // APIStorageConfig contains storage backend settings for serving files.
+// Only one backend (S3 or local) may be enabled at a time.
 type APIStorageConfig struct {
-	S3 *APIS3Config `yaml:"s3,omitempty" mapstructure:"s3"`
+	S3    *APIS3Config           `yaml:"s3,omitempty" mapstructure:"s3"`
+	Local *APILocalStorageConfig `yaml:"local,omitempty" mapstructure:"local"`
+}
+
+// APILocalStorageConfig serves benchmark result files directly from the
+// local filesystem. Each discovery path is an absolute directory that may
+// contain an index.json and run/suite sub-directories.
+type APILocalStorageConfig struct {
+	Enabled        bool     `yaml:"enabled" mapstructure:"enabled"`
+	DiscoveryPaths []string `yaml:"discovery_paths,omitempty" mapstructure:"discovery_paths"`
 }
 
 // APIS3Config contains S3 settings for presigned URL generation.

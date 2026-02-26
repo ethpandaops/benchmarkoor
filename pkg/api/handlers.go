@@ -56,20 +56,26 @@ func (s *server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 
+	storageResp["local"] = map[string]any{
+		"enabled":         false,
+		"discovery_paths": []string{},
+	}
+
+	if s.cfg.Storage.Local != nil && s.cfg.Storage.Local.Enabled {
+		storageResp["local"] = map[string]any{
+			"enabled":         true,
+			"discovery_paths": s.cfg.Storage.Local.DiscoveryPaths,
+		}
+	}
+
 	resp["storage"] = storageResp
 
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// handlePresignedURL generates a presigned GET URL for an S3 object.
-func (s *server) handlePresignedURL(w http.ResponseWriter, r *http.Request) {
-	if s.presigner == nil {
-		writeJSON(w, http.StatusNotFound,
-			errorResponse{"storage not configured"})
-
-		return
-	}
-
+// handleFileRequest serves files from local storage or generates a
+// presigned S3 URL, depending on which backend is configured.
+func (s *server) handleFileRequest(w http.ResponseWriter, r *http.Request) {
 	filePath := chi.URLParam(r, "*")
 	if filePath == "" {
 		writeJSON(w, http.StatusBadRequest,
@@ -78,28 +84,46 @@ func (s *server) handlePresignedURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	url, err := s.presigner.GeneratePresignedURL(r.Context(), filePath)
-	if err != nil {
-		s.log.WithError(err).
-			WithField("path", filePath).
-			Warn("Failed to generate presigned URL")
-
-		writeJSON(w, http.StatusForbidden,
-			errorResponse{"path not allowed or presign failed"})
+	// Local file serving takes priority.
+	if s.localServer != nil {
+		if err := s.localServer.ServeFile(w, r, filePath); err != nil {
+			writeJSON(w, http.StatusNotFound,
+				errorResponse{"file not found"})
+		}
 
 		return
 	}
 
-	// When redirect=true, issue a 302 redirect to the presigned URL.
-	// This allows <a href="...?redirect=true"> and curl -L to download
-	// files directly without the client needing to parse JSON.
-	if r.URL.Query().Get("redirect") == "true" {
-		http.Redirect(w, r, url, http.StatusFound)
+	// Fall back to S3 presigned URL generation.
+	if s.presigner != nil {
+		url, err := s.presigner.GeneratePresignedURL(r.Context(), filePath)
+		if err != nil {
+			s.log.WithError(err).
+				WithField("path", filePath).
+				Warn("Failed to generate presigned URL")
+
+			writeJSON(w, http.StatusForbidden,
+				errorResponse{"path not allowed or presign failed"})
+
+			return
+		}
+
+		// When redirect=true, issue a 302 redirect to the presigned URL.
+		// This allows <a href="...?redirect=true"> and curl -L to download
+		// files directly without the client needing to parse JSON.
+		if r.URL.Query().Get("redirect") == "true" {
+			http.Redirect(w, r, url, http.StatusFound)
+
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"url": url})
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"url": url})
+	writeJSON(w, http.StatusNotFound,
+		errorResponse{"storage not configured"})
 }
 
 // --- Auth handlers ---

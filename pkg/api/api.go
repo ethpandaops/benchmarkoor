@@ -28,13 +28,14 @@ type Server interface {
 var _ Server = (*server)(nil)
 
 type server struct {
-	log        logrus.FieldLogger
-	cfg        *config.APIConfig
-	store      store.Store
-	presigner  *s3Presigner
-	httpServer *http.Server
-	wg         sync.WaitGroup
-	done       chan struct{}
+	log         logrus.FieldLogger
+	cfg         *config.APIConfig
+	store       store.Store
+	presigner   *s3Presigner
+	localServer *localFileServer
+	httpServer  *http.Server
+	wg          sync.WaitGroup
+	done        chan struct{}
 }
 
 // NewServer creates a new API server.
@@ -87,6 +88,13 @@ func (s *server) Start(ctx context.Context) error {
 		s.presigner = presigner
 
 		s.log.Info("S3 presigned URL generation enabled")
+	}
+
+	// Initialize local file server if configured.
+	if s.cfg.Storage.Local != nil && s.cfg.Storage.Local.Enabled {
+		s.localServer = newLocalFileServer(s.log, s.cfg.Storage.Local)
+
+		s.log.Info("Local file serving enabled")
 	}
 
 	// Build router and start HTTP server.

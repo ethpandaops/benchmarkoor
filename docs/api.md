@@ -175,7 +175,13 @@ api:
 
 ## Storage
 
-The optional `api.storage` section configures S3-compatible storage for serving benchmark result files to authenticated users via presigned URLs. This is **separate** from `runner.benchmark.results_upload.s3` (which handles uploads during benchmark runs). The API uses this to generate presigned GET URLs so the UI can fetch files directly from S3.
+The optional `api.storage` section configures a storage backend for serving benchmark result files via the `/api/v1/files/*` endpoint. Two backends are available — **S3** (presigned URLs) and **local** (direct filesystem serving). Only one backend may be enabled at a time.
+
+Both backends share the concept of **discovery paths**: a list of roots that the UI can browse. Each discovery path should contain an `index.json` and the run/suite sub-directories it references.
+
+### S3 Storage
+
+S3 storage serves files via presigned GET URLs. This is **separate** from `runner.benchmark.results_upload.s3` (which handles uploads during benchmark runs). The API generates presigned URLs so the UI can fetch files directly from S3.
 
 ```yaml
 api:
@@ -206,20 +212,47 @@ api:
 | `presigned_urls.expiry` | string | No | `1h` | How long presigned URLs remain valid (Go duration string) |
 | `discovery_paths` | []string | When enabled | - | S3 key prefixes the UI can browse. At least one is required. Must not contain `..` |
 
-### How It Works
+**How S3 mode works:**
 
-1. The `GET /api/v1/config` endpoint advertises which `discovery_paths` are available and whether S3 storage is enabled.
+1. The `GET /api/v1/config` endpoint advertises which `discovery_paths` are available and that S3 storage is enabled.
 2. The UI uses this to know where to look for `index.json` files in S3.
 3. When the UI needs a file, it requests `GET /api/v1/files/{key}` (e.g., `GET /api/v1/files/results/index.json`).
 4. The API validates the requested key is under an allowed discovery path, then returns a presigned S3 GET URL.
 5. The UI fetches the file directly from S3 using the presigned URL.
 
+### Local Storage
+
+Local storage serves files directly from the local filesystem using `http.ServeFile`. This enables running the API without any S3 infrastructure — files are served through the same `/api/v1/files/*` route with correct Content-Type, range request support, and caching headers handled automatically.
+
+```yaml
+api:
+  storage:
+    local:
+      enabled: true
+      discovery_paths:
+        - /data/benchmarkoor/results
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | bool | Yes | `false` | Enable local file serving |
+| `discovery_paths` | []string | When enabled | - | Absolute directory paths containing benchmark results. At least one is required. Must be absolute paths, must not contain `..` |
+
+**How local mode works:**
+
+1. The `GET /api/v1/config` endpoint advertises which `discovery_paths` are available and that local storage is enabled.
+2. The UI fetches `index.json` from each discovery path via the API (with auth credentials).
+3. When the UI needs a file, it requests `GET /api/v1/files/{discovery_path}/{relative_path}`.
+4. The API validates the path, iterates over configured discovery roots, resolves the file on disk, and serves it directly.
+5. No presigned URL indirection — the API streams the file content in the response.
+
 ### Path Validation
 
-Requested file paths are validated before generating a presigned URL:
+Requested file paths are validated before serving (both S3 and local backends):
 - The path must be non-empty and clean (no `..`, no trailing slashes)
 - The path must fall under one of the configured `discovery_paths` prefixes
 - Partial prefix matches are rejected (e.g., `results_backup/file` does not match prefix `results`)
+- For local storage, an additional defense-in-depth check ensures the resolved absolute path stays under the discovery root
 
 ## API Endpoints
 
@@ -263,7 +296,7 @@ All endpoints are under the `/api/v1` prefix.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/files/*` | Generate a presigned S3 URL for the given file path. Returns `{"url":"..."}`. Requires [storage](#storage) to be configured. Requires authentication unless `auth.anonymous_read` is `true` |
+| `GET` | `/files/*` | Serve a file from the configured storage backend. With S3, returns `{"url":"..."}` (presigned URL). With local storage, streams the file content directly. Requires [storage](#storage) to be configured. Requires authentication unless `auth.anonymous_read` is `true` |
 
 ## Environment Variable Overrides
 
@@ -282,6 +315,7 @@ API configuration values can be overridden via environment variables with the `B
 | `api.storage.s3.bucket` | `BENCHMARKOOR_API_STORAGE_S3_BUCKET` |
 | `api.storage.s3.access_key_id` | `BENCHMARKOOR_API_STORAGE_S3_ACCESS_KEY_ID` |
 | `api.storage.s3.secret_access_key` | `BENCHMARKOOR_API_STORAGE_S3_SECRET_ACCESS_KEY` |
+| `api.storage.local.enabled` | `BENCHMARKOOR_API_STORAGE_LOCAL_ENABLED` |
 
 ## UI Integration
 
@@ -305,9 +339,11 @@ When the API is configured, the UI provides:
 
 When the API is not configured, none of these features appear and the UI functions as a static results viewer.
 
-## Example
+## Examples
 
-API server with basic auth and GitHub OAuth:
+### With S3 Storage
+
+API server with basic auth, GitHub OAuth, and S3 storage:
 
 ```yaml
 api:
@@ -357,6 +393,42 @@ api:
         expiry: 1h
       discovery_paths:
         - results
+
+# Minimal client config (required by config loader but not used by the API server).
+client:
+  instances:
+    - id: placeholder
+      client: geth
+```
+
+### With Local Storage
+
+API server with basic auth and local filesystem storage (no S3 required):
+
+```yaml
+api:
+  server:
+    listen: ":9090"
+    cors_origins:
+      - https://benchmarkoor.example.com
+  auth:
+    session_ttl: 24h
+    anonymous_read: true
+    basic:
+      enabled: true
+      users:
+        - username: admin
+          password: ${ADMIN_PASSWORD}
+          role: admin
+  database:
+    driver: sqlite
+    sqlite:
+      path: /data/benchmarkoor.db
+  storage:
+    local:
+      enabled: true
+      discovery_paths:
+        - /data/benchmarkoor/results
 
 # Minimal client config (required by config loader but not used by the API server).
 client:
