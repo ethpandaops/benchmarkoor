@@ -7,6 +7,7 @@ import { SuitesPage } from '@/pages/SuitesPage'
 import { SuiteDetailPage } from '@/pages/SuiteDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { AdminPage } from '@/pages/AdminPage'
+import { ApiKeysPage } from '@/pages/ApiKeysPage'
 import { ComparePage } from '@/pages/ComparePage'
 
 const rootRoute = createRootRoute({
@@ -63,6 +64,12 @@ const adminRoute = createRoute({
   component: AdminPage,
 })
 
+const apiKeysRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/api-keys',
+  component: ApiKeysPage,
+})
+
 const compareRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/compare',
@@ -78,6 +85,7 @@ const routeTree = rootRoute.addChildren([
   suiteDetailRoute,
   loginRoute,
   adminRoute,
+  apiKeysRoute,
   compareRoute,
 ])
 

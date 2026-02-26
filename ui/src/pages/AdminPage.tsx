@@ -17,10 +17,11 @@ import {
   useUpsertUserMapping,
   useDeleteUserMapping,
 } from '@/api/hooks/useAdmin'
+import { useAdminApiKeys, useDeleteAdminApiKey } from '@/api/hooks/useApiKeys'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 
-type Tab = 'users' | 'github-mappings' | 'sessions'
+type Tab = 'users' | 'github-mappings' | 'sessions' | 'api-keys'
 
 export function AdminPage() {
   const { isAdmin, authConfig } = useAuth()
@@ -30,6 +31,7 @@ export function AdminPage() {
     if (authConfig?.auth.basic_enabled) result.push({ key: 'users', label: 'Users' })
     if (authConfig?.auth.github_enabled) result.push({ key: 'github-mappings', label: 'GitHub Mappings' })
     result.push({ key: 'sessions', label: 'Sessions' })
+    result.push({ key: 'api-keys', label: 'API Keys' })
     return result
   }, [authConfig])
 
@@ -78,6 +80,7 @@ export function AdminPage() {
           {resolvedTab === 'users' && <UsersTab />}
           {resolvedTab === 'github-mappings' && <GitHubMappingsTab />}
           {resolvedTab === 'sessions' && <SessionsTab />}
+          {resolvedTab === 'api-keys' && <AdminAPIKeysTab />}
         </>
       )}
     </div>
@@ -451,6 +454,83 @@ function GitHubMappingsTab() {
           </form>
         </Modal>
       </section>
+    </div>
+  )
+}
+
+// --- Admin API Keys Tab ---
+
+function AdminAPIKeysTab() {
+  const { data: keys = [], isLoading } = useAdminApiKeys()
+  const deleteKey = useDeleteAdminApiKey()
+
+  if (isLoading) return <div className="text-sm text-gray-500">Loading...</div>
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          {keys.length} key{keys.length !== 1 ? 's' : ''}
+        </h2>
+      </div>
+
+      <div className="overflow-hidden rounded-sm border border-gray-200 dark:border-gray-700">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-gray-50 text-xs text-gray-500 uppercase dark:bg-gray-800 dark:text-gray-400">
+            <tr>
+              <th className="px-4 py-2">Name</th>
+              <th className="px-4 py-2">User</th>
+              <th className="px-4 py-2">Key</th>
+              <th className="px-4 py-2">Expires</th>
+              <th className="px-4 py-2">Last Used</th>
+              <th className="px-4 py-2">Created</th>
+              <th className="px-4 py-2 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {keys.map((k) => (
+              <tr key={k.id} className="bg-white dark:bg-gray-900">
+                <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">{k.name}</td>
+                <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{k.username}</td>
+                <td className="px-4 py-2">
+                  <code className="rounded-xs bg-gray-100 px-1.5 py-0.5 text-xs font-mono text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                    bmk_{k.key_prefix}...
+                  </code>
+                </td>
+                <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                  {k.expires_at ? formatTimestamp(k.expires_at) : 'Never'}
+                </td>
+                <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                  {k.last_used_at ? formatTimestamp(k.last_used_at) : 'Never'}
+                </td>
+                <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                  {formatTimestamp(k.created_at)}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete API key "${k.name}" (user: ${k.username})?`)) {
+                        deleteKey.mutate(k.id)
+                      }
+                    }}
+                    className="rounded-sm p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                    title="Delete"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {keys.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                  No API keys
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

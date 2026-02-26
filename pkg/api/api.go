@@ -122,6 +122,11 @@ func (s *server) Start(ctx context.Context) error {
 					s.log.WithError(err).
 						Warn("Failed to clean expired sessions")
 				}
+
+				if err := s.store.DeleteExpiredAPIKeys(ctx); err != nil {
+					s.log.WithError(err).
+						Warn("Failed to clean expired API keys")
+				}
 			case <-s.done:
 				return
 			}

@@ -298,6 +298,74 @@ func (s *server) handleDeleteSessionByID(
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// --- Admin API key management ---
+
+type adminAPIKeyResponse struct {
+	apiKeyResponse
+	Username string `json:"username"`
+}
+
+// handleListAllAPIKeys returns all API keys with usernames (admin only).
+func (s *server) handleListAllAPIKeys(
+	w http.ResponseWriter, r *http.Request,
+) {
+	keys, err := s.store.ListAPIKeys(r.Context())
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list all API keys")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	users, err := s.store.ListUsers(r.Context())
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list users")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	userMap := make(map[uint]string, len(users))
+	for i := range users {
+		userMap[users[i].ID] = users[i].Username
+	}
+
+	resp := make([]adminAPIKeyResponse, 0, len(keys))
+	for i := range keys {
+		resp = append(resp, adminAPIKeyResponse{
+			apiKeyResponse: toAPIKeyResponse(&keys[i]),
+			Username:       userMap[keys[i].UserID],
+		})
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleDeleteAPIKey deletes any API key by ID (admin only).
+func (s *server) handleDeleteAPIKey(
+	w http.ResponseWriter, r *http.Request,
+) {
+	id, err := parseIDParam(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{err.Error()})
+
+		return
+	}
+
+	if err := s.store.DeleteAPIKey(r.Context(), id); err != nil {
+		s.log.WithError(err).Error("Failed to delete API key")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // --- GitHub org mapping management ---
 
 type orgMappingRequest struct {

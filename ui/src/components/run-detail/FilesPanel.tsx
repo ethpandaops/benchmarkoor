@@ -8,6 +8,7 @@ import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
 import { fetchHead, type HeadResult } from '@/api/client'
 import { formatBytes } from '@/utils/format'
 import { getDataUrl, isS3Mode, loadRuntimeConfig, toAbsoluteUrl } from '@/config/runtime'
+import { useAuth } from '@/hooks/useAuth'
 import { Modal } from '@/components/shared/Modal'
 
 type DownloadListFormat = 'urls' | 'curl'
@@ -583,22 +584,85 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
     staleTime: Infinity,
   })
 
+  const { authConfig } = useAuth()
+  const requiresAuth = authConfig != null && !authConfig.auth.anonymous_read
+
   const downloadListText = useMemo(() => {
     if (!runtimeConfig || downloadEntries.length === 0) return ''
     const s3 = isS3Mode(runtimeConfig)
-    return downloadEntries.map((e) => {
+    const needsAuth = requiresAuth && runtimeConfig.api?.baseUrl
+
+    if (downloadFormat === 'urls') {
+      return downloadEntries.map((e) => {
+        let url = getDataUrl(e.path, runtimeConfig)
+        if (s3) url += `${url.includes('?') ? '&' : '?'}redirect=true`
+        return toAbsoluteUrl(url)
+      }).join('\n')
+    }
+
+    // Build curl script with progress.
+    const authFlag = needsAuth ? ' -H "Authorization: Bearer $BENCHMARKOOR_API_KEY"' : ''
+    const total = downloadEntries.length
+    const urls = downloadEntries.map((e) => {
       let url = getDataUrl(e.path, runtimeConfig)
       if (s3) url += `${url.includes('?') ? '&' : '?'}redirect=true`
-      return downloadFormat === 'urls'
-        ? toAbsoluteUrl(url)
-        : `curl -fsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`
-    }).join('\n')
-  }, [downloadEntries, downloadFormat, runtimeConfig])
+      return `  '${toAbsoluteUrl(url)}' '${e.outputPath}'`
+    })
+
+    const lines: string[] = []
+
+    if (needsAuth) {
+      lines.push(
+        `if [ -z "\${BENCHMARKOOR_API_KEY:-}" ]; then`,
+        `  echo "Error: BENCHMARKOOR_API_KEY is not set." >&2`,
+        `  echo "Generate one at your API Keys page and run:" >&2`,
+        `  echo "  export BENCHMARKOOR_API_KEY=\\"bmk_...\\"" >&2`,
+        `  exit 1`,
+        `fi`,
+        ``,
+      )
+    }
+
+    lines.push(`URLS=(`)
+    lines.push(...urls)
+    lines.push(
+      `)`,
+      ``,
+      `total=${total}`,
+      `i=0`,
+      `failed=0`,
+      `skipped=0`,
+      `for (( idx=0; idx<\${#URLS[@]}; idx+=2 )); do`,
+      `  url="\${URLS[$idx]}"`,
+      `  out="\${URLS[$idx+1]}"`,
+      `  i=$((i + 1))`,
+      `  if [ -f "$out" ]; then`,
+      `    printf "[%d/%d] %s (exists, skipped)\\n" "$i" "$total" "$out"`,
+      `    skipped=$((skipped + 1))`,
+      `    continue`,
+      `  fi`,
+      `  printf "[%d/%d] %s\\n" "$i" "$total" "$out"`,
+      `  if curl${authFlag} -gsfSL --create-dirs -o "$out" "$url"; then`,
+      `    :`,
+      `  else`,
+      `    printf "  FAILED (exit %d)\\n" "$?"`,
+      `    failed=$((failed + 1))`,
+      `  fi`,
+      `done`,
+      ``,
+      `printf "\\nDone: %d/%d succeeded" "$((total - failed - skipped))" "$total"`,
+      `if [ "$skipped" -gt 0 ]; then printf ", %d skipped" "$skipped"; fi`,
+      `if [ "$failed" -gt 0 ]; then printf ", %d failed" "$failed"; fi`,
+      `printf "\\n"`,
+    )
+
+    return lines.join('\n')
+  }, [downloadEntries, downloadFormat, runtimeConfig, requiresAuth])
 
   const handleDownloadFile = useCallback(() => {
     if (!downloadListText) return
     const isCurl = downloadFormat === 'curl'
-    const content = isCurl ? `#!/bin/sh\n${downloadListText}` : downloadListText
+    const content = isCurl ? `#!/usr/bin/env bash\n${downloadListText}` : downloadListText
     const blob = new Blob([content], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -719,13 +783,22 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
             {downloadListText || 'No files selected'}
           </pre>
           {downloadFormat === 'curl' && downloadListText && (
-            <p className="text-xs/5 text-gray-500 dark:text-gray-400">
-              Download{' '}
-              <button onClick={handleDownloadFile} className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
-                {runId}.sh
-              </button>
-              . Run with: <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">chmod +x {runId}.sh && ./{runId}.sh</code>{' '}<CopyButton text={`chmod +x ${runId}.sh && ./${runId}.sh`} />
-            </p>
+            <div className="flex flex-col gap-1.5">
+              {requiresAuth && runtimeConfig?.api?.baseUrl && (
+                <p className="text-xs/5 text-amber-600 dark:text-amber-400">
+                  Authentication is required. Set <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">BENCHMARKOOR_API_KEY</code> to a key generated from your <a href="/api-keys" target="_blank" rel="noopener noreferrer" className="underline">API Keys</a> page.
+                </p>
+              )}
+              <p className="text-xs/5 text-gray-500 dark:text-gray-400">
+                Download{' '}
+                <button onClick={handleDownloadFile} className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+                  {runId}.sh
+                </button>
+                {requiresAuth
+                  ? <>. Run with: <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">chmod +x {runId}.sh && BENCHMARKOOR_API_KEY="bmk_..." ./{runId}.sh</code>{' '}<CopyButton text={`chmod +x ${runId}.sh && BENCHMARKOOR_API_KEY="bmk_..." ./${runId}.sh`} /></>
+                  : <>. Run with: <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">chmod +x {runId}.sh && ./{runId}.sh</code>{' '}<CopyButton text={`chmod +x ${runId}.sh && ./${runId}.sh`} /></>}
+              </p>
+            </div>
           )}
         </div>
       </Modal>

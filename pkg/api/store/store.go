@@ -46,6 +46,15 @@ type Store interface {
 	UpsertGitHubUserMapping(ctx context.Context, m *GitHubUserMapping) error
 	DeleteGitHubUserMapping(ctx context.Context, id uint) error
 
+	// API key CRUD.
+	CreateAPIKey(ctx context.Context, key *APIKey) error
+	ListAPIKeysByUser(ctx context.Context, userID uint) ([]APIKey, error)
+	ListAPIKeys(ctx context.Context) ([]APIKey, error)
+	GetAPIKeyByHash(ctx context.Context, hash string) (*APIKey, error)
+	DeleteAPIKey(ctx context.Context, id uint) error
+	UpdateAPIKeyLastUsed(ctx context.Context, id uint, t time.Time) error
+	DeleteExpiredAPIKeys(ctx context.Context) error
+
 	// Seeding from config.
 	SeedUsers(ctx context.Context, users []config.BasicAuthUser) error
 	SeedGitHubMappings(
@@ -112,6 +121,7 @@ func (s *store) Start(ctx context.Context) error {
 	if err := s.db.WithContext(ctx).AutoMigrate(
 		&User{},
 		&Session{},
+		&APIKey{},
 		&GitHubOrgMapping{},
 		&GitHubUserMapping{},
 	); err != nil {
@@ -278,6 +288,94 @@ func (s *store) DeleteExpiredSessions(ctx context.Context) error {
 	if result.RowsAffected > 0 {
 		s.log.WithField("count", result.RowsAffected).
 			Debug("Cleaned up expired sessions")
+	}
+
+	return nil
+}
+
+// --- API key CRUD ---
+
+func (s *store) CreateAPIKey(
+	ctx context.Context, key *APIKey,
+) error {
+	if err := s.db.WithContext(ctx).Create(key).Error; err != nil {
+		return fmt.Errorf("creating api key: %w", err)
+	}
+
+	return nil
+}
+
+func (s *store) ListAPIKeysByUser(
+	ctx context.Context, userID uint,
+) ([]APIKey, error) {
+	var keys []APIKey
+	if err := s.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("id ASC").
+		Find(&keys).Error; err != nil {
+		return nil, fmt.Errorf("listing api keys by user: %w", err)
+	}
+
+	return keys, nil
+}
+
+func (s *store) ListAPIKeys(ctx context.Context) ([]APIKey, error) {
+	var keys []APIKey
+	if err := s.db.WithContext(ctx).
+		Order("id ASC").
+		Find(&keys).Error; err != nil {
+		return nil, fmt.Errorf("listing api keys: %w", err)
+	}
+
+	return keys, nil
+}
+
+func (s *store) GetAPIKeyByHash(
+	ctx context.Context, hash string,
+) (*APIKey, error) {
+	var key APIKey
+	if err := s.db.WithContext(ctx).
+		Where("key_hash = ?", hash).
+		First(&key).Error; err != nil {
+		return nil, fmt.Errorf("getting api key by hash: %w", err)
+	}
+
+	return &key, nil
+}
+
+func (s *store) DeleteAPIKey(ctx context.Context, id uint) error {
+	if err := s.db.WithContext(ctx).
+		Delete(&APIKey{}, id).Error; err != nil {
+		return fmt.Errorf("deleting api key: %w", err)
+	}
+
+	return nil
+}
+
+func (s *store) UpdateAPIKeyLastUsed(
+	ctx context.Context, id uint, t time.Time,
+) error {
+	if err := s.db.WithContext(ctx).
+		Model(&APIKey{}).
+		Where("id = ?", id).
+		Update("last_used_at", t).Error; err != nil {
+		return fmt.Errorf("updating api key last used: %w", err)
+	}
+
+	return nil
+}
+
+func (s *store) DeleteExpiredAPIKeys(ctx context.Context) error {
+	result := s.db.WithContext(ctx).
+		Where("expires_at IS NOT NULL AND expires_at < ?", time.Now().UTC()).
+		Delete(&APIKey{})
+	if result.Error != nil {
+		return fmt.Errorf("deleting expired api keys: %w", result.Error)
+	}
+
+	if result.RowsAffected > 0 {
+		s.log.WithField("count", result.RowsAffected).
+			Debug("Cleaned up expired API keys")
 	}
 
 	return nil
