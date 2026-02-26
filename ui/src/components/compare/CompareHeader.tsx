@@ -35,18 +35,19 @@ function RunCard({
         <StrategyIcon strategy={config.instance.rollback_strategy} />
       </div>
       <div className="mt-3 flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Run:</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-xs/5 text-gray-500 dark:text-gray-400">Run:</span>
           <Link
             to="/runs/$runId"
             params={{ runId }}
-            className="font-mono text-sm/6 text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+            className="truncate font-mono text-sm/6 text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+            title={runId}
           >
             {runId}
           </Link>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Image:</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-xs/5 text-gray-500 dark:text-gray-400">Image:</span>
           <span className="truncate font-mono text-sm/6 text-gray-900 dark:text-gray-100" title={config.instance.image}>
             {config.instance.image}
           </span>
@@ -66,6 +67,7 @@ const GRID_COLS: Record<number, string> = {
   2: 'grid-cols-1 lg:grid-cols-2',
   3: 'grid-cols-1 lg:grid-cols-3',
   4: 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-4',
+  5: 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-5',
 }
 
 export function CompareHeader({ runs }: CompareHeaderProps) {
