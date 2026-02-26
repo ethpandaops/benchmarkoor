@@ -8,6 +8,7 @@ import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
 import { fetchHead, type HeadResult } from '@/api/client'
 import { formatBytes } from '@/utils/format'
 import { getDataUrl, isS3Mode, loadRuntimeConfig, toAbsoluteUrl } from '@/config/runtime'
+import { useAuth } from '@/hooks/useAuth'
 import { Modal } from '@/components/shared/Modal'
 
 type DownloadListFormat = 'urls' | 'curl'
@@ -583,22 +584,49 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
     staleTime: Infinity,
   })
 
+  const { authConfig } = useAuth()
+  const requiresAuth = authConfig != null && !authConfig.auth.anonymous_read
+  const hasBasicAuth = authConfig?.auth.basic_enabled === true
+
   const downloadListText = useMemo(() => {
     if (!runtimeConfig || downloadEntries.length === 0) return ''
     const s3 = isS3Mode(runtimeConfig)
-    return downloadEntries.map((e) => {
+    const needsAuth = requiresAuth && runtimeConfig.api?.baseUrl
+    const cookieFlag = needsAuth ? '-b cookies.txt ' : ''
+    const lines = downloadEntries.map((e) => {
       let url = getDataUrl(e.path, runtimeConfig)
       if (s3) url += `${url.includes('?') ? '&' : '?'}redirect=true`
       return downloadFormat === 'urls'
         ? toAbsoluteUrl(url)
-        : `curl -fsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`
-    }).join('\n')
-  }, [downloadEntries, downloadFormat, runtimeConfig])
+        : `curl ${cookieFlag}-fsSL --create-dirs -o '${e.outputPath}' '${toAbsoluteUrl(url)}'`
+    })
+    if (downloadFormat === 'curl' && needsAuth) {
+      if (hasBasicAuth) {
+        const loginUrl = `${runtimeConfig.api!.baseUrl}/api/v1/auth/login`
+        lines.unshift(
+          `# Authenticate (replace USERNAME and PASSWORD)`,
+          `curl -c cookies.txt -sSf -X POST -H 'Content-Type: application/json' \\`,
+          `  -d '{"username":"USERNAME","password":"PASSWORD"}' \\`,
+          `  '${loginUrl}'`,
+          ``,
+        )
+      } else {
+        lines.unshift(
+          `# Paste your session cookie from browser devtools`,
+          `# (Application > Cookies > benchmarkoor_session)`,
+          `echo "benchmarkoor_session=SESSION" > cookies.txt`,
+          ``,
+        )
+      }
+      lines.push(``, `# Cleanup`, `rm -f cookies.txt`)
+    }
+    return lines.join('\n')
+  }, [downloadEntries, downloadFormat, runtimeConfig, requiresAuth, hasBasicAuth])
 
   const handleDownloadFile = useCallback(() => {
     if (!downloadListText) return
     const isCurl = downloadFormat === 'curl'
-    const content = isCurl ? `#!/bin/sh\n${downloadListText}` : downloadListText
+    const content = isCurl ? `#!/bin/sh\nset -e\n${downloadListText}` : downloadListText
     const blob = new Blob([content], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -719,13 +747,22 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
             {downloadListText || 'No files selected'}
           </pre>
           {downloadFormat === 'curl' && downloadListText && (
-            <p className="text-xs/5 text-gray-500 dark:text-gray-400">
-              Download{' '}
-              <button onClick={handleDownloadFile} className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
-                {runId}.sh
-              </button>
-              . Run with: <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">chmod +x {runId}.sh && ./{runId}.sh</code>{' '}<CopyButton text={`chmod +x ${runId}.sh && ./${runId}.sh`} />
-            </p>
+            <div className="flex flex-col gap-1.5">
+              {requiresAuth && runtimeConfig?.api?.baseUrl && (
+                <p className="text-xs/5 text-amber-600 dark:text-amber-400">
+                  {hasBasicAuth
+                    ? <>Authentication is required. Replace <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">USERNAME</code> and <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">PASSWORD</code> in the script before running.</>
+                    : <>Authentication is required. Copy your <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">benchmarkoor_session</code> cookie from browser devtools and replace <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">SESSION</code> in the script.</>}
+                </p>
+              )}
+              <p className="text-xs/5 text-gray-500 dark:text-gray-400">
+                Download{' '}
+                <button onClick={handleDownloadFile} className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+                  {runId}.sh
+                </button>
+                . Run with: <code className="rounded-xs bg-gray-100 px-1 py-0.5 font-mono dark:bg-gray-900">chmod +x {runId}.sh && ./{runId}.sh</code>{' '}<CopyButton text={`chmod +x ${runId}.sh && ./${runId}.sh`} />
+              </p>
+            </div>
           )}
         </div>
       </Modal>
