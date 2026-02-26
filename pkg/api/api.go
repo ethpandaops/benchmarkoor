@@ -260,6 +260,7 @@ func (s *server) prepareIndexing(ctx context.Context) error {
 	// Create the indexer (not started yet).
 	s.indexer = indexer.NewIndexer(
 		s.log, s.indexStore, s.storageReader, interval,
+		s.cfg.Indexing.Concurrency,
 	)
 
 	s.log.Info("Indexing service enabled")

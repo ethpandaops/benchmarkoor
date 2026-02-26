@@ -25,6 +25,9 @@ type Store interface {
 	) ([]string, error)
 
 	UpsertTestDuration(ctx context.Context, d *TestDuration) error
+	BulkUpsertTestDurations(
+		ctx context.Context, durations []*TestDuration,
+	) error
 	ListTestDurationsBySuite(
 		ctx context.Context, suiteHash string,
 	) ([]TestDuration, error)
@@ -203,6 +206,36 @@ func (s *store) UpsertTestDuration(
 	}
 
 	return nil
+}
+
+// BulkUpsertTestDurations inserts or updates multiple test duration records
+// in a single transaction. For each record it deletes-then-creates to avoid
+// the overhead of individual FirstOrCreate round-trips.
+func (s *store) BulkUpsertTestDurations(
+	ctx context.Context, durations []*TestDuration,
+) error {
+	if len(durations) == 0 {
+		return nil
+	}
+
+	const batchSize = 100
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for i := 0; i < len(durations); i += batchSize {
+			end := i + batchSize
+			if end > len(durations) {
+				end = len(durations)
+			}
+
+			batch := durations[i:end]
+
+			if err := tx.CreateInBatches(batch, len(batch)).Error; err != nil {
+				return fmt.Errorf("bulk inserting test durations: %w", err)
+			}
+		}
+
+		return nil
+	})
 }
 
 // ListTestDurationsBySuite returns all test duration entries for a suite hash.

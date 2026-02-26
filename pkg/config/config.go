@@ -2053,6 +2053,13 @@ func (c *Config) validateAPIIndexing() error {
 		)
 	}
 
+	// Validate concurrency.
+	if idx.Concurrency < 0 {
+		return fmt.Errorf(
+			"api.indexing.concurrency: must be >= 0 (0 means default)",
+		)
+	}
+
 	// Validate database driver.
 	switch idx.Database.Driver {
 	case "sqlite", "postgres":

@@ -12,9 +12,10 @@ type APIConfig struct {
 // APIIndexingConfig configures the background indexing service that
 // scans storage backends and maintains a queryable index in a database.
 type APIIndexingConfig struct {
-	Enabled  bool              `yaml:"enabled" mapstructure:"enabled"`
-	Interval string            `yaml:"interval,omitempty" mapstructure:"interval"`
-	Database APIDatabaseConfig `yaml:"database" mapstructure:"database"`
+	Enabled     bool              `yaml:"enabled" mapstructure:"enabled"`
+	Interval    string            `yaml:"interval,omitempty" mapstructure:"interval"`
+	Concurrency int               `yaml:"concurrency,omitempty" mapstructure:"concurrency"`
+	Database    APIDatabaseConfig `yaml:"database" mapstructure:"database"`
 }
 
 // APIStorageConfig contains storage backend settings for serving files.

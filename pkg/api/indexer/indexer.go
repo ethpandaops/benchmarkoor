@@ -5,13 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
 	"github.com/ethpandaops/benchmarkoor/pkg/api/storage"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
+
+// defaultConcurrency is the number of runs indexed in parallel when
+// no explicit concurrency value is configured.
+const defaultConcurrency = 4
 
 // Indexer is a background service that periodically scans storage
 // and upserts indexed run/suite data into the index store.
@@ -24,12 +30,14 @@ type Indexer interface {
 var _ Indexer = (*indexer)(nil)
 
 type indexer struct {
-	log      logrus.FieldLogger
-	store    indexstore.Store
-	reader   storage.Reader
-	interval time.Duration
-	done     chan struct{}
-	wg       sync.WaitGroup
+	log         logrus.FieldLogger
+	store       indexstore.Store
+	reader      storage.Reader
+	interval    time.Duration
+	concurrency int
+	done        chan struct{}
+	wg          sync.WaitGroup
+	dbMu        sync.Mutex // serializes DB writes to avoid SQLite contention
 }
 
 // NewIndexer creates a new background indexer.
@@ -38,13 +46,19 @@ func NewIndexer(
 	store indexstore.Store,
 	reader storage.Reader,
 	interval time.Duration,
+	concurrency int,
 ) Indexer {
+	if concurrency <= 0 {
+		concurrency = defaultConcurrency
+	}
+
 	return &indexer{
-		log:      log.WithField("component", "indexer"),
-		store:    store,
-		reader:   reader,
-		interval: interval,
-		done:     make(chan struct{}),
+		log:         log.WithField("component", "indexer"),
+		store:       store,
+		reader:      reader,
+		interval:    interval,
+		concurrency: concurrency,
+		done:        make(chan struct{}),
 	}
 }
 
@@ -52,8 +66,10 @@ func NewIndexer(
 // pass and then ticks at the configured interval. The first pass is
 // asynchronous so the caller (the API server) is not blocked.
 func (idx *indexer) Start(ctx context.Context) error {
-	idx.log.WithField("interval", idx.interval.String()).
-		Info("Starting indexer")
+	idx.log.WithFields(logrus.Fields{
+		"interval":    idx.interval.String(),
+		"concurrency": idx.concurrency,
+	}).Info("Starting indexer")
 
 	idx.wg.Add(1)
 
@@ -120,7 +136,8 @@ func (idx *indexer) runPass(ctx context.Context) {
 }
 
 // indexDiscoveryPath performs incremental indexing for a single
-// discovery path. It discovers new runs and re-indexes incomplete ones.
+// discovery path. It discovers new runs and re-indexes incomplete ones
+// using a bounded worker pool for parallel processing.
 func (idx *indexer) indexDiscoveryPath(
 	ctx context.Context, dp string,
 ) error {
@@ -152,14 +169,36 @@ func (idx *indexer) indexDiscoveryPath(
 		incompleteSet[id] = struct{}{}
 	}
 
-	newCount := 0
+	// Build list of runs that need indexing.
+	type runTask struct {
+		runID          string
+		alreadyIndexed bool
+	}
+
+	var tasks []runTask
+
 	for _, id := range storageIDs {
-		if _, ok := indexedSet[id]; !ok {
-			newCount++
+		_, alreadyIndexed := indexedSet[id]
+		_, isIncomplete := incompleteSet[id]
+
+		if alreadyIndexed && !isIncomplete {
+			continue
 		}
+
+		tasks = append(tasks, runTask{
+			runID:          id,
+			alreadyIndexed: alreadyIndexed,
+		})
 	}
 
 	dpLog := idx.log.WithField("discovery_path", dp)
+
+	newCount := 0
+	for _, t := range tasks {
+		if !t.alreadyIndexed {
+			newCount++
+		}
+	}
 
 	dpLog.WithFields(logrus.Fields{
 		"storage_runs":    len(storageIDs),
@@ -168,47 +207,58 @@ func (idx *indexer) indexDiscoveryPath(
 		"incomplete_runs": len(incompleteIDs),
 	}).Info("Scanning discovery path")
 
-	var indexed int
-
-	for _, runID := range storageIDs {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-idx.done:
-			return nil
-		default:
-		}
-
-		_, alreadyIndexed := indexedSet[runID]
-		_, isIncomplete := incompleteSet[runID]
-
-		if alreadyIndexed && !isIncomplete {
-			continue
-		}
-
-		if err := idx.indexRun(ctx, dp, runID, alreadyIndexed); err != nil {
-			idx.log.WithError(err).
-				WithField("run_id", runID).
-				WithField("discovery_path", dp).
-				Warn("Failed to index run")
-
-			continue
-		}
-
-		action := "indexed"
-		if alreadyIndexed {
-			action = "reindexed"
-		}
-
-		dpLog.WithField("run_id", runID).
-			WithField("action", action).
-			Info("Indexed run")
-
-		indexed++
+	if len(tasks) == 0 {
+		return nil
 	}
 
-	if indexed > 0 {
-		dpLog.WithField("count", indexed).
+	// Process runs concurrently with bounded parallelism.
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(idx.concurrency)
+
+	var indexed atomic.Int64
+
+	for _, task := range tasks {
+		g.Go(func() error {
+			// Check for cancellation before starting work.
+			select {
+			case <-gCtx.Done():
+				return gCtx.Err()
+			case <-idx.done:
+				return nil
+			default:
+			}
+
+			if err := idx.indexRun(
+				gCtx, dp, task.runID, task.alreadyIndexed,
+			); err != nil {
+				dpLog.WithError(err).
+					WithField("run_id", task.runID).
+					Warn("Failed to index run")
+
+				return nil //nolint:nilerr // log and continue
+			}
+
+			action := "indexed"
+			if task.alreadyIndexed {
+				action = "reindexed"
+			}
+
+			dpLog.WithField("run_id", task.runID).
+				WithField("action", action).
+				Info("Indexed run")
+
+			indexed.Add(1)
+
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("indexing runs: %w", err)
+	}
+
+	if count := indexed.Load(); count > 0 {
+		dpLog.WithField("count", count).
 			Info("Discovery path indexing complete")
 	}
 
@@ -216,22 +266,48 @@ func (idx *indexer) indexDiscoveryPath(
 }
 
 // indexRun reads config.json and optionally result.json for a run,
-// builds index models, and upserts them into the store.
+// builds index models, and upserts them into the store. The two file
+// reads are performed concurrently to reduce latency.
 func (idx *indexer) indexRun(
 	ctx context.Context, dp, runID string, isReindex bool,
 ) error {
-	configData, err := idx.reader.GetRunFile(ctx, dp, runID, "config.json")
-	if err != nil {
-		return fmt.Errorf("reading config.json: %w", err)
+	// Read config.json and result.json concurrently.
+	var (
+		configData, resultData []byte
+		configErr, resultErr   error
+		fileWg                 sync.WaitGroup
+	)
+
+	fileWg.Add(2) //nolint:mnd // two files
+
+	go func() {
+		defer fileWg.Done()
+
+		configData, configErr = idx.reader.GetRunFile(
+			ctx, dp, runID, "config.json",
+		)
+	}()
+
+	go func() {
+		defer fileWg.Done()
+
+		resultData, resultErr = idx.reader.GetRunFile(
+			ctx, dp, runID, "result.json",
+		)
+	}()
+
+	fileWg.Wait()
+
+	if configErr != nil {
+		return fmt.Errorf("reading config.json: %w", configErr)
 	}
 
 	if configData == nil {
 		return fmt.Errorf("config.json not found")
 	}
 
-	resultData, err := idx.reader.GetRunFile(ctx, dp, runID, "result.json")
-	if err != nil {
-		idx.log.WithError(err).WithField("run_id", runID).
+	if resultErr != nil {
+		idx.log.WithError(resultErr).WithField("run_id", runID).
 			Debug("Failed to read result.json, continuing without it")
 
 		resultData = nil
@@ -301,6 +377,10 @@ func (idx *indexer) indexRun(
 		run.ReindexedAt = &now
 	}
 
+	// Serialize DB writes to avoid SQLite BUSY errors under concurrency.
+	idx.dbMu.Lock()
+	defer idx.dbMu.Unlock()
+
 	if err := idx.store.UpsertRun(ctx, run); err != nil {
 		return fmt.Errorf("upserting run: %w", err)
 	}
@@ -319,7 +399,7 @@ func (idx *indexer) indexRun(
 }
 
 // indexTestDurations extracts per-test durations from result.json
-// and upserts them into the store.
+// and bulk-inserts them into the store.
 func (idx *indexer) indexTestDurations(
 	ctx context.Context,
 	suiteHash, runID string,
@@ -343,6 +423,9 @@ func (idx *indexer) indexTestDurations(
 
 	executor.AccumulateRunResult(&stats, resultData, run)
 
+	// Collect all durations for bulk insert.
+	var durations []*indexstore.TestDuration
+
 	for testName, td := range stats {
 		for _, dur := range td.Durations {
 			stepsJSON := ""
@@ -353,7 +436,7 @@ func (idx *indexer) indexTestDurations(
 				}
 			}
 
-			d := &indexstore.TestDuration{
+			durations = append(durations, &indexstore.TestDuration{
 				SuiteHash: suiteHash,
 				TestName:  testName,
 				RunID:     runID,
@@ -363,14 +446,12 @@ func (idx *indexer) indexTestDurations(
 				RunStart:  dur.RunStart,
 				RunEnd:    dur.RunEnd,
 				StepsJSON: stepsJSON,
-			}
-
-			if err := idx.store.UpsertTestDuration(ctx, d); err != nil {
-				return fmt.Errorf(
-					"upserting test duration for %q: %w", testName, err,
-				)
-			}
+			})
 		}
+	}
+
+	if err := idx.store.BulkUpsertTestDurations(ctx, durations); err != nil {
+		return fmt.Errorf("bulk inserting test durations: %w", err)
 	}
 
 	return nil
