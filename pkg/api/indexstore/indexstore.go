@@ -34,6 +34,11 @@ type Store interface {
 	DeleteTestDurationsForRun(ctx context.Context, runID string) error
 
 	ListAllRuns(ctx context.Context) ([]Run, error)
+
+	QueryRuns(ctx context.Context, params *QueryParams) (*QueryResult, error)
+	QueryTestDurations(
+		ctx context.Context, params *QueryParams,
+	) (*QueryResult, error)
 }
 
 // Compile-time interface check.
@@ -265,4 +270,71 @@ func (s *store) DeleteTestDurationsForRun(
 	}
 
 	return nil
+}
+
+// QueryRuns executes a flexible query against the runs table using the
+// validated QueryParams. It returns paginated results with a total count.
+func (s *store) QueryRuns(
+	ctx context.Context, params *QueryParams,
+) (*QueryResult, error) {
+	q := applyQuery(s.db.WithContext(ctx), &Run{}, params)
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("counting runs: %w", err)
+	}
+
+	var runs []Run
+	if err := q.Offset(params.Offset).
+		Limit(params.Limit).
+		Find(&runs).Error; err != nil {
+		return nil, fmt.Errorf("querying runs: %w", err)
+	}
+
+	data := make([]RunResponse, 0, len(runs))
+	for i := range runs {
+		data = append(data, toRunResponse(&runs[i]))
+	}
+
+	return &QueryResult{
+		Data:   data,
+		Total:  total,
+		Limit:  params.Limit,
+		Offset: params.Offset,
+	}, nil
+}
+
+// QueryTestDurations executes a flexible query against the test_durations
+// table using the validated QueryParams. It returns paginated results with
+// a total count.
+func (s *store) QueryTestDurations(
+	ctx context.Context, params *QueryParams,
+) (*QueryResult, error) {
+	q := applyQuery(
+		s.db.WithContext(ctx), &TestDuration{}, params,
+	)
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("counting test durations: %w", err)
+	}
+
+	var durations []TestDuration
+	if err := q.Offset(params.Offset).
+		Limit(params.Limit).
+		Find(&durations).Error; err != nil {
+		return nil, fmt.Errorf("querying test durations: %w", err)
+	}
+
+	data := make([]TestDurationResponse, 0, len(durations))
+	for i := range durations {
+		data = append(data, toTestDurationResponse(&durations[i]))
+	}
+
+	return &QueryResult{
+		Data:   data,
+		Total:  total,
+		Limit:  params.Limit,
+		Offset: params.Offset,
+	}, nil
 }

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/go-chi/chi/v5"
 )
@@ -147,6 +148,55 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, stats)
+}
+
+// handleQueryRuns handles PostgREST-style queries against the runs table.
+func (s *server) handleQueryRuns(w http.ResponseWriter, r *http.Request) {
+	params, err := indexstore.ParseQueryParams(
+		r.URL.Query(), indexstore.AllowedRunColumns(),
+	)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{err.Error()})
+
+		return
+	}
+
+	result, err := s.indexStore.QueryRuns(r.Context(), params)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"querying runs: " + err.Error()})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleQueryTestDurations handles PostgREST-style queries against the
+// test_durations table.
+func (s *server) handleQueryTestDurations(
+	w http.ResponseWriter, r *http.Request,
+) {
+	params, err := indexstore.ParseQueryParams(
+		r.URL.Query(), indexstore.AllowedTestDurationColumns(),
+	)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{err.Error()})
+
+		return
+	}
+
+	result, err := s.indexStore.QueryTestDurations(r.Context(), params)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"querying test durations: " + err.Error()})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleRunIndexer triggers an immediate indexing pass. It returns 409 if

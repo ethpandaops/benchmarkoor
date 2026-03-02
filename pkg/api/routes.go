@@ -82,6 +82,12 @@ func (s *server) buildRouter() http.Handler {
 
 				r.Get("/", s.handleIndex)
 				r.Get("/suites/{hash}/stats", s.handleSuiteStats)
+
+				r.Route("/query", func(r chi.Router) {
+					r.Get("/runs", s.handleQueryRuns)
+					r.Get("/test_durations",
+						s.handleQueryTestDurations)
+				})
 			})
 		}
 

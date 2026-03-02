@@ -349,6 +349,8 @@ Available only when [indexing](#indexing) is enabled.
 |--------|------|-------------|
 | `GET` | `/index` | List all indexed runs across all discovery paths. Returns the same shape as `index.json` with an additional `discovery_path` field per entry. Sorted by timestamp descending |
 | `GET` | `/index/suites/{hash}/stats` | Per-test duration statistics for a suite. Returns the same shape as `stats.json`. Durations are sorted by `time_ns` descending |
+| `GET` | `/index/query/runs` | Query indexed runs with PostgREST-style filtering, sorting, and pagination |
+| `GET` | `/index/query/test_durations` | Query test duration data with PostgREST-style filtering, sorting, and pagination |
 
 ### Files (requires authentication unless `anonymous_read` is enabled)
 
