@@ -21,6 +21,7 @@ func (s *server) buildRouter() http.Handler {
 		// Public endpoints.
 		r.Get("/health", s.handleHealth)
 		r.Get("/config", s.handleConfig)
+		r.Get("/openapi.json", s.handleOpenAPISpec)
 
 		// Auth endpoints.
 		r.Route("/auth", func(r chi.Router) {

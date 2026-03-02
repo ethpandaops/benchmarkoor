@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useMatchRoute, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X } from 'lucide-react'
+import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X, FileText } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 
 function NavLink({ to, children, onClick }: { to: string; children: React.ReactNode; onClick?: () => void }) {
@@ -96,6 +96,13 @@ function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
             >
               <Shield className="size-3.5" />
               API Keys
+            </button>
+            <button
+              onClick={() => handleNavigate('/api-docs')}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/50"
+            >
+              <FileText className="size-3.5" />
+              API Docs
             </button>
             {isAdmin && (
               <button

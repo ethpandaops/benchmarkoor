@@ -45,3 +45,18 @@ html {
   --color-gray-100: oklch(0.91 0.016 80);
   --color-gray-200: oklch(0.88 0.018 80);
 }
+
+/* Scalar API Reference – match app backgrounds */
+.light-mode {
+  --scalar-background-1: #f6f1e9;
+  --scalar-background-2: #f0eae1;
+  --scalar-background-3: #e7e0d6;
+  --scalar-border-color: #ded6cb;
+}
+
+.dark-mode {
+  --scalar-background-1: #18181b;
+  --scalar-background-2: #27272a;
+  --scalar-background-3: #3f3f46;
+  --scalar-border-color: #3f3f46;
+}
