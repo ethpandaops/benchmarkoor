@@ -176,14 +176,16 @@ func (s *store) ListRunIDs(
 var terminalStatuses = []string{"completed", "failed", "cancelled", "container_died"}
 
 // ListIncompleteRunIDs returns run IDs where the result has not been indexed
-// and the status is not terminal (still potentially in progress).
+// and the run is still potentially in progress. A run is considered
+// incomplete only when it has a non-empty, non-terminal status — empty
+// status means the run was abandoned and will never produce a result.
 func (s *store) ListIncompleteRunIDs(
 	ctx context.Context, discoveryPath string,
 ) ([]string, error) {
 	var ids []string
 	if err := s.db.WithContext(ctx).
 		Model(&Run{}).
-		Where("discovery_path = ? AND has_result = ? AND status NOT IN ?",
+		Where("discovery_path = ? AND has_result = ? AND status != '' AND status NOT IN ?",
 			discoveryPath, false, terminalStatuses).
 		Pluck("run_id", &ids).Error; err != nil {
 		return nil, fmt.Errorf("listing incomplete run ids: %w", err)

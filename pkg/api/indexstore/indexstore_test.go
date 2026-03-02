@@ -192,6 +192,22 @@ func TestStore_ListIncompleteRunIDs(t *testing.T) {
 			wantInList: false,
 		},
 		{
+			name: "failed without result is terminal - excluded",
+			run: indexstore.Run{
+				DiscoveryPath: dp, RunID: "r-failed",
+				Status: "failed", HasResult: false,
+			},
+			wantInList: false,
+		},
+		{
+			name: "empty status without result is abandoned - excluded",
+			run: indexstore.Run{
+				DiscoveryPath: dp, RunID: "r-empty-status",
+				Status: "", HasResult: false,
+			},
+			wantInList: false,
+		},
+		{
 			name: "running with result already indexed - excluded",
 			run: indexstore.Run{
 				DiscoveryPath: dp, RunID: "r-running-hasresult",
