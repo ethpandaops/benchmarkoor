@@ -188,7 +188,7 @@ function buildQueryUrl(state: QueryBuilderState, apiBaseUrl: string): string {
 
 interface Preset {
   label: string
-  state: Omit<QueryBuilderState, 'selectedColumns'>
+  state: Omit<QueryBuilderState, 'selectedColumns'> & { selectedColumns?: string[] }
 }
 
 const PRESETS: Preset[] = [
@@ -216,10 +216,11 @@ const PRESETS: Preset[] = [
     label: 'Slow tests',
     state: {
       endpoint: 'test_durations',
-      filters: [],
+      filters: [{ id: uid(), column: 'test_mgas_s', operator: 'gt', value: '0' }],
       orders: [{ id: uid(), column: 'test_mgas_s', direction: 'asc' }],
       limit: 20,
       offset: 0,
+      selectedColumns: ['run_id', 'test_mgas_s', 'test_name', 'suite_hash'],
     },
   },
   {

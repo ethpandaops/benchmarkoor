@@ -279,6 +279,12 @@ func (s *store) QueryRuns(
 ) (*QueryResult, error) {
 	q := applyQuery(s.db.WithContext(ctx), &Run{}, params)
 
+	// When select is specified, scan into maps so the JSON response
+	// only contains the requested columns (no zero-valued extras).
+	if len(params.Select) > 0 {
+		return scanMaps(q, params)
+	}
+
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, fmt.Errorf("counting runs: %w", err)
@@ -314,6 +320,12 @@ func (s *store) QueryTestDurations(
 		s.db.WithContext(ctx), &TestDuration{}, params,
 	)
 
+	// When select is specified, scan into maps so the JSON response
+	// only contains the requested columns (no zero-valued extras).
+	if len(params.Select) > 0 {
+		return scanMaps(q, params)
+	}
+
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, fmt.Errorf("counting test durations: %w", err)
@@ -333,6 +345,31 @@ func (s *store) QueryTestDurations(
 
 	return &QueryResult{
 		Data:   data,
+		Total:  total,
+		Limit:  params.Limit,
+		Offset: params.Offset,
+	}, nil
+}
+
+// scanMaps scans query results into []map[string]any so only the selected
+// columns appear in the JSON response.
+func scanMaps(
+	q *gorm.DB, params *QueryParams,
+) (*QueryResult, error) {
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("counting rows: %w", err)
+	}
+
+	var rows []map[string]any
+	if err := q.Offset(params.Offset).
+		Limit(params.Limit).
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("querying rows: %w", err)
+	}
+
+	return &QueryResult{
+		Data:   rows,
 		Total:  total,
 		Limit:  params.Limit,
 		Offset: params.Offset,
