@@ -102,6 +102,21 @@ func (s *store) Start(ctx context.Context) error {
 
 	s.db = db
 
+	// Set SQLite pragmas for performance and reliability.
+	if s.cfg.Driver == "sqlite" {
+		pragmas := []string{
+			"PRAGMA journal_mode=WAL",
+			"PRAGMA synchronous=NORMAL",
+			"PRAGMA busy_timeout=5000",
+			"PRAGMA foreign_keys=ON",
+		}
+		for _, p := range pragmas {
+			if err := s.db.Exec(p).Error; err != nil {
+				return fmt.Errorf("setting pragma %q: %w", p, err)
+			}
+		}
+	}
+
 	if err := s.db.WithContext(ctx).AutoMigrate(
 		&Run{},
 		&TestStat{},
@@ -238,10 +253,7 @@ func (s *store) BulkUpsertTestStats(
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for i := 0; i < len(stats); i += batchSize {
-			end := i + batchSize
-			if end > len(stats) {
-				end = len(stats)
-			}
+			end := min(i+batchSize, len(stats))
 
 			batch := stats[i:end]
 
