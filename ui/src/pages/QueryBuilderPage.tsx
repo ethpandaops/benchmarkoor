@@ -395,9 +395,10 @@ const PRESETS: Preset[] = [
     state: {
       endpoint: 'runs',
       filters: [{ id: uid(), column: 'tests_failed', operator: 'gt', value: '0' }],
-      orders: [{ id: uid(), column: 'tests_failed', direction: 'desc' }],
+      orders: [{ id: uid(), column: 'timestamp', direction: 'desc' }],
       limit: 100,
       offset: 0,
+      selectedColumns: ['timestamp', 'run_id', 'suite_hash', 'client', 'tests_total', 'tests_passed', 'tests_failed'],
     },
   },
   {
@@ -582,9 +583,12 @@ export function QueryBuilderPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header row */}
+      {/* Header */}
+      <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">Query Builder</h1>
+
+      {/* Table selector */}
       <div className="flex flex-wrap items-center gap-4">
-        <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">Query Builder</h1>
+        <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Tables:</span>
         <div className="flex items-center rounded-sm border border-gray-300 dark:border-gray-600">
           <button
             onClick={() => dispatch({ type: 'SET_ENDPOINT', endpoint: 'runs' })}
@@ -620,7 +624,8 @@ export function QueryBuilderPage() {
       </div>
 
       {/* Example queries */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Examples:</span>
         {PRESETS.map((preset) => (
           <button
             key={preset.label}
