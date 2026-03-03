@@ -199,6 +199,32 @@ func (s *server) handleQueryTestStats(
 	writeJSON(w, http.StatusOK, result)
 }
 
+// handleQuerySuites handles PostgREST-style queries against the suites
+// table.
+func (s *server) handleQuerySuites(
+	w http.ResponseWriter, r *http.Request,
+) {
+	params, err := indexstore.ParseQueryParams(
+		r.URL.Query(), indexstore.AllowedSuiteColumns(),
+	)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{err.Error()})
+
+		return
+	}
+
+	result, err := s.indexStore.QuerySuites(r.Context(), params)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"querying suites: " + err.Error()})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
 // handleQueryTestStatsBlockLogs handles PostgREST-style queries against
 // the test_stats_block_logs table.
 func (s *server) handleQueryTestStatsBlockLogs(

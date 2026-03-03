@@ -35,6 +35,8 @@ type Store interface {
 
 	ListAllRuns(ctx context.Context) ([]Run, error)
 
+	UpsertSuite(ctx context.Context, suite *Suite) error
+
 	BulkInsertTestStatsBlockLogs(
 		ctx context.Context, logs []*TestStatsBlockLog,
 	) error
@@ -45,6 +47,9 @@ type Store interface {
 		ctx context.Context, params *QueryParams,
 	) (*QueryResult, error)
 	QueryTestStatsBlockLogs(
+		ctx context.Context, params *QueryParams,
+	) (*QueryResult, error)
+	QuerySuites(
 		ctx context.Context, params *QueryParams,
 	) (*QueryResult, error)
 }
@@ -122,6 +127,7 @@ func (s *store) Start(ctx context.Context) error {
 		&Run{},
 		&TestStat{},
 		&TestStatsBlockLog{},
+		&Suite{},
 	); err != nil {
 		return fmt.Errorf("running index migrations: %w", err)
 	}
@@ -338,6 +344,19 @@ func (s *store) DeleteTestStatsBlockLogsForRun(
 	return nil
 }
 
+// UpsertSuite inserts or updates a suite record keyed by suite_hash.
+func (s *store) UpsertSuite(ctx context.Context, suite *Suite) error {
+	result := s.db.WithContext(ctx).
+		Where("suite_hash = ?", suite.SuiteHash).
+		Assign(suite).
+		FirstOrCreate(suite)
+	if result.Error != nil {
+		return fmt.Errorf("upserting suite: %w", result.Error)
+	}
+
+	return nil
+}
+
 // QueryRuns executes a flexible query against the runs table using the
 // validated QueryParams. It returns paginated results with a total count.
 func (s *store) QueryRuns(
@@ -452,6 +471,45 @@ func (s *store) QueryTestStatsBlockLogs(
 	data := make([]TestStatsBlockLogResponse, 0, len(logs))
 	for i := range logs {
 		data = append(data, toTestStatsBlockLogResponse(&logs[i]))
+	}
+
+	return &QueryResult{
+		Data:   data,
+		Total:  total,
+		Limit:  params.Limit,
+		Offset: params.Offset,
+	}, nil
+}
+
+// QuerySuites executes a flexible query against the suites table using
+// the validated QueryParams. It returns paginated results with a total
+// count.
+func (s *store) QuerySuites(
+	ctx context.Context, params *QueryParams,
+) (*QueryResult, error) {
+	q := applyQuery(s.db.WithContext(ctx), &Suite{}, params)
+
+	// When select is specified, scan into maps so the JSON response
+	// only contains the requested columns (no zero-valued extras).
+	if len(params.Select) > 0 {
+		return scanMaps(q, params)
+	}
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("counting suites: %w", err)
+	}
+
+	var suites []Suite
+	if err := q.Offset(params.Offset).
+		Limit(params.Limit).
+		Find(&suites).Error; err != nil {
+		return nil, fmt.Errorf("querying suites: %w", err)
+	}
+
+	data := make([]SuiteResponse, 0, len(suites))
+	for i := range suites {
+		data = append(data, toSuiteResponse(&suites[i]))
 	}
 
 	return &QueryResult{
