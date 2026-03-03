@@ -140,7 +140,7 @@ function stateToSearchParams(state: QueryBuilderState): QuerySearchParams {
   }
 
   if (state.filters.length > 0) {
-    const parts = state.filters.map((f) => `${f.column}:${f.operator}:${f.value}`)
+    const parts = state.filters.map((f) => `${f.column}:${f.operator}:${encodeURIComponent(f.value)}`)
     params.f = parts.join(',')
   }
 
@@ -184,7 +184,7 @@ function searchParamsToState(params: QuerySearchParams): QueryBuilderState | nul
       if (secondColon < 0) continue
       const column = part.slice(0, firstColon)
       const operator = part.slice(firstColon + 1, secondColon)
-      const value = part.slice(secondColon + 1)
+      const value = decodeURIComponent(part.slice(secondColon + 1))
       if (validCols.has(column) && VALID_OPERATORS.has(operator)) {
         filters.push({ id: uid(), column, operator, value })
       }
