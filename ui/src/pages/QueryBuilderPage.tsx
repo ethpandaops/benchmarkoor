@@ -13,15 +13,15 @@ const RUNS_COLUMNS = [
   'tests_failed', 'indexed_at', 'reindexed_at',
 ]
 
-const TEST_DURATION_COLUMNS = [
-  'id', 'suite_hash', 'test_name', 'run_id', 'client',
+const TEST_STAT_COLUMNS = [
+  'id', 'suite_hash', 'run_id', 'test_name', 'client',
   'total_gas_used', 'total_time_ns', 'total_mgas_s',
   'setup_gas_used', 'setup_time_ns', 'setup_mgas_s',
   'test_gas_used', 'test_time_ns', 'test_mgas_s',
   'run_start', 'run_end',
 ]
 
-const TEST_BLOCK_LOG_COLUMNS = [
+const TEST_STATS_BLOCK_LOG_COLUMNS = [
   'id', 'suite_hash', 'run_id', 'test_name', 'client',
   'block_number', 'block_hash', 'block_gas_used', 'block_tx_count',
   'timing_execution_ms', 'timing_state_read_ms', 'timing_state_hash_ms',
@@ -55,7 +55,7 @@ const TIMESTAMP_COLUMNS = new Set([
 
 // --- Types ---
 
-type Endpoint = 'runs' | 'test_durations' | 'test_block_logs'
+type Endpoint = 'runs' | 'test_stats' | 'test_stats_block_logs'
 
 interface FilterRow {
   id: string
@@ -128,8 +128,8 @@ function searchParamsToState(params: QuerySearchParams): QueryBuilderState | nul
   if (!hasParams) return null
 
   const endpoint: Endpoint =
-    params.endpoint === 'test_durations' ? 'test_durations'
-    : params.endpoint === 'test_block_logs' ? 'test_block_logs'
+    params.endpoint === 'test_stats' ? 'test_stats'
+    : params.endpoint === 'test_stats_block_logs' ? 'test_stats_block_logs'
     : 'runs'
   const validCols = new Set(columnsForEndpoint(endpoint))
 
@@ -200,8 +200,8 @@ function uid() {
 
 function columnsForEndpoint(ep: Endpoint) {
   if (ep === 'runs') return RUNS_COLUMNS
-  if (ep === 'test_block_logs') return TEST_BLOCK_LOG_COLUMNS
-  return TEST_DURATION_COLUMNS
+  if (ep === 'test_stats_block_logs') return TEST_STATS_BLOCK_LOG_COLUMNS
+  return TEST_STAT_COLUMNS
 }
 
 function makeInitialState(): QueryBuilderState {
@@ -333,7 +333,7 @@ const PRESETS: Preset[] = [
   {
     label: 'Slow tests',
     state: {
-      endpoint: 'test_durations',
+      endpoint: 'test_stats',
       filters: [{ id: uid(), column: 'test_mgas_s', operator: 'gt', value: '0' }],
       orders: [{ id: uid(), column: 'test_mgas_s', direction: 'asc' }],
       limit: 20,
@@ -357,7 +357,7 @@ const PRESETS: Preset[] = [
   {
     label: 'Suite test durations',
     state: {
-      endpoint: 'test_durations',
+      endpoint: 'test_stats',
       filters: [{ id: uid(), column: 'suite_hash', operator: 'eq', value: '<fill in>' }],
       orders: [{ id: uid(), column: 'total_time_ns', direction: 'desc' }],
       limit: 100,
@@ -367,7 +367,7 @@ const PRESETS: Preset[] = [
   {
     label: 'Slowest blocks',
     state: {
-      endpoint: 'test_block_logs',
+      endpoint: 'test_stats_block_logs',
       filters: [],
       orders: [{ id: uid(), column: 'timing_total_ms', direction: 'desc' }],
       limit: 20,
@@ -508,24 +508,24 @@ export function QueryBuilderPage() {
             runs
           </button>
           <button
-            onClick={() => dispatch({ type: 'SET_ENDPOINT', endpoint: 'test_durations' })}
+            onClick={() => dispatch({ type: 'SET_ENDPOINT', endpoint: 'test_stats' })}
             className={`px-3 py-1.5 text-sm font-medium ${
-              state.endpoint === 'test_durations'
+              state.endpoint === 'test_stats'
                 ? 'bg-blue-600 text-white'
                 : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
             }`}
           >
-            test_durations
+            test_stats
           </button>
           <button
-            onClick={() => dispatch({ type: 'SET_ENDPOINT', endpoint: 'test_block_logs' })}
+            onClick={() => dispatch({ type: 'SET_ENDPOINT', endpoint: 'test_stats_block_logs' })}
             className={`px-3 py-1.5 text-sm font-medium ${
-              state.endpoint === 'test_block_logs'
+              state.endpoint === 'test_stats_block_logs'
                 ? 'bg-blue-600 text-white'
                 : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
             }`}
           >
-            test_block_logs
+            test_stats_block_logs
           </button>
         </div>
       </div>

@@ -54,9 +54,9 @@ var allowedRunColumns = map[string]bool{
 	"reindexed_at":       true,
 }
 
-// allowedTestDurationColumns lists columns that may be filtered, sorted, or
-// selected on the test_durations table.
-var allowedTestDurationColumns = map[string]bool{
+// allowedTestStatColumns lists columns that may be filtered, sorted, or
+// selected on the test_stats table.
+var allowedTestStatColumns = map[string]bool{
 	"id":             true,
 	"suite_hash":     true,
 	"test_name":      true,
@@ -75,9 +75,9 @@ var allowedTestDurationColumns = map[string]bool{
 	"run_end":        true,
 }
 
-// allowedTestBlockLogColumns lists columns that may be filtered, sorted, or
-// selected on the test_block_logs table.
-var allowedTestBlockLogColumns = map[string]bool{
+// allowedTestStatsBlockLogColumns lists columns that may be filtered, sorted,
+// or selected on the test_stats_block_logs table.
+var allowedTestStatsBlockLogColumns = map[string]bool{
 	"id":                           true,
 	"suite_hash":                   true,
 	"run_id":                       true,
@@ -169,12 +169,12 @@ type RunResponse struct {
 	ReindexedAt       *string         `json:"reindexed_at,omitempty"`
 }
 
-// TestDurationResponse is the JSON DTO for a test_durations row.
-type TestDurationResponse struct {
+// TestStatResponse is the JSON DTO for a test_stats row.
+type TestStatResponse struct {
 	ID        uint   `json:"id"`
 	SuiteHash string `json:"suite_hash"`
-	TestName  string `json:"test_name"`
 	RunID     string `json:"run_id"`
+	TestName  string `json:"test_name"`
 	Client    string `json:"client"`
 	RunStart  int64  `json:"run_start"`
 	RunEnd    int64  `json:"run_end"`
@@ -194,8 +194,8 @@ type TestDurationResponse struct {
 	StepsJSON json.RawMessage `json:"steps_json,omitempty"`
 }
 
-// TestBlockLogResponse is the JSON DTO for a test_block_logs row.
-type TestBlockLogResponse struct {
+// TestStatsBlockLogResponse is the JSON DTO for a test_stats_block_logs row.
+type TestStatsBlockLogResponse struct {
 	ID        uint   `json:"id"`
 	SuiteHash string `json:"suite_hash"`
 	RunID     string `json:"run_id"`
@@ -247,16 +247,15 @@ func AllowedRunColumns() map[string]bool {
 	return allowedRunColumns
 }
 
-// AllowedTestDurationColumns returns the set of queryable test duration
-// columns.
-func AllowedTestDurationColumns() map[string]bool {
-	return allowedTestDurationColumns
+// AllowedTestStatColumns returns the set of queryable test stat columns.
+func AllowedTestStatColumns() map[string]bool {
+	return allowedTestStatColumns
 }
 
-// AllowedTestBlockLogColumns returns the set of queryable test block log
-// columns.
-func AllowedTestBlockLogColumns() map[string]bool {
-	return allowedTestBlockLogColumns
+// AllowedTestStatsBlockLogColumns returns the set of queryable test stats
+// block log columns.
+func AllowedTestStatsBlockLogColumns() map[string]bool {
+	return allowedTestStatsBlockLogColumns
 }
 
 // ParseQueryParams validates and parses raw URL query values against the
@@ -490,13 +489,13 @@ func toRunResponse(r *Run) RunResponse {
 	return resp
 }
 
-// toTestDurationResponse converts a TestDuration model to its JSON DTO.
-func toTestDurationResponse(d *TestDuration) TestDurationResponse {
-	resp := TestDurationResponse{
+// toTestStatResponse converts a TestStat model to its JSON DTO.
+func toTestStatResponse(d *TestStat) TestStatResponse {
+	resp := TestStatResponse{
 		ID:           d.ID,
 		SuiteHash:    d.SuiteHash,
-		TestName:     d.TestName,
 		RunID:        d.RunID,
+		TestName:     d.TestName,
 		Client:       d.Client,
 		RunStart:     d.RunStart,
 		RunEnd:       d.RunEnd,
@@ -518,9 +517,10 @@ func toTestDurationResponse(d *TestDuration) TestDurationResponse {
 	return resp
 }
 
-// toTestBlockLogResponse converts a TestBlockLog model to its JSON DTO.
-func toTestBlockLogResponse(l *TestBlockLog) TestBlockLogResponse {
-	return TestBlockLogResponse{
+// toTestStatsBlockLogResponse converts a TestStatsBlockLog model to its
+// JSON DTO.
+func toTestStatsBlockLogResponse(l *TestStatsBlockLog) TestStatsBlockLogResponse {
+	return TestStatsBlockLogResponse{
 		ID:                        l.ID,
 		SuiteHash:                 l.SuiteHash,
 		RunID:                     l.RunID,
