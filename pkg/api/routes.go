@@ -90,6 +90,7 @@ func (s *server) buildRouter() http.Handler {
 						s.handleQueryTestStats)
 					r.Get("/test_stats_block_logs",
 						s.handleQueryTestStatsBlockLogs)
+					r.Get("/suites", s.handleQuerySuites)
 				})
 			})
 		}

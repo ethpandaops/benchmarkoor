@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
 	"github.com/ethpandaops/benchmarkoor/pkg/api/storage"
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -375,14 +376,16 @@ func (idx *indexer) indexRun(
 		return fmt.Errorf("building index entry: %w", err)
 	}
 
-	// Override tests_total from suite summary when available.
+	// Override tests_total from suite summary when available and
+	// upsert the suite record.
 	if entry.SuiteHash != "" {
 		summaryData, sErr := idx.reader.GetSuiteFile(
 			ctx, dp, entry.SuiteHash, "summary.json",
 		)
 		if sErr == nil && summaryData != nil {
 			var summary struct {
-				Tests json.RawMessage `json:"tests"`
+				Tests    json.RawMessage        `json:"tests"`
+				Metadata *config.MetadataConfig `json:"metadata"`
 			}
 
 			if json.Unmarshal(summaryData, &summary) == nil {
@@ -391,6 +394,28 @@ func (idx *indexer) indexRun(
 				if json.Unmarshal(summary.Tests, &tests) == nil &&
 					len(tests) > 0 {
 					entry.Tests.TestsTotal = len(tests)
+				}
+
+				// Extract suite name from metadata labels.
+				suiteName := ""
+				if summary.Metadata != nil {
+					if n, ok := summary.Metadata.Labels["name"]; ok {
+						suiteName = n
+					}
+				}
+
+				suite := &indexstore.Suite{
+					SuiteHash:     entry.SuiteHash,
+					DiscoveryPath: dp,
+					Name:          suiteName,
+					TestsTotal:    entry.Tests.TestsTotal,
+					IndexedAt:     time.Now().UTC(),
+				}
+
+				if uErr := idx.store.UpsertSuite(ctx, suite); uErr != nil {
+					idx.log.WithError(uErr).
+						WithField("suite_hash", entry.SuiteHash).
+						Warn("Failed to upsert suite")
 				}
 			}
 		}

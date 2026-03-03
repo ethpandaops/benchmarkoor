@@ -93,6 +93,17 @@ var allowedTestStatColumns = map[string]bool{
 	"test_resource_disk_write_iops":    true,
 }
 
+// allowedSuiteColumns lists columns that may be filtered, sorted, or selected
+// on the suites table.
+var allowedSuiteColumns = map[string]bool{
+	"id":             true,
+	"suite_hash":     true,
+	"discovery_path": true,
+	"name":           true,
+	"tests_total":    true,
+	"indexed_at":     true,
+}
+
 // allowedTestStatsBlockLogColumns lists columns that may be filtered, sorted,
 // or selected on the test_stats_block_logs table.
 var allowedTestStatsBlockLogColumns = map[string]bool{
@@ -276,6 +287,16 @@ type TestStatsBlockLogResponse struct {
 	CacheCodeMissBytes int     `json:"cache_code_miss_bytes"`
 }
 
+// SuiteResponse is the JSON DTO for a suites row.
+type SuiteResponse struct {
+	ID            uint   `json:"id"`
+	SuiteHash     string `json:"suite_hash"`
+	DiscoveryPath string `json:"discovery_path"`
+	Name          string `json:"name"`
+	TestsTotal    int    `json:"tests_total"`
+	IndexedAt     string `json:"indexed_at"`
+}
+
 // AllowedRunColumns returns the set of queryable run columns.
 func AllowedRunColumns() map[string]bool {
 	return allowedRunColumns
@@ -290,6 +311,11 @@ func AllowedTestStatColumns() map[string]bool {
 // block log columns.
 func AllowedTestStatsBlockLogColumns() map[string]bool {
 	return allowedTestStatsBlockLogColumns
+}
+
+// AllowedSuiteColumns returns the set of queryable suite columns.
+func AllowedSuiteColumns() map[string]bool {
+	return allowedSuiteColumns
 }
 
 // ParseQueryParams validates and parses raw URL query values against the
@@ -609,5 +635,17 @@ func toTestStatsBlockLogResponse(l *TestStatsBlockLog) TestStatsBlockLogResponse
 		CacheCodeHitRate:          l.CacheCodeHitRate,
 		CacheCodeHitBytes:         l.CacheCodeHitBytes,
 		CacheCodeMissBytes:        l.CacheCodeMissBytes,
+	}
+}
+
+// toSuiteResponse converts a Suite model to its JSON DTO.
+func toSuiteResponse(s *Suite) SuiteResponse {
+	return SuiteResponse{
+		ID:            s.ID,
+		SuiteHash:     s.SuiteHash,
+		DiscoveryPath: s.DiscoveryPath,
+		Name:          s.Name,
+		TestsTotal:    s.TestsTotal,
+		IndexedAt:     s.IndexedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 }

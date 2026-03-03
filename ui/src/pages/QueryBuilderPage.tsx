@@ -43,6 +43,12 @@ const TEST_STAT_COLUMN_GROUPS: ColumnGroup[] = [
   { label: 'Timing', columns: ['run_start', 'run_end'] },
 ]
 
+const SUITES_COLUMN_GROUPS: ColumnGroup[] = [
+  { label: 'Identity', columns: ['id', 'suite_hash', 'discovery_path'] },
+  { label: 'Info', columns: ['name', 'tests_total'] },
+  { label: 'Timing', columns: ['indexed_at'] },
+]
+
 const TEST_STATS_BLOCK_LOG_COLUMN_GROUPS: ColumnGroup[] = [
   { label: 'Identity', columns: ['id', 'suite_hash', 'run_id', 'test_name', 'client'] },
   { label: 'Block', columns: ['block_number', 'block_hash', 'block_gas_used', 'block_tx_count'] },
@@ -76,6 +82,7 @@ const TEST_STATS_BLOCK_LOG_COLUMN_GROUPS: ColumnGroup[] = [
 const RUNS_COLUMNS = RUNS_COLUMN_GROUPS.flatMap((g) => g.columns)
 const TEST_STAT_COLUMNS = TEST_STAT_COLUMN_GROUPS.flatMap((g) => g.columns)
 const TEST_STATS_BLOCK_LOG_COLUMNS = TEST_STATS_BLOCK_LOG_COLUMN_GROUPS.flatMap((g) => g.columns)
+const SUITES_COLUMNS = SUITES_COLUMN_GROUPS.flatMap((g) => g.columns)
 
 const OPERATORS = [
   { value: 'eq', label: '= equals' },
@@ -97,7 +104,7 @@ const TIMESTAMP_COLUMNS = new Set([
 
 // --- Types ---
 
-type Endpoint = 'runs' | 'test_stats' | 'test_stats_block_logs'
+type Endpoint = 'runs' | 'test_stats' | 'test_stats_block_logs' | 'suites'
 
 interface FilterRow {
   id: string
@@ -172,6 +179,7 @@ function searchParamsToState(params: QuerySearchParams): QueryBuilderState | nul
   const endpoint: Endpoint =
     params.endpoint === 'test_stats' ? 'test_stats'
     : params.endpoint === 'test_stats_block_logs' ? 'test_stats_block_logs'
+    : params.endpoint === 'suites' ? 'suites'
     : 'runs'
   const validCols = new Set(columnsForEndpoint(endpoint))
 
@@ -244,12 +252,14 @@ function uid() {
 function columnsForEndpoint(ep: Endpoint) {
   if (ep === 'runs') return RUNS_COLUMNS
   if (ep === 'test_stats_block_logs') return TEST_STATS_BLOCK_LOG_COLUMNS
+  if (ep === 'suites') return SUITES_COLUMNS
   return TEST_STAT_COLUMNS
 }
 
 function columnGroupsForEndpoint(ep: Endpoint): ColumnGroup[] {
   if (ep === 'runs') return RUNS_COLUMN_GROUPS
   if (ep === 'test_stats_block_logs') return TEST_STATS_BLOCK_LOG_COLUMN_GROUPS
+  if (ep === 'suites') return SUITES_COLUMN_GROUPS
   return TEST_STAT_COLUMN_GROUPS
 }
 
@@ -619,6 +629,16 @@ export function QueryBuilderPage() {
             }`}
           >
             test_stats_block_logs
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'SET_ENDPOINT', endpoint: 'suites' })}
+            className={`px-3 py-1.5 text-sm font-medium ${
+              state.endpoint === 'suites'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+            }`}
+          >
+            suites
           </button>
         </div>
       </div>
