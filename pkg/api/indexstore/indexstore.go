@@ -109,6 +109,7 @@ func (s *store) Start(ctx context.Context) error {
 			"PRAGMA synchronous=NORMAL",
 			"PRAGMA busy_timeout=5000",
 			"PRAGMA foreign_keys=ON",
+			"PRAGMA temp_store=MEMORY",
 		}
 		for _, p := range pragmas {
 			if err := s.db.Exec(p).Error; err != nil {
