@@ -1,5 +1,6 @@
 import { useReducer, useEffect, useMemo, useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { Copy, Check, Loader2, Plus, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { loadRuntimeConfig } from '@/config/runtime'
 
@@ -32,6 +33,8 @@ const OPERATORS = [
   { value: 'is', label: 'IS null/true/false' },
 ]
 
+const VALID_OPERATORS = new Set(OPERATORS.map((o) => o.value))
+
 const TIMESTAMP_COLUMNS = new Set([
   'timestamp', 'timestamp_end', 'indexed_at', 'reindexed_at', 'run_start', 'run_end',
 ])
@@ -60,6 +63,103 @@ interface QueryBuilderState {
   limit: number
   offset: number
   selectedColumns: string[]
+}
+
+// --- URL <-> State serialization ---
+
+interface QuerySearchParams {
+  endpoint?: string
+  f?: string    // comma-separated "col:op:val" entries
+  order?: string // comma-separated "col.dir" entries
+  select?: string
+  limit?: string
+  offset?: string
+}
+
+function stateToSearchParams(state: QueryBuilderState): QuerySearchParams {
+  const params: QuerySearchParams = {}
+
+  if (state.endpoint !== 'runs') {
+    params.endpoint = state.endpoint
+  }
+
+  if (state.filters.length > 0) {
+    const parts = state.filters.map((f) => `${f.column}:${f.operator}:${f.value}`)
+    params.f = parts.join(',')
+  }
+
+  if (state.orders.length > 0) {
+    params.order = state.orders.map((o) => `${o.column}.${o.direction}`).join(',')
+  }
+
+  if (state.selectedColumns.length > 0) {
+    params.select = state.selectedColumns.join(',')
+  }
+
+  if (state.limit !== 20) {
+    params.limit = String(state.limit)
+  }
+
+  if (state.offset > 0) {
+    params.offset = String(state.offset)
+  }
+
+  return params
+}
+
+function searchParamsToState(params: QuerySearchParams): QueryBuilderState | null {
+  // Only restore if there's at least one meaningful param.
+  const hasParams = params.endpoint || params.f || params.order ||
+    params.select || params.limit || params.offset
+  if (!hasParams) return null
+
+  const endpoint: Endpoint =
+    params.endpoint === 'test_durations' ? 'test_durations' : 'runs'
+  const validCols = new Set(columnsForEndpoint(endpoint))
+
+  const filters: FilterRow[] = []
+  if (params.f) {
+    for (const part of params.f.split(',')) {
+      const firstColon = part.indexOf(':')
+      if (firstColon < 0) continue
+      const secondColon = part.indexOf(':', firstColon + 1)
+      if (secondColon < 0) continue
+      const column = part.slice(0, firstColon)
+      const operator = part.slice(firstColon + 1, secondColon)
+      const value = part.slice(secondColon + 1)
+      if (validCols.has(column) && VALID_OPERATORS.has(operator)) {
+        filters.push({ id: uid(), column, operator, value })
+      }
+    }
+  }
+
+  const orders: OrderRow[] = []
+  if (params.order) {
+    for (const part of params.order.split(',')) {
+      const dotIdx = part.lastIndexOf('.')
+      if (dotIdx < 0) continue
+      const column = part.slice(0, dotIdx)
+      const direction = part.slice(dotIdx + 1)
+      if (validCols.has(column) && (direction === 'asc' || direction === 'desc')) {
+        orders.push({ id: uid(), column, direction })
+      }
+    }
+  }
+
+  const selectedColumns: string[] = []
+  if (params.select) {
+    for (const col of params.select.split(',')) {
+      const trimmed = col.trim()
+      if (trimmed && validCols.has(trimmed)) {
+        selectedColumns.push(trimmed)
+      }
+    }
+  }
+
+  const limit = params.limit ? Math.min(Math.max(1, Number(params.limit) || 20), 1000) : 20
+  const offset = params.offset ? Math.max(0, Number(params.offset) || 0) : 0
+
+  return { endpoint, filters, orders, limit, offset, selectedColumns }
 }
 
 // --- Reducer ---
@@ -155,7 +255,7 @@ function reducer(state: QueryBuilderState, action: Action): QueryBuilderState {
   }
 }
 
-// --- URL generation ---
+// --- API URL generation ---
 
 function buildQueryUrl(state: QueryBuilderState, apiBaseUrl: string): string {
   const params = new URLSearchParams()
@@ -274,9 +374,25 @@ function formatCellValue(key: string, value: unknown): string {
 // --- Component ---
 
 export function QueryBuilderPage() {
-  const [state, dispatch] = useReducer(reducer, undefined, makeInitialState)
+  const navigate = useNavigate()
+  const search = useSearch({ from: '/query' }) as QuerySearchParams
+
+  const [state, dispatch] = useReducer(reducer, search, (initial) => {
+    const restored = searchParamsToState(initial)
+    return restored ?? makeInitialState()
+  })
   const [apiBaseUrl, setApiBaseUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // Sync state -> URL search params.
+  useEffect(() => {
+    const params = stateToSearchParams(state)
+    navigate({
+      to: '/query',
+      search: params as Record<string, string>,
+      replace: true,
+    })
+  }, [state, navigate])
 
   useEffect(() => {
     loadRuntimeConfig().then((cfg) => {
@@ -600,6 +716,27 @@ export function QueryBuilderPage() {
           {copied ? 'Copied!' : 'Copy'}
         </button>
       </div>
+
+      {/* API key usage hint */}
+      {queryUrl && (
+        <details className="rounded-sm border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900">
+          <summary className="cursor-pointer px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+            Using this query with curl
+          </summary>
+          <div className="flex flex-col gap-3 border-t border-gray-200 px-4 py-3 dark:border-gray-700">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Authenticated endpoints require a <code className="rounded-sm bg-gray-200 px-1 py-0.5 text-xs dark:bg-gray-800">Bearer</code> API
+              key (prefixed with <code className="rounded-sm bg-gray-200 px-1 py-0.5 text-xs dark:bg-gray-800">bmk_</code>).
+              You can generate one from your profile settings. API keys are read-only.
+            </p>
+            <pre className="overflow-x-auto rounded-sm bg-gray-900 p-3 text-xs text-gray-300">
+{`export BENCHMARKOOR_API_KEY="bmk_..."
+curl -s -H "Authorization: Bearer $BENCHMARKOOR_API_KEY" \\
+  '${queryUrl}' | jq .`}
+            </pre>
+          </div>
+        </details>
+      )}
 
       {/* Execute button */}
       <div>
