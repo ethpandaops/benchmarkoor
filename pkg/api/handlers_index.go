@@ -122,8 +122,8 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 		rd := &executor.RunDuration{
 			ID:       d.RunID,
 			Client:   d.Client,
-			GasUsed:  d.GasUsed,
-			Time:     d.TimeNs,
+			GasUsed:  d.TotalGasUsed,
+			Time:     d.TotalTimeNs,
 			RunStart: d.RunStart,
 			RunEnd:   d.RunEnd,
 			Steps:    steps,

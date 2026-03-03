@@ -478,17 +478,38 @@ func (idx *indexer) indexTestDurations(
 				}
 			}
 
-			durations = append(durations, &indexstore.TestDuration{
-				SuiteHash: suiteHash,
-				TestName:  testName,
-				RunID:     runID,
-				Client:    dur.Client,
-				GasUsed:   dur.GasUsed,
-				TimeNs:    dur.Time,
-				RunStart:  dur.RunStart,
-				RunEnd:    dur.RunEnd,
-				StepsJSON: stepsJSON,
-			})
+			td := &indexstore.TestDuration{
+				SuiteHash:    suiteHash,
+				TestName:     testName,
+				RunID:        runID,
+				Client:       dur.Client,
+				TotalGasUsed: dur.GasUsed,
+				TotalTimeNs:  dur.Time,
+				TotalMGasS:   indexstore.ComputeMGasS(dur.GasUsed, dur.Time),
+				RunStart:     dur.RunStart,
+				RunEnd:       dur.RunEnd,
+				StepsJSON:    stepsJSON,
+			}
+
+			if dur.Steps != nil {
+				if dur.Steps.Setup != nil {
+					td.SetupGasUsed = dur.Steps.Setup.GasUsed
+					td.SetupTimeNs = dur.Steps.Setup.Time
+					td.SetupMGasS = indexstore.ComputeMGasS(
+						dur.Steps.Setup.GasUsed, dur.Steps.Setup.Time,
+					)
+				}
+
+				if dur.Steps.Test != nil {
+					td.TestGasUsed = dur.Steps.Test.GasUsed
+					td.TestTimeNs = dur.Steps.Test.Time
+					td.TestMGasS = indexstore.ComputeMGasS(
+						dur.Steps.Test.GasUsed, dur.Steps.Test.Time,
+					)
+				}
+			}
+
+			durations = append(durations, td)
 		}
 	}
 

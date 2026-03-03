@@ -246,17 +246,17 @@ func TestStore_TestDurationCRUD(t *testing.T) {
 		{
 			SuiteHash: suiteHash, TestName: "TestA",
 			RunID: runID1, Client: "geth",
-			GasUsed: 21000, TimeNs: 500000,
+			TotalGasUsed: 21000, TotalTimeNs: 500000,
 		},
 		{
 			SuiteHash: suiteHash, TestName: "TestB",
 			RunID: runID1, Client: "geth",
-			GasUsed: 42000, TimeNs: 750000,
+			TotalGasUsed: 42000, TotalTimeNs: 750000,
 		},
 		{
 			SuiteHash: suiteHash, TestName: "TestA",
 			RunID: runID2, Client: "reth",
-			GasUsed: 21000, TimeNs: 400000,
+			TotalGasUsed: 21000, TotalTimeNs: 400000,
 		},
 	}
 
@@ -273,7 +273,7 @@ func TestStore_TestDurationCRUD(t *testing.T) {
 	updatedDuration := &indexstore.TestDuration{
 		SuiteHash: suiteHash, TestName: "TestA",
 		RunID: runID1, Client: "geth",
-		GasUsed: 63000, TimeNs: 600000,
+		TotalGasUsed: 63000, TotalTimeNs: 600000,
 	}
 	require.NoError(t, s.UpsertTestDuration(ctx, updatedDuration))
 

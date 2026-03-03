@@ -431,17 +431,17 @@ func TestQueryTestDurations_Basic(t *testing.T) {
 		{
 			SuiteHash: "suite-1", TestName: "TestA",
 			RunID: "r-1", Client: "geth",
-			GasUsed: 21000, TimeNs: 500000,
+			TotalGasUsed: 21000, TotalTimeNs: 500000,
 		},
 		{
 			SuiteHash: "suite-1", TestName: "TestB",
 			RunID: "r-1", Client: "geth",
-			GasUsed: 42000, TimeNs: 750000,
+			TotalGasUsed: 42000, TotalTimeNs: 750000,
 		},
 		{
 			SuiteHash: "suite-1", TestName: "TestA",
 			RunID: "r-2", Client: "reth",
-			GasUsed: 21000, TimeNs: 400000,
+			TotalGasUsed: 21000, TotalTimeNs: 400000,
 		},
 	}
 	for _, d := range durations {
@@ -467,10 +467,10 @@ func TestQueryTestDurations_Basic(t *testing.T) {
 		assert.Equal(t, int64(1), result.Total)
 	})
 
-	t.Run("order by time_ns desc", func(t *testing.T) {
+	t.Run("order by total_time_ns desc", func(t *testing.T) {
 		params := &indexstore.QueryParams{
 			Orders: []indexstore.Order{
-				{Column: "time_ns", Direction: "desc"},
+				{Column: "total_time_ns", Direction: "desc"},
 			},
 			Limit: 100,
 		}
@@ -479,9 +479,9 @@ func TestQueryTestDurations_Basic(t *testing.T) {
 
 		data := result.Data.([]indexstore.TestDurationResponse)
 		require.Len(t, data, 3)
-		assert.Equal(t, int64(750000), data[0].TimeNs)
-		assert.Equal(t, int64(500000), data[1].TimeNs)
-		assert.Equal(t, int64(400000), data[2].TimeNs)
+		assert.Equal(t, int64(750000), data[0].TotalTimeNs)
+		assert.Equal(t, int64(500000), data[1].TotalTimeNs)
+		assert.Equal(t, int64(400000), data[2].TotalTimeNs)
 	})
 
 	t.Run("filter with in operator", func(t *testing.T) {

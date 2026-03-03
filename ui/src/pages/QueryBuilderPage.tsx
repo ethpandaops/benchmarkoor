@@ -13,8 +13,11 @@ const RUNS_COLUMNS = [
 ]
 
 const TEST_DURATION_COLUMNS = [
-  'id', 'suite_hash', 'test_name', 'run_id',
-  'client', 'gas_used', 'time_ns', 'run_start', 'run_end',
+  'id', 'suite_hash', 'test_name', 'run_id', 'client',
+  'total_gas_used', 'total_time_ns', 'total_mgas_s',
+  'setup_gas_used', 'setup_time_ns', 'setup_mgas_s',
+  'test_gas_used', 'test_time_ns', 'test_mgas_s',
+  'run_start', 'run_end',
 ]
 
 const OPERATORS = [
@@ -213,8 +216,8 @@ const PRESETS: Preset[] = [
     label: 'Slow tests',
     state: {
       endpoint: 'test_durations',
-      filters: [{ id: uid(), column: 'time_ns', operator: 'gte', value: '5000000000' }],
-      orders: [{ id: uid(), column: 'time_ns', direction: 'desc' }],
+      filters: [],
+      orders: [{ id: uid(), column: 'test_mgas_s', direction: 'asc' }],
       limit: 20,
       offset: 0,
     },
@@ -237,7 +240,7 @@ const PRESETS: Preset[] = [
     state: {
       endpoint: 'test_durations',
       filters: [{ id: uid(), column: 'suite_hash', operator: 'eq', value: '<fill in>' }],
-      orders: [{ id: uid(), column: 'time_ns', direction: 'desc' }],
+      orders: [{ id: uid(), column: 'total_time_ns', direction: 'desc' }],
       limit: 100,
       offset: 0,
     },

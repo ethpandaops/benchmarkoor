@@ -57,15 +57,22 @@ var allowedRunColumns = map[string]bool{
 // allowedTestDurationColumns lists columns that may be filtered, sorted, or
 // selected on the test_durations table.
 var allowedTestDurationColumns = map[string]bool{
-	"id":         true,
-	"suite_hash": true,
-	"test_name":  true,
-	"run_id":     true,
-	"client":     true,
-	"gas_used":   true,
-	"time_ns":    true,
-	"run_start":  true,
-	"run_end":    true,
+	"id":             true,
+	"suite_hash":     true,
+	"test_name":      true,
+	"run_id":         true,
+	"client":         true,
+	"total_gas_used": true,
+	"total_time_ns":  true,
+	"total_mgas_s":   true,
+	"setup_gas_used": true,
+	"setup_time_ns":  true,
+	"setup_mgas_s":   true,
+	"test_gas_used":  true,
+	"test_time_ns":   true,
+	"test_mgas_s":    true,
+	"run_start":      true,
+	"run_end":        true,
 }
 
 // Filter represents a single column filter.
@@ -123,15 +130,26 @@ type RunResponse struct {
 
 // TestDurationResponse is the JSON DTO for a test_durations row.
 type TestDurationResponse struct {
-	ID        uint            `json:"id"`
-	SuiteHash string          `json:"suite_hash"`
-	TestName  string          `json:"test_name"`
-	RunID     string          `json:"run_id"`
-	Client    string          `json:"client"`
-	GasUsed   uint64          `json:"gas_used"`
-	TimeNs    int64           `json:"time_ns"`
-	RunStart  int64           `json:"run_start"`
-	RunEnd    int64           `json:"run_end"`
+	ID        uint   `json:"id"`
+	SuiteHash string `json:"suite_hash"`
+	TestName  string `json:"test_name"`
+	RunID     string `json:"run_id"`
+	Client    string `json:"client"`
+	RunStart  int64  `json:"run_start"`
+	RunEnd    int64  `json:"run_end"`
+
+	TotalGasUsed uint64  `json:"total_gas_used"`
+	TotalTimeNs  int64   `json:"total_time_ns"`
+	TotalMGasS   float64 `json:"total_mgas_s"`
+
+	SetupGasUsed uint64  `json:"setup_gas_used"`
+	SetupTimeNs  int64   `json:"setup_time_ns"`
+	SetupMGasS   float64 `json:"setup_mgas_s"`
+
+	TestGasUsed uint64  `json:"test_gas_used"`
+	TestTimeNs  int64   `json:"test_time_ns"`
+	TestMGasS   float64 `json:"test_mgas_s"`
+
 	StepsJSON json.RawMessage `json:"steps_json,omitempty"`
 }
 
@@ -380,15 +398,22 @@ func toRunResponse(r *Run) RunResponse {
 // toTestDurationResponse converts a TestDuration model to its JSON DTO.
 func toTestDurationResponse(d *TestDuration) TestDurationResponse {
 	resp := TestDurationResponse{
-		ID:        d.ID,
-		SuiteHash: d.SuiteHash,
-		TestName:  d.TestName,
-		RunID:     d.RunID,
-		Client:    d.Client,
-		GasUsed:   d.GasUsed,
-		TimeNs:    d.TimeNs,
-		RunStart:  d.RunStart,
-		RunEnd:    d.RunEnd,
+		ID:           d.ID,
+		SuiteHash:    d.SuiteHash,
+		TestName:     d.TestName,
+		RunID:        d.RunID,
+		Client:       d.Client,
+		RunStart:     d.RunStart,
+		RunEnd:       d.RunEnd,
+		TotalGasUsed: d.TotalGasUsed,
+		TotalTimeNs:  d.TotalTimeNs,
+		TotalMGasS:   d.TotalMGasS,
+		SetupGasUsed: d.SetupGasUsed,
+		SetupTimeNs:  d.SetupTimeNs,
+		SetupMGasS:   d.SetupMGasS,
+		TestGasUsed:  d.TestGasUsed,
+		TestTimeNs:   d.TestTimeNs,
+		TestMGasS:    d.TestMGasS,
 	}
 
 	if d.StepsJSON != "" {
