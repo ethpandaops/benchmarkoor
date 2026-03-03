@@ -34,6 +34,8 @@ tmp/
 *.log
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 .ai_plans
 config.yaml
 summary-*.md
