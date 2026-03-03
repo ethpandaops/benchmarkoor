@@ -610,20 +610,15 @@ export function QueryBuilderPage() {
                     <option value="false">false</option>
                   </select>
                 ) : (
-                  <div className="flex flex-col">
-                    <input
-                      type="text"
-                      value={f.value}
-                      onChange={(e) =>
-                        dispatch({ type: 'UPDATE_FILTER', id: f.id, field: 'value', value: e.target.value })
-                      }
-                      placeholder="value"
-                      className="rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-                    />
-                    {f.operator === 'in' && (
-                      <span className="mt-0.5 text-xs text-gray-400">Comma-separated values</span>
-                    )}
-                  </div>
+                  <input
+                    type="text"
+                    value={f.value}
+                    onChange={(e) =>
+                      dispatch({ type: 'UPDATE_FILTER', id: f.id, field: 'value', value: e.target.value })
+                    }
+                    placeholder="value"
+                    className="rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                  />
                 )}
                 <button
                   onClick={() => dispatch({ type: 'REMOVE_FILTER', id: f.id })}
@@ -631,6 +626,9 @@ export function QueryBuilderPage() {
                 >
                   <X className="size-4" />
                 </button>
+                {f.operator === 'in' && (
+                  <span className="text-xs text-gray-400">Comma-separated values</span>
+                )}
               </div>
             ))}
           </div>
@@ -698,7 +696,6 @@ export function QueryBuilderPage() {
                 onChange={(e) => dispatch({ type: 'SET_LIMIT', limit: Number(e.target.value) || 20 })}
                 className="w-24 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
               />
-              <span className="text-xs text-gray-400">Max: 1000</span>
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Offset</label>
@@ -710,6 +707,7 @@ export function QueryBuilderPage() {
                 className="w-24 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
               />
             </div>
+            <span className="pb-2 text-xs text-gray-400">Max: 1000</span>
           </div>
         </div>
       </div>
