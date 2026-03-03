@@ -239,9 +239,10 @@ func (s *store) UpsertTestStat(
 	return nil
 }
 
-// BulkUpsertTestStats inserts or updates multiple test stat records in a
-// single transaction. For each record it deletes-then-creates to avoid the
-// overhead of individual FirstOrCreate round-trips.
+// BulkUpsertTestStats inserts multiple test stat records in batches.
+// Each batch is auto-committed independently to keep WAL/journal pressure
+// low on block-storage filesystems. The caller is expected to delete old
+// records before calling this (delete-then-create pattern).
 func (s *store) BulkUpsertTestStats(
 	ctx context.Context, stats []*TestStat,
 ) error {
@@ -251,19 +252,18 @@ func (s *store) BulkUpsertTestStats(
 
 	const batchSize = 100
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for i := 0; i < len(stats); i += batchSize {
-			end := min(i+batchSize, len(stats))
+	db := s.db.WithContext(ctx)
 
-			batch := stats[i:end]
+	for i := 0; i < len(stats); i += batchSize {
+		end := min(i+batchSize, len(stats))
+		batch := stats[i:end]
 
-			if err := tx.CreateInBatches(batch, len(batch)).Error; err != nil {
-				return fmt.Errorf("bulk inserting test stats: %w", err)
-			}
+		if err := db.CreateInBatches(batch, len(batch)).Error; err != nil {
+			return fmt.Errorf("bulk inserting test stats: %w", err)
 		}
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // ListTestStatsBySuite returns all test stat entries for a suite hash.
@@ -294,7 +294,8 @@ func (s *store) DeleteTestStatsForRun(
 }
 
 // BulkInsertTestStatsBlockLogs inserts multiple test stats block log records
-// in a single transaction using batched creates.
+// in batches. Each batch is auto-committed independently to keep
+// WAL/journal pressure low. The caller deletes old records first.
 func (s *store) BulkInsertTestStatsBlockLogs(
 	ctx context.Context, logs []*TestStatsBlockLog,
 ) error {
@@ -304,20 +305,20 @@ func (s *store) BulkInsertTestStatsBlockLogs(
 
 	const batchSize = 100
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for i := 0; i < len(logs); i += batchSize {
-			end := min(i+batchSize, len(logs))
-			batch := logs[i:end]
+	db := s.db.WithContext(ctx)
 
-			if err := tx.CreateInBatches(batch, len(batch)).Error; err != nil {
-				return fmt.Errorf(
-					"bulk inserting test stats block logs: %w", err,
-				)
-			}
+	for i := 0; i < len(logs); i += batchSize {
+		end := min(i+batchSize, len(logs))
+		batch := logs[i:end]
+
+		if err := db.CreateInBatches(batch, len(batch)).Error; err != nil {
+			return fmt.Errorf(
+				"bulk inserting test stats block logs: %w", err,
+			)
 		}
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // DeleteTestStatsBlockLogsForRun removes all test stats block log entries
