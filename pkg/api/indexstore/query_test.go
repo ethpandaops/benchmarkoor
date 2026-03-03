@@ -423,11 +423,11 @@ func TestQueryRuns_StepsJSON(t *testing.T) {
 	assert.Contains(t, string(data[0].StepsJSON), "step1")
 }
 
-func TestQueryTestDurations_Basic(t *testing.T) {
+func TestQueryTestStats_Basic(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 
-	durations := []*indexstore.TestDuration{
+	stats := []*indexstore.TestStat{
 		{
 			SuiteHash: "suite-1", TestName: "TestA",
 			RunID: "r-1", Client: "geth",
@@ -444,13 +444,13 @@ func TestQueryTestDurations_Basic(t *testing.T) {
 			TotalGasUsed: 21000, TotalTimeNs: 400000,
 		},
 	}
-	for _, d := range durations {
-		require.NoError(t, s.UpsertTestDuration(ctx, d))
+	for _, ts := range stats {
+		require.NoError(t, s.UpsertTestStat(ctx, ts))
 	}
 
 	t.Run("no filters returns all", func(t *testing.T) {
 		params := &indexstore.QueryParams{Limit: 100}
-		result, err := s.QueryTestDurations(ctx, params)
+		result, err := s.QueryTestStats(ctx, params)
 		require.NoError(t, err)
 		assert.Equal(t, int64(3), result.Total)
 	})
@@ -462,7 +462,7 @@ func TestQueryTestDurations_Basic(t *testing.T) {
 			},
 			Limit: 100,
 		}
-		result, err := s.QueryTestDurations(ctx, params)
+		result, err := s.QueryTestStats(ctx, params)
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), result.Total)
 	})
@@ -474,10 +474,10 @@ func TestQueryTestDurations_Basic(t *testing.T) {
 			},
 			Limit: 100,
 		}
-		result, err := s.QueryTestDurations(ctx, params)
+		result, err := s.QueryTestStats(ctx, params)
 		require.NoError(t, err)
 
-		data := result.Data.([]indexstore.TestDurationResponse)
+		data := result.Data.([]indexstore.TestStatResponse)
 		require.Len(t, data, 3)
 		assert.Equal(t, int64(750000), data[0].TotalTimeNs)
 		assert.Equal(t, int64(500000), data[1].TotalTimeNs)
@@ -494,7 +494,7 @@ func TestQueryTestDurations_Basic(t *testing.T) {
 			},
 			Limit: 100,
 		}
-		result, err := s.QueryTestDurations(ctx, params)
+		result, err := s.QueryTestStats(ctx, params)
 		require.NoError(t, err)
 		assert.Equal(t, int64(3), result.Total)
 	})

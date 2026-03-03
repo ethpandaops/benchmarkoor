@@ -233,7 +233,7 @@ func TestStore_ListIncompleteRunIDs(t *testing.T) {
 	assert.ElementsMatch(t, wantIDs, ids)
 }
 
-func TestStore_TestDurationCRUD(t *testing.T) {
+func TestStore_TestStatCRUD(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 
@@ -241,8 +241,8 @@ func TestStore_TestDurationCRUD(t *testing.T) {
 	runID1 := "run-td-1"
 	runID2 := "run-td-2"
 
-	// Upsert several test durations across two runs.
-	durations := []indexstore.TestDuration{
+	// Upsert several test stats across two runs.
+	stats := []indexstore.TestStat{
 		{
 			SuiteHash: suiteHash, TestName: "TestA",
 			RunID: runID1, Client: "geth",
@@ -260,32 +260,32 @@ func TestStore_TestDurationCRUD(t *testing.T) {
 		},
 	}
 
-	for i := range durations {
-		require.NoError(t, s.UpsertTestDuration(ctx, &durations[i]))
+	for i := range stats {
+		require.NoError(t, s.UpsertTestStat(ctx, &stats[i]))
 	}
 
 	// List by suite hash returns all three.
-	listed, err := s.ListTestDurationsBySuite(ctx, suiteHash)
+	listed, err := s.ListTestStatsBySuite(ctx, suiteHash)
 	require.NoError(t, err)
 	assert.Len(t, listed, 3)
 
 	// Upsert the same composite key again; must not create a duplicate.
-	updatedDuration := &indexstore.TestDuration{
+	updatedStat := &indexstore.TestStat{
 		SuiteHash: suiteHash, TestName: "TestA",
 		RunID: runID1, Client: "geth",
 		TotalGasUsed: 63000, TotalTimeNs: 600000,
 	}
-	require.NoError(t, s.UpsertTestDuration(ctx, updatedDuration))
+	require.NoError(t, s.UpsertTestStat(ctx, updatedStat))
 
-	listed, err = s.ListTestDurationsBySuite(ctx, suiteHash)
+	listed, err = s.ListTestStatsBySuite(ctx, suiteHash)
 	require.NoError(t, err)
 	assert.Len(t, listed, 3, "upsert must not duplicate the row")
 
-	// Delete test durations for runID1.
-	require.NoError(t, s.DeleteTestDurationsForRun(ctx, runID1))
+	// Delete test stats for runID1.
+	require.NoError(t, s.DeleteTestStatsForRun(ctx, runID1))
 
 	// Only runID2 entries remain.
-	remaining, err := s.ListTestDurationsBySuite(ctx, suiteHash)
+	remaining, err := s.ListTestStatsBySuite(ctx, suiteHash)
 	require.NoError(t, err)
 	require.Len(t, remaining, 1)
 	assert.Equal(t, runID2, remaining[0].RunID)

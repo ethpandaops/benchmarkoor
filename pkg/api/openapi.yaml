@@ -454,16 +454,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /index/query/test_durations:
+  /index/query/test_stats:
     get:
-      operationId: queryTestDurations
+      operationId: queryTestStats
       tags: [index]
-      summary: Query test duration data
+      summary: Query test stat data
       description: |
-        Query test duration data with PostgREST-style filtering, sorting, and pagination.
+        Query test stat data with PostgREST-style filtering, sorting, and pagination.
 
         **Filter columns:** id, suite_hash, test_name, run_id, client,
-        gas_used, time_ns, run_start, run_end
+        total_gas_used, total_time_ns, total_mgas_s, setup_gas_used,
+        setup_time_ns, setup_mgas_s, test_gas_used, test_time_ns,
+        test_mgas_s, run_start, run_end
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -491,14 +493,69 @@ paths:
           in: query
           schema:
             type: string
-          description: "Comma-separated sort directives (e.g. `time_ns.desc`)"
+          description: "Comma-separated sort directives (e.g. `total_time_ns.desc`)"
       responses:
         "200":
           description: Query results
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/QueryResultTestDurations"
+                $ref: "#/components/schemas/QueryResultTestStats"
+        "400":
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /index/query/test_stats_block_logs:
+    get:
+      operationId: queryTestStatsBlockLogs
+      tags: [index]
+      summary: Query test stats block log data
+      description: |
+        Query per-block log data with PostgREST-style filtering, sorting, and pagination.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+        - {}
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+          description: Maximum number of results
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of results to skip
+        - name: select
+          in: query
+          schema:
+            type: string
+          description: Comma-separated list of columns to return
+        - name: order
+          in: query
+          schema:
+            type: string
+          description: "Comma-separated sort directives (e.g. `timing_total_ms.desc`)"
+      responses:
+        "200":
+          description: Query results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryResultTestStatsBlockLogs"
         "400":
           description: Invalid query parameters
           content:
@@ -1530,13 +1587,13 @@ components:
           format: date-time
           nullable: true
 
-    QueryResultTestDurations:
+    QueryResultTestStats:
       type: object
       properties:
         data:
           type: array
           items:
-            $ref: "#/components/schemas/TestDurationResponse"
+            $ref: "#/components/schemas/TestStatResponse"
         total:
           type: integer
           format: int64
@@ -1545,7 +1602,22 @@ components:
         offset:
           type: integer
 
-    TestDurationResponse:
+    QueryResultTestStatsBlockLogs:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestStatsBlockLogResponse"
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    TestStatResponse:
       type: object
       properties:
         id:
@@ -1558,12 +1630,33 @@ components:
           type: string
         client:
           type: string
-        gas_used:
+        total_gas_used:
           type: integer
           format: uint64
-        time_ns:
+        total_time_ns:
           type: integer
           format: int64
+        total_mgas_s:
+          type: number
+          format: double
+        setup_gas_used:
+          type: integer
+          format: uint64
+        setup_time_ns:
+          type: integer
+          format: int64
+        setup_mgas_s:
+          type: number
+          format: double
+        test_gas_used:
+          type: integer
+          format: uint64
+        test_time_ns:
+          type: integer
+          format: int64
+        test_mgas_s:
+          type: number
+          format: double
         run_start:
           type: integer
           format: int64
@@ -1573,3 +1666,45 @@ components:
         steps_json:
           type: object
           description: Raw step duration JSON
+
+    TestStatsBlockLogResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        suite_hash:
+          type: string
+        run_id:
+          type: string
+        test_name:
+          type: string
+        client:
+          type: string
+        block_number:
+          type: integer
+          format: uint64
+        block_hash:
+          type: string
+        block_gas_used:
+          type: integer
+          format: uint64
+        block_tx_count:
+          type: integer
+        timing_execution_ms:
+          type: number
+          format: double
+        timing_state_read_ms:
+          type: number
+          format: double
+        timing_state_hash_ms:
+          type: number
+          format: double
+        timing_commit_ms:
+          type: number
+          format: double
+        timing_total_ms:
+          type: number
+          format: double
+        throughput_mgas_per_sec:
+          type: number
+          format: double

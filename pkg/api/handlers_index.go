@@ -95,12 +95,12 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	durations, err := s.indexStore.ListTestDurationsBySuite(
+	durations, err := s.indexStore.ListTestStatsBySuite(
 		r.Context(), suiteHash,
 	)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError,
-			errorResponse{"listing test durations: " + err.Error()})
+			errorResponse{"listing test stats: " + err.Error()})
 
 		return
 	}
@@ -173,13 +173,13 @@ func (s *server) handleQueryRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// handleQueryTestDurations handles PostgREST-style queries against the
-// test_durations table.
-func (s *server) handleQueryTestDurations(
+// handleQueryTestStats handles PostgREST-style queries against the
+// test_stats table.
+func (s *server) handleQueryTestStats(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	params, err := indexstore.ParseQueryParams(
-		r.URL.Query(), indexstore.AllowedTestDurationColumns(),
+		r.URL.Query(), indexstore.AllowedTestStatColumns(),
 	)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest,
@@ -188,10 +188,10 @@ func (s *server) handleQueryTestDurations(
 		return
 	}
 
-	result, err := s.indexStore.QueryTestDurations(r.Context(), params)
+	result, err := s.indexStore.QueryTestStats(r.Context(), params)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError,
-			errorResponse{"querying test durations: " + err.Error()})
+			errorResponse{"querying test stats: " + err.Error()})
 
 		return
 	}
@@ -199,13 +199,13 @@ func (s *server) handleQueryTestDurations(
 	writeJSON(w, http.StatusOK, result)
 }
 
-// handleQueryTestBlockLogs handles PostgREST-style queries against the
-// test_block_logs table.
-func (s *server) handleQueryTestBlockLogs(
+// handleQueryTestStatsBlockLogs handles PostgREST-style queries against
+// the test_stats_block_logs table.
+func (s *server) handleQueryTestStatsBlockLogs(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	params, err := indexstore.ParseQueryParams(
-		r.URL.Query(), indexstore.AllowedTestBlockLogColumns(),
+		r.URL.Query(), indexstore.AllowedTestStatsBlockLogColumns(),
 	)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest,
@@ -214,10 +214,14 @@ func (s *server) handleQueryTestBlockLogs(
 		return
 	}
 
-	result, err := s.indexStore.QueryTestBlockLogs(r.Context(), params)
+	result, err := s.indexStore.QueryTestStatsBlockLogs(
+		r.Context(), params,
+	)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError,
-			errorResponse{"querying test block logs: " + err.Error()})
+			errorResponse{
+				"querying test stats block logs: " + err.Error(),
+			})
 
 		return
 	}

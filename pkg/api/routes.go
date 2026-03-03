@@ -86,10 +86,10 @@ func (s *server) buildRouter() http.Handler {
 
 				r.Route("/query", func(r chi.Router) {
 					r.Get("/runs", s.handleQueryRuns)
-					r.Get("/test_durations",
-						s.handleQueryTestDurations)
-					r.Get("/test_block_logs",
-						s.handleQueryTestBlockLogs)
+					r.Get("/test_stats",
+						s.handleQueryTestStats)
+					r.Get("/test_stats_block_logs",
+						s.handleQueryTestStatsBlockLogs)
 				})
 			})
 		}

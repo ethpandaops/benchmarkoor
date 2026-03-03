@@ -24,27 +24,27 @@ type Store interface {
 		ctx context.Context, discoveryPath string,
 	) ([]string, error)
 
-	UpsertTestDuration(ctx context.Context, d *TestDuration) error
-	BulkUpsertTestDurations(
-		ctx context.Context, durations []*TestDuration,
+	UpsertTestStat(ctx context.Context, d *TestStat) error
+	BulkUpsertTestStats(
+		ctx context.Context, stats []*TestStat,
 	) error
-	ListTestDurationsBySuite(
+	ListTestStatsBySuite(
 		ctx context.Context, suiteHash string,
-	) ([]TestDuration, error)
-	DeleteTestDurationsForRun(ctx context.Context, runID string) error
+	) ([]TestStat, error)
+	DeleteTestStatsForRun(ctx context.Context, runID string) error
 
 	ListAllRuns(ctx context.Context) ([]Run, error)
 
-	BulkInsertTestBlockLogs(
-		ctx context.Context, logs []*TestBlockLog,
+	BulkInsertTestStatsBlockLogs(
+		ctx context.Context, logs []*TestStatsBlockLog,
 	) error
-	DeleteTestBlockLogsForRun(ctx context.Context, runID string) error
+	DeleteTestStatsBlockLogsForRun(ctx context.Context, runID string) error
 
 	QueryRuns(ctx context.Context, params *QueryParams) (*QueryResult, error)
-	QueryTestDurations(
+	QueryTestStats(
 		ctx context.Context, params *QueryParams,
 	) (*QueryResult, error)
-	QueryTestBlockLogs(
+	QueryTestStatsBlockLogs(
 		ctx context.Context, params *QueryParams,
 	) (*QueryResult, error)
 }
@@ -104,8 +104,8 @@ func (s *store) Start(ctx context.Context) error {
 
 	if err := s.db.WithContext(ctx).AutoMigrate(
 		&Run{},
-		&TestDuration{},
-		&TestBlockLog{},
+		&TestStat{},
+		&TestStatsBlockLog{},
 	); err != nil {
 		return fmt.Errorf("running index migrations: %w", err)
 	}
@@ -208,9 +208,9 @@ func (s *store) ListIncompleteRunIDs(
 	return ids, nil
 }
 
-// UpsertTestDuration inserts or updates a test duration record.
-func (s *store) UpsertTestDuration(
-	ctx context.Context, d *TestDuration,
+// UpsertTestStat inserts or updates a test stat record.
+func (s *store) UpsertTestStat(
+	ctx context.Context, d *TestStat,
 ) error {
 	result := s.db.WithContext(ctx).
 		Where("suite_hash = ? AND test_name = ? AND run_id = ?",
@@ -218,35 +218,35 @@ func (s *store) UpsertTestDuration(
 		Assign(d).
 		FirstOrCreate(d)
 	if result.Error != nil {
-		return fmt.Errorf("upserting test duration: %w", result.Error)
+		return fmt.Errorf("upserting test stat: %w", result.Error)
 	}
 
 	return nil
 }
 
-// BulkUpsertTestDurations inserts or updates multiple test duration records
-// in a single transaction. For each record it deletes-then-creates to avoid
-// the overhead of individual FirstOrCreate round-trips.
-func (s *store) BulkUpsertTestDurations(
-	ctx context.Context, durations []*TestDuration,
+// BulkUpsertTestStats inserts or updates multiple test stat records in a
+// single transaction. For each record it deletes-then-creates to avoid the
+// overhead of individual FirstOrCreate round-trips.
+func (s *store) BulkUpsertTestStats(
+	ctx context.Context, stats []*TestStat,
 ) error {
-	if len(durations) == 0 {
+	if len(stats) == 0 {
 		return nil
 	}
 
 	const batchSize = 100
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for i := 0; i < len(durations); i += batchSize {
+		for i := 0; i < len(stats); i += batchSize {
 			end := i + batchSize
-			if end > len(durations) {
-				end = len(durations)
+			if end > len(stats) {
+				end = len(stats)
 			}
 
-			batch := durations[i:end]
+			batch := stats[i:end]
 
 			if err := tx.CreateInBatches(batch, len(batch)).Error; err != nil {
-				return fmt.Errorf("bulk inserting test durations: %w", err)
+				return fmt.Errorf("bulk inserting test stats: %w", err)
 			}
 		}
 
@@ -254,37 +254,37 @@ func (s *store) BulkUpsertTestDurations(
 	})
 }
 
-// ListTestDurationsBySuite returns all test duration entries for a suite hash.
-func (s *store) ListTestDurationsBySuite(
+// ListTestStatsBySuite returns all test stat entries for a suite hash.
+func (s *store) ListTestStatsBySuite(
 	ctx context.Context, suiteHash string,
-) ([]TestDuration, error) {
-	var durations []TestDuration
+) ([]TestStat, error) {
+	var stats []TestStat
 	if err := s.db.WithContext(ctx).
 		Where("suite_hash = ?", suiteHash).
-		Find(&durations).Error; err != nil {
-		return nil, fmt.Errorf("listing test durations: %w", err)
+		Find(&stats).Error; err != nil {
+		return nil, fmt.Errorf("listing test stats: %w", err)
 	}
 
-	return durations, nil
+	return stats, nil
 }
 
-// DeleteTestDurationsForRun removes all test duration entries for a run ID.
-func (s *store) DeleteTestDurationsForRun(
+// DeleteTestStatsForRun removes all test stat entries for a run ID.
+func (s *store) DeleteTestStatsForRun(
 	ctx context.Context, runID string,
 ) error {
 	if err := s.db.WithContext(ctx).
 		Where("run_id = ?", runID).
-		Delete(&TestDuration{}).Error; err != nil {
-		return fmt.Errorf("deleting test durations for run: %w", err)
+		Delete(&TestStat{}).Error; err != nil {
+		return fmt.Errorf("deleting test stats for run: %w", err)
 	}
 
 	return nil
 }
 
-// BulkInsertTestBlockLogs inserts multiple test block log records in a
-// single transaction using batched creates.
-func (s *store) BulkInsertTestBlockLogs(
-	ctx context.Context, logs []*TestBlockLog,
+// BulkInsertTestStatsBlockLogs inserts multiple test stats block log records
+// in a single transaction using batched creates.
+func (s *store) BulkInsertTestStatsBlockLogs(
+	ctx context.Context, logs []*TestStatsBlockLog,
 ) error {
 	if len(logs) == 0 {
 		return nil
@@ -298,7 +298,9 @@ func (s *store) BulkInsertTestBlockLogs(
 			batch := logs[i:end]
 
 			if err := tx.CreateInBatches(batch, len(batch)).Error; err != nil {
-				return fmt.Errorf("bulk inserting test block logs: %w", err)
+				return fmt.Errorf(
+					"bulk inserting test stats block logs: %w", err,
+				)
 			}
 		}
 
@@ -306,14 +308,17 @@ func (s *store) BulkInsertTestBlockLogs(
 	})
 }
 
-// DeleteTestBlockLogsForRun removes all test block log entries for a run ID.
-func (s *store) DeleteTestBlockLogsForRun(
+// DeleteTestStatsBlockLogsForRun removes all test stats block log entries
+// for a run ID.
+func (s *store) DeleteTestStatsBlockLogsForRun(
 	ctx context.Context, runID string,
 ) error {
 	if err := s.db.WithContext(ctx).
 		Where("run_id = ?", runID).
-		Delete(&TestBlockLog{}).Error; err != nil {
-		return fmt.Errorf("deleting test block logs for run: %w", err)
+		Delete(&TestStatsBlockLog{}).Error; err != nil {
+		return fmt.Errorf(
+			"deleting test stats block logs for run: %w", err,
+		)
 	}
 
 	return nil
@@ -357,14 +362,14 @@ func (s *store) QueryRuns(
 	}, nil
 }
 
-// QueryTestDurations executes a flexible query against the test_durations
-// table using the validated QueryParams. It returns paginated results with
-// a total count.
-func (s *store) QueryTestDurations(
+// QueryTestStats executes a flexible query against the test_stats table
+// using the validated QueryParams. It returns paginated results with a
+// total count.
+func (s *store) QueryTestStats(
 	ctx context.Context, params *QueryParams,
 ) (*QueryResult, error) {
 	q := applyQuery(
-		s.db.WithContext(ctx), &TestDuration{}, params,
+		s.db.WithContext(ctx), &TestStat{}, params,
 	)
 
 	// When select is specified, scan into maps so the JSON response
@@ -375,19 +380,19 @@ func (s *store) QueryTestDurations(
 
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
-		return nil, fmt.Errorf("counting test durations: %w", err)
+		return nil, fmt.Errorf("counting test stats: %w", err)
 	}
 
-	var durations []TestDuration
+	var stats []TestStat
 	if err := q.Offset(params.Offset).
 		Limit(params.Limit).
-		Find(&durations).Error; err != nil {
-		return nil, fmt.Errorf("querying test durations: %w", err)
+		Find(&stats).Error; err != nil {
+		return nil, fmt.Errorf("querying test stats: %w", err)
 	}
 
-	data := make([]TestDurationResponse, 0, len(durations))
-	for i := range durations {
-		data = append(data, toTestDurationResponse(&durations[i]))
+	data := make([]TestStatResponse, 0, len(stats))
+	for i := range stats {
+		data = append(data, toTestStatResponse(&stats[i]))
 	}
 
 	return &QueryResult{
@@ -398,14 +403,14 @@ func (s *store) QueryTestDurations(
 	}, nil
 }
 
-// QueryTestBlockLogs executes a flexible query against the test_block_logs
-// table using the validated QueryParams. It returns paginated results with
-// a total count.
-func (s *store) QueryTestBlockLogs(
+// QueryTestStatsBlockLogs executes a flexible query against the
+// test_stats_block_logs table using the validated QueryParams. It returns
+// paginated results with a total count.
+func (s *store) QueryTestStatsBlockLogs(
 	ctx context.Context, params *QueryParams,
 ) (*QueryResult, error) {
 	q := applyQuery(
-		s.db.WithContext(ctx), &TestBlockLog{}, params,
+		s.db.WithContext(ctx), &TestStatsBlockLog{}, params,
 	)
 
 	// When select is specified, scan into maps so the JSON response
@@ -416,19 +421,23 @@ func (s *store) QueryTestBlockLogs(
 
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
-		return nil, fmt.Errorf("counting test block logs: %w", err)
+		return nil, fmt.Errorf(
+			"counting test stats block logs: %w", err,
+		)
 	}
 
-	var logs []TestBlockLog
+	var logs []TestStatsBlockLog
 	if err := q.Offset(params.Offset).
 		Limit(params.Limit).
 		Find(&logs).Error; err != nil {
-		return nil, fmt.Errorf("querying test block logs: %w", err)
+		return nil, fmt.Errorf(
+			"querying test stats block logs: %w", err,
+		)
 	}
 
-	data := make([]TestBlockLogResponse, 0, len(logs))
+	data := make([]TestStatsBlockLogResponse, 0, len(logs))
 	for i := range logs {
-		data = append(data, toTestBlockLogResponse(&logs[i]))
+		data = append(data, toTestStatsBlockLogResponse(&logs[i]))
 	}
 
 	return &QueryResult{

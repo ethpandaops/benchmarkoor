@@ -1,8 +1,8 @@
 package indexstore
 
-// TestBlockLog represents a single per-test block log entry with flattened
-// metrics from result.block-logs.json.
-type TestBlockLog struct {
+// TestStatsBlockLog represents a single per-test block log entry with
+// flattened metrics from result.block-logs.json.
+type TestStatsBlockLog struct {
 	ID        uint   `gorm:"primaryKey"`
 	SuiteHash string `gorm:"not null;index:idx_tbl_suite"`
 	RunID     string `gorm:"not null;index:idx_tbl_run"`
