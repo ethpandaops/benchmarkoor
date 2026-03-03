@@ -439,45 +439,45 @@ func (idx *indexer) indexRun(
 		return fmt.Errorf("upserting run: %w", err)
 	}
 
-	// Index test durations if result.json is present and suite hash is set.
+	// Index test stats if result.json is present and suite hash is set.
 	if len(resultData) > 0 && entry.SuiteHash != "" {
-		if err := idx.indexTestDurations(
+		if err := idx.indexTestStats(
 			ctx, entry.SuiteHash, runID, entry, resultData,
 		); err != nil {
 			idx.log.WithError(err).WithField("run_id", runID).
-				Warn("Failed to index test durations")
+				Warn("Failed to index test stats")
 		}
 	}
 
 	// Index block logs if result.block-logs.json is present.
 	if len(blockLogsData) > 0 && entry.SuiteHash != "" {
-		if err := idx.indexTestBlockLogs(
+		if err := idx.indexTestStatsBlockLogs(
 			ctx, entry.SuiteHash, runID,
 			entry.Instance.Client, blockLogsData,
 		); err != nil {
 			idx.log.WithError(err).WithField("run_id", runID).
-				Warn("Failed to index test block logs")
+				Warn("Failed to index test stats block logs")
 		}
 	}
 
 	return nil
 }
 
-// indexTestDurations extracts per-test durations from result.json
-// and bulk-inserts them into the store.
-func (idx *indexer) indexTestDurations(
+// indexTestStats extracts per-test stats from result.json and bulk-inserts
+// them into the store.
+func (idx *indexer) indexTestStats(
 	ctx context.Context,
 	suiteHash, runID string,
 	entry *executor.IndexEntry,
 	resultData []byte,
 ) error {
-	// Delete old test durations for this run before re-inserting.
-	if err := idx.store.DeleteTestDurationsForRun(ctx, runID); err != nil {
-		return fmt.Errorf("deleting old test durations: %w", err)
+	// Delete old test stats for this run before re-inserting.
+	if err := idx.store.DeleteTestStatsForRun(ctx, runID); err != nil {
+		return fmt.Errorf("deleting old test stats: %w", err)
 	}
 
 	// Use AccumulateRunResult to extract per-test durations.
-	stats := make(executor.SuiteStats)
+	suiteStats := make(executor.SuiteStats)
 
 	run := executor.RunInfo{
 		RunID:        runID,
@@ -486,12 +486,12 @@ func (idx *indexer) indexTestDurations(
 		TimestampEnd: entry.TimestampEnd,
 	}
 
-	executor.AccumulateRunResult(&stats, resultData, run)
+	executor.AccumulateRunResult(&suiteStats, resultData, run)
 
-	// Collect all durations for bulk insert.
-	var durations []*indexstore.TestDuration
+	// Collect all stats for bulk insert.
+	var testStats []*indexstore.TestStat
 
-	for testName, td := range stats {
+	for testName, td := range suiteStats {
 		for _, dur := range td.Durations {
 			stepsJSON := ""
 			if dur.Steps != nil {
@@ -501,7 +501,7 @@ func (idx *indexer) indexTestDurations(
 				}
 			}
 
-			td := &indexstore.TestDuration{
+			ts := &indexstore.TestStat{
 				SuiteHash:    suiteHash,
 				TestName:     testName,
 				RunID:        runID,
@@ -516,28 +516,52 @@ func (idx *indexer) indexTestDurations(
 
 			if dur.Steps != nil {
 				if dur.Steps.Setup != nil {
-					td.SetupGasUsed = dur.Steps.Setup.GasUsed
-					td.SetupTimeNs = dur.Steps.Setup.Time
-					td.SetupMGasS = indexstore.ComputeMGasS(
+					ts.SetupGasUsed = dur.Steps.Setup.GasUsed
+					ts.SetupTimeNs = dur.Steps.Setup.Time
+					ts.SetupMGasS = indexstore.ComputeMGasS(
 						dur.Steps.Setup.GasUsed, dur.Steps.Setup.Time,
 					)
+					ts.SetupRPCCallsCount = dur.Steps.Setup.RPCCallsCount
+
+					if dur.Steps.Setup.ResourceTotals != nil {
+						r := dur.Steps.Setup.ResourceTotals
+						ts.SetupResourceCPUUsec = r.CPUUsec
+						ts.SetupResourceMemDelta = r.MemoryDelta
+						ts.SetupResourceMemBytes = r.MemoryBytes
+						ts.SetupResourceDiskReadB = r.DiskReadBytes
+						ts.SetupResourceDiskWriteB = r.DiskWriteBytes
+						ts.SetupResourceDiskReadOps = r.DiskReadIOPS
+						ts.SetupResourceDiskWriteOps = r.DiskWriteIOPS
+					}
 				}
 
 				if dur.Steps.Test != nil {
-					td.TestGasUsed = dur.Steps.Test.GasUsed
-					td.TestTimeNs = dur.Steps.Test.Time
-					td.TestMGasS = indexstore.ComputeMGasS(
+					ts.TestGasUsed = dur.Steps.Test.GasUsed
+					ts.TestTimeNs = dur.Steps.Test.Time
+					ts.TestMGasS = indexstore.ComputeMGasS(
 						dur.Steps.Test.GasUsed, dur.Steps.Test.Time,
 					)
+					ts.TestRPCCallsCount = dur.Steps.Test.RPCCallsCount
+
+					if dur.Steps.Test.ResourceTotals != nil {
+						r := dur.Steps.Test.ResourceTotals
+						ts.TestResourceCPUUsec = r.CPUUsec
+						ts.TestResourceMemDelta = r.MemoryDelta
+						ts.TestResourceMemBytes = r.MemoryBytes
+						ts.TestResourceDiskReadB = r.DiskReadBytes
+						ts.TestResourceDiskWriteB = r.DiskWriteBytes
+						ts.TestResourceDiskReadOps = r.DiskReadIOPS
+						ts.TestResourceDiskWriteOps = r.DiskWriteIOPS
+					}
 				}
 			}
 
-			durations = append(durations, td)
+			testStats = append(testStats, ts)
 		}
 	}
 
-	if err := idx.store.BulkUpsertTestDurations(ctx, durations); err != nil {
-		return fmt.Errorf("bulk inserting test durations: %w", err)
+	if err := idx.store.BulkUpsertTestStats(ctx, testStats); err != nil {
+		return fmt.Errorf("bulk inserting test stats: %w", err)
 	}
 
 	return nil
@@ -598,16 +622,16 @@ type blockLogEntry struct {
 	} `json:"cache"`
 }
 
-// indexTestBlockLogs extracts per-test block logs from
+// indexTestStatsBlockLogs extracts per-test block logs from
 // result.block-logs.json and bulk-inserts them into the store.
-func (idx *indexer) indexTestBlockLogs(
+func (idx *indexer) indexTestStatsBlockLogs(
 	ctx context.Context,
 	suiteHash, runID, client string,
 	data []byte,
 ) error {
 	// Delete old block logs for this run before re-inserting.
-	if err := idx.store.DeleteTestBlockLogsForRun(ctx, runID); err != nil {
-		return fmt.Errorf("deleting old test block logs: %w", err)
+	if err := idx.store.DeleteTestStatsBlockLogsForRun(ctx, runID); err != nil {
+		return fmt.Errorf("deleting old test stats block logs: %w", err)
 	}
 
 	// The file is a map of test name -> single block log entry.
@@ -616,10 +640,10 @@ func (idx *indexer) indexTestBlockLogs(
 		return fmt.Errorf("unmarshalling block logs: %w", err)
 	}
 
-	logs := make([]*indexstore.TestBlockLog, 0, len(testMap))
+	logs := make([]*indexstore.TestStatsBlockLog, 0, len(testMap))
 
 	for testName, e := range testMap {
-		logs = append(logs, &indexstore.TestBlockLog{
+		logs = append(logs, &indexstore.TestStatsBlockLog{
 			SuiteHash:                 suiteHash,
 			RunID:                     runID,
 			TestName:                  testName,
@@ -658,8 +682,8 @@ func (idx *indexer) indexTestBlockLogs(
 		})
 	}
 
-	if err := idx.store.BulkInsertTestBlockLogs(ctx, logs); err != nil {
-		return fmt.Errorf("bulk inserting test block logs: %w", err)
+	if err := idx.store.BulkInsertTestStatsBlockLogs(ctx, logs); err != nil {
+		return fmt.Errorf("bulk inserting test stats block logs: %w", err)
 	}
 
 	return nil

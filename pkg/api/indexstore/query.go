@@ -73,6 +73,24 @@ var allowedTestStatColumns = map[string]bool{
 	"test_mgas_s":    true,
 	"run_start":      true,
 	"run_end":        true,
+	// Setup resource stats.
+	"setup_rpc_calls_count":             true,
+	"setup_resource_cpu_usec":           true,
+	"setup_resource_memory_delta_bytes": true,
+	"setup_resource_memory_bytes":       true,
+	"setup_resource_disk_read_bytes":    true,
+	"setup_resource_disk_write_bytes":   true,
+	"setup_resource_disk_read_iops":     true,
+	"setup_resource_disk_write_iops":    true,
+	// Test resource stats.
+	"test_rpc_calls_count":             true,
+	"test_resource_cpu_usec":           true,
+	"test_resource_memory_delta_bytes": true,
+	"test_resource_memory_bytes":       true,
+	"test_resource_disk_read_bytes":    true,
+	"test_resource_disk_write_bytes":   true,
+	"test_resource_disk_read_iops":     true,
+	"test_resource_disk_write_iops":    true,
 }
 
 // allowedTestStatsBlockLogColumns lists columns that may be filtered, sorted,
@@ -183,13 +201,29 @@ type TestStatResponse struct {
 	TotalTimeNs  int64   `json:"total_time_ns"`
 	TotalMGasS   float64 `json:"total_mgas_s"`
 
-	SetupGasUsed uint64  `json:"setup_gas_used"`
-	SetupTimeNs  int64   `json:"setup_time_ns"`
-	SetupMGasS   float64 `json:"setup_mgas_s"`
+	SetupGasUsed              uint64  `json:"setup_gas_used"`
+	SetupTimeNs               int64   `json:"setup_time_ns"`
+	SetupMGasS                float64 `json:"setup_mgas_s"`
+	SetupRPCCallsCount        int     `json:"setup_rpc_calls_count"`
+	SetupResourceCPUUsec      uint64  `json:"setup_resource_cpu_usec"`
+	SetupResourceMemDelta     int64   `json:"setup_resource_memory_delta_bytes"`
+	SetupResourceMemBytes     uint64  `json:"setup_resource_memory_bytes"`
+	SetupResourceDiskReadB    uint64  `json:"setup_resource_disk_read_bytes"`
+	SetupResourceDiskWriteB   uint64  `json:"setup_resource_disk_write_bytes"`
+	SetupResourceDiskReadOps  uint64  `json:"setup_resource_disk_read_iops"`
+	SetupResourceDiskWriteOps uint64  `json:"setup_resource_disk_write_iops"`
 
-	TestGasUsed uint64  `json:"test_gas_used"`
-	TestTimeNs  int64   `json:"test_time_ns"`
-	TestMGasS   float64 `json:"test_mgas_s"`
+	TestGasUsed              uint64  `json:"test_gas_used"`
+	TestTimeNs               int64   `json:"test_time_ns"`
+	TestMGasS                float64 `json:"test_mgas_s"`
+	TestRPCCallsCount        int     `json:"test_rpc_calls_count"`
+	TestResourceCPUUsec      uint64  `json:"test_resource_cpu_usec"`
+	TestResourceMemDelta     int64   `json:"test_resource_memory_delta_bytes"`
+	TestResourceMemBytes     uint64  `json:"test_resource_memory_bytes"`
+	TestResourceDiskReadB    uint64  `json:"test_resource_disk_read_bytes"`
+	TestResourceDiskWriteB   uint64  `json:"test_resource_disk_write_bytes"`
+	TestResourceDiskReadOps  uint64  `json:"test_resource_disk_read_iops"`
+	TestResourceDiskWriteOps uint64  `json:"test_resource_disk_write_iops"`
 
 	StepsJSON json.RawMessage `json:"steps_json,omitempty"`
 }
@@ -502,12 +536,30 @@ func toTestStatResponse(d *TestStat) TestStatResponse {
 		TotalGasUsed: d.TotalGasUsed,
 		TotalTimeNs:  d.TotalTimeNs,
 		TotalMGasS:   d.TotalMGasS,
-		SetupGasUsed: d.SetupGasUsed,
-		SetupTimeNs:  d.SetupTimeNs,
-		SetupMGasS:   d.SetupMGasS,
-		TestGasUsed:  d.TestGasUsed,
-		TestTimeNs:   d.TestTimeNs,
-		TestMGasS:    d.TestMGasS,
+		// Setup step.
+		SetupGasUsed:              d.SetupGasUsed,
+		SetupTimeNs:               d.SetupTimeNs,
+		SetupMGasS:                d.SetupMGasS,
+		SetupRPCCallsCount:        d.SetupRPCCallsCount,
+		SetupResourceCPUUsec:      d.SetupResourceCPUUsec,
+		SetupResourceMemDelta:     d.SetupResourceMemDelta,
+		SetupResourceMemBytes:     d.SetupResourceMemBytes,
+		SetupResourceDiskReadB:    d.SetupResourceDiskReadB,
+		SetupResourceDiskWriteB:   d.SetupResourceDiskWriteB,
+		SetupResourceDiskReadOps:  d.SetupResourceDiskReadOps,
+		SetupResourceDiskWriteOps: d.SetupResourceDiskWriteOps,
+		// Test step.
+		TestGasUsed:              d.TestGasUsed,
+		TestTimeNs:               d.TestTimeNs,
+		TestMGasS:                d.TestMGasS,
+		TestRPCCallsCount:        d.TestRPCCallsCount,
+		TestResourceCPUUsec:      d.TestResourceCPUUsec,
+		TestResourceMemDelta:     d.TestResourceMemDelta,
+		TestResourceMemBytes:     d.TestResourceMemBytes,
+		TestResourceDiskReadB:    d.TestResourceDiskReadB,
+		TestResourceDiskWriteB:   d.TestResourceDiskWriteB,
+		TestResourceDiskReadOps:  d.TestResourceDiskReadOps,
+		TestResourceDiskWriteOps: d.TestResourceDiskWriteOps,
 	}
 
 	if d.StepsJSON != "" {

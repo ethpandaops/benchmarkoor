@@ -17,7 +17,15 @@ const TEST_STAT_COLUMNS = [
   'id', 'suite_hash', 'run_id', 'test_name', 'client',
   'total_gas_used', 'total_time_ns', 'total_mgas_s',
   'setup_gas_used', 'setup_time_ns', 'setup_mgas_s',
+  'setup_rpc_calls_count',
+  'setup_resource_cpu_usec', 'setup_resource_memory_delta_bytes', 'setup_resource_memory_bytes',
+  'setup_resource_disk_read_bytes', 'setup_resource_disk_write_bytes',
+  'setup_resource_disk_read_iops', 'setup_resource_disk_write_iops',
   'test_gas_used', 'test_time_ns', 'test_mgas_s',
+  'test_rpc_calls_count',
+  'test_resource_cpu_usec', 'test_resource_memory_delta_bytes', 'test_resource_memory_bytes',
+  'test_resource_disk_read_bytes', 'test_resource_disk_write_bytes',
+  'test_resource_disk_read_iops', 'test_resource_disk_write_iops',
   'run_start', 'run_end',
 ]
 

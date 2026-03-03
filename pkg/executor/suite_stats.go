@@ -42,8 +42,10 @@ type RunDurationStepsStats struct {
 
 // RunDurationStepStats contains gas and time data for a single step.
 type RunDurationStepStats struct {
-	GasUsed uint64 `json:"gas_used"`
-	Time    int64  `json:"time_ns"`
+	GasUsed        uint64          `json:"gas_used"`
+	Time           int64           `json:"time_ns"`
+	RPCCallsCount  int             `json:"rpc_calls_count,omitempty"`
+	ResourceTotals *ResourceTotals `json:"resource_totals,omitempty"`
 }
 
 // RunInfo holds information about a run for grouping purposes.
@@ -164,30 +166,39 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 		stepsStats := &RunDurationStepsStats{}
 
 		if testEntry.Steps.Setup != nil && testEntry.Steps.Setup.Aggregated != nil {
+			agg := testEntry.Steps.Setup.Aggregated
 			stepsStats.Setup = &RunDurationStepStats{
-				GasUsed: testEntry.Steps.Setup.Aggregated.GasUsedTotal,
-				Time:    testEntry.Steps.Setup.Aggregated.GasUsedTimeTotal,
+				GasUsed:        agg.GasUsedTotal,
+				Time:           agg.GasUsedTimeTotal,
+				RPCCallsCount:  agg.TotalMsgs,
+				ResourceTotals: agg.ResourceTotals,
 			}
-			totalGasUsed += testEntry.Steps.Setup.Aggregated.GasUsedTotal
-			totalGasUsedTime += testEntry.Steps.Setup.Aggregated.GasUsedTimeTotal
+			totalGasUsed += agg.GasUsedTotal
+			totalGasUsedTime += agg.GasUsedTimeTotal
 		}
 
 		if testEntry.Steps.Test != nil && testEntry.Steps.Test.Aggregated != nil {
+			agg := testEntry.Steps.Test.Aggregated
 			stepsStats.Test = &RunDurationStepStats{
-				GasUsed: testEntry.Steps.Test.Aggregated.GasUsedTotal,
-				Time:    testEntry.Steps.Test.Aggregated.GasUsedTimeTotal,
+				GasUsed:        agg.GasUsedTotal,
+				Time:           agg.GasUsedTimeTotal,
+				RPCCallsCount:  agg.TotalMsgs,
+				ResourceTotals: agg.ResourceTotals,
 			}
-			totalGasUsed += testEntry.Steps.Test.Aggregated.GasUsedTotal
-			totalGasUsedTime += testEntry.Steps.Test.Aggregated.GasUsedTimeTotal
+			totalGasUsed += agg.GasUsedTotal
+			totalGasUsedTime += agg.GasUsedTimeTotal
 		}
 
 		if testEntry.Steps.Cleanup != nil && testEntry.Steps.Cleanup.Aggregated != nil {
+			agg := testEntry.Steps.Cleanup.Aggregated
 			stepsStats.Cleanup = &RunDurationStepStats{
-				GasUsed: testEntry.Steps.Cleanup.Aggregated.GasUsedTotal,
-				Time:    testEntry.Steps.Cleanup.Aggregated.GasUsedTimeTotal,
+				GasUsed:        agg.GasUsedTotal,
+				Time:           agg.GasUsedTimeTotal,
+				RPCCallsCount:  agg.TotalMsgs,
+				ResourceTotals: agg.ResourceTotals,
 			}
-			totalGasUsed += testEntry.Steps.Cleanup.Aggregated.GasUsedTotal
-			totalGasUsedTime += testEntry.Steps.Cleanup.Aggregated.GasUsedTimeTotal
+			totalGasUsed += agg.GasUsedTotal
+			totalGasUsedTime += agg.GasUsedTimeTotal
 		}
 
 		if (*stats)[testName] == nil {
