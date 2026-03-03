@@ -199,6 +199,32 @@ func (s *server) handleQueryTestDurations(
 	writeJSON(w, http.StatusOK, result)
 }
 
+// handleQueryTestBlockLogs handles PostgREST-style queries against the
+// test_block_logs table.
+func (s *server) handleQueryTestBlockLogs(
+	w http.ResponseWriter, r *http.Request,
+) {
+	params, err := indexstore.ParseQueryParams(
+		r.URL.Query(), indexstore.AllowedTestBlockLogColumns(),
+	)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{err.Error()})
+
+		return
+	}
+
+	result, err := s.indexStore.QueryTestBlockLogs(r.Context(), params)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"querying test block logs: " + err.Error()})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
 // handleRunIndexer triggers an immediate indexing pass. It returns 409 if
 // an indexing pass is already in progress.
 func (s *server) handleRunIndexer(w http.ResponseWriter, r *http.Request) {

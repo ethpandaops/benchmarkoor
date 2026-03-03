@@ -21,6 +21,20 @@ const TEST_DURATION_COLUMNS = [
   'run_start', 'run_end',
 ]
 
+const TEST_BLOCK_LOG_COLUMNS = [
+  'id', 'suite_hash', 'run_id', 'test_name', 'client',
+  'block_number', 'block_hash', 'block_gas_used', 'block_tx_count',
+  'timing_execution_ms', 'timing_state_read_ms', 'timing_state_hash_ms',
+  'timing_commit_ms', 'timing_total_ms', 'throughput_mgas_per_sec',
+  'state_read_accounts', 'state_read_storage_slots', 'state_read_code', 'state_read_code_bytes',
+  'state_write_accounts', 'state_write_accounts_deleted', 'state_write_storage_slots',
+  'state_write_slots_deleted', 'state_write_code', 'state_write_code_bytes',
+  'cache_account_hits', 'cache_account_misses', 'cache_account_hit_rate',
+  'cache_storage_hits', 'cache_storage_misses', 'cache_storage_hit_rate',
+  'cache_code_hits', 'cache_code_misses', 'cache_code_hit_rate',
+  'cache_code_hit_bytes', 'cache_code_miss_bytes',
+]
+
 const OPERATORS = [
   { value: 'eq', label: '= equals' },
   { value: 'neq', label: '!= not equals' },
@@ -41,7 +55,7 @@ const TIMESTAMP_COLUMNS = new Set([
 
 // --- Types ---
 
-type Endpoint = 'runs' | 'test_durations'
+type Endpoint = 'runs' | 'test_durations' | 'test_block_logs'
 
 interface FilterRow {
   id: string
@@ -114,7 +128,9 @@ function searchParamsToState(params: QuerySearchParams): QueryBuilderState | nul
   if (!hasParams) return null
 
   const endpoint: Endpoint =
-    params.endpoint === 'test_durations' ? 'test_durations' : 'runs'
+    params.endpoint === 'test_durations' ? 'test_durations'
+    : params.endpoint === 'test_block_logs' ? 'test_block_logs'
+    : 'runs'
   const validCols = new Set(columnsForEndpoint(endpoint))
 
   const filters: FilterRow[] = []
@@ -183,7 +199,9 @@ function uid() {
 }
 
 function columnsForEndpoint(ep: Endpoint) {
-  return ep === 'runs' ? RUNS_COLUMNS : TEST_DURATION_COLUMNS
+  if (ep === 'runs') return RUNS_COLUMNS
+  if (ep === 'test_block_logs') return TEST_BLOCK_LOG_COLUMNS
+  return TEST_DURATION_COLUMNS
 }
 
 function makeInitialState(): QueryBuilderState {
@@ -346,6 +364,17 @@ const PRESETS: Preset[] = [
       offset: 0,
     },
   },
+  {
+    label: 'Slowest blocks',
+    state: {
+      endpoint: 'test_block_logs',
+      filters: [],
+      orders: [{ id: uid(), column: 'timing_total_ms', direction: 'desc' }],
+      limit: 20,
+      offset: 0,
+      selectedColumns: ['run_id', 'test_name', 'client', 'block_number', 'timing_total_ms', 'throughput_mgas_per_sec', 'block_gas_used'],
+    },
+  },
 ]
 
 // --- API response type ---
@@ -487,6 +516,16 @@ export function QueryBuilderPage() {
             }`}
           >
             test_durations
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'SET_ENDPOINT', endpoint: 'test_block_logs' })}
+            className={`px-3 py-1.5 text-sm font-medium ${
+              state.endpoint === 'test_block_logs'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+            }`}
+          >
+            test_block_logs
           </button>
         </div>
       </div>

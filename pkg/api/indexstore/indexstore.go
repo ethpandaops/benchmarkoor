@@ -35,8 +35,16 @@ type Store interface {
 
 	ListAllRuns(ctx context.Context) ([]Run, error)
 
+	BulkInsertTestBlockLogs(
+		ctx context.Context, logs []*TestBlockLog,
+	) error
+	DeleteTestBlockLogsForRun(ctx context.Context, runID string) error
+
 	QueryRuns(ctx context.Context, params *QueryParams) (*QueryResult, error)
 	QueryTestDurations(
+		ctx context.Context, params *QueryParams,
+	) (*QueryResult, error)
+	QueryTestBlockLogs(
 		ctx context.Context, params *QueryParams,
 	) (*QueryResult, error)
 }
@@ -97,6 +105,7 @@ func (s *store) Start(ctx context.Context) error {
 	if err := s.db.WithContext(ctx).AutoMigrate(
 		&Run{},
 		&TestDuration{},
+		&TestBlockLog{},
 	); err != nil {
 		return fmt.Errorf("running index migrations: %w", err)
 	}
@@ -272,6 +281,44 @@ func (s *store) DeleteTestDurationsForRun(
 	return nil
 }
 
+// BulkInsertTestBlockLogs inserts multiple test block log records in a
+// single transaction using batched creates.
+func (s *store) BulkInsertTestBlockLogs(
+	ctx context.Context, logs []*TestBlockLog,
+) error {
+	if len(logs) == 0 {
+		return nil
+	}
+
+	const batchSize = 100
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for i := 0; i < len(logs); i += batchSize {
+			end := min(i+batchSize, len(logs))
+			batch := logs[i:end]
+
+			if err := tx.CreateInBatches(batch, len(batch)).Error; err != nil {
+				return fmt.Errorf("bulk inserting test block logs: %w", err)
+			}
+		}
+
+		return nil
+	})
+}
+
+// DeleteTestBlockLogsForRun removes all test block log entries for a run ID.
+func (s *store) DeleteTestBlockLogsForRun(
+	ctx context.Context, runID string,
+) error {
+	if err := s.db.WithContext(ctx).
+		Where("run_id = ?", runID).
+		Delete(&TestBlockLog{}).Error; err != nil {
+		return fmt.Errorf("deleting test block logs for run: %w", err)
+	}
+
+	return nil
+}
+
 // QueryRuns executes a flexible query against the runs table using the
 // validated QueryParams. It returns paginated results with a total count.
 func (s *store) QueryRuns(
@@ -341,6 +388,47 @@ func (s *store) QueryTestDurations(
 	data := make([]TestDurationResponse, 0, len(durations))
 	for i := range durations {
 		data = append(data, toTestDurationResponse(&durations[i]))
+	}
+
+	return &QueryResult{
+		Data:   data,
+		Total:  total,
+		Limit:  params.Limit,
+		Offset: params.Offset,
+	}, nil
+}
+
+// QueryTestBlockLogs executes a flexible query against the test_block_logs
+// table using the validated QueryParams. It returns paginated results with
+// a total count.
+func (s *store) QueryTestBlockLogs(
+	ctx context.Context, params *QueryParams,
+) (*QueryResult, error) {
+	q := applyQuery(
+		s.db.WithContext(ctx), &TestBlockLog{}, params,
+	)
+
+	// When select is specified, scan into maps so the JSON response
+	// only contains the requested columns (no zero-valued extras).
+	if len(params.Select) > 0 {
+		return scanMaps(q, params)
+	}
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("counting test block logs: %w", err)
+	}
+
+	var logs []TestBlockLog
+	if err := q.Offset(params.Offset).
+		Limit(params.Limit).
+		Find(&logs).Error; err != nil {
+		return nil, fmt.Errorf("querying test block logs: %w", err)
+	}
+
+	data := make([]TestBlockLogResponse, 0, len(logs))
+	for i := range logs {
+		data = append(data, toTestBlockLogResponse(&logs[i]))
 	}
 
 	return &QueryResult{

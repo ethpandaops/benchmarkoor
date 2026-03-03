@@ -75,6 +75,47 @@ var allowedTestDurationColumns = map[string]bool{
 	"run_end":        true,
 }
 
+// allowedTestBlockLogColumns lists columns that may be filtered, sorted, or
+// selected on the test_block_logs table.
+var allowedTestBlockLogColumns = map[string]bool{
+	"id":                           true,
+	"suite_hash":                   true,
+	"run_id":                       true,
+	"test_name":                    true,
+	"client":                       true,
+	"block_number":                 true,
+	"block_hash":                   true,
+	"block_gas_used":               true,
+	"block_tx_count":               true,
+	"timing_execution_ms":          true,
+	"timing_state_read_ms":         true,
+	"timing_state_hash_ms":         true,
+	"timing_commit_ms":             true,
+	"timing_total_ms":              true,
+	"throughput_mgas_per_sec":      true,
+	"state_read_accounts":          true,
+	"state_read_storage_slots":     true,
+	"state_read_code":              true,
+	"state_read_code_bytes":        true,
+	"state_write_accounts":         true,
+	"state_write_accounts_deleted": true,
+	"state_write_storage_slots":    true,
+	"state_write_slots_deleted":    true,
+	"state_write_code":             true,
+	"state_write_code_bytes":       true,
+	"cache_account_hits":           true,
+	"cache_account_misses":         true,
+	"cache_account_hit_rate":       true,
+	"cache_storage_hits":           true,
+	"cache_storage_misses":         true,
+	"cache_storage_hit_rate":       true,
+	"cache_code_hits":              true,
+	"cache_code_misses":            true,
+	"cache_code_hit_rate":          true,
+	"cache_code_hit_bytes":         true,
+	"cache_code_miss_bytes":        true,
+}
+
 // Filter represents a single column filter.
 type Filter struct {
 	Column   string
@@ -153,6 +194,54 @@ type TestDurationResponse struct {
 	StepsJSON json.RawMessage `json:"steps_json,omitempty"`
 }
 
+// TestBlockLogResponse is the JSON DTO for a test_block_logs row.
+type TestBlockLogResponse struct {
+	ID        uint   `json:"id"`
+	SuiteHash string `json:"suite_hash"`
+	RunID     string `json:"run_id"`
+	TestName  string `json:"test_name"`
+	Client    string `json:"client"`
+
+	BlockNumber  uint64 `json:"block_number"`
+	BlockHash    string `json:"block_hash"`
+	BlockGasUsed uint64 `json:"block_gas_used"`
+	BlockTxCount int    `json:"block_tx_count"`
+
+	TimingExecutionMs float64 `json:"timing_execution_ms"`
+	TimingStateReadMs float64 `json:"timing_state_read_ms"`
+	TimingStateHashMs float64 `json:"timing_state_hash_ms"`
+	TimingCommitMs    float64 `json:"timing_commit_ms"`
+	TimingTotalMs     float64 `json:"timing_total_ms"`
+
+	ThroughputMgasPerSec float64 `json:"throughput_mgas_per_sec"`
+
+	StateReadAccounts     int `json:"state_read_accounts"`
+	StateReadStorageSlots int `json:"state_read_storage_slots"`
+	StateReadCode         int `json:"state_read_code"`
+	StateReadCodeBytes    int `json:"state_read_code_bytes"`
+
+	StateWriteAccounts        int `json:"state_write_accounts"`
+	StateWriteAccountsDeleted int `json:"state_write_accounts_deleted"`
+	StateWriteStorageSlots    int `json:"state_write_storage_slots"`
+	StateWriteSlotsDeleted    int `json:"state_write_slots_deleted"`
+	StateWriteCode            int `json:"state_write_code"`
+	StateWriteCodeBytes       int `json:"state_write_code_bytes"`
+
+	CacheAccountHits    int     `json:"cache_account_hits"`
+	CacheAccountMisses  int     `json:"cache_account_misses"`
+	CacheAccountHitRate float64 `json:"cache_account_hit_rate"`
+
+	CacheStorageHits    int     `json:"cache_storage_hits"`
+	CacheStorageMisses  int     `json:"cache_storage_misses"`
+	CacheStorageHitRate float64 `json:"cache_storage_hit_rate"`
+
+	CacheCodeHits      int     `json:"cache_code_hits"`
+	CacheCodeMisses    int     `json:"cache_code_misses"`
+	CacheCodeHitRate   float64 `json:"cache_code_hit_rate"`
+	CacheCodeHitBytes  int     `json:"cache_code_hit_bytes"`
+	CacheCodeMissBytes int     `json:"cache_code_miss_bytes"`
+}
+
 // AllowedRunColumns returns the set of queryable run columns.
 func AllowedRunColumns() map[string]bool {
 	return allowedRunColumns
@@ -162,6 +251,12 @@ func AllowedRunColumns() map[string]bool {
 // columns.
 func AllowedTestDurationColumns() map[string]bool {
 	return allowedTestDurationColumns
+}
+
+// AllowedTestBlockLogColumns returns the set of queryable test block log
+// columns.
+func AllowedTestBlockLogColumns() map[string]bool {
+	return allowedTestBlockLogColumns
 }
 
 // ParseQueryParams validates and parses raw URL query values against the
@@ -421,4 +516,46 @@ func toTestDurationResponse(d *TestDuration) TestDurationResponse {
 	}
 
 	return resp
+}
+
+// toTestBlockLogResponse converts a TestBlockLog model to its JSON DTO.
+func toTestBlockLogResponse(l *TestBlockLog) TestBlockLogResponse {
+	return TestBlockLogResponse{
+		ID:                        l.ID,
+		SuiteHash:                 l.SuiteHash,
+		RunID:                     l.RunID,
+		TestName:                  l.TestName,
+		Client:                    l.Client,
+		BlockNumber:               l.BlockNumber,
+		BlockHash:                 l.BlockHash,
+		BlockGasUsed:              l.BlockGasUsed,
+		BlockTxCount:              l.BlockTxCount,
+		TimingExecutionMs:         l.TimingExecutionMs,
+		TimingStateReadMs:         l.TimingStateReadMs,
+		TimingStateHashMs:         l.TimingStateHashMs,
+		TimingCommitMs:            l.TimingCommitMs,
+		TimingTotalMs:             l.TimingTotalMs,
+		ThroughputMgasPerSec:      l.ThroughputMgasPerSec,
+		StateReadAccounts:         l.StateReadAccounts,
+		StateReadStorageSlots:     l.StateReadStorageSlots,
+		StateReadCode:             l.StateReadCode,
+		StateReadCodeBytes:        l.StateReadCodeBytes,
+		StateWriteAccounts:        l.StateWriteAccounts,
+		StateWriteAccountsDeleted: l.StateWriteAccountsDeleted,
+		StateWriteStorageSlots:    l.StateWriteStorageSlots,
+		StateWriteSlotsDeleted:    l.StateWriteSlotsDeleted,
+		StateWriteCode:            l.StateWriteCode,
+		StateWriteCodeBytes:       l.StateWriteCodeBytes,
+		CacheAccountHits:          l.CacheAccountHits,
+		CacheAccountMisses:        l.CacheAccountMisses,
+		CacheAccountHitRate:       l.CacheAccountHitRate,
+		CacheStorageHits:          l.CacheStorageHits,
+		CacheStorageMisses:        l.CacheStorageMisses,
+		CacheStorageHitRate:       l.CacheStorageHitRate,
+		CacheCodeHits:             l.CacheCodeHits,
+		CacheCodeMisses:           l.CacheCodeMisses,
+		CacheCodeHitRate:          l.CacheCodeHitRate,
+		CacheCodeHitBytes:         l.CacheCodeHitBytes,
+		CacheCodeMissBytes:        l.CacheCodeMissBytes,
+	}
 }

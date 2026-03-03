@@ -88,6 +88,8 @@ func (s *server) buildRouter() http.Handler {
 					r.Get("/runs", s.handleQueryRuns)
 					r.Get("/test_durations",
 						s.handleQueryTestDurations)
+					r.Get("/test_block_logs",
+						s.handleQueryTestBlockLogs)
 				})
 			})
 		}

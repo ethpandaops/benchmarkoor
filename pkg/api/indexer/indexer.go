@@ -313,14 +313,14 @@ func (idx *indexer) indexDiscoveryPath(
 func (idx *indexer) indexRun(
 	ctx context.Context, dp, runID string, isReindex bool,
 ) error {
-	// Read config.json and result.json concurrently.
+	// Read config.json, result.json, and result.block-logs.json concurrently.
 	var (
-		configData, resultData []byte
-		configErr, resultErr   error
-		fileWg                 sync.WaitGroup
+		configData, resultData, blockLogsData []byte
+		configErr, resultErr, blockLogsErr    error
+		fileWg                                sync.WaitGroup
 	)
 
-	fileWg.Add(2) //nolint:mnd // two files
+	fileWg.Add(3) //nolint:mnd // three files
 
 	go func() {
 		defer fileWg.Done()
@@ -335,6 +335,14 @@ func (idx *indexer) indexRun(
 
 		resultData, resultErr = idx.reader.GetRunFile(
 			ctx, dp, runID, "result.json",
+		)
+	}()
+
+	go func() {
+		defer fileWg.Done()
+
+		blockLogsData, blockLogsErr = idx.reader.GetRunFile(
+			ctx, dp, runID, "result.block-logs.json",
 		)
 	}()
 
@@ -353,6 +361,10 @@ func (idx *indexer) indexRun(
 			Debug("Failed to read result.json, continuing without it")
 
 		resultData = nil
+	}
+
+	if blockLogsErr != nil {
+		blockLogsData = nil
 	}
 
 	// Build an IndexEntry using the existing executor logic.
@@ -437,6 +449,17 @@ func (idx *indexer) indexRun(
 		}
 	}
 
+	// Index block logs if result.block-logs.json is present.
+	if len(blockLogsData) > 0 && entry.SuiteHash != "" {
+		if err := idx.indexTestBlockLogs(
+			ctx, entry.SuiteHash, runID,
+			entry.Instance.Client, blockLogsData,
+		); err != nil {
+			idx.log.WithError(err).WithField("run_id", runID).
+				Warn("Failed to index test block logs")
+		}
+	}
+
 	return nil
 }
 
@@ -515,6 +538,128 @@ func (idx *indexer) indexTestDurations(
 
 	if err := idx.store.BulkUpsertTestDurations(ctx, durations); err != nil {
 		return fmt.Errorf("bulk inserting test durations: %w", err)
+	}
+
+	return nil
+}
+
+// blockLogEntry is the per-test JSON shape inside result.block-logs.json.
+type blockLogEntry struct {
+	Level string `json:"level"`
+	Msg   string `json:"msg"`
+	Block struct {
+		Number  uint64 `json:"number"`
+		Hash    string `json:"hash"`
+		GasUsed uint64 `json:"gas_used"`
+		TxCount int    `json:"tx_count"`
+	} `json:"block"`
+	Timing struct {
+		ExecutionMs float64 `json:"execution_ms"`
+		StateReadMs float64 `json:"state_read_ms"`
+		StateHashMs float64 `json:"state_hash_ms"`
+		CommitMs    float64 `json:"commit_ms"`
+		TotalMs     float64 `json:"total_ms"`
+	} `json:"timing"`
+	Throughput struct {
+		MgasPerSec float64 `json:"mgas_per_sec"`
+	} `json:"throughput"`
+	StateReads struct {
+		Accounts     int `json:"accounts"`
+		StorageSlots int `json:"storage_slots"`
+		Code         int `json:"code"`
+		CodeBytes    int `json:"code_bytes"`
+	} `json:"state_reads"`
+	StateWrites struct {
+		Accounts        int `json:"accounts"`
+		AccountsDeleted int `json:"accounts_deleted"`
+		StorageSlots    int `json:"storage_slots"`
+		SlotsDeleted    int `json:"storage_slots_deleted"`
+		Code            int `json:"code"`
+		CodeBytes       int `json:"code_bytes"`
+	} `json:"state_writes"`
+	Cache struct {
+		Account struct {
+			Hits    int     `json:"hits"`
+			Misses  int     `json:"misses"`
+			HitRate float64 `json:"hit_rate"`
+		} `json:"account"`
+		Storage struct {
+			Hits    int     `json:"hits"`
+			Misses  int     `json:"misses"`
+			HitRate float64 `json:"hit_rate"`
+		} `json:"storage"`
+		Code struct {
+			Hits      int     `json:"hits"`
+			Misses    int     `json:"misses"`
+			HitRate   float64 `json:"hit_rate"`
+			HitBytes  int     `json:"hit_bytes"`
+			MissBytes int     `json:"miss_bytes"`
+		} `json:"code"`
+	} `json:"cache"`
+}
+
+// indexTestBlockLogs extracts per-test block logs from
+// result.block-logs.json and bulk-inserts them into the store.
+func (idx *indexer) indexTestBlockLogs(
+	ctx context.Context,
+	suiteHash, runID, client string,
+	data []byte,
+) error {
+	// Delete old block logs for this run before re-inserting.
+	if err := idx.store.DeleteTestBlockLogsForRun(ctx, runID); err != nil {
+		return fmt.Errorf("deleting old test block logs: %w", err)
+	}
+
+	// The file is a map of test name -> single block log entry.
+	var testMap map[string]blockLogEntry
+	if err := json.Unmarshal(data, &testMap); err != nil {
+		return fmt.Errorf("unmarshalling block logs: %w", err)
+	}
+
+	logs := make([]*indexstore.TestBlockLog, 0, len(testMap))
+
+	for testName, e := range testMap {
+		logs = append(logs, &indexstore.TestBlockLog{
+			SuiteHash:                 suiteHash,
+			RunID:                     runID,
+			TestName:                  testName,
+			Client:                    client,
+			BlockNumber:               e.Block.Number,
+			BlockHash:                 e.Block.Hash,
+			BlockGasUsed:              e.Block.GasUsed,
+			BlockTxCount:              e.Block.TxCount,
+			TimingExecutionMs:         e.Timing.ExecutionMs,
+			TimingStateReadMs:         e.Timing.StateReadMs,
+			TimingStateHashMs:         e.Timing.StateHashMs,
+			TimingCommitMs:            e.Timing.CommitMs,
+			TimingTotalMs:             e.Timing.TotalMs,
+			ThroughputMgasPerSec:      e.Throughput.MgasPerSec,
+			StateReadAccounts:         e.StateReads.Accounts,
+			StateReadStorageSlots:     e.StateReads.StorageSlots,
+			StateReadCode:             e.StateReads.Code,
+			StateReadCodeBytes:        e.StateReads.CodeBytes,
+			StateWriteAccounts:        e.StateWrites.Accounts,
+			StateWriteAccountsDeleted: e.StateWrites.AccountsDeleted,
+			StateWriteStorageSlots:    e.StateWrites.StorageSlots,
+			StateWriteSlotsDeleted:    e.StateWrites.SlotsDeleted,
+			StateWriteCode:            e.StateWrites.Code,
+			StateWriteCodeBytes:       e.StateWrites.CodeBytes,
+			CacheAccountHits:          e.Cache.Account.Hits,
+			CacheAccountMisses:        e.Cache.Account.Misses,
+			CacheAccountHitRate:       e.Cache.Account.HitRate,
+			CacheStorageHits:          e.Cache.Storage.Hits,
+			CacheStorageMisses:        e.Cache.Storage.Misses,
+			CacheStorageHitRate:       e.Cache.Storage.HitRate,
+			CacheCodeHits:             e.Cache.Code.Hits,
+			CacheCodeMisses:           e.Cache.Code.Misses,
+			CacheCodeHitRate:          e.Cache.Code.HitRate,
+			CacheCodeHitBytes:         e.Cache.Code.HitBytes,
+			CacheCodeMissBytes:        e.Cache.Code.MissBytes,
+		})
+	}
+
+	if err := idx.store.BulkInsertTestBlockLogs(ctx, logs); err != nil {
+		return fmt.Errorf("bulk inserting test block logs: %w", err)
 	}
 
 	return nil
