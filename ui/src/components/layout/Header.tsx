@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useMatchRoute, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X, FileText } from 'lucide-react'
+import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X, FileText, Search } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 
 function NavLink({ to, children, onClick }: { to: string; children: React.ReactNode; onClick?: () => void }) {
@@ -104,6 +104,13 @@ function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
               <FileText className="size-3.5" />
               API Docs
             </button>
+            <button
+              onClick={() => handleNavigate('/query')}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/50"
+            >
+              <Search className="size-3.5" />
+              Query Builder
+            </button>
             {isAdmin && (
               <button
                 onClick={() => handleNavigate('/admin')}
@@ -167,6 +174,7 @@ export function Header() {
         <nav className="hidden items-center gap-1 md:flex">
           <NavLink to="/runs">Runs</NavLink>
           <NavLink to="/suites">Suites</NavLink>
+          <NavLink to="/query">Query</NavLink>
         </nav>
         <div className="ml-auto hidden items-center gap-2 md:flex">
           <AuthControls />
@@ -189,6 +197,7 @@ export function Header() {
           <nav className="flex flex-col gap-1">
             <NavLink to="/runs" onClick={closeMobile}>Runs</NavLink>
             <NavLink to="/suites" onClick={closeMobile}>Suites</NavLink>
+            <NavLink to="/query" onClick={closeMobile}>Query</NavLink>
           </nav>
           <div className="mt-3 flex items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
             <AuthControls onNavigate={closeMobile} />
