@@ -174,7 +174,6 @@ export function Header() {
         <nav className="hidden items-center gap-1 md:flex">
           <NavLink to="/runs">Runs</NavLink>
           <NavLink to="/suites">Suites</NavLink>
-          <NavLink to="/query">Query</NavLink>
         </nav>
         <div className="ml-auto hidden items-center gap-2 md:flex">
           <AuthControls />
@@ -197,7 +196,6 @@ export function Header() {
           <nav className="flex flex-col gap-1">
             <NavLink to="/runs" onClick={closeMobile}>Runs</NavLink>
             <NavLink to="/suites" onClick={closeMobile}>Suites</NavLink>
-            <NavLink to="/query" onClick={closeMobile}>Query</NavLink>
           </nav>
           <div className="mt-3 flex items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
             <AuthControls onNavigate={closeMobile} />
