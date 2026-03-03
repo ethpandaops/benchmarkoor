@@ -1,47 +1,81 @@
-import { useReducer, useEffect, useMemo, useCallback, useState } from 'react'
+import { useReducer, useEffect, useMemo, useCallback, useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { Copy, Check, Loader2, Plus, X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Copy, Check, Loader2, Plus, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react'
 import { loadRuntimeConfig } from '@/config/runtime'
 
 // --- Column & operator metadata ---
 
-const RUNS_COLUMNS = [
-  'id', 'discovery_path', 'run_id', 'timestamp', 'timestamp_end',
-  'suite_hash', 'status', 'termination_reason', 'has_result', 'instance_id',
-  'client', 'image', 'rollback_strategy', 'tests_total', 'tests_passed',
-  'tests_failed', 'indexed_at', 'reindexed_at',
+interface ColumnGroup {
+  label: string
+  columns: string[]
+}
+
+const RUNS_COLUMN_GROUPS: ColumnGroup[] = [
+  { label: 'Identity', columns: ['id', 'discovery_path', 'run_id', 'suite_hash', 'instance_id'] },
+  { label: 'Client', columns: ['client', 'image', 'rollback_strategy'] },
+  { label: 'Status', columns: ['status', 'termination_reason', 'has_result'] },
+  { label: 'Tests', columns: ['tests_total', 'tests_passed', 'tests_failed'] },
+  { label: 'Timing', columns: ['timestamp', 'timestamp_end', 'indexed_at', 'reindexed_at'] },
 ]
 
-const TEST_STAT_COLUMNS = [
-  'id', 'suite_hash', 'run_id', 'test_name', 'client',
-  'total_gas_used', 'total_time_ns', 'total_mgas_s',
-  'setup_gas_used', 'setup_time_ns', 'setup_mgas_s',
-  'setup_rpc_calls_count',
-  'setup_resource_cpu_usec', 'setup_resource_memory_delta_bytes', 'setup_resource_memory_bytes',
-  'setup_resource_disk_read_bytes', 'setup_resource_disk_write_bytes',
-  'setup_resource_disk_read_iops', 'setup_resource_disk_write_iops',
-  'test_gas_used', 'test_time_ns', 'test_mgas_s',
-  'test_rpc_calls_count',
-  'test_resource_cpu_usec', 'test_resource_memory_delta_bytes', 'test_resource_memory_bytes',
-  'test_resource_disk_read_bytes', 'test_resource_disk_write_bytes',
-  'test_resource_disk_read_iops', 'test_resource_disk_write_iops',
-  'run_start', 'run_end',
+const TEST_STAT_COLUMN_GROUPS: ColumnGroup[] = [
+  { label: 'Identity', columns: ['id', 'suite_hash', 'run_id', 'test_name', 'client'] },
+  { label: 'Totals', columns: ['total_gas_used', 'total_time_ns', 'total_mgas_s'] },
+  { label: 'Setup', columns: ['setup_gas_used', 'setup_time_ns', 'setup_mgas_s', 'setup_rpc_calls_count'] },
+  {
+    label: 'Setup Resources',
+    columns: [
+      'setup_resource_cpu_usec', 'setup_resource_memory_delta_bytes', 'setup_resource_memory_bytes',
+      'setup_resource_disk_read_bytes', 'setup_resource_disk_write_bytes',
+      'setup_resource_disk_read_iops', 'setup_resource_disk_write_iops',
+    ],
+  },
+  { label: 'Test', columns: ['test_gas_used', 'test_time_ns', 'test_mgas_s', 'test_rpc_calls_count'] },
+  {
+    label: 'Test Resources',
+    columns: [
+      'test_resource_cpu_usec', 'test_resource_memory_delta_bytes', 'test_resource_memory_bytes',
+      'test_resource_disk_read_bytes', 'test_resource_disk_write_bytes',
+      'test_resource_disk_read_iops', 'test_resource_disk_write_iops',
+    ],
+  },
+  { label: 'Timing', columns: ['run_start', 'run_end'] },
 ]
 
-const TEST_STATS_BLOCK_LOG_COLUMNS = [
-  'id', 'suite_hash', 'run_id', 'test_name', 'client',
-  'block_number', 'block_hash', 'block_gas_used', 'block_tx_count',
-  'timing_execution_ms', 'timing_state_read_ms', 'timing_state_hash_ms',
-  'timing_commit_ms', 'timing_total_ms', 'throughput_mgas_per_sec',
-  'state_read_accounts', 'state_read_storage_slots', 'state_read_code', 'state_read_code_bytes',
-  'state_write_accounts', 'state_write_accounts_deleted', 'state_write_storage_slots',
-  'state_write_slots_deleted', 'state_write_code', 'state_write_code_bytes',
-  'cache_account_hits', 'cache_account_misses', 'cache_account_hit_rate',
-  'cache_storage_hits', 'cache_storage_misses', 'cache_storage_hit_rate',
-  'cache_code_hits', 'cache_code_misses', 'cache_code_hit_rate',
-  'cache_code_hit_bytes', 'cache_code_miss_bytes',
+const TEST_STATS_BLOCK_LOG_COLUMN_GROUPS: ColumnGroup[] = [
+  { label: 'Identity', columns: ['id', 'suite_hash', 'run_id', 'test_name', 'client'] },
+  { label: 'Block', columns: ['block_number', 'block_hash', 'block_gas_used', 'block_tx_count'] },
+  {
+    label: 'Timing',
+    columns: [
+      'timing_execution_ms', 'timing_state_read_ms', 'timing_state_hash_ms',
+      'timing_commit_ms', 'timing_total_ms',
+    ],
+  },
+  { label: 'Throughput', columns: ['throughput_mgas_per_sec'] },
+  { label: 'State Reads', columns: ['state_read_accounts', 'state_read_storage_slots', 'state_read_code', 'state_read_code_bytes'] },
+  {
+    label: 'State Writes',
+    columns: [
+      'state_write_accounts', 'state_write_accounts_deleted', 'state_write_storage_slots',
+      'state_write_slots_deleted', 'state_write_code', 'state_write_code_bytes',
+    ],
+  },
+  {
+    label: 'Cache',
+    columns: [
+      'cache_account_hits', 'cache_account_misses', 'cache_account_hit_rate',
+      'cache_storage_hits', 'cache_storage_misses', 'cache_storage_hit_rate',
+      'cache_code_hits', 'cache_code_misses', 'cache_code_hit_rate',
+      'cache_code_hit_bytes', 'cache_code_miss_bytes',
+    ],
+  },
 ]
+
+const RUNS_COLUMNS = RUNS_COLUMN_GROUPS.flatMap((g) => g.columns)
+const TEST_STAT_COLUMNS = TEST_STAT_COLUMN_GROUPS.flatMap((g) => g.columns)
+const TEST_STATS_BLOCK_LOG_COLUMNS = TEST_STATS_BLOCK_LOG_COLUMN_GROUPS.flatMap((g) => g.columns)
 
 const OPERATORS = [
   { value: 'eq', label: '= equals' },
@@ -196,6 +230,7 @@ type Action =
   | { type: 'ADD_ORDER' }
   | { type: 'REMOVE_ORDER'; id: string }
   | { type: 'UPDATE_ORDER'; id: string; field: 'column' | 'direction'; value: string }
+  | { type: 'TOGGLE_ORDER'; column: string }
   | { type: 'SET_LIMIT'; limit: number }
   | { type: 'SET_OFFSET'; offset: number }
   | { type: 'SET_COLUMNS'; columns: string[] }
@@ -210,6 +245,12 @@ function columnsForEndpoint(ep: Endpoint) {
   if (ep === 'runs') return RUNS_COLUMNS
   if (ep === 'test_stats_block_logs') return TEST_STATS_BLOCK_LOG_COLUMNS
   return TEST_STAT_COLUMNS
+}
+
+function columnGroupsForEndpoint(ep: Endpoint): ColumnGroup[] {
+  if (ep === 'runs') return RUNS_COLUMN_GROUPS
+  if (ep === 'test_stats_block_logs') return TEST_STATS_BLOCK_LOG_COLUMN_GROUPS
+  return TEST_STAT_COLUMN_GROUPS
 }
 
 function makeInitialState(): QueryBuilderState {
@@ -261,6 +302,27 @@ function reducer(state: QueryBuilderState, action: Action): QueryBuilderState {
           o.id === action.id ? { ...o, [action.field]: action.value } : o,
         ),
       }
+    case 'TOGGLE_ORDER': {
+      const existing = state.orders.find((o) => o.column === action.column)
+      if (!existing) {
+        return {
+          ...state,
+          orders: [...state.orders, { id: uid(), column: action.column, direction: 'asc' }],
+        }
+      }
+      if (existing.direction === 'asc') {
+        return {
+          ...state,
+          orders: state.orders.map((o) =>
+            o.column === action.column ? { ...o, direction: 'desc' as const } : o,
+          ),
+        }
+      }
+      return {
+        ...state,
+        orders: state.orders.filter((o) => o.column !== action.column),
+      }
+    }
 
     case 'SET_LIMIT':
       return { ...state, limit: Math.min(Math.max(1, action.limit), 1000), offset: 0 }
@@ -444,7 +506,7 @@ export function QueryBuilderPage() {
     [state, apiBaseUrl],
   )
 
-  const { data, isFetching, refetch } = useQuery<QueryResponse>({
+  const { data, error, isFetching, refetch } = useQuery<QueryResponse>({
     queryKey: ['query-builder', queryUrl],
     queryFn: async () => {
       const res = await fetch(queryUrl, { credentials: 'include' })
@@ -460,6 +522,24 @@ export function QueryBuilderPage() {
   const executeQuery = useCallback(() => {
     if (queryUrl) refetch()
   }, [queryUrl, refetch])
+
+  // Track whether a query has been executed at least once
+  const hasExecuted = useRef(false)
+
+  useEffect(() => {
+    if (data) hasExecuted.current = true
+  }, [data])
+
+  // Reset when endpoint changes so switching tables doesn't auto-fetch
+  useEffect(() => {
+    hasExecuted.current = false
+  }, [state.endpoint])
+
+  // Auto-refetch when offset or orders change after initial execution
+  useEffect(() => {
+    if (hasExecuted.current && queryUrl) refetch()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.offset, state.orders])
 
   // Ctrl/Cmd+Enter shortcut
   useEffect(() => {
@@ -480,6 +560,7 @@ export function QueryBuilderPage() {
   }, [queryUrl])
 
   const columns = columnsForEndpoint(state.endpoint)
+  const columnGroups = columnGroupsForEndpoint(state.endpoint)
 
   const rows = useMemo(() => data?.data ?? [], [data])
   const totalCount = data?.total ?? 0
@@ -722,26 +803,52 @@ export function QueryBuilderPage() {
             {state.selectedColumns.length === 0 ? 'All columns (default)' : `${state.selectedColumns.length} selected`}
           </span>
         </div>
-        <div className="flex flex-wrap gap-2 p-4">
-          {columns.map((col) => {
-            const selected = state.selectedColumns.includes(col)
+        <div className="flex flex-col gap-4 p-4">
+          {columnGroups.map((group) => {
+            const allSelected = group.columns.every((c) => state.selectedColumns.includes(c))
             return (
-              <button
-                key={col}
-                onClick={() => {
-                  const next = selected
-                    ? state.selectedColumns.filter((c) => c !== col)
-                    : [...state.selectedColumns, col]
-                  dispatch({ type: 'SET_COLUMNS', columns: next })
-                }}
-                className={`rounded-sm border px-2.5 py-1 text-xs font-medium ${
-                  selected
-                    ? 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                    : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
-                }`}
-              >
-                {col}
-              </button>
+              <div key={group.label}>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{group.label}</span>
+                  <button
+                    onClick={() => {
+                      if (allSelected) {
+                        const groupSet = new Set(group.columns)
+                        dispatch({ type: 'SET_COLUMNS', columns: state.selectedColumns.filter((c) => !groupSet.has(c)) })
+                      } else {
+                        const next = new Set([...state.selectedColumns, ...group.columns])
+                        dispatch({ type: 'SET_COLUMNS', columns: [...next] })
+                      }
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    {allSelected ? 'Clear' : 'Select all'}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.columns.map((col) => {
+                    const selected = state.selectedColumns.includes(col)
+                    return (
+                      <button
+                        key={col}
+                        onClick={() => {
+                          const next = selected
+                            ? state.selectedColumns.filter((c) => c !== col)
+                            : [...state.selectedColumns, col]
+                          dispatch({ type: 'SET_COLUMNS', columns: next })
+                        }}
+                        className={`rounded-sm border px-2 py-0.5 text-xs font-medium ${
+                          selected
+                            ? 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                            : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        {col}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             )
           })}
         </div>
@@ -796,6 +903,13 @@ curl -s -H "Authorization: Bearer $BENCHMARKOOR_API_KEY" \\
         </button>
       </div>
 
+      {/* Error display */}
+      {error && (
+        <div className="rounded-sm border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+          {error instanceof Error ? error.message : 'Query failed'}
+        </div>
+      )}
+
       {/* Results */}
       {data && (
         <div className="flex flex-col gap-3">
@@ -834,14 +948,22 @@ curl -s -H "Authorization: Bearer $BENCHMARKOOR_API_KEY" \\
               <table className="w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead>
                   <tr>
-                    {tableColumns.map((col) => (
-                      <th
-                        key={col}
-                        className="whitespace-nowrap px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400"
-                      >
-                        {col}
-                      </th>
-                    ))}
+                    {tableColumns.map((col) => {
+                      const currentOrder = state.orders.find((o) => o.column === col)
+                      return (
+                        <th
+                          key={col}
+                          onClick={() => dispatch({ type: 'TOGGLE_ORDER', column: col })}
+                          className="cursor-pointer whitespace-nowrap px-4 py-2 text-left text-xs font-medium text-gray-500 select-none hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {col}
+                            {currentOrder?.direction === 'asc' && <ChevronUp className="size-3" />}
+                            {currentOrder?.direction === 'desc' && <ChevronDown className="size-3" />}
+                          </span>
+                        </th>
+                      )
+                    })}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
