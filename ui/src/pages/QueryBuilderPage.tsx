@@ -222,7 +222,7 @@ function searchParamsToState(params: QuerySearchParams): QueryBuilderState | nul
     }
   }
 
-  const limit = params.limit ? Math.min(Math.max(1, Number(params.limit) || 20), 1000) : 20
+  const limit = params.limit ? Math.min(Math.max(1, Number(params.limit) || 20), 10000) : 20
   const offset = params.offset ? Math.max(0, Number(params.offset) || 0) : 0
 
   return { endpoint, filters, orders, limit, offset, selectedColumns }
@@ -335,7 +335,7 @@ function reducer(state: QueryBuilderState, action: Action): QueryBuilderState {
     }
 
     case 'SET_LIMIT':
-      return { ...state, limit: Math.min(Math.max(1, action.limit), 1000), offset: 0 }
+      return { ...state, limit: Math.min(Math.max(1, action.limit), 10000), offset: 0 }
     case 'SET_OFFSET':
       return { ...state, offset: Math.max(0, action.offset) }
     case 'SET_COLUMNS':
@@ -797,7 +797,7 @@ export function QueryBuilderPage() {
               <input
                 type="number"
                 min={1}
-                max={1000}
+                max={10000}
                 value={state.limit}
                 onChange={(e) => dispatch({ type: 'SET_LIMIT', limit: Number(e.target.value) || 20 })}
                 className="w-24 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
@@ -813,7 +813,7 @@ export function QueryBuilderPage() {
                 className="w-24 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
               />
             </div>
-            <span className="pb-2 text-xs text-gray-400">Max: 1000</span>
+            <span className="pb-2 text-xs text-gray-400">Max: 10,000</span>
           </div>
         </div>
       </div>

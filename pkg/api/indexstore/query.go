@@ -14,7 +14,7 @@ const (
 	// DefaultQueryLimit is the default number of rows returned.
 	DefaultQueryLimit = 100
 	// MaxQueryLimit is the maximum number of rows a client may request.
-	MaxQueryLimit = 1000
+	MaxQueryLimit = 10000
 )
 
 // validOperators maps PostgREST-style operators to SQL fragments.

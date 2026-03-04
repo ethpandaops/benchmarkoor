@@ -416,7 +416,7 @@ paths:
           schema:
             type: integer
             default: 100
-            maximum: 1000
+            maximum: 10000
           description: Maximum number of results
         - name: offset
           in: query
@@ -476,7 +476,7 @@ paths:
           schema:
             type: integer
             default: 100
-            maximum: 1000
+            maximum: 10000
           description: Maximum number of results
         - name: offset
           in: query
@@ -531,7 +531,7 @@ paths:
           schema:
             type: integer
             default: 100
-            maximum: 1000
+            maximum: 10000
           description: Maximum number of results
         - name: offset
           in: query
