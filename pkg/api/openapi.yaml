@@ -416,7 +416,7 @@ paths:
           schema:
             type: integer
             default: 100
-            maximum: 1000
+            maximum: 10000
           description: Maximum number of results
         - name: offset
           in: query
@@ -476,7 +476,7 @@ paths:
           schema:
             type: integer
             default: 100
-            maximum: 1000
+            maximum: 10000
           description: Maximum number of results
         - name: offset
           in: query
@@ -531,7 +531,7 @@ paths:
           schema:
             type: integer
             default: 100
-            maximum: 1000
+            maximum: 10000
           description: Maximum number of results
         - name: offset
           in: query
@@ -1663,9 +1663,6 @@ components:
         run_end:
           type: integer
           format: int64
-        steps_json:
-          type: object
-          description: Raw step duration JSON
 
     TestStatsBlockLogResponse:
       type: object

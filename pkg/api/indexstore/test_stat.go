@@ -40,9 +40,6 @@ type TestStat struct {
 	TestResourceDiskWriteB   uint64  `gorm:"column:test_resource_disk_write_bytes"`
 	TestResourceDiskReadOps  uint64  `gorm:"column:test_resource_disk_read_iops"`
 	TestResourceDiskWriteOps uint64  `gorm:"column:test_resource_disk_write_iops"`
-
-	// Per-step stats serialized as JSON (kept for raw access).
-	StepsJSON string `gorm:"type:text"`
 }
 
 // ComputeMGasS calculates megagas per second from gas used and time in

@@ -14,7 +14,7 @@ const (
 	// DefaultQueryLimit is the default number of rows returned.
 	DefaultQueryLimit = 100
 	// MaxQueryLimit is the maximum number of rows a client may request.
-	MaxQueryLimit = 1000
+	MaxQueryLimit = 10000
 )
 
 // validOperators maps PostgREST-style operators to SQL fragments.
@@ -235,8 +235,6 @@ type TestStatResponse struct {
 	TestResourceDiskWriteB   uint64  `json:"test_resource_disk_write_bytes"`
 	TestResourceDiskReadOps  uint64  `json:"test_resource_disk_read_iops"`
 	TestResourceDiskWriteOps uint64  `json:"test_resource_disk_write_iops"`
-
-	StepsJSON json.RawMessage `json:"steps_json,omitempty"`
 }
 
 // TestStatsBlockLogResponse is the JSON DTO for a test_stats_block_logs row.
@@ -586,10 +584,6 @@ func toTestStatResponse(d *TestStat) TestStatResponse {
 		TestResourceDiskWriteB:   d.TestResourceDiskWriteB,
 		TestResourceDiskReadOps:  d.TestResourceDiskReadOps,
 		TestResourceDiskWriteOps: d.TestResourceDiskWriteOps,
-	}
-
-	if d.StepsJSON != "" {
-		resp.StepsJSON = json.RawMessage(d.StepsJSON)
 	}
 
 	return resp

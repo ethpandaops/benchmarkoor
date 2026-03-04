@@ -518,14 +518,6 @@ func (idx *indexer) indexTestStats(
 
 	for testName, td := range suiteStats {
 		for _, dur := range td.Durations {
-			stepsJSON := ""
-			if dur.Steps != nil {
-				b, err := json.Marshal(dur.Steps)
-				if err == nil {
-					stepsJSON = string(b)
-				}
-			}
-
 			ts := &indexstore.TestStat{
 				SuiteHash:    suiteHash,
 				TestName:     testName,
@@ -536,7 +528,6 @@ func (idx *indexer) indexTestStats(
 				TotalMGasS:   indexstore.ComputeMGasS(dur.GasUsed, dur.Time),
 				RunStart:     dur.RunStart,
 				RunEnd:       dur.RunEnd,
-				StepsJSON:    stepsJSON,
 			}
 
 			if dur.Steps != nil {
