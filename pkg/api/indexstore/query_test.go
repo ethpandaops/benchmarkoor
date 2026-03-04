@@ -156,7 +156,7 @@ func TestParseQueryParams_LimitClamping(t *testing.T) {
 		},
 		{
 			name:      "clamped to max",
-			raw:       url.Values{"limit": {"9999"}},
+			raw:       url.Values{"limit": {"99999"}},
 			wantLimit: indexstore.MaxQueryLimit,
 		},
 		{
