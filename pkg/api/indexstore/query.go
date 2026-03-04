@@ -235,8 +235,6 @@ type TestStatResponse struct {
 	TestResourceDiskWriteB   uint64  `json:"test_resource_disk_write_bytes"`
 	TestResourceDiskReadOps  uint64  `json:"test_resource_disk_read_iops"`
 	TestResourceDiskWriteOps uint64  `json:"test_resource_disk_write_iops"`
-
-	StepsJSON json.RawMessage `json:"steps_json,omitempty"`
 }
 
 // TestStatsBlockLogResponse is the JSON DTO for a test_stats_block_logs row.
@@ -586,10 +584,6 @@ func toTestStatResponse(d *TestStat) TestStatResponse {
 		TestResourceDiskWriteB:   d.TestResourceDiskWriteB,
 		TestResourceDiskReadOps:  d.TestResourceDiskReadOps,
 		TestResourceDiskWriteOps: d.TestResourceDiskWriteOps,
-	}
-
-	if d.StepsJSON != "" {
-		resp.StepsJSON = json.RawMessage(d.StepsJSON)
 	}
 
 	return resp

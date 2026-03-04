@@ -1663,9 +1663,6 @@ components:
         run_end:
           type: integer
           format: int64
-        steps_json:
-          type: object
-          description: Raw step duration JSON
 
     TestStatsBlockLogResponse:
       type: object

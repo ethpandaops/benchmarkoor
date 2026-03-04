@@ -132,6 +132,13 @@ func (s *store) Start(ctx context.Context) error {
 		return fmt.Errorf("running index migrations: %w", err)
 	}
 
+	// Drop legacy steps_json column from test_stats if it exists.
+	if s.db.Migrator().HasColumn(&TestStat{}, "steps_json") {
+		if err := s.db.Migrator().DropColumn(&TestStat{}, "steps_json"); err != nil {
+			s.log.WithError(err).Warn("Failed to drop steps_json column")
+		}
+	}
+
 	s.log.WithField("driver", s.cfg.Driver).
 		Info("Index database connected")
 

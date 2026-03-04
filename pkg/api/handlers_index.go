@@ -111,12 +111,35 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 	for i := range durations {
 		d := &durations[i]
 
-		var steps *executor.RunDurationStepsStats
-		if d.StepsJSON != "" {
-			var s executor.RunDurationStepsStats
-			if json.Unmarshal([]byte(d.StepsJSON), &s) == nil {
-				steps = &s
-			}
+		steps := &executor.RunDurationStepsStats{
+			Setup: &executor.RunDurationStepStats{
+				GasUsed:       d.SetupGasUsed,
+				Time:          d.SetupTimeNs,
+				RPCCallsCount: d.SetupRPCCallsCount,
+				ResourceTotals: &executor.ResourceTotals{
+					CPUUsec:        d.SetupResourceCPUUsec,
+					MemoryDelta:    d.SetupResourceMemDelta,
+					MemoryBytes:    d.SetupResourceMemBytes,
+					DiskReadBytes:  d.SetupResourceDiskReadB,
+					DiskWriteBytes: d.SetupResourceDiskWriteB,
+					DiskReadIOPS:   d.SetupResourceDiskReadOps,
+					DiskWriteIOPS:  d.SetupResourceDiskWriteOps,
+				},
+			},
+			Test: &executor.RunDurationStepStats{
+				GasUsed:       d.TestGasUsed,
+				Time:          d.TestTimeNs,
+				RPCCallsCount: d.TestRPCCallsCount,
+				ResourceTotals: &executor.ResourceTotals{
+					CPUUsec:        d.TestResourceCPUUsec,
+					MemoryDelta:    d.TestResourceMemDelta,
+					MemoryBytes:    d.TestResourceMemBytes,
+					DiskReadBytes:  d.TestResourceDiskReadB,
+					DiskWriteBytes: d.TestResourceDiskWriteB,
+					DiskReadIOPS:   d.TestResourceDiskReadOps,
+					DiskWriteIOPS:  d.TestResourceDiskWriteOps,
+				},
+			},
 		}
 
 		rd := &executor.RunDuration{
