@@ -37,6 +37,7 @@ type Store interface {
 
 	GetRunByRunID(ctx context.Context, runID string) (*Run, error)
 	DeleteRun(ctx context.Context, runID string) error
+	DeleteOrphanedSuite(ctx context.Context, suiteHash string) error
 
 	UpsertSuite(ctx context.Context, suite *Suite) error
 
@@ -225,6 +226,35 @@ func (s *store) DeleteRun(
 		Where("run_id = ?", runID).
 		Delete(&Run{}).Error; err != nil {
 		return fmt.Errorf("deleting run: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteOrphanedSuite deletes a suite if no runs reference it anymore.
+func (s *store) DeleteOrphanedSuite(
+	ctx context.Context, suiteHash string,
+) error {
+	if suiteHash == "" {
+		return nil
+	}
+
+	var count int64
+	if err := s.db.WithContext(ctx).
+		Model(&Run{}).
+		Where("suite_hash = ?", suiteHash).
+		Count(&count).Error; err != nil {
+		return fmt.Errorf("counting runs for suite: %w", err)
+	}
+
+	if count > 0 {
+		return nil
+	}
+
+	if err := s.db.WithContext(ctx).
+		Where("suite_hash = ?", suiteHash).
+		Delete(&Suite{}).Error; err != nil {
+		return fmt.Errorf("deleting orphaned suite: %w", err)
 	}
 
 	return nil

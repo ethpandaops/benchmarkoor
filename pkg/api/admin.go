@@ -637,6 +637,14 @@ func (s *server) handleDeleteRuns(
 			continue
 		}
 
+		// Clean up suite if no other runs reference it.
+		if err := s.indexStore.DeleteOrphanedSuite(
+			ctx, run.SuiteHash,
+		); err != nil {
+			s.log.WithError(err).WithField("run_id", runID).
+				Warn("Failed to delete orphaned suite")
+		}
+
 		deleted++
 	}
 
