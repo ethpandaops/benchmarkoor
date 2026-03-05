@@ -599,7 +599,7 @@ func (s *server) handleDeleteRuns(
 			continue
 		}
 
-		// Delete from storage.
+		// Delete from storage first.
 		if err := s.storageDeleter.DeleteRun(
 			ctx, run.DiscoveryPath, runID,
 		); err != nil {
@@ -612,37 +612,18 @@ func (s *server) handleDeleteRuns(
 			continue
 		}
 
-		// Delete from index (test stats, block logs, run record).
-		if err := s.indexStore.DeleteTestStatsForRun(
+		// Delete from index (transactional: test_stats,
+		// block_logs, run, orphaned suite — all or nothing).
+		if err := s.indexStore.DeleteRunCascade(
 			ctx, runID,
 		); err != nil {
 			s.log.WithError(err).WithField("run_id", runID).
-				Warn("Failed to delete test stats")
-		}
-
-		if err := s.indexStore.DeleteTestStatsBlockLogsForRun(
-			ctx, runID,
-		); err != nil {
-			s.log.WithError(err).WithField("run_id", runID).
-				Warn("Failed to delete test stats block logs")
-		}
-
-		if err := s.indexStore.DeleteRun(ctx, runID); err != nil {
-			s.log.WithError(err).WithField("run_id", runID).
-				Warn("Failed to delete run from index")
+				Error("Failed to delete run from index")
 			errs = append(errs, fmt.Sprintf(
 				"%s: index delete failed: %v", runID, err,
 			))
 
 			continue
-		}
-
-		// Clean up suite if no other runs reference it.
-		if err := s.indexStore.DeleteOrphanedSuite(
-			ctx, run.SuiteHash,
-		); err != nil {
-			s.log.WithError(err).WithField("run_id", runID).
-				Warn("Failed to delete orphaned suite")
 		}
 
 		deleted++
