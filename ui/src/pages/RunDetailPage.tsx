@@ -26,8 +26,10 @@ import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
 import { BlockLogsDashboard } from '@/components/run-detail/block-logs-dashboard'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
-import { Flame, Download, Github, ExternalLink, SquareStack, GitCompareArrows } from 'lucide-react'
+import { Flame, Download, Github, ExternalLink, SquareStack, GitCompareArrows, Trash2 } from 'lucide-react'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
+import { useAuth } from '@/hooks/useAuth'
+import { useDeleteRuns } from '@/api/hooks/useAdmin'
 
 // Step types that can be included in MGas/s calculation
 export type StepTypeOption = 'setup' | 'test' | 'cleanup'
@@ -112,6 +114,8 @@ function serializeStepFilter(steps: StepTypeOption[]): string | undefined {
 export function RunDetailPage() {
   const { runId } = useParams({ from: '/runs/$runId' })
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
+  const deleteRuns = useDeleteRuns()
   const search = useSearch({ from: '/runs/$runId' }) as {
     page?: number
     pageSize?: number
@@ -335,6 +339,21 @@ export function RunDetailPage() {
           </>
         )}
         <span className="text-gray-900 dark:text-gray-100">{runId}</span>
+        {isAdmin && (
+          <button
+            disabled={deleteRuns.isPending}
+            onClick={() => {
+              if (!window.confirm('Delete this run? This cannot be undone.')) return
+              deleteRuns.mutate([runId], {
+                onSuccess: () => navigate({ to: '/runs' }),
+              })
+            }}
+            className="ml-1 flex items-center justify-center rounded-sm p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:text-gray-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+            title="Delete this run"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        )}
         {(benchmarkoorLogLoading || benchmarkoorLogHead?.exists || containerLogLoading || containerLogHead?.exists) && (
           <div className="ml-auto flex items-center gap-2">
             <span className="font-medium text-gray-900 dark:text-gray-100">Logs:</span>

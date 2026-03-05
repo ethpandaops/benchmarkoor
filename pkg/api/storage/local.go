@@ -11,8 +11,11 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 )
 
-// Compile-time interface check.
-var _ Reader = (*localReader)(nil)
+// Compile-time interface checks.
+var (
+	_ Reader  = (*localReader)(nil)
+	_ Deleter = (*localReader)(nil)
+)
 
 type localReader struct {
 	// paths maps discovery path names to absolute directory paths.
@@ -95,6 +98,26 @@ func (r *localReader) GetRunFile(
 	}
 
 	return data, nil
+}
+
+// DeleteRun removes the run directory {dirPath}/runs/{runID}.
+func (r *localReader) DeleteRun(
+	_ context.Context, discoveryPath, runID string,
+) error {
+	dirPath, ok := r.paths[discoveryPath]
+	if !ok {
+		return fmt.Errorf(
+			"unknown discovery path: %q", discoveryPath,
+		)
+	}
+
+	p := filepath.Join(dirPath, "runs", runID)
+
+	if err := os.RemoveAll(p); err != nil {
+		return fmt.Errorf("removing run directory %s: %w", p, err)
+	}
+
+	return nil
 }
 
 // GetSuiteFile reads a file from {dirPath}/suites/{suiteHash}/{filename}.

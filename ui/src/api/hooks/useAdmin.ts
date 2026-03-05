@@ -143,6 +143,25 @@ export function useRunIndexer() {
   })
 }
 
+// Run deletion
+interface DeleteRunsResponse {
+  status: string
+  deleted: number
+  errors?: string[]
+}
+
+export function useDeleteRuns() {
+  const queryClient = useQueryClient()
+  return useMutation<DeleteRunsResponse, Error, string[]>({
+    mutationFn: (runIds: string[]) =>
+      adminFetch('/api/v1/admin/runs/delete', {
+        method: 'POST',
+        body: JSON.stringify({ run_ids: runIds }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['index'] }),
+  })
+}
+
 // GitHub User Mappings
 export function useUserMappings() {
   return useQuery<GitHubUserMapping[]>({

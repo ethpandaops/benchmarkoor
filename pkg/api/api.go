@@ -31,17 +31,18 @@ type Server interface {
 var _ Server = (*server)(nil)
 
 type server struct {
-	log           logrus.FieldLogger
-	cfg           *config.APIConfig
-	store         store.Store
-	presigner     *s3Presigner
-	localServer   *localFileServer
-	indexStore    indexstore.Store
-	indexer       indexer.Indexer
-	storageReader storage.Reader
-	httpServer    *http.Server
-	wg            sync.WaitGroup
-	done          chan struct{}
+	log            logrus.FieldLogger
+	cfg            *config.APIConfig
+	store          store.Store
+	presigner      *s3Presigner
+	localServer    *localFileServer
+	indexStore     indexstore.Store
+	indexer        indexer.Indexer
+	storageReader  storage.Reader
+	storageDeleter storage.Deleter
+	httpServer     *http.Server
+	wg             sync.WaitGroup
+	done           chan struct{}
 }
 
 // NewServer creates a new API server.
@@ -234,6 +235,11 @@ func (s *server) prepareIndexing(ctx context.Context) error {
 		s.storageReader = storage.NewLocalReader(s.cfg.Storage.Local)
 	default:
 		return fmt.Errorf("no storage backend configured for indexing")
+	}
+
+	// Try to use the storage reader as a deleter too.
+	if d, ok := s.storageReader.(storage.Deleter); ok {
+		s.storageDeleter = d
 	}
 
 	// Create and start the index store (DB connection + migrations).

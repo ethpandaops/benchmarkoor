@@ -134,6 +134,11 @@ func (s *server) buildRouter() http.Handler {
 			r.Delete("/github/user-mappings/{id}",
 				s.handleDeleteUserMapping)
 
+			// Run deletion (requires indexing).
+			if s.indexStore != nil {
+				r.Post("/runs/delete", s.handleDeleteRuns)
+			}
+
 			// Indexer management.
 			if s.indexer != nil {
 				r.Post("/indexer/run", s.handleRunIndexer)

@@ -35,6 +35,9 @@ type Store interface {
 
 	ListAllRuns(ctx context.Context) ([]Run, error)
 
+	GetRunByRunID(ctx context.Context, runID string) (*Run, error)
+	DeleteRun(ctx context.Context, runID string) error
+
 	UpsertSuite(ctx context.Context, suite *Suite) error
 
 	BulkInsertTestStatsBlockLogs(
@@ -198,6 +201,33 @@ func (s *store) ListAllRuns(ctx context.Context) ([]Run, error) {
 	}
 
 	return runs, nil
+}
+
+// GetRunByRunID returns a single run by its run ID.
+func (s *store) GetRunByRunID(
+	ctx context.Context, runID string,
+) (*Run, error) {
+	var run Run
+	if err := s.db.WithContext(ctx).
+		Where("run_id = ?", runID).
+		First(&run).Error; err != nil {
+		return nil, fmt.Errorf("getting run by run_id: %w", err)
+	}
+
+	return &run, nil
+}
+
+// DeleteRun removes a run record by run ID.
+func (s *store) DeleteRun(
+	ctx context.Context, runID string,
+) error {
+	if err := s.db.WithContext(ctx).
+		Where("run_id = ?", runID).
+		Delete(&Run{}).Error; err != nil {
+		return fmt.Errorf("deleting run: %w", err)
+	}
+
+	return nil
 }
 
 // ListRunIDs returns just the run IDs for a given discovery path.

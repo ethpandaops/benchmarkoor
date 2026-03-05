@@ -2,6 +2,13 @@ package storage
 
 import "context"
 
+// Deleter provides delete access to benchmark run data stored in a backend.
+type Deleter interface {
+	// DeleteRun removes all objects/files for a run under the given
+	// discovery path.
+	DeleteRun(ctx context.Context, discoveryPath, runID string) error
+}
+
 // Reader provides read access to benchmark run data stored in a backend
 // (local filesystem or S3). It is used by the indexer to discover and
 // read run/suite files without knowing the underlying storage details.

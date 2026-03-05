@@ -1,8 +1,9 @@
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { SquareStack } from 'lucide-react'
+import { SquareStack, Trash2 } from 'lucide-react'
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import { useIndex } from '@/api/hooks/useIndex'
+import { useDeleteRuns } from '@/api/hooks/useAdmin'
 import { fetchData } from '@/api/client'
 import type { SuiteInfo } from '@/api/types'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
@@ -14,12 +15,15 @@ import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
+import { useAuth } from '@/hooks/useAuth'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
 const DEFAULT_PAGE_SIZE = 100
 
 export function RunsPage() {
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
+  const deleteRuns = useDeleteRuns()
   const search = useSearch({ from: '/runs' }) as {
     page?: number
     pageSize?: number
@@ -164,6 +168,10 @@ export function RunsPage() {
   const [compareMode, setCompareMode] = useState(false)
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set())
 
+  // Delete mode state (mutually exclusive with compare mode)
+  const [deleteMode, setDeleteMode] = useState(false)
+  const [deleteSelectedIds, setDeleteSelectedIds] = useState<Set<string>>(new Set())
+
   const handleSelectionChange = useCallback((runId: string, selected: boolean) => {
     setSelectedRunIds((prev) => {
       const next = new Set(prev)
@@ -177,10 +185,49 @@ export function RunsPage() {
     })
   }, [])
 
+  const handleDeleteSelectionChange = useCallback((runId: string, selected: boolean) => {
+    setDeleteSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (selected) {
+        next.add(runId)
+      } else {
+        next.delete(runId)
+      }
+      return next
+    })
+  }, [])
+
   const handleExitCompareMode = useCallback(() => {
     setCompareMode(false)
     setSelectedRunIds(new Set())
   }, [])
+
+  const handleEnterDeleteMode = useCallback(() => {
+    setCompareMode(false)
+    setSelectedRunIds(new Set())
+    setDeleteMode(true)
+  }, [])
+
+  const handleExitDeleteMode = useCallback(() => {
+    setDeleteMode(false)
+    setDeleteSelectedIds(new Set())
+  }, [])
+
+  const handleEnterCompareMode = useCallback(() => {
+    setDeleteMode(false)
+    setDeleteSelectedIds(new Set())
+    setCompareMode(true)
+  }, [])
+
+  const handleDeleteConfirm = useCallback(() => {
+    if (deleteSelectedIds.size === 0) return
+    if (!window.confirm(`Delete ${deleteSelectedIds.size} run(s)? This cannot be undone.`)) return
+    deleteRuns.mutate(Array.from(deleteSelectedIds), {
+      onSuccess: () => {
+        handleExitDeleteMode()
+      },
+    })
+  }, [deleteSelectedIds, deleteRuns, handleExitDeleteMode])
 
   // Suite match validation for selected runs
   const selectedSuiteInfo = useMemo(() => {
@@ -204,6 +251,8 @@ export function RunsPage() {
   if (!index || index.entries.length === 0) {
     return <EmptyState title="No runs found" message="No benchmark runs have been recorded yet." />
   }
+
+  const isSelectable = compareMode || deleteMode
 
   return (
     <div className="flex flex-col gap-6">
@@ -266,7 +315,7 @@ export function RunsPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => compareMode ? handleExitCompareMode() : setCompareMode(true)}
+                onClick={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
                 className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
                   compareMode
                     ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
@@ -276,6 +325,19 @@ export function RunsPage() {
               >
                 <SquareStack className="size-4" />
               </button>
+              {isAdmin && (
+                <button
+                  onClick={() => deleteMode ? handleExitDeleteMode() : handleEnterDeleteMode()}
+                  className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                    deleteMode
+                      ? 'bg-red-600 text-white ring-red-600 hover:bg-red-700 hover:ring-red-700'
+                      : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
+                  }`}
+                  title="Delete runs"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              )}
               <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
               <select
                 value={localPageSize}
@@ -294,7 +356,18 @@ export function RunsPage() {
               <Pagination currentPage={localPage} totalPages={totalPages} onPageChange={handlePageChange} />
             )}
           </div>
-          <RunsTable entries={paginatedEntries} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} showSuite stepFilter={stepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
+          <RunsTable
+            entries={paginatedEntries}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSortChange={handleSortChange}
+            showSuite
+            stepFilter={stepFilter}
+            selectable={isSelectable}
+            selectedRunIds={deleteMode ? deleteSelectedIds : selectedRunIds}
+            onSelectionChange={deleteMode ? handleDeleteSelectionChange : handleSelectionChange}
+            selectionVariant={deleteMode ? 'delete' : 'compare'}
+          />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
@@ -347,6 +420,31 @@ export function RunsPage() {
                 className="rounded-sm bg-blue-600 px-4 py-1.5 text-sm/6 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Compare
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteMode && (
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-red-200 bg-white px-6 py-3 shadow-sm dark:border-red-800 dark:bg-gray-800">
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
+            <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+              {deleteSelectedIds.size} selected for deletion
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExitDeleteMode}
+                className="rounded-sm px-3 py-1.5 text-sm/6 font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={deleteSelectedIds.size === 0 || deleteRuns.isPending}
+                onClick={handleDeleteConfirm}
+                className="rounded-sm bg-red-600 px-4 py-1.5 text-sm/6 font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deleteRuns.isPending ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>

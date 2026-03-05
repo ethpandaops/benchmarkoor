@@ -16,8 +16,11 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 )
 
-// Compile-time interface check.
-var _ Reader = (*s3Reader)(nil)
+// Compile-time interface checks.
+var (
+	_ Reader  = (*s3Reader)(nil)
+	_ Deleter = (*s3Reader)(nil)
+)
 
 type s3Reader struct {
 	client         *s3.Client
@@ -102,6 +105,69 @@ func (r *s3Reader) GetSuiteFile(
 	key := discoveryPath + "/suites/" + suiteHash + "/" + filename
 
 	return r.getObject(ctx, key)
+}
+
+// DeleteRun removes all objects under {dp}/runs/{runID}/ from S3.
+func (r *s3Reader) DeleteRun(
+	ctx context.Context, discoveryPath, runID string,
+) error {
+	prefix := discoveryPath + "/runs/" + runID + "/"
+
+	paginator := s3.NewListObjectsV2Paginator(
+		r.client, &s3.ListObjectsV2Input{
+			Bucket: aws.String(r.bucket),
+			Prefix: aws.String(prefix),
+		},
+	)
+
+	const maxDeleteBatch = 1000
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf(
+				"listing objects under %q: %w", prefix, err,
+			)
+		}
+
+		if len(page.Contents) == 0 {
+			continue
+		}
+
+		objects := make(
+			[]s3types.ObjectIdentifier,
+			0, len(page.Contents),
+		)
+		for _, obj := range page.Contents {
+			objects = append(objects, s3types.ObjectIdentifier{
+				Key: obj.Key,
+			})
+		}
+
+		// Batch delete in chunks of 1000 (S3 limit).
+		for i := 0; i < len(objects); i += maxDeleteBatch {
+			end := min(i+maxDeleteBatch, len(objects))
+			batch := objects[i:end]
+
+			_, err := r.client.DeleteObjects(
+				ctx, &s3.DeleteObjectsInput{
+					Bucket: aws.String(r.bucket),
+					Delete: &s3types.Delete{
+						Objects: batch,
+						Quiet:   aws.Bool(true),
+					},
+				},
+			)
+			if err != nil {
+				return fmt.Errorf(
+					"deleting objects under %q: %w",
+					prefix, err,
+				)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (r *s3Reader) getObject(

@@ -544,6 +544,111 @@ func (s *server) handleDeleteUserMapping(
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// --- Run deletion ---
+
+type deleteRunsRequest struct {
+	RunIDs []string `json:"run_ids"`
+}
+
+type deleteRunsResponse struct {
+	Status  string   `json:"status"`
+	Deleted int      `json:"deleted"`
+	Errors  []string `json:"errors,omitempty"`
+}
+
+// handleDeleteRuns bulk-deletes runs from storage and the index database.
+func (s *server) handleDeleteRuns(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if s.storageDeleter == nil {
+		writeJSON(w, http.StatusServiceUnavailable,
+			errorResponse{"storage backend does not support deletion"})
+
+		return
+	}
+
+	var req deleteRunsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"invalid request body"})
+
+		return
+	}
+
+	if len(req.RunIDs) == 0 {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"run_ids is required"})
+
+		return
+	}
+
+	ctx := r.Context()
+
+	var (
+		deleted int
+		errs    []string
+	)
+
+	for _, runID := range req.RunIDs {
+		run, err := s.indexStore.GetRunByRunID(ctx, runID)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf(
+				"%s: not found in index", runID,
+			))
+
+			continue
+		}
+
+		// Delete from storage.
+		if err := s.storageDeleter.DeleteRun(
+			ctx, run.DiscoveryPath, runID,
+		); err != nil {
+			s.log.WithError(err).WithField("run_id", runID).
+				Error("Failed to delete run from storage")
+			errs = append(errs, fmt.Sprintf(
+				"%s: storage delete failed: %v", runID, err,
+			))
+
+			continue
+		}
+
+		// Delete from index (test stats, block logs, run record).
+		if err := s.indexStore.DeleteTestStatsForRun(
+			ctx, runID,
+		); err != nil {
+			s.log.WithError(err).WithField("run_id", runID).
+				Warn("Failed to delete test stats")
+		}
+
+		if err := s.indexStore.DeleteTestStatsBlockLogsForRun(
+			ctx, runID,
+		); err != nil {
+			s.log.WithError(err).WithField("run_id", runID).
+				Warn("Failed to delete test stats block logs")
+		}
+
+		if err := s.indexStore.DeleteRun(ctx, runID); err != nil {
+			s.log.WithError(err).WithField("run_id", runID).
+				Warn("Failed to delete run from index")
+			errs = append(errs, fmt.Sprintf(
+				"%s: index delete failed: %v", runID, err,
+			))
+
+			continue
+		}
+
+		deleted++
+	}
+
+	resp := deleteRunsResponse{
+		Status:  "ok",
+		Deleted: deleted,
+		Errors:  errs,
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // parseIDParam extracts and validates the {id} URL parameter.
 func parseIDParam(r *http.Request) (uint, error) {
 	idStr := chi.URLParam(r, "id")

@@ -27,6 +27,7 @@ interface RunsTableProps {
   selectable?: boolean
   selectedRunIds?: Set<string>
   onSelectionChange?: (runId: string, selected: boolean) => void
+  selectionVariant?: 'compare' | 'delete'
 }
 
 function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
@@ -103,6 +104,7 @@ export function RunsTable({
   selectable = false,
   selectedRunIds,
   onSelectionChange,
+  selectionVariant = 'compare',
 }: RunsTableProps) {
   const navigate = useNavigate()
 
@@ -148,7 +150,8 @@ export function RunsTable({
                 entry.status === 'container_died' && 'bg-red-50/50 dark:bg-red-900/10',
                 entry.status === 'cancelled' && 'bg-yellow-50/50 dark:bg-yellow-900/10',
                 hasFailures && 'bg-orange-50/50 dark:bg-orange-900/10',
-                selectable && selectedRunIds?.has(entry.run_id) && 'ring-2 ring-inset ring-blue-400 dark:ring-blue-500',
+                selectable && selectedRunIds?.has(entry.run_id) && selectionVariant === 'compare' && 'ring-2 ring-inset ring-blue-400 dark:ring-blue-500',
+                selectable && selectedRunIds?.has(entry.run_id) && selectionVariant === 'delete' && 'ring-2 ring-inset ring-red-400 dark:ring-red-500',
               )}
             >
               {selectable && (
@@ -161,7 +164,7 @@ export function RunsTable({
                       onSelectionChange?.(entry.run_id, e.target.checked)
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    className="size-4 rounded-xs border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
+                    className={clsx('size-4 rounded-xs border-gray-300 dark:border-gray-600', selectionVariant === 'delete' ? 'text-red-600 focus:ring-red-500' : 'text-blue-600 focus:ring-blue-500')}
                   />
                 </td>
               )}
