@@ -1133,6 +1133,80 @@ paths:
                     type: string
                     example: Indexing pass already in progress
 
+  /admin/runs/delete:
+    post:
+      operationId: deleteRuns
+      tags: [admin]
+      summary: Bulk-delete runs
+      description: |
+        Deletes one or more runs from both storage (S3/local) and the index database.
+        Each run is looked up in the index to determine its discovery path, then removed
+        from storage and all related index tables (test_stats, block_logs, runs).
+        Partial success is possible — the response includes a count of deleted runs
+        and any per-run errors.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [run_ids]
+              properties:
+                run_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of run IDs to delete
+                  example: ["abc123", "def456"]
+      responses:
+        "200":
+          description: Delete operation completed (may include partial errors)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  deleted:
+                    type: integer
+                    description: Number of runs successfully deleted
+                    example: 2
+                  errors:
+                    type: array
+                    items:
+                      type: string
+                    description: Per-run error messages (omitted when empty)
+                    example: []
+        "400":
+          description: Invalid request body or empty run_ids
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Storage backend does not support deletion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 # ── Components ──────────────────────────────────────────────────────
 components:
   securitySchemes:
