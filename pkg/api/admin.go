@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -582,7 +583,9 @@ func (s *server) handleDeleteRuns(
 		return
 	}
 
-	ctx := r.Context()
+	// Detach from the HTTP request context so large deletions
+	// (e.g. 30k S3 objects) aren't canceled when the client disconnects.
+	ctx := context.WithoutCancel(r.Context())
 
 	var (
 		deleted int

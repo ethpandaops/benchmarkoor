@@ -8,12 +8,15 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/sirupsen/logrus"
 )
 
 // Compile-time interface checks.
@@ -23,13 +26,16 @@ var (
 )
 
 type s3Reader struct {
+	log            logrus.FieldLogger
 	client         *s3.Client
 	bucket         string
 	discoveryPaths []string
 }
 
 // NewS3Reader creates a Reader backed by S3-compatible storage.
-func NewS3Reader(cfg *config.APIS3Config) Reader {
+func NewS3Reader(
+	log logrus.FieldLogger, cfg *config.APIS3Config,
+) Reader {
 	client := newS3Client(cfg)
 
 	paths := make([]string, 0, len(cfg.DiscoveryPaths))
@@ -40,6 +46,7 @@ func NewS3Reader(cfg *config.APIS3Config) Reader {
 	sort.Strings(paths)
 
 	return &s3Reader{
+		log:            log.WithField("component", "s3"),
 		client:         client,
 		bucket:         cfg.Bucket,
 		discoveryPaths: paths,
@@ -120,7 +127,23 @@ func (r *s3Reader) DeleteRun(
 		},
 	)
 
-	const maxDeleteBatch = 1000
+	const (
+		maxDeleteBatch    = 1000
+		maxDeleteParallel = 10
+	)
+
+	log := r.log.WithField("prefix", prefix)
+
+	sem := make(chan struct{}, maxDeleteParallel)
+
+	var (
+		mu        sync.Mutex
+		firstErr  error
+		totalKeys int64
+		deleted   atomic.Int64
+	)
+
+	var wg sync.WaitGroup
 
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
@@ -134,6 +157,8 @@ func (r *s3Reader) DeleteRun(
 			continue
 		}
 
+		totalKeys += int64(len(page.Contents))
+
 		objects := make(
 			[]s3types.ObjectIdentifier,
 			0, len(page.Contents),
@@ -144,47 +169,103 @@ func (r *s3Reader) DeleteRun(
 			})
 		}
 
-		// Batch delete in chunks of 1000 (S3 limit).
+		log.WithField("total_keys", totalKeys).
+			Info("Listed objects for deletion")
+
+		// Fire off parallel batch deletes (max 1000 keys each).
 		for i := 0; i < len(objects); i += maxDeleteBatch {
 			end := min(i+maxDeleteBatch, len(objects))
 			batch := objects[i:end]
 
-			out, err := r.client.DeleteObjects(
-				ctx, &s3.DeleteObjectsInput{
-					Bucket: aws.String(r.bucket),
-					Delete: &s3types.Delete{
-						Objects: batch,
-						Quiet:   aws.Bool(true),
-					},
-				},
-			)
-			if err != nil {
-				return fmt.Errorf(
-					"deleting objects under %q: %w",
-					prefix, err,
-				)
+			// Stop launching if we already hit an error.
+			mu.Lock()
+			failed := firstErr != nil
+			mu.Unlock()
+
+			if failed {
+				break
 			}
 
-			if len(out.Errors) > 0 {
-				var errs []error
-				for _, e := range out.Errors {
-					errs = append(errs, fmt.Errorf(
-						"key %s: %s (%s)",
-						aws.ToString(e.Key),
-						aws.ToString(e.Message),
-						aws.ToString(e.Code),
-					))
+			wg.Add(1)
+			sem <- struct{}{}
+
+			go func(batch []s3types.ObjectIdentifier) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				if err := r.deleteBatch(
+					ctx, batch, prefix,
+				); err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+
+					return
 				}
 
-				return fmt.Errorf(
-					"deleting objects under %q: %d of %d failed: %w",
-					prefix,
-					len(out.Errors),
-					len(batch),
-					errors.Join(errs...),
-				)
-			}
+				n := deleted.Add(int64(len(batch)))
+				log.WithFields(logrus.Fields{
+					"deleted":    n,
+					"total_keys": totalKeys,
+				}).Info("Delete progress")
+			}(batch)
 		}
+	}
+
+	wg.Wait()
+
+	if firstErr != nil {
+		return firstErr
+	}
+
+	log.WithField("total_deleted", deleted.Load()).
+		Info("Finished deleting objects")
+
+	return nil
+}
+
+// deleteBatch issues a single S3 DeleteObjects call for up to 1000 keys.
+func (r *s3Reader) deleteBatch(
+	ctx context.Context,
+	batch []s3types.ObjectIdentifier,
+	prefix string,
+) error {
+	out, err := r.client.DeleteObjects(
+		ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(r.bucket),
+			Delete: &s3types.Delete{
+				Objects: batch,
+				Quiet:   aws.Bool(true),
+			},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"deleting objects under %q: %w",
+			prefix, err,
+		)
+	}
+
+	if len(out.Errors) > 0 {
+		var errs []error
+		for _, e := range out.Errors {
+			errs = append(errs, fmt.Errorf(
+				"key %s: %s (%s)",
+				aws.ToString(e.Key),
+				aws.ToString(e.Message),
+				aws.ToString(e.Code),
+			))
+		}
+
+		return fmt.Errorf(
+			"deleting objects under %q: %d of %d failed: %w",
+			prefix,
+			len(out.Errors),
+			len(batch),
+			errors.Join(errs...),
+		)
 	}
 
 	return nil
