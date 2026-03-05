@@ -149,7 +149,7 @@ func (r *s3Reader) DeleteRun(
 			end := min(i+maxDeleteBatch, len(objects))
 			batch := objects[i:end]
 
-			_, err := r.client.DeleteObjects(
+			out, err := r.client.DeleteObjects(
 				ctx, &s3.DeleteObjectsInput{
 					Bucket: aws.String(r.bucket),
 					Delete: &s3types.Delete{
@@ -162,6 +162,26 @@ func (r *s3Reader) DeleteRun(
 				return fmt.Errorf(
 					"deleting objects under %q: %w",
 					prefix, err,
+				)
+			}
+
+			if len(out.Errors) > 0 {
+				var errs []error
+				for _, e := range out.Errors {
+					errs = append(errs, fmt.Errorf(
+						"key %s: %s (%s)",
+						aws.ToString(e.Key),
+						aws.ToString(e.Message),
+						aws.ToString(e.Code),
+					))
+				}
+
+				return fmt.Errorf(
+					"deleting objects under %q: %d of %d failed: %w",
+					prefix,
+					len(out.Errors),
+					len(batch),
+					errors.Join(errs...),
 				)
 			}
 		}
