@@ -230,7 +230,7 @@ func (s *server) prepareIndexing(ctx context.Context) error {
 	// Create storage reader based on configured backend.
 	switch {
 	case s.cfg.Storage.S3 != nil && s.cfg.Storage.S3.Enabled:
-		s.storageReader = storage.NewS3Reader(s.cfg.Storage.S3)
+		s.storageReader = storage.NewS3Reader(s.log, s.cfg.Storage.S3)
 	case s.cfg.Storage.Local != nil && s.cfg.Storage.Local.Enabled:
 		s.storageReader = storage.NewLocalReader(s.cfg.Storage.Local)
 	default:

@@ -9,12 +9,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/sirupsen/logrus"
 )
 
 // Compile-time interface checks.
@@ -24,13 +26,16 @@ var (
 )
 
 type s3Reader struct {
+	log            logrus.FieldLogger
 	client         *s3.Client
 	bucket         string
 	discoveryPaths []string
 }
 
 // NewS3Reader creates a Reader backed by S3-compatible storage.
-func NewS3Reader(cfg *config.APIS3Config) Reader {
+func NewS3Reader(
+	log logrus.FieldLogger, cfg *config.APIS3Config,
+) Reader {
 	client := newS3Client(cfg)
 
 	paths := make([]string, 0, len(cfg.DiscoveryPaths))
@@ -41,6 +46,7 @@ func NewS3Reader(cfg *config.APIS3Config) Reader {
 	sort.Strings(paths)
 
 	return &s3Reader{
+		log:            log.WithField("component", "s3"),
 		client:         client,
 		bucket:         cfg.Bucket,
 		discoveryPaths: paths,
@@ -126,11 +132,15 @@ func (r *s3Reader) DeleteRun(
 		maxDeleteParallel = 10
 	)
 
+	log := r.log.WithField("prefix", prefix)
+
 	sem := make(chan struct{}, maxDeleteParallel)
 
 	var (
-		mu       sync.Mutex
-		firstErr error
+		mu        sync.Mutex
+		firstErr  error
+		totalKeys int64
+		deleted   atomic.Int64
 	)
 
 	var wg sync.WaitGroup
@@ -147,6 +157,8 @@ func (r *s3Reader) DeleteRun(
 			continue
 		}
 
+		totalKeys += int64(len(page.Contents))
+
 		objects := make(
 			[]s3types.ObjectIdentifier,
 			0, len(page.Contents),
@@ -156,6 +168,9 @@ func (r *s3Reader) DeleteRun(
 				Key: obj.Key,
 			})
 		}
+
+		log.WithField("total_keys", totalKeys).
+			Info("Listed objects for deletion")
 
 		// Fire off parallel batch deletes (max 1000 keys each).
 		for i := 0; i < len(objects); i += maxDeleteBatch {
@@ -186,14 +201,29 @@ func (r *s3Reader) DeleteRun(
 						firstErr = err
 					}
 					mu.Unlock()
+
+					return
 				}
+
+				n := deleted.Add(int64(len(batch)))
+				log.WithFields(logrus.Fields{
+					"deleted":    n,
+					"total_keys": totalKeys,
+				}).Info("Delete progress")
 			}(batch)
 		}
 	}
 
 	wg.Wait()
 
-	return firstErr
+	if firstErr != nil {
+		return firstErr
+	}
+
+	log.WithField("total_deleted", deleted.Load()).
+		Info("Finished deleting objects")
+
+	return nil
 }
 
 // deleteBatch issues a single S3 DeleteObjects call for up to 1000 keys.
