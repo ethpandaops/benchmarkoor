@@ -1,6 +1,7 @@
 import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from '@headlessui/react'
 import clsx from 'clsx'
 import { JDenticon } from '@/components/shared/JDenticon'
+import { StrategyIcon } from '@/components/shared/StrategyIcon'
 
 export type TestStatusFilter = 'all' | 'passing' | 'failing' | 'timeout' | 'cancelled'
 
@@ -119,7 +120,7 @@ export function RunFilters({
     { value: 'cancelled', label: 'Cancelled' },
   ]
   const suiteOptions = suites ? [{ value: '' as const, label: 'All suites' }, ...suites.map((s) => ({ value: s.hash, label: s.name ? `${s.name} (${s.hash.slice(0, 4)})` : s.hash, icon: <JDenticon value={s.hash} size={16} /> }))] : []
-  const strategyOptions = strategies ? [{ value: '' as const, label: 'All strategies' }, ...strategies.map((s) => ({ value: s, label: s }))] : []
+  const strategyOptions = strategies ? [{ value: '' as const, label: 'All strategies' }, ...strategies.map((s) => ({ value: s, label: s, icon: <StrategyIcon strategy={s} /> }))] : []
 
   return (
     <div className="flex flex-wrap items-center gap-4">
