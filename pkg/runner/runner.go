@@ -1593,20 +1593,21 @@ func (r *runner) runContainerLifecycle(
 	}
 
 	// Determine final run status (don't overwrite if already set by executor).
-	// Timeout is checked first because when the deadline fires, the context
-	// cancellation can cause the container to stop, which sets containerDied.
+	// Timeout and cancellation are checked before containerDied because when
+	// either fires, the context cancellation stops the container, which causes
+	// the death monitor to set containerDied.
 	mu.Lock()
 	if timeoutCancel != nil && testCtx.Err() == context.DeadlineExceeded {
 		runConfig.Status = RunStatusTimedOut
 		runConfig.TerminationReason = fmt.Sprintf("the run_timeout of %s was reached", runTimeout)
+	} else if ctx.Err() != nil {
+		runConfig.Status = RunStatusCancelled
+		runConfig.TerminationReason = "run was cancelled"
 	} else if containerDied {
 		runConfig.Status = RunStatusContainerDied
 		runConfig.TerminationReason = "container exited during test execution"
 		runConfig.ContainerExitCode = containerExitCode
 		runConfig.ContainerOOMKilled = containerOOMKilled
-	} else if ctx.Err() != nil {
-		runConfig.Status = RunStatusCancelled
-		runConfig.TerminationReason = "run was cancelled"
 	} else if runConfig.Status == "" {
 		runConfig.Status = RunStatusCompleted
 	}
