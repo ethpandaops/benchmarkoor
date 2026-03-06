@@ -241,6 +241,7 @@ export function SuiteDetailPage() {
       if (status === 'passing' && e.tests.tests_total - e.tests.tests_passed > 0) return false
       if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
       if (status === 'timeout' && e.status !== 'timeout') return false
+      if (status === 'cancelled' && e.status !== 'cancelled') return false
       return true
     })
   }, [suiteRunsAll, client, image, status])
