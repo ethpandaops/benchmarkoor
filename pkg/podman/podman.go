@@ -337,26 +337,16 @@ func (m *manager) RunInitContainer(
 }
 
 // StreamLogs streams container logs to the provided writers.
+// Note: Podman's REST API delivers logs in bursts with higher latency
+// than Docker's multiplexed binary stream. This is a known limitation.
 func (m *manager) StreamLogs(
 	ctx context.Context,
 	containerID string,
 	stdout, stderr io.Writer,
 ) error {
-	// Unlike Docker's ContainerLogs (which waits for a "created" container
-	// to start producing output), Podman's Logs API returns immediately
-	// with EOF when the container hasn't started yet. Poll until the
-	// container is running so we don't silently lose all log output.
-	if err := m.waitForRunning(ctx, containerID); err != nil {
-		return fmt.Errorf("waiting for container to start: %w", err)
-	}
-
-	follow := true
-	showStdout := true
-	showStderr := true
-
 	// Derive a context from m.conn (carries Podman connection info) that
 	// also cancels when the caller's ctx is cancelled. This ensures that
-	// follow-mode log streaming terminates when the caller cancels (e.g.,
+	// the attach connection terminates when the caller cancels (e.g.,
 	// after a container checkpoint).
 	logConn, cancel := context.WithCancel(m.conn)
 	defer cancel()
@@ -369,50 +359,22 @@ func (m *manager) StreamLogs(
 		}
 	}()
 
-	stdoutCh := make(chan string, 100)
-	stderrCh := make(chan string, 100)
-
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		for line := range stdoutCh {
-			if stdout != nil {
-				_, _ = io.WriteString(stdout, line+"\n")
-			}
-		}
-	}()
-
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		for line := range stderrCh {
-			if stderr != nil {
-				_, _ = io.WriteString(stderr, line+"\n")
-			}
-		}
-	}()
-
-	err := containers.Logs(logConn, containerID, &containers.LogOptions{
-		Follow: &follow,
-		Stdout: &showStdout,
-		Stderr: &showStderr,
-	}, stdoutCh, stderrCh)
-
-	// Podman's Logs does not close the channels on return. Close them so
-	// the reader goroutines exit their range loops.
-	close(stdoutCh)
-	close(stderrCh)
-
-	wg.Wait()
-
+	// Use the attach API instead of logs. The logs API reads from the
+	// container's log file (written by conmon) which adds 100-250ms of
+	// latency. Attach connects directly to the container's stdio streams
+	// via a WebSocket-upgraded connection, giving us real-time output —
+	// the same low-latency behavior as Docker's ContainerLogs.
+	//
+	// Unlike the logs API, attach works on "created" containers (it blocks
+	// until the container starts), so we don't need waitForRunning.
+	err := containers.Attach(logConn, containerID, nil, stdout, stderr, nil, nil)
 	if err != nil {
-		return fmt.Errorf("streaming logs: %w", err)
+		// Context cancellation is expected during cleanup.
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		return fmt.Errorf("attaching to container: %w", err)
 	}
 
 	return nil
