@@ -109,6 +109,7 @@ export function RunsPage() {
       if (strategy && e.instance.rollback_strategy !== strategy) return false
       if (status === 'passing' && e.tests.tests_total - e.tests.tests_passed > 0) return false
       if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
+      if (status === 'timeout' && e.status !== 'timeout') return false
       return true
     })
   }, [index, client, image, suite, strategy, status])

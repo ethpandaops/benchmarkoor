@@ -2,7 +2,7 @@ import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from '@headless
 import clsx from 'clsx'
 import { JDenticon } from '@/components/shared/JDenticon'
 
-export type TestStatusFilter = 'all' | 'passing' | 'failing'
+export type TestStatusFilter = 'all' | 'passing' | 'failing' | 'timeout'
 
 interface RunFiltersProps {
   clients: string[]
@@ -115,6 +115,7 @@ export function RunFilters({
     { value: 'all', label: 'All runs' },
     { value: 'passing', label: 'Passing only' },
     { value: 'failing', label: 'Has failures' },
+    { value: 'timeout', label: 'Timed out' },
   ]
   const suiteOptions = suites ? [{ value: '' as const, label: 'All suites' }, ...suites.map((s) => ({ value: s.hash, label: s.name ? `${s.name} (${s.hash.slice(0, 4)})` : s.hash, icon: <JDenticon value={s.hash} size={16} /> }))] : []
   const strategyOptions = strategies ? [{ value: '' as const, label: 'All strategies' }, ...strategies.map((s) => ({ value: s, label: s }))] : []

@@ -240,6 +240,7 @@ export function SuiteDetailPage() {
       if (image && e.instance.image !== image) return false
       if (status === 'passing' && e.tests.tests_total - e.tests.tests_passed > 0) return false
       if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
+      if (status === 'timeout' && e.status !== 'timeout') return false
       return true
     })
   }, [suiteRunsAll, client, image, status])
