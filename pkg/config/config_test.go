@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2361,6 +2362,128 @@ func TestValidateAPIIndexing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := makeConfig(tt.idx, tt.storage)
 			err := cfg.validateAPIIndexing()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestGetRunTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		global   string
+		instance string
+		expected time.Duration
+	}{
+		{
+			name:     "empty returns zero",
+			global:   "",
+			instance: "",
+			expected: 0,
+		},
+		{
+			name:     "global value used",
+			global:   "30m",
+			instance: "",
+			expected: 30 * time.Minute,
+		},
+		{
+			name:     "instance overrides global",
+			global:   "30m",
+			instance: "1h",
+			expected: 1 * time.Hour,
+		},
+		{
+			name:     "instance only",
+			global:   "",
+			instance: "45m",
+			expected: 45 * time.Minute,
+		},
+		{
+			name:     "invalid returns zero",
+			global:   "not-a-duration",
+			instance: "",
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RunTimeout: tt.global,
+						},
+					},
+				},
+			}
+			instance := &ClientInstance{
+				RunTimeout: tt.instance,
+			}
+			assert.Equal(t, tt.expected, cfg.GetRunTimeout(instance))
+		})
+	}
+}
+
+func TestValidateRunTimeout(t *testing.T) {
+	tests := []struct {
+		name      string
+		global    string
+		instance  string
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:     "empty is valid",
+			global:   "",
+			instance: "",
+		},
+		{
+			name:   "valid global",
+			global: "30m",
+		},
+		{
+			name:     "valid instance",
+			instance: "1h",
+		},
+		{
+			name:      "invalid global",
+			global:    "bad",
+			wantErr:   true,
+			errSubstr: "invalid run_timeout",
+		},
+		{
+			name:      "invalid instance",
+			instance:  "bad",
+			wantErr:   true,
+			errSubstr: "invalid run_timeout",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RunTimeout: tt.global,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:         "test",
+							Client:     "geth",
+							RunTimeout: tt.instance,
+						},
+					},
+				},
+			}
+			err := cfg.validateRunTimeout()
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errSubstr)

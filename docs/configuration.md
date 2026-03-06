@@ -506,6 +506,7 @@ runner:
 | `rollback_strategy` | string | `rpc-debug-setHead` | Rollback strategy after each test (see below) |
 | `checkpoint_restore_strategy_options` | object | - | Options for the checkpoint-restore rollback strategy (see [Checkpoint Restore Strategy Options](#checkpoint-restore-strategy-options)) |
 | `wait_after_rpc_ready` | string | - | Duration to wait after RPC becomes ready (see below) |
+| `run_timeout` | string | - | Maximum duration for test execution before the run is timed out (see below) |
 | `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
 | `post_test_rpc_calls` | []object | - | Arbitrary RPC calls to execute after each test step (see [Post-Test RPC Calls](#post-test-rpc-calls)) |
@@ -665,6 +666,26 @@ The value is a Go duration string (e.g., `30s`, `1m`, `500ms`). If not set, no a
 - When running benchmarks against clients with staged sync pipelines (Erigon)
 - When you observe `SYNCING` responses from Engine API calls despite the RPC being available
 - When starting from pre-populated data directories where clients may need time to validate state
+
+##### Run Timeout
+
+The `run_timeout` option sets a maximum duration for the test execution phase of a run. If the timeout is exceeded, the run is cancelled with a `timed_out` status. Partial results collected before the timeout are still written and published.
+
+```yaml
+runner:
+  client:
+    config:
+      run_timeout: 2h
+```
+
+The value is a Go duration string (e.g., `30m`, `1h`, `2h30m`). If not set, no timeout is applied.
+
+The timeout covers only the test execution phase — container setup, image pulling, and RPC readiness checks are not included.
+
+**When to use:**
+- When running large test suites that may hang or take unexpectedly long
+- When you want to enforce a maximum wall-clock time for benchmark runs
+- When running in CI/CD environments with time constraints
 
 ##### Retry New Payloads Syncing State
 
@@ -833,6 +854,7 @@ runner:
 | `rollback_strategy` | string | No | From `runner.client.config` | Instance-specific rollback strategy |
 | `checkpoint_restore_strategy_options` | object | No | From `runner.client.config` | Instance-specific checkpoint-restore strategy options (replaces global) |
 | `wait_after_rpc_ready` | string | No | From `runner.client.config` | Instance-specific RPC ready wait duration |
+| `run_timeout` | string | No | From `runner.client.config` | Instance-specific run timeout duration |
 | `retry_new_payloads_syncing_state` | object | No | From `runner.client.config` | Instance-specific retry config for SYNCING responses |
 | `resource_limits` | object | No | From `runner.client.config` | Instance-specific resource limits |
 | `post_test_rpc_calls` | []object | No | From `runner.client.config` | Instance-specific post-test RPC calls (replaces global) |

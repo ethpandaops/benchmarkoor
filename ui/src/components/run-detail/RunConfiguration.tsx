@@ -302,6 +302,23 @@ export function RunConfiguration({ instance, system, startBlock, metadata }: Run
                 </div>
               )}
 
+              {instance.run_timeout && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Run Timeout</dt>
+                  <dd className="mt-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                        {instance.run_timeout}
+                      </span>
+                      <CopyButton text={instance.run_timeout} />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Maximum duration for test execution before the run is timed out.
+                    </p>
+                  </dd>
+                </div>
+              )}
+
               {instance.retry_new_payloads_syncing_state?.enabled && (
                 <div>
                   <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">

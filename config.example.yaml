@@ -298,6 +298,9 @@ runner:
       # Useful for clients like Erigon that need time to complete internal sync pipelines
       # after their RPC endpoint becomes available.
       # wait_after_rpc_ready: 30s
+      # Optional: Maximum duration for the test execution phase.
+      # If exceeded, the run is cancelled with "timed_out" status. Partial results are kept.
+      # run_timeout: 2h
       # Optional: Retry engine_newPayload calls when client returns SYNCING status.
       # Useful for clients with internal sync pipelines (e.g., Erigon) that may return
       # SYNCING while still processing blocks internally.
@@ -443,6 +446,7 @@ runner:
       #   tmpfs_max_size: "16g"
       #   wait_after_tcp_drop_connections: "10s"
       # wait_after_rpc_ready: 60s  # Instance-level override (optional)
+      # run_timeout: 1h  # Instance-level override (optional)
       # retry_new_payloads_syncing_state:  # Instance-level override (optional)
       #   enabled: true
       #   max_retries: 10

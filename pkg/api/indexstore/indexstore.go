@@ -327,7 +327,7 @@ func (s *store) ListRunIDs(
 }
 
 // terminalStatuses are run statuses that will not change.
-var terminalStatuses = []string{"completed", "failed", "cancelled", "container_died"}
+var terminalStatuses = []string{"completed", "failed", "cancelled", "container_died", "timeout"}
 
 // ListIncompleteRunIDs returns run IDs where the result has not been indexed
 // and the run is still potentially in progress. A run is considered

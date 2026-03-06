@@ -593,6 +593,7 @@ type ClientDefaults struct {
 	ResourceLimits                   *ResourceLimits                   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
 	RetryNewPayloadsSyncingState     *RetryNewPayloadsSyncingConfig    `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
 	WaitAfterRPCReady                string                            `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
+	RunTimeout                       string                            `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
 	PostTestRPCCalls                 []PostTestRPCCall                 `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
@@ -616,6 +617,7 @@ type ClientInstance struct {
 	ResourceLimits                   *ResourceLimits                   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
 	RetryNewPayloadsSyncingState     *RetryNewPayloadsSyncingConfig    `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
 	WaitAfterRPCReady                string                            `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
+	RunTimeout                       string                            `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
 	PostTestRPCCalls                 []PostTestRPCCall                 `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
@@ -1038,6 +1040,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		return err
 	}
 
+	// Validate run_timeout settings.
+	if err := c.validateRunTimeout(); err != nil {
+		return err
+	}
+
 	// Validate post_test_rpc_calls settings.
 	if err := c.validatePostTestRPCCalls(); err != nil {
 		return err
@@ -1275,6 +1282,29 @@ func (c *Config) GetWaitAfterRPCReady(instance *ClientInstance) time.Duration {
 	}
 
 	d, err := time.ParseDuration(waitStr)
+	if err != nil {
+		return 0
+	}
+
+	return d
+}
+
+// GetRunTimeout returns the maximum duration for test execution.
+// Instance-level config takes precedence over global defaults. Returns 0 if not set.
+func (c *Config) GetRunTimeout(instance *ClientInstance) time.Duration {
+	var s string
+
+	if instance.RunTimeout != "" {
+		s = instance.RunTimeout
+	} else {
+		s = c.Runner.Client.Config.RunTimeout
+	}
+
+	if s == "" {
+		return 0
+	}
+
+	d, err := time.ParseDuration(s)
 	if err != nil {
 		return 0
 	}
@@ -1634,6 +1664,25 @@ func (c *Config) validateWaitAfterRPCReady() error {
 			if _, err := time.ParseDuration(waitStr); err != nil {
 				return fmt.Errorf("instance %q: invalid wait_after_rpc_ready %q: %w",
 					instance.ID, waitStr, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateRunTimeout validates run_timeout settings.
+func (c *Config) validateRunTimeout() error {
+	for _, instance := range c.Runner.Instances {
+		s := instance.RunTimeout
+		if s == "" {
+			s = c.Runner.Client.Config.RunTimeout
+		}
+
+		if s != "" {
+			if _, err := time.ParseDuration(s); err != nil {
+				return fmt.Errorf("instance %q: invalid run_timeout %q: %w",
+					instance.ID, s, err)
 			}
 		}
 	}

@@ -5,7 +5,7 @@ export interface Index {
 }
 
 // Run status type
-export type RunStatus = 'completed' | 'container_died' | 'cancelled'
+export type RunStatus = 'completed' | 'container_died' | 'cancelled' | 'timeout'
 
 export interface IndexEntry {
   run_id: string
@@ -235,6 +235,7 @@ export interface InstanceConfig {
   rollback_strategy?: string
   drop_memory_caches?: string
   wait_after_rpc_ready?: string
+  run_timeout?: string
   retry_new_payloads_syncing_state?: RetryNewPayloadsSyncingConfig
   resource_limits?: ResourceLimitsConfig
   post_test_rpc_calls?: PostTestRPCCallConfig[]

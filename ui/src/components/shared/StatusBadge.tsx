@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Check, AlertTriangle, X } from 'lucide-react'
+import { Check, AlertTriangle, X, Clock } from 'lucide-react'
 import type { RunStatus } from '@/api/types'
 
 interface StatusBadgeProps {
@@ -24,6 +24,11 @@ const statusConfig: Record<RunStatus, { label: string; className: string; icon: 
     label: 'Cancelled',
     className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-200',
     icon: <X className="size-3.5" />,
+  },
+  timeout: {
+    label: 'Timed Out',
+    className: 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-200',
+    icon: <Clock className="size-3.5" />,
   },
 }
 
@@ -88,18 +93,21 @@ export function StatusAlert({ status, terminationReason, containerExitCode, cont
   const alertClasses = {
     container_died: 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20',
     cancelled: 'border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/20',
+    timeout: 'border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/20',
     completed: '',
   }
 
   const iconClasses = {
     container_died: 'text-red-600 dark:text-red-400',
     cancelled: 'text-yellow-600 dark:text-yellow-400',
+    timeout: 'text-orange-600 dark:text-orange-400',
     completed: '',
   }
 
   const textClasses = {
     container_died: 'text-red-800 dark:text-red-200',
     cancelled: 'text-yellow-800 dark:text-yellow-200',
+    timeout: 'text-orange-800 dark:text-orange-200',
     completed: '',
   }
 

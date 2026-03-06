@@ -115,6 +115,7 @@ const (
 	RunStatusFailed        = "failed"
 	RunStatusContainerDied = "container_died"
 	RunStatusCancelled     = "cancelled"
+	RunStatusTimedOut      = "timeout"
 )
 
 // SystemInfo contains system hardware and OS information.
@@ -181,6 +182,7 @@ type ResolvedInstance struct {
 	RollbackStrategy                 string                                   `json:"rollback_strategy,omitempty"`
 	DropMemoryCaches                 string                                   `json:"drop_memory_caches,omitempty"`
 	WaitAfterRPCReady                string                                   `json:"wait_after_rpc_ready,omitempty"`
+	RunTimeout                       string                                   `json:"run_timeout,omitempty"`
 	RetryNewPayloadsSyncingState     *config.RetryNewPayloadsSyncingConfig    `json:"retry_new_payloads_syncing_state,omitempty"`
 	ResourceLimits                   *ResolvedResourceLimits                  `json:"resource_limits,omitempty"`
 	PostTestRPCCalls                 []config.PostTestRPCCall                 `json:"post_test_rpc_calls,omitempty"`
@@ -1040,6 +1042,16 @@ func (r *runner) runContainerLifecycle(
 		}
 	}
 
+	// Resolve run_timeout for config output and timeout enforcement.
+	var runTimeoutStr string
+	var runTimeout time.Duration
+	if r.cfg.FullConfig != nil {
+		runTimeout = r.cfg.FullConfig.GetRunTimeout(instance)
+		if runTimeout > 0 {
+			runTimeoutStr = runTimeout.String()
+		}
+	}
+
 	// Write run configuration with resolved values.
 	runConfig := &RunConfig{
 		Timestamp: params.RunTimestamp,
@@ -1070,6 +1082,7 @@ func (r *runner) runContainerLifecycle(
 			}(),
 			DropMemoryCaches:  dropMemoryCaches,
 			WaitAfterRPCReady: waitAfterRPCReadyStr,
+			RunTimeout:        runTimeoutStr,
 			RetryNewPayloadsSyncingState: func() *config.RetryNewPayloadsSyncingConfig {
 				if r.cfg.FullConfig != nil {
 					return r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance)
@@ -1232,8 +1245,19 @@ func (r *runner) runContainerLifecycle(
 
 	log.Info("Container started")
 
+	// Apply run timeout if configured.
+	testCtx := ctx
+	var timeoutCancel context.CancelFunc
+
+	if runTimeout > 0 {
+		testCtx, timeoutCancel = context.WithTimeout(ctx, runTimeout)
+		defer timeoutCancel()
+
+		log.WithField("timeout", runTimeout).Info("Run timeout configured")
+	}
+
 	// Start container death monitoring.
-	execCtx, execCancel := context.WithCancel(ctx)
+	execCtx, execCancel := context.WithCancel(testCtx)
 	defer execCancel()
 
 	var containerDied bool
@@ -1460,14 +1484,14 @@ func (r *runner) runContainerLifecycle(
 			switch rollbackStrategy {
 			case config.RollbackStrategyCheckpointRestore:
 				result, execErr = r.runTestsWithCheckpointRestore(
-					ctx, params, spec, containerID, containerIP,
+					testCtx, params, spec, containerID, containerIP,
 					dropMemoryCaches, dropCachesPath,
 					runResultsDir, &logCancel, &logDone, benchmarkoorLogFile,
 					&localCleanupFuncs, localCleanupStarted,
 				)
 			default:
 				result, execErr = r.runTestsWithContainerStrategy(
-					ctx, params, spec, containerID, containerIP,
+					testCtx, params, spec, containerID, containerIP,
 					rollbackStrategy, dropMemoryCaches, dropCachesPath,
 					runResultsDir, &logCancel, &logDone, benchmarkoorLogFile,
 					&localCleanupFuncs, localCleanupStarted,
@@ -1569,8 +1593,13 @@ func (r *runner) runContainerLifecycle(
 	}
 
 	// Determine final run status (don't overwrite if already set by executor).
+	// Timeout is checked first because when the deadline fires, the context
+	// cancellation can cause the container to stop, which sets containerDied.
 	mu.Lock()
-	if containerDied {
+	if timeoutCancel != nil && testCtx.Err() == context.DeadlineExceeded {
+		runConfig.Status = RunStatusTimedOut
+		runConfig.TerminationReason = fmt.Sprintf("the run_timeout of %s was reached", runTimeout)
+	} else if containerDied {
 		runConfig.Status = RunStatusContainerDied
 		runConfig.TerminationReason = "container exited during test execution"
 		runConfig.ContainerExitCode = containerExitCode
