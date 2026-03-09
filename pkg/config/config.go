@@ -74,6 +74,7 @@ type RunnerConfig struct {
 	ClientLogsToStdout bool              `yaml:"client_logs_to_stdout" mapstructure:"client_logs_to_stdout"`
 	DockerNetwork      string            `yaml:"docker_network" mapstructure:"docker_network"`
 	CleanupOnStart     bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
+	RunTimeout         string            `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
 	Directories        DirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
 	DropCachesPath     string            `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
 	CPUSysfsPath       string            `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
@@ -718,6 +719,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"runner.client_logs_to_stdout",
 		"runner.docker_network",
 		"runner.cleanup_on_start",
+		"runner.run_timeout",
 		"runner.directories.tmp_datadir",
 		"runner.directories.tmp_cachedir",
 		"runner.github_token",
@@ -1290,6 +1292,21 @@ func (c *Config) GetWaitAfterRPCReady(instance *ClientInstance) time.Duration {
 	return d
 }
 
+// GetRunnerRunTimeout returns the global runner-level timeout that caps
+// the entire run (all instances, setup, and teardown). Returns 0 if not set.
+func (c *Config) GetRunnerRunTimeout() time.Duration {
+	if c.Runner.RunTimeout == "" {
+		return 0
+	}
+
+	d, err := time.ParseDuration(c.Runner.RunTimeout)
+	if err != nil {
+		return 0
+	}
+
+	return d
+}
+
 // GetRunTimeout returns the maximum duration for test execution.
 // Instance-level config takes precedence over global defaults. Returns 0 if not set.
 func (c *Config) GetRunTimeout(instance *ClientInstance) time.Duration {
@@ -1674,6 +1691,13 @@ func (c *Config) validateWaitAfterRPCReady() error {
 
 // validateRunTimeout validates run_timeout settings.
 func (c *Config) validateRunTimeout() error {
+	if c.Runner.RunTimeout != "" {
+		if _, err := time.ParseDuration(c.Runner.RunTimeout); err != nil {
+			return fmt.Errorf("invalid runner.run_timeout %q: %w",
+				c.Runner.RunTimeout, err)
+		}
+	}
+
 	for _, instance := range c.Runner.Instances {
 		s := instance.RunTimeout
 		if s == "" {

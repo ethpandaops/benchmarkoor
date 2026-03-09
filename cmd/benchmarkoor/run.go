@@ -86,6 +86,16 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Apply global runner timeout if configured.
+	if runTimeout := cfg.GetRunnerRunTimeout(); runTimeout > 0 {
+		log.WithField("timeout", runTimeout).Info("Global runner timeout configured")
+
+		var timeoutCancel context.CancelFunc
+
+		ctx, timeoutCancel = context.WithTimeout(ctx, runTimeout)
+		defer timeoutCancel()
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 

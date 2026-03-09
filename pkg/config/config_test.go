@@ -2430,13 +2430,54 @@ func TestGetRunTimeout(t *testing.T) {
 	}
 }
 
+func TestGetRunnerRunTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected time.Duration
+	}{
+		{
+			name:     "empty returns zero",
+			value:    "",
+			expected: 0,
+		},
+		{
+			name:     "valid duration",
+			value:    "4h",
+			expected: 4 * time.Hour,
+		},
+		{
+			name:     "valid minutes",
+			value:    "30m",
+			expected: 30 * time.Minute,
+		},
+		{
+			name:     "invalid returns zero",
+			value:    "not-a-duration",
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					RunTimeout: tt.value,
+				},
+			}
+			assert.Equal(t, tt.expected, cfg.GetRunnerRunTimeout())
+		})
+	}
+}
+
 func TestValidateRunTimeout(t *testing.T) {
 	tests := []struct {
-		name      string
-		global    string
-		instance  string
-		wantErr   bool
-		errSubstr string
+		name        string
+		runnerLevel string
+		global      string
+		instance    string
+		wantErr     bool
+		errSubstr   string
 	}{
 		{
 			name:     "empty is valid",
@@ -2463,12 +2504,23 @@ func TestValidateRunTimeout(t *testing.T) {
 			wantErr:   true,
 			errSubstr: "invalid run_timeout",
 		},
+		{
+			name:        "valid runner-level timeout",
+			runnerLevel: "4h",
+		},
+		{
+			name:        "invalid runner-level timeout",
+			runnerLevel: "bad",
+			wantErr:     true,
+			errSubstr:   "invalid runner.run_timeout",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{
 				Runner: RunnerConfig{
+					RunTimeout: tt.runnerLevel,
 					Client: ClientConfig{
 						Config: ClientDefaults{
 							RunTimeout: tt.global,
