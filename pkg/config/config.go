@@ -738,6 +738,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"runner.client.config.drop_memory_caches",
 		"runner.client.config.rollback_strategy",
 		"runner.client.config.wait_after_rpc_ready",
+		"runner.client.config.run_timeout",
 		// Runner client resource limits
 		"runner.client.config.resource_limits.cpuset_count",
 		"runner.client.config.resource_limits.memory",
