@@ -226,6 +226,16 @@ func (s *GitSource) prepareRepo(ctx context.Context) (string, error) {
 			}
 		}
 	} else {
+		// For commit hashes, skip fetch if HEAD already matches.
+		if looksLikeCommitHash(s.cfg.Version) {
+			headHash, err := s.getHeadHash(ctx, localPath)
+			if err == nil && strings.HasPrefix(headHash, s.cfg.Version) {
+				log.Info("Cached repository already at requested version")
+
+				return localPath, nil
+			}
+		}
+
 		log.Info("Updating cached repository")
 
 		// Fetch the specific version.
@@ -328,6 +338,18 @@ func (s *GitSource) cloneByCommitHash(ctx context.Context, localPath string) err
 	}
 
 	return nil
+}
+
+// getHeadHash returns the current HEAD commit hash for the repository at repoPath.
+func (s *GitSource) getHeadHash(ctx context.Context, repoPath string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "HEAD")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(out)), nil
 }
 
 // looksLikeCommitHash returns true if s looks like a git commit hash
