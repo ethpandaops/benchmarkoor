@@ -11,6 +11,7 @@ This document describes all configuration options for benchmarkoor. The [config.
 - [Runner Settings](#runner-settings)
   - [Container Runtime](#container-runtime)
   - [Metadata Labels](#metadata-labels)
+  - [Runner Run Timeout](#runner-run-timeout)
   - [Benchmark Settings](#benchmark-settings)
     - [Suite Metadata Labels](#suite-metadata-labels)
     - [Results Upload](#results-upload)
@@ -57,6 +58,7 @@ Configuration values can also be overridden via environment variables with the `
 | Config Path | Environment Variable |
 |-------------|---------------------|
 | `global.log_level` | `BENCHMARKOOR_GLOBAL_LOG_LEVEL` |
+| `runner.run_timeout` | `BENCHMARKOOR_RUNNER_RUN_TIMEOUT` |
 | `runner.benchmark.results_dir` | `BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_DIR` |
 | `runner.client.config.jwt` | `BENCHMARKOOR_RUNNER_CLIENT_CONFIG_JWT` |
 
@@ -98,6 +100,7 @@ runner:
   client_logs_to_stdout: true
   docker_network: benchmarkoor
   cleanup_on_start: false
+  run_timeout: 4h
   directories:
     tmp_datadir: /tmp/benchmarkoor
     tmp_cachedir: /tmp/benchmarkoor-cache
@@ -113,6 +116,7 @@ runner:
 | `client_logs_to_stdout` | bool | `false` | Stream client container logs to stdout |
 | `docker_network` | string | `benchmarkoor` | Docker network name for containers |
 | `cleanup_on_start` | bool | `false` | Remove leftover containers/networks on startup |
+| `run_timeout` | string | - | Global timeout for the entire run covering all instances, setup, and teardown. Uses Go duration format (e.g., `4h`, `30m`). See [Runner Run Timeout](#runner-run-timeout) |
 | `directories.tmp_datadir` | string | system temp | Directory for temporary datadir copies |
 | `directories.tmp_cachedir` | string | `~/.cache/benchmarkoor` | Directory for executor cache (git clones, etc.) |
 | `drop_caches_path` | string | `/proc/sys/vm/drop_caches` | Path to Linux drop_caches file (for containerized environments) |
@@ -156,6 +160,17 @@ benchmarkoor run --config config.yaml \
 ```
 
 When the same key is set in both the config file and the CLI, the CLI value wins.
+
+#### Runner Run Timeout
+
+The `runner.run_timeout` option sets a global timeout for the entire benchmark run. Unlike the per-instance `runner.client.config.run_timeout` which only applies to individual instance execution, this timeout caps everything — all instances, setup, and teardown — starting from when the run begins.
+
+```yaml
+runner:
+  run_timeout: 4h
+```
+
+When the timeout is reached, the run context is cancelled and no further instances will be started. Per-instance S3 uploads use an independent context and will still complete. Results collected before the timeout are preserved on disk.
 
 ### Benchmark Settings
 
@@ -682,9 +697,11 @@ The value is a Go duration string (e.g., `30m`, `1h`, `2h30m`). If not set, no t
 
 The timeout covers only the test execution phase — container setup, image pulling, and RPC readiness checks are not included.
 
+> **Note:** This is a per-instance timeout. For a global timeout that caps the entire run (all instances, setup, and teardown), use [`runner.run_timeout`](#runner-run-timeout).
+
 **When to use:**
 - When running large test suites that may hang or take unexpectedly long
-- When you want to enforce a maximum wall-clock time for benchmark runs
+- When you want to enforce a maximum wall-clock time per instance
 - When running in CI/CD environments with time constraints
 
 ##### Retry New Payloads Syncing State
