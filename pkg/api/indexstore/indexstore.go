@@ -3,6 +3,8 @@ package indexstore
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/glebarez/sqlite"
@@ -28,6 +30,9 @@ type Store interface {
 	BulkUpsertTestStats(
 		ctx context.Context, stats []*TestStat,
 	) error
+	ReplaceTestStats(
+		ctx context.Context, runID string, stats []*TestStat,
+	) error
 	ListTestStatsBySuite(
 		ctx context.Context, suiteHash string,
 	) ([]TestStat, error)
@@ -44,6 +49,9 @@ type Store interface {
 
 	BulkInsertTestStatsBlockLogs(
 		ctx context.Context, logs []*TestStatsBlockLog,
+	) error
+	ReplaceTestStatsBlockLogs(
+		ctx context.Context, runID string, logs []*TestStatsBlockLog,
 	) error
 	DeleteTestStatsBlockLogsForRun(ctx context.Context, runID string) error
 
@@ -111,6 +119,18 @@ func (s *store) Start(ctx context.Context) error {
 	}
 
 	s.db = db
+
+	// SQLite requires a single connection to avoid write contention and
+	// ensure pragmas are applied consistently. GORM's default pool opens
+	// many connections, each with independent pragma state.
+	if s.cfg.Driver == "sqlite" {
+		sqlDB, err := db.DB()
+		if err != nil {
+			return fmt.Errorf("getting underlying sql.DB: %w", err)
+		}
+
+		sqlDB.SetMaxOpenConns(1)
+	}
 
 	// Set SQLite pragmas for performance and reliability.
 	if s.cfg.Driver == "sqlite" {
@@ -418,6 +438,82 @@ func (s *store) DeleteTestStatsForRun(
 	return nil
 }
 
+// ReplaceTestStats atomically deletes old test stats for a run and inserts
+// new ones in a single transaction with retry for transient SQLite errors.
+func (s *store) ReplaceTestStats(
+	ctx context.Context, runID string, stats []*TestStat,
+) error {
+	return s.withRetry(func() error {
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("run_id = ?", runID).
+				Delete(&TestStat{}).Error; err != nil {
+				return fmt.Errorf(
+					"deleting test stats for run: %w", err,
+				)
+			}
+
+			if len(stats) == 0 {
+				return nil
+			}
+
+			const batchSize = 100
+			for i := 0; i < len(stats); i += batchSize {
+				end := min(i+batchSize, len(stats))
+				batch := stats[i:end]
+
+				if err := tx.CreateInBatches(
+					batch, len(batch),
+				).Error; err != nil {
+					return fmt.Errorf(
+						"bulk inserting test stats: %w", err,
+					)
+				}
+			}
+
+			return nil
+		})
+	})
+}
+
+// ReplaceTestStatsBlockLogs atomically deletes old block logs for a run
+// and inserts new ones in a single transaction with retry.
+func (s *store) ReplaceTestStatsBlockLogs(
+	ctx context.Context, runID string, logs []*TestStatsBlockLog,
+) error {
+	return s.withRetry(func() error {
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("run_id = ?", runID).
+				Delete(&TestStatsBlockLog{}).Error; err != nil {
+				return fmt.Errorf(
+					"deleting test stats block logs for run: %w",
+					err,
+				)
+			}
+
+			if len(logs) == 0 {
+				return nil
+			}
+
+			const batchSize = 100
+			for i := 0; i < len(logs); i += batchSize {
+				end := min(i+batchSize, len(logs))
+				batch := logs[i:end]
+
+				if err := tx.CreateInBatches(
+					batch, len(batch),
+				).Error; err != nil {
+					return fmt.Errorf(
+						"bulk inserting test stats block logs: %w",
+						err,
+					)
+				}
+			}
+
+			return nil
+		})
+	})
+}
+
 // BulkInsertTestStatsBlockLogs inserts multiple test stats block log records
 // in batches. Each batch is auto-committed independently to keep
 // WAL/journal pressure low. The caller deletes old records first.
@@ -636,6 +732,48 @@ func (s *store) QuerySuites(
 		Limit:  params.Limit,
 		Offset: params.Offset,
 	}, nil
+}
+
+// withRetry retries fn up to 3 times on transient SQLite errors
+// (database locked, disk I/O) with exponential backoff.
+func (s *store) withRetry(fn func() error) error {
+	const maxAttempts = 3
+
+	backoffs := [...]time.Duration{
+		100 * time.Millisecond,
+		500 * time.Millisecond,
+		2500 * time.Millisecond,
+	}
+
+	var err error
+
+	for attempt := range maxAttempts {
+		err = fn()
+		if err == nil {
+			return nil
+		}
+
+		if !isSQLiteTransient(err) {
+			return err
+		}
+
+		if attempt < maxAttempts-1 {
+			s.log.WithError(err).WithField("attempt", attempt+1).
+				Warn("Transient SQLite error, retrying")
+			time.Sleep(backoffs[attempt])
+		}
+	}
+
+	return err
+}
+
+// isSQLiteTransient returns true for transient SQLite errors that may
+// succeed on retry.
+func isSQLiteTransient(err error) bool {
+	msg := err.Error()
+
+	return strings.Contains(msg, "database is locked") ||
+		strings.Contains(msg, "disk I/O error")
 }
 
 // scanMaps scans query results into []map[string]any so only the selected

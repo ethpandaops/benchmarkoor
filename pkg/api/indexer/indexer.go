@@ -496,11 +496,6 @@ func (idx *indexer) indexTestStats(
 	entry *executor.IndexEntry,
 	resultData []byte,
 ) error {
-	// Delete old test stats for this run before re-inserting.
-	if err := idx.store.DeleteTestStatsForRun(ctx, runID); err != nil {
-		return fmt.Errorf("deleting old test stats: %w", err)
-	}
-
 	// Use AccumulateRunResult to extract per-test durations.
 	suiteStats := make(executor.SuiteStats)
 
@@ -576,8 +571,8 @@ func (idx *indexer) indexTestStats(
 		}
 	}
 
-	if err := idx.store.BulkUpsertTestStats(ctx, testStats); err != nil {
-		return fmt.Errorf("bulk inserting test stats: %w", err)
+	if err := idx.store.ReplaceTestStats(ctx, runID, testStats); err != nil {
+		return fmt.Errorf("replacing test stats: %w", err)
 	}
 
 	return nil
@@ -645,11 +640,6 @@ func (idx *indexer) indexTestStatsBlockLogs(
 	suiteHash, runID, client string,
 	data []byte,
 ) error {
-	// Delete old block logs for this run before re-inserting.
-	if err := idx.store.DeleteTestStatsBlockLogsForRun(ctx, runID); err != nil {
-		return fmt.Errorf("deleting old test stats block logs: %w", err)
-	}
-
 	// The file is a map of test name -> single block log entry.
 	var testMap map[string]blockLogEntry
 	if err := json.Unmarshal(data, &testMap); err != nil {
@@ -698,8 +688,10 @@ func (idx *indexer) indexTestStatsBlockLogs(
 		})
 	}
 
-	if err := idx.store.BulkInsertTestStatsBlockLogs(ctx, logs); err != nil {
-		return fmt.Errorf("bulk inserting test stats block logs: %w", err)
+	if err := idx.store.ReplaceTestStatsBlockLogs(
+		ctx, runID, logs,
+	); err != nil {
+		return fmt.Errorf("replacing test stats block logs: %w", err)
 	}
 
 	return nil

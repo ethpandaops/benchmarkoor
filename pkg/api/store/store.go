@@ -118,6 +118,17 @@ func (s *store) Start(ctx context.Context) error {
 		return fmt.Errorf("opening database: %w", err)
 	}
 
+	// SQLite requires a single connection to avoid write contention and
+	// ensure pragmas are applied consistently.
+	if s.cfg.Driver == "sqlite" {
+		sqlDB, dbErr := s.db.DB()
+		if dbErr != nil {
+			return fmt.Errorf("getting underlying sql.DB: %w", dbErr)
+		}
+
+		sqlDB.SetMaxOpenConns(1)
+	}
+
 	if err := s.db.WithContext(ctx).AutoMigrate(
 		&User{},
 		&Session{},
