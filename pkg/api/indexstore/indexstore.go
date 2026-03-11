@@ -628,9 +628,15 @@ func (s *store) QueryRuns(
 		return scanMaps(q, params)
 	}
 
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return nil, fmt.Errorf("counting runs: %w", err)
+	var totalPtr *int64
+
+	if params.CountExact {
+		var total int64
+		if err := q.Count(&total).Error; err != nil {
+			return nil, fmt.Errorf("counting runs: %w", err)
+		}
+
+		totalPtr = &total
 	}
 
 	var runs []Run
@@ -647,7 +653,7 @@ func (s *store) QueryRuns(
 
 	return &QueryResult{
 		Data:   data,
-		Total:  total,
+		Total:  totalPtr,
 		Limit:  params.Limit,
 		Offset: params.Offset,
 	}, nil
@@ -669,9 +675,15 @@ func (s *store) QueryTestStats(
 		return scanMaps(q, params)
 	}
 
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return nil, fmt.Errorf("counting test stats: %w", err)
+	var totalPtr *int64
+
+	if params.CountExact {
+		var total int64
+		if err := q.Count(&total).Error; err != nil {
+			return nil, fmt.Errorf("counting test stats: %w", err)
+		}
+
+		totalPtr = &total
 	}
 
 	var stats []TestStat
@@ -688,7 +700,7 @@ func (s *store) QueryTestStats(
 
 	return &QueryResult{
 		Data:   data,
-		Total:  total,
+		Total:  totalPtr,
 		Limit:  params.Limit,
 		Offset: params.Offset,
 	}, nil
@@ -710,11 +722,17 @@ func (s *store) QueryTestStatsBlockLogs(
 		return scanMaps(q, params)
 	}
 
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return nil, fmt.Errorf(
-			"counting test stats block logs: %w", err,
-		)
+	var totalPtr *int64
+
+	if params.CountExact {
+		var total int64
+		if err := q.Count(&total).Error; err != nil {
+			return nil, fmt.Errorf(
+				"counting test stats block logs: %w", err,
+			)
+		}
+
+		totalPtr = &total
 	}
 
 	var logs []TestStatsBlockLog
@@ -733,7 +751,7 @@ func (s *store) QueryTestStatsBlockLogs(
 
 	return &QueryResult{
 		Data:   data,
-		Total:  total,
+		Total:  totalPtr,
 		Limit:  params.Limit,
 		Offset: params.Offset,
 	}, nil
@@ -753,9 +771,15 @@ func (s *store) QuerySuites(
 		return scanMaps(q, params)
 	}
 
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return nil, fmt.Errorf("counting suites: %w", err)
+	var totalPtr *int64
+
+	if params.CountExact {
+		var total int64
+		if err := q.Count(&total).Error; err != nil {
+			return nil, fmt.Errorf("counting suites: %w", err)
+		}
+
+		totalPtr = &total
 	}
 
 	var suites []Suite
@@ -772,7 +796,7 @@ func (s *store) QuerySuites(
 
 	return &QueryResult{
 		Data:   data,
-		Total:  total,
+		Total:  totalPtr,
 		Limit:  params.Limit,
 		Offset: params.Offset,
 	}, nil
@@ -845,9 +869,15 @@ func isSQLiteTransient(err error) bool {
 func scanMaps(
 	q *gorm.DB, params *QueryParams,
 ) (*QueryResult, error) {
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return nil, fmt.Errorf("counting rows: %w", err)
+	var totalPtr *int64
+
+	if params.CountExact {
+		var total int64
+		if err := q.Count(&total).Error; err != nil {
+			return nil, fmt.Errorf("counting rows: %w", err)
+		}
+
+		totalPtr = &total
 	}
 
 	var rows []map[string]any
@@ -859,7 +889,7 @@ func scanMaps(
 
 	return &QueryResult{
 		Data:   rows,
-		Total:  total,
+		Total:  totalPtr,
 		Limit:  params.Limit,
 		Offset: params.Offset,
 	}, nil

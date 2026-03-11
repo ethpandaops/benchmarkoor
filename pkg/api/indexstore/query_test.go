@@ -298,11 +298,13 @@ func TestQueryRuns_Basic(t *testing.T) {
 
 	t.Run("no filters returns all", func(t *testing.T) {
 		params := &indexstore.QueryParams{
-			Limit: 100,
+			Limit:      100,
+			CountExact: true,
 		}
 		result, err := s.QueryRuns(ctx, params)
 		require.NoError(t, err)
-		assert.Equal(t, int64(3), result.Total)
+		require.NotNil(t, result.Total)
+		assert.Equal(t, int64(3), *result.Total)
 		assert.Len(t, result.Data, 3)
 	})
 
@@ -311,11 +313,13 @@ func TestQueryRuns_Basic(t *testing.T) {
 			Filters: []indexstore.Filter{
 				{Column: "client", Operator: "eq", Value: "geth"},
 			},
-			Limit: 100,
+			Limit:      100,
+			CountExact: true,
 		}
 		result, err := s.QueryRuns(ctx, params)
 		require.NoError(t, err)
-		assert.Equal(t, int64(2), result.Total)
+		require.NotNil(t, result.Total)
+		assert.Equal(t, int64(2), *result.Total)
 	})
 
 	t.Run("filter with in operator", func(t *testing.T) {
@@ -326,11 +330,13 @@ func TestQueryRuns_Basic(t *testing.T) {
 					Value: "geth,reth",
 				},
 			},
-			Limit: 100,
+			Limit:      100,
+			CountExact: true,
 		}
 		result, err := s.QueryRuns(ctx, params)
 		require.NoError(t, err)
-		assert.Equal(t, int64(3), result.Total)
+		require.NotNil(t, result.Total)
+		assert.Equal(t, int64(3), *result.Total)
 	})
 
 	t.Run("filter with gt operator", func(t *testing.T) {
@@ -341,11 +347,13 @@ func TestQueryRuns_Basic(t *testing.T) {
 					Value: "1",
 				},
 			},
-			Limit: 100,
+			Limit:      100,
+			CountExact: true,
 		}
 		result, err := s.QueryRuns(ctx, params)
 		require.NoError(t, err)
-		assert.Equal(t, int64(2), result.Total)
+		require.NotNil(t, result.Total)
+		assert.Equal(t, int64(2), *result.Total)
 	})
 
 	t.Run("order by timestamp desc", func(t *testing.T) {
@@ -370,12 +378,14 @@ func TestQueryRuns_Basic(t *testing.T) {
 			Orders: []indexstore.Order{
 				{Column: "timestamp", Direction: "asc"},
 			},
-			Limit:  2,
-			Offset: 0,
+			Limit:      2,
+			Offset:     0,
+			CountExact: true,
 		}
 		result, err := s.QueryRuns(ctx, params)
 		require.NoError(t, err)
-		assert.Equal(t, int64(3), result.Total)
+		require.NotNil(t, result.Total)
+		assert.Equal(t, int64(3), *result.Total)
 		assert.Len(t, result.Data, 2)
 		assert.Equal(t, 2, result.Limit)
 		assert.Equal(t, 0, result.Offset)
@@ -384,7 +394,8 @@ func TestQueryRuns_Basic(t *testing.T) {
 		params.Offset = 2
 		result, err = s.QueryRuns(ctx, params)
 		require.NoError(t, err)
-		assert.Equal(t, int64(3), result.Total)
+		require.NotNil(t, result.Total)
+		assert.Equal(t, int64(3), *result.Total)
 		assert.Len(t, result.Data, 1)
 	})
 
@@ -393,11 +404,13 @@ func TestQueryRuns_Basic(t *testing.T) {
 			Filters: []indexstore.Filter{
 				{Column: "has_result", Operator: "is", Value: "false"},
 			},
-			Limit: 100,
+			Limit:      100,
+			CountExact: true,
 		}
 		result, err := s.QueryRuns(ctx, params)
 		require.NoError(t, err)
-		assert.Equal(t, int64(1), result.Total)
+		require.NotNil(t, result.Total)
+		assert.Equal(t, int64(1), *result.Total)
 	})
 }
 
@@ -449,10 +462,11 @@ func TestQueryTestStats_Basic(t *testing.T) {
 	}
 
 	t.Run("no filters returns all", func(t *testing.T) {
-		params := &indexstore.QueryParams{Limit: 100}
+		params := &indexstore.QueryParams{Limit: 100, CountExact: true}
 		result, err := s.QueryTestStats(ctx, params)
 		require.NoError(t, err)
-		assert.Equal(t, int64(3), result.Total)
+		require.NotNil(t, result.Total)
+		assert.Equal(t, int64(3), *result.Total)
 	})
 
 	t.Run("filter by client", func(t *testing.T) {
@@ -460,11 +474,13 @@ func TestQueryTestStats_Basic(t *testing.T) {
 			Filters: []indexstore.Filter{
 				{Column: "client", Operator: "eq", Value: "reth"},
 			},
-			Limit: 100,
+			Limit:      100,
+			CountExact: true,
 		}
 		result, err := s.QueryTestStats(ctx, params)
 		require.NoError(t, err)
-		assert.Equal(t, int64(1), result.Total)
+		require.NotNil(t, result.Total)
+		assert.Equal(t, int64(1), *result.Total)
 	})
 
 	t.Run("order by total_time_ns desc", func(t *testing.T) {
@@ -492,10 +508,12 @@ func TestQueryTestStats_Basic(t *testing.T) {
 					Value: "geth,reth",
 				},
 			},
-			Limit: 100,
+			Limit:      100,
+			CountExact: true,
 		}
 		result, err := s.QueryTestStats(ctx, params)
 		require.NoError(t, err)
-		assert.Equal(t, int64(3), result.Total)
+		require.NotNil(t, result.Total)
+		assert.Equal(t, int64(3), *result.Total)
 	})
 }

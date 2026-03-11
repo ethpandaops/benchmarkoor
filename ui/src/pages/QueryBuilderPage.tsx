@@ -126,6 +126,7 @@ interface QueryBuilderState {
   limit: number
   offset: number
   selectedColumns: string[]
+  countExact: boolean
 }
 
 // --- URL <-> State serialization ---
@@ -137,6 +138,7 @@ interface QuerySearchParams {
   select?: string
   limit?: string
   offset?: string
+  count?: string // "exact" when count is requested
 }
 
 function stateToSearchParams(state: QueryBuilderState): QuerySearchParams {
@@ -167,13 +169,17 @@ function stateToSearchParams(state: QueryBuilderState): QuerySearchParams {
     params.offset = String(state.offset)
   }
 
+  if (state.countExact) {
+    params.count = 'exact'
+  }
+
   return params
 }
 
 function searchParamsToState(params: QuerySearchParams): QueryBuilderState | null {
   // Only restore if there's at least one meaningful param.
   const hasParams = params.endpoint || params.f || params.order ||
-    params.select || params.limit || params.offset
+    params.select || params.limit || params.offset || params.count
   if (!hasParams) return null
 
   const endpoint: Endpoint =
@@ -225,7 +231,9 @@ function searchParamsToState(params: QuerySearchParams): QueryBuilderState | nul
   const limit = params.limit ? Math.min(Math.max(1, Number(params.limit) || 20), 10000) : 20
   const offset = params.offset ? Math.max(0, Number(params.offset) || 0) : 0
 
-  return { endpoint, filters, orders, limit, offset, selectedColumns }
+  const countExact = params.count === 'exact'
+
+  return { endpoint, filters, orders, limit, offset, selectedColumns, countExact }
 }
 
 // --- Reducer ---
@@ -242,7 +250,8 @@ type Action =
   | { type: 'SET_LIMIT'; limit: number }
   | { type: 'SET_OFFSET'; offset: number }
   | { type: 'SET_COLUMNS'; columns: string[] }
-  | { type: 'LOAD_PRESET'; preset: Omit<QueryBuilderState, 'selectedColumns'> & { selectedColumns?: string[] } }
+  | { type: 'TOGGLE_COUNT' }
+  | { type: 'LOAD_PRESET'; preset: Omit<QueryBuilderState, 'selectedColumns' | 'countExact'> & { selectedColumns?: string[]; countExact?: boolean } }
 
 let nextId = 1
 function uid() {
@@ -271,6 +280,7 @@ function makeInitialState(): QueryBuilderState {
     limit: 20,
     offset: 0,
     selectedColumns: [],
+    countExact: false,
   }
 }
 
@@ -340,6 +350,8 @@ function reducer(state: QueryBuilderState, action: Action): QueryBuilderState {
       return { ...state, offset: Math.max(0, action.offset) }
     case 'SET_COLUMNS':
       return { ...state, selectedColumns: action.columns }
+    case 'TOGGLE_COUNT':
+      return { ...state, countExact: !state.countExact }
 
     case 'LOAD_PRESET':
       return {
@@ -349,6 +361,7 @@ function reducer(state: QueryBuilderState, action: Action): QueryBuilderState {
         limit: action.preset.limit,
         offset: action.preset.offset,
         selectedColumns: action.preset.selectedColumns ?? [],
+        countExact: action.preset.countExact ?? false,
       }
   }
 }
@@ -386,7 +399,7 @@ function buildQueryUrl(state: QueryBuilderState, apiBaseUrl: string): string {
 
 interface Preset {
   label: string
-  state: Omit<QueryBuilderState, 'selectedColumns'> & { selectedColumns?: string[] }
+  state: Omit<QueryBuilderState, 'selectedColumns' | 'countExact'> & { selectedColumns?: string[]; countExact?: boolean }
 }
 
 const PRESETS: Preset[] = [
@@ -462,7 +475,7 @@ const PRESETS: Preset[] = [
 
 interface QueryResponse {
   data: Record<string, unknown>[]
-  total: number
+  total?: number
   limit: number
   offset: number
 }
@@ -518,9 +531,11 @@ export function QueryBuilderPage() {
   )
 
   const { data, error, isFetching, refetch } = useQuery<QueryResponse>({
-    queryKey: ['query-builder', queryUrl],
+    queryKey: ['query-builder', queryUrl, state.countExact],
     queryFn: async () => {
-      const res = await fetch(queryUrl, { credentials: 'include' })
+      const headers: HeadersInit = {}
+      if (state.countExact) headers['Prefer'] = 'count=exact'
+      const res = await fetch(queryUrl, { credentials: 'include', headers })
       if (!res.ok) {
         const text = await res.text()
         throw new Error(`${res.status}: ${text}`)
@@ -574,7 +589,6 @@ export function QueryBuilderPage() {
   const columnGroups = columnGroupsForEndpoint(state.endpoint)
 
   const rows = useMemo(() => data?.data ?? [], [data])
-  const totalCount = data?.total ?? 0
 
   // Derive table columns from data or selected columns
   const tableColumns = useMemo(() => {
@@ -814,6 +828,15 @@ export function QueryBuilderPage() {
               />
             </div>
             <span className="pb-2 text-xs text-gray-400">Max: 10,000</span>
+            <label className="flex cursor-pointer items-center gap-2 pb-2">
+              <input
+                type="checkbox"
+                checked={state.countExact}
+                onChange={() => dispatch({ type: 'TOGGLE_COUNT' })}
+                className="size-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
+              />
+              <span className="text-xs text-gray-500 dark:text-gray-400">Count total rows (slower)</span>
+            </label>
           </div>
         </div>
       </div>
@@ -908,7 +931,7 @@ export function QueryBuilderPage() {
             </p>
             <pre className="overflow-x-auto rounded-sm bg-gray-900 p-3 text-xs text-gray-300">
 {`export BENCHMARKOOR_API_KEY="bmk_..."
-curl -s -H "Authorization: Bearer $BENCHMARKOOR_API_KEY" \\
+curl -s -H "Authorization: Bearer $BENCHMARKOOR_API_KEY" \\${state.countExact ? '\n  -H "Prefer: count=exact" \\' : ''}
   '${queryUrl}' | jq .`}
             </pre>
           </div>
@@ -940,7 +963,7 @@ curl -s -H "Authorization: Bearer $BENCHMARKOOR_API_KEY" \\
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3">
             <span className="rounded-sm bg-blue-100 px-2.5 py-0.5 text-sm font-medium text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-              {totalCount} total, showing {rows.length}
+              {data?.total !== undefined ? `${data.total} total, showing ${rows.length}` : `showing ${rows.length}`}
             </span>
             {/* Pagination */}
             <div className="flex items-center gap-1">

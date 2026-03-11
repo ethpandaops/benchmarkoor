@@ -153,7 +153,7 @@ func (s *server) buildRouter() http.Handler {
 func (s *server) corsMiddleware() func(http.Handler) http.Handler {
 	opts := cors.Options{
 		AllowedMethods:   []string{"GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "Prefer"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}
