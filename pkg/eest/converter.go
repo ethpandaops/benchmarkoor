@@ -120,6 +120,14 @@ func buildNewPayloadCall(payload *EngineNewPayload, id int) (string, error) {
 			payload.ParentBeaconBlockRoot,
 			payload.ExecutionRequests,
 		}
+	case 5:
+		// V5 (Amsterdam): executionPayload, expectedBlobVersionedHashes, parentBeaconBlockRoot, executionRequests
+		params = []any{
+			execPayload,
+			payload.BlobVersionedHashes,
+			payload.ParentBeaconBlockRoot,
+			payload.ExecutionRequests,
+		}
 	default:
 		return "", fmt.Errorf("unsupported payload version: %d", payload.NewPayloadVersion)
 	}
@@ -218,6 +226,17 @@ func buildExecutionPayloadJSON(ep *ExecutionPayload, version int) map[string]any
 
 	// Note: V4 deposit/withdrawal/consolidation requests are passed as executionRequests
 	// parameter, not in the payload itself.
+
+	// Add Amsterdam fields for V5+.
+	if version >= 5 {
+		if ep.BlockAccessList != "" {
+			result["blockAccessList"] = ep.BlockAccessList
+		}
+
+		if ep.SlotNumber != "" {
+			result["slotNumber"] = ep.SlotNumber
+		}
+	}
 
 	return result
 }

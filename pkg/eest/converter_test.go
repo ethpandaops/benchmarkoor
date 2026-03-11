@@ -165,6 +165,7 @@ func TestConvertFixture_PayloadVersions(t *testing.T) {
 		{2, 1, "engine_newPayloadV2", "engine_forkchoiceUpdatedV1"},
 		{3, 3, "engine_newPayloadV3", "engine_forkchoiceUpdatedV3"},
 		{4, 3, "engine_newPayloadV4", "engine_forkchoiceUpdatedV3"},
+		{5, 4, "engine_newPayloadV5", "engine_forkchoiceUpdatedV4"},
 	}
 
 	for _, tc := range tests {

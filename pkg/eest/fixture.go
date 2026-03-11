@@ -171,6 +171,8 @@ type ExecutionPayload struct {
 	DepositRequests       []*Deposit     `json:"depositRequests,omitempty"`
 	WithdrawalRequests    []*WithdrawReq `json:"withdrawalRequests,omitempty"`
 	ConsolidationRequests []*Consolidate `json:"consolidationRequests,omitempty"`
+	BlockAccessList       string         `json:"blockAccessList,omitempty"`
+	SlotNumber            string         `json:"slotNumber,omitempty"`
 }
 
 // Withdrawal represents a withdrawal in the execution payload.
