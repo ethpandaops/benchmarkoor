@@ -353,6 +353,17 @@ Available only when [indexing](#indexing) is enabled.
 | `GET` | `/index/query/runs` | Query indexed runs with PostgREST-style filtering, sorting, and pagination |
 | `GET` | `/index/query/test_stats` | Query test stat data with PostgREST-style filtering, sorting, and pagination |
 | `GET` | `/index/query/test_stats_block_logs` | Query per-block log data with PostgREST-style filtering, sorting, and pagination |
+| `GET` | `/index/query/suites` | Query suite data with PostgREST-style filtering, sorting, and pagination |
+
+#### Row count
+
+By default, query endpoints skip the `SELECT count(*)` for performance — the `total` field is omitted from the response. To request an exact row count, send the `Prefer: count=exact` header:
+
+```
+Prefer: count=exact
+```
+
+When present, the response includes `"total": <n>`. This follows the [PostgREST](https://docs.postgrest.org/en/stable/references/api/preferences.html#exact-count) convention. On large tables (e.g. `test_stats`) the count query can take several seconds, so only request it when needed (e.g. for pagination totals).
 
 ### Files (requires authentication unless `anonymous_read` is enabled)
 
