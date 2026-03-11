@@ -71,9 +71,10 @@ type Store interface {
 var _ Store = (*store)(nil)
 
 type store struct {
-	log logrus.FieldLogger
-	cfg *config.APIDatabaseConfig
-	db  *gorm.DB
+	log    logrus.FieldLogger
+	cfg    *config.APIDatabaseConfig
+	db     *gorm.DB // write-only connection (single conn for SQLite)
+	readDB *gorm.DB // read-only connection pool (concurrent readers)
 }
 
 // NewStore creates a new index Store backed by the configured database driver.
@@ -89,15 +90,15 @@ func NewStore(
 
 // Start opens the database connection and runs migrations.
 func (s *store) Start(ctx context.Context) error {
-	var dialector gorm.Dialector
-
 	gormCfg := &gorm.Config{
 		Logger: logger.Discard,
 	}
 
 	switch s.cfg.Driver {
 	case "sqlite":
-		dialector = sqlite.Open(s.cfg.SQLite.Path)
+		if err := s.openSQLite(gormCfg); err != nil {
+			return err
+		}
 	case "postgres":
 		dsn := fmt.Sprintf(
 			"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
@@ -108,44 +109,16 @@ func (s *store) Start(ctx context.Context) error {
 			s.cfg.Postgres.Database,
 			s.cfg.Postgres.SSLMode,
 		)
-		dialector = postgres.Open(dsn)
+
+		db, err := gorm.Open(postgres.Open(dsn), gormCfg)
+		if err != nil {
+			return fmt.Errorf("opening index database: %w", err)
+		}
+
+		s.db = db
+		s.readDB = db
 	default:
 		return fmt.Errorf("unsupported database driver: %s", s.cfg.Driver)
-	}
-
-	db, err := gorm.Open(dialector, gormCfg)
-	if err != nil {
-		return fmt.Errorf("opening index database: %w", err)
-	}
-
-	s.db = db
-
-	// SQLite requires a single connection to avoid write contention and
-	// ensure pragmas are applied consistently. GORM's default pool opens
-	// many connections, each with independent pragma state.
-	if s.cfg.Driver == "sqlite" {
-		sqlDB, err := db.DB()
-		if err != nil {
-			return fmt.Errorf("getting underlying sql.DB: %w", err)
-		}
-
-		sqlDB.SetMaxOpenConns(1)
-	}
-
-	// Set SQLite pragmas for performance and reliability.
-	if s.cfg.Driver == "sqlite" {
-		pragmas := []string{
-			"PRAGMA journal_mode=WAL",
-			"PRAGMA synchronous=NORMAL",
-			"PRAGMA busy_timeout=5000",
-			"PRAGMA foreign_keys=ON",
-			"PRAGMA temp_store=MEMORY",
-		}
-		for _, p := range pragmas {
-			if err := s.db.Exec(p).Error; err != nil {
-				return fmt.Errorf("setting pragma %q: %w", p, err)
-			}
-		}
 	}
 
 	if err := s.db.WithContext(ctx).AutoMigrate(
@@ -170,8 +143,79 @@ func (s *store) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop closes the underlying database connection.
+// openSQLite opens the write and read GORM connections for SQLite.
+// The write connection is limited to a single connection to prevent
+// write contention. The read connection allows concurrent readers
+// via WAL mode. For in-memory databases both point to the same
+// instance since separate connections would create independent DBs.
+func (s *store) openSQLite(gormCfg *gorm.Config) error {
+	writeDB, err := gorm.Open(sqlite.Open(s.cfg.SQLite.Path), gormCfg)
+	if err != nil {
+		return fmt.Errorf("opening index database (write): %w", err)
+	}
+
+	writeSQLDB, err := writeDB.DB()
+	if err != nil {
+		return fmt.Errorf("getting underlying sql.DB (write): %w", err)
+	}
+
+	// Single writer prevents "database is locked" contention.
+	writeSQLDB.SetMaxOpenConns(1)
+
+	if err := applySQLitePragmas(writeDB); err != nil {
+		return err
+	}
+
+	s.db = writeDB
+
+	// In-memory databases cannot share state across separate
+	// connections, so both reads and writes use the same instance.
+	if s.cfg.SQLite.Path == ":memory:" ||
+		strings.Contains(s.cfg.SQLite.Path, "mode=memory") {
+		s.readDB = writeDB
+
+		return nil
+	}
+
+	// File-backed SQLite: open a separate read pool so concurrent
+	// readers are not blocked behind the single-writer connection.
+	readDB, err := gorm.Open(
+		sqlite.Open(s.cfg.SQLite.Path), gormCfg,
+	)
+	if err != nil {
+		return fmt.Errorf("opening index database (read): %w", err)
+	}
+
+	readSQLDB, err := readDB.DB()
+	if err != nil {
+		return fmt.Errorf("getting underlying sql.DB (read): %w", err)
+	}
+
+	readSQLDB.SetMaxOpenConns(4)
+
+	if err := applySQLitePragmas(readDB); err != nil {
+		return err
+	}
+
+	s.readDB = readDB
+
+	return nil
+}
+
+// Stop closes the underlying database connections.
 func (s *store) Stop() error {
+	// Close the read pool first (if it's a separate instance).
+	if s.readDB != nil && s.readDB != s.db {
+		readSQL, err := s.readDB.DB()
+		if err != nil {
+			return fmt.Errorf("getting underlying read db: %w", err)
+		}
+
+		if err := readSQL.Close(); err != nil {
+			return fmt.Errorf("closing read db: %w", err)
+		}
+	}
+
 	if s.db == nil {
 		return nil
 	}
@@ -203,7 +247,7 @@ func (s *store) ListRuns(
 	ctx context.Context, discoveryPath string,
 ) ([]Run, error) {
 	var runs []Run
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Where("discovery_path = ?", discoveryPath).
 		Order("timestamp DESC").
 		Find(&runs).Error; err != nil {
@@ -216,7 +260,7 @@ func (s *store) ListRuns(
 // ListAllRuns returns all runs across all discovery paths.
 func (s *store) ListAllRuns(ctx context.Context) ([]Run, error) {
 	var runs []Run
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Order("timestamp DESC").
 		Find(&runs).Error; err != nil {
 		return nil, fmt.Errorf("listing all runs: %w", err)
@@ -230,7 +274,7 @@ func (s *store) GetRunByRunID(
 	ctx context.Context, runID string,
 ) (*Run, error) {
 	var run Run
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Where("run_id = ?", runID).
 		First(&run).Error; err != nil {
 		return nil, fmt.Errorf("getting run by run_id: %w", err)
@@ -336,7 +380,7 @@ func (s *store) ListRunIDs(
 	ctx context.Context, discoveryPath string,
 ) ([]string, error) {
 	var ids []string
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Model(&Run{}).
 		Where("discovery_path = ?", discoveryPath).
 		Pluck("run_id", &ids).Error; err != nil {
@@ -357,7 +401,7 @@ func (s *store) ListIncompleteRunIDs(
 	ctx context.Context, discoveryPath string,
 ) ([]string, error) {
 	var ids []string
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Model(&Run{}).
 		Where("discovery_path = ? AND has_result = ? AND status != '' AND status NOT IN ?",
 			discoveryPath, false, terminalStatuses).
@@ -416,7 +460,7 @@ func (s *store) ListTestStatsBySuite(
 	ctx context.Context, suiteHash string,
 ) ([]TestStat, error) {
 	var stats []TestStat
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Where("suite_hash = ?", suiteHash).
 		Find(&stats).Error; err != nil {
 		return nil, fmt.Errorf("listing test stats: %w", err)
@@ -576,7 +620,7 @@ func (s *store) UpsertSuite(ctx context.Context, suite *Suite) error {
 func (s *store) QueryRuns(
 	ctx context.Context, params *QueryParams,
 ) (*QueryResult, error) {
-	q := applyQuery(s.db.WithContext(ctx), &Run{}, params)
+	q := applyQuery(s.readDB.WithContext(ctx), &Run{}, params)
 
 	// When select is specified, scan into maps so the JSON response
 	// only contains the requested columns (no zero-valued extras).
@@ -616,7 +660,7 @@ func (s *store) QueryTestStats(
 	ctx context.Context, params *QueryParams,
 ) (*QueryResult, error) {
 	q := applyQuery(
-		s.db.WithContext(ctx), &TestStat{}, params,
+		s.readDB.WithContext(ctx), &TestStat{}, params,
 	)
 
 	// When select is specified, scan into maps so the JSON response
@@ -657,7 +701,7 @@ func (s *store) QueryTestStatsBlockLogs(
 	ctx context.Context, params *QueryParams,
 ) (*QueryResult, error) {
 	q := applyQuery(
-		s.db.WithContext(ctx), &TestStatsBlockLog{}, params,
+		s.readDB.WithContext(ctx), &TestStatsBlockLog{}, params,
 	)
 
 	// When select is specified, scan into maps so the JSON response
@@ -701,7 +745,7 @@ func (s *store) QueryTestStatsBlockLogs(
 func (s *store) QuerySuites(
 	ctx context.Context, params *QueryParams,
 ) (*QueryResult, error) {
-	q := applyQuery(s.db.WithContext(ctx), &Suite{}, params)
+	q := applyQuery(s.readDB.WithContext(ctx), &Suite{}, params)
 
 	// When select is specified, scan into maps so the JSON response
 	// only contains the requested columns (no zero-valued extras).
@@ -765,6 +809,26 @@ func (s *store) withRetry(fn func() error) error {
 	}
 
 	return err
+}
+
+// applySQLitePragmas sets performance and reliability pragmas on a
+// SQLite GORM connection.
+func applySQLitePragmas(db *gorm.DB) error {
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA foreign_keys=ON",
+		"PRAGMA temp_store=MEMORY",
+	}
+
+	for _, p := range pragmas {
+		if err := db.Exec(p).Error; err != nil {
+			return fmt.Errorf("setting pragma %q: %w", p, err)
+		}
+	}
+
+	return nil
 }
 
 // isSQLiteTransient returns true for transient SQLite errors that may
