@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	chimw "github.com/go-chi/chi/v5/middleware"
+
 	"github.com/ethpandaops/benchmarkoor/pkg/api/store"
 )
 
@@ -13,17 +15,38 @@ type contextKey string
 
 const userContextKey contextKey = "user"
 
-// requestLogger logs incoming HTTP requests.
+// requestLogger logs incoming HTTP requests with status code, bytes written,
+// and duration. Canceled or slow/errored requests are logged at Warn level.
 func (s *server) requestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
 		start := time.Now()
-		next.ServeHTTP(w, r)
 
-		s.log.WithField("method", r.Method).
+		next.ServeHTTP(ww, r)
+
+		status := ww.Status()
+		if status == 0 {
+			status = http.StatusOK
+		}
+
+		duration := time.Since(start)
+
+		entry := s.log.WithField("method", r.Method).
 			WithField("path", r.URL.Path).
 			WithField("remote", r.RemoteAddr).
-			WithField("duration", time.Since(start)).
-			Debug("Request handled")
+			WithField("status", status).
+			WithField("bytes", ww.BytesWritten()).
+			WithField("duration", duration)
+
+		switch {
+		case r.Context().Err() == context.Canceled:
+			entry.WithField("canceled", true).
+				Warn("Request canceled")
+		case status >= 500 || duration > 5*time.Second:
+			entry.Warn("Request handled")
+		default:
+			entry.Info("Request handled")
+		}
 	})
 }
 

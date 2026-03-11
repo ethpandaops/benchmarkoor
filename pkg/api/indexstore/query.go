@@ -160,19 +160,20 @@ type Order struct {
 
 // QueryParams holds the validated, parsed query parameters.
 type QueryParams struct {
-	Filters []Filter
-	Orders  []Order
-	Limit   int
-	Offset  int
-	Select  []string
+	Filters    []Filter
+	Orders     []Order
+	Limit      int
+	Offset     int
+	Select     []string
+	CountExact bool
 }
 
 // QueryResult wraps the paginated response.
 type QueryResult struct {
-	Data   any   `json:"data"`
-	Total  int64 `json:"total"`
-	Limit  int   `json:"limit"`
-	Offset int   `json:"offset"`
+	Data   any    `json:"data"`
+	Total  *int64 `json:"total,omitempty"`
+	Limit  int    `json:"limit"`
+	Offset int    `json:"offset"`
 }
 
 // RunResponse is the JSON DTO for a runs row.

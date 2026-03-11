@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
@@ -185,6 +186,10 @@ func (s *server) handleQueryRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	params.CountExact = strings.Contains(
+		r.Header.Get("Prefer"), "count=exact",
+	)
+
 	result, err := s.indexStore.QueryRuns(r.Context(), params)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError,
@@ -210,6 +215,10 @@ func (s *server) handleQueryTestStats(
 
 		return
 	}
+
+	params.CountExact = strings.Contains(
+		r.Header.Get("Prefer"), "count=exact",
+	)
 
 	result, err := s.indexStore.QueryTestStats(r.Context(), params)
 	if err != nil {
@@ -237,6 +246,10 @@ func (s *server) handleQuerySuites(
 		return
 	}
 
+	params.CountExact = strings.Contains(
+		r.Header.Get("Prefer"), "count=exact",
+	)
+
 	result, err := s.indexStore.QuerySuites(r.Context(), params)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError,
@@ -262,6 +275,10 @@ func (s *server) handleQueryTestStatsBlockLogs(
 
 		return
 	}
+
+	params.CountExact = strings.Contains(
+		r.Header.Get("Prefer"), "count=exact",
+	)
 
 	result, err := s.indexStore.QueryTestStatsBlockLogs(
 		r.Context(), params,
