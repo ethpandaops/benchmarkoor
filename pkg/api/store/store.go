@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
@@ -68,9 +69,10 @@ type Store interface {
 var _ Store = (*store)(nil)
 
 type store struct {
-	log logrus.FieldLogger
-	cfg *config.APIDatabaseConfig
-	db  *gorm.DB
+	log    logrus.FieldLogger
+	cfg    *config.APIDatabaseConfig
+	db     *gorm.DB // write-only connection (single conn for SQLite)
+	readDB *gorm.DB // read-only connection pool (concurrent readers)
 }
 
 // NewStore creates a new Store backed by the configured database driver.
@@ -86,18 +88,15 @@ func NewStore(
 
 // Start opens the database connection and runs migrations.
 func (s *store) Start(ctx context.Context) error {
-	var (
-		dialector gorm.Dialector
-		err       error
-	)
-
 	gormCfg := &gorm.Config{
 		Logger: logger.Discard,
 	}
 
 	switch s.cfg.Driver {
 	case "sqlite":
-		dialector = sqlite.Open(s.cfg.SQLite.Path)
+		if err := s.openSQLite(gormCfg); err != nil {
+			return err
+		}
 	case "postgres":
 		dsn := fmt.Sprintf(
 			"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
@@ -108,25 +107,16 @@ func (s *store) Start(ctx context.Context) error {
 			s.cfg.Postgres.Database,
 			s.cfg.Postgres.SSLMode,
 		)
-		dialector = postgres.Open(dsn)
-	default:
-		return fmt.Errorf("unsupported database driver: %s", s.cfg.Driver)
-	}
 
-	s.db, err = gorm.Open(dialector, gormCfg)
-	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
-	}
-
-	// SQLite requires a single connection to avoid write contention and
-	// ensure pragmas are applied consistently.
-	if s.cfg.Driver == "sqlite" {
-		sqlDB, dbErr := s.db.DB()
-		if dbErr != nil {
-			return fmt.Errorf("getting underlying sql.DB: %w", dbErr)
+		db, err := gorm.Open(postgres.Open(dsn), gormCfg)
+		if err != nil {
+			return fmt.Errorf("opening database: %w", err)
 		}
 
-		sqlDB.SetMaxOpenConns(1)
+		s.db = db
+		s.readDB = db
+	default:
+		return fmt.Errorf("unsupported database driver: %s", s.cfg.Driver)
 	}
 
 	if err := s.db.WithContext(ctx).AutoMigrate(
@@ -144,8 +134,89 @@ func (s *store) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop closes the underlying database connection.
+// openSQLite opens the write and read GORM connections for SQLite.
+func (s *store) openSQLite(gormCfg *gorm.Config) error {
+	writeDB, err := gorm.Open(sqlite.Open(s.cfg.SQLite.Path), gormCfg)
+	if err != nil {
+		return fmt.Errorf("opening database (write): %w", err)
+	}
+
+	writeSQLDB, err := writeDB.DB()
+	if err != nil {
+		return fmt.Errorf("getting underlying sql.DB (write): %w", err)
+	}
+
+	writeSQLDB.SetMaxOpenConns(1)
+
+	if err := applySQLitePragmas(writeDB); err != nil {
+		return err
+	}
+
+	s.db = writeDB
+
+	if s.cfg.SQLite.Path == ":memory:" ||
+		strings.Contains(s.cfg.SQLite.Path, "mode=memory") {
+		s.readDB = writeDB
+
+		return nil
+	}
+
+	readDB, err := gorm.Open(
+		sqlite.Open(s.cfg.SQLite.Path), gormCfg,
+	)
+	if err != nil {
+		return fmt.Errorf("opening database (read): %w", err)
+	}
+
+	readSQLDB, err := readDB.DB()
+	if err != nil {
+		return fmt.Errorf("getting underlying sql.DB (read): %w", err)
+	}
+
+	readSQLDB.SetMaxOpenConns(4)
+
+	if err := applySQLitePragmas(readDB); err != nil {
+		return err
+	}
+
+	s.readDB = readDB
+
+	return nil
+}
+
+// applySQLitePragmas sets performance and reliability pragmas on a
+// SQLite GORM connection.
+func applySQLitePragmas(db *gorm.DB) error {
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA foreign_keys=ON",
+		"PRAGMA temp_store=MEMORY",
+	}
+
+	for _, p := range pragmas {
+		if err := db.Exec(p).Error; err != nil {
+			return fmt.Errorf("setting pragma %q: %w", p, err)
+		}
+	}
+
+	return nil
+}
+
+// Stop closes the underlying database connections.
 func (s *store) Stop() error {
+	if s.readDB != nil && s.readDB != s.db {
+		readSQL, err := s.readDB.DB()
+		if err != nil {
+			return fmt.Errorf("getting underlying read db: %w", err)
+		}
+
+		if err := readSQL.Close(); err != nil {
+			return fmt.Errorf("closing read db: %w", err)
+		}
+	}
+
 	if s.db == nil {
 		return nil
 	}
@@ -164,7 +235,7 @@ func (s *store) GetUserByID(
 	ctx context.Context, id uint,
 ) (*User, error) {
 	var user User
-	if err := s.db.WithContext(ctx).First(&user, id).Error; err != nil {
+	if err := s.readDB.WithContext(ctx).First(&user, id).Error; err != nil {
 		return nil, fmt.Errorf("getting user by id: %w", err)
 	}
 
@@ -175,7 +246,7 @@ func (s *store) GetUserByUsername(
 	ctx context.Context, username string,
 ) (*User, error) {
 	var user User
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Where("username = ?", username).
 		First(&user).Error; err != nil {
 		return nil, fmt.Errorf("getting user by username: %w", err)
@@ -186,7 +257,7 @@ func (s *store) GetUserByUsername(
 
 func (s *store) ListUsers(ctx context.Context) ([]User, error) {
 	var users []User
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Order("id ASC").
 		Find(&users).Error; err != nil {
 		return nil, fmt.Errorf("listing users: %w", err)
@@ -236,7 +307,7 @@ func (s *store) GetSessionByToken(
 	ctx context.Context, token string,
 ) (*Session, error) {
 	var session Session
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Where("token = ?", token).
 		First(&session).Error; err != nil {
 		return nil, fmt.Errorf("getting session by token: %w", err)
@@ -247,7 +318,7 @@ func (s *store) GetSessionByToken(
 
 func (s *store) ListSessions(ctx context.Context) ([]Session, error) {
 	var sessions []Session
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Order("id ASC").
 		Find(&sessions).Error; err != nil {
 		return nil, fmt.Errorf("listing sessions: %w", err)
@@ -320,7 +391,7 @@ func (s *store) ListAPIKeysByUser(
 	ctx context.Context, userID uint,
 ) ([]APIKey, error) {
 	var keys []APIKey
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Where("user_id = ?", userID).
 		Order("id ASC").
 		Find(&keys).Error; err != nil {
@@ -332,7 +403,7 @@ func (s *store) ListAPIKeysByUser(
 
 func (s *store) ListAPIKeys(ctx context.Context) ([]APIKey, error) {
 	var keys []APIKey
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Order("id ASC").
 		Find(&keys).Error; err != nil {
 		return nil, fmt.Errorf("listing api keys: %w", err)
@@ -345,7 +416,7 @@ func (s *store) GetAPIKeyByHash(
 	ctx context.Context, hash string,
 ) (*APIKey, error) {
 	var key APIKey
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Where("key_hash = ?", hash).
 		First(&key).Error; err != nil {
 		return nil, fmt.Errorf("getting api key by hash: %w", err)
@@ -398,7 +469,7 @@ func (s *store) ListGitHubOrgMappings(
 	ctx context.Context,
 ) ([]GitHubOrgMapping, error) {
 	var mappings []GitHubOrgMapping
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Order("id ASC").
 		Find(&mappings).Error; err != nil {
 		return nil, fmt.Errorf("listing github org mappings: %w", err)
@@ -436,7 +507,7 @@ func (s *store) ListGitHubUserMappings(
 	ctx context.Context,
 ) ([]GitHubUserMapping, error) {
 	var mappings []GitHubUserMapping
-	if err := s.db.WithContext(ctx).
+	if err := s.readDB.WithContext(ctx).
 		Order("id ASC").
 		Find(&mappings).Error; err != nil {
 		return nil, fmt.Errorf("listing github user mappings: %w", err)
