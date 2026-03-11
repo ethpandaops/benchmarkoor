@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/api/gormlogger"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/glebarez/sqlite"
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 // Store provides persistence for the indexed benchmark data.
@@ -91,7 +91,7 @@ func NewStore(
 // Start opens the database connection and runs migrations.
 func (s *store) Start(ctx context.Context) error {
 	gormCfg := &gorm.Config{
-		Logger: logger.Discard,
+		Logger: gormlogger.New(s.log, 500*time.Millisecond),
 	}
 
 	switch s.cfg.Driver {
