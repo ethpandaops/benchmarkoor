@@ -619,8 +619,8 @@ export function SuiteDetailPage() {
                     (affects Duration, MGas/s calculations)
                   </span>
                 </div>
-                <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                  <div className="flex items-center justify-between px-4 py-3">
+                <div className="overflow-hidden rounded-xs border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-3">
                     <button
                       onClick={() => setHeatmapExpanded(!heatmapExpanded)}
                       className="flex items-center gap-2 text-left text-sm/6 font-medium text-gray-900 hover:text-gray-700 dark:text-gray-100 dark:hover:text-gray-300"
@@ -633,7 +633,7 @@ export function SuiteDetailPage() {
                       <button
                         onClick={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
                         className={clsx(
-                          'flex cursor-pointer items-center justify-center rounded-sm p-1 shadow-xs ring-1 ring-inset transition-colors',
+                          'flex cursor-pointer items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors',
                           compareMode
                             ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
                             : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200',
@@ -648,7 +648,7 @@ export function SuiteDetailPage() {
                           const ids = recentSuccessfulPerClient.map((r) => r.run_id)
                           navigate({ to: '/compare', search: { runs: ids.join(',') } })
                         }}
-                        className="flex cursor-pointer items-center justify-center rounded-sm p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                        className="flex cursor-pointer items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                         title="Compare latest successful run per client"
                       >
                         <GitCompareArrows className="size-3.5" />
@@ -656,7 +656,7 @@ export function SuiteDetailPage() {
                     </div>
                   </div>
                   {heatmapExpanded && (
-                    <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                    <div className="border-t border-gray-200 p-3 sm:p-4 dark:border-gray-700">
                       <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
                     </div>
                   )}
