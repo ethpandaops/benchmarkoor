@@ -84,8 +84,5 @@ func (s *rethSpec) DefaultEnvironment() map[string]string {
 }
 
 func (s *rethSpec) RPCRollbackSpec() *RPCRollbackSpec {
-	return &RPCRollbackSpec{
-		Method:    RollbackMethodSetHeadInt,
-		RPCMethod: "debug_setHead",
-	}
+	return nil
 }
