@@ -4,6 +4,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-none}
+        DATE: ${DATE:-unknown}
     # Required for dropping memory caches, ZFS/overlayfs datadir methods, etc.
     privileged: true
     # Share host PID namespace so nsenter can access /proc/<pid>/ns/net

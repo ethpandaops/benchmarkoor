@@ -129,4 +129,4 @@ docker-run:
 ## docker-run-benchmark: Start the benchmarkoor service with docker-compose (CLIENT=name to limit, CONFIG=file to override config)
 CONFIG?=config.example.docker.yaml
 docker-run-benchmark:
-	USER_UID=$(shell id -u) USER_GID=$(shell id -g) BENCHMARKOOR_CONFIG=$(CONFIG) docker compose run --rm --build benchmarkoor run --config /app/config.yaml $(if $(CLIENT),--limit-instance-client=$(CLIENT))
+	VERSION=$(VERSION) COMMIT=$(COMMIT) DATE=$(DATE) USER_UID=$(shell id -u) USER_GID=$(shell id -g) BENCHMARKOOR_CONFIG=$(CONFIG) docker compose run --rm --build benchmarkoor run --config /app/config.yaml $(if $(CLIENT),--limit-instance-client=$(CLIENT))

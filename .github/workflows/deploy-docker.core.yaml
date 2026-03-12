@@ -26,13 +26,13 @@ jobs:
           VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
           COMMIT=$(git rev-parse --short HEAD)
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          echo "VERSION=${VERSION}" >> .build-version
-          echo "COMMIT=${COMMIT}" >> .build-version
-          echo "DATE=${DATE}" >> .build-version
-          echo "Writing build version: VERSION=${VERSION} COMMIT=${COMMIT} DATE=${DATE}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "COMMIT=${COMMIT}" >> "$GITHUB_ENV"
+          echo "DATE=${DATE}" >> "$GITHUB_ENV"
+          echo "Build version: VERSION=${VERSION} COMMIT=${COMMIT} DATE=${DATE}"
 
       - name: Deploy docker images
-        uses: ethpandaops/actions/docker-build-push@7d7b7bfe36fe4cfa538acd0e23706a23ce07c3ac # master
+        uses: ethpandaops/actions/docker-build-push@99b48ca2b233a2eff93e6a6df76e46b718aca108
         with:
           registry: ghcr.io
           registry_username: ${{ github.actor }}
@@ -41,3 +41,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           file: Dockerfile
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            COMMIT=${{ env.COMMIT }}
+            DATE=${{ env.DATE }}
