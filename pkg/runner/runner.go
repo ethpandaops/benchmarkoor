@@ -1688,6 +1688,103 @@ func (r *runner) runTestsWithContainerStrategy(
 		"Running tests with container-level rollback strategy",
 	)
 
+	// Detect ZFS snapshot optimization: when the strategy is
+	// container-recreate with a ZFS datadir, we snapshot the data
+	// directory after the first RPC-ready state, then rollback to
+	// that snapshot between tests instead of cloning from scratch.
+	useZFSSnapshot := strategy == config.RollbackStrategyContainerRecreate &&
+		params.DataDirCfg != nil && params.DataDirCfg.Method == "zfs"
+
+	// snapshotRollback holds the rollback/cleanup callbacks for the
+	// ZFS snapshot path. Only populated when useZFSSnapshot is true.
+	type snapshotRollback struct {
+		rollback func(ctx context.Context) error
+		cleanup  func()
+	}
+
+	var sr *snapshotRollback
+
+	if useZFSSnapshot {
+		log.Info(
+			"ZFS datadir detected: will snapshot after RPC-ready " +
+				"and rollback between tests",
+		)
+
+		// Stop the initial container so writes are flushed to disk.
+		if err := r.containerMgr.StopContainer(ctx, containerID); err != nil {
+			return nil, fmt.Errorf("stopping container for ZFS snapshot: %w", err)
+		}
+
+		waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+		// Sync to flush any dirty pages before snapshotting.
+		if syncErr := exec.Command("sync").Run(); syncErr != nil {
+			log.WithError(syncErr).Warn(
+				"Failed to sync before ZFS snapshot",
+			)
+		}
+
+		// Find the data mount source path from the container spec.
+		containerDir := spec.DataDir()
+		if params.DataDirCfg.ContainerDir != "" {
+			containerDir = params.DataDirCfg.ContainerDir
+		}
+
+		dataMountSource := ""
+
+		for _, mnt := range params.ContainerSpec.Mounts {
+			if mnt.Target == containerDir {
+				dataMountSource = mnt.Source
+
+				break
+			}
+		}
+
+		if dataMountSource == "" {
+			return nil, fmt.Errorf(
+				"could not find data mount for %s in container spec",
+				containerDir,
+			)
+		}
+
+		// Take the ready-state ZFS snapshot.
+		zfsMgr := datadir.NewCheckpointZFSManager(r.log)
+
+		snapshot, snapErr := zfsMgr.SnapshotReady(
+			ctx, &datadir.CheckpointConfig{
+				DataDir:    dataMountSource,
+				InstanceID: params.Instance.ID,
+			},
+		)
+		if snapErr != nil {
+			return nil, fmt.Errorf(
+				"creating ready-state ZFS snapshot: %w", snapErr,
+			)
+		}
+
+		sr = &snapshotRollback{
+			rollback: func(ctx context.Context) error {
+				return zfsMgr.RollbackToReady(ctx, snapshot)
+			},
+			cleanup: func() {
+				if destroyErr := zfsMgr.DestroySnapshot(snapshot); destroyErr != nil {
+					log.WithError(destroyErr).Warn(
+						"Failed to destroy ready-state ZFS snapshot",
+					)
+				}
+			},
+		}
+
+		defer sr.cleanup()
+
+		// Remove the initial container (we'll create fresh ones per test).
+		if err := r.containerMgr.RemoveContainer(
+			ctx, containerID,
+		); err != nil {
+			log.WithError(err).Warn("Failed to remove initial container")
+		}
+	}
+
 	combined := &executor.ExecutionResult{}
 	startTime := time.Now()
 	currentContainerID := containerID
@@ -1710,6 +1807,169 @@ func (r *runner) runTestsWithContainerStrategy(
 
 		// Restore state before test.
 		switch {
+		case useZFSSnapshot:
+			// ZFS snapshot path: rollback datadir, create a fresh
+			// container on the same mount, start, wait for RPC.
+			testLog.Info("Rolling back ZFS snapshot for next test")
+
+			if i > 0 {
+				// Stop and remove container from previous test.
+				if err := r.containerMgr.StopContainer(
+					ctx, currentContainerID,
+				); err != nil {
+					testLog.WithError(err).Warn(
+						"Failed to stop container",
+					)
+				}
+
+				waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+				if err := r.containerMgr.RemoveContainer(
+					ctx, currentContainerID,
+				); err != nil {
+					testLog.WithError(err).Warn(
+						"Failed to remove container",
+					)
+				}
+			}
+
+			// Rollback the ZFS dataset to the ready-state snapshot.
+			if err := sr.rollback(ctx); err != nil {
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf(
+					"rolling back ZFS snapshot for test %d: %w", i, err,
+				)
+			}
+
+			// Create a new container using the same mount path.
+			newSpec := *params.ContainerSpec
+			newSpec.Name = fmt.Sprintf("%s-%d", params.ContainerSpec.Name, i)
+			newSpec.Mounts = make(
+				[]docker.Mount, len(params.ContainerSpec.Mounts),
+			)
+			copy(newSpec.Mounts, params.ContainerSpec.Mounts)
+
+			newID, err := r.containerMgr.CreateContainer(ctx, &newSpec)
+			if err != nil {
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf(
+					"creating container for test %d: %w", i, err,
+				)
+			}
+
+			currentContainerID = newID
+
+			*cleanupFuncs = append(*cleanupFuncs, func() {
+				if rmErr := r.containerMgr.RemoveContainer(
+					context.Background(), newID,
+				); rmErr != nil {
+					testLog.WithError(rmErr).Warn(
+						"Failed to remove recreated container",
+					)
+				}
+			})
+
+			// Start fresh log streaming.
+			if err := r.startLogStreaming(
+				ctx, resultsDir,
+				params.Instance.ID, newID,
+				benchmarkoorLog, &containerLogInfo{
+					Name:             newSpec.Name,
+					ContainerID:      newID,
+					Image:            newSpec.Image,
+					GenesisGroupHash: params.GenesisGroupHash,
+				},
+				params.BlockLogCollector, cleanupStarted,
+				logDone, logCancel, cleanupFuncs,
+			); err != nil {
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf(
+					"log streaming for test %d: %w", i, err,
+				)
+			}
+
+			// Start the new container.
+			if err := r.containerMgr.StartContainer(ctx, newID); err != nil {
+				waitForLogDrain(logDone, logCancel, logDrainTimeout)
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf(
+					"starting container for test %d: %w", i, err,
+				)
+			}
+
+			// Get new container IP.
+			newIP, err := r.containerMgr.GetContainerIP(
+				ctx, newID, r.cfg.DockerNetwork,
+			)
+			if err != nil {
+				waitForLogDrain(logDone, logCancel, logDrainTimeout)
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf(
+					"getting container IP for test %d: %w", i, err,
+				)
+			}
+
+			currentContainerIP = newIP
+
+			// Wait for RPC to be ready.
+			if _, err := r.waitForRPC(
+				ctx, currentContainerIP, spec.RPCPort(),
+			); err != nil {
+				waitForLogDrain(logDone, logCancel, logDrainTimeout)
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf(
+					"waiting for RPC on test %d: %w", i, err,
+				)
+			}
+
+			// Send bootstrap FCU if configured.
+			if r.cfg.FullConfig != nil {
+				if fcuCfg := r.cfg.FullConfig.GetBootstrapFCU(
+					params.Instance,
+				); fcuCfg != nil && fcuCfg.Enabled {
+					blkHash := fcuCfg.HeadBlockHash
+					if blkHash == "" {
+						var blkErr error
+						_, blkHash, _, blkErr = r.getLatestBlock(
+							ctx, currentContainerIP, spec.RPCPort(),
+						)
+
+						if blkErr != nil {
+							testLog.WithError(blkErr).Warn(
+								"Failed to get latest block " +
+									"for bootstrap FCU",
+							)
+						}
+					}
+
+					if blkHash != "" {
+						if fcuErr := r.sendBootstrapFCU(
+							ctx, testLog, currentContainerIP,
+							spec.EnginePort(), blkHash, fcuCfg,
+						); fcuErr != nil {
+							testLog.WithError(fcuErr).Error(
+								"Bootstrap FCU failed",
+							)
+							waitForLogDrain(
+								logDone, logCancel, logDrainTimeout,
+							)
+							combined.TotalDuration = time.Since(startTime)
+
+							return combined, fmt.Errorf(
+								"sending bootstrap FCU for test %d: %w",
+								i, fcuErr,
+							)
+						}
+					}
+				}
+			}
+
 		case strategy == config.RollbackStrategyContainerRecreate && i > 0:
 			testLog.Info("Recreating container for next test")
 
