@@ -27,6 +27,7 @@ func (s *nethermindSpec) DefaultCommand() []string {
 		"--Network.MaxActivePeers=0",
 		"--Init.DiscoveryEnabled=false",
 		"--Sync.MaxAttemptsToUpdatePivot=0",
+		"--Network.ExternalIp=127.0.0.1",
 		// "Public" JSON RPC API
 		"--JsonRpc.Enabled=true",
 		"--JsonRpc.Host=0.0.0.0",
