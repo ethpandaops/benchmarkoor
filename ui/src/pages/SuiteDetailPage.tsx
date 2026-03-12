@@ -791,11 +791,11 @@ export function SuiteDetailPage() {
                   </p>
                 ) : (
                   <>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-3">
                         <button
                           onClick={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
-                          className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                          className={`flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
                             compareMode
                               ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
                               : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
@@ -810,7 +810,7 @@ export function SuiteDetailPage() {
                             const ids = recentSuccessfulPerClient.map((r) => r.run_id)
                             navigate({ to: '/compare', search: { runs: ids.join(',') } })
                           }}
-                          className="flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                          className="flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                           title="Compare latest successful run per client"
                         >
                           <GitCompareArrows className="size-4" />
@@ -818,7 +818,7 @@ export function SuiteDetailPage() {
                         {isAdmin && (
                           <button
                             onClick={() => deleteMode ? handleExitDeleteMode() : handleEnterDeleteMode()}
-                            className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                            className={`flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
                               deleteMode
                                 ? 'bg-red-600 text-white ring-red-600 hover:bg-red-700 hover:ring-red-700'
                                 : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
@@ -832,7 +832,7 @@ export function SuiteDetailPage() {
                         <select
                           value={runsPageSize}
                           onChange={(e) => handleRunsPageSizeChange(Number(e.target.value))}
-                          className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                          className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                         >
                           {PAGE_SIZE_OPTIONS.map((size) => (
                             <option key={size} value={size}>
@@ -840,7 +840,7 @@ export function SuiteDetailPage() {
                             </option>
                           ))}
                         </select>
-                        <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
+                        <span className="hidden text-sm/6 text-gray-500 sm:inline dark:text-gray-400">per page</span>
                       </div>
                       {totalRunsPages > 1 && (
                         <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
@@ -857,13 +857,13 @@ export function SuiteDetailPage() {
                       onSelectionChange={deleteMode ? handleDeleteSelectionChange : handleSelectionChange}
                       selectionVariant={deleteMode ? 'delete' : 'compare'}
                     />
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
                         <select
                           value={runsPageSize}
                           onChange={(e) => handleRunsPageSizeChange(Number(e.target.value))}
-                          className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                          className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                         >
                           {PAGE_SIZE_OPTIONS.map((size) => (
                             <option key={size} value={size}>
@@ -871,7 +871,7 @@ export function SuiteDetailPage() {
                             </option>
                           ))}
                         </select>
-                        <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
+                        <span className="hidden text-sm/6 text-gray-500 sm:inline dark:text-gray-400">per page</span>
                       </div>
                       {totalRunsPages > 1 && (
                         <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />

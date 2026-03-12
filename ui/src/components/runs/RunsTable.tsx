@@ -48,6 +48,7 @@ function SortIcon({ direction, active }: { direction: SortDirection; active: boo
 
 function SortableHeader({
   label,
+  shortLabel,
   column,
   currentSort,
   currentDirection,
@@ -55,6 +56,7 @@ function SortableHeader({
   className,
 }: {
   label: string
+  shortLabel?: string
   column: SortColumn
   currentSort: SortColumn
   currentDirection: SortDirection
@@ -67,7 +69,12 @@ function SortableHeader({
       onClick={() => onSort(column)}
       className={clsx('cursor-pointer select-none text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300', className ?? 'px-3 py-2 sm:px-4 sm:py-2')}
     >
-      {label}
+      {shortLabel ? (
+        <>
+          <span className="sm:hidden">{shortLabel}</span>
+          <span className="hidden sm:inline">{label}</span>
+        </>
+      ) : label}
       <SortIcon direction={isActive ? currentDirection : 'asc'} active={isActive} />
     </th>
   )
