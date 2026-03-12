@@ -498,8 +498,8 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
   }
 
   const header = (
-    <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-      <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 sm:px-4 sm:py-3 dark:border-gray-700">
+      <div className="flex items-center gap-2 sm:gap-3">
         {fullscreen && suiteHash && (
           <div className="flex items-center gap-2">
             <JDenticon value={suiteHash} size={24} className="shrink-0 rounded-xs" />
@@ -511,7 +511,8 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
         )}
         <h3 className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
           <Flame className="size-4 text-gray-400 dark:text-gray-500" />
-          Test Heatmap
+          <span className="hidden sm:inline">Test Heatmap</span>
+          <span className="sm:hidden">Heatmap</span>
         </h3>
         {isLoading && <Spinner size="sm" />}
         <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
@@ -523,9 +524,9 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
           type="text"
           value={search}
           onChange={(e) => handleSearchChange(e.target.value)}
-          placeholder={useRegex ? 'Regex pattern...' : 'Filter tests...'}
+          placeholder={useRegex ? 'Regex...' : 'Filter...'}
           className={clsx(
-            'rounded-xs border bg-white px-3 py-1 text-sm placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
+            'w-28 rounded-xs border bg-white px-2 py-1 text-sm placeholder-gray-400 focus:outline-hidden focus:ring-1 sm:w-auto sm:px-3 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
             useRegex && search && (() => { try { new RegExp(search); return false } catch { return true } })()
               ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
               : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
@@ -570,18 +571,18 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
   }
 
   const controls = (
-    <div className={clsx('flex items-start justify-between gap-x-6 gap-y-2', fullscreen ? 'shrink-0 px-4 pt-4 pb-2' : 'px-4 pt-4')}>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+    <div className={clsx('flex flex-wrap items-start justify-between gap-x-4 gap-y-2', fullscreen ? 'shrink-0 px-3 pt-3 pb-2 sm:px-4 sm:pt-4' : 'px-3 pt-3 sm:px-4 sm:pt-4')}>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-x-6">
           {/* Threshold control */}
           <div className="flex items-center gap-2">
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400"><span className="hidden sm:inline">Slow </span>Threshold:</span>
             <input
               type="range"
               min={MIN_THRESHOLD}
               max={MAX_THRESHOLD}
               value={threshold}
               onChange={(e) => handleThresholdChange(Number(e.target.value))}
-              className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+              className="h-1.5 w-20 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 sm:w-24 dark:bg-gray-700"
             />
             <input
               type="number"
@@ -589,9 +590,8 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
               max={MAX_THRESHOLD}
               value={threshold}
               onChange={(e) => handleThresholdChange(Number(e.target.value))}
-              className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              className="w-14 rounded-sm border border-gray-300 bg-white px-1 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 sm:w-16 sm:px-1.5 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
             />
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">MGas/s</span>
             {threshold !== DEFAULT_THRESHOLD && (
               <button
                 onClick={() => setThreshold(DEFAULT_THRESHOLD)}
@@ -602,34 +602,32 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
             )}
           </div>
 
-          {/* Client stat toggle */}
-          <label className="flex cursor-pointer items-center gap-1.5">
-            <input
-              type="checkbox"
-              checked={showClientStat}
-              onChange={(e) => setShowClientStat(e.target.checked)}
-              className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
-            />
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Client stats</span>
-          </label>
+          {/* Toggles */}
+          <div className="flex items-center gap-3 sm:gap-4">
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={showClientStat}
+                onChange={(e) => setShowClientStat(e.target.checked)}
+                className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+              />
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400"><span className="hidden sm:inline">Client </span>Stats</span>
+            </label>
 
-          {/* Show test name toggle */}
-          <label className="flex cursor-pointer items-center gap-1.5">
-            <input
-              type="checkbox"
-              checked={showTestName}
-              onChange={(e) => onShowTestNameChange?.(e.target.checked)}
-              className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
-            />
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Test name</span>
-          </label>
-
-          {/* Separator */}
-          <div className="hidden h-4 w-px bg-gray-200 sm:block dark:bg-gray-700" />
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={showTestName}
+                onChange={(e) => onShowTestNameChange?.(e.target.checked)}
+                className="size-3.5 cursor-pointer rounded-xs border-gray-300 text-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800"
+              />
+              <span className="text-xs/5 text-gray-500 dark:text-gray-400"><span className="hidden sm:inline">Test </span>Name</span>
+            </label>
+          </div>
 
           {/* Runs per client */}
           <div className="flex items-center gap-1.5">
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Runs per client:</span>
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400"><span className="hidden sm:inline">Runs per client</span><span className="sm:hidden">Runs</span>:</span>
             <select
               value={runsPerClient}
               onChange={(e) => setRunsPerClient(Number(e.target.value))}
@@ -659,7 +657,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
                 </option>
               ))}
             </select>
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">per page</span>
+            <span className="hidden text-xs/5 text-gray-500 sm:inline dark:text-gray-400">per page</span>
           </div>
           {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />}
         </div>
@@ -667,7 +665,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
   )
 
   const tableContent = (
-    <div className={fullscreen ? 'min-h-0 flex-1 overflow-auto px-4' : 'max-h-[75vh] overflow-auto px-4'}>
+    <div className={fullscreen ? 'min-h-0 flex-1 overflow-auto px-3 sm:px-4' : 'max-h-[75vh] overflow-auto px-3 sm:px-4'}>
       <table className="w-full border-collapse text-sm/6">
           <thead className="sticky top-0 z-20">
             <tr>
@@ -691,7 +689,12 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
               </th>
               {clients.map((client) => (
                 <th key={client} className={clsx('px-1 pt-0 pb-2 text-center', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}>
-                  <ClientBadge client={client} />
+                  <span className="sm:hidden">
+                    <ClientBadge client={client} hideLabel />
+                  </span>
+                  <span className="hidden sm:inline-flex">
+                    <ClientBadge client={client} />
+                  </span>
                 </th>
               ))}
               {STAT_COLUMNS.map((col) => (
@@ -744,7 +747,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
                               {Array.from({ length: BOXES_PER_ROW }).map((_, i) => (
                                 <div
                                   key={i}
-                                  className="size-5 rounded-xs bg-gray-100 dark:bg-gray-700"
+                                  className="size-4 rounded-xs bg-gray-100 sm:size-5 dark:bg-gray-700"
                                   title="No data"
                                 />
                               ))}
@@ -769,7 +772,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
                                 return (
                                   <div
                                     key={colIdx}
-                                    className="size-5 rounded-xs bg-gray-100 dark:bg-gray-700"
+                                    className="size-4 rounded-xs bg-gray-100 sm:size-5 dark:bg-gray-700"
                                     title="No data"
                                   />
                                 )
@@ -782,7 +785,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
                                   search={{ testModal: test.name }}
                                   onMouseEnter={(e) => handleMouseEnter(test, client, run, e)}
                                   onMouseLeave={handleMouseLeave}
-                                  className="block size-5 rounded-xs border-2 transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500"
+                                  className="block size-4 rounded-xs border-2 transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 sm:size-5 dark:hover:ring-gray-500"
                                   style={{
                                     backgroundColor: getColorByThreshold(run.mgas, threshold),
                                     borderColor: getColorByNormalizedValue(run.mgas, test.minMgas, test.maxMgas),
@@ -829,7 +832,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
   )
 
   const bottomSection = (
-    <div className={clsx('flex flex-col gap-4', fullscreen ? 'shrink-0 px-4 pb-4' : 'px-4 pb-4')}>
+    <div className={clsx('flex flex-col gap-4', fullscreen ? 'shrink-0 px-3 pb-3 sm:px-4 sm:pb-4' : 'px-3 pb-3 sm:px-4 sm:pb-4')}>
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex justify-end">
@@ -843,7 +846,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
           <p className="text-xs/5 text-gray-400 dark:text-gray-500">
             Stats are computed from the {runsPerClient} most recent runs per client visible in the heatmap. Changing &quot;Runs per client&quot; alters these values.
           </p>
-          <div className="mb-1 flex items-center justify-between">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution by threshold</span>
             <div className="flex items-center gap-2">
               <span className="text-xs/5 text-gray-500 dark:text-gray-400">Stat:</span>
@@ -865,7 +868,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {/* All clients (global) */}
             <div className="flex flex-col gap-1 rounded-sm border border-gray-200 p-2 dark:border-gray-700">
               <div className="flex items-center justify-between">
