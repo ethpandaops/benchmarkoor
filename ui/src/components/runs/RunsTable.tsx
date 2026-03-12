@@ -116,7 +116,7 @@ export function RunsTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
+    <div className="overflow-x-auto rounded-xs bg-white shadow-xs dark:bg-gray-800">
       <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
         <thead className="bg-gray-50 dark:bg-gray-900">
           <tr>
