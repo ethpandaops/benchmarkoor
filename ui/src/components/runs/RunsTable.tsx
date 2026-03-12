@@ -7,7 +7,7 @@ import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { StrategyIcon } from '@/components/shared/StrategyIcon'
-import { formatTimestamp, formatRelativeTime } from '@/utils/date'
+import { formatTimestampDate, formatTimestampTime, formatRelativeTime } from '@/utils/date'
 import { formatDuration, formatNumber } from '@/utils/format'
 import { type SortColumn, type SortDirection } from './sortEntries'
 
@@ -65,7 +65,7 @@ function SortableHeader({
   return (
     <th
       onClick={() => onSort(column)}
-      className={clsx('cursor-pointer select-none text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300', className ?? 'px-3 py-2 sm:px-6 sm:py-3')}
+      className={clsx('cursor-pointer select-none text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300', className ?? 'px-3 py-2 sm:px-4 sm:py-2')}
     >
       {label}
       <SortIcon direction={isActive ? currentDirection : 'asc'} active={isActive} />
@@ -120,16 +120,16 @@ export function RunsTable({
       <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
         <thead className="bg-gray-50 dark:bg-gray-900">
           <tr>
-            {selectable && <th className="w-10 px-2 py-2 sm:px-3 sm:py-3" />}
-            <SortableHeader label="Timestamp" column="timestamp" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+            {selectable && <th className="w-10 px-2 py-2 sm:px-3 sm:py-2" />}
+            <SortableHeader label="Time" column="timestamp" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Client" column="client" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <SortableHeader label="Image" column="image" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="hidden px-3 py-2 sm:table-cell sm:px-6 sm:py-3" />
+            <SortableHeader label="Image" column="image" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="hidden px-3 py-2 sm:table-cell sm:px-4 sm:py-2" />
             {showSuite && <SortableHeader label="Suite" column="suite" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />}
             <SortableHeader label="MGas/s" column="mgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Duration" column="duration" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-            <SortableHeader label="F" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-1.5 py-2 sm:px-2 sm:py-3" />
-            <SortableHeader label="P" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-1.5 py-2 sm:px-2 sm:py-3" />
-            <SortableHeader label="T" column="total" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-1.5 py-2 sm:px-2 sm:py-3" />
+            <SortableHeader label="F" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-1.5 py-2 sm:px-2 sm:py-2" />
+            <SortableHeader label="P" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-1.5 py-2 sm:px-2 sm:py-2" />
+            <SortableHeader label="T" column="total" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-1.5 py-2 sm:px-2 sm:py-2" />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -170,16 +170,19 @@ export function RunsTable({
                 </td>
               )}
               <td className={clsx(
-                'whitespace-nowrap px-3 py-2 text-sm/6 text-gray-500 sm:px-6 sm:py-4 dark:text-gray-400 border-l-3',
+                'whitespace-nowrap px-3 py-2 text-sm/6 text-gray-500 sm:px-4 sm:py-2.5 dark:text-gray-400 border-l-3',
                 entry.status === 'container_died' && 'border-red-400 dark:border-red-500',
                 entry.status === 'cancelled' && 'border-yellow-400 dark:border-yellow-500',
                 entry.status === 'timeout' && 'border-orange-400 dark:border-orange-500',
                 hasFailures && 'border-orange-400 dark:border-orange-500',
                 entry.status !== 'container_died' && entry.status !== 'cancelled' && entry.status !== 'timeout' && !hasFailures && 'border-transparent',
               )}>
-                <span title={formatRelativeTime(entry.timestamp)}>{formatTimestamp(entry.timestamp)}</span>
+                <span className="flex flex-col" title={formatRelativeTime(entry.timestamp)}>
+                  <span>{formatTimestampDate(entry.timestamp)}</span>
+                  <span className="text-xs/4 text-gray-400 dark:text-gray-500">{formatTimestampTime(entry.timestamp)}</span>
+                </span>
               </td>
-              <td className="whitespace-nowrap px-3 py-2 sm:px-6 sm:py-4">
+              <td className="whitespace-nowrap px-3 py-2 sm:px-4 sm:py-2.5">
                 <div className="flex items-center gap-2">
                   <span className="sm:hidden">
                     <ClientBadge client={entry.instance.client} hideLabel />
@@ -190,11 +193,11 @@ export function RunsTable({
                   <StrategyIcon strategy={entry.instance.rollback_strategy} />
                 </div>
               </td>
-              <td className="hidden max-w-xs truncate px-3 py-2 font-mono text-sm/6 text-gray-500 sm:table-cell sm:px-6 sm:py-4 dark:text-gray-400">
+              <td className="hidden max-w-xs truncate px-3 py-2 font-mono text-sm/6 text-gray-500 sm:table-cell sm:px-4 sm:py-2.5 dark:text-gray-400">
                 <span title={entry.instance.image}>{entry.instance.image}</span>
               </td>
               {showSuite && (
-                <td className="whitespace-nowrap px-3 py-2 font-mono text-sm/6 sm:px-6 sm:py-4">
+                <td className="whitespace-nowrap px-3 py-2 font-mono text-sm/6 sm:px-4 sm:py-2.5">
                   {entry.suite_hash ? (
                     <SuiteCell suiteHash={entry.suite_hash} />
                   ) : (
@@ -207,7 +210,7 @@ export function RunsTable({
                 return (
                   <>
                     <td
-                      className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-gray-500 sm:px-6 sm:py-4 dark:text-gray-400"
+                      className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-gray-500 sm:px-4 sm:py-2.5 dark:text-gray-400"
                       title={(() => {
                         const testStep = entry.tests.steps.test
                         if (!testStep) return undefined
@@ -222,20 +225,20 @@ export function RunsTable({
                         return mgas !== undefined ? mgas.toFixed(2) : '-'
                       })()}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-gray-500 sm:px-6 sm:py-4 dark:text-gray-400">
+                    <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-gray-500 sm:px-4 sm:py-2.5 dark:text-gray-400">
                       {entry.timestamp_end
                         ? <Duration nanoseconds={(entry.timestamp_end - entry.timestamp) * 1_000_000_000} />
                         : '-'}
                     </td>
-                    <td className="whitespace-nowrap px-1.5 py-2 text-center sm:px-2 sm:py-4">
+                    <td className="whitespace-nowrap px-1.5 py-2 text-center sm:px-2 sm:py-2.5">
                       {entry.tests.tests_total - entry.tests.tests_passed > 0 && (
                         <Badge variant="error">{entry.tests.tests_total - entry.tests.tests_passed}</Badge>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-1.5 py-2 text-center sm:px-2 sm:py-4">
+                    <td className="whitespace-nowrap px-1.5 py-2 text-center sm:px-2 sm:py-2.5">
                       <Badge variant="success">{entry.tests.tests_passed}</Badge>
                     </td>
-                    <td className="whitespace-nowrap px-1.5 py-2 text-center sm:px-2 sm:py-4">
+                    <td className="whitespace-nowrap px-1.5 py-2 text-center sm:px-2 sm:py-2.5">
                       <Badge>{entry.tests.tests_total}</Badge>
                     </td>
                   </>

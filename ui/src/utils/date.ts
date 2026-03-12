@@ -3,6 +3,16 @@ export function formatTimestamp(timestamp: number): string {
   return date.toLocaleString()
 }
 
+export function formatTimestampDate(timestamp: number): string {
+  const date = new Date(timestamp * 1000)
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+export function formatTimestampTime(timestamp: number): string {
+  const date = new Date(timestamp * 1000)
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
 export function formatDurationSeconds(totalSeconds: number): string {
   if (totalSeconds < 0) return '0s'
   const hours = Math.floor(totalSeconds / 3600)
