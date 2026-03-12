@@ -482,12 +482,12 @@ export function SuiteDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
-        <Link to="/suites" className="hover:text-gray-700 dark:hover:text-gray-300">
+      <div className="flex min-w-0 items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
+        <Link to="/suites" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
           Suites
         </Link>
         <span>/</span>
-        <span className="font-mono text-gray-900 dark:text-gray-100">
+        <span className="truncate font-mono text-gray-900 dark:text-gray-100">
           {suite.metadata?.labels?.name ?? suiteHash}
         </span>
       </div>

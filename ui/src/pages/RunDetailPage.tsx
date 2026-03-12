@@ -320,42 +320,44 @@ export function RunDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
-        <Link to="/suites" className="hover:text-gray-700 dark:hover:text-gray-300">
-          Suites
-        </Link>
-        <span>/</span>
-        {config.suite_hash && (
-          <>
-            <Link
-              to="/suites/$suiteHash"
-              params={{ suiteHash: config.suite_hash }}
-              className={`flex items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300${suite?.metadata?.labels?.name ? '' : ' font-mono'}`}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm/6 text-gray-500 dark:text-gray-400">
+        <div className="flex min-w-0 items-center gap-2">
+          <Link to="/suites" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
+            Suites
+          </Link>
+          <span>/</span>
+          {config.suite_hash && (
+            <>
+              <Link
+                to="/suites/$suiteHash"
+                params={{ suiteHash: config.suite_hash }}
+                className={`flex min-w-0 items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300${suite?.metadata?.labels?.name ? '' : ' font-mono'}`}
+              >
+                <JDenticon value={config.suite_hash} size={16} className="shrink-0 rounded-xs" />
+                <span className="truncate">{suite?.metadata?.labels?.name ?? config.suite_hash}</span>
+              </Link>
+              <span>/</span>
+            </>
+          )}
+          <span className="truncate text-gray-900 dark:text-gray-100">{runId}</span>
+          {isAdmin && (
+            <button
+              disabled={deleteRuns.isPending}
+              onClick={() => {
+                if (!window.confirm('Delete this run? This cannot be undone.')) return
+                deleteRuns.mutate([runId], {
+                  onSuccess: () => navigate({ to: '/runs' }),
+                })
+              }}
+              className="ml-1 flex shrink-0 items-center justify-center rounded-xs p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:text-gray-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+              title="Delete this run"
             >
-              <JDenticon value={config.suite_hash} size={16} className="shrink-0 rounded-xs" />
-              {suite?.metadata?.labels?.name ?? config.suite_hash}
-            </Link>
-            <span>/</span>
-          </>
-        )}
-        <span className="text-gray-900 dark:text-gray-100">{runId}</span>
-        {isAdmin && (
-          <button
-            disabled={deleteRuns.isPending}
-            onClick={() => {
-              if (!window.confirm('Delete this run? This cannot be undone.')) return
-              deleteRuns.mutate([runId], {
-                onSuccess: () => navigate({ to: '/runs' }),
-              })
-            }}
-            className="ml-1 flex items-center justify-center rounded-sm p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:text-gray-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-            title="Delete this run"
-          >
-            <Trash2 className="size-3.5" />
-          </button>
-        )}
+              <Trash2 className="size-3.5" />
+            </button>
+          )}
+        </div>
         {(benchmarkoorLogLoading || benchmarkoorLogHead?.exists || containerLogLoading || containerLogHead?.exists) && (
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:ml-auto">
             <span className="font-medium text-gray-900 dark:text-gray-100">Logs:</span>
             {(benchmarkoorLogLoading || benchmarkoorLogHead?.exists) && (
               <>
