@@ -81,69 +81,73 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
   if (displayRuns.length <= 1) return null
 
   return (
-    <div className="relative flex items-center gap-3 rounded-sm bg-white px-4 py-3 shadow-xs dark:bg-gray-800">
-      <span className="shrink-0 text-xs/5 text-gray-400 dark:text-gray-500">Recent</span>
-      <div className="flex gap-1">
-        {displayRuns.map((run) => {
-          const stats = getIndexAggregatedStats(run, stepFilter)
-          const completed = isRunCompleted(run)
-          const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
-          const color = completed && mgas !== undefined
-            ? getColorByNormalizedValue(mgas, minMgas, maxMgas, true)
-            : completed ? COLORS[2] : '#6b7280'
-          const isCurrent = run.run_id === currentRunId
+    <div className="relative flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xs bg-white px-4 py-3 shadow-xs dark:bg-gray-800">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="hidden shrink-0 text-xs/5 text-gray-400 sm:inline dark:text-gray-500">Recent</span>
+        <div className="flex flex-wrap gap-1">
+          {displayRuns.map((run) => {
+            const stats = getIndexAggregatedStats(run, stepFilter)
+            const completed = isRunCompleted(run)
+            const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
+            const color = completed && mgas !== undefined
+              ? getColorByNormalizedValue(mgas, minMgas, maxMgas, true)
+              : completed ? COLORS[2] : '#6b7280'
+            const isCurrent = run.run_id === currentRunId
 
-          return (
-            <button
-              key={run.run_id}
-              onClick={() => {
-                if (selectable) {
-                  onSelectionChange?.(run.run_id, !selectedRunIds?.has(run.run_id))
-                } else {
-                  navigate({ to: '/runs/$runId', params: { runId: run.run_id } })
-                }
-              }}
-              onMouseEnter={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect()
-                setTooltip({ run, x: rect.left + rect.width / 2, y: rect.top })
-              }}
-              onMouseLeave={() => setTooltip(null)}
-              className={clsx(
-                'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110',
-                selectable && selectedRunIds?.has(run.run_id) && 'scale-110 ring-2 ring-blue-500 dark:ring-blue-400',
-                !selectable && isCurrent && 'ring-2 ring-blue-500',
-                !selectable && !isCurrent && 'hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                run.tests.tests_total - run.tests.tests_passed > 0 && completed && !isCurrent && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-orange-500',
-                !completed && !isCurrent && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
-              )}
-              style={{ backgroundColor: color }}
-            >
-              {completed && run.tests.tests_total - run.tests.tests_passed > 0 && (
-                <svg className="absolute inset-0 size-5" viewBox="0 0 20 20" fill="none">
-                  <text x="10" y="15" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="system-ui">!</text>
-                </svg>
-              )}
-              {!completed && (
-                <svg className="absolute inset-0 size-5 text-red-600 dark:text-red-400" viewBox="0 0 20 20">
-                  <path d="M4 4l12 12M4 16L16 4" stroke="currentColor" strokeWidth="2" fill="none" />
-                </svg>
-              )}
-            </button>
-          )
-        })}
+            return (
+              <button
+                key={run.run_id}
+                onClick={() => {
+                  if (selectable) {
+                    onSelectionChange?.(run.run_id, !selectedRunIds?.has(run.run_id))
+                  } else {
+                    navigate({ to: '/runs/$runId', params: { runId: run.run_id } })
+                  }
+                }}
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  setTooltip({ run, x: rect.left + rect.width / 2, y: rect.top })
+                }}
+                onMouseLeave={() => setTooltip(null)}
+                className={clsx(
+                  'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110',
+                  selectable && selectedRunIds?.has(run.run_id) && 'scale-110 ring-2 ring-blue-500 dark:ring-blue-400',
+                  !selectable && isCurrent && 'ring-2 ring-blue-500',
+                  !selectable && !isCurrent && 'hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
+                  run.tests.tests_total - run.tests.tests_passed > 0 && completed && !isCurrent && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-orange-500',
+                  !completed && !isCurrent && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
+                )}
+                style={{ backgroundColor: color }}
+              >
+                {completed && run.tests.tests_total - run.tests.tests_passed > 0 && (
+                  <svg className="absolute inset-0 size-5" viewBox="0 0 20 20" fill="none">
+                    <text x="10" y="15" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="system-ui">!</text>
+                  </svg>
+                )}
+                {!completed && (
+                  <svg className="absolute inset-0 size-5 text-red-600 dark:text-red-400" viewBox="0 0 20 20">
+                    <path d="M4 4l12 12M4 16L16 4" stroke="currentColor" strokeWidth="2" fill="none" />
+                  </svg>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <span className="hidden shrink-0 text-xs/5 text-gray-400 sm:inline dark:text-gray-500">Older</span>
       </div>
-      <span className="shrink-0 text-xs/5 text-gray-400 dark:text-gray-500">Older</span>
-      <div className="ml-2 flex items-center gap-1 border-l border-gray-200 pl-3 dark:border-gray-700">
-        <span className="flex gap-0.5">
-          {COLORS.map((color, i) => (
-            <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
-          ))}
-        </span>
-        <span className="ml-1 text-xs/5 text-gray-400 dark:text-gray-500">MGas/s</span>
-      </div>
-      <div className="ml-2 flex items-center gap-1 border-l border-gray-200 pl-3 dark:border-gray-700">
-        <span className="size-3 rounded-xs bg-blue-500 ring-2 ring-blue-500" />
-        <span className="text-xs/5 text-gray-400 dark:text-gray-500">Current</span>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1 sm:border-l sm:border-gray-200 sm:pl-3 sm:dark:border-gray-700">
+          <span className="flex gap-0.5">
+            {COLORS.map((color, i) => (
+              <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
+            ))}
+          </span>
+          <span className="ml-1 text-xs/5 text-gray-400 dark:text-gray-500">MGas/s</span>
+        </div>
+        <div className="flex items-center gap-1 border-l border-gray-200 pl-3 dark:border-gray-700">
+          <span className="size-3 rounded-xs bg-blue-500 ring-2 ring-blue-500" />
+          <span className="text-xs/5 text-gray-400 dark:text-gray-500">Current</span>
+        </div>
       </div>
 
       {tooltip && (() => {

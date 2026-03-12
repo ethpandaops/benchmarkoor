@@ -314,11 +314,11 @@ export function RunsPage() {
         />
       ) : (
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
-                className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                className={`flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
                   compareMode
                     ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
                     : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
@@ -330,7 +330,7 @@ export function RunsPage() {
               {isAdmin && (
                 <button
                   onClick={() => deleteMode ? handleExitDeleteMode() : handleEnterDeleteMode()}
-                  className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                  className={`flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
                     deleteMode
                       ? 'bg-red-600 text-white ring-red-600 hover:bg-red-700 hover:ring-red-700'
                       : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
@@ -344,7 +344,7 @@ export function RunsPage() {
               <select
                 value={localPageSize}
                 onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-                className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
                   <option key={size} value={size}>
@@ -352,7 +352,7 @@ export function RunsPage() {
                   </option>
                 ))}
               </select>
-              <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
+              <span className="hidden text-sm/6 text-gray-500 sm:inline dark:text-gray-400">per page</span>
             </div>
             {totalPages > 1 && (
               <Pagination currentPage={localPage} totalPages={totalPages} onPageChange={handlePageChange} />
@@ -370,13 +370,13 @@ export function RunsPage() {
             onSelectionChange={deleteMode ? handleDeleteSelectionChange : handleSelectionChange}
             selectionVariant={deleteMode ? 'delete' : 'compare'}
           />
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
               <select
                 value={localPageSize}
                 onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-                className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
                   <option key={size} value={size}>
@@ -384,7 +384,7 @@ export function RunsPage() {
                   </option>
                 ))}
               </select>
-              <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
+              <span className="hidden text-sm/6 text-gray-500 sm:inline dark:text-gray-400">per page</span>
             </div>
             {totalPages > 1 && (
               <Pagination currentPage={localPage} totalPages={totalPages} onPageChange={handlePageChange} />

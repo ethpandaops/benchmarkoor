@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useAuth } from '@/hooks/useAuth'
 import type { AuthConfig } from '@/api/auth-client'
+import type { AuthUser } from '@/api/auth-client'
 import { Modal } from '@/components/shared/Modal'
 import {
   useUsers,
@@ -17,10 +18,80 @@ import {
   useUpsertUserMapping,
   useDeleteUserMapping,
   useRunIndexer,
+  type AdminSession,
 } from '@/api/hooks/useAdmin'
-import { useAdminApiKeys, useDeleteAdminApiKey } from '@/api/hooks/useApiKeys'
-import { Plus, Pencil, Trash2, Play, Loader2 } from 'lucide-react'
+import { useAdminApiKeys, useDeleteAdminApiKey, type AdminApiKey } from '@/api/hooks/useApiKeys'
+import { Plus, Pencil, Trash2, Play, Loader2, ChevronUp, ChevronDown } from 'lucide-react'
 import clsx from 'clsx'
+
+type SortDirection = 'asc' | 'desc'
+
+function useSortState<T extends string>(defaultColumn: T, defaultDir: SortDirection = 'asc') {
+  const [sortBy, setSortBy] = useState<T>(defaultColumn)
+  const [sortDir, setSortDir] = useState<SortDirection>(defaultDir)
+
+  const toggle = (column: T) => {
+    if (sortBy === column) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortBy(column)
+      setSortDir('asc')
+    }
+  }
+
+  return { sortBy, sortDir, toggle }
+}
+
+function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
+  const Icon = direction === 'asc' ? ChevronUp : ChevronDown
+  return <Icon className={clsx('ml-0.5 inline-block size-3', active ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400')} />
+}
+
+function SortableTh<T extends string>({
+  label,
+  column,
+  sortBy,
+  sortDir,
+  onSort,
+  className,
+}: {
+  label: string
+  column: T
+  sortBy: T
+  sortDir: SortDirection
+  onSort: (column: T) => void
+  className?: string
+}) {
+  const active = sortBy === column
+  return (
+    <th
+      onClick={() => onSort(column)}
+      className={clsx(
+        'cursor-pointer select-none px-4 py-2 hover:text-gray-700 dark:hover:text-gray-300',
+        className,
+      )}
+    >
+      {label}
+      <SortIcon direction={active ? sortDir : 'asc'} active={active} />
+    </th>
+  )
+}
+
+function sortItems<T>(items: T[], sortBy: string, sortDir: SortDirection, comparators: Record<string, (a: T, b: T) => number>): T[] {
+  const cmp = comparators[sortBy]
+  if (!cmp) return items
+  const sorted = [...items].sort(cmp)
+  return sortDir === 'desc' ? sorted.reverse() : sorted
+}
+
+const cmpStr = (a: string, b: string) => a.localeCompare(b)
+const cmpDate = (a: string, b: string) => new Date(a).getTime() - new Date(b).getTime()
+const cmpDateNullable = (a: string | null, b: string | null) => {
+  if (!a && !b) return 0
+  if (!a) return -1
+  if (!b) return 1
+  return cmpDate(a, b)
+}
 
 type Tab = 'users' | 'github-mappings' | 'sessions' | 'api-keys'
 
@@ -90,6 +161,14 @@ export function AdminPage() {
 
 // --- Users Tab ---
 
+type UserSortColumn = 'username' | 'role' | 'source'
+
+const userComparators: Record<UserSortColumn, (a: AuthUser, b: AuthUser) => number> = {
+  username: (a, b) => cmpStr(a.username, b.username),
+  role: (a, b) => cmpStr(a.role, b.role),
+  source: (a, b) => cmpStr(a.source, b.source),
+}
+
 function UsersTab() {
   const { data: users = [], isLoading } = useUsers()
   const createUser = useCreateUser()
@@ -102,6 +181,12 @@ function UsersTab() {
   const [form, setForm] = useState({ username: '', password: '', role: 'readonly' })
   const [editForm, setEditForm] = useState({ password: '', role: '' })
   const [error, setError] = useState<string | null>(null)
+  const sort = useSortState<UserSortColumn>('username')
+
+  const sortedUsers = useMemo(
+    () => sortItems(users, sort.sortBy, sort.sortDir, userComparators),
+    [users, sort.sortBy, sort.sortDir],
+  )
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -151,14 +236,14 @@ function UsersTab() {
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-500 uppercase dark:bg-gray-800 dark:text-gray-400">
             <tr>
-              <th className="px-4 py-2">Username</th>
-              <th className="px-4 py-2">Role</th>
-              <th className="px-4 py-2">Source</th>
+              <SortableTh label="Username" column="username" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
+              <SortableTh label="Role" column="role" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
+              <SortableTh label="Source" column="source" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
               <th className="px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {users.map((u) => (
+            {sortedUsers.map((u) => (
               <tr key={u.id} className="bg-white dark:bg-gray-900">
                 <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">{u.username}</td>
                 <td className="px-4 py-2">
@@ -256,9 +341,25 @@ function formatTimestamp(iso: string): string {
   return `${relative} (${date.toLocaleString()})`
 }
 
+type SessionSortColumn = 'username' | 'source' | 'created' | 'lastActive' | 'expires'
+
+const sessionComparators: Record<SessionSortColumn, (a: AdminSession, b: AdminSession) => number> = {
+  username: (a, b) => cmpStr(a.username || '', b.username || ''),
+  source: (a, b) => cmpStr(a.source, b.source),
+  created: (a, b) => cmpDate(a.created_at, b.created_at),
+  lastActive: (a, b) => cmpDateNullable(a.last_active_at, b.last_active_at),
+  expires: (a, b) => cmpDate(a.expires_at, b.expires_at),
+}
+
 function SessionsTab() {
   const { data: sessions = [], isLoading } = useSessions()
   const deleteSession = useDeleteSession()
+  const sort = useSortState<SessionSortColumn>('created', 'desc')
+
+  const sortedSessions = useMemo(
+    () => sortItems(sessions, sort.sortBy, sort.sortDir, sessionComparators),
+    [sessions, sort.sortBy, sort.sortDir],
+  )
 
   if (isLoading) return <div className="text-sm text-gray-500">Loading...</div>
 
@@ -274,16 +375,16 @@ function SessionsTab() {
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-500 uppercase dark:bg-gray-800 dark:text-gray-400">
             <tr>
-              <th className="px-4 py-2">Username</th>
-              <th className="px-4 py-2">Source</th>
-              <th className="px-4 py-2">Created</th>
-              <th className="px-4 py-2">Last Active</th>
-              <th className="px-4 py-2">Expires</th>
+              <SortableTh label="Username" column="username" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
+              <SortableTh label="Source" column="source" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
+              <SortableTh label="Created" column="created" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
+              <SortableTh label="Last Active" column="lastActive" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
+              <SortableTh label="Expires" column="expires" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
               <th className="px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {sessions.map((s) => (
+            {sortedSessions.map((s) => (
               <tr key={s.id} className="bg-white dark:bg-gray-900">
                 <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">
                   {s.username || `User #${s.user_id}`}
@@ -461,9 +562,25 @@ function GitHubMappingsTab() {
 
 // --- Admin API Keys Tab ---
 
+type ApiKeySortColumn = 'name' | 'user' | 'expires' | 'lastUsed' | 'created'
+
+const apiKeyComparators: Record<ApiKeySortColumn, (a: AdminApiKey, b: AdminApiKey) => number> = {
+  name: (a, b) => cmpStr(a.name, b.name),
+  user: (a, b) => cmpStr(a.username, b.username),
+  expires: (a, b) => cmpDateNullable(a.expires_at, b.expires_at),
+  lastUsed: (a, b) => cmpDateNullable(a.last_used_at, b.last_used_at),
+  created: (a, b) => cmpDate(a.created_at, b.created_at),
+}
+
 function AdminAPIKeysTab() {
   const { data: keys = [], isLoading } = useAdminApiKeys()
   const deleteKey = useDeleteAdminApiKey()
+  const sort = useSortState<ApiKeySortColumn>('created', 'desc')
+
+  const sortedKeys = useMemo(
+    () => sortItems(keys, sort.sortBy, sort.sortDir, apiKeyComparators),
+    [keys, sort.sortBy, sort.sortDir],
+  )
 
   if (isLoading) return <div className="text-sm text-gray-500">Loading...</div>
 
@@ -479,17 +596,17 @@ function AdminAPIKeysTab() {
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs text-gray-500 uppercase dark:bg-gray-800 dark:text-gray-400">
             <tr>
-              <th className="px-4 py-2">Name</th>
-              <th className="px-4 py-2">User</th>
+              <SortableTh label="Name" column="name" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
+              <SortableTh label="User" column="user" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
               <th className="px-4 py-2">Key</th>
-              <th className="px-4 py-2">Expires</th>
-              <th className="px-4 py-2">Last Used</th>
-              <th className="px-4 py-2">Created</th>
+              <SortableTh label="Expires" column="expires" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
+              <SortableTh label="Last Used" column="lastUsed" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
+              <SortableTh label="Created" column="created" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
               <th className="px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {keys.map((k) => (
+            {sortedKeys.map((k) => (
               <tr key={k.id} className="bg-white dark:bg-gray-900">
                 <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">{k.name}</td>
                 <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{k.username}</td>
@@ -668,6 +785,8 @@ function RoleSelect({ value, onChange }: { value: string; onChange: (v: string) 
   )
 }
 
+type MappingSortColumn = 'name' | 'role'
+
 function MappingTable<T extends { id: number; role: string }>({
   items,
   nameKey,
@@ -679,18 +798,28 @@ function MappingTable<T extends { id: number; role: string }>({
   nameLabel: string
   onDelete: (id: number) => void
 }) {
+  const sort = useSortState<MappingSortColumn>('name')
+
+  const sortedItems = useMemo(
+    () => sortItems(items, sort.sortBy, sort.sortDir, {
+      name: (a, b) => String(a[nameKey]).localeCompare(String(b[nameKey])),
+      role: (a, b) => a.role.localeCompare(b.role),
+    } as Record<string, (a: T, b: T) => number>),
+    [items, sort.sortBy, sort.sortDir, nameKey],
+  )
+
   return (
     <div className="overflow-hidden rounded-sm border border-gray-200 dark:border-gray-700">
       <table className="w-full text-left text-sm">
         <thead className="bg-gray-50 text-xs text-gray-500 uppercase dark:bg-gray-800 dark:text-gray-400">
           <tr>
-            <th className="px-4 py-2">{nameLabel}</th>
-            <th className="px-4 py-2">Role</th>
+            <SortableTh label={nameLabel} column="name" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
+            <SortableTh label="Role" column="role" sortBy={sort.sortBy} sortDir={sort.sortDir} onSort={sort.toggle} />
             <th className="px-4 py-2 text-right">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-          {items.map((item) => (
+          {sortedItems.map((item) => (
             <tr key={item.id} className="bg-white dark:bg-gray-900">
               <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">
                 {String(item[nameKey])}

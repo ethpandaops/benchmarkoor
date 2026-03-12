@@ -285,11 +285,11 @@ export function RunsHeatmap({
 
   return (
     <div className="relative">
-      <div className="mb-3 flex items-center justify-end gap-4">
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-3 sm:gap-4">
         {/* Metric mode toggle */}
         <div className="flex items-center gap-2">
           <span className="text-xs/5 text-gray-500 dark:text-gray-400">Metric:</span>
-          <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
+          <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
             <button
               onClick={() => setMetricMode('mgas')}
               className={clsx(
@@ -319,7 +319,7 @@ export function RunsHeatmap({
         {onColorNormalizationChange && (
           <div className="flex items-center gap-2">
             <span className="text-xs/5 text-gray-500 dark:text-gray-400">Colors:</span>
-            <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
+            <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
               <button
                 onClick={() => onColorNormalizationChange('suite')}
                 className={clsx(
@@ -349,10 +349,10 @@ export function RunsHeatmap({
 
       <div className="flex flex-col gap-2">
         {/* Stats header */}
-        <div className="flex items-center gap-3">
-          <div className="w-28 shrink-0" />
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="hidden w-28 shrink-0 sm:block" />
           <div className="flex-1" />
-          <div className="flex shrink-0 gap-3 border-l border-transparent pl-3 font-mono text-xs/5 font-medium text-gray-400 dark:text-gray-500">
+          <div className="hidden shrink-0 gap-3 border-l border-transparent pl-3 font-mono text-xs/5 font-medium text-gray-400 md:flex dark:text-gray-500">
             <span className="w-10 text-center">Min</span>
             <span className="w-10 text-center">Max</span>
             <span className="w-10 text-center">P95</span>
@@ -363,17 +363,22 @@ export function RunsHeatmap({
         </div>
         {clients.map((client) => {
           const stats = metricMode === 'mgas' ? clientMgasStats[client] : clientDurationStats[client]
-          const formatValue = (v?: number) => {
+          const formatStatValue = (v?: number) => {
             if (v === undefined) return '-'
             if (metricMode === 'mgas') return v.toFixed(1)
             return formatDurationCompact(v)
           }
           return (
-            <div key={client} className="flex items-center gap-3">
-              <div className="w-28 shrink-0">
-                <ClientBadge client={client} />
+            <div key={client} className="flex items-center gap-2 sm:gap-3">
+              <div className="shrink-0 sm:w-28">
+                <span className="sm:hidden">
+                  <ClientBadge client={client} hideLabel />
+                </span>
+                <span className="hidden sm:inline-flex">
+                  <ClientBadge client={client} />
+                </span>
               </div>
-              <div className="flex flex-1 gap-1">
+              <div className="flex min-w-0 flex-1 flex-wrap gap-1">
                 {clientRuns[client].map((run) => {
                   const runStats = getIndexAggregatedStats(run, stepFilter)
                   const completed = isRunCompleted(run)
@@ -406,17 +411,57 @@ export function RunsHeatmap({
                   )
                 })}
               </div>
-              <div className="flex shrink-0 gap-3 border-l border-gray-200 pl-3 font-mono text-xs/5 text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <span className="w-10 text-center">{formatValue(stats.min)}</span>
-                <span className="w-10 text-center">{formatValue(stats.max)}</span>
-                <span className="w-10 text-center">{formatValue(stats.p95)}</span>
-                <span className="w-10 text-center">{formatValue(stats.p99)}</span>
-                <span className="w-10 text-center">{formatValue(stats.mean)}</span>
-                <span className="w-10 text-center">{formatValue(stats.last)}</span>
+              <div className="hidden shrink-0 gap-3 border-l border-gray-200 pl-3 font-mono text-xs/5 text-gray-500 md:flex dark:border-gray-700 dark:text-gray-400">
+                <span className="w-10 text-center">{formatStatValue(stats.min)}</span>
+                <span className="w-10 text-center">{formatStatValue(stats.max)}</span>
+                <span className="w-10 text-center">{formatStatValue(stats.p95)}</span>
+                <span className="w-10 text-center">{formatStatValue(stats.p99)}</span>
+                <span className="w-10 text-center">{formatStatValue(stats.mean)}</span>
+                <span className="w-10 text-center">{formatStatValue(stats.last)}</span>
               </div>
             </div>
           )
         })}
+      </div>
+
+      {/* Mobile stats summary */}
+      <div className="mt-3 overflow-x-auto md:hidden">
+        <table className="w-full text-xs/5">
+          <thead>
+            <tr className="text-gray-400 dark:text-gray-500">
+              <th className="py-1 pr-3 text-left font-medium">Client</th>
+              <th className="px-2 py-1 text-center font-medium">Min</th>
+              <th className="px-2 py-1 text-center font-medium">Max</th>
+              <th className="px-2 py-1 text-center font-medium">P95</th>
+              <th className="px-2 py-1 text-center font-medium">P99</th>
+              <th className="px-2 py-1 text-center font-medium">Mean</th>
+              <th className="px-2 py-1 text-center font-medium">Last</th>
+            </tr>
+          </thead>
+          <tbody className="font-mono text-gray-500 dark:text-gray-400">
+            {clients.map((client) => {
+              const s = metricMode === 'mgas' ? clientMgasStats[client] : clientDurationStats[client]
+              const fmt = (v?: number) => {
+                if (v === undefined) return '-'
+                if (metricMode === 'mgas') return v.toFixed(1)
+                return formatDurationCompact(v)
+              }
+              return (
+                <tr key={client} className="border-t border-gray-100 dark:border-gray-700">
+                  <td className="py-1 pr-3">
+                    <ClientBadge client={client} hideLabel />
+                  </td>
+                  <td className="px-2 py-1 text-center">{fmt(s.min)}</td>
+                  <td className="px-2 py-1 text-center">{fmt(s.max)}</td>
+                  <td className="px-2 py-1 text-center">{fmt(s.p95)}</td>
+                  <td className="px-2 py-1 text-center">{fmt(s.p99)}</td>
+                  <td className="px-2 py-1 text-center">{fmt(s.mean)}</td>
+                  <td className="px-2 py-1 text-center">{fmt(s.last)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
 
       {/* Legend */}

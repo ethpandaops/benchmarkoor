@@ -5,7 +5,7 @@ import { useSuite } from '@/api/hooks/useSuite'
 import { Badge } from '@/components/shared/Badge'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { SourceBadge } from '@/components/shared/SourceBadge'
-import { formatTimestamp, formatRelativeTime } from '@/utils/date'
+import { formatTimestampDate, formatTimestampTime, formatRelativeTime } from '@/utils/date'
 
 export type SuiteSortColumn = 'lastRun' | 'hash' | 'runs'
 export type SuiteSortDirection = 'asc' | 'desc'
@@ -56,7 +56,7 @@ function SortableHeader({
   return (
     <th
       onClick={() => onSort(column)}
-      className="cursor-pointer select-none px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+      className="cursor-pointer select-none px-3 py-2 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700 sm:px-4 dark:text-gray-400 dark:hover:text-gray-300"
     >
       {label}
       <SortIcon direction={isActive ? currentDirection : 'asc'} active={isActive} />
@@ -66,7 +66,7 @@ function SortableHeader({
 
 function StaticHeader({ label }: { label: string }) {
   return (
-    <th className="px-6 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+    <th className="hidden px-3 py-2 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 sm:px-4 md:table-cell dark:text-gray-400">
       {label}
     </th>
   )
@@ -81,10 +81,13 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
       onClick={() => navigate({ to: '/suites/$suiteHash', params: { suiteHash: suite.hash } })}
       className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
     >
-      <td className="whitespace-nowrap px-6 py-4 text-sm/6 text-gray-500 dark:text-gray-400">
-        <span title={formatRelativeTime(suite.lastRun)}>{formatTimestamp(suite.lastRun)}</span>
+      <td className="whitespace-nowrap px-3 py-2 text-sm/6 text-gray-500 sm:px-4 sm:py-2.5 dark:text-gray-400">
+        <span className="flex flex-col" title={formatRelativeTime(suite.lastRun)}>
+          <span>{formatTimestampDate(suite.lastRun)}</span>
+          <span className="text-xs/4 text-gray-400 dark:text-gray-500">{formatTimestampTime(suite.lastRun)}</span>
+        </span>
       </td>
-      <td className="whitespace-nowrap px-6 py-4">
+      <td className="whitespace-nowrap px-3 py-2 sm:px-4 sm:py-2.5">
         <div className="flex items-center gap-2">
           <JDenticon value={suite.hash} size={24} className="shrink-0 rounded-xs" />
           <div className="flex flex-col">
@@ -102,7 +105,7 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
           </div>
         </div>
       </td>
-      <td className="whitespace-nowrap px-6 py-4">
+      <td className="hidden whitespace-nowrap px-3 py-2 sm:px-4 sm:py-2.5 md:table-cell">
         {suiteInfo?.source ? (
           <div className="flex items-center gap-2">
             <SourceBadge source={suiteInfo.source} />
@@ -112,21 +115,21 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
           <span className="text-gray-400 dark:text-gray-500">-</span>
         )}
       </td>
-      <td className="whitespace-nowrap px-6 py-4">
+      <td className="hidden whitespace-nowrap px-3 py-2 sm:px-4 sm:py-2.5 md:table-cell">
         {suiteInfo?.pre_run_steps && suiteInfo.pre_run_steps.length > 0 ? (
           <Badge variant="default">{suiteInfo.pre_run_steps.length}</Badge>
         ) : (
           <span className="text-gray-400 dark:text-gray-500">-</span>
         )}
       </td>
-      <td className="whitespace-nowrap px-6 py-4">
+      <td className="hidden whitespace-nowrap px-3 py-2 sm:px-4 sm:py-2.5 md:table-cell">
         {suiteInfo?.filter ? (
           <span className="font-mono text-sm/6 text-gray-700 dark:text-gray-300">{suiteInfo.filter}</span>
         ) : (
           <span className="text-gray-400 dark:text-gray-500">-</span>
         )}
       </td>
-      <td className="whitespace-nowrap px-6 py-4">
+      <td className="whitespace-nowrap px-3 py-2 sm:px-4 sm:py-2.5">
         <Badge variant="info">{suite.runCount} runs</Badge>
       </td>
     </tr>
@@ -165,7 +168,7 @@ export function SuitesTable({
   }, [suites, sortBy, sortDir])
 
   return (
-    <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
+    <div className="overflow-x-auto rounded-xs bg-white shadow-xs dark:bg-gray-800">
       <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
         <thead className="bg-gray-50 dark:bg-gray-900">
           <tr>

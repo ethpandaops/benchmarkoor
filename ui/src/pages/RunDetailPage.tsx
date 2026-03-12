@@ -320,42 +320,44 @@ export function RunDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
-        <Link to="/suites" className="hover:text-gray-700 dark:hover:text-gray-300">
-          Suites
-        </Link>
-        <span>/</span>
-        {config.suite_hash && (
-          <>
-            <Link
-              to="/suites/$suiteHash"
-              params={{ suiteHash: config.suite_hash }}
-              className={`flex items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300${suite?.metadata?.labels?.name ? '' : ' font-mono'}`}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm/6 text-gray-500 dark:text-gray-400">
+        <div className="flex min-w-0 items-center gap-2">
+          <Link to="/suites" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
+            Suites
+          </Link>
+          <span>/</span>
+          {config.suite_hash && (
+            <>
+              <Link
+                to="/suites/$suiteHash"
+                params={{ suiteHash: config.suite_hash }}
+                className={`flex min-w-0 items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300${suite?.metadata?.labels?.name ? '' : ' font-mono'}`}
+              >
+                <JDenticon value={config.suite_hash} size={16} className="shrink-0 rounded-xs" />
+                <span className="truncate">{suite?.metadata?.labels?.name ?? config.suite_hash}</span>
+              </Link>
+              <span>/</span>
+            </>
+          )}
+          <span className="truncate text-gray-900 dark:text-gray-100">{runId}</span>
+          {isAdmin && (
+            <button
+              disabled={deleteRuns.isPending}
+              onClick={() => {
+                if (!window.confirm('Delete this run? This cannot be undone.')) return
+                deleteRuns.mutate([runId], {
+                  onSuccess: () => navigate({ to: '/runs' }),
+                })
+              }}
+              className="ml-1 flex shrink-0 items-center justify-center rounded-xs p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:text-gray-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+              title="Delete this run"
             >
-              <JDenticon value={config.suite_hash} size={16} className="shrink-0 rounded-xs" />
-              {suite?.metadata?.labels?.name ?? config.suite_hash}
-            </Link>
-            <span>/</span>
-          </>
-        )}
-        <span className="text-gray-900 dark:text-gray-100">{runId}</span>
-        {isAdmin && (
-          <button
-            disabled={deleteRuns.isPending}
-            onClick={() => {
-              if (!window.confirm('Delete this run? This cannot be undone.')) return
-              deleteRuns.mutate([runId], {
-                onSuccess: () => navigate({ to: '/runs' }),
-              })
-            }}
-            className="ml-1 flex items-center justify-center rounded-sm p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:text-gray-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-            title="Delete this run"
-          >
-            <Trash2 className="size-3.5" />
-          </button>
-        )}
+              <Trash2 className="size-3.5" />
+            </button>
+          )}
+        </div>
         {(benchmarkoorLogLoading || benchmarkoorLogHead?.exists || containerLogLoading || containerLogHead?.exists) && (
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:ml-auto">
             <span className="font-medium text-gray-900 dark:text-gray-100">Logs:</span>
             {(benchmarkoorLogLoading || benchmarkoorLogHead?.exists) && (
               <>
@@ -421,14 +423,14 @@ export function RunDetailPage() {
       </div>
 
       {clientRuns.length > 1 && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
             <ClientRunsStrip runs={clientRuns} currentRunId={runId} stepFilter={indexStepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <button
               onClick={() => compareMode ? handleExitCompareMode() : setCompareMode(true)}
-              className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+              className={`flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
                 compareMode
                   ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
                   : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
@@ -443,7 +445,7 @@ export function RunDetailPage() {
                 const ids = recentRuns.map((r) => r.run_id)
                 navigate({ to: '/compare', search: { runs: ids.join(',') } })
               }}
-              className="flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+              className="flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
               title={`Compare last ${recentRuns.length} runs`}
             >
               <GitCompareArrows className="size-4" />

@@ -135,7 +135,78 @@ function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
-function AuthControls({ onNavigate }: { onNavigate?: () => void }) {
+function MobileUserMenu({ onNavigate }: { onNavigate?: () => void }) {
+  const { user, isAdmin, logout } = useAuth()
+  const navigate = useNavigate()
+
+  if (!user) return null
+
+  const handleLogout = async () => {
+    await logout()
+    onNavigate?.()
+    navigate({ to: '/runs' })
+  }
+
+  const handleNavigate = (to: string) => {
+    onNavigate?.()
+    navigate({ to })
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2 px-3 py-1.5 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+        {user.source === 'github' ? (
+          <img src={`https://github.com/${user.username}.png`} alt="" className="size-6 rounded-full" />
+        ) : (
+          <User className="size-4" />
+        )}
+        <span>{user.username}</span>
+        {isAdmin && <Shield className="size-3 text-purple-500" />}
+      </div>
+      <div className="ml-5 flex flex-col gap-1 border-l border-gray-200 pl-3 dark:border-gray-700">
+        <button
+          onClick={() => handleNavigate('/api-keys')}
+          className="flex items-center gap-2 rounded-sm px-3 py-1.5 text-left text-sm/6 text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700/50 dark:hover:text-gray-100"
+        >
+          <Shield className="size-3.5" />
+          API Keys
+        </button>
+        <button
+          onClick={() => handleNavigate('/api-docs')}
+          className="flex items-center gap-2 rounded-sm px-3 py-1.5 text-left text-sm/6 text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700/50 dark:hover:text-gray-100"
+        >
+          <FileText className="size-3.5" />
+          API Docs
+        </button>
+        <button
+          onClick={() => handleNavigate('/query')}
+          className="flex items-center gap-2 rounded-sm px-3 py-1.5 text-left text-sm/6 text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700/50 dark:hover:text-gray-100"
+        >
+          <Search className="size-3.5" />
+          Query Builder
+        </button>
+        {isAdmin && (
+          <button
+            onClick={() => handleNavigate('/admin')}
+            className="flex items-center gap-2 rounded-sm px-3 py-1.5 text-left text-sm/6 text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700/50 dark:hover:text-gray-100"
+          >
+            <User className="size-3.5" />
+            Admin
+          </button>
+        )}
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-2 rounded-sm px-3 py-1.5 text-left text-sm/6 text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700/50 dark:hover:text-gray-100"
+        >
+          <LogOut className="size-3.5" />
+          Sign out
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AuthControls({ onNavigate, variant = 'desktop' }: { onNavigate?: () => void; variant?: 'desktop' | 'mobile' }) {
   const { user, isApiEnabled } = useAuth()
 
   if (!isApiEnabled) return null
@@ -151,6 +222,10 @@ function AuthControls({ onNavigate }: { onNavigate?: () => void }) {
         Sign in
       </Link>
     )
+  }
+
+  if (variant === 'mobile') {
+    return <MobileUserMenu onNavigate={onNavigate} />
   }
 
   return <UserMenu onNavigate={onNavigate} />
@@ -197,9 +272,11 @@ export function Header() {
             <NavLink to="/runs" onClick={closeMobile}>Runs</NavLink>
             <NavLink to="/suites" onClick={closeMobile}>Suites</NavLink>
           </nav>
-          <div className="mt-3 flex items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
-            <AuthControls onNavigate={closeMobile} />
-            <ThemeSwitcher />
+          <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+            <AuthControls onNavigate={closeMobile} variant="mobile" />
+            <div className="mt-2 flex items-center justify-end">
+              <ThemeSwitcher />
+            </div>
           </div>
         </div>
       )}

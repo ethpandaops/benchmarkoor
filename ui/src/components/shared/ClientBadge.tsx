@@ -4,6 +4,7 @@ import { getClientColors } from '@/utils/client-colors'
 interface ClientBadgeProps {
   client: string
   className?: string
+  hideLabel?: boolean
 }
 
 function capitalizeFirst(str: string): string {
@@ -11,14 +12,15 @@ function capitalizeFirst(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1)
 }
 
-export function ClientBadge({ client, className }: ClientBadgeProps) {
+export function ClientBadge({ client, className, hideLabel = false }: ClientBadgeProps) {
   const colors = getClientColors(client)
   const logoPath = `/img/clients/${client}.jpg`
 
   return (
     <span
       className={clsx(
-        'inline-flex w-28 items-center gap-1.5 rounded-sm px-2.5 py-0.5 text-xs/5 font-medium',
+        'inline-flex items-center rounded-xs text-xs/5 font-medium',
+        hideLabel ? 'p-0.5' : 'w-28 gap-1.5 px-2.5 py-0.5',
         colors.bg,
         colors.text,
         colors.darkBg,
@@ -27,7 +29,7 @@ export function ClientBadge({ client, className }: ClientBadgeProps) {
       )}
     >
       <img src={logoPath} alt={`${client} logo`} className="size-4 rounded-full object-cover" />
-      {capitalizeFirst(client)}
+      {!hideLabel && capitalizeFirst(client)}
     </span>
   )
 }

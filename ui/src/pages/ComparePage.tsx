@@ -123,8 +123,8 @@ export function ComparePage() {
   return (
     <div className="flex flex-col gap-6">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
-        <Link to="/runs" className="hover:text-gray-700 dark:hover:text-gray-300">
+      <div className="flex min-w-0 items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
+        <Link to="/runs" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
           Runs
         </Link>
         <span>/</span>
@@ -133,15 +133,15 @@ export function ComparePage() {
             <Link
               to="/suites/$suiteHash"
               params={{ suiteHash }}
-              className={`flex items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300${suite?.metadata?.labels?.name ? '' : ' font-mono'}`}
+              className={`flex min-w-0 items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300${suite?.metadata?.labels?.name ? '' : ' font-mono'}`}
             >
               <JDenticon value={suiteHash} size={16} className="shrink-0 rounded-xs" />
-              {suite?.metadata?.labels?.name ?? suiteHash}
+              <span className="truncate">{suite?.metadata?.labels?.name ?? suiteHash}</span>
             </Link>
             <span>/</span>
           </>
         )}
-        <span className="text-gray-900 dark:text-gray-100">Compare</span>
+        <span className="shrink-0 text-gray-900 dark:text-gray-100">Compare</span>
       </div>
 
       {suiteMismatch && (

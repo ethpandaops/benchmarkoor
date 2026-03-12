@@ -482,12 +482,12 @@ export function SuiteDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
-        <Link to="/suites" className="hover:text-gray-700 dark:hover:text-gray-300">
+      <div className="flex min-w-0 items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
+        <Link to="/suites" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
           Suites
         </Link>
         <span>/</span>
-        <span className="font-mono text-gray-900 dark:text-gray-100">
+        <span className="truncate font-mono text-gray-900 dark:text-gray-100">
           {suite.metadata?.labels?.name ?? suiteHash}
         </span>
       </div>
@@ -526,11 +526,11 @@ export function SuiteDetailPage() {
       </div>
 
       <TabGroup selectedIndex={getTabIndex()} onChange={handleTabChange}>
-        <TabList className="flex gap-1 rounded-sm bg-gray-100 p-1 dark:bg-gray-800">
+        <TabList className="flex gap-1 overflow-x-auto rounded-xs bg-gray-100 p-1 dark:bg-gray-800">
           <Tab
             className={({ selected }) =>
               clsx(
-                'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xs px-2.5 py-1.5 text-xs/5 font-medium transition-colors focus:outline-hidden sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/6',
                 selected
                   ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                   : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
@@ -543,7 +543,7 @@ export function SuiteDetailPage() {
           <Tab
             className={({ selected }) =>
               clsx(
-                'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xs px-2.5 py-1.5 text-xs/5 font-medium transition-colors focus:outline-hidden sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/6',
                 selected
                   ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                   : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
@@ -557,21 +557,22 @@ export function SuiteDetailPage() {
             <Tab
               className={({ selected }) =>
                 clsx(
-                  'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                  'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xs px-2.5 py-1.5 text-xs/5 font-medium transition-colors focus:outline-hidden sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/6',
                   selected
                     ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                     : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
                 )
               }
             >
-              Pre-Run Steps
+              <span className="sm:hidden">Pre-Run</span>
+              <span className="hidden sm:inline">Pre-Run Steps</span>
               <Badge variant="default">{suite.pre_run_steps!.length}</Badge>
             </Tab>
           )}
           <Tab
             className={({ selected }) =>
               clsx(
-                'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xs px-2.5 py-1.5 text-xs/5 font-medium transition-colors focus:outline-hidden sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/6',
                 selected
                   ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                   : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
@@ -590,8 +591,8 @@ export function SuiteDetailPage() {
             ) : (
               <div className="flex flex-col gap-4">
                 {/* Step Filter Control */}
-                <div className="flex items-center gap-3 rounded-sm bg-white p-3 shadow-xs dark:bg-gray-800">
-                  <span className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">Metric steps:</span>
+                <div className="flex flex-wrap items-center gap-2 rounded-xs bg-white p-2 shadow-xs sm:gap-3 sm:p-3 dark:bg-gray-800">
+                  <span className="text-xs/5 font-medium text-gray-700 sm:text-sm/6 dark:text-gray-300">Metric steps:</span>
                   <div className="flex items-center gap-1">
                     {ALL_INDEX_STEP_TYPES.map((step) => (
                       <button
@@ -604,7 +605,7 @@ export function SuiteDetailPage() {
                             handleStepFilterChange(newFilter)
                           }
                         }}
-                        className={`rounded-sm px-2.5 py-1 text-xs font-medium capitalize transition-colors ${
+                        className={`rounded-xs px-2 py-0.5 text-xs font-medium capitalize transition-colors sm:px-2.5 sm:py-1 ${
                           stepFilter.includes(step)
                             ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
                             : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
@@ -615,12 +616,12 @@ export function SuiteDetailPage() {
                       </button>
                     ))}
                   </div>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="hidden text-xs text-gray-500 sm:inline dark:text-gray-400">
                     (affects Duration, MGas/s calculations)
                   </span>
                 </div>
-                <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                  <div className="flex items-center justify-between px-4 py-3">
+                <div className="overflow-hidden rounded-xs border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-3">
                     <button
                       onClick={() => setHeatmapExpanded(!heatmapExpanded)}
                       className="flex items-center gap-2 text-left text-sm/6 font-medium text-gray-900 hover:text-gray-700 dark:text-gray-100 dark:hover:text-gray-300"
@@ -633,7 +634,7 @@ export function SuiteDetailPage() {
                       <button
                         onClick={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
                         className={clsx(
-                          'flex cursor-pointer items-center justify-center rounded-sm p-1 shadow-xs ring-1 ring-inset transition-colors',
+                          'flex cursor-pointer items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors',
                           compareMode
                             ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
                             : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200',
@@ -648,7 +649,7 @@ export function SuiteDetailPage() {
                           const ids = recentSuccessfulPerClient.map((r) => r.run_id)
                           navigate({ to: '/compare', search: { runs: ids.join(',') } })
                         }}
-                        className="flex cursor-pointer items-center justify-center rounded-sm p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                        className="flex cursor-pointer items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                         title="Compare latest successful run per client"
                       >
                         <GitCompareArrows className="size-3.5" />
@@ -656,7 +657,7 @@ export function SuiteDetailPage() {
                     </div>
                   </div>
                   {heatmapExpanded && (
-                    <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                    <div className="border-t border-gray-200 p-3 sm:p-4 dark:border-gray-700">
                       <RunsHeatmap runs={suiteRunsAll} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
                     </div>
                   )}
@@ -791,11 +792,11 @@ export function SuiteDetailPage() {
                   </p>
                 ) : (
                   <>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-3">
                         <button
                           onClick={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
-                          className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                          className={`flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
                             compareMode
                               ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
                               : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
@@ -810,7 +811,7 @@ export function SuiteDetailPage() {
                             const ids = recentSuccessfulPerClient.map((r) => r.run_id)
                             navigate({ to: '/compare', search: { runs: ids.join(',') } })
                           }}
-                          className="flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                          className="flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                           title="Compare latest successful run per client"
                         >
                           <GitCompareArrows className="size-4" />
@@ -818,7 +819,7 @@ export function SuiteDetailPage() {
                         {isAdmin && (
                           <button
                             onClick={() => deleteMode ? handleExitDeleteMode() : handleEnterDeleteMode()}
-                            className={`flex cursor-pointer items-center justify-center rounded-sm p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
+                            className={`flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
                               deleteMode
                                 ? 'bg-red-600 text-white ring-red-600 hover:bg-red-700 hover:ring-red-700'
                                 : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
@@ -832,7 +833,7 @@ export function SuiteDetailPage() {
                         <select
                           value={runsPageSize}
                           onChange={(e) => handleRunsPageSizeChange(Number(e.target.value))}
-                          className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                          className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                         >
                           {PAGE_SIZE_OPTIONS.map((size) => (
                             <option key={size} value={size}>
@@ -840,7 +841,7 @@ export function SuiteDetailPage() {
                             </option>
                           ))}
                         </select>
-                        <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
+                        <span className="hidden text-sm/6 text-gray-500 sm:inline dark:text-gray-400">per page</span>
                       </div>
                       {totalRunsPages > 1 && (
                         <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />
@@ -857,13 +858,13 @@ export function SuiteDetailPage() {
                       onSelectionChange={deleteMode ? handleDeleteSelectionChange : handleSelectionChange}
                       selectionVariant={deleteMode ? 'delete' : 'compare'}
                     />
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="text-sm/6 text-gray-500 dark:text-gray-400">Show</span>
                         <select
                           value={runsPageSize}
                           onChange={(e) => handleRunsPageSizeChange(Number(e.target.value))}
-                          className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                          className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                         >
                           {PAGE_SIZE_OPTIONS.map((size) => (
                             <option key={size} value={size}>
@@ -871,7 +872,7 @@ export function SuiteDetailPage() {
                             </option>
                           ))}
                         </select>
-                        <span className="text-sm/6 text-gray-500 dark:text-gray-400">per page</span>
+                        <span className="hidden text-sm/6 text-gray-500 sm:inline dark:text-gray-400">per page</span>
                       </div>
                       {totalRunsPages > 1 && (
                         <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage} />

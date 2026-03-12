@@ -496,8 +496,8 @@ export function FileViewerPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
-        <Link to="/suites" className="hover:text-gray-700 dark:hover:text-gray-300">
+      <div className="flex min-w-0 items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
+        <Link to="/suites" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
           Suites
         </Link>
         <span>/</span>
@@ -506,10 +506,10 @@ export function FileViewerPage() {
             <Link
               to="/suites/$suiteHash"
               params={{ suiteHash: config.suite_hash }}
-              className={`flex items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300${suite?.metadata?.labels?.name ? '' : ' font-mono'}`}
+              className={`flex min-w-0 items-center gap-1.5 hover:text-gray-700 dark:hover:text-gray-300${suite?.metadata?.labels?.name ? '' : ' font-mono'}`}
             >
               <JDenticon value={config.suite_hash} size={16} className="shrink-0 rounded-xs" />
-              {suite?.metadata?.labels?.name ?? config.suite_hash}
+              <span className="truncate">{suite?.metadata?.labels?.name ?? config.suite_hash}</span>
             </Link>
             <span>/</span>
           </>
@@ -517,12 +517,12 @@ export function FileViewerPage() {
         <Link
           to="/runs/$runId"
           params={{ runId }}
-          className="hover:text-gray-700 dark:hover:text-gray-300"
+          className="truncate hover:text-gray-700 dark:hover:text-gray-300"
         >
           {runId}
         </Link>
         <span>/</span>
-        <span className="font-mono text-gray-900 dark:text-gray-100">{filename}</span>
+        <span className="shrink-0 font-mono text-gray-900 dark:text-gray-100">{filename}</span>
       </div>
 
       <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen overflow-hidden bg-gray-900 shadow-xs">
