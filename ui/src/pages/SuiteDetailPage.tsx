@@ -526,11 +526,11 @@ export function SuiteDetailPage() {
       </div>
 
       <TabGroup selectedIndex={getTabIndex()} onChange={handleTabChange}>
-        <TabList className="flex gap-1 rounded-sm bg-gray-100 p-1 dark:bg-gray-800">
+        <TabList className="flex gap-1 overflow-x-auto rounded-xs bg-gray-100 p-1 dark:bg-gray-800">
           <Tab
             className={({ selected }) =>
               clsx(
-                'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xs px-2.5 py-1.5 text-xs/5 font-medium transition-colors focus:outline-hidden sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/6',
                 selected
                   ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                   : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
@@ -543,7 +543,7 @@ export function SuiteDetailPage() {
           <Tab
             className={({ selected }) =>
               clsx(
-                'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xs px-2.5 py-1.5 text-xs/5 font-medium transition-colors focus:outline-hidden sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/6',
                 selected
                   ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                   : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
@@ -557,21 +557,22 @@ export function SuiteDetailPage() {
             <Tab
               className={({ selected }) =>
                 clsx(
-                  'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                  'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xs px-2.5 py-1.5 text-xs/5 font-medium transition-colors focus:outline-hidden sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/6',
                   selected
                     ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                     : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
                 )
               }
             >
-              Pre-Run Steps
+              <span className="sm:hidden">Pre-Run</span>
+              <span className="hidden sm:inline">Pre-Run Steps</span>
               <Badge variant="default">{suite.pre_run_steps!.length}</Badge>
             </Tab>
           )}
           <Tab
             className={({ selected }) =>
               clsx(
-                'flex cursor-pointer items-center gap-2 rounded-sm px-4 py-2 text-sm/6 font-medium transition-colors focus:outline-hidden',
+                'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xs px-2.5 py-1.5 text-xs/5 font-medium transition-colors focus:outline-hidden sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/6',
                 selected
                   ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
                   : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
@@ -590,8 +591,8 @@ export function SuiteDetailPage() {
             ) : (
               <div className="flex flex-col gap-4">
                 {/* Step Filter Control */}
-                <div className="flex items-center gap-3 rounded-sm bg-white p-3 shadow-xs dark:bg-gray-800">
-                  <span className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">Metric steps:</span>
+                <div className="flex flex-wrap items-center gap-2 rounded-xs bg-white p-2 shadow-xs sm:gap-3 sm:p-3 dark:bg-gray-800">
+                  <span className="text-xs/5 font-medium text-gray-700 sm:text-sm/6 dark:text-gray-300">Metric steps:</span>
                   <div className="flex items-center gap-1">
                     {ALL_INDEX_STEP_TYPES.map((step) => (
                       <button
@@ -604,7 +605,7 @@ export function SuiteDetailPage() {
                             handleStepFilterChange(newFilter)
                           }
                         }}
-                        className={`rounded-sm px-2.5 py-1 text-xs font-medium capitalize transition-colors ${
+                        className={`rounded-xs px-2 py-0.5 text-xs font-medium capitalize transition-colors sm:px-2.5 sm:py-1 ${
                           stepFilter.includes(step)
                             ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
                             : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
@@ -615,7 +616,7 @@ export function SuiteDetailPage() {
                       </button>
                     ))}
                   </div>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="hidden text-xs text-gray-500 sm:inline dark:text-gray-400">
                     (affects Duration, MGas/s calculations)
                   </span>
                 </div>
