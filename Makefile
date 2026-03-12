@@ -1,4 +1,4 @@
-.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all lint-ui fmt-core tidy-core install-core deps-ui run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-down docker-run docker-run-benchmark
+.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all lint-ui fmt-core tidy-core install-core deps-ui run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-down docker-run docker-run-ui docker-run-api docker-run-benchmark
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -120,11 +120,18 @@ docker-build-ui:
 docker-down:
 	docker compose down
 
-## docker-run: Start the UI and API services with docker-compose (UI_PORT=number to override UI port, API_PORT=number to override API port)
+## docker-run: Start the UI and API services with docker-compose
+docker-run: docker-run-ui docker-run-api
+
+## docker-run-ui: Start the UI service with docker-compose (UI_PORT=number to override UI port)
 UI_PORT?=8080
+docker-run-ui:
+	APP_VERSION=$(VERSION) UI_PORT=$(UI_PORT) docker compose up -d --build ui
+
+## docker-run-api: Start the API service with docker-compose (API_PORT=number to override API port)
 API_PORT?=9090
-docker-run:
-	APP_VERSION=$(VERSION) UI_PORT=$(UI_PORT) API_PORT=$(API_PORT) docker compose up -d --build ui
+docker-run-api:
+	VERSION=$(VERSION) COMMIT=$(COMMIT) DATE=$(DATE) API_PORT=$(API_PORT) docker compose up -d --build api
 
 ## docker-run-benchmark: Start the benchmarkoor service with docker-compose (CLIENT=name to limit, CONFIG=file to override config)
 CONFIG?=config.example.docker.yaml
