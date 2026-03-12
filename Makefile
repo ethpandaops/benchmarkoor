@@ -124,7 +124,7 @@ docker-down:
 UI_PORT?=8080
 API_PORT?=9090
 docker-run:
-	UI_PORT=$(UI_PORT) API_PORT=$(API_PORT) docker compose up -d --build ui api
+	APP_VERSION=$(VERSION) UI_PORT=$(UI_PORT) API_PORT=$(API_PORT) docker compose up -d --build ui
 
 ## docker-run-benchmark: Start the benchmarkoor service with docker-compose (CLIENT=name to limit, CONFIG=file to override config)
 CONFIG?=config.example.docker.yaml

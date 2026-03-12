@@ -16,7 +16,7 @@ export function Footer() {
           ethpandaops/benchmarkoor
         </a>
         <span className="mx-2">•</span>
-        <span>v{appVersion}</span>
+        <span>{appVersion}</span>
       </div>
     </footer>
   )

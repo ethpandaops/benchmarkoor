@@ -24,12 +24,11 @@ jobs:
       - name: Set app version from git
         run: |
           VERSION=$(git describe --tags --always 2>/dev/null || git rev-parse --short HEAD)
-          echo "Setting VITE_APP_VERSION=${VERSION}"
-          # Write a .env file that Vite picks up at build time
-          echo "VITE_APP_VERSION=${VERSION}" > ui/.env.production
+          echo "Setting APP_VERSION=${VERSION}"
+          echo "APP_VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: Deploy docker images
-        uses: ethpandaops/actions/docker-build-push@7d7b7bfe36fe4cfa538acd0e23706a23ce07c3ac # master
+        uses: ethpandaops/actions/docker-build-push@99b48ca2b233a2eff93e6a6df76e46b718aca108
         with:
           registry: ghcr.io
           registry_username: ${{ github.actor }}
@@ -38,3 +37,5 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           file: Dockerfile.ui
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
