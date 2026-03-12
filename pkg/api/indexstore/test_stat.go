@@ -3,11 +3,11 @@ package indexstore
 // TestStat represents a single per-test timing entry for suite stats.
 type TestStat struct {
 	ID        uint   `gorm:"primaryKey"`
-	SuiteHash string `gorm:"not null;uniqueIndex:idx_td_suite_test_run"`
-	RunID     string `gorm:"not null;uniqueIndex:idx_td_suite_test_run"`
+	SuiteHash string `gorm:"not null;uniqueIndex:idx_td_suite_test_run;index:idx_ts_suite_run_start;index:idx_ts_suite_start_ttime"`
+	RunID     string `gorm:"not null;uniqueIndex:idx_td_suite_test_run;index:idx_ts_run_id"`
 	TestName  string `gorm:"not null;uniqueIndex:idx_td_suite_test_run"`
 	Client    string
-	RunStart  int64
+	RunStart  int64 `gorm:"index:idx_ts_suite_run_start;index:idx_ts_suite_start_ttime"`
 	RunEnd    int64
 
 	// Total (sum of all steps).
@@ -30,7 +30,7 @@ type TestStat struct {
 
 	// Test step.
 	TestGasUsed              uint64
-	TestTimeNs               int64
+	TestTimeNs               int64   `gorm:"index:idx_ts_suite_start_ttime"`
 	TestMGasS                float64 `gorm:"column:test_mgas_s"`
 	TestRPCCallsCount        int     `gorm:"column:test_rpc_calls_count"`
 	TestResourceCPUUsec      uint64  `gorm:"column:test_resource_cpu_usec"`

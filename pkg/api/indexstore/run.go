@@ -7,7 +7,7 @@ type Run struct {
 	ID                uint   `gorm:"primaryKey"`
 	DiscoveryPath     string `gorm:"not null;uniqueIndex:idx_runs_dp_run"`
 	RunID             string `gorm:"not null;uniqueIndex:idx_runs_dp_run"`
-	Timestamp         int64
+	Timestamp         int64  `gorm:"index"`
 	TimestampEnd      int64
 	SuiteHash         string `gorm:"index"`
 	Status            string
