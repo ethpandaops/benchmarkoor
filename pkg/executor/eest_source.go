@@ -27,14 +27,14 @@ type EESTSource struct {
 	filter        string
 	githubToken   string
 	fixturesDir   string
-	genesisDir    string
+	hiveDir       string
 	tests         []*TestWithSteps
 	genesisGroups []*GenesisGroup
-	// resolvedFixturesRunID and resolvedGenesisRunID store the actual run IDs
-	// used when downloading artifacts. When the config doesn't specify a run ID,
-	// these capture the latest run ID that was resolved during download.
+	genesisGen    *genesisGenerator
+	// resolvedFixturesRunID stores the actual run ID used when downloading
+	// artifacts. When the config doesn't specify a run ID, this captures the
+	// latest run ID that was resolved during download.
 	resolvedFixturesRunID string
-	resolvedGenesisRunID  string
 }
 
 // preAllocFile represents the JSON structure of a pre_alloc file.
@@ -59,19 +59,17 @@ func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 	// Handle local directory mode — no downloading or caching needed.
 	if s.cfg.UseLocalDir() {
 		s.fixturesDir = s.cfg.LocalFixturesDir
-		s.genesisDir = s.cfg.LocalGenesisDir
 
 		s.log.WithFields(logrus.Fields{
 			"fixtures_dir": s.fixturesDir,
-			"genesis_dir":  s.genesisDir,
-		}).Info("Using local EEST fixtures directories")
+		}).Info("Using local EEST fixtures directory")
 
-		return s.discoverTests()
+		return s.discoverTests(ctx)
 	}
 
 	// Handle local tarball mode — extract to cache.
 	if s.cfg.UseLocalTarball() {
-		return s.prepareLocalTarballs()
+		return s.prepareLocalTarballs(ctx)
 	}
 
 	// Build cache path based on source type.
@@ -107,24 +105,6 @@ func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 			s.log.WithField("run_id", runID).Info("Resolved latest fixtures artifact run ID")
 		}
 
-		genesisArtifact := s.cfg.GenesisArtifactName
-		if genesisArtifact == "" {
-			genesisArtifact = "benchmark_genesis"
-		}
-
-		if s.cfg.GenesisArtifactRunID != "" {
-			s.resolvedGenesisRunID = s.cfg.GenesisArtifactRunID
-		} else {
-			runID, err := s.resolveArtifactRunID(ctx, genesisArtifact)
-			if err != nil {
-				return nil, fmt.Errorf("resolving genesis artifact run ID: %w", err)
-			}
-
-			s.resolvedGenesisRunID = runID
-
-			s.log.WithField("run_id", runID).Info("Resolved latest genesis artifact run ID")
-		}
-
 		artifactKey := fmt.Sprintf("%s-%s", fixturesArtifact, s.resolvedFixturesRunID)
 
 		cacheBase = filepath.Join(s.cacheDir, "eest-artifacts", repoHash, artifactKey)
@@ -134,7 +114,6 @@ func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 	}
 
 	s.fixturesDir = filepath.Join(cacheBase, "fixtures")
-	s.genesisDir = filepath.Join(cacheBase, "genesis")
 
 	// Check if already extracted.
 	if _, err := os.Stat(s.fixturesDir); os.IsNotExist(err) {
@@ -156,28 +135,20 @@ func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 	}
 
 	// Parse fixtures and build tests.
-	return s.discoverTests()
+	return s.discoverTests(ctx)
 }
 
-// downloadAndExtract downloads and extracts the fixtures and genesis tarballs.
+// downloadAndExtract downloads and extracts the fixtures tarball.
 func (s *EESTSource) downloadAndExtract(ctx context.Context, cacheBase string) error {
 	if err := os.MkdirAll(cacheBase, 0755); err != nil {
 		return fmt.Errorf("creating cache directory: %w", err)
 	}
 
-	// Build download URLs.
+	// Build download URL.
 	fixturesURL := s.cfg.FixturesURL
 	if fixturesURL == "" {
 		fixturesURL = fmt.Sprintf(
 			"https://github.com/%s/releases/download/%s/fixtures_benchmark.tar.gz",
-			s.cfg.GitHubRepo, s.cfg.GitHubRelease,
-		)
-	}
-
-	genesisURL := s.cfg.GenesisURL
-	if genesisURL == "" {
-		genesisURL = fmt.Sprintf(
-			"https://github.com/%s/releases/download/%s/benchmark_genesis.tar.gz",
 			s.cfg.GitHubRepo, s.cfg.GitHubRelease,
 		)
 	}
@@ -187,13 +158,6 @@ func (s *EESTSource) downloadAndExtract(ctx context.Context, cacheBase string) e
 
 	if err := s.downloadAndExtractTarball(ctx, fixturesURL, s.fixturesDir); err != nil {
 		return fmt.Errorf("extracting fixtures: %w", err)
-	}
-
-	// Download and extract genesis.
-	s.log.WithField("url", genesisURL).Info("Downloading genesis tarball")
-
-	if err := s.downloadAndExtractTarball(ctx, genesisURL, s.genesisDir); err != nil {
-		return fmt.Errorf("extracting genesis: %w", err)
 	}
 
 	return nil
@@ -226,63 +190,35 @@ func (s *EESTSource) downloadArtifacts(ctx context.Context, cacheBase string) er
 		return fmt.Errorf("extracting fixtures tarballs: %w", err)
 	}
 
-	// Download genesis artifact.
-	genesisArtifact := s.cfg.GenesisArtifactName
-	if genesisArtifact == "" {
-		genesisArtifact = "benchmark_genesis"
-	}
-
-	s.log.WithFields(logrus.Fields{
-		"artifact": genesisArtifact,
-		"repo":     s.cfg.GitHubRepo,
-		"run_id":   s.resolvedGenesisRunID,
-	}).Info("Downloading genesis artifact")
-
-	if _, err := s.downloadGitHubArtifact(ctx, genesisArtifact, s.resolvedGenesisRunID, s.genesisDir); err != nil {
-		return fmt.Errorf("downloading genesis artifact: %w", err)
-	}
-
-	// Extract any .tar.gz files found inside the artifact.
-	if err := s.extractInnerTarballs(ctx, s.genesisDir); err != nil {
-		return fmt.Errorf("extracting genesis tarballs: %w", err)
-	}
-
 	return nil
 }
 
-// prepareLocalTarballs extracts local .tar.gz fixtures and genesis to a cache directory.
-func (s *EESTSource) prepareLocalTarballs() (*PreparedSource, error) {
-	// Build a cache key from the tarball paths so re-extractions can be skipped.
-	cacheKey := hashRepoURL(s.cfg.LocalFixturesTarball + "|" + s.cfg.LocalGenesisTarball)
+// prepareLocalTarballs extracts a local .tar.gz fixtures file to a cache directory.
+func (s *EESTSource) prepareLocalTarballs(ctx context.Context) (*PreparedSource, error) {
+	cacheKey := hashRepoURL(s.cfg.LocalFixturesTarball)
 	cacheBase := filepath.Join(s.cacheDir, "eest-local", cacheKey)
 
 	s.fixturesDir = filepath.Join(cacheBase, "fixtures")
-	s.genesisDir = filepath.Join(cacheBase, "genesis")
 
 	// Check if already extracted.
 	if _, err := os.Stat(s.fixturesDir); os.IsNotExist(err) {
 		s.log.WithFields(logrus.Fields{
 			"fixtures_tarball": s.cfg.LocalFixturesTarball,
-			"genesis_tarball":  s.cfg.LocalGenesisTarball,
 			"cache":            cacheBase,
-		}).Info("Extracting local EEST tarballs")
+		}).Info("Extracting local EEST tarball")
 
 		if err := os.MkdirAll(cacheBase, 0755); err != nil {
 			return nil, fmt.Errorf("creating cache directory: %w", err)
 		}
 
-		if err := s.extractLocalTarball(s.cfg.LocalFixturesTarball, s.fixturesDir); err != nil {
+		if err := extractLocalTarball(s.cfg.LocalFixturesTarball, s.fixturesDir); err != nil {
 			return nil, fmt.Errorf("extracting fixtures tarball: %w", err)
 		}
-
-		if err := s.extractLocalTarball(s.cfg.LocalGenesisTarball, s.genesisDir); err != nil {
-			return nil, fmt.Errorf("extracting genesis tarball: %w", err)
-		}
 	} else {
-		s.log.WithField("path", cacheBase).Info("Using cached local EEST tarballs")
+		s.log.WithField("path", cacheBase).Info("Using cached local EEST tarball")
 	}
 
-	return s.discoverTests()
+	return s.discoverTests(ctx)
 }
 
 // ghArtifactList represents a GitHub API response listing artifacts.
@@ -540,7 +476,7 @@ func (s *EESTSource) extractInnerTarballs(_ context.Context, dir string) error {
 
 		s.log.WithField("file", tarballPath).Debug("Extracting inner tarball")
 
-		if err := s.extractLocalTarball(tarballPath, dir); err != nil {
+		if err := extractLocalTarball(tarballPath, dir); err != nil {
 			return fmt.Errorf("extracting %s: %w", entry.Name(), err)
 		}
 
@@ -554,7 +490,7 @@ func (s *EESTSource) extractInnerTarballs(_ context.Context, dir string) error {
 }
 
 // extractLocalTarball extracts a local .tar.gz file to the target directory.
-func (s *EESTSource) extractLocalTarball(tarballPath, targetDir string) error {
+func extractLocalTarball(tarballPath, targetDir string) error {
 	f, err := os.Open(tarballPath)
 	if err != nil {
 		return fmt.Errorf("opening tarball: %w", err)
@@ -695,7 +631,7 @@ func (s *EESTSource) downloadAndExtractTarball(ctx context.Context, url, targetD
 }
 
 // discoverTests parses fixture files and creates test entries.
-func (s *EESTSource) discoverTests() (*PreparedSource, error) {
+func (s *EESTSource) discoverTests(ctx context.Context) (*PreparedSource, error) {
 	// Determine the fixtures search directory.
 	fixturesSubdir := s.cfg.FixturesSubdir
 	if fixturesSubdir == "" {
@@ -844,6 +780,31 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 		s.log.WithError(err).Warn("Failed to parse pre_alloc directory")
 	}
 
+	// Discover hive directory and initialize genesis generator.
+	s.hiveDir = filepath.Join(searchDir, "hive")
+	if _, err := os.Stat(s.hiveDir); err == nil {
+		mapperDir := filepath.Join(s.cacheDir, "hive_mappers")
+		genesisCache := filepath.Join(s.cacheDir, "genesis_cache")
+
+		// Clean mapper and genesis cache from previous runs.
+		for _, dir := range []string{mapperDir, genesisCache} {
+			if err := os.RemoveAll(dir); err != nil {
+				return nil, fmt.Errorf("cleaning cache directory %s: %w", dir, err)
+			}
+		}
+
+		s.genesisGen = newGenesisGenerator(s.log, mapperDir, genesisCache)
+
+		// Fetch mapper.jq files from hive GitHub (once per run).
+		if err := s.genesisGen.FetchMappers(ctx); err != nil {
+			return nil, fmt.Errorf("fetching hive mappers: %w", err)
+		}
+
+		s.log.WithField("hive_dir", s.hiveDir).Info("Discovered hive directory for genesis generation")
+	} else {
+		s.log.Debug("No hive directory found, genesis generation unavailable")
+	}
+
 	// If genesis groups were found, reorder result.Tests to match execution
 	// order: groups iterated by genesis hash, tests sorted by name within
 	// each group. This ensures the suite summary reflects actual execution.
@@ -873,15 +834,10 @@ func (s *EESTSource) GetSourceInfo() (*SuiteSource, error) {
 		fixturesSubdir = config.DefaultEESTFixturesSubdir
 	}
 
-	// Use resolved run IDs when available, falling back to config values.
+	// Use resolved run ID when available, falling back to config value.
 	fixturesRunID := s.resolvedFixturesRunID
 	if fixturesRunID == "" {
 		fixturesRunID = s.cfg.FixturesArtifactRunID
-	}
-
-	genesisRunID := s.resolvedGenesisRunID
-	if genesisRunID == "" {
-		genesisRunID = s.cfg.GenesisArtifactRunID
 	}
 
 	return &SuiteSource{
@@ -889,16 +845,11 @@ func (s *EESTSource) GetSourceInfo() (*SuiteSource, error) {
 			GitHubRepo:            s.cfg.GitHubRepo,
 			GitHubRelease:         s.cfg.GitHubRelease,
 			FixturesURL:           s.cfg.FixturesURL,
-			GenesisURL:            s.cfg.GenesisURL,
 			FixturesSubdir:        fixturesSubdir,
 			FixturesArtifactName:  s.cfg.FixturesArtifactName,
-			GenesisArtifactName:   s.cfg.GenesisArtifactName,
 			FixturesArtifactRunID: fixturesRunID,
-			GenesisArtifactRunID:  genesisRunID,
 			LocalFixturesDir:      s.cfg.LocalFixturesDir,
-			LocalGenesisDir:       s.cfg.LocalGenesisDir,
 			LocalFixturesTarball:  s.cfg.LocalFixturesTarball,
-			LocalGenesisTarball:   s.cfg.LocalGenesisTarball,
 		},
 	}, nil
 }
@@ -989,76 +940,50 @@ func (s *EESTSource) GetGenesisGroups() []*GenesisGroup {
 	return s.genesisGroups
 }
 
-// GetGenesisPathForGroup returns the genesis file path for a specific
-// genesis hash and client type.
+// GetGenesisPathForGroup generates and returns the genesis file path for a
+// specific genesis hash and client type using hive files + mapper.jq.
 func (s *EESTSource) GetGenesisPathForGroup(genesisHash, clientType string) string {
-	clientDir, filename := s.resolveClientGenesis(clientType)
-
-	genesisPath := filepath.Join(
-		s.genesisDir, "genesis", genesisHash, clientDir, filename,
-	)
-
-	if _, err := os.Stat(genesisPath); err == nil {
-		return genesisPath
-	}
-
-	s.log.WithFields(logrus.Fields{
-		"genesis_hash": genesisHash,
-		"client":       clientType,
-		"path":         genesisPath,
-	}).Warn("Genesis file not found for group")
-
-	return ""
-}
-
-// resolveClientGenesis maps a client type to its genesis directory and filename.
-func (s *EESTSource) resolveClientGenesis(clientType string) (string, string) {
-	switch clientType {
-	case "geth", "erigon", "reth", "nimbus":
-		return "go-ethereum", "genesis.json"
-	case "nethermind":
-		return "nethermind", "chainspec.json"
-	case "besu":
-		return "besu", "genesis.json"
-	default:
-		return "go-ethereum", "genesis.json"
-	}
-}
-
-// GetGenesisPath returns the genesis file path for a client type.
-// Maps client types to their genesis directories in the EEST release.
-func (s *EESTSource) GetGenesisPath(clientType string) string {
-	clientDir, filename := s.resolveClientGenesis(clientType)
-
-	// Genesis files are in genesis/genesis/<hash>/<client>/<filename>
-	// Find the hash subdirectory (there should typically be one).
-	genesisBaseDir := filepath.Join(s.genesisDir, "genesis")
-
-	entries, err := os.ReadDir(genesisBaseDir)
-	if err != nil {
-		s.log.WithError(err).Warn("Failed to read genesis directory")
+	if s.genesisGen == nil {
+		s.log.Warn("Genesis generator not initialized (no hive directory?)")
 
 		return ""
 	}
 
-	// Find the first directory (the hash directory).
-	for _, entry := range entries {
-		if entry.IsDir() {
-			genesisPath := filepath.Join(
-				genesisBaseDir, entry.Name(), clientDir, filename,
-			)
-			if _, err := os.Stat(genesisPath); err == nil {
-				return genesisPath
-			}
-		}
+	hiveFilePath := filepath.Join(s.hiveDir, genesisHash+".json")
+
+	path, err := s.genesisGen.GenerateClientGenesis(
+		context.Background(), hiveFilePath, genesisHash, clientType,
+	)
+	if err != nil {
+		s.log.WithFields(logrus.Fields{
+			"genesis_hash": genesisHash,
+			"client":       clientType,
+			"error":        err,
+		}).Error("Failed to generate client genesis")
+
+		return ""
 	}
 
-	s.log.WithFields(logrus.Fields{
-		"client":  clientType,
-		"baseDir": genesisBaseDir,
-	}).Warn("Genesis file not found")
+	return path
+}
 
-	return ""
+// GetGenesisPath generates and returns the genesis file path for a client type.
+// Uses the first available hive file when no specific hash is requested.
+func (s *EESTSource) GetGenesisPath(clientType string) string {
+	if s.genesisGen == nil {
+		s.log.Warn("Genesis generator not initialized (no hive directory?)")
+
+		return ""
+	}
+
+	hashes, err := readHiveDir(s.hiveDir)
+	if err != nil || len(hashes) == 0 {
+		s.log.WithError(err).Warn("No hive files found")
+
+		return ""
+	}
+
+	return s.GetGenesisPathForGroup(hashes[0], clientType)
 }
 
 // linesProvider implements StepProvider for in-memory lines.
@@ -1081,16 +1006,11 @@ type EESTSourceInfo struct {
 	GitHubRepo     string `json:"github_repo,omitempty"`
 	GitHubRelease  string `json:"github_release,omitempty"`
 	FixturesURL    string `json:"fixtures_url,omitempty"`
-	GenesisURL     string `json:"genesis_url,omitempty"`
 	FixturesSubdir string `json:"fixtures_subdir,omitempty"`
 	// Artifact fields (alternative to releases).
 	FixturesArtifactName  string `json:"fixtures_artifact_name,omitempty"`
-	GenesisArtifactName   string `json:"genesis_artifact_name,omitempty"`
 	FixturesArtifactRunID string `json:"fixtures_artifact_run_id,omitempty"`
-	GenesisArtifactRunID  string `json:"genesis_artifact_run_id,omitempty"`
 	// Local source fields.
 	LocalFixturesDir     string `json:"local_fixtures_dir,omitempty"`
-	LocalGenesisDir      string `json:"local_genesis_dir,omitempty"`
 	LocalFixturesTarball string `json:"local_fixtures_tarball,omitempty"`
-	LocalGenesisTarball  string `json:"local_genesis_tarball,omitempty"`
 }
