@@ -197,13 +197,13 @@ export function ComparePage() {
         <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
       )}
 
+      <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} />
+
       {allResults && (
-        <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
+        <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} blockLogsPerRun={blockLogsPerRun} />
       )}
 
       {allResults && <ResourceComparisonCharts runs={runs} />}
-
-      <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} />
 
       <ConfigDiff runs={runs} />
     </div>
