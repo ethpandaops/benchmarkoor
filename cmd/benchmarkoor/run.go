@@ -101,8 +101,14 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 
 	go func() {
 		sig := <-sigCh
-		log.WithField("signal", sig).Info("Received shutdown signal")
+		log.WithField("signal", sig).Info("Received shutdown signal, shutting down gracefully...")
 		cancel()
+
+		// A second signal force-exits immediately. Without this, the
+		// process appears to hang during cleanup (log drain timeouts,
+		// container removal) and ignores further CTRL+C presses.
+		sig = <-sigCh
+		log.WithField("signal", sig).Fatal("Received second signal, forcing exit")
 	}()
 
 	if !cfg.Runner.Benchmark.SkipTestRun {
