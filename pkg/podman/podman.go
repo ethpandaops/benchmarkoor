@@ -58,8 +58,17 @@ func NewManager(log logrus.FieldLogger) (docker.ContainerManager, error) {
 }
 
 // Start initializes the Podman connection and validates the runtime mode.
+// The connection is created with a background context so that Podman API
+// calls (container remove, stop, etc.) continue to work even after the
+// application context is cancelled (e.g., CTRL+C). The passed ctx is
+// only used to gate this method's own work (validation, info query).
 func (m *manager) Start(ctx context.Context) error {
-	conn, err := bindings.NewConnection(ctx, DefaultSocket)
+	// Use context.Background() for the persistent connection so it
+	// survives parent context cancellation. The Podman Go bindings
+	// store the context inside the connection and use it for every
+	// API call — if we used the caller's ctx here, all Podman
+	// operations would fail after CTRL+C.
+	conn, err := bindings.NewConnection(context.Background(), DefaultSocket)
 	if err != nil {
 		return fmt.Errorf(
 			"connecting to podman socket (%s): %w\n"+
@@ -579,11 +588,26 @@ func (m *manager) WaitForContainerExit(
 	statusCh := make(chan docker.ContainerExitInfo, 1)
 	errCh := make(chan error, 1)
 
+	// Derive a cancellable connection from m.conn that also cancels when
+	// the caller's ctx is done. This ensures the blocking Wait call
+	// unblocks on CTRL+C (context cancellation) instead of hanging
+	// until the container exits on its own.
+	waitConn, cancel := context.WithCancel(m.conn)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			cancel()
+		case <-waitConn.Done():
+		}
+	}()
+
 	go func() {
 		defer close(statusCh)
 		defer close(errCh)
+		defer cancel()
 
-		exitCode, err := containers.Wait(m.conn, containerID, nil)
+		exitCode, err := containers.Wait(waitConn, containerID, nil)
 		if err != nil {
 			errCh <- err
 
