@@ -1,18 +1,20 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
-import type { RunConfig, RunResult } from '@/api/types'
+import type { BlockLogs, RunConfig, RunResult } from '@/api/types'
 import { fetchData } from '@/api/client'
 import { useSuite } from '@/api/hooks/useSuite'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { CompareHeader } from '@/components/compare/CompareHeader'
+import { StickyRunBar } from '@/components/compare/StickyRunBar'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
 import { ResourceComparisonCharts } from '@/components/compare/ResourceComparisonCharts'
+import { BlockLogsComparison } from '@/components/compare/BlockLogsComparison'
 import { ConfigDiff } from '@/components/compare/ConfigDiff'
 import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER } from '@/pages/RunDetailPage'
 import { MIN_COMPARE_RUNS, MAX_COMPARE_RUNS, type CompareRun } from '@/components/compare/constants'
@@ -78,8 +80,26 @@ export function ComparePage() {
     })),
   })
 
+  const blockLogQueries = useQueries({
+    queries: runIds.map((runId) => ({
+      queryKey: ['run', runId, 'block-logs'],
+      queryFn: async () => {
+        const { data, status } = await fetchData<BlockLogs>(`runs/${runId}/result.block-logs.json`)
+        if (!data) {
+          if (status === 404) return null
+          throw new Error(`Failed to fetch block logs: ${status}`)
+        }
+        return data
+      },
+      enabled: !!runId,
+    })),
+  })
+  const blockLogsPerRun = blockLogQueries.map((q) => q.data ?? null)
+  const blockLogsLoading = blockLogQueries.some((q) => q.isLoading)
+
   const suiteHash = configQueries.find((q) => q.data?.suite_hash)?.data?.suite_hash
   const { data: suite } = useSuite(suiteHash)
+  const headerRef = useRef<HTMLDivElement>(null)
 
   // Handle backward-compat redirect in progress
   if (search.a && search.b && !search.runs) {
@@ -122,6 +142,8 @@ export function ComparePage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <StickyRunBar runs={runs} sentinelRef={headerRef} />
+
       {/* Breadcrumb */}
       <div className="flex min-w-0 items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
         <Link to="/runs" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
@@ -150,37 +172,23 @@ export function ComparePage() {
         </div>
       )}
 
-      <CompareHeader runs={runs} onRemoveRun={(id) => {
-        const remaining = runIds.filter((r) => r !== id)
-        navigate({ to: '/compare', search: { runs: remaining.join(','), steps: search.steps } })
-      }} />
-
-      <div className="flex items-center gap-2">
-        <span className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">Metric steps:</span>
-        <div className="flex items-center gap-1">
-          {ALL_INDEX_STEP_TYPES.map((step) => (
-            <span
-              key={step}
-              className={`rounded-sm px-2.5 py-1 text-xs font-medium capitalize ${
-                stepFilter.includes(step)
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                  : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
-              }`}
-            >
-              {step}
-            </span>
-          ))}
-        </div>
+      <div ref={headerRef}>
+        <CompareHeader runs={runs} onRemoveRun={(id) => {
+          const remaining = runIds.filter((r) => r !== id)
+          navigate({ to: '/compare', search: { runs: remaining.join(','), steps: search.steps } })
+        }} />
       </div>
 
-      <MetricsComparison runs={runs} stepFilter={stepFilter} />
+<MetricsComparison runs={runs} stepFilter={stepFilter} />
 
       {allResults && (
         <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
       )}
 
+      <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} />
+
       {allResults && (
-        <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
+        <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} blockLogsPerRun={blockLogsPerRun} />
       )}
 
       {allResults && <ResourceComparisonCharts runs={runs} />}

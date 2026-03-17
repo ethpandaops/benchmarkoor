@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import type { SuiteTest, AggregatedStats } from '@/api/types'
+import type { SuiteTest, AggregatedStats, BlockLogs, BlockLogEntry } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { Pagination } from '@/components/shared/Pagination'
 import { type CompareRun, RUN_SLOTS } from './constants'
@@ -9,16 +9,46 @@ interface TestComparisonTableProps {
   runs: CompareRun[]
   suiteTests?: SuiteTest[]
   stepFilter: StepTypeOption[]
+  blockLogsPerRun?: (BlockLogs | null)[]
 }
 
-type SortColumn = 'order' | 'name' | 'avgMgas'
+type SortColumn = 'order' | 'name' | 'avgValue'
 type SortDirection = 'asc' | 'desc'
 
 interface ComparedTest {
   name: string
   order: number
-  mgas: (number | undefined)[]
-  avgMgas: number | undefined
+  values: (number | undefined)[]
+  avgValue: number | undefined
+}
+
+interface MetricTab {
+  id: string
+  label: string
+  unit: string
+  higherIsBetter: boolean
+  format: (v: number) => string
+}
+
+const BLOCK_LOG_METRICS: MetricTab[] = [
+  { id: 'bl-throughput', label: 'Throughput', unit: 'MGas/s', higherIsBetter: true, format: (v) => v.toFixed(2) },
+  { id: 'bl-execution', label: 'Execution Time', unit: 'ms', higherIsBetter: false, format: (v) => v.toFixed(2) },
+  { id: 'bl-overhead', label: 'Overhead', unit: 'ms', higherIsBetter: false, format: (v) => v.toFixed(2) },
+  { id: 'bl-account-cache', label: 'Account Cache HR', unit: '%', higherIsBetter: true, format: (v) => v.toFixed(1) },
+  { id: 'bl-storage-cache', label: 'Storage Cache HR', unit: '%', higherIsBetter: true, format: (v) => v.toFixed(1) },
+  { id: 'bl-code-cache', label: 'Code Cache HR', unit: '%', higherIsBetter: true, format: (v) => v.toFixed(1) },
+]
+
+function extractBlockLogMetric(entry: BlockLogEntry, metricId: string): number {
+  switch (metricId) {
+    case 'bl-throughput': return entry.throughput.mgas_per_sec
+    case 'bl-execution': return entry.timing.execution_ms
+    case 'bl-overhead': return entry.timing.state_read_ms + entry.timing.state_hash_ms + entry.timing.commit_ms
+    case 'bl-account-cache': return entry.cache.account.hit_rate
+    case 'bl-storage-cache': return entry.cache.storage.hit_rate
+    case 'bl-code-cache': return entry.cache.code.hit_rate
+    default: return 0
+  }
 }
 
 // Returns an RGB color interpolated from yellow (small diff) to red (large diff)
@@ -83,50 +113,82 @@ function SortableHeader({
 
 const PAGE_SIZE = 50
 
-export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestComparisonTableProps) {
+export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun }: TestComparisonTableProps) {
+  const [activeTab, setActiveTab] = useState('mgas')
   const [sortBy, setSortBy] = useState<SortColumn>('order')
   const [sortDir, setSortDir] = useState<SortDirection>('asc')
   const [searchQuery, setSearchQuery] = useState('')
   const [useRegex, setUseRegex] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
 
+  const hasBlockLogs = blockLogsPerRun?.some((bl) => bl !== null) ?? false
+
+  const tabs: MetricTab[] = useMemo(() => {
+    const base: MetricTab[] = [
+      { id: 'mgas', label: 'MGas/s', unit: 'MGas/s', higherIsBetter: true, format: (v) => v.toFixed(2) },
+    ]
+    if (hasBlockLogs) {
+      return [...base, ...BLOCK_LOG_METRICS]
+    }
+    return base
+  }, [hasBlockLogs])
+
+  const activeMetric = tabs.find((t) => t.id === activeTab) ?? tabs[0]
+
+  const suiteOrder = useMemo(() => {
+    const map = new Map<string, number>()
+    if (suiteTests) {
+      suiteTests.forEach((t, i) => map.set(t.name, i + 1))
+    }
+    return map
+  }, [suiteTests])
+
   const comparedTests = useMemo(() => {
     const allTestNames = new Set<string>()
-    for (const run of runs) {
-      if (run.result) {
-        for (const name of Object.keys(run.result.tests)) {
-          allTestNames.add(name)
+
+    if (activeTab === 'mgas') {
+      for (const run of runs) {
+        if (run.result) {
+          for (const name of Object.keys(run.result.tests)) allTestNames.add(name)
         }
       }
-    }
-
-    const suiteOrder = new Map<string, number>()
-    if (suiteTests) {
-      suiteTests.forEach((t, i) => suiteOrder.set(t.name, i + 1))
+    } else {
+      if (blockLogsPerRun) {
+        for (const bl of blockLogsPerRun) {
+          if (bl) for (const name of Object.keys(bl)) allTestNames.add(name)
+        }
+      }
     }
 
     const tests: ComparedTest[] = []
     for (const name of allTestNames) {
-      const mgas: (number | undefined)[] = []
+      const values: (number | undefined)[] = []
       let order = suiteOrder.get(name) ?? 0
 
-      for (const run of runs) {
-        const entry = run.result?.tests[name]
-        const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
-        mgas.push(calculateMGasPerSec(stats))
-
-        if (order === 0 && entry) {
-          order = parseInt(entry.dir, 10) || 0
+      if (activeTab === 'mgas') {
+        for (const run of runs) {
+          const entry = run.result?.tests[name]
+          const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
+          values.push(calculateMGasPerSec(stats))
+          if (order === 0 && entry) {
+            order = parseInt(entry.dir, 10) || 0
+          }
+        }
+      } else {
+        for (let i = 0; i < runs.length; i++) {
+          const bl = blockLogsPerRun?.[i]
+          const entry = bl?.[name]
+          values.push(entry ? extractBlockLogMetric(entry, activeTab) : undefined)
         }
       }
 
-      const defined = mgas.filter((v): v is number => v !== undefined)
-      const avgMgas = defined.length > 0 ? defined.reduce((a, b) => a + b, 0) / defined.length : undefined
+      const defined = values.filter((v): v is number => v !== undefined)
+      const avgValue = defined.length > 0 ? defined.reduce((a, b) => a + b, 0) / defined.length : undefined
 
-      tests.push({ name, order, mgas, avgMgas })
+      tests.push({ name, order, values, avgValue })
     }
     return tests
-  }, [runs, suiteTests, stepFilter])
+  }, [runs, suiteOrder, stepFilter, activeTab, blockLogsPerRun])
 
   const filteredTests = useMemo(() => {
     if (!searchQuery) return comparedTests
@@ -153,8 +215,8 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
         case 'name':
           cmp = a.name.localeCompare(b.name)
           break
-        case 'avgMgas':
-          cmp = (a.avgMgas ?? 0) - (b.avgMgas ?? 0)
+        case 'avgValue':
+          cmp = (a.avgValue ?? 0) - (b.avgValue ?? 0)
           break
       }
       return sortDir === 'asc' ? cmp : -cmp
@@ -208,20 +270,41 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
           </button>
         </div>
       </div>
+
+      {tabs.length > 1 && (
+        <div className="flex gap-0 overflow-x-auto border-b border-gray-200 px-4 dark:border-gray-700">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => { setActiveTab(tab.id); setCurrentPage(1) }}
+              title={tab.id.startsWith('bl-') ? 'Extracted from block logs' : undefined}
+              className={clsx(
+                'shrink-0 border-b-2 px-3 py-2 text-xs/5 font-medium transition-colors',
+                activeTab === tab.id
+                  ? 'border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-300',
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
               <SortableHeader label="#" column="order" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-12 px-3 py-3" />
               <SortableHeader label="Test Name" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
-              <SortableHeader label="Avg" column="avgMgas" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
+              <SortableHeader label="Avg" column="avgValue" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
               {runs.map((run) => {
                 const slot = RUN_SLOTS[run.index]
                 return (
                   <th key={slot.label} className={clsx('px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
                     <div className="flex flex-col items-end gap-1">
                       <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-5 rounded-full object-cover" />
-                      {slot.label} MGas/s
+                      {slot.label} {activeMetric.unit}
                     </div>
                   </th>
                 )
@@ -230,8 +313,10 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {paginatedTests.map((test) => {
-              const definedMgas = test.mgas.filter((v): v is number => v !== undefined)
-              const maxMgas = definedMgas.length > 0 ? Math.max(...definedMgas) : undefined
+              const defined = test.values.filter((v): v is number => v !== undefined)
+              const bestValue = defined.length > 0
+                ? (activeMetric.higherIsBetter ? Math.max(...defined) : Math.min(...defined))
+                : undefined
 
               return (
                 <tr key={test.name} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
@@ -242,19 +327,21 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter }: TestCompar
                     {test.name}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 text-right text-sm/6 text-gray-400 dark:text-gray-500">
-                    {test.avgMgas !== undefined ? test.avgMgas.toFixed(2) : '-'}
+                    {test.avgValue !== undefined ? activeMetric.format(test.avgValue) : '-'}
                   </td>
-                  {test.mgas.map((val, i) => {
-                    const diff = val !== undefined && maxMgas !== undefined ? val - maxMgas : undefined
-                    const isFastest = val !== undefined && val === maxMgas
+                  {test.values.map((val, i) => {
+                    const isBest = val !== undefined && val === bestValue
+                    const diff = val !== undefined && bestValue !== undefined
+                      ? (activeMetric.higherIsBetter ? val - bestValue : bestValue - val)
+                      : undefined
                     return (
                       <td key={RUN_SLOTS[i].label} className="whitespace-nowrap px-4 py-2 text-right text-sm/6">
-                        <div className={isFastest ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
-                          {val !== undefined ? val.toFixed(2) : '-'}
+                        <div className={isBest ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
+                          {val !== undefined ? activeMetric.format(val) : '-'}
                         </div>
-                        {diff !== undefined && !isFastest && (
-                          <div className="text-xs/4" style={{ color: getDiffColor(diff, maxMgas!) }}>
-                            {diff.toFixed(2)}
+                        {diff !== undefined && !isBest && (
+                          <div className="text-xs/4" style={{ color: getDiffColor(diff, bestValue!) }}>
+                            {activeMetric.higherIsBetter ? diff.toFixed(2) : `+${Math.abs(diff).toFixed(2)}`}
                           </div>
                         )}
                       </td>
