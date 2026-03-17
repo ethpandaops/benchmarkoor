@@ -59,6 +59,14 @@ function RunCard({
             {runId}
           </Link>
         </div>
+        {config.instance.id && (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 text-xs/5 text-gray-500 dark:text-gray-400">ID:</span>
+            <span className="truncate font-mono text-sm/6 text-gray-900 dark:text-gray-100" title={config.instance.id}>
+              {config.instance.id}
+            </span>
+          </div>
+        )}
         {config.instance.client_version && (
           <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-xs/5 text-gray-500 dark:text-gray-400">Version:</span>

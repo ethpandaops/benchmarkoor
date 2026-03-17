@@ -173,25 +173,7 @@ export function ComparePage() {
         navigate({ to: '/compare', search: { runs: remaining.join(','), steps: search.steps } })
       }} />
 
-      <div className="flex items-center gap-2">
-        <span className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">Metric steps:</span>
-        <div className="flex items-center gap-1">
-          {ALL_INDEX_STEP_TYPES.map((step) => (
-            <span
-              key={step}
-              className={`rounded-sm px-2.5 py-1 text-xs font-medium capitalize ${
-                stepFilter.includes(step)
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                  : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
-              }`}
-            >
-              {step}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <MetricsComparison runs={runs} stepFilter={stepFilter} />
+<MetricsComparison runs={runs} stepFilter={stepFilter} />
 
       {allResults && (
         <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
