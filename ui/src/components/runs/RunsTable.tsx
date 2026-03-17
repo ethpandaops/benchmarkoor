@@ -1,4 +1,4 @@
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, getIndexAggregatedStats } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
@@ -113,8 +113,6 @@ export function RunsTable({
   onSelectionChange,
   selectionVariant = 'compare',
 }: RunsTableProps) {
-  const navigate = useNavigate()
-
   const handleSort = (column: SortColumn) => {
     if (onSortChange) {
       const newDirection = sortBy === column && sortDir === 'desc' ? 'asc' : 'desc'
@@ -145,15 +143,9 @@ export function RunsTable({
             return (
             <tr
               key={entry.run_id}
-              onClick={() => {
-                if (selectable) {
-                  onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id))
-                } else {
-                  navigate({ to: '/runs/$runId', params: { runId: entry.run_id } })
-                }
-              }}
+              onClick={selectable ? () => onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id)) : undefined}
               className={clsx(
-                'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                'group relative cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
                 entry.status === 'container_died' && 'bg-red-50/50 dark:bg-red-900/10',
                 entry.status === 'cancelled' && 'bg-yellow-50/50 dark:bg-yellow-900/10',
                 entry.status === 'timeout' && 'bg-orange-50/50 dark:bg-orange-900/10',
@@ -163,7 +155,7 @@ export function RunsTable({
               )}
             >
               {selectable && (
-                <td className="whitespace-nowrap px-2 py-2 text-center sm:px-3 sm:py-4">
+                <td className="relative z-10 whitespace-nowrap px-2 py-2 text-center sm:px-3 sm:py-4">
                   <input
                     type="checkbox"
                     checked={selectedRunIds?.has(entry.run_id) ?? false}
@@ -184,6 +176,15 @@ export function RunsTable({
                 hasFailures && 'border-orange-400 dark:border-orange-500',
                 entry.status !== 'container_died' && entry.status !== 'cancelled' && entry.status !== 'timeout' && !hasFailures && 'border-transparent',
               )}>
+                {!selectable && (
+                  <Link
+                    to="/runs/$runId"
+                    params={{ runId: entry.run_id }}
+                    className="absolute inset-0 z-0"
+                    tabIndex={-1}
+                    aria-hidden
+                  />
+                )}
                 <span className="flex flex-col" title={formatRelativeTime(entry.timestamp)}>
                   <span>{formatTimestampDate(entry.timestamp)}</span>
                   <span className="text-xs/4 text-gray-400 dark:text-gray-500">{formatTimestampTime(entry.timestamp)}</span>
@@ -204,7 +205,7 @@ export function RunsTable({
                 <span title={entry.instance.image}>{entry.instance.image}</span>
               </td>
               {showSuite && (
-                <td className="whitespace-nowrap px-3 py-2 font-mono text-sm/6 sm:px-4 sm:py-2.5">
+                <td className="relative z-10 whitespace-nowrap px-3 py-2 font-mono text-sm/6 sm:px-4 sm:py-2.5">
                   {entry.suite_hash ? (
                     <SuiteCell suiteHash={entry.suite_hash} />
                   ) : (
