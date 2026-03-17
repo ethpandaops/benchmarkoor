@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
-import type { RunConfig, RunResult } from '@/api/types'
+import type { BlockLogs, RunConfig, RunResult } from '@/api/types'
 import { fetchData } from '@/api/client'
 import { useSuite } from '@/api/hooks/useSuite'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -13,6 +13,7 @@ import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
 import { ResourceComparisonCharts } from '@/components/compare/ResourceComparisonCharts'
+import { BlockLogsComparison } from '@/components/compare/BlockLogsComparison'
 import { ConfigDiff } from '@/components/compare/ConfigDiff'
 import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER } from '@/pages/RunDetailPage'
 import { MIN_COMPARE_RUNS, MAX_COMPARE_RUNS, type CompareRun } from '@/components/compare/constants'
@@ -77,6 +78,23 @@ export function ComparePage() {
       enabled: !!runId,
     })),
   })
+
+  const blockLogQueries = useQueries({
+    queries: runIds.map((runId) => ({
+      queryKey: ['run', runId, 'block-logs'],
+      queryFn: async () => {
+        const { data, status } = await fetchData<BlockLogs>(`runs/${runId}/result.block-logs.json`)
+        if (!data) {
+          if (status === 404) return null
+          throw new Error(`Failed to fetch block logs: ${status}`)
+        }
+        return data
+      },
+      enabled: !!runId,
+    })),
+  })
+  const blockLogsPerRun = blockLogQueries.map((q) => q.data ?? null)
+  const blockLogsLoading = blockLogQueries.some((q) => q.isLoading)
 
   const suiteHash = configQueries.find((q) => q.data?.suite_hash)?.data?.suite_hash
   const { data: suite } = useSuite(suiteHash)
@@ -184,6 +202,8 @@ export function ComparePage() {
       )}
 
       {allResults && <ResourceComparisonCharts runs={runs} />}
+
+      <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} />
 
       <ConfigDiff runs={runs} />
     </div>
