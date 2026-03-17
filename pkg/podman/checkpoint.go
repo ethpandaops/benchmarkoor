@@ -107,7 +107,10 @@ func (m *manager) CheckpointContainer(
 	tcpEstablished := true
 	printStats := true
 
-	report, err := containers.Checkpoint(m.conn, containerID, &containers.CheckpointOptions{
+	conn, connCancel := m.connWithCtx(ctx)
+	defer connCancel()
+
+	report, err := containers.Checkpoint(conn, containerID, &containers.CheckpointOptions{
 		Export:         &exportPath,
 		FileLocks:      &fileLocks,
 		Keep:           &keep,
@@ -170,7 +173,10 @@ func (m *manager) RestoreContainer(
 		PrintStats:     &printStats,
 	}
 
-	report, err := containers.Restore(m.conn, "", restoreOpts)
+	conn, connCancel := m.connWithCtx(ctx)
+	defer connCancel()
+
+	report, err := containers.Restore(conn, "", restoreOpts)
 	if err != nil {
 		m.logCRIURestoreLog(opts.Name)
 
@@ -220,7 +226,10 @@ func (m *manager) ReadFileFromImage(
 	s.Command = []string{"true"}
 	s.HealthLogDestination = "local"
 
-	resp, err := containers.CreateWithSpec(m.conn, s, nil)
+	conn, connCancel := m.connWithCtx(ctx)
+	defer connCancel()
+
+	resp, err := containers.CreateWithSpec(conn, s, nil)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"creating throwaway container for %s: %w", imageName, err,
@@ -231,8 +240,16 @@ func (m *manager) ReadFileFromImage(
 		force := true
 		timeout := uint(0)
 
+		// Use a fresh context for cleanup so removal succeeds even
+		// if the caller's ctx is cancelled.
+		rmConn, rmCancel := context.WithTimeout(
+			context.Background(), 30*time.Second,
+		)
+
+		rmConn, _ = m.connWithCtx(rmConn)
+
 		if _, rmErr := containers.Remove(
-			m.conn, resp.ID, &containers.RemoveOptions{
+			rmConn, resp.ID, &containers.RemoveOptions{
 				Force:   &force,
 				Timeout: &timeout,
 			},
@@ -241,13 +258,15 @@ func (m *manager) ReadFileFromImage(
 				"Failed to remove throwaway container",
 			)
 		}
+
+		rmCancel()
 	}()
 
 	// Copy the file out as a tar archive.
 	var buf bytes.Buffer
 
 	copyFn, err := containers.CopyToArchive(
-		m.conn, resp.ID, filePath, &buf,
+		conn, resp.ID, filePath, &buf,
 	)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -300,7 +319,10 @@ func (m *manager) dropConnections(
 	containerID string,
 	waitAfterDrop time.Duration,
 ) error {
-	inspect, err := containers.Inspect(m.conn, containerID, nil)
+	conn, connCancel := m.connWithCtx(ctx)
+	defer connCancel()
+
+	inspect, err := containers.Inspect(conn, containerID, nil)
 	if err != nil {
 		return fmt.Errorf("inspecting container: %w", err)
 	}

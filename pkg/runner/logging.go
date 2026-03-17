@@ -205,7 +205,14 @@ func waitForLogDrain(
 	case <-*logDone:
 	case <-time.After(timeout):
 		(*logCancel)()
-		<-*logDone
+
+		// Wait briefly for the goroutine to acknowledge. Podman's
+		// containers.Attach uses a hijacked connection that may
+		// ignore context cancellation, so don't block forever.
+		select {
+		case <-*logDone:
+		case <-time.After(5 * time.Second):
+		}
 	}
 }
 

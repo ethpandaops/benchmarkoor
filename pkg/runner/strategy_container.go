@@ -186,24 +186,41 @@ func (r *runner) runTestsWithContainerStrategy(
 		case <-ctx.Done():
 			log.Info("Context cancelled, stopping current container")
 
-			// Stop the container immediately so it doesn't keep
-			// running during the cleanup path. Use a background
-			// context since the parent is already cancelled.
+			// Stop the container first so its stdio closes and
+			// the Podman attach connection (used by StreamLogs)
+			// receives EOF. Without this, RemoveContainer blocks
+			// because the active attach holds a server-side lock.
 			stopCtx, stopCancel := context.WithTimeout(
 				context.Background(), 30*time.Second,
 			)
 
-			if err := r.containerMgr.RemoveContainer(
+			if err := r.containerMgr.StopContainer(
 				stopCtx, currentContainerID,
 			); err != nil {
-				log.WithError(err).Warn(
-					"Failed to remove container on cancellation",
+				log.WithError(err).Debug(
+					"Failed to stop container on cancellation",
 				)
 			}
 
 			stopCancel()
 
 			waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+			// Remove the stopped container.
+			rmCtx, rmCancel := context.WithTimeout(
+				context.Background(), 30*time.Second,
+			)
+
+			if err := r.containerMgr.RemoveContainer(
+				rmCtx, currentContainerID,
+			); err != nil {
+				log.WithError(err).Warn(
+					"Failed to remove container on cancellation",
+				)
+			}
+
+			rmCancel()
+
 			combined.TotalDuration = time.Since(startTime)
 
 			return combined, ctx.Err()
@@ -697,6 +714,22 @@ func (r *runner) runTestsWithContainerStrategy(
 		if result.ContainerDied {
 			combined.ContainerDied = true
 			combined.TotalDuration = time.Since(startTime)
+
+			// The container may still be running (the executor sets
+			// ContainerDied when interrupted, not only on actual
+			// death). Stop it first so the attach connection closes
+			// and the log goroutine can finish.
+			stopCtx, stopCancel := context.WithTimeout(
+				context.Background(), 30*time.Second,
+			)
+			if stopErr := r.containerMgr.StopContainer(
+				stopCtx, currentContainerID,
+			); stopErr != nil {
+				log.WithError(stopErr).Debug(
+					"Failed to stop container after death/interruption",
+				)
+			}
+			stopCancel()
 
 			waitForLogDrain(logDone, logCancel, logDrainTimeout)
 

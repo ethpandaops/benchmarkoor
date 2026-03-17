@@ -46,6 +46,24 @@ type manager struct {
 	wg   sync.WaitGroup
 }
 
+// connWithCtx derives a Podman connection context that carries both the
+// binding metadata from m.conn and the cancellation/deadline from ctx.
+// This ensures Podman API calls respect the caller's context (timeouts,
+// CTRL+C) while still carrying the socket connection info.
+func (m *manager) connWithCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	derived, cancel := context.WithCancel(m.conn)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			cancel()
+		case <-derived.Done():
+		}
+	}()
+
+	return derived, cancel
+}
+
 // Ensure interface compliance.
 var _ docker.ContainerManager = (*manager)(nil)
 
@@ -110,7 +128,10 @@ func (m *manager) Stop() error {
 
 // EnsureNetwork creates a Podman network if it doesn't exist.
 func (m *manager) EnsureNetwork(ctx context.Context, name string) error {
-	nets, err := network.List(m.conn, &network.ListOptions{
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	nets, err := network.List(conn, &network.ListOptions{
 		Filters: map[string][]string{"name": {name}},
 	})
 	if err != nil {
@@ -130,7 +151,7 @@ func (m *manager) EnsureNetwork(ctx context.Context, name string) error {
 		Driver: "bridge",
 	}
 
-	if _, err := network.Create(m.conn, &netCfg); err != nil {
+	if _, err := network.Create(conn, &netCfg); err != nil {
 		return fmt.Errorf("creating network %s: %w", name, err)
 	}
 
@@ -141,7 +162,10 @@ func (m *manager) EnsureNetwork(ctx context.Context, name string) error {
 
 // RemoveNetwork removes a Podman network.
 func (m *manager) RemoveNetwork(ctx context.Context, name string) error {
-	if _, err := network.Remove(m.conn, name, nil); err != nil {
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	if _, err := network.Remove(conn, name, nil); err != nil {
 		return fmt.Errorf("removing network %s: %w", name, err)
 	}
 
@@ -247,7 +271,10 @@ func (m *manager) CreateContainer(
 		}
 	}
 
-	resp, err := containers.CreateWithSpec(m.conn, s, nil)
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	resp, err := containers.CreateWithSpec(conn, s, nil)
 	if err != nil {
 		return "", fmt.Errorf("creating container: %w", err)
 	}
@@ -259,7 +286,10 @@ func (m *manager) CreateContainer(
 
 // StartContainer starts a container.
 func (m *manager) StartContainer(ctx context.Context, containerID string) error {
-	if err := containers.Start(m.conn, containerID, nil); err != nil {
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	if err := containers.Start(conn, containerID, nil); err != nil {
 		return fmt.Errorf("starting container %s: %w", containerID[:12], err)
 	}
 
@@ -270,7 +300,10 @@ func (m *manager) StartContainer(ctx context.Context, containerID string) error 
 
 // StopContainer stops a container.
 func (m *manager) StopContainer(ctx context.Context, containerID string) error {
-	if err := containers.Stop(m.conn, containerID, nil); err != nil {
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	if err := containers.Stop(conn, containerID, nil); err != nil {
 		return fmt.Errorf("stopping container %s: %w", containerID[:12], err)
 	}
 
@@ -281,11 +314,14 @@ func (m *manager) StopContainer(ctx context.Context, containerID string) error {
 
 // RemoveContainer removes a container.
 func (m *manager) RemoveContainer(ctx context.Context, containerID string) error {
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
 	force := true
 	vols := true
 	timeout := uint(0) // SIGKILL immediately, skip SIGTERM grace period.
 
-	if _, err := containers.Remove(m.conn, containerID, &containers.RemoveOptions{
+	if _, err := containers.Remove(conn, containerID, &containers.RemoveOptions{
 		Force:   &force,
 		Volumes: &vols,
 		Timeout: &timeout,
@@ -331,7 +367,10 @@ func (m *manager) RunInitContainer(
 	}
 
 	// Wait for container to exit.
-	exitCode, err := containers.Wait(m.conn, containerID, nil)
+	waitConn, waitCancel := m.connWithCtx(ctx)
+	defer waitCancel()
+
+	exitCode, err := containers.Wait(waitConn, containerID, nil)
 	if err != nil {
 		return fmt.Errorf("waiting for init container: %w", err)
 	}
@@ -353,20 +392,8 @@ func (m *manager) StreamLogs(
 	containerID string,
 	stdout, stderr io.Writer,
 ) error {
-	// Derive a context from m.conn (carries Podman connection info) that
-	// also cancels when the caller's ctx is cancelled. This ensures that
-	// the attach connection terminates when the caller cancels (e.g.,
-	// after a container checkpoint).
-	logConn, cancel := context.WithCancel(m.conn)
+	conn, cancel := m.connWithCtx(ctx)
 	defer cancel()
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			cancel()
-		case <-logConn.Done():
-		}
-	}()
 
 	// Use the attach API instead of logs. The logs API reads from the
 	// container's log file (written by conmon) which adds 100-250ms of
@@ -376,7 +403,7 @@ func (m *manager) StreamLogs(
 	//
 	// Unlike the logs API, attach works on "created" containers (it blocks
 	// until the container starts), so we don't need waitForRunning.
-	err := containers.Attach(logConn, containerID, nil, stdout, stderr, nil, nil)
+	err := containers.Attach(conn, containerID, nil, stdout, stderr, nil, nil)
 	if err != nil {
 		// Context cancellation is expected during cleanup.
 		if ctx.Err() != nil {
@@ -394,7 +421,12 @@ func (m *manager) StreamLogs(
 // returns immediately with EOF for containers in "created" state.
 func (m *manager) waitForRunning(ctx context.Context, containerID string) error {
 	for {
-		inspect, err := containers.Inspect(m.conn, containerID, nil)
+		conn, cancel := m.connWithCtx(ctx)
+
+		inspect, err := containers.Inspect(conn, containerID, nil)
+
+		cancel()
+
 		if err != nil {
 			return fmt.Errorf("inspecting container: %w", err)
 		}
@@ -422,8 +454,11 @@ func (m *manager) PullImage(ctx context.Context, imageName string, policy string
 		return nil
 	}
 
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
 	if policy == "if-not-present" {
-		_, err := images.GetImage(m.conn, imageName, nil)
+		_, err := images.GetImage(conn, imageName, nil)
 		if err == nil {
 			log.Debug("Image already exists (policy: if-not-present)")
 
@@ -433,7 +468,7 @@ func (m *manager) PullImage(ctx context.Context, imageName string, policy string
 
 	log.Info("Pulling image")
 
-	if _, err := images.Pull(m.conn, imageName, nil); err != nil {
+	if _, err := images.Pull(conn, imageName, nil); err != nil {
 		return fmt.Errorf("pulling image %s: %w", imageName, err)
 	}
 
@@ -446,7 +481,10 @@ func (m *manager) PullImage(ctx context.Context, imageName string, policy string
 func (m *manager) GetImageDigest(ctx context.Context, imageName string) (string, error) {
 	imageName = qualifyImageName(imageName)
 
-	inspect, err := images.GetImage(m.conn, imageName, nil)
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	inspect, err := images.GetImage(conn, imageName, nil)
 	if err != nil {
 		return "", fmt.Errorf("inspecting image: %w", err)
 	}
@@ -470,7 +508,10 @@ func (m *manager) GetContainerIP(
 	ctx context.Context,
 	containerID, networkName string,
 ) (string, error) {
-	inspect, err := containers.Inspect(m.conn, containerID, nil)
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	inspect, err := containers.Inspect(conn, containerID, nil)
 	if err != nil {
 		return "", fmt.Errorf("inspecting container: %w", err)
 	}
@@ -493,7 +534,10 @@ func (m *manager) CreateVolume(
 	name string,
 	labels map[string]string,
 ) error {
-	_, err := volumes.Create(m.conn, entitiesTypes.VolumeCreateOptions{
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	_, err := volumes.Create(conn, entitiesTypes.VolumeCreateOptions{
 		Name:   name,
 		Labels: labels,
 	}, nil)
@@ -508,9 +552,12 @@ func (m *manager) CreateVolume(
 
 // RemoveVolume removes a Podman volume.
 func (m *manager) RemoveVolume(ctx context.Context, name string) error {
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
 	force := true
 
-	if err := volumes.Remove(m.conn, name, &volumes.RemoveOptions{
+	if err := volumes.Remove(conn, name, &volumes.RemoveOptions{
 		Force: &force,
 	}); err != nil {
 		return fmt.Errorf("removing volume %s: %w", name, err)
@@ -523,9 +570,12 @@ func (m *manager) RemoveVolume(ctx context.Context, name string) error {
 
 // ListContainers returns all containers managed by benchmarkoor.
 func (m *manager) ListContainers(ctx context.Context) ([]docker.ContainerInfo, error) {
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
 	all := true
 
-	podmanContainers, err := containers.List(m.conn, &containers.ListOptions{
+	podmanContainers, err := containers.List(conn, &containers.ListOptions{
 		All: &all,
 		Filters: map[string][]string{
 			"label": {"benchmarkoor.managed-by=benchmarkoor"},
@@ -559,7 +609,10 @@ func (m *manager) ListContainers(ctx context.Context) ([]docker.ContainerInfo, e
 
 // ListVolumes returns all volumes managed by benchmarkoor.
 func (m *manager) ListVolumes(ctx context.Context) ([]docker.VolumeInfo, error) {
-	podmanVolumes, err := volumes.List(m.conn, &volumes.ListOptions{
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	podmanVolumes, err := volumes.List(conn, &volumes.ListOptions{
 		Filters: map[string][]string{
 			"label": {"benchmarkoor.managed-by=benchmarkoor"},
 		},
@@ -588,19 +641,7 @@ func (m *manager) WaitForContainerExit(
 	statusCh := make(chan docker.ContainerExitInfo, 1)
 	errCh := make(chan error, 1)
 
-	// Derive a cancellable connection from m.conn that also cancels when
-	// the caller's ctx is done. This ensures the blocking Wait call
-	// unblocks on CTRL+C (context cancellation) instead of hanging
-	// until the container exits on its own.
-	waitConn, cancel := context.WithCancel(m.conn)
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			cancel()
-		case <-waitConn.Done():
-		}
-	}()
+	waitConn, cancel := m.connWithCtx(ctx)
 
 	go func() {
 		defer close(statusCh)

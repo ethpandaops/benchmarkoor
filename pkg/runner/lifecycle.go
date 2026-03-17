@@ -709,24 +709,39 @@ func (r *runner) runContainerLifecycle(
 		}
 	}()
 
-	// Cleanup funcs execute in LIFO order. Add the log-drain + file-close
-	// first, then the container removal. At teardown the container is removed
-	// (stopping it → Docker flushes remaining logs → StreamLogs returns EOF),
-	// then waitForLogDrain ensures the goroutine has finished writing before
-	// the log file is closed.
+	// Cleanup: stop the container, drain logs, then remove it.
+	// Podman's containers.Attach uses a hijacked TCP connection that
+	// ignores context cancellation. The only way to unblock it is to
+	// stop the container (server closes stdio → Attach gets EOF →
+	// StreamLogs returns). Once the attach is closed, Remove succeeds
+	// without blocking.
 	localCleanupFuncs = append(localCleanupFuncs, func() {
+		log.Info("Stopping and removing container")
+
+		// Stop first so the container's stdio closes and the attach
+		// connection (used by StreamLogs) receives EOF.
+		stopCtx, stopCancel := context.WithTimeout(
+			context.Background(), 30*time.Second,
+		)
+		if stopErr := r.containerMgr.StopContainer(
+			stopCtx, containerID,
+		); stopErr != nil {
+			log.WithError(stopErr).Debug("Failed to stop container")
+		}
+		stopCancel()
+
+		// Now that the container is stopped, the log-streaming
+		// goroutine should return quickly.
 		waitForLogDrain(&logDone, &logCancel, logDrainTimeout)
-		_ = logFile.Close()
-	})
 
-	localCleanupFuncs = append(localCleanupFuncs, func() {
-		log.Info("Removing container")
-
+		// Remove the stopped container.
 		if rmErr := r.containerMgr.RemoveContainer(
 			context.Background(), containerID,
 		); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove container")
 		}
+
+		_ = logFile.Close()
 	})
 
 	// Start container.

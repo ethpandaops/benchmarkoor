@@ -496,21 +496,34 @@ func (r *runner) runTestsWithCheckpointRestore(
 			testLog.WithError(execErr).Error("Test execution failed")
 		}
 
-		// Force-remove the restored container (kills it immediately).
-		// No graceful stop needed — the test is done and the container
-		// state will be rebuilt from checkpoint for the next test.
-		// Use a fresh context so removal succeeds even if the parent
-		// context was cancelled (e.g., CTRL+C).
-		rmCtx, rmCancel := context.WithTimeout(context.Background(), 30*time.Second)
-
-		if rmErr := r.containerMgr.RemoveContainer(rmCtx, restoredID); rmErr != nil &&
-			!isContainerNotFound(rmErr) {
-			testLog.WithError(rmErr).Warn("Failed to remove restored container")
+		// Stop the container first so the attach connection closes,
+		// then remove it. Use a fresh context so this succeeds even
+		// if the parent context was cancelled (e.g., CTRL+C).
+		stopCtx, stopCancel := context.WithTimeout(
+			context.Background(), 30*time.Second,
+		)
+		if stopErr := r.containerMgr.StopContainer(
+			stopCtx, restoredID,
+		); stopErr != nil {
+			testLog.WithError(stopErr).Debug(
+				"Failed to stop restored container",
+			)
 		}
-
-		rmCancel()
+		stopCancel()
 
 		waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+		rmCtx, rmCancel := context.WithTimeout(
+			context.Background(), 30*time.Second,
+		)
+		if rmErr := r.containerMgr.RemoveContainer(
+			rmCtx, restoredID,
+		); rmErr != nil && !isContainerNotFound(rmErr) {
+			testLog.WithError(rmErr).Warn(
+				"Failed to remove restored container",
+			)
+		}
+		rmCancel()
 
 		// Aggregate results.
 		if result != nil {
