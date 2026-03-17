@@ -433,6 +433,17 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			}
 		}
 
+		// After setup step, wait for chain head to advance before running the test step.
+		// This is critical for multi-block EEST fixtures where the setup block deploys
+		// contracts and the test block calls them. Without this wait, the test block's
+		// engine_newPayload returns SYNCING because the node hasn't committed the setup
+		// block as the canonical head yet.
+		if test.Setup != nil && test.Test != nil && testPassed && opts.RPCEndpoint != "" {
+			if err := e.waitForChainHeadAdvance(ctx, opts.RPCEndpoint, rollbackInfo, log); err != nil {
+				log.WithError(err).Warn("Failed to wait for chain head advance after setup")
+			}
+		}
+
 		// Drop caches between setup and test.
 		if dropBetweenSteps && test.Setup != nil && test.Test != nil {
 			if err := e.dropMemoryCaches(dropCachesPath); err != nil {
@@ -1023,6 +1034,80 @@ func (e *executor) getBlockInfo(ctx context.Context, rpcEndpoint string) (*block
 		HexNumber: rpcResp.Result.Number,
 		Hash:      rpcResp.Result.Hash,
 	}, nil
+}
+
+// waitForChainHeadAdvance polls eth_blockNumber until the chain head has advanced
+// beyond the block number captured before the setup step. This ensures the node has
+// committed setup blocks (e.g., contract deployments) before the test step begins.
+// Without this, multi-block EEST fixtures fail because the test block's
+// engine_newPayload returns SYNCING — the node hasn't adopted the setup block yet.
+func (e *executor) waitForChainHeadAdvance(
+	ctx context.Context,
+	rpcEndpoint string,
+	preSetupBlock *blockInfo,
+	log *logrus.Entry,
+) error {
+	if preSetupBlock == nil {
+		// No baseline block info — just do a short sleep as fallback.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+
+		return nil
+	}
+
+	maxWait := 30 * time.Second
+	pollInterval := 200 * time.Millisecond
+	deadline := time.Now().Add(maxWait)
+
+	log.WithFields(logrus.Fields{
+		"pre_setup_block": preSetupBlock.HexNumber,
+	}).Debug("Waiting for chain head to advance after setup step")
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		current, err := e.getBlockInfo(ctx, rpcEndpoint)
+		if err != nil {
+			log.WithError(err).Debug("Failed to get block info while waiting")
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(pollInterval):
+			}
+
+			continue
+		}
+
+		if current.HexNumber != preSetupBlock.HexNumber {
+			log.WithFields(logrus.Fields{
+				"pre_setup_block": preSetupBlock.HexNumber,
+				"current_block":   current.HexNumber,
+			}).Debug("Chain head advanced after setup step")
+
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+
+	log.WithFields(logrus.Fields{
+		"pre_setup_block": preSetupBlock.HexNumber,
+		"timeout":         maxWait,
+	}).Warn("Timed out waiting for chain head to advance after setup step")
+
+	return nil // Don't fail the test, just warn — the test step's SYNCING retry may still succeed.
 }
 
 // rollback calls the client-specific rollback RPC method to revert chain state.
