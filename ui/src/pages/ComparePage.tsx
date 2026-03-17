@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
@@ -9,6 +9,7 @@ import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { CompareHeader } from '@/components/compare/CompareHeader'
+import { StickyRunBar } from '@/components/compare/StickyRunBar'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
@@ -98,6 +99,7 @@ export function ComparePage() {
 
   const suiteHash = configQueries.find((q) => q.data?.suite_hash)?.data?.suite_hash
   const { data: suite } = useSuite(suiteHash)
+  const headerRef = useRef<HTMLDivElement>(null)
 
   // Handle backward-compat redirect in progress
   if (search.a && search.b && !search.runs) {
@@ -140,6 +142,8 @@ export function ComparePage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <StickyRunBar runs={runs} sentinelRef={headerRef} />
+
       {/* Breadcrumb */}
       <div className="flex min-w-0 items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
         <Link to="/runs" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
@@ -168,10 +172,12 @@ export function ComparePage() {
         </div>
       )}
 
-      <CompareHeader runs={runs} onRemoveRun={(id) => {
-        const remaining = runIds.filter((r) => r !== id)
-        navigate({ to: '/compare', search: { runs: remaining.join(','), steps: search.steps } })
-      }} />
+      <div ref={headerRef}>
+        <CompareHeader runs={runs} onRemoveRun={(id) => {
+          const remaining = runIds.filter((r) => r !== id)
+          navigate({ to: '/compare', search: { runs: remaining.join(','), steps: search.steps } })
+        }} />
+      </div>
 
 <MetricsComparison runs={runs} stepFilter={stepFilter} />
 
