@@ -85,6 +85,17 @@ function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL
 }
 
 export type SortMode = 'order' | 'mgas' | 'gas'
+export type GroupMode = 'none' | 'gas'
+
+const GAS_GROUP_STEP = 30_000_000 // 30M gas per group
+
+function getGasGroup(gasUsed: number): number {
+  return Math.round(gasUsed / GAS_GROUP_STEP) * GAS_GROUP_STEP
+}
+
+function formatGasGroup(gasGroup: number): string {
+  return `${Math.round(gasGroup / 1_000_000)}M`
+}
 
 interface TestHeatmapProps {
   tests: Record<string, TestEntry>
@@ -95,11 +106,13 @@ interface TestHeatmapProps {
   statusFilter?: TestStatusFilter
   searchQuery?: string
   sortMode?: SortMode
+  groupMode?: GroupMode
   threshold?: number
   stepFilter?: StepTypeOption[]
   postTestRPCCalls?: PostTestRPCCallConfig[]
   onSelectedTestChange?: (testName: string | undefined) => void
   onSortModeChange?: (mode: SortMode) => void
+  onGroupModeChange?: (mode: GroupMode) => void
   onThresholdChange?: (threshold: number) => void
   onSearchChange?: (query: string) => void
 }
@@ -232,6 +245,47 @@ function PostTestDumps({ runId, testName, calls }: { runId: string; testName: st
   )
 }
 
+function HeatmapCell({
+  test,
+  threshold,
+  statusFilter,
+  searchQuery,
+  onSelect,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  test: TestData
+  threshold: number
+  statusFilter: TestStatusFilter
+  searchQuery: string
+  onSelect: (testKey: string) => void
+  onMouseEnter: (test: TestData, event: React.MouseEvent) => void
+  onMouseLeave: () => void
+}) {
+  const matchesStatusFilter =
+    statusFilter === 'all' ||
+    (statusFilter === 'passed' && !test.hasFail) ||
+    (statusFilter === 'failed' && test.hasFail)
+  const matchesSearchQuery = !searchQuery || test.testKey.toLowerCase().includes(searchQuery.toLowerCase())
+  const matchesFilter = matchesStatusFilter && matchesSearchQuery
+  const baseStyle = test.noData ? NO_DATA_STYLE : { backgroundColor: getColorByThreshold(test.mgasPerSec, threshold) }
+  const style = matchesFilter ? baseStyle : { ...baseStyle, opacity: 0.2 }
+
+  return (
+    <button
+      key={test.testKey}
+      onClick={() => onSelect(test.testKey)}
+      onMouseEnter={(e) => onMouseEnter(test, e)}
+      onMouseLeave={onMouseLeave}
+      className={clsx(
+        'size-3 cursor-pointer rounded-xs transition-all hover:scale-150 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
+        test.hasFail && 'ring-1 ring-red-500',
+      )}
+      style={style}
+    />
+  )
+}
+
 export function TestHeatmap({
   tests,
   suiteTests,
@@ -241,14 +295,17 @@ export function TestHeatmap({
   statusFilter = 'all',
   searchQuery = '',
   sortMode: sortModeProp,
+  groupMode: groupModeProp,
   threshold: thresholdProp,
   stepFilter = ALL_STEP_TYPES,
   postTestRPCCalls,
   onSelectedTestChange,
   onSortModeChange,
+  onGroupModeChange,
   onThresholdChange,
 }: TestHeatmapProps) {
   const sortMode = sortModeProp ?? 'order'
+  const groupMode = groupModeProp ?? 'none'
   const threshold = thresholdProp ?? DEFAULT_THRESHOLD
   const [tooltip, setTooltip] = useState<{ test: TestData; x: number; y: number } | null>(null)
   const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
@@ -257,6 +314,10 @@ export function TestHeatmap({
 
   const handleSortModeChange = (mode: SortMode) => {
     onSortModeChange?.(mode)
+  }
+
+  const handleGroupModeChange = (mode: GroupMode) => {
+    onGroupModeChange?.(mode)
   }
 
   const handleThresholdChange = (value: number) => {
@@ -328,6 +389,30 @@ export function TestHeatmap({
     return sorted
   }, [testData, sortMode])
 
+  const groupedData = useMemo(() => {
+    if (groupMode === 'none') return null
+
+    const groups = new Map<number, TestData[]>()
+    for (const test of sortedData) {
+      const group = getGasGroup(test.gasUsedTotal)
+      const existing = groups.get(group)
+      if (existing) {
+        existing.push(test)
+      } else {
+        groups.set(group, [test])
+      }
+    }
+
+    // Sort groups by gas amount descending
+    return [...groups.entries()]
+      .sort(([a], [b]) => b - a)
+      .map(([gasGroup, items]) => ({
+        label: formatGasGroup(gasGroup),
+        gasGroup,
+        tests: items,
+      }))
+  }, [sortedData, groupMode])
+
   const histogramData = useMemo(() => {
     const testsWithData = testData.filter((t) => !t.noData)
     if (testsWithData.length === 0) return []
@@ -378,6 +463,10 @@ export function TestHeatmap({
 
   const handleMouseLeave = () => {
     setTooltip(null)
+  }
+
+  const handleSelect = (testKey: string) => {
+    onSelectedTestChange?.(testKey)
   }
 
   if (testData.length === 0) {
@@ -432,6 +521,33 @@ export function TestHeatmap({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Group by:</span>
+            <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
+              <button
+                onClick={() => handleGroupModeChange('none')}
+                className={clsx(
+                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                  groupMode === 'none'
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                )}
+              >
+                None
+              </button>
+              <button
+                onClick={() => handleGroupModeChange('gas')}
+                className={clsx(
+                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                  groupMode === 'gas'
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                )}
+              >
+                Gas Used
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
             <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
             <input
               type="range"
@@ -469,33 +585,49 @@ export function TestHeatmap({
       <div className="flex flex-col gap-1">
         <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
           Tests {sortMode === 'order' ? '(by execution order)' : sortMode === 'gas' ? '(by gas used, most first)' : '(by MGas/s, slowest first)'}
+          {groupMode !== 'none' && ' — grouped by gas used (30M steps)'}
         </div>
-        <div className="flex flex-wrap gap-0.5">
-          {sortedData.map((test) => {
-            const matchesStatusFilter =
-              statusFilter === 'all' ||
-              (statusFilter === 'passed' && !test.hasFail) ||
-              (statusFilter === 'failed' && test.hasFail)
-            const matchesSearchQuery = !searchQuery || test.testKey.toLowerCase().includes(searchQuery.toLowerCase())
-            const matchesFilter = matchesStatusFilter && matchesSearchQuery
-            const baseStyle = test.noData ? NO_DATA_STYLE : { backgroundColor: getColorByThreshold(test.mgasPerSec, threshold) }
-            const style = matchesFilter ? baseStyle : { ...baseStyle, opacity: 0.2 }
-
-            return (
-              <button
+        {groupedData ? (
+          <div className="flex flex-col gap-2">
+            {groupedData.map((group) => (
+              <div key={group.gasGroup} className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs/5 font-medium text-gray-600 dark:text-gray-300">{group.label} gas</span>
+                  <span className="text-xs/5 text-gray-400 dark:text-gray-500">({group.tests.length})</span>
+                </div>
+                <div className="flex flex-wrap gap-0.5">
+                  {group.tests.map((test) => (
+                    <HeatmapCell
+                      key={test.testKey}
+                      test={test}
+                      threshold={threshold}
+                      statusFilter={statusFilter}
+                      searchQuery={searchQuery}
+                      onSelect={handleSelect}
+                      onMouseEnter={handleMouseEnter}
+                      onMouseLeave={handleMouseLeave}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-0.5">
+            {sortedData.map((test) => (
+              <HeatmapCell
                 key={test.testKey}
-                onClick={() => onSelectedTestChange?.(test.testKey)}
-                onMouseEnter={(e) => handleMouseEnter(test, e)}
+                test={test}
+                threshold={threshold}
+                statusFilter={statusFilter}
+                searchQuery={searchQuery}
+                onSelect={handleSelect}
+                onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
-                className={clsx(
-                  'size-3 cursor-pointer rounded-xs transition-all hover:scale-150 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                  test.hasFail && 'ring-1 ring-red-500',
-                )}
-                style={style}
               />
-            )
-          })}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Histogram */}

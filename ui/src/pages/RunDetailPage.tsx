@@ -11,7 +11,7 @@ import { FilesPanel } from '@/components/run-detail/FilesPanel'
 import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts'
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
 import { PreRunStepsTable } from '@/components/run-detail/PreRunStepsTable'
-import { TestHeatmap, type SortMode } from '@/components/run-detail/TestHeatmap'
+import { TestHeatmap, type SortMode, type GroupMode } from '@/components/run-detail/TestHeatmap'
 import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -126,6 +126,7 @@ export function RunDetailPage() {
     testModal?: string
     preRunModal?: string
     heatmapSort?: SortMode
+    heatmapGroup?: GroupMode
     heatmapThreshold?: number
     steps?: string
     ohFs?: boolean // Opcode Heatmap fullscreen
@@ -137,7 +138,7 @@ export function RunDetailPage() {
   const pageSize = Number(search.pageSize) || 20
   const heatmapThreshold = search.heatmapThreshold ? Number(search.heatmapThreshold) : undefined
   const stepFilter = parseStepFilter(search.steps)
-  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, preRunModal, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt } = search
+  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, preRunModal, heatmapGroup, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt } = search
 
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
   const { data: result, isLoading: resultLoading, refetch: refetchResult } = useRunResult(runId)
@@ -248,6 +249,10 @@ export function RunDetailPage() {
 
   const handleHeatmapSortChange = (mode: SortMode) => {
     updateSearch({ heatmapSort: mode !== 'order' ? mode : undefined })
+  }
+
+  const handleHeatmapGroupChange = (mode: GroupMode) => {
+    updateSearch({ heatmapGroup: mode !== 'none' ? mode : undefined })
   }
 
   const handleHeatmapThresholdChange = (threshold: number) => {
@@ -734,6 +739,8 @@ export function RunDetailPage() {
               postTestRPCCalls={config.instance.post_test_rpc_calls}
               onSelectedTestChange={handleTestModalChange}
               onSortModeChange={handleHeatmapSortChange}
+              groupMode={heatmapGroup}
+              onGroupModeChange={handleHeatmapGroupChange}
               onThresholdChange={handleHeatmapThresholdChange}
               onSearchChange={handleSearchChange}
             />
