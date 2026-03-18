@@ -264,7 +264,7 @@ func (r *runner) runContainerLifecycle(
 			Image:       imageName,
 			Command:     spec.InitCommand(),
 			Mounts:      mounts,
-			NetworkName: r.cfg.DockerNetwork,
+			NetworkName: r.cfg.ContainerNetwork,
 			Labels: map[string]string{
 				"benchmarkoor.instance":   instance.ID,
 				"benchmarkoor.client":     instance.Client,
@@ -639,7 +639,7 @@ func (r *runner) runContainerLifecycle(
 		Command:        cmd,
 		Env:            env,
 		Mounts:         mounts,
-		NetworkName:    r.cfg.DockerNetwork,
+		NetworkName:    r.cfg.ContainerNetwork,
 		ResourceLimits: containerResourceLimits,
 		Labels: map[string]string{
 			"benchmarkoor.instance":   instance.ID,
@@ -816,7 +816,7 @@ func (r *runner) runContainerLifecycle(
 
 	// Get container IP for health checks.
 	containerIP, err := r.containerMgr.GetContainerIP(
-		ctx, containerID, r.cfg.DockerNetwork,
+		ctx, containerID, r.cfg.ContainerNetwork,
 	)
 	if err != nil {
 		return fmt.Errorf("getting container IP: %w", err)

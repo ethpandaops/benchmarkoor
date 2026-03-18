@@ -23,8 +23,8 @@ const (
 	// DefaultJWT is the default JWT secret used for Engine API authentication.
 	DefaultJWT = "5a64f13bfb41a147711492237995b437433bcbec80a7eb2daae11132098d7bae"
 
-	// DefaultDockerNetwork is the default Docker network name.
-	DefaultDockerNetwork = "benchmarkoor"
+	// DefaultContainerNetwork is the default container network name.
+	DefaultContainerNetwork = "benchmarkoor"
 
 	// DefaultLogLevel is the default logging level.
 	DefaultLogLevel = "info"
@@ -72,7 +72,7 @@ type Config struct {
 type RunnerConfig struct {
 	ContainerRuntime   string            `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
 	ClientLogsToStdout bool              `yaml:"client_logs_to_stdout" mapstructure:"client_logs_to_stdout"`
-	DockerNetwork      string            `yaml:"docker_network" mapstructure:"docker_network"`
+	ContainerNetwork   string            `yaml:"container_network" mapstructure:"container_network"`
 	CleanupOnStart     bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
 	RunTimeout         string            `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
 	Directories        DirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
@@ -717,7 +717,7 @@ func bindEnvKeys(v *viper.Viper) {
 		// Runner settings
 		"runner.container_runtime",
 		"runner.client_logs_to_stdout",
-		"runner.docker_network",
+		"runner.container_network",
 		"runner.cleanup_on_start",
 		"runner.run_timeout",
 		"runner.directories.tmp_datadir",
@@ -793,8 +793,8 @@ func (c *Config) applyDefaults() {
 		c.Global.LogLevel = DefaultLogLevel
 	}
 
-	if c.Runner.DockerNetwork == "" {
-		c.Runner.DockerNetwork = DefaultDockerNetwork
+	if c.Runner.ContainerNetwork == "" {
+		c.Runner.ContainerNetwork = DefaultContainerNetwork
 	}
 
 	if c.Runner.Benchmark.ResultsDir == "" {

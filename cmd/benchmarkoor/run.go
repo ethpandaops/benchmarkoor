@@ -288,7 +288,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			ResultsDir:         cfg.Runner.Benchmark.ResultsDir,
 			ResultsOwner:       resultsOwner,
 			ClientLogsToStdout: cfg.Runner.ClientLogsToStdout,
-			DockerNetwork:      cfg.Runner.DockerNetwork,
+			ContainerNetwork:   cfg.Runner.ContainerNetwork,
 			JWT:                cfg.Runner.Client.Config.JWT,
 			GenesisURLs:        cfg.Runner.Client.Config.Genesis,
 			DataDirs:           cfg.Runner.Client.DataDirs,

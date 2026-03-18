@@ -18,7 +18,7 @@ func TestLoad_EnvVarOverrides(t *testing.T) {
 global:
   log_level: info
 runner:
-  docker_network: test-network
+  container_network: test-network
   client_logs_to_stdout: false
   cleanup_on_start: false
   directories:
@@ -54,7 +54,7 @@ runner:
 			envVars: map[string]string{},
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, "info", cfg.Global.LogLevel)
-				assert.Equal(t, "test-network", cfg.Runner.DockerNetwork)
+				assert.Equal(t, "test-network", cfg.Runner.ContainerNetwork)
 				assert.Equal(t, "./original-results", cfg.Runner.Benchmark.ResultsDir)
 				assert.Equal(t, "original-jwt", cfg.Runner.Client.Config.JWT)
 			},
@@ -69,12 +69,12 @@ runner:
 			},
 		},
 		{
-			name: "string override - docker_network",
+			name: "string override - container_network",
 			envVars: map[string]string{
-				"BENCHMARKOOR_RUNNER_DOCKER_NETWORK": "custom-network",
+				"BENCHMARKOOR_RUNNER_CONTAINER_NETWORK": "custom-network",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "custom-network", cfg.Runner.DockerNetwork)
+				assert.Equal(t, "custom-network", cfg.Runner.ContainerNetwork)
 			},
 		},
 		{
@@ -162,13 +162,13 @@ runner:
 			name: "multiple overrides",
 			envVars: map[string]string{
 				"BENCHMARKOOR_GLOBAL_LOG_LEVEL":             "trace",
-				"BENCHMARKOOR_RUNNER_DOCKER_NETWORK":        "multi-network",
+				"BENCHMARKOOR_RUNNER_CONTAINER_NETWORK":     "multi-network",
 				"BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_DIR": "/results/multi",
 				"BENCHMARKOOR_RUNNER_CLEANUP_ON_START":      "true",
 			},
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, "trace", cfg.Global.LogLevel)
-				assert.Equal(t, "multi-network", cfg.Runner.DockerNetwork)
+				assert.Equal(t, "multi-network", cfg.Runner.ContainerNetwork)
 				assert.Equal(t, "/results/multi", cfg.Runner.Benchmark.ResultsDir)
 				assert.True(t, cfg.Runner.CleanupOnStart)
 			},
@@ -272,7 +272,7 @@ runner:
 
 	// Verify defaults are applied.
 	assert.Equal(t, DefaultLogLevel, cfg.Global.LogLevel)
-	assert.Equal(t, DefaultDockerNetwork, cfg.Runner.DockerNetwork)
+	assert.Equal(t, DefaultContainerNetwork, cfg.Runner.ContainerNetwork)
 	assert.Equal(t, DefaultResultsDir, cfg.Runner.Benchmark.ResultsDir)
 	assert.Equal(t, DefaultJWT, cfg.Runner.Client.Config.JWT)
 	assert.Equal(t, DefaultPullPolicy, cfg.Runner.Instances[0].PullPolicy)
@@ -992,7 +992,7 @@ func TestGetBootstrapFCU(t *testing.T) {
 func TestLoad_PreservesEnvironmentKeyCasing(t *testing.T) {
 	configContent := `
 runner:
-  docker_network: test-network
+  container_network: test-network
   client:
     config:
       jwt: test-jwt

@@ -13,7 +13,7 @@ runner:
   # When using Podman, ensure the socket is active: sudo systemctl start podman.socket
   # container_runtime: docker
   client_logs_to_stdout: true
-  docker_network: benchmarkoor
+  container_network: benchmarkoor
   cleanup_on_start: false
   # Optional: Global timeout for the entire run (all instances, setup, teardown).
   # If the run exceeds this duration, it will be cancelled.

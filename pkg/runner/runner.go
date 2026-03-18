@@ -51,7 +51,7 @@ type Config struct {
 	ResultsDir         string
 	ResultsOwner       *fsutil.OwnerConfig // Optional file ownership for results directory
 	ClientLogsToStdout bool
-	DockerNetwork      string
+	ContainerNetwork   string
 	JWT                string
 	GenesisURLs        map[string]string
 	DataDirs           map[string]*config.DataDirConfig
@@ -235,7 +235,7 @@ func (r *runner) Start(ctx context.Context) error {
 	}
 
 	// Ensure container network exists.
-	if err := r.containerMgr.EnsureNetwork(ctx, r.cfg.DockerNetwork); err != nil {
+	if err := r.containerMgr.EnsureNetwork(ctx, r.cfg.ContainerNetwork); err != nil {
 		return fmt.Errorf("ensuring container network: %w", err)
 	}
 
