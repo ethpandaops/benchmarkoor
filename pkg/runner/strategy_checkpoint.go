@@ -115,7 +115,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		// IP may change after restart; refresh it.
 		newIP, err := r.containerMgr.GetContainerIP(
-			ctx, containerID, r.cfg.DockerNetwork,
+			ctx, containerID, r.cfg.ContainerNetwork,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("getting container IP after checkpoint restart: %w", err)
@@ -417,7 +417,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		restoredID, err := cpMgr.RestoreContainer(ctx, exportPath, &podman.RestoreOptions{
 			Name:        restoreName,
-			NetworkName: r.cfg.DockerNetwork,
+			NetworkName: r.cfg.ContainerNetwork,
 		})
 		if err != nil {
 			combined.TotalDuration = time.Since(startTime)
@@ -438,7 +438,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		// Get container IP.
 		restoredIP, err := r.containerMgr.GetContainerIP(
-			ctx, restoredID, r.cfg.DockerNetwork,
+			ctx, restoredID, r.cfg.ContainerNetwork,
 		)
 		if err != nil {
 			combined.TotalDuration = time.Since(startTime)

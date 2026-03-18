@@ -191,7 +191,7 @@ Benchmarkoor creates a dedicated Docker bridge network for container communicati
 
 ```yaml
 global:
-  docker_network: benchmarkoor  # default
+  container_network: benchmarkoor  # default
 ```
 
 ### Network Behavior

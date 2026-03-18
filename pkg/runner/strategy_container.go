@@ -330,7 +330,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			// Get new container IP.
 			newIP, err := r.containerMgr.GetContainerIP(
-				ctx, newID, r.cfg.DockerNetwork,
+				ctx, newID, r.cfg.ContainerNetwork,
 			)
 			if err != nil {
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
@@ -549,7 +549,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			// Get new container IP.
 			newIP, err := r.containerMgr.GetContainerIP(
-				ctx, newID, r.cfg.DockerNetwork,
+				ctx, newID, r.cfg.ContainerNetwork,
 			)
 			if err != nil {
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
@@ -858,7 +858,7 @@ func (r *runner) runInitForRecreate(
 		Image:       params.ImageName,
 		Command:     spec.InitCommand(),
 		Mounts:      mounts,
-		NetworkName: r.cfg.DockerNetwork,
+		NetworkName: r.cfg.ContainerNetwork,
 		Labels: map[string]string{
 			"benchmarkoor.instance":   instance.ID,
 			"benchmarkoor.client":     instance.Client,

@@ -98,7 +98,7 @@ The `runner` section contains all run-specific settings including benchmark conf
 runner:
   container_runtime: docker
   client_logs_to_stdout: true
-  docker_network: benchmarkoor
+  container_network: benchmarkoor
   cleanup_on_start: false
   run_timeout: 4h
   directories:
@@ -114,7 +114,7 @@ runner:
 |--------|------|---------|-------------|
 | `container_runtime` | string | `docker` | Container runtime to use: `docker` or `podman`. See [Container Runtime](#container-runtime) |
 | `client_logs_to_stdout` | bool | `false` | Stream client container logs to stdout |
-| `docker_network` | string | `benchmarkoor` | Docker network name for containers |
+| `container_network` | string | `benchmarkoor` | Container network name |
 | `cleanup_on_start` | bool | `false` | Remove leftover containers/networks on startup |
 | `run_timeout` | string | - | Global timeout for the entire run covering all instances, setup, and teardown. Uses Go duration format (e.g., `4h`, `30m`). See [Runner Run Timeout](#runner-run-timeout) |
 | `directories.tmp_datadir` | string | system temp | Directory for temporary datadir copies |
