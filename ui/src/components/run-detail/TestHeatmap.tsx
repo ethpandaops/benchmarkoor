@@ -84,7 +84,7 @@ function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL
   }
 }
 
-export type SortMode = 'order' | 'mgas'
+export type SortMode = 'order' | 'mgas' | 'gas'
 
 interface TestHeatmapProps {
   tests: Record<string, TestEntry>
@@ -320,6 +320,8 @@ export function TestHeatmap({
     const sorted = [...testData]
     if (sortMode === 'order') {
       sorted.sort((a, b) => a.order - b.order)
+    } else if (sortMode === 'gas') {
+      sorted.sort((a, b) => b.gasUsedTotal - a.gasUsedTotal) // most gas first
     } else {
       sorted.sort((a, b) => a.mgasPerSec - b.mgasPerSec) // slowest first
     }
@@ -416,6 +418,17 @@ export function TestHeatmap({
               >
                 MGas/s
               </button>
+              <button
+                onClick={() => handleSortModeChange('gas')}
+                className={clsx(
+                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                  sortMode === 'gas'
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                )}
+              >
+                Gas Used
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -455,7 +468,7 @@ export function TestHeatmap({
       {/* Heatmap Grid */}
       <div className="flex flex-col gap-1">
         <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
-          Tests {sortMode === 'order' ? '(by execution order)' : '(by MGas/s, slowest first)'}
+          Tests {sortMode === 'order' ? '(by execution order)' : sortMode === 'gas' ? '(by gas used, most first)' : '(by MGas/s, slowest first)'}
         </div>
         <div className="flex flex-wrap gap-0.5">
           {sortedData.map((test) => {
