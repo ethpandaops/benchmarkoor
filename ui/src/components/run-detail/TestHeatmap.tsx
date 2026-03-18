@@ -719,7 +719,7 @@ export function TestHeatmap({
               </>
             )}
             <div className="text-gray-500 dark:text-gray-400">Based on steps: {stepFilter.join(', ')}</div>
-            <div className="max-w-48 truncate text-gray-500 dark:text-gray-400">{tooltip.test.filename}</div>
+            <div className="w-48 break-all text-gray-500 dark:text-gray-400">{tooltip.test.filename}</div>
             {tooltip.test.noData && <div className="text-gray-500 dark:text-gray-400">No gas usage data available</div>}
             {tooltip.test.hasFail && <div className="text-red-600 dark:text-red-400">Has failures</div>}
             <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
