@@ -183,6 +183,20 @@ func (r *runner) runTestsWithCheckpointRestore(
 		log.WithField("steps", n).Info("Pre-run steps completed before checkpoint")
 	}
 
+	// Wait for the client to finish persisting blocks before checkpointing.
+	expectedBlock, blkErr := r.getBlockNumber(ctx, containerIP, spec.RPCPort())
+	if blkErr != nil {
+		log.WithError(blkErr).Warn(
+			"Failed to get current block number before checkpoint, skipping persistence check",
+		)
+	} else if expectedBlock > 0 {
+		if err := r.waitForBlockPersistence(
+			ctx, log, containerIP, spec.RPCPort(), expectedBlock,
+		); err != nil {
+			log.WithError(err).Warn("Block persistence wait failed, proceeding with checkpoint")
+		}
+	}
+
 	// 3. Decide checkpoint export path: tmpfs (RAM) or disk.
 	//
 	// When checkpoint_tmpfs_threshold is configured and the container's
@@ -275,9 +289,13 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 	waitAfterTCPDrop := r.cfg.FullConfig.GetCheckpointWaitAfterTCPDropConns(params.Instance)
 
+	log.Info("Checkpointing container (this will stop the container)")
+
 	if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath, waitAfterTCPDrop); err != nil {
 		return nil, fmt.Errorf("checkpointing container: %w", err)
 	}
+
+	log.Info("Container checkpointed successfully")
 
 	defer func() {
 		_ = os.Remove(exportPath)

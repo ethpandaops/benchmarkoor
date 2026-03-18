@@ -101,10 +101,28 @@ func (r *runner) runTestsWithContainerStrategy(
 			)
 		}
 
+		// Wait for the client to finish persisting blocks before stopping.
+		expectedBlock, blkErr := r.getBlockNumber(ctx, containerIP, spec.RPCPort())
+		if blkErr != nil {
+			log.WithError(blkErr).Warn(
+				"Failed to get current block number before stop, skipping persistence check",
+			)
+		} else if expectedBlock > 0 {
+			if err := r.waitForBlockPersistence(
+				ctx, log, containerIP, spec.RPCPort(), expectedBlock,
+			); err != nil {
+				log.WithError(err).Warn("Block persistence wait failed, proceeding with stop")
+			}
+		}
+
 		// Stop the initial container so writes are flushed to disk.
+		log.Info("Stopping container for ZFS snapshot")
+
 		if err := r.containerMgr.StopContainer(ctx, containerID); err != nil {
 			return nil, fmt.Errorf("stopping container for ZFS snapshot: %w", err)
 		}
+
+		log.Info("Container stopped for ZFS snapshot")
 
 		waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
