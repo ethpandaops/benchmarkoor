@@ -204,10 +204,14 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
         const points = pointsPerRun[i]
         return {
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
-          type: 'bar' as const,
-          barMaxWidth: 6,
+          type: 'line' as const,
+          smooth: maxLen <= 100,
+          showSymbol: maxLen <= 100,
+          symbolSize: 4,
+          lineStyle: { width: 2 },
           data: points.map((d) => [d.testIndex, d.mgas, d.testName, d.testOrder]),
           itemStyle: { color: slot.color },
+          areaStyle: { opacity: 0.08, color: slot.color },
         }
       }),
     }

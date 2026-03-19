@@ -279,8 +279,11 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           const slot = RUN_SLOTS[runIdx]
           return {
             name: `vs ${formatRunLabel(slot, runs[runIdx], labelMode)}`,
-            type: 'bar' as const,
-            barMaxWidth: 6,
+            type: 'line' as const,
+            smooth: diffData.length <= 100,
+            showSymbol: diffData.length <= 100,
+            symbolSize: 4,
+            lineStyle: { width: 2 },
             data: diffData.map((d) => {
               const diff = d.diffs[seriesIdx]
               const absMGas = d.values[seriesIdx]
@@ -289,13 +292,10 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
               if (diffFilter === 'slower' && diff > 0) return null
               return {
                 value: [d.testIndex, diff, d.testName, d.baselineValue, absMGas, d.testOrder],
-                itemStyle: {
-                  color: diff >= 0 ? slot.color : slot.colorLight,
-                  opacity: diff >= 0 ? 1 : 0.6,
-                },
               }
             }).filter(Boolean),
             itemStyle: { color: slot.color },
+            areaStyle: { opacity: 0.08, color: slot.color },
           }
         }),
       ],
