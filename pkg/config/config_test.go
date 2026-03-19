@@ -325,9 +325,7 @@ func TestSourceConfig_Validate(t *testing.T) {
 
 	// Create test tarballs for local tarball validation tests.
 	fixturesTarball := filepath.Join(tmpDir, "fixtures.tar.gz")
-	genesisTarball := filepath.Join(tmpDir, "genesis.tar.gz")
 	createTestTarball(t, fixturesTarball)
-	createTestTarball(t, genesisTarball)
 
 	tests := []struct {
 		name      string
@@ -445,37 +443,23 @@ func TestSourceConfig_Validate(t *testing.T) {
 			source: SourceConfig{
 				EESTFixtures: &EESTFixturesSource{
 					LocalFixturesDir: tmpDir,
-					LocalGenesisDir:  tmpDir,
 				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "eest_fixtures local dir missing local_genesis_dir",
+			name: "eest_fixtures must specify a mode",
 			source: SourceConfig{
-				EESTFixtures: &EESTFixturesSource{
-					LocalFixturesDir: tmpDir,
-				},
+				EESTFixtures: &EESTFixturesSource{},
 			},
 			wantErr:   true,
-			errSubstr: "local_genesis_dir is required",
-		},
-		{
-			name: "eest_fixtures local dir missing local_fixtures_dir",
-			source: SourceConfig{
-				EESTFixtures: &EESTFixturesSource{
-					LocalGenesisDir: tmpDir,
-				},
-			},
-			wantErr:   true,
-			errSubstr: "local_fixtures_dir is required",
+			errSubstr: "must specify one of",
 		},
 		{
 			name: "eest_fixtures local dir path does not exist",
 			source: SourceConfig{
 				EESTFixtures: &EESTFixturesSource{
 					LocalFixturesDir: "/nonexistent/fixtures",
-					LocalGenesisDir:  tmpDir,
 				},
 			},
 			wantErr:   true,
@@ -486,7 +470,6 @@ func TestSourceConfig_Validate(t *testing.T) {
 			source: SourceConfig{
 				EESTFixtures: &EESTFixturesSource{
 					LocalFixturesDir: tmpDir,
-					LocalGenesisDir:  tmpDir,
 				},
 			},
 			wantErr: false,
@@ -498,7 +481,6 @@ func TestSourceConfig_Validate(t *testing.T) {
 					GitHubRepo:       "ethereum/execution-spec-tests",
 					GitHubRelease:    "benchmark@v0.0.6",
 					LocalFixturesDir: tmpDir,
-					LocalGenesisDir:  tmpDir,
 				},
 			},
 			wantErr:   true,
@@ -509,9 +491,7 @@ func TestSourceConfig_Validate(t *testing.T) {
 			source: SourceConfig{
 				EESTFixtures: &EESTFixturesSource{
 					LocalFixturesDir:     tmpDir,
-					LocalGenesisDir:      tmpDir,
 					LocalFixturesTarball: fixturesTarball,
-					LocalGenesisTarball:  genesisTarball,
 				},
 			},
 			wantErr:   true,
@@ -522,37 +502,15 @@ func TestSourceConfig_Validate(t *testing.T) {
 			source: SourceConfig{
 				EESTFixtures: &EESTFixturesSource{
 					LocalFixturesTarball: fixturesTarball,
-					LocalGenesisTarball:  genesisTarball,
 				},
 			},
 			wantErr: false,
-		},
-		{
-			name: "eest_fixtures local tarball missing local_genesis_tarball",
-			source: SourceConfig{
-				EESTFixtures: &EESTFixturesSource{
-					LocalFixturesTarball: fixturesTarball,
-				},
-			},
-			wantErr:   true,
-			errSubstr: "local_genesis_tarball is required",
-		},
-		{
-			name: "eest_fixtures local tarball missing local_fixtures_tarball",
-			source: SourceConfig{
-				EESTFixtures: &EESTFixturesSource{
-					LocalGenesisTarball: genesisTarball,
-				},
-			},
-			wantErr:   true,
-			errSubstr: "local_fixtures_tarball is required",
 		},
 		{
 			name: "eest_fixtures local tarball path does not exist",
 			source: SourceConfig{
 				EESTFixtures: &EESTFixturesSource{
 					LocalFixturesTarball: "/nonexistent/fixtures.tar.gz",
-					LocalGenesisTarball:  genesisTarball,
 				},
 			},
 			wantErr:   true,
@@ -565,7 +523,6 @@ func TestSourceConfig_Validate(t *testing.T) {
 					GitHubRepo:           "ethereum/execution-spec-tests",
 					FixturesArtifactName: "fixtures_benchmark",
 					LocalFixturesTarball: fixturesTarball,
-					LocalGenesisTarball:  genesisTarball,
 				},
 			},
 			wantErr:   true,

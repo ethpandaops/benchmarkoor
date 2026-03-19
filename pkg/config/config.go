@@ -155,39 +155,35 @@ type SourceConfig struct {
 }
 
 // EESTFixturesSource defines an EEST fixtures source from GitHub releases, artifacts,
-// or local directories/tarballs.
+// or local directories/tarballs. Genesis files are generated dynamically from
+// hive/{hash}.json files included in the fixtures using mapper.jq scripts.
 type EESTFixturesSource struct {
 	GitHubRepo     string `yaml:"github_repo,omitempty" mapstructure:"github_repo"`
 	GitHubRelease  string `yaml:"github_release,omitempty" mapstructure:"github_release"`
 	FixturesURL    string `yaml:"fixtures_url,omitempty" mapstructure:"fixtures_url"`
-	GenesisURL     string `yaml:"genesis_url,omitempty" mapstructure:"genesis_url"`
 	FixturesSubdir string `yaml:"fixtures_subdir,omitempty" mapstructure:"fixtures_subdir"`
 	// GitHub Actions artifact support (alternative to releases).
 	FixturesArtifactName  string `yaml:"fixtures_artifact_name,omitempty" mapstructure:"fixtures_artifact_name"`
-	GenesisArtifactName   string `yaml:"genesis_artifact_name,omitempty" mapstructure:"genesis_artifact_name"`
 	FixturesArtifactRunID string `yaml:"fixtures_artifact_run_id,omitempty" mapstructure:"fixtures_artifact_run_id"`
-	GenesisArtifactRunID  string `yaml:"genesis_artifact_run_id,omitempty" mapstructure:"genesis_artifact_run_id"`
 	// Local directory support (already-extracted fixtures).
 	LocalFixturesDir string `yaml:"local_fixtures_dir,omitempty" mapstructure:"local_fixtures_dir"`
-	LocalGenesisDir  string `yaml:"local_genesis_dir,omitempty" mapstructure:"local_genesis_dir"`
 	// Local tarball support (.tar.gz files).
 	LocalFixturesTarball string `yaml:"local_fixtures_tarball,omitempty" mapstructure:"local_fixtures_tarball"`
-	LocalGenesisTarball  string `yaml:"local_genesis_tarball,omitempty" mapstructure:"local_genesis_tarball"`
 }
 
 // UseArtifacts returns true if the source is configured to use GitHub Actions artifacts.
 func (e *EESTFixturesSource) UseArtifacts() bool {
-	return e.FixturesArtifactName != "" || e.GenesisArtifactName != ""
+	return e.FixturesArtifactName != ""
 }
 
-// UseLocalDir returns true if the source is configured to use local directories.
+// UseLocalDir returns true if the source is configured to use a local directory.
 func (e *EESTFixturesSource) UseLocalDir() bool {
-	return e.LocalFixturesDir != "" || e.LocalGenesisDir != ""
+	return e.LocalFixturesDir != ""
 }
 
-// UseLocalTarball returns true if the source is configured to use local tarballs.
+// UseLocalTarball returns true if the source is configured to use a local tarball.
 func (e *EESTFixturesSource) UseLocalTarball() bool {
-	return e.LocalFixturesTarball != "" || e.LocalGenesisTarball != ""
+	return e.LocalFixturesTarball != ""
 }
 
 // validate checks the EEST fixtures source configuration for errors.
@@ -219,8 +215,8 @@ func (e *EESTFixturesSource) validate() error {
 	if modeCount == 0 {
 		return fmt.Errorf(
 			"eest_fixtures: must specify one of: github_release, " +
-				"fixtures_artifact_name, local_fixtures_dir/local_genesis_dir, " +
-				"or local_fixtures_tarball/local_genesis_tarball",
+				"fixtures_artifact_name, local_fixtures_dir, " +
+				"or local_fixtures_tarball",
 		)
 	}
 
@@ -238,38 +234,14 @@ func (e *EESTFixturesSource) validate() error {
 
 	// Validate local dir mode.
 	if hasLocalDir {
-		if e.LocalFixturesDir == "" {
-			return fmt.Errorf("eest_fixtures: local_fixtures_dir is required when local_genesis_dir is set")
-		}
-
-		if e.LocalGenesisDir == "" {
-			return fmt.Errorf("eest_fixtures: local_genesis_dir is required when local_fixtures_dir is set")
-		}
-
 		if err := validateDirExists(e.LocalFixturesDir, "eest_fixtures.local_fixtures_dir"); err != nil {
-			return err
-		}
-
-		if err := validateDirExists(e.LocalGenesisDir, "eest_fixtures.local_genesis_dir"); err != nil {
 			return err
 		}
 	}
 
 	// Validate local tarball mode.
 	if hasLocalTarball {
-		if e.LocalFixturesTarball == "" {
-			return fmt.Errorf("eest_fixtures: local_fixtures_tarball is required when local_genesis_tarball is set")
-		}
-
-		if e.LocalGenesisTarball == "" {
-			return fmt.Errorf("eest_fixtures: local_genesis_tarball is required when local_fixtures_tarball is set")
-		}
-
 		if err := validateFileExists(e.LocalFixturesTarball, "eest_fixtures.local_fixtures_tarball"); err != nil {
-			return err
-		}
-
-		if err := validateFileExists(e.LocalGenesisTarball, "eest_fixtures.local_genesis_tarball"); err != nil {
 			return err
 		}
 	}
