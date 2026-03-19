@@ -35,6 +35,9 @@ export function ComparePage() {
     steps?: string
     baseline?: string
     labels?: string
+    tableBase?: string
+    sort?: string
+    sortDir?: string
   }
 
   // Backward-compat redirect: ?a=X&b=Y → ?runs=X,Y
@@ -105,20 +108,35 @@ export function ComparePage() {
   const headerRef = useRef<HTMLDivElement>(null)
   const baselineIdx = Math.min(Math.max(parseInt(search.baseline ?? '0', 10) || 0, 0), runIds.length - 1)
   const labelMode: LabelMode = search.labels === 'instance-id' ? 'instance-id' : 'none'
+  const tableBaseline: 'best' | 'worst' | number = search.tableBase === 'worst'
+    ? 'worst'
+    : search.tableBase !== undefined && search.tableBase !== 'best'
+      ? Math.min(parseInt(search.tableBase, 10) || 0, runIds.length - 1)
+      : 'best'
+
+  const tableSortBy = (search.sort ?? 'order') as 'order' | 'name' | 'avgValue' | `run-${number}`
+  const tableSortDir = (search.sortDir === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc'
+
+  const updateSearch = useCallback((patch: Record<string, string | undefined>) => {
+    navigate({
+      to: '/compare',
+      search: { runs: search.runs, steps: search.steps, baseline: search.baseline, labels: search.labels, tableBase: search.tableBase, sort: search.sort, sortDir: search.sortDir, ...patch },
+      replace: true,
+    })
+  }, [navigate, search.runs, search.steps, search.baseline, search.labels, search.tableBase, search.sort, search.sortDir])
+
   const setBaselineIdx = useCallback((idx: number) => {
-    navigate({
-      to: '/compare',
-      search: { runs: search.runs, steps: search.steps, baseline: idx > 0 ? String(idx) : undefined, labels: search.labels },
-      replace: true,
-    })
-  }, [navigate, search.runs, search.steps, search.labels])
+    updateSearch({ baseline: idx > 0 ? String(idx) : undefined })
+  }, [updateSearch])
   const setLabelMode = useCallback((mode: LabelMode) => {
-    navigate({
-      to: '/compare',
-      search: { runs: search.runs, steps: search.steps, baseline: search.baseline, labels: mode === 'none' ? undefined : mode },
-      replace: true,
-    })
-  }, [navigate, search.runs, search.steps, search.baseline])
+    updateSearch({ labels: mode === 'none' ? undefined : mode })
+  }, [updateSearch])
+  const setTableBaseline = useCallback((val: 'best' | 'worst' | number) => {
+    updateSearch({ tableBase: val === 'best' ? undefined : String(val) })
+  }, [updateSearch])
+  const setTableSort = useCallback((column: string, direction: string) => {
+    updateSearch({ sort: column === 'order' ? undefined : column, sortDir: direction === 'asc' ? undefined : direction })
+  }, [updateSearch])
 
   // Handle backward-compat redirect in progress
   if (search.a && search.b && !search.runs) {
@@ -230,7 +248,7 @@ export function ComparePage() {
       <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} labelMode={labelMode} />
 
       {allResults && (
-        <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} blockLogsPerRun={blockLogsPerRun} labelMode={labelMode} />
+        <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} blockLogsPerRun={blockLogsPerRun} labelMode={labelMode} tableBaseline={tableBaseline} onTableBaselineChange={setTableBaseline} sortBy={tableSortBy} sortDir={tableSortDir} onSortChange={setTableSort} />
       )}
 
       {allResults && <ResourceComparisonCharts runs={runs} labelMode={labelMode} />}

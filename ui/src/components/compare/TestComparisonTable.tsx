@@ -11,9 +11,14 @@ interface TestComparisonTableProps {
   stepFilter: StepTypeOption[]
   blockLogsPerRun?: (BlockLogs | null)[]
   labelMode: LabelMode
+  tableBaseline: TableBaseline
+  onTableBaselineChange: (val: TableBaseline) => void
+  sortBy: SortColumn
+  sortDir: SortDirection
+  onSortChange: (column: SortColumn, direction: SortDirection) => void
 }
 
-type SortColumn = 'order' | 'name' | 'avgValue'
+type SortColumn = 'order' | 'name' | 'avgValue' | `run-${number}`
 type SortDirection = 'asc' | 'desc'
 type TableBaseline = 'best' | 'worst' | number
 
@@ -122,14 +127,11 @@ function SortableHeader({
 
 const PAGE_SIZE = 50
 
-export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun, labelMode }: TestComparisonTableProps) {
+export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun, labelMode, tableBaseline, onTableBaselineChange, sortBy, sortDir, onSortChange }: TestComparisonTableProps) {
   const [activeTab, setActiveTab] = useState('mgas')
-  const [sortBy, setSortBy] = useState<SortColumn>('order')
-  const [sortDir, setSortDir] = useState<SortDirection>('asc')
   const [searchQuery, setSearchQuery] = useState('')
   const [useRegex, setUseRegex] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
-  const [tableBaseline, setTableBaseline] = useState<TableBaseline>('best')
 
   const hasBlockLogs = blockLogsPerRun?.some((bl) => bl !== null) ?? false
 
@@ -218,31 +220,46 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
     const sorted = [...filteredTests]
     sorted.sort((a, b) => {
       let cmp = 0
-      switch (sortBy) {
-        case 'order':
-          cmp = a.order - b.order
-          break
-        case 'name':
-          cmp = a.name.localeCompare(b.name)
-          break
-        case 'avgValue':
-          cmp = (a.avgValue ?? 0) - (b.avgValue ?? 0)
-          break
+      if (sortBy.startsWith('run-') && typeof tableBaseline === 'number') {
+        const runIdx = parseInt(sortBy.slice(4), 10)
+        const getPctDiff = (test: ComparedTest) => {
+          const val = test.values[runIdx]
+          const ref = test.values[tableBaseline]
+          if (val === undefined || ref === undefined || ref === 0) return undefined
+          return ((val - ref) / ref) * 100
+        }
+        const aDiff = getPctDiff(a)
+        const bDiff = getPctDiff(b)
+        if (aDiff === undefined && bDiff === undefined) cmp = 0
+        else if (aDiff === undefined) cmp = 1
+        else if (bDiff === undefined) cmp = -1
+        else cmp = aDiff - bDiff
+      } else {
+        switch (sortBy) {
+          case 'order':
+            cmp = a.order - b.order
+            break
+          case 'name':
+            cmp = a.name.localeCompare(b.name)
+            break
+          case 'avgValue':
+            cmp = (a.avgValue ?? 0) - (b.avgValue ?? 0)
+            break
+        }
       }
       return sortDir === 'asc' ? cmp : -cmp
     })
     return sorted
-  }, [filteredTests, sortBy, sortDir])
+  }, [filteredTests, sortBy, sortDir, tableBaseline])
 
   const totalPages = Math.ceil(sortedTests.length / PAGE_SIZE)
   const paginatedTests = sortedTests.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const handleSort = (column: SortColumn) => {
     if (sortBy === column) {
-      setSortDir(sortDir === 'desc' ? 'asc' : 'desc')
+      onSortChange(column, sortDir === 'desc' ? 'asc' : 'desc')
     } else {
-      setSortBy(column)
-      setSortDir('asc')
+      onSortChange(column, 'asc')
     }
     setCurrentPage(1)
   }
@@ -307,7 +324,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
           {(['best', 'worst'] as const).map((mode) => (
             <button
               key={mode}
-              onClick={() => setTableBaseline(mode)}
+              onClick={() => onTableBaselineChange(mode)}
               className={clsx(
                 'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
                 tableBaseline === mode
@@ -323,7 +340,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
             return (
               <button
                 key={slot.label}
-                onClick={() => setTableBaseline(i)}
+                onClick={() => onTableBaselineChange(i)}
                 className={clsx(
                   'inline-flex items-center gap-1 rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
                   tableBaseline === i
@@ -346,13 +363,27 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
               <SortableHeader label="#" column="order" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-12 px-3 py-3" />
               <SortableHeader label="Test Name" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
               <SortableHeader label="Avg" column="avgValue" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
-              {runs.map((run) => {
+              {runs.map((run, i) => {
                 const slot = RUN_SLOTS[run.index]
+                const colId: SortColumn = `run-${i}`
+                const isSortable = typeof tableBaseline === 'number' && i !== tableBaseline
+                const isActive = sortBy === colId
                 return (
-                  <th key={slot.label} className={clsx('px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
+                  <th
+                    key={slot.label}
+                    onClick={isSortable ? () => handleSort(colId) : undefined}
+                    className={clsx(
+                      'px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider',
+                      slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`,
+                      isSortable && 'cursor-pointer select-none',
+                    )}
+                  >
                     <div className="flex flex-col items-end gap-1" title={formatRunLabel(slot, run, labelMode)}>
                       <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-5 rounded-full object-cover" />
-                      <span>{slot.label}</span>
+                      <span className="inline-flex items-center">
+                        {slot.label}
+                        {isSortable && <SortIcon direction={isActive ? sortDir : 'asc'} active={isActive} />}
+                      </span>
                       <span>{activeMetric.unit}</span>
                     </div>
                   </th>
