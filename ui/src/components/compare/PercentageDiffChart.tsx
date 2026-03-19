@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
+import { ArrowRightLeft } from 'lucide-react'
 import type { SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
@@ -296,9 +297,10 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
   return (
     <div className="rounded-xs bg-white p-4 shadow-xs dark:bg-gray-800">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
-          % Difference vs Baseline
-        </h3>
+        <div className="flex items-center gap-2">
+          <ArrowRightLeft className="size-4 text-gray-400 dark:text-gray-500" />
+          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">% Difference vs Baseline</h3>
+        </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">
             <span>Baseline:</span>
@@ -356,6 +358,69 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
         opts={{ renderer: 'svg' }}
         onEvents={onEvents}
       />
+      <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+        <table className="w-full text-xs/5">
+          <thead>
+            <tr className="text-gray-500 dark:text-gray-400">
+              <th className="pb-1 text-left font-medium">Run</th>
+              <th className="pb-1 text-right font-medium">Faster</th>
+              <th className="pb-1 text-right font-medium">Avg %</th>
+              <th className="pb-1 text-right font-medium">P95 %</th>
+              <th className="pb-1 text-right font-medium">P99 %</th>
+              <th className="pb-1 text-right font-medium">Slower</th>
+              <th className="pb-1 text-right font-medium">Avg %</th>
+              <th className="pb-1 text-right font-medium">P95 %</th>
+              <th className="pb-1 text-right font-medium">P99 %</th>
+              <th className="pb-1 text-right font-medium">Equal</th>
+              <th className="pb-1 text-right font-medium">Total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+            {otherRunIndices.map((ri, seriesIdx) => {
+              const slot = RUN_SLOTS[ri]
+              const run = runs[ri]
+              const fasterPcts: number[] = []
+              const slowerPcts: number[] = []
+              let equal = 0
+              for (const d of diffData) {
+                const diff = d.diffs[seriesIdx]
+                if (diff === null) continue
+                if (diff > 0) fasterPcts.push(diff)
+                else if (diff < 0) slowerPcts.push(Math.abs(diff))
+                else equal++
+              }
+              const total = fasterPcts.length + slowerPcts.length + equal
+              const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
+              const percentile = (arr: number[], p: number) => {
+                if (arr.length === 0) return 0
+                const sorted = [...arr].sort((a, b) => a - b)
+                const idx = Math.ceil((p / 100) * sorted.length) - 1
+                return sorted[Math.max(0, idx)]
+              }
+              return (
+                <tr key={slot.label}>
+                  <td className="py-1">
+                    <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: slot.color }}>
+                      <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
+                      {formatRunLabel(slot, run, labelMode)}
+                    </span>
+                  </td>
+                  <td className="py-1 text-right font-medium text-green-600 dark:text-green-400">{fasterPcts.length}</td>
+                  <td className="py-1 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${avg(fasterPcts).toFixed(1)}%` : '-'}</td>
+                  <td className="py-1 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${percentile(fasterPcts, 95).toFixed(1)}%` : '-'}</td>
+                  <td className="py-1 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${percentile(fasterPcts, 99).toFixed(1)}%` : '-'}</td>
+                  <td className="py-1 text-right font-medium text-red-600 dark:text-red-400">{slowerPcts.length}</td>
+                  <td className="py-1 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${avg(slowerPcts).toFixed(1)}%` : '-'}</td>
+                  <td className="py-1 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${percentile(slowerPcts, 95).toFixed(1)}%` : '-'}</td>
+                  <td className="py-1 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${percentile(slowerPcts, 99).toFixed(1)}%` : '-'}</td>
+                  <td className="py-1 text-right text-gray-400 dark:text-gray-500">{equal}</td>
+                  <td className="py-1 text-right text-gray-500 dark:text-gray-400">{total}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

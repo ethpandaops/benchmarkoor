@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
+import { Table } from 'lucide-react'
 import type { SuiteTest, AggregatedStats, BlockLogs, BlockLogEntry } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { Pagination } from '@/components/shared/Pagination'
@@ -267,9 +268,10 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-        <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
-          Per-Test Comparison ({filteredTests.length})
-        </h3>
+        <div className="flex items-center gap-2">
+          <Table className="size-4 text-gray-400 dark:text-gray-500" />
+          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Per-Test Comparison ({filteredTests.length})</h3>
+        </div>
         <div className="flex items-center gap-1.5">
           <input
             type="text"

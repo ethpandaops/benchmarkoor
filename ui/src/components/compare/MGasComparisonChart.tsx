@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
+import { Flame } from 'lucide-react'
 import type { RunResult, SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
@@ -210,7 +211,10 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode }:
   return (
     <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">MGas/s per Test</h3>
+        <div className="flex items-center gap-2">
+          <Flame className="size-4 text-gray-400 dark:text-gray-500" />
+          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">MGas/s per Test</h3>
+        </div>
         <div className="flex items-center gap-2 text-xs/5">
           {runs.map((run) => {
             const slot = RUN_SLOTS[run.index]
