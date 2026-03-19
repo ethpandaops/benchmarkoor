@@ -311,11 +311,11 @@ export function ComparePage() {
 
       <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} labelMode={labelMode} testNameFilter={testNameFilter} />
 
+      {allResults && <ResourceComparisonCharts runs={runs} labelMode={labelMode} testNameFilter={testNameFilter} suiteTests={suite?.tests} />}
+
       {allResults && (
         <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} blockLogsPerRun={blockLogsPerRun} labelMode={labelMode} tableBaseline={tableBaseline} onTableBaselineChange={setTableBaseline} sortBy={tableSortBy} sortDir={tableSortDir} onSortChange={setTableSort} testNameFilter={testNameFilter} />
       )}
-
-      {allResults && <ResourceComparisonCharts runs={runs} labelMode={labelMode} testNameFilter={testNameFilter} suiteTests={suite?.tests} />}
 
       <ConfigDiff runs={runs} labelMode={labelMode} />
     </div>
