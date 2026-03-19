@@ -625,21 +625,25 @@ func (e *executor) runStepFromFile(
 
 	defer func() { _ = file.Close() }()
 
-	scanner := bufio.NewScanner(file)
-	// Increase buffer size to 50MB to handle large JSON-RPC payloads.
-	scanner.Buffer(make([]byte, 64*1024), 50*1024*1024)
+	reader := bufio.NewReader(file)
 
 	var lines []string
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			lines = append(lines, line)
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			if trimmed := strings.TrimSpace(line); trimmed != "" {
+				lines = append(lines, trimmed)
+			}
 		}
-	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("reading step file: %w", err)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+
+			return fmt.Errorf("reading step file: %w", err)
+		}
 	}
 
 	return e.runStepLines(ctx, opts, step.Name, lines, result, captureBlockLogs)
