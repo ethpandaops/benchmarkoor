@@ -63,9 +63,56 @@ const (
 
 // Config is the root configuration for benchmarkoor.
 type Config struct {
-	Global GlobalConfig `yaml:"global" mapstructure:"global"`
-	Runner RunnerConfig `yaml:"runner" mapstructure:"runner"`
-	API    *APIConfig   `yaml:"api,omitempty" mapstructure:"api"`
+	Global   GlobalConfig    `yaml:"global" mapstructure:"global"`
+	Runner   RunnerConfig    `yaml:"runner" mapstructure:"runner"`
+	API      *APIConfig      `yaml:"api,omitempty" mapstructure:"api"`
+	Generate *GenerateConfig `yaml:"generate,omitempty" mapstructure:"generate"`
+}
+
+// GenerateConfig contains configuration for the generate command.
+type GenerateConfig struct {
+	Client      string            `yaml:"client" mapstructure:"client"`
+	Image       string            `yaml:"image,omitempty" mapstructure:"image"`
+	ExtraArgs   []string          `yaml:"extra_args,omitempty" mapstructure:"extra_args"`
+	Environment map[string]string `yaml:"environment,omitempty" mapstructure:"environment"`
+	Genesis     string            `yaml:"genesis,omitempty" mapstructure:"genesis"`
+
+	ExecutionSpecs ExecutionSpecsConfig `yaml:"execution_specs" mapstructure:"execution_specs"`
+	GasBump        GasBumpConfig        `yaml:"gas_bump,omitempty" mapstructure:"gas_bump"`
+	Funding        FundingConfig        `yaml:"funding,omitempty" mapstructure:"funding"`
+	OutputDir      string               `yaml:"output_dir,omitempty" mapstructure:"output_dir"`
+
+	ContainerRuntime string `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
+}
+
+// ExecutionSpecsConfig contains settings for the execution-specs runner.
+type ExecutionSpecsConfig struct {
+	Repo               string   `yaml:"repo,omitempty" mapstructure:"repo"`
+	Branch             string   `yaml:"branch,omitempty" mapstructure:"branch"`
+	Commit             string   `yaml:"commit,omitempty" mapstructure:"commit"`
+	LocalPath          string   `yaml:"local_path,omitempty" mapstructure:"local_path"`
+	Fork               string   `yaml:"fork" mapstructure:"fork"`
+	TestPath           string   `yaml:"test_path,omitempty" mapstructure:"test_path"`
+	EESTMode           string   `yaml:"eest_mode,omitempty" mapstructure:"eest_mode"`
+	ParameterFilter    string   `yaml:"parameter_filter,omitempty" mapstructure:"parameter_filter"`
+	GasBenchmarkValues string   `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
+	SeedKey            string   `yaml:"seed_key,omitempty" mapstructure:"seed_key"`
+	ChainID            int      `yaml:"chain_id,omitempty" mapstructure:"chain_id"`
+	AddressStubs       string   `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
+	ExtraPytestArgs    []string `yaml:"extra_pytest_args,omitempty" mapstructure:"extra_pytest_args"`
+}
+
+// GasBumpConfig contains settings for gas bump block generation.
+type GasBumpConfig struct {
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+	Count   int  `yaml:"count,omitempty" mapstructure:"count"`
+}
+
+// FundingConfig contains settings for test address funding.
+type FundingConfig struct {
+	Enabled          bool   `yaml:"enabled" mapstructure:"enabled"`
+	Address          string `yaml:"address,omitempty" mapstructure:"address"`
+	WithdrawalAmount string `yaml:"withdrawal_amount,omitempty" mapstructure:"withdrawal_amount"`
 }
 
 // RunnerConfig contains all run-specific configuration settings.
@@ -1834,6 +1881,51 @@ func (c *Config) validateResultsUpload() error {
 var validRoles = map[string]bool{
 	"admin":    true,
 	"readonly": true,
+}
+
+// ValidateGenerate validates the generate configuration if present.
+func (c *Config) ValidateGenerate() error {
+	if c.Generate == nil {
+		return nil
+	}
+
+	g := c.Generate
+
+	if g.Client == "" {
+		return fmt.Errorf("generate.client is required")
+	}
+
+	if !isValidClient(g.Client) {
+		return fmt.Errorf("generate.client: unknown client type %q", g.Client)
+	}
+
+	if g.ExecutionSpecs.Fork == "" {
+		return fmt.Errorf("generate.execution_specs.fork is required")
+	}
+
+	if g.ExecutionSpecs.Repo == "" && g.ExecutionSpecs.LocalPath == "" {
+		return fmt.Errorf("generate.execution_specs: repo or local_path is required")
+	}
+
+	if g.ExecutionSpecs.Repo != "" && g.ExecutionSpecs.Branch == "" {
+		return fmt.Errorf("generate.execution_specs.branch is required when repo is set")
+	}
+
+	if g.GasBump.Enabled && g.GasBump.Count <= 0 {
+		return fmt.Errorf("generate.gas_bump.count must be positive when enabled")
+	}
+
+	if g.Funding.Enabled {
+		if g.Funding.Address == "" {
+			return fmt.Errorf("generate.funding.address is required when enabled")
+		}
+
+		if g.Funding.WithdrawalAmount == "" {
+			return fmt.Errorf("generate.funding.withdrawal_amount is required when enabled")
+		}
+	}
+
+	return nil
 }
 
 // ValidateAPI validates the API configuration if present.
