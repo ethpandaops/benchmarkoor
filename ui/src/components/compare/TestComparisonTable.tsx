@@ -39,7 +39,7 @@ interface MetricTab {
 }
 
 const BLOCK_LOG_METRICS: MetricTab[] = [
-  { id: 'bl-throughput', label: 'Throughput', unit: 'MGas/s', higherIsBetter: true, format: (v) => v.toFixed(2) },
+  { id: 'bl-throughput', label: 'Throughput', unit: 'MGas/s', higherIsBetter: true, format: (v) => v >= 100 ? v.toFixed(0) : v.toFixed(2) },
   { id: 'bl-execution', label: 'Execution Time', unit: 'ms', higherIsBetter: false, format: (v) => v.toFixed(2) },
   { id: 'bl-overhead', label: 'Overhead', unit: 'ms', higherIsBetter: false, format: (v) => v.toFixed(2) },
   { id: 'bl-account-cache', label: 'Account Cache HR', unit: '%', higherIsBetter: true, format: (v) => v.toFixed(1) },
@@ -138,7 +138,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
 
   const tabs: MetricTab[] = useMemo(() => {
     const base: MetricTab[] = [
-      { id: 'mgas', label: 'MGas/s', unit: 'MGas/s', higherIsBetter: true, format: (v) => v.toFixed(2) },
+      { id: 'mgas', label: 'MGas/s', unit: 'MGas/s', higherIsBetter: true, format: (v) => v >= 100 ? v.toFixed(0) : v.toFixed(2) },
     ]
     if (hasBlockLogs) {
       return [...base, ...BLOCK_LOG_METRICS]
@@ -428,7 +428,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                         </div>
                         {diff !== undefined && !isRef && refValue! > 0 && (
                           <div className="text-xs/4" style={{ color: getDiffColor(diff, refValue!) }}>
-                            {diff >= 0 ? `+${diff.toFixed(2)}` : diff.toFixed(2)}
+                            {diff >= 0 ? '+' : '-'}{activeMetric.format(Math.abs(diff))}
                             {' '}({diff >= 0 ? '+' : '-'}{((Math.abs(diff) / refValue!) * 100).toFixed(1)}%)
                           </div>
                         )}
