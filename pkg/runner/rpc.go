@@ -78,6 +78,109 @@ func (r *runner) checkRPCHealth(ctx context.Context, url string) (string, bool) 
 	return rpcResp.Result, true
 }
 
+const (
+	blockPersistenceInterval = 500 * time.Millisecond
+	blockPersistenceRetries  = 60
+)
+
+// getBlockNumber fetches the current block number via eth_blockNumber.
+func (r *runner) getBlockNumber(ctx context.Context, host string, port int) (uint64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	url := fmt.Sprintf("http://%s:%d", host, port)
+	body := `{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}`
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		return 0, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("executing request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("reading response: %w", err)
+	}
+
+	var rpcResp struct {
+		Result string `json:"result"`
+	}
+
+	if err := json.Unmarshal(respBody, &rpcResp); err != nil {
+		return 0, fmt.Errorf("parsing response: %w", err)
+	}
+
+	blockNum, err := strconv.ParseUint(strings.TrimPrefix(rpcResp.Result, "0x"), 16, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parsing block number: %w", err)
+	}
+
+	return blockNum, nil
+}
+
+// waitForBlockPersistence polls eth_blockNumber until it reaches the expected
+// block number. Some clients (e.g. reth) may still be persisting blocks in the
+// background after accepting payloads, so this ensures the data is fully
+// committed before the container is stopped.
+func (r *runner) waitForBlockPersistence(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	host string,
+	port int,
+	expectedBlock uint64,
+) error {
+	log = log.WithFields(logrus.Fields{
+		"expected_block": expectedBlock,
+		"max_retries":    blockPersistenceRetries,
+		"interval":       blockPersistenceInterval,
+	})
+	log.Info("Waiting for block persistence before stopping container")
+
+	for attempt := 1; attempt <= blockPersistenceRetries; attempt++ {
+		blockNum, err := r.getBlockNumber(ctx, host, port)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"attempt": attempt,
+				"error":   err.Error(),
+			}).Warn("Failed to query eth_blockNumber, retrying")
+		} else if blockNum >= expectedBlock {
+			log.WithFields(logrus.Fields{
+				"block_number": blockNum,
+				"attempts":     attempt,
+			}).Info("Block persistence confirmed")
+
+			return nil
+		} else {
+			log.WithFields(logrus.Fields{
+				"block_number": blockNum,
+				"attempt":      attempt,
+			}).Debug("Block not yet persisted, retrying")
+		}
+
+		select {
+		case <-time.After(blockPersistenceInterval):
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled waiting for block persistence: %w", ctx.Err())
+		}
+	}
+
+	return fmt.Errorf(
+		"block persistence not confirmed after %d attempts (expected block %d)",
+		blockPersistenceRetries, expectedBlock,
+	)
+}
+
 // getLatestBlock fetches the latest block number, hash, and state root from the RPC endpoint.
 func (r *runner) getLatestBlock(ctx context.Context, host string, port int) (uint64, string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
