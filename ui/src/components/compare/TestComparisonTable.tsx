@@ -303,9 +303,10 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                 const slot = RUN_SLOTS[run.index]
                 return (
                   <th key={slot.label} className={clsx('px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
-                    <div className="flex flex-col items-end gap-1">
+                    <div className="flex flex-col items-end gap-1" title={formatRunLabel(slot, run, labelMode)}>
                       <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-5 rounded-full object-cover" />
-                      {formatRunLabel(slot, run, labelMode)} {activeMetric.unit}
+                      <span>{slot.label}</span>
+                      <span>{activeMetric.unit}</span>
                     </div>
                   </th>
                 )

@@ -34,17 +34,10 @@ export function StickyRunBar({ runs, sentinelRef, labelMode }: StickyRunBarProps
         {runs.map((run) => {
           const slot = RUN_SLOTS[run.index]
           return (
-            <div key={slot.label} className="flex items-center gap-2">
-              <span className={clsx('inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs/5 font-medium', slot.badgeBgClass, slot.badgeTextClass)}>
-                <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
-                {formatRunLabel(slot, run, labelMode)}
-              </span>
-              {run.config.instance.id && (
-                <span className="truncate font-mono text-xs/5 text-gray-500 dark:text-gray-400" title={run.config.instance.id}>
-                  {run.config.instance.id}
-                </span>
-              )}
-            </div>
+            <span key={slot.label} className={clsx('inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs/5 font-medium', slot.badgeBgClass, slot.badgeTextClass)}>
+              <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
+              {formatRunLabel(slot, run, labelMode)}
+            </span>
           )
         })}
       </div>

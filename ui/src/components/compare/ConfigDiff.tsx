@@ -77,7 +77,7 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
                   const slot = RUN_SLOTS[run.index]
                   return (
                     <th key={slot.label} className={clsx('px-3 py-2 text-left text-xs/5 font-medium uppercase tracking-wider', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
-                      Run {formatRunLabel(slot, run, labelMode)}
+                      <span title={formatRunLabel(slot, run, labelMode)}>Run {slot.label}</span>
                     </th>
                   )
                 })}
