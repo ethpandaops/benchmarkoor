@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface PercentageDiffChartProps {
   runs: CompareRun[]
@@ -10,6 +10,7 @@ interface PercentageDiffChartProps {
   stepFilter: StepTypeOption[]
   baselineIdx: number
   onBaselineChange: (idx: number) => void
+  labelMode: LabelMode
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -100,7 +101,7 @@ function buildDiffData(
   }))
 }
 
-export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange }: PercentageDiffChartProps) {
+export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode }: PercentageDiffChartProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -180,7 +181,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
             const sign = diff >= 0 ? '+' : ''
             const color = diff >= 0 ? '#10b981' : '#ef4444'
             const label = diff >= 0 ? 'faster' : 'slower'
-            const seriesRunIdx = otherRunIndices.find((ri) => `vs ${RUN_SLOTS[ri].label}` === p.seriesName)
+            const seriesRunIdx = otherRunIndices.find((ri) => `vs ${formatRunLabel(RUN_SLOTS[ri], runs[ri], labelMode)}` === p.seriesName)
             const client = seriesRunIdx !== undefined ? runs[seriesRunIdx].config.instance.client : undefined
             const clientImg = client ? `<img src="/img/clients/${client}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />` : ''
             content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${absMGas.toFixed(2)} MGas/s <span style="color:${color};font-weight:600;">(${sign}${diff.toFixed(1)}% ${label})</span><br/>`
@@ -268,7 +269,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
         ...otherRunIndices.map((runIdx, seriesIdx) => {
           const slot = RUN_SLOTS[runIdx]
           return {
-            name: `vs ${slot.label}`,
+            name: `vs ${formatRunLabel(slot, runs[runIdx], labelMode)}`,
             type: 'bar' as const,
             barMaxWidth: 6,
             data: diffData.map((d) => {
@@ -288,7 +289,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
         }),
       ],
     }
-  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange])
+  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode])
 
   if (runs.every((r) => r.result === null)) return null
 
@@ -319,7 +320,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
                       alt={run.config.instance.client}
                       className="size-3.5 rounded-full object-cover"
                     />
-                    {slot.label}
+                    {formatRunLabel(slot, run, labelMode)}
                   </button>
                 )
               })}
@@ -339,7 +340,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
                     alt={run.config.instance.client}
                     className="size-3.5 rounded-full object-cover"
                   />
-                  vs {slot.label}
+                  vs {formatRunLabel(slot, run, labelMode)}
                 </span>
               )
             })}

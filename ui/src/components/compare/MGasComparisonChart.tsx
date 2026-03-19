@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { RunResult, SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface MGasComparisonChartProps {
   runs: CompareRun[]
   suiteTests?: SuiteTest[]
   stepFilter: StepTypeOption[]
+  labelMode: LabelMode
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -58,7 +59,7 @@ function buildMGasData(
   return entries.map((e, i) => ({ testIndex: i + 1, testName: e.name, mgas: e.mgas }))
 }
 
-export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasComparisonChartProps) {
+export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode }: MGasComparisonChartProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -91,7 +92,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
     const maxLen = Math.max(...pointsPerRun.map((p) => p.length))
-    const clientBySeriesName = new Map(runs.map((_r, i) => [`Run ${RUN_SLOTS[i].label}`, runs[i].config.instance.client]))
+    const clientBySeriesName = new Map(runs.map((r, i) => [`Run ${formatRunLabel(RUN_SLOTS[i], r, labelMode)}`, r.config.instance.client]))
 
     return {
       backgroundColor: 'transparent',
@@ -190,7 +191,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
         const slot = RUN_SLOTS[i]
         const points = pointsPerRun[i]
         return {
-          name: `Run ${slot.label}`,
+          name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
           type: 'line' as const,
           smooth: maxLen <= 100,
           showSymbol: maxLen <= 100,
@@ -202,7 +203,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
         }
       }),
     }
-  }, [pointsPerRun, runs, isDark, zoomRange])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode])
 
   if (pointsPerRun.every((p) => p.length === 0)) return null
 
@@ -216,7 +217,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
             return (
               <span key={slot.label} className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 font-medium ${slot.badgeBgClass} ${slot.badgeTextClass}`}>
                 <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
-                {slot.label}
+                {formatRunLabel(slot, run, labelMode)}
               </span>
             )
           })}

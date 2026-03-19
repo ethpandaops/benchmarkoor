@@ -2,10 +2,11 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { Settings, ChevronDown } from 'lucide-react'
 import { formatBytes, formatFrequency } from '@/utils/format'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface ConfigDiffProps {
   runs: CompareRun[]
+  labelMode: LabelMode
 }
 
 function DiffRow({ label, values }: { label: string; values: string[] }) {
@@ -25,7 +26,7 @@ function DiffRow({ label, values }: { label: string; values: string[] }) {
   )
 }
 
-export function ConfigDiff({ runs }: ConfigDiffProps) {
+export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
   const [expanded, setExpanded] = useState(true)
 
   const instances = runs.map((r) => r.config.instance)
@@ -76,7 +77,7 @@ export function ConfigDiff({ runs }: ConfigDiffProps) {
                   const slot = RUN_SLOTS[run.index]
                   return (
                     <th key={slot.label} className={clsx('px-3 py-2 text-left text-xs/5 font-medium uppercase tracking-wider', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
-                      Run {slot.label}
+                      Run {formatRunLabel(slot, run, labelMode)}
                     </th>
                   )
                 })}

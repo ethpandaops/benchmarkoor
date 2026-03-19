@@ -3,13 +3,14 @@ import clsx from 'clsx'
 import type { SuiteTest, AggregatedStats, BlockLogs, BlockLogEntry } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { Pagination } from '@/components/shared/Pagination'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface TestComparisonTableProps {
   runs: CompareRun[]
   suiteTests?: SuiteTest[]
   stepFilter: StepTypeOption[]
   blockLogsPerRun?: (BlockLogs | null)[]
+  labelMode: LabelMode
 }
 
 type SortColumn = 'order' | 'name' | 'avgValue'
@@ -113,7 +114,7 @@ function SortableHeader({
 
 const PAGE_SIZE = 50
 
-export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun }: TestComparisonTableProps) {
+export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun, labelMode }: TestComparisonTableProps) {
   const [activeTab, setActiveTab] = useState('mgas')
   const [sortBy, setSortBy] = useState<SortColumn>('order')
   const [sortDir, setSortDir] = useState<SortDirection>('asc')
@@ -304,7 +305,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                   <th key={slot.label} className={clsx('px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
                     <div className="flex flex-col items-end gap-1">
                       <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-5 rounded-full object-cover" />
-                      {slot.label} {activeMetric.unit}
+                      {formatRunLabel(slot, run, labelMode)} {activeMetric.unit}
                     </div>
                   </th>
                 )

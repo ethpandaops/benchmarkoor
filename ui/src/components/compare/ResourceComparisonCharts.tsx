@@ -3,7 +3,7 @@ import ReactECharts from 'echarts-for-react'
 import { Cpu } from 'lucide-react'
 import type { TestEntry, ResourceTotals } from '@/api/types'
 import { formatBytes } from '@/utils/format'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface AggregatedResourceData {
   totals: ResourceTotals
@@ -75,6 +75,7 @@ function useDarkMode() {
 
 interface ResourceComparisonChartsProps {
   runs: CompareRun[]
+  labelMode: LabelMode
 }
 
 interface ResourceDataPoint {
@@ -168,7 +169,7 @@ function ChartSection({ title, option, onZoom }: ChartSectionProps) {
   )
 }
 
-export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps) {
+export function ResourceComparisonCharts({ runs, labelMode }: ResourceComparisonChartsProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -310,7 +311,7 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
         const slot = RUN_SLOTS[i]
         const points = pointsPerRun[i]
         return {
-          name: `Run ${slot.label}`,
+          name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
           ...createLineSeries(),
           data: points.map((d) => [d.testIndex, d[field], d.testName]),
           itemStyle: { color: slot.color },
@@ -375,7 +376,7 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
     }
 
     return { cpuPercentOption, memoryMBOption, cpuTimeOption, memoryDeltaOption, diskReadBytesOption, diskWriteBytesOption, diskReadOpsOption, diskWriteOpsOption }
-  }, [pointsPerRun, runs, isDark, zoomRange])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode])
 
   if (!hasData) return null
 
@@ -390,7 +391,7 @@ export function ResourceComparisonCharts({ runs }: ResourceComparisonChartsProps
             return (
               <span key={slot.label} className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 font-medium ${slot.badgeBgClass} ${slot.badgeTextClass}`}>
                 <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
-                {slot.label}
+                {formatRunLabel(slot, run, labelMode)}
               </span>
             )
           })}

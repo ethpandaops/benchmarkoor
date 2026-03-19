@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface StickyRunBarProps {
   runs: CompareRun[]
   /** Ref to the element that, when scrolled out of view, triggers the sticky bar */
   sentinelRef: React.RefObject<HTMLDivElement | null>
+  labelMode: LabelMode
 }
 
-export function StickyRunBar({ runs, sentinelRef }: StickyRunBarProps) {
+export function StickyRunBar({ runs, sentinelRef, labelMode }: StickyRunBarProps) {
   const [visible, setVisible] = useState(false)
   const observerRef = useRef<IntersectionObserver | null>(null)
 
@@ -36,7 +37,7 @@ export function StickyRunBar({ runs, sentinelRef }: StickyRunBarProps) {
             <div key={slot.label} className="flex items-center gap-2">
               <span className={clsx('inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs/5 font-medium', slot.badgeBgClass, slot.badgeTextClass)}>
                 <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
-                {slot.label}
+                {formatRunLabel(slot, run, labelMode)}
               </span>
               {run.config.instance.id && (
                 <span className="truncate font-mono text-xs/5 text-gray-500 dark:text-gray-400" title={run.config.instance.id}>

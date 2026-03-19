@@ -18,7 +18,7 @@ import { ResourceComparisonCharts } from '@/components/compare/ResourceCompariso
 import { BlockLogsComparison } from '@/components/compare/BlockLogsComparison'
 import { ConfigDiff } from '@/components/compare/ConfigDiff'
 import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER } from '@/pages/RunDetailPage'
-import { MIN_COMPARE_RUNS, MAX_COMPARE_RUNS, type CompareRun } from '@/components/compare/constants'
+import { MIN_COMPARE_RUNS, MAX_COMPARE_RUNS, LABEL_MODE_OPTIONS, type CompareRun, type LabelMode } from '@/components/compare/constants'
 
 function parseStepFilter(param: string | undefined): StepTypeOption[] {
   if (!param) return DEFAULT_STEP_FILTER
@@ -34,6 +34,7 @@ export function ComparePage() {
     b?: string
     steps?: string
     baseline?: string
+    labels?: string
   }
 
   // Backward-compat redirect: ?a=X&b=Y → ?runs=X,Y
@@ -103,13 +104,21 @@ export function ComparePage() {
   const { data: suite } = useSuite(suiteHash)
   const headerRef = useRef<HTMLDivElement>(null)
   const baselineIdx = Math.min(Math.max(parseInt(search.baseline ?? '0', 10) || 0, 0), runIds.length - 1)
+  const labelMode: LabelMode = search.labels === 'instance-id' ? 'instance-id' : 'none'
   const setBaselineIdx = useCallback((idx: number) => {
     navigate({
       to: '/compare',
-      search: { runs: search.runs, steps: search.steps, baseline: idx > 0 ? String(idx) : undefined },
+      search: { runs: search.runs, steps: search.steps, baseline: idx > 0 ? String(idx) : undefined, labels: search.labels },
       replace: true,
     })
-  }, [navigate, search.runs, search.steps])
+  }, [navigate, search.runs, search.steps, search.labels])
+  const setLabelMode = useCallback((mode: LabelMode) => {
+    navigate({
+      to: '/compare',
+      search: { runs: search.runs, steps: search.steps, baseline: search.baseline, labels: mode === 'none' ? undefined : mode },
+      replace: true,
+    })
+  }, [navigate, search.runs, search.steps, search.baseline])
 
   // Handle backward-compat redirect in progress
   if (search.a && search.b && !search.runs) {
@@ -152,7 +161,7 @@ export function ComparePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <StickyRunBar runs={runs} sentinelRef={headerRef} />
+      <StickyRunBar runs={runs} sentinelRef={headerRef} labelMode={labelMode} />
 
       {/* Breadcrumb */}
       <div className="flex min-w-0 items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
@@ -176,6 +185,25 @@ export function ComparePage() {
         <span className="shrink-0 text-gray-900 dark:text-gray-100">Compare</span>
       </div>
 
+      <div className="flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">
+        <span>Labels:</span>
+        <div className="flex gap-1">
+          {LABEL_MODE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setLabelMode(opt.value)}
+              className={`rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
+                labelMode === opt.value
+                  ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {suiteMismatch && (
         <div className="rounded-sm border border-yellow-300 bg-yellow-50 p-3 text-sm/6 text-yellow-800 dark:border-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
           Warning: These runs belong to different suites. Test-level comparison may not be meaningful.
@@ -183,31 +211,31 @@ export function ComparePage() {
       )}
 
       <div ref={headerRef}>
-        <CompareHeader runs={runs} onRemoveRun={(id) => {
+        <CompareHeader runs={runs} labelMode={labelMode} onRemoveRun={(id) => {
           const remaining = runIds.filter((r) => r !== id)
           navigate({ to: '/compare', search: { runs: remaining.join(','), steps: search.steps } })
         }} />
       </div>
 
-      <MetricsComparison runs={runs} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} />
+      <MetricsComparison runs={runs} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} />
 
       {allResults && (
-        <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
+        <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} labelMode={labelMode} />
       )}
 
       {allResults && (
-        <PercentageDiffChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} />
+        <PercentageDiffChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} />
       )}
 
-      <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} />
+      <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} labelMode={labelMode} />
 
       {allResults && (
-        <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} blockLogsPerRun={blockLogsPerRun} />
+        <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} blockLogsPerRun={blockLogsPerRun} labelMode={labelMode} />
       )}
 
-      {allResults && <ResourceComparisonCharts runs={runs} />}
+      {allResults && <ResourceComparisonCharts runs={runs} labelMode={labelMode} />}
 
-      <ConfigDiff runs={runs} />
+      <ConfigDiff runs={runs} labelMode={labelMode} />
     </div>
   )
 }

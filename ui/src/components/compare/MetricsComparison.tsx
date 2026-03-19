@@ -4,13 +4,14 @@ import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { Duration } from '@/components/shared/Duration'
 import { formatDuration, formatNumber } from '@/utils/format'
 import { formatDurationSeconds } from '@/utils/date'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface MetricsComparisonProps {
   runs: CompareRun[]
   stepFilter: StepTypeOption[]
   baselineIdx: number
   onBaselineChange: (idx: number) => void
+  labelMode: LabelMode
 }
 
 interface ComputedMetrics {
@@ -87,6 +88,7 @@ function MetricCard({
   formatDelta,
   extra,
   baselineIdx = 0,
+  runLabels,
 }: {
   label: string
   values: React.ReactNode[]
@@ -97,6 +99,7 @@ function MetricCard({
   formatDelta?: (v: number) => string
   extra?: React.ReactNode[]
   baselineIdx?: number
+  runLabels: string[]
 }) {
   const hasDeltas = deltas?.some((d, i) => i !== baselineIdx && d !== undefined)
 
@@ -114,8 +117,8 @@ function MetricCard({
                 <td className="w-5 py-0.5 align-middle">
                   <img src={`/img/clients/${clients[i]}.jpg`} alt={clients[i]} className="size-4 rounded-full object-cover" />
                 </td>
-                <td className={clsx('w-4 py-0.5 align-middle text-xs/5 font-semibold', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
-                  {slot.label}
+                <td className={clsx('py-0.5 align-middle text-xs/5 font-semibold', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
+                  {runLabels[i]}
                 </td>
                 <td className="py-0.5 align-middle text-base/6 font-semibold text-gray-900 dark:text-gray-100">
                   {val}
@@ -146,9 +149,10 @@ function MetricCard({
   )
 }
 
-export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineChange }: MetricsComparisonProps) {
+export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineChange, labelMode }: MetricsComparisonProps) {
   const metrics = runs.map((r) => computeMetrics(r.config, r.result, stepFilter))
   const clients = runs.map((r) => r.config.instance.client)
+  const runLabels = runs.map((r) => formatRunLabel(RUN_SLOTS[r.index], r, labelMode))
   const base = metrics[baselineIdx]
 
   return (
@@ -174,7 +178,7 @@ export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineCha
                   alt={run.config.instance.client}
                   className="size-3.5 rounded-full object-cover"
                 />
-                {slot.label}
+                {formatRunLabel(slot, run, labelMode)}
               </button>
             )
           })}
@@ -185,6 +189,7 @@ export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineCha
           label="Tests"
           clients={clients}
           baselineIdx={baselineIdx}
+          runLabels={runLabels}
           values={metrics.map((m) => m.testCount)}
           extra={metrics.map((m) => (
             <span className="flex items-center justify-end gap-1.5">
@@ -197,6 +202,7 @@ export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineCha
           label="MGas/s"
           clients={clients}
           baselineIdx={baselineIdx}
+          runLabels={runLabels}
           values={metrics.map((m) => m.mgasPerSec !== undefined ? m.mgasPerSec.toFixed(2) : '-')}
           deltas={metrics.map((m, i) => i === baselineIdx ? undefined : (m.mgasPerSec !== undefined && base.mgasPerSec !== undefined ? m.mgasPerSec - base.mgasPerSec : undefined))}
           percentValues={metrics.map((m) => m.mgasPerSec)}
@@ -206,12 +212,14 @@ export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineCha
           label="Total Gas"
           clients={clients}
           baselineIdx={baselineIdx}
+          runLabels={runLabels}
           values={metrics.map((m) => formatGas(m.totalGasUsed))}
         />
         <MetricCard
           label="Test Duration"
           clients={clients}
           baselineIdx={baselineIdx}
+          runLabels={runLabels}
           values={metrics.map((m) => <Duration nanoseconds={m.totalDuration} />)}
           deltas={metrics.map((m, i) => i === baselineIdx ? undefined : (m.totalDuration > 0 && base.totalDuration > 0 ? m.totalDuration - base.totalDuration : undefined))}
           percentValues={metrics.map((m) => m.totalDuration)}
@@ -222,6 +230,7 @@ export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineCha
           label="Total Runtime"
           clients={clients}
           baselineIdx={baselineIdx}
+          runLabels={runLabels}
           values={metrics.map((m) => m.totalRuntime !== undefined ? formatDurationSeconds(m.totalRuntime) : '-')}
           deltas={metrics.map((m, i) => i === baselineIdx ? undefined : (m.totalRuntime !== undefined && base.totalRuntime !== undefined ? m.totalRuntime - base.totalRuntime : undefined))}
           percentValues={metrics.map((m) => m.totalRuntime)}
@@ -232,6 +241,7 @@ export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineCha
           label="Calls"
           clients={clients}
           baselineIdx={baselineIdx}
+          runLabels={runLabels}
           values={metrics.map((m) => formatNumber(m.totalMsgCount))}
         />
       </div>

@@ -6,10 +6,11 @@ import { ClientBadge } from '@/components/shared/ClientBadge'
 import { StrategyIcon } from '@/components/shared/StrategyIcon'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface CompareHeaderProps {
   runs: CompareRun[]
+  labelMode: LabelMode
   onRemoveRun?: (runId: string) => void
 }
 
@@ -99,7 +100,7 @@ const GRID_COLS: Record<number, string> = {
   5: 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-5',
 }
 
-export function CompareHeader({ runs, onRemoveRun }: CompareHeaderProps) {
+export function CompareHeader({ runs, labelMode, onRemoveRun }: CompareHeaderProps) {
   return (
     <div className={clsx('grid gap-4', GRID_COLS[runs.length] ?? GRID_COLS[2])}>
       {runs.map((run) => {
@@ -109,7 +110,7 @@ export function CompareHeader({ runs, onRemoveRun }: CompareHeaderProps) {
             key={run.runId}
             config={run.config}
             runId={run.runId}
-            label={`Run ${slot.label}`}
+            label={`Run ${formatRunLabel(slot, run, labelMode)}`}
             accentClass={slot.borderClass}
             onRemove={onRemoveRun && runs.length > 2 ? () => onRemoveRun(run.runId) : undefined}
           />

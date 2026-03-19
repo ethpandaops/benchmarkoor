@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { Blocks } from 'lucide-react'
 import type { BlockLogs, SuiteTest } from '@/api/types'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 function useDarkMode() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
@@ -115,9 +115,10 @@ interface BlockLogsComparisonProps {
   blockLogsPerRun: (BlockLogs | null)[]
   blockLogsLoading: boolean
   suiteTests?: SuiteTest[]
+  labelMode: LabelMode
 }
 
-export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, suiteTests }: BlockLogsComparisonProps) {
+export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, suiteTests, labelMode }: BlockLogsComparisonProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -261,7 +262,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
         const slot = RUN_SLOTS[run.index]
         const pointsByIndex = new Map(pointsPerRun[run.index].map((d) => [d.testIndex, d]))
         return {
-          name: `Run ${slot.label}`,
+          name: `Run ${formatRunLabel(slot, run, labelMode)}`,
           ...createLineSeries(),
           connectNulls: false,
           data: unifiedTests.map((testName, i) => {
@@ -288,7 +289,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
       storageCacheHitRate: buildChart('storageCacheHitRate', (v) => `${v.toFixed(0)}%`, (v) => `${v.toFixed(1)}%`),
       codeCacheHitRate: buildChart('codeCacheHitRate', (v) => `${v.toFixed(0)}%`, (v) => `${v.toFixed(1)}%`),
     }
-  }, [pointsPerRun, runs, runsWithData, isDark, zoomRange, unifiedTests])
+  }, [pointsPerRun, runs, runsWithData, isDark, zoomRange, unifiedTests, labelMode])
 
   if (blockLogsLoading) {
     return (
@@ -313,7 +314,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
             return (
               <span key={slot.label} className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 font-medium ${slot.badgeBgClass} ${slot.badgeTextClass}`}>
                 <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
-                {slot.label}
+                {formatRunLabel(slot, run, labelMode)}
               </span>
             )
           })}
