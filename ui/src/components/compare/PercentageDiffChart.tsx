@@ -102,9 +102,12 @@ function buildDiffData(
   }))
 }
 
+type DiffFilter = 'all' | 'faster' | 'slower'
+
 export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode }: PercentageDiffChartProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
+  const [diffFilter, setDiffFilter] = useState<DiffFilter>('all')
   const prevZoomRef = useRef(zoomRange)
 
   const handleZoom = useCallback((params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
@@ -277,6 +280,8 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
               const diff = d.diffs[seriesIdx]
               const absMGas = d.values[seriesIdx]
               if (diff === null || absMGas === null) return null
+              if (diffFilter === 'faster' && diff < 0) return null
+              if (diffFilter === 'slower' && diff > 0) return null
               return {
                 value: [d.testIndex, diff, d.testName, d.baselineValue, absMGas],
                 itemStyle: {
@@ -290,7 +295,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
         }),
       ],
     }
-  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode])
+  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode, diffFilter])
 
   if (runs.every((r) => r.result === null)) return null
 
@@ -349,9 +354,26 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           </div>
         </div>
       </div>
-      <p className="mb-2 text-xs/5 text-gray-400 dark:text-gray-500">
-        Positive = faster than baseline, Negative = slower
-      </p>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs/5 text-gray-400 dark:text-gray-500">
+          Positive = faster than baseline, Negative = slower
+        </p>
+        <div className="flex gap-1">
+          {([['all', 'Show All'], ['faster', 'Faster'], ['slower', 'Slower']] as const).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => setDiffFilter(value)}
+              className={`rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
+                diffFilter === value
+                  ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <ReactECharts
         option={option}
         style={{ height: '300px', width: '100%' }}
