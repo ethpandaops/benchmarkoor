@@ -15,6 +15,7 @@ interface TestComparisonTableProps {
 
 type SortColumn = 'order' | 'name' | 'avgValue'
 type SortDirection = 'asc' | 'desc'
+type TableBaseline = 'best' | 'worst' | number
 
 interface ComparedTest {
   name: string
@@ -52,12 +53,19 @@ function extractBlockLogMetric(entry: BlockLogEntry, metricId: string): number {
   }
 }
 
-// Returns an RGB color interpolated from yellow (small diff) to red (large diff)
-// based on the percentage deviation from the best value.
-function getDiffColor(diff: number, best: number): string {
-  if (best <= 0) return 'rgb(239, 68, 68)' // red
-  const pct = Math.abs(diff) / best // 0..1+
-  const t = Math.min(pct / 0.5, 1) // clamp: 0% → 0, ≥50% → 1
+// Returns an RGB color based on percentage deviation from reference value.
+// Positive diff (better): green tones. Negative diff (worse): yellow → red.
+function getDiffColor(diff: number, ref: number): string {
+  if (ref <= 0) return 'rgb(239, 68, 68)'
+  const pct = Math.abs(diff) / ref
+  const t = Math.min(pct / 0.5, 1)
+  if (diff >= 0) {
+    // light green (134,239,172) → green (22,163,74)
+    const r = Math.round(134 - t * (134 - 22))
+    const g = Math.round(239 - t * (239 - 163))
+    const b = Math.round(172 - t * (172 - 74))
+    return `rgb(${r}, ${g}, ${b})`
+  }
   // yellow (234,179,8) → red (239,68,68)
   const r = Math.round(234 + t * (239 - 234))
   const g = Math.round(179 - t * (179 - 68))
@@ -121,6 +129,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
   const [searchQuery, setSearchQuery] = useState('')
   const [useRegex, setUseRegex] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [tableBaseline, setTableBaseline] = useState<TableBaseline>('best')
 
   const hasBlockLogs = blockLogsPerRun?.some((bl) => bl !== null) ?? false
 
@@ -292,6 +301,44 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
         </div>
       )}
 
+      <div className="flex items-center gap-1.5 border-b border-gray-200 px-4 py-2 dark:border-gray-700">
+        <span className="text-xs/5 text-gray-500 dark:text-gray-400">Baseline:</span>
+        <div className="flex flex-wrap gap-1">
+          {(['best', 'worst'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setTableBaseline(mode)}
+              className={clsx(
+                'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                tableBaseline === mode
+                  ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+              )}
+            >
+              {mode === 'best' ? (activeMetric.higherIsBetter ? 'Fastest' : 'Lowest') : (activeMetric.higherIsBetter ? 'Slowest' : 'Highest')}
+            </button>
+          ))}
+          {runs.map((run, i) => {
+            const slot = RUN_SLOTS[run.index]
+            return (
+              <button
+                key={slot.label}
+                onClick={() => setTableBaseline(i)}
+                className={clsx(
+                  'inline-flex items-center gap-1 rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                  tableBaseline === i
+                    ? `${slot.badgeBgClass} ${slot.badgeTextClass} ring-1 ring-current`
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                )}
+              >
+                <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
+                {formatRunLabel(slot, run, labelMode)}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
@@ -316,9 +363,14 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {paginatedTests.map((test) => {
               const defined = test.values.filter((v): v is number => v !== undefined)
-              const bestValue = defined.length > 0
-                ? (activeMetric.higherIsBetter ? Math.max(...defined) : Math.min(...defined))
-                : undefined
+              let refValue: number | undefined
+              if (typeof tableBaseline === 'number') {
+                refValue = test.values[tableBaseline]
+              } else if (defined.length > 0) {
+                refValue = tableBaseline === 'best'
+                  ? (activeMetric.higherIsBetter ? Math.max(...defined) : Math.min(...defined))
+                  : (activeMetric.higherIsBetter ? Math.min(...defined) : Math.max(...defined))
+              }
 
               return (
                 <tr key={test.name} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
@@ -332,18 +384,19 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                     {test.avgValue !== undefined ? activeMetric.format(test.avgValue) : '-'}
                   </td>
                   {test.values.map((val, i) => {
-                    const isBest = val !== undefined && val === bestValue
-                    const diff = val !== undefined && bestValue !== undefined
-                      ? (activeMetric.higherIsBetter ? val - bestValue : bestValue - val)
+                    const isRef = val !== undefined && val === refValue
+                    const diff = val !== undefined && refValue !== undefined
+                      ? (activeMetric.higherIsBetter ? val - refValue : refValue - val)
                       : undefined
                     return (
                       <td key={RUN_SLOTS[i].label} className="whitespace-nowrap px-4 py-2 text-right text-sm/6">
-                        <div className={isBest ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
+                        <div className={isRef ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
                           {val !== undefined ? activeMetric.format(val) : '-'}
                         </div>
-                        {diff !== undefined && !isBest && (
-                          <div className="text-xs/4" style={{ color: getDiffColor(diff, bestValue!) }}>
-                            {activeMetric.higherIsBetter ? diff.toFixed(2) : `+${Math.abs(diff).toFixed(2)}`}
+                        {diff !== undefined && !isRef && refValue! > 0 && (
+                          <div className="text-xs/4" style={{ color: getDiffColor(diff, refValue!) }}>
+                            {diff >= 0 ? `+${diff.toFixed(2)}` : diff.toFixed(2)}
+                            {' '}({diff >= 0 ? '+' : '-'}{((Math.abs(diff) / refValue!) * 100).toFixed(1)}%)
                           </div>
                         )}
                       </td>
