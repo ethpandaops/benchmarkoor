@@ -12,6 +12,7 @@ import { CompareHeader } from '@/components/compare/CompareHeader'
 import { StickyRunBar } from '@/components/compare/StickyRunBar'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
+import { PercentageDiffChart } from '@/components/compare/PercentageDiffChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
 import { ResourceComparisonCharts } from '@/components/compare/ResourceComparisonCharts'
 import { BlockLogsComparison } from '@/components/compare/BlockLogsComparison'
@@ -183,6 +184,10 @@ export function ComparePage() {
 
       {allResults && (
         <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
+      )}
+
+      {allResults && (
+        <PercentageDiffChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
       )}
 
       <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} />
