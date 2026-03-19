@@ -12,6 +12,8 @@ interface PercentageDiffChartProps {
   baselineIdx: number
   onBaselineChange: (idx: number) => void
   labelMode: LabelMode
+  diffFilter: 'all' | 'faster' | 'slower'
+  onDiffFilterChange: (val: 'all' | 'faster' | 'slower') => void
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -102,12 +104,9 @@ function buildDiffData(
   }))
 }
 
-type DiffFilter = 'all' | 'faster' | 'slower'
-
-export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode }: PercentageDiffChartProps) {
+export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange }: PercentageDiffChartProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
-  const [diffFilter, setDiffFilter] = useState<DiffFilter>('all')
   const prevZoomRef = useRef(zoomRange)
 
   const handleZoom = useCallback((params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
@@ -362,7 +361,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           {([['all', 'Show All'], ['faster', 'Faster'], ['slower', 'Slower']] as const).map(([value, label]) => (
             <button
               key={value}
-              onClick={() => setDiffFilter(value)}
+              onClick={() => onDiffFilterChange(value)}
               className={`rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
                 diffFilter === value
                   ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'

@@ -38,6 +38,7 @@ export function ComparePage() {
     tableBase?: string
     sort?: string
     sortDir?: string
+    diffFilter?: string
   }
 
   // Backward-compat redirect: ?a=X&b=Y → ?runs=X,Y
@@ -116,14 +117,15 @@ export function ComparePage() {
 
   const tableSortBy = (search.sort ?? 'order') as 'order' | 'name' | 'avgValue' | `run-${number}`
   const tableSortDir = (search.sortDir === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc'
+  const diffFilter = (search.diffFilter === 'faster' || search.diffFilter === 'slower' ? search.diffFilter : 'all') as 'all' | 'faster' | 'slower'
 
   const updateSearch = useCallback((patch: Record<string, string | undefined>) => {
     navigate({
       to: '/compare',
-      search: { runs: search.runs, steps: search.steps, baseline: search.baseline, labels: search.labels, tableBase: search.tableBase, sort: search.sort, sortDir: search.sortDir, ...patch },
+      search: { runs: search.runs, steps: search.steps, baseline: search.baseline, labels: search.labels, tableBase: search.tableBase, sort: search.sort, sortDir: search.sortDir, diffFilter: search.diffFilter, ...patch },
       replace: true,
     })
-  }, [navigate, search.runs, search.steps, search.baseline, search.labels, search.tableBase, search.sort, search.sortDir])
+  }, [navigate, search.runs, search.steps, search.baseline, search.labels, search.tableBase, search.sort, search.sortDir, search.diffFilter])
 
   const setBaselineIdx = useCallback((idx: number) => {
     updateSearch({ baseline: idx > 0 ? String(idx) : undefined })
@@ -136,6 +138,9 @@ export function ComparePage() {
   }, [updateSearch])
   const setTableSort = useCallback((column: string, direction: string) => {
     updateSearch({ sort: column === 'order' ? undefined : column, sortDir: direction === 'asc' ? undefined : direction })
+  }, [updateSearch])
+  const setDiffFilter = useCallback((val: 'all' | 'faster' | 'slower') => {
+    updateSearch({ diffFilter: val === 'all' ? undefined : val })
   }, [updateSearch])
 
   // Handle backward-compat redirect in progress
@@ -247,7 +252,7 @@ export function ComparePage() {
       )}
 
       {allResults && (
-        <PercentageDiffChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} />
+        <PercentageDiffChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} diffFilter={diffFilter} onDiffFilterChange={setDiffFilter} />
       )}
 
       <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} labelMode={labelMode} />
