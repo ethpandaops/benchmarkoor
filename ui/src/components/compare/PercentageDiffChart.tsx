@@ -38,6 +38,7 @@ function useDarkMode() {
 
 interface TestDiffPoint {
   testIndex: number
+  testOrder: number
   testName: string
   baselineValue: number
   diffs: (number | null)[] // % diff per non-baseline run
@@ -98,8 +99,9 @@ function buildDiffData(
   }
 
   entries.sort((a, b) => a.order - b.order)
-  return entries.map((e) => ({
-    testIndex: e.order,
+  return entries.map((e, i) => ({
+    testIndex: i + 1,
+    testOrder: e.order,
     testName: e.name,
     baselineValue: e.baselineValue,
     diffs: e.diffs,
@@ -145,10 +147,8 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
     const textColor = isDark ? '#ffffff' : '#374151'
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
-    const allIndices = diffData.map((d) => d.testIndex)
-    const maxLen = allIndices.length
-    const xMin = allIndices.length > 0 ? Math.min(...allIndices) : 1
-    const xMax = allIndices.length > 0 ? Math.max(...allIndices) : 1
+    const maxLen = Math.max(diffData.length, 1)
+    const indexToOrder = new Map(diffData.map((d) => [d.testIndex, d.testOrder]))
 
     return {
       backgroundColor: 'transparent',
@@ -170,17 +170,17 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
         extraCssText: 'max-width: 350px; white-space: normal;',
         formatter: (
           // value: [testIndex, %diff, testName, baselineMGas, absoluteMGas]
-          params: Array<{ seriesName: string; color: string; value: [number, number, string, number, number] }>,
+          params: Array<{ seriesName: string; color: string; value: [number, number, string, number, number, number] }>,
         ) => {
           if (!params.length) return ''
-          const testIndex = params[0].value[0]
           const testName = params[0].value[2]
           const baseValue = params[0].value[3]
+          const testOrder = params[0].value[5]
           const baseSlot = RUN_SLOTS[baselineIdx]
           const baseClient = runs[baselineIdx].config.instance.client
           const baseImg = `<img src="/img/clients/${baseClient}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />`
 
-          let content = `<strong>Test #${testIndex}</strong>`
+          let content = `<strong>Test #${testOrder}</strong>`
           if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
           content += `<br/>${baseImg}<span style="font-size: 11px;">Baseline ${baseSlot.label}: ${baseValue.toFixed(2)} MGas/s</span><br/>`
 
@@ -200,13 +200,13 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
       },
       xAxis: {
         type: 'value' as const,
-        min: xMin,
-        max: xMax,
+        min: 1,
+        max: maxLen,
         minInterval: 1,
         axisLabel: {
           color: textColor,
           fontSize: 11,
-          formatter: (value: number) => `#${value}`,
+          formatter: (value: number) => `#${indexToOrder.get(value) ?? value}`,
         },
         axisLine: { show: true, lineStyle: { color: axisLineColor } },
         axisTick: { show: true, lineStyle: { color: axisLineColor } },
@@ -243,7 +243,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           fillerColor: isDark ? 'rgba(139, 92, 246, 0.3)' : 'rgba(139, 92, 246, 0.1)',
           backgroundColor: isDark ? '#374151' : '#f3f4f6',
           textStyle: { color: textColor },
-          labelFormatter: (value: number) => `#${Math.round(value)}`,
+          labelFormatter: (value: number) => `#${indexToOrder.get(Math.round(value)) ?? Math.round(value)}`,
         },
         {
           type: 'inside' as const,
@@ -288,7 +288,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
               if (diffFilter === 'faster' && diff < 0) return null
               if (diffFilter === 'slower' && diff > 0) return null
               return {
-                value: [d.testIndex, diff, d.testName, d.baselineValue, absMGas],
+                value: [d.testIndex, diff, d.testName, d.baselineValue, absMGas, d.testOrder],
                 itemStyle: {
                   color: diff >= 0 ? slot.color : slot.colorLight,
                   opacity: diff >= 0 ? 1 : 0.6,

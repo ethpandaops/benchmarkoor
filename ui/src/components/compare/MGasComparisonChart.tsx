@@ -34,6 +34,7 @@ function useDarkMode() {
 
 interface MGasDataPoint {
   testIndex: number
+  testOrder: number
   testName: string
   mgas: number
 }
@@ -60,7 +61,7 @@ function buildMGasData(
   }
 
   entries.sort((a, b) => a.order - b.order)
-  return entries.map((e) => ({ testIndex: e.order, testName: e.name, mgas: e.mgas }))
+  return entries.map((e, i) => ({ testIndex: i + 1, testOrder: e.order, testName: e.name, mgas: e.mgas }))
 }
 
 export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, testNameFilter }: MGasComparisonChartProps) {
@@ -95,10 +96,14 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
     const textColor = isDark ? '#ffffff' : '#374151'
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
-    const allIndices = pointsPerRun.flatMap((p) => p.map((d) => d.testIndex))
-    const maxLen = allIndices.length
-    const xMin = allIndices.length > 0 ? Math.min(...allIndices) : 1
-    const xMax = allIndices.length > 0 ? Math.max(...allIndices) : 1
+    const maxLen = Math.max(...pointsPerRun.map((p) => p.length))
+    // Build a map from sequential index to original test order for axis labels
+    const indexToOrder = new Map<number, number>()
+    for (const points of pointsPerRun) {
+      for (const d of points) {
+        indexToOrder.set(d.testIndex, d.testOrder)
+      }
+    }
     const clientBySeriesName = new Map(runs.map((r, i) => [`Run ${formatRunLabel(RUN_SLOTS[i], r, labelMode)}`, r.config.instance.client]))
 
     return {
@@ -120,12 +125,12 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
         textStyle: { color: textColor },
         extraCssText: 'max-width: 300px; white-space: normal;',
         formatter: (
-          params: Array<{ seriesName: string; color: string; value: [number, number, string] }>,
+          params: Array<{ seriesName: string; color: string; value: [number, number, string, number] }>,
         ) => {
           if (!params.length) return ''
-          const testIndex = params[0].value[0]
+          const testOrder = params[0].value[3]
           const testName = params[0].value[2]
-          let content = `<strong>Test #${testIndex}</strong>`
+          let content = `<strong>Test #${testOrder}</strong>`
           if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
           content += '<br/>'
           params.forEach((p) => {
@@ -139,13 +144,13 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
       },
       xAxis: {
         type: 'value' as const,
-        min: xMin,
-        max: xMax,
+        min: 1,
+        max: maxLen,
         minInterval: 1,
         axisLabel: {
           color: textColor,
           fontSize: 11,
-          formatter: (value: number) => `#${value}`,
+          formatter: (value: number) => `#${indexToOrder.get(value) ?? value}`,
         },
         axisLine: { show: true, lineStyle: { color: axisLineColor } },
         axisTick: { show: true, lineStyle: { color: axisLineColor } },
@@ -182,7 +187,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
           fillerColor: isDark ? 'rgba(139, 92, 246, 0.3)' : 'rgba(139, 92, 246, 0.1)',
           backgroundColor: isDark ? '#374151' : '#f3f4f6',
           textStyle: { color: textColor },
-          labelFormatter: (value: number) => `#${Math.round(value)}`,
+          labelFormatter: (value: number) => `#${indexToOrder.get(Math.round(value)) ?? Math.round(value)}`,
         },
         {
           type: 'inside' as const,
@@ -201,7 +206,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
           type: 'bar' as const,
           barMaxWidth: 6,
-          data: points.map((d) => [d.testIndex, d.mgas, d.testName]),
+          data: points.map((d) => [d.testIndex, d.mgas, d.testName, d.testOrder]),
           itemStyle: { color: slot.color },
         }
       }),
