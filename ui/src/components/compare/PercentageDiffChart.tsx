@@ -8,6 +8,8 @@ interface PercentageDiffChartProps {
   runs: CompareRun[]
   suiteTests?: SuiteTest[]
   stepFilter: StepTypeOption[]
+  baselineIdx: number
+  onBaselineChange: (idx: number) => void
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -98,9 +100,8 @@ function buildDiffData(
   }))
 }
 
-export function PercentageDiffChart({ runs, suiteTests, stepFilter }: PercentageDiffChartProps) {
+export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange }: PercentageDiffChartProps) {
   const isDark = useDarkMode()
-  const [baselineIdx, setBaselineIdx] = useState(0)
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
 
@@ -306,7 +307,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter }: Percentage
                 return (
                   <button
                     key={slot.label}
-                    onClick={() => setBaselineIdx(i)}
+                    onClick={() => onBaselineChange(i)}
                     className={`inline-flex items-center gap-1 rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
                       baselineIdx === i
                         ? `${slot.badgeBgClass} ${slot.badgeTextClass} ring-1 ring-current`

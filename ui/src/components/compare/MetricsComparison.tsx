@@ -9,6 +9,8 @@ import { type CompareRun, RUN_SLOTS } from './constants'
 interface MetricsComparisonProps {
   runs: CompareRun[]
   stepFilter: StepTypeOption[]
+  baselineIdx: number
+  onBaselineChange: (idx: number) => void
 }
 
 interface ComputedMetrics {
@@ -84,6 +86,7 @@ function MetricCard({
   higherIsBetter = true,
   formatDelta,
   extra,
+  baselineIdx = 0,
 }: {
   label: string
   values: React.ReactNode[]
@@ -93,8 +96,9 @@ function MetricCard({
   higherIsBetter?: boolean
   formatDelta?: (v: number) => string
   extra?: React.ReactNode[]
+  baselineIdx?: number
 }) {
-  const hasDeltas = deltas?.some((d, i) => i > 0 && d !== undefined)
+  const hasDeltas = deltas?.some((d, i) => i !== baselineIdx && d !== undefined)
 
   return (
     <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
@@ -104,7 +108,7 @@ function MetricCard({
           {values.map((val, i) => {
             const slot = RUN_SLOTS[i]
             const delta = deltas?.[i]
-            const isBaseline = i === 0
+            const isBaseline = i === baselineIdx
             return (
               <tr key={slot.label}>
                 <td className="w-5 py-0.5 align-middle">
@@ -127,7 +131,7 @@ function MetricCard({
                       <span className="flex items-center justify-end gap-1">
                         <DeltaIndicator value={delta} formatValue={formatDelta} higherIsBetter={higherIsBetter} />
                         {percentValues && (
-                          <PercentDelta a={percentValues[0]} b={percentValues[i]} higherIsBetter={higherIsBetter} />
+                          <PercentDelta a={percentValues[baselineIdx]} b={percentValues[i]} higherIsBetter={higherIsBetter} />
                         )}
                       </span>
                     )}
@@ -142,59 +146,95 @@ function MetricCard({
   )
 }
 
-export function MetricsComparison({ runs, stepFilter }: MetricsComparisonProps) {
+export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineChange }: MetricsComparisonProps) {
   const metrics = runs.map((r) => computeMetrics(r.config, r.result, stepFilter))
   const clients = runs.map((r) => r.config.instance.client)
+  const base = metrics[baselineIdx]
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <MetricCard
-        label="Tests"
-        clients={clients}
-        values={metrics.map((m) => m.testCount)}
-        extra={metrics.map((m) => (
-          <span className="flex items-center justify-end gap-1.5">
-            {m.failedTests > 0 && <span className="text-xs font-medium text-red-600 dark:text-red-400">{m.failedTests} Failed</span>}
-            <span className="text-xs font-medium text-green-600 dark:text-green-400">{m.passedTests} Passed</span>
-          </span>
-        ))}
-      />
-      <MetricCard
-        label="MGas/s"
-        clients={clients}
-        values={metrics.map((m) => m.mgasPerSec !== undefined ? m.mgasPerSec.toFixed(2) : '-')}
-        deltas={metrics.map((m, i) => i === 0 ? undefined : (m.mgasPerSec !== undefined && metrics[0].mgasPerSec !== undefined ? m.mgasPerSec - metrics[0].mgasPerSec : undefined))}
-        percentValues={metrics.map((m) => m.mgasPerSec)}
-        higherIsBetter
-      />
-      <MetricCard
-        label="Total Gas"
-        clients={clients}
-        values={metrics.map((m) => formatGas(m.totalGasUsed))}
-      />
-      <MetricCard
-        label="Test Duration"
-        clients={clients}
-        values={metrics.map((m) => <Duration nanoseconds={m.totalDuration} />)}
-        deltas={metrics.map((m, i) => i === 0 ? undefined : (m.totalDuration > 0 && metrics[0].totalDuration > 0 ? m.totalDuration - metrics[0].totalDuration : undefined))}
-        percentValues={metrics.map((m) => m.totalDuration)}
-        higherIsBetter={false}
-        formatDelta={(v) => formatDuration(v)}
-      />
-      <MetricCard
-        label="Total Runtime"
-        clients={clients}
-        values={metrics.map((m) => m.totalRuntime !== undefined ? formatDurationSeconds(m.totalRuntime) : '-')}
-        deltas={metrics.map((m, i) => i === 0 ? undefined : (m.totalRuntime !== undefined && metrics[0].totalRuntime !== undefined ? m.totalRuntime - metrics[0].totalRuntime : undefined))}
-        percentValues={metrics.map((m) => m.totalRuntime)}
-        higherIsBetter={false}
-        formatDelta={(v) => formatDurationSeconds(v)}
-      />
-      <MetricCard
-        label="Calls"
-        clients={clients}
-        values={metrics.map((m) => formatNumber(m.totalMsgCount))}
-      />
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">
+        <span>Baseline:</span>
+        <div className="flex gap-1">
+          {runs.map((run, i) => {
+            const slot = RUN_SLOTS[run.index]
+            return (
+              <button
+                key={slot.label}
+                onClick={() => onBaselineChange(i)}
+                className={clsx(
+                  'inline-flex items-center gap-1 rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                  baselineIdx === i
+                    ? `${slot.badgeBgClass} ${slot.badgeTextClass} ring-1 ring-current`
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                )}
+              >
+                <img
+                  src={`/img/clients/${run.config.instance.client}.jpg`}
+                  alt={run.config.instance.client}
+                  className="size-3.5 rounded-full object-cover"
+                />
+                {slot.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <MetricCard
+          label="Tests"
+          clients={clients}
+          baselineIdx={baselineIdx}
+          values={metrics.map((m) => m.testCount)}
+          extra={metrics.map((m) => (
+            <span className="flex items-center justify-end gap-1.5">
+              {m.failedTests > 0 && <span className="text-xs font-medium text-red-600 dark:text-red-400">{m.failedTests} Failed</span>}
+              <span className="text-xs font-medium text-green-600 dark:text-green-400">{m.passedTests} Passed</span>
+            </span>
+          ))}
+        />
+        <MetricCard
+          label="MGas/s"
+          clients={clients}
+          baselineIdx={baselineIdx}
+          values={metrics.map((m) => m.mgasPerSec !== undefined ? m.mgasPerSec.toFixed(2) : '-')}
+          deltas={metrics.map((m, i) => i === baselineIdx ? undefined : (m.mgasPerSec !== undefined && base.mgasPerSec !== undefined ? m.mgasPerSec - base.mgasPerSec : undefined))}
+          percentValues={metrics.map((m) => m.mgasPerSec)}
+          higherIsBetter
+        />
+        <MetricCard
+          label="Total Gas"
+          clients={clients}
+          baselineIdx={baselineIdx}
+          values={metrics.map((m) => formatGas(m.totalGasUsed))}
+        />
+        <MetricCard
+          label="Test Duration"
+          clients={clients}
+          baselineIdx={baselineIdx}
+          values={metrics.map((m) => <Duration nanoseconds={m.totalDuration} />)}
+          deltas={metrics.map((m, i) => i === baselineIdx ? undefined : (m.totalDuration > 0 && base.totalDuration > 0 ? m.totalDuration - base.totalDuration : undefined))}
+          percentValues={metrics.map((m) => m.totalDuration)}
+          higherIsBetter={false}
+          formatDelta={(v) => formatDuration(v)}
+        />
+        <MetricCard
+          label="Total Runtime"
+          clients={clients}
+          baselineIdx={baselineIdx}
+          values={metrics.map((m) => m.totalRuntime !== undefined ? formatDurationSeconds(m.totalRuntime) : '-')}
+          deltas={metrics.map((m, i) => i === baselineIdx ? undefined : (m.totalRuntime !== undefined && base.totalRuntime !== undefined ? m.totalRuntime - base.totalRuntime : undefined))}
+          percentValues={metrics.map((m) => m.totalRuntime)}
+          higherIsBetter={false}
+          formatDelta={(v) => formatDurationSeconds(v)}
+        />
+        <MetricCard
+          label="Calls"
+          clients={clients}
+          baselineIdx={baselineIdx}
+          values={metrics.map((m) => formatNumber(m.totalMsgCount))}
+        />
+      </div>
     </div>
   )
 }

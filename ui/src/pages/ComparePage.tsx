@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
@@ -33,6 +33,7 @@ export function ComparePage() {
     a?: string
     b?: string
     steps?: string
+    baseline?: string
   }
 
   // Backward-compat redirect: ?a=X&b=Y → ?runs=X,Y
@@ -101,6 +102,14 @@ export function ComparePage() {
   const suiteHash = configQueries.find((q) => q.data?.suite_hash)?.data?.suite_hash
   const { data: suite } = useSuite(suiteHash)
   const headerRef = useRef<HTMLDivElement>(null)
+  const baselineIdx = Math.min(Math.max(parseInt(search.baseline ?? '0', 10) || 0, 0), runIds.length - 1)
+  const setBaselineIdx = useCallback((idx: number) => {
+    navigate({
+      to: '/compare',
+      search: { runs: search.runs, steps: search.steps, baseline: idx > 0 ? String(idx) : undefined },
+      replace: true,
+    })
+  }, [navigate, search.runs, search.steps])
 
   // Handle backward-compat redirect in progress
   if (search.a && search.b && !search.runs) {
@@ -180,14 +189,14 @@ export function ComparePage() {
         }} />
       </div>
 
-<MetricsComparison runs={runs} stepFilter={stepFilter} />
+      <MetricsComparison runs={runs} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} />
 
       {allResults && (
         <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
       )}
 
       {allResults && (
-        <PercentageDiffChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} />
+        <PercentageDiffChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} />
       )}
 
       <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} />
