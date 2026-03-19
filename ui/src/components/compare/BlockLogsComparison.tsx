@@ -33,10 +33,13 @@ interface BlockLogDataPoint {
 function buildUnifiedTestList(
   blockLogsPerRun: (BlockLogs | null)[],
   suiteTests?: SuiteTest[],
+  nameFilter?: (name: string) => boolean,
 ): string[] {
   const allNames = new Set<string>()
   for (const bl of blockLogsPerRun) {
-    if (bl) for (const name of Object.keys(bl)) allNames.add(name)
+    if (bl) for (const name of Object.keys(bl)) {
+      if (!nameFilter || nameFilter(name)) allNames.add(name)
+    }
   }
 
   const suiteOrder = new Map<string, number>()
@@ -116,9 +119,10 @@ interface BlockLogsComparisonProps {
   blockLogsLoading: boolean
   suiteTests?: SuiteTest[]
   labelMode: LabelMode
+  testNameFilter?: (name: string) => boolean
 }
 
-export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, suiteTests, labelMode }: BlockLogsComparisonProps) {
+export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, suiteTests, labelMode, testNameFilter }: BlockLogsComparisonProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -131,8 +135,8 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
   }, [])
 
   const unifiedTests = useMemo(
-    () => buildUnifiedTestList(blockLogsPerRun, suiteTests),
-    [blockLogsPerRun, suiteTests],
+    () => buildUnifiedTestList(blockLogsPerRun, suiteTests, testNameFilter),
+    [blockLogsPerRun, suiteTests, testNameFilter],
   )
 
   const pointsPerRun = useMemo(

@@ -14,6 +14,7 @@ interface PercentageDiffChartProps {
   labelMode: LabelMode
   diffFilter: 'all' | 'faster' | 'slower'
   onDiffFilterChange: (val: 'all' | 'faster' | 'slower') => void
+  testNameFilter?: (name: string) => boolean
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -48,6 +49,7 @@ function buildDiffData(
   baselineIdx: number,
   suiteTests: SuiteTest[] | undefined,
   stepFilter: StepTypeOption[],
+  nameFilter?: (name: string) => boolean,
 ): TestDiffPoint[] {
   const suiteOrder = new Map<string, number>()
   if (suiteTests) {
@@ -68,6 +70,7 @@ function buildDiffData(
   const entries: { name: string; order: number; baselineValue: number; diffs: (number | null)[]; values: (number | null)[] }[] = []
 
   for (const name of allTestNames) {
+    if (nameFilter && !nameFilter(name)) continue
     const baseEntry = baselineResult.tests[name]
     const baseStats = baseEntry ? getAggregatedStats(baseEntry, stepFilter) : undefined
     const baseMGas = calculateMGasPerSec(baseStats)
@@ -95,8 +98,8 @@ function buildDiffData(
   }
 
   entries.sort((a, b) => a.order - b.order)
-  return entries.map((e, i) => ({
-    testIndex: i + 1,
+  return entries.map((e) => ({
+    testIndex: e.order,
     testName: e.name,
     baselineValue: e.baselineValue,
     diffs: e.diffs,
@@ -104,7 +107,7 @@ function buildDiffData(
   }))
 }
 
-export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange }: PercentageDiffChartProps) {
+export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange, testNameFilter }: PercentageDiffChartProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -134,15 +137,18 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
   )
 
   const diffData = useMemo(
-    () => buildDiffData(runs, baselineIdx, suiteTests, stepFilter),
-    [runs, baselineIdx, suiteTests, stepFilter],
+    () => buildDiffData(runs, baselineIdx, suiteTests, stepFilter, testNameFilter),
+    [runs, baselineIdx, suiteTests, stepFilter, testNameFilter],
   )
 
   const option = useMemo(() => {
     const textColor = isDark ? '#ffffff' : '#374151'
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
-    const maxLen = Math.max(diffData.length, 1)
+    const allIndices = diffData.map((d) => d.testIndex)
+    const maxLen = allIndices.length
+    const xMin = allIndices.length > 0 ? Math.min(...allIndices) : 1
+    const xMax = allIndices.length > 0 ? Math.max(...allIndices) : 1
 
     return {
       backgroundColor: 'transparent',
@@ -194,8 +200,8 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
       },
       xAxis: {
         type: 'value' as const,
-        min: 1,
-        max: maxLen,
+        min: xMin,
+        max: xMax,
         minInterval: 1,
         axisLabel: {
           color: textColor,

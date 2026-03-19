@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { type CompareRun, type LabelMode, LABEL_MODE_OPTIONS, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface StickyRunBarProps {
   runs: CompareRun[]
   /** Ref to the element that, when scrolled out of view, triggers the sticky bar */
   sentinelRef: React.RefObject<HTMLDivElement | null>
   labelMode: LabelMode
+  onLabelModeChange: (mode: LabelMode) => void
+  testFilter: string
+  testFilterRegex: boolean
+  onTestFilterChange: (query: string) => void
+  onTestFilterRegexChange: (enabled: boolean) => void
 }
 
-export function StickyRunBar({ runs, sentinelRef, labelMode }: StickyRunBarProps) {
+export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, testFilter, testFilterRegex, onTestFilterChange, onTestFilterRegexChange }: StickyRunBarProps) {
   const [visible, setVisible] = useState(false)
   const observerRef = useRef<IntersectionObserver | null>(null)
 
@@ -40,6 +45,51 @@ export function StickyRunBar({ runs, sentinelRef, labelMode }: StickyRunBarProps
             </span>
           )
         })}
+        <div className="flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">
+          <span>Labels:</span>
+          <div className="flex gap-1">
+            {LABEL_MODE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => onLabelModeChange(opt.value)}
+                className={`rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
+                  labelMode === opt.value
+                    ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">
+          <span>Filter:</span>
+          <input
+            type="text"
+            placeholder={testFilterRegex ? 'Regex...' : 'Filter...'}
+            value={testFilter}
+            onChange={(e) => onTestFilterChange(e.target.value)}
+            className={clsx(
+              'w-36 rounded-xs border bg-white px-2 py-0.5 text-xs/5 placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
+              testFilterRegex && testFilter && (() => { try { new RegExp(testFilter); return false } catch { return true } })()
+                ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
+                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
+            )}
+          />
+          <button
+            onClick={() => onTestFilterRegexChange(!testFilterRegex)}
+            title={testFilterRegex ? 'Regex mode' : 'Text mode'}
+            className={clsx(
+              'rounded-xs px-1 py-0.5 font-mono text-xs/5 transition-colors',
+              testFilterRegex
+                ? 'bg-blue-500 text-white'
+                : 'border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+            )}
+          >
+            .*
+          </button>
+        </div>
       </div>
     </div>
   )

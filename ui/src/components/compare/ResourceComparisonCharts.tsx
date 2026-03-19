@@ -76,6 +76,7 @@ function useDarkMode() {
 interface ResourceComparisonChartsProps {
   runs: CompareRun[]
   labelMode: LabelMode
+  testNameFilter?: (name: string) => boolean
 }
 
 interface ResourceDataPoint {
@@ -103,12 +104,14 @@ function formatOps(ops: number): string {
   return `${(ops / 1_000_000).toFixed(1)}M`
 }
 
-function buildDataPoints(tests: Record<string, TestEntry>): ResourceDataPoint[] {
-  const sortedTests = Object.entries(tests).sort(([, a], [, b]) => {
-    const aNum = parseInt(a.dir, 10) || 0
-    const bNum = parseInt(b.dir, 10) || 0
-    return aNum - bNum
-  })
+function buildDataPoints(tests: Record<string, TestEntry>, nameFilter?: (name: string) => boolean): ResourceDataPoint[] {
+  const sortedTests = Object.entries(tests)
+    .filter(([name]) => !nameFilter || nameFilter(name))
+    .sort(([, a], [, b]) => {
+      const aNum = parseInt(a.dir, 10) || 0
+      const bNum = parseInt(b.dir, 10) || 0
+      return aNum - bNum
+    })
 
   const points: ResourceDataPoint[] = []
   sortedTests.forEach(([testName, test], index) => {
@@ -169,7 +172,7 @@ function ChartSection({ title, option, onZoom }: ChartSectionProps) {
   )
 }
 
-export function ResourceComparisonCharts({ runs, labelMode }: ResourceComparisonChartsProps) {
+export function ResourceComparisonCharts({ runs, labelMode, testNameFilter }: ResourceComparisonChartsProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -182,8 +185,8 @@ export function ResourceComparisonCharts({ runs, labelMode }: ResourceComparison
   }, [])
 
   const pointsPerRun = useMemo(
-    () => runs.map((r) => r.result ? buildDataPoints(r.result.tests) : []),
-    [runs],
+    () => runs.map((r) => r.result ? buildDataPoints(r.result.tests, testNameFilter) : []),
+    [runs, testNameFilter],
   )
 
   const hasData = pointsPerRun.some((p) => p.length > 0)

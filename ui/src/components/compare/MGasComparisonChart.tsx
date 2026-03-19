@@ -10,6 +10,7 @@ interface MGasComparisonChartProps {
   suiteTests?: SuiteTest[]
   stepFilter: StepTypeOption[]
   labelMode: LabelMode
+  testNameFilter?: (name: string) => boolean
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -41,6 +42,7 @@ function buildMGasData(
   result: RunResult,
   suiteTests: SuiteTest[] | undefined,
   stepFilter: StepTypeOption[],
+  nameFilter?: (name: string) => boolean,
 ): MGasDataPoint[] {
   const suiteOrder = new Map<string, number>()
   if (suiteTests) {
@@ -49,6 +51,7 @@ function buildMGasData(
 
   const entries: { name: string; order: number; mgas: number }[] = []
   for (const [name, entry] of Object.entries(result.tests)) {
+    if (nameFilter && !nameFilter(name)) continue
     const stats = getAggregatedStats(entry, stepFilter)
     const mgas = calculateMGasPerSec(stats)
     if (mgas === undefined) continue
@@ -57,10 +60,10 @@ function buildMGasData(
   }
 
   entries.sort((a, b) => a.order - b.order)
-  return entries.map((e, i) => ({ testIndex: i + 1, testName: e.name, mgas: e.mgas }))
+  return entries.map((e) => ({ testIndex: e.order, testName: e.name, mgas: e.mgas }))
 }
 
-export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode }: MGasComparisonChartProps) {
+export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, testNameFilter }: MGasComparisonChartProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -84,15 +87,18 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode }:
   const onEvents = useMemo(() => ({ datazoom: handleZoom }), [handleZoom])
 
   const pointsPerRun = useMemo(
-    () => runs.map((r) => r.result ? buildMGasData(r.result, suiteTests, stepFilter) : []),
-    [runs, suiteTests, stepFilter],
+    () => runs.map((r) => r.result ? buildMGasData(r.result, suiteTests, stepFilter, testNameFilter) : []),
+    [runs, suiteTests, stepFilter, testNameFilter],
   )
 
   const option = useMemo(() => {
     const textColor = isDark ? '#ffffff' : '#374151'
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
-    const maxLen = Math.max(...pointsPerRun.map((p) => p.length))
+    const allIndices = pointsPerRun.flatMap((p) => p.map((d) => d.testIndex))
+    const maxLen = allIndices.length
+    const xMin = allIndices.length > 0 ? Math.min(...allIndices) : 1
+    const xMax = allIndices.length > 0 ? Math.max(...allIndices) : 1
     const clientBySeriesName = new Map(runs.map((r, i) => [`Run ${formatRunLabel(RUN_SLOTS[i], r, labelMode)}`, r.config.instance.client]))
 
     return {
@@ -133,8 +139,8 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode }:
       },
       xAxis: {
         type: 'value' as const,
-        min: 1,
-        max: maxLen,
+        min: xMin,
+        max: xMax,
         minInterval: 1,
         axisLabel: {
           color: textColor,
@@ -193,18 +199,14 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode }:
         const points = pointsPerRun[i]
         return {
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
-          type: 'line' as const,
-          smooth: maxLen <= 100,
-          showSymbol: maxLen <= 100,
-          symbolSize: 4,
-          lineStyle: { width: 2 },
+          type: 'bar' as const,
+          barMaxWidth: 6,
           data: points.map((d) => [d.testIndex, d.mgas, d.testName]),
           itemStyle: { color: slot.color },
-          areaStyle: { opacity: 0.08, color: slot.color },
         }
       }),
     }
-  }, [pointsPerRun, runs, isDark, zoomRange, labelMode])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, testNameFilter])
 
   if (pointsPerRun.every((p) => p.length === 0)) return null
 

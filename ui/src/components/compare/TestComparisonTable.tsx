@@ -17,6 +17,7 @@ interface TestComparisonTableProps {
   sortBy: SortColumn
   sortDir: SortDirection
   onSortChange: (column: SortColumn, direction: SortDirection) => void
+  testNameFilter?: (name: string) => boolean
 }
 
 type SortColumn = 'order' | 'name' | 'avgValue' | `run-${number}`
@@ -128,10 +129,8 @@ function SortableHeader({
 
 const PAGE_SIZE = 50
 
-export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun, labelMode, tableBaseline, onTableBaselineChange, sortBy, sortDir, onSortChange }: TestComparisonTableProps) {
+export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun, labelMode, tableBaseline, onTableBaselineChange, sortBy, sortDir, onSortChange, testNameFilter }: TestComparisonTableProps) {
   const [activeTab, setActiveTab] = useState('mgas')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [useRegex, setUseRegex] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
 
   const hasBlockLogs = blockLogsPerRun?.some((bl) => bl !== null) ?? false
@@ -204,18 +203,9 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
   }, [runs, suiteOrder, stepFilter, activeTab, blockLogsPerRun])
 
   const filteredTests = useMemo(() => {
-    if (!searchQuery) return comparedTests
-    if (useRegex) {
-      try {
-        const re = new RegExp(searchQuery, 'i')
-        return comparedTests.filter((t) => re.test(t.name))
-      } catch {
-        return comparedTests
-      }
-    }
-    const q = searchQuery.toLowerCase()
-    return comparedTests.filter((t) => t.name.toLowerCase().includes(q))
-  }, [comparedTests, searchQuery, useRegex])
+    if (!testNameFilter) return comparedTests
+    return comparedTests.filter((t) => testNameFilter(t.name))
+  }, [comparedTests, testNameFilter])
 
   const sortedTests = useMemo(() => {
     const sorted = [...filteredTests]
@@ -267,36 +257,10 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
 
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+      <div className="flex items-center border-b border-gray-200 px-4 py-3 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <Table className="size-4 text-gray-400 dark:text-gray-500" />
           <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Per-Test Comparison ({filteredTests.length})</h3>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <input
-            type="text"
-            placeholder={useRegex ? 'Regex pattern...' : 'Filter tests...'}
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-            className={clsx(
-              'rounded-xs border bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
-              useRegex && searchQuery && (() => { try { new RegExp(searchQuery); return false } catch { return true } })()
-                ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
-                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
-            )}
-          />
-          <button
-            onClick={() => setUseRegex(!useRegex)}
-            title={useRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
-            className={clsx(
-              'rounded-xs px-1.5 py-1 font-mono text-sm/6 transition-colors',
-              useRegex
-                ? 'bg-blue-500 text-white'
-                : 'border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
-            )}
-          >
-            .*
-          </button>
         </div>
       </div>
 
