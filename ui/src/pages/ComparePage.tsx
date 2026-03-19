@@ -232,6 +232,11 @@ export function ComparePage() {
         <CompareHeader runs={runs} labelMode={labelMode} onRemoveRun={(id) => {
           const remaining = runIds.filter((r) => r !== id)
           navigate({ to: '/compare', search: { runs: remaining.join(','), steps: search.steps } })
+        }} onMoveRun={(from, to) => {
+          const reordered = [...runIds]
+          const [moved] = reordered.splice(from, 1)
+          reordered.splice(to, 0, moved)
+          updateSearch({ runs: reordered.join(',') })
         }} />
       </div>
 
