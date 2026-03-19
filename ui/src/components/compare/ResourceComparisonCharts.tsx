@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { Cpu } from 'lucide-react'
-import type { TestEntry, ResourceTotals } from '@/api/types'
+import type { TestEntry, ResourceTotals, SuiteTest } from '@/api/types'
 import { formatBytes } from '@/utils/format'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
@@ -77,10 +77,12 @@ interface ResourceComparisonChartsProps {
   runs: CompareRun[]
   labelMode: LabelMode
   testNameFilter?: (name: string) => boolean
+  suiteTests?: SuiteTest[]
 }
 
 interface ResourceDataPoint {
   testIndex: number
+  testOrder: number
   testName: string
   cpuPercent: number
   memoryMB: number
@@ -104,12 +106,17 @@ function formatOps(ops: number): string {
   return `${(ops / 1_000_000).toFixed(1)}M`
 }
 
-function buildDataPoints(tests: Record<string, TestEntry>, nameFilter?: (name: string) => boolean): ResourceDataPoint[] {
+function buildDataPoints(tests: Record<string, TestEntry>, nameFilter?: (name: string) => boolean, suiteTests?: SuiteTest[]): ResourceDataPoint[] {
+  const suiteOrder = new Map<string, number>()
+  if (suiteTests) {
+    suiteTests.forEach((t, i) => suiteOrder.set(t.name, i + 1))
+  }
+
   const sortedTests = Object.entries(tests)
     .filter(([name]) => !nameFilter || nameFilter(name))
-    .sort(([, a], [, b]) => {
-      const aNum = parseInt(a.dir, 10) || 0
-      const bNum = parseInt(b.dir, 10) || 0
+    .sort(([nameA, a], [nameB, b]) => {
+      const aNum = suiteOrder.get(nameA) ?? (parseInt(a.dir, 10) || 0)
+      const bNum = suiteOrder.get(nameB) ?? (parseInt(b.dir, 10) || 0)
       return aNum - bNum
     })
 
@@ -124,6 +131,7 @@ function buildDataPoints(tests: Record<string, TestEntry>, nameFilter?: (name: s
       }
       points.push({
         testIndex: index + 1,
+        testOrder: suiteOrder.get(testName) ?? (parseInt(test.dir, 10) || (index + 1)),
         testName,
         cpuPercent,
         memoryMB: agg.memoryBytes / (1024 * 1024),
@@ -172,7 +180,7 @@ function ChartSection({ title, option, onZoom }: ChartSectionProps) {
   )
 }
 
-export function ResourceComparisonCharts({ runs, labelMode, testNameFilter }: ResourceComparisonChartsProps) {
+export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suiteTests }: ResourceComparisonChartsProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -185,8 +193,8 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter }: Re
   }, [])
 
   const pointsPerRun = useMemo(
-    () => runs.map((r) => r.result ? buildDataPoints(r.result.tests, testNameFilter) : []),
-    [runs, testNameFilter],
+    () => runs.map((r) => r.result ? buildDataPoints(r.result.tests, testNameFilter, suiteTests) : []),
+    [runs, testNameFilter, suiteTests],
   )
 
   const hasData = pointsPerRun.some((p) => p.length > 0)
@@ -196,6 +204,12 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter }: Re
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
     const maxLen = Math.max(...pointsPerRun.map((p) => p.length))
+    const indexToOrder = new Map<number, number>()
+    for (const points of pointsPerRun) {
+      for (const d of points) {
+        indexToOrder.set(d.testIndex, d.testOrder)
+      }
+    }
 
     const baseConfig = {
       backgroundColor: 'transparent',
@@ -216,7 +230,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter }: Re
         axisLabel: {
           color: textColor,
           fontSize: 11,
-          formatter: (value: number) => `#${value}`,
+          formatter: (value: number) => `#${indexToOrder.get(value) ?? value}`,
         },
         axisLine: { show: true, lineStyle: { color: axisLineColor } },
         axisTick: { show: true, lineStyle: { color: axisLineColor } },
@@ -240,7 +254,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter }: Re
           fillerColor: isDark ? 'rgba(139, 92, 246, 0.3)' : 'rgba(139, 92, 246, 0.1)',
           backgroundColor: isDark ? '#374151' : '#f3f4f6',
           textStyle: { color: textColor },
-          labelFormatter: (value: number) => `#${Math.round(value)}`,
+          labelFormatter: (value: number) => `#${indexToOrder.get(Math.round(value)) ?? Math.round(value)}`,
         },
         {
           type: 'inside' as const,
@@ -282,12 +296,12 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter }: Re
       textStyle: { color: textColor },
       extraCssText: 'max-width: 300px; white-space: normal;',
       formatter: (
-        params: Array<{ seriesName: string; color: string; value: [number, number, string] }>,
+        params: Array<{ seriesName: string; color: string; value: [number, number, string, number] }>,
       ) => {
         if (!params.length) return ''
-        const testIndex = params[0].value[0]
         const testName = params[0].value[2]
-        let content = `<strong>Test #${testIndex}</strong>`
+        const testOrder = params[0].value[3]
+        let content = `<strong>Test #${testOrder}</strong>`
         if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
         content += '<br/>'
         params.forEach((p) => {
@@ -316,7 +330,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter }: Re
         return {
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
           ...createLineSeries(),
-          data: points.map((d) => [d.testIndex, d[field], d.testName]),
+          data: points.map((d) => [d.testIndex, d[field], d.testName, d.testOrder]),
           itemStyle: { color: slot.color },
           areaStyle: { opacity: 0.08, color: slot.color },
         }

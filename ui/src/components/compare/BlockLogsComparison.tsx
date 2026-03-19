@@ -153,6 +153,14 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
     const maxLen = unifiedTests.length
+    const suiteOrder = new Map<string, number>()
+    if (suiteTests) {
+      suiteTests.forEach((t, i) => suiteOrder.set(t.name, i + 1))
+    }
+    const indexToOrder = new Map<number, number>()
+    unifiedTests.forEach((name, i) => {
+      indexToOrder.set(i + 1, suiteOrder.get(name) ?? (i + 1))
+    })
 
     const baseConfig = {
       backgroundColor: 'transparent',
@@ -173,7 +181,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
         axisLabel: {
           color: textColor,
           fontSize: 11,
-          formatter: (value: number) => `#${value}`,
+          formatter: (value: number) => `#${indexToOrder.get(value) ?? value}`,
         },
         axisLine: { show: true, lineStyle: { color: axisLineColor } },
         axisTick: { show: true, lineStyle: { color: axisLineColor } },
@@ -197,7 +205,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
           fillerColor: isDark ? 'rgba(139, 92, 246, 0.3)' : 'rgba(139, 92, 246, 0.1)',
           backgroundColor: isDark ? '#374151' : '#f3f4f6',
           textStyle: { color: textColor },
-          labelFormatter: (value: number) => `#${Math.round(value)}`,
+          labelFormatter: (value: number) => `#${indexToOrder.get(Math.round(value)) ?? Math.round(value)}`,
         },
         {
           type: 'inside' as const,
@@ -234,13 +242,13 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
       textStyle: { color: textColor },
       extraCssText: 'max-width: 300px; white-space: normal;',
       formatter: (
-        params: Array<{ seriesName: string; color: string; value: [number, number | null, string] }>,
+        params: Array<{ seriesName: string; color: string; value: [number, number | null, string, number] }>,
       ) => {
         const visible = params.filter((p) => p.value[1] != null)
         if (!visible.length) return ''
-        const testIndex = visible[0].value[0]
         const testName = visible[0].value[2]
-        let content = `<strong>Test #${testIndex}</strong>`
+        const testOrder = visible[0].value[3]
+        let content = `<strong>Test #${testOrder}</strong>`
         if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
         content += '<br/>'
         visible.forEach((p) => {
@@ -271,7 +279,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
           connectNulls: false,
           data: unifiedTests.map((testName, i) => {
             const d = pointsByIndex.get(i + 1)
-            return [i + 1, d ? d[field] : null, testName]
+            return [i + 1, d ? d[field] : null, testName, indexToOrder.get(i + 1) ?? (i + 1)]
           }),
           itemStyle: { color: slot.color },
           areaStyle: { opacity: 0.08, color: slot.color },
@@ -293,7 +301,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
       storageCacheHitRate: buildChart('storageCacheHitRate', (v) => `${v.toFixed(0)}%`, (v) => `${v.toFixed(1)}%`),
       codeCacheHitRate: buildChart('codeCacheHitRate', (v) => `${v.toFixed(0)}%`, (v) => `${v.toFixed(1)}%`),
     }
-  }, [pointsPerRun, runs, runsWithData, isDark, zoomRange, unifiedTests, labelMode])
+  }, [pointsPerRun, runs, runsWithData, isDark, zoomRange, unifiedTests, labelMode, suiteTests])
 
   if (blockLogsLoading) {
     return (
