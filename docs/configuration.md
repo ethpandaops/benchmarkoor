@@ -525,6 +525,7 @@ runner:
 | `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
 | `post_test_rpc_calls` | []object | - | Arbitrary RPC calls to execute after each test step (see [Post-Test RPC Calls](#post-test-rpc-calls)) |
+| `post_test_sleep_duration` | string | - | Sleep duration after each test, e.g. `200ms`, `1s` (see below) |
 | `bootstrap_fcu` | bool/object | - | Send an `engine_forkchoiceUpdatedV3` after RPC is ready to confirm the client is fully synced (see [Bootstrap FCU](#bootstrap-fcu)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
@@ -704,6 +705,23 @@ The timeout covers only the test execution phase — container setup, image pull
 - When you want to enforce a maximum wall-clock time per instance
 - When running in CI/CD environments with time constraints
 
+##### Post-Test Sleep Duration
+
+The `post_test_sleep_duration` option adds a configurable pause after each test completes (after rollback and post-test RPC calls, but before the next test begins). This is useful for clients that need time to complete internal cleanup between tests.
+
+```yaml
+runner:
+  client:
+    config:
+      post_test_sleep_duration: 200ms
+```
+
+Uses Go duration format (e.g., `200ms`, `1s`, `5s`). Default is `0` (disabled).
+
+**When to use:**
+- When a client needs time for internal cleanup between tests
+- When you observe flaky results due to rapid successive test execution
+
 ##### Retry New Payloads Syncing State
 
 When `engine_newPayload` returns a `SYNCING` status, it indicates the client hasn't fully processed the parent block yet. The `retry_new_payloads_syncing_state` option configures automatic retries with exponential backoff.
@@ -875,6 +893,7 @@ runner:
 | `retry_new_payloads_syncing_state` | object | No | From `runner.client.config` | Instance-specific retry config for SYNCING responses |
 | `resource_limits` | object | No | From `runner.client.config` | Instance-specific resource limits |
 | `post_test_rpc_calls` | []object | No | From `runner.client.config` | Instance-specific post-test RPC calls (replaces global) |
+| `post_test_sleep_duration` | string | No | From `runner.client.config` | Instance-specific post-test sleep duration |
 | `bootstrap_fcu` | bool/object | No | From `runner.client.config` | Instance-specific bootstrap FCU setting |
 
 ## Resource Limits

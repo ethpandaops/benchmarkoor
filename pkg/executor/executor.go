@@ -72,6 +72,7 @@ type ExecuteOptions struct {
 	BlockLogCollector             BlockLogCollector                     // Optional collector for capturing block logs from client.
 	RetryNewPayloadsSyncingConfig *config.RetryNewPayloadsSyncingConfig // Retry config for SYNCING responses.
 	PostTestRPCCalls              []config.PostTestRPCCall              // Arbitrary RPC calls to execute after the test step.
+	PostTestSleepDuration         time.Duration                         // Sleep duration after each test (0 = disabled).
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -534,6 +535,11 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					)
 				}
 			}
+		}
+
+		if opts.PostTestSleepDuration > 0 {
+			log.WithField("duration", opts.PostTestSleepDuration).Debug("Sleeping after test")
+			time.Sleep(opts.PostTestSleepDuration)
 		}
 
 		if testPassed {

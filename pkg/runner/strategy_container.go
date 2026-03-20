@@ -693,6 +693,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			BlockLogCollector:             params.BlockLogCollector,
 			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
 			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
+			PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(params.Instance),
 		}
 
 		result, err := r.executor.ExecuteTests(ctx, execOpts)
