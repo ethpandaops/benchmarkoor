@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { Blocks } from 'lucide-react'
 import type { BlockLogs, SuiteTest } from '@/api/types'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 function useDarkMode() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
@@ -33,10 +33,13 @@ interface BlockLogDataPoint {
 function buildUnifiedTestList(
   blockLogsPerRun: (BlockLogs | null)[],
   suiteTests?: SuiteTest[],
+  nameFilter?: (name: string) => boolean,
 ): string[] {
   const allNames = new Set<string>()
   for (const bl of blockLogsPerRun) {
-    if (bl) for (const name of Object.keys(bl)) allNames.add(name)
+    if (bl) for (const name of Object.keys(bl)) {
+      if (!nameFilter || nameFilter(name)) allNames.add(name)
+    }
   }
 
   const suiteOrder = new Map<string, number>()
@@ -115,9 +118,11 @@ interface BlockLogsComparisonProps {
   blockLogsPerRun: (BlockLogs | null)[]
   blockLogsLoading: boolean
   suiteTests?: SuiteTest[]
+  labelMode: LabelMode
+  testNameFilter?: (name: string) => boolean
 }
 
-export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, suiteTests }: BlockLogsComparisonProps) {
+export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, suiteTests, labelMode, testNameFilter }: BlockLogsComparisonProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -130,8 +135,8 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
   }, [])
 
   const unifiedTests = useMemo(
-    () => buildUnifiedTestList(blockLogsPerRun, suiteTests),
-    [blockLogsPerRun, suiteTests],
+    () => buildUnifiedTestList(blockLogsPerRun, suiteTests, testNameFilter),
+    [blockLogsPerRun, suiteTests, testNameFilter],
   )
 
   const pointsPerRun = useMemo(
@@ -148,6 +153,14 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
     const maxLen = unifiedTests.length
+    const suiteOrder = new Map<string, number>()
+    if (suiteTests) {
+      suiteTests.forEach((t, i) => suiteOrder.set(t.name, i + 1))
+    }
+    const indexToOrder = new Map<number, number>()
+    unifiedTests.forEach((name, i) => {
+      indexToOrder.set(i + 1, suiteOrder.get(name) ?? (i + 1))
+    })
 
     const baseConfig = {
       backgroundColor: 'transparent',
@@ -168,7 +181,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
         axisLabel: {
           color: textColor,
           fontSize: 11,
-          formatter: (value: number) => `#${value}`,
+          formatter: (value: number) => `#${indexToOrder.get(value) ?? value}`,
         },
         axisLine: { show: true, lineStyle: { color: axisLineColor } },
         axisTick: { show: true, lineStyle: { color: axisLineColor } },
@@ -192,7 +205,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
           fillerColor: isDark ? 'rgba(139, 92, 246, 0.3)' : 'rgba(139, 92, 246, 0.1)',
           backgroundColor: isDark ? '#374151' : '#f3f4f6',
           textStyle: { color: textColor },
-          labelFormatter: (value: number) => `#${Math.round(value)}`,
+          labelFormatter: (value: number) => `#${indexToOrder.get(Math.round(value)) ?? Math.round(value)}`,
         },
         {
           type: 'inside' as const,
@@ -229,13 +242,13 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
       textStyle: { color: textColor },
       extraCssText: 'max-width: 300px; white-space: normal;',
       formatter: (
-        params: Array<{ seriesName: string; color: string; value: [number, number | null, string] }>,
+        params: Array<{ seriesName: string; color: string; value: [number, number | null, string, number] }>,
       ) => {
         const visible = params.filter((p) => p.value[1] != null)
         if (!visible.length) return ''
-        const testIndex = visible[0].value[0]
         const testName = visible[0].value[2]
-        let content = `<strong>Test #${testIndex}</strong>`
+        const testOrder = visible[0].value[3]
+        let content = `<strong>Test #${testOrder}</strong>`
         if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
         content += '<br/>'
         visible.forEach((p) => {
@@ -261,12 +274,12 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
         const slot = RUN_SLOTS[run.index]
         const pointsByIndex = new Map(pointsPerRun[run.index].map((d) => [d.testIndex, d]))
         return {
-          name: `Run ${slot.label}`,
+          name: `Run ${formatRunLabel(slot, run, labelMode)}`,
           ...createLineSeries(),
           connectNulls: false,
           data: unifiedTests.map((testName, i) => {
             const d = pointsByIndex.get(i + 1)
-            return [i + 1, d ? d[field] : null, testName]
+            return [i + 1, d ? d[field] : null, testName, indexToOrder.get(i + 1) ?? (i + 1)]
           }),
           itemStyle: { color: slot.color },
           areaStyle: { opacity: 0.08, color: slot.color },
@@ -288,7 +301,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
       storageCacheHitRate: buildChart('storageCacheHitRate', (v) => `${v.toFixed(0)}%`, (v) => `${v.toFixed(1)}%`),
       codeCacheHitRate: buildChart('codeCacheHitRate', (v) => `${v.toFixed(0)}%`, (v) => `${v.toFixed(1)}%`),
     }
-  }, [pointsPerRun, runs, runsWithData, isDark, zoomRange, unifiedTests])
+  }, [pointsPerRun, runs, runsWithData, isDark, zoomRange, unifiedTests, labelMode, suiteTests])
 
   if (blockLogsLoading) {
     return (
@@ -313,7 +326,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
             return (
               <span key={slot.label} className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 font-medium ${slot.badgeBgClass} ${slot.badgeTextClass}`}>
                 <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
-                {slot.label}
+                {formatRunLabel(slot, run, labelMode)}
               </span>
             )
           })}

@@ -1,19 +1,28 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
+import { Table } from 'lucide-react'
 import type { SuiteTest, AggregatedStats, BlockLogs, BlockLogEntry } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { Pagination } from '@/components/shared/Pagination'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface TestComparisonTableProps {
   runs: CompareRun[]
   suiteTests?: SuiteTest[]
   stepFilter: StepTypeOption[]
   blockLogsPerRun?: (BlockLogs | null)[]
+  labelMode: LabelMode
+  tableBaseline: TableBaseline
+  onTableBaselineChange: (val: TableBaseline) => void
+  sortBy: SortColumn
+  sortDir: SortDirection
+  onSortChange: (column: SortColumn, direction: SortDirection) => void
+  testNameFilter?: (name: string) => boolean
 }
 
-type SortColumn = 'order' | 'name' | 'avgValue'
+type SortColumn = 'order' | 'name' | 'avgValue' | `run-${number}`
 type SortDirection = 'asc' | 'desc'
+type TableBaseline = 'best' | 'worst' | number
 
 interface ComparedTest {
   name: string
@@ -31,7 +40,7 @@ interface MetricTab {
 }
 
 const BLOCK_LOG_METRICS: MetricTab[] = [
-  { id: 'bl-throughput', label: 'Throughput', unit: 'MGas/s', higherIsBetter: true, format: (v) => v.toFixed(2) },
+  { id: 'bl-throughput', label: 'Throughput', unit: 'MGas/s', higherIsBetter: true, format: (v) => v >= 100 ? v.toFixed(0) : v.toFixed(2) },
   { id: 'bl-execution', label: 'Execution Time', unit: 'ms', higherIsBetter: false, format: (v) => v.toFixed(2) },
   { id: 'bl-overhead', label: 'Overhead', unit: 'ms', higherIsBetter: false, format: (v) => v.toFixed(2) },
   { id: 'bl-account-cache', label: 'Account Cache HR', unit: '%', higherIsBetter: true, format: (v) => v.toFixed(1) },
@@ -51,12 +60,19 @@ function extractBlockLogMetric(entry: BlockLogEntry, metricId: string): number {
   }
 }
 
-// Returns an RGB color interpolated from yellow (small diff) to red (large diff)
-// based on the percentage deviation from the best value.
-function getDiffColor(diff: number, best: number): string {
-  if (best <= 0) return 'rgb(239, 68, 68)' // red
-  const pct = Math.abs(diff) / best // 0..1+
-  const t = Math.min(pct / 0.5, 1) // clamp: 0% → 0, ≥50% → 1
+// Returns an RGB color based on percentage deviation from reference value.
+// Positive diff (better): green tones. Negative diff (worse): yellow → red.
+function getDiffColor(diff: number, ref: number): string {
+  if (ref <= 0) return 'rgb(239, 68, 68)'
+  const pct = Math.abs(diff) / ref
+  const t = Math.min(pct / 0.5, 1)
+  if (diff >= 0) {
+    // light green (134,239,172) → green (22,163,74)
+    const r = Math.round(134 - t * (134 - 22))
+    const g = Math.round(239 - t * (239 - 163))
+    const b = Math.round(172 - t * (172 - 74))
+    return `rgb(${r}, ${g}, ${b})`
+  }
   // yellow (234,179,8) → red (239,68,68)
   const r = Math.round(234 + t * (239 - 234))
   const g = Math.round(179 - t * (179 - 68))
@@ -113,19 +129,15 @@ function SortableHeader({
 
 const PAGE_SIZE = 50
 
-export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun }: TestComparisonTableProps) {
+export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun, labelMode, tableBaseline, onTableBaselineChange, sortBy, sortDir, onSortChange, testNameFilter }: TestComparisonTableProps) {
   const [activeTab, setActiveTab] = useState('mgas')
-  const [sortBy, setSortBy] = useState<SortColumn>('order')
-  const [sortDir, setSortDir] = useState<SortDirection>('asc')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [useRegex, setUseRegex] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
 
   const hasBlockLogs = blockLogsPerRun?.some((bl) => bl !== null) ?? false
 
   const tabs: MetricTab[] = useMemo(() => {
     const base: MetricTab[] = [
-      { id: 'mgas', label: 'MGas/s', unit: 'MGas/s', higherIsBetter: true, format: (v) => v.toFixed(2) },
+      { id: 'mgas', label: 'MGas/s', unit: 'MGas/s', higherIsBetter: true, format: (v) => v >= 100 ? v.toFixed(0) : v.toFixed(2) },
     ]
     if (hasBlockLogs) {
       return [...base, ...BLOCK_LOG_METRICS]
@@ -191,83 +203,64 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
   }, [runs, suiteOrder, stepFilter, activeTab, blockLogsPerRun])
 
   const filteredTests = useMemo(() => {
-    if (!searchQuery) return comparedTests
-    if (useRegex) {
-      try {
-        const re = new RegExp(searchQuery, 'i')
-        return comparedTests.filter((t) => re.test(t.name))
-      } catch {
-        return comparedTests
-      }
-    }
-    const q = searchQuery.toLowerCase()
-    return comparedTests.filter((t) => t.name.toLowerCase().includes(q))
-  }, [comparedTests, searchQuery, useRegex])
+    if (!testNameFilter) return comparedTests
+    return comparedTests.filter((t) => testNameFilter(t.name))
+  }, [comparedTests, testNameFilter])
 
   const sortedTests = useMemo(() => {
     const sorted = [...filteredTests]
     sorted.sort((a, b) => {
       let cmp = 0
-      switch (sortBy) {
-        case 'order':
-          cmp = a.order - b.order
-          break
-        case 'name':
-          cmp = a.name.localeCompare(b.name)
-          break
-        case 'avgValue':
-          cmp = (a.avgValue ?? 0) - (b.avgValue ?? 0)
-          break
+      if (sortBy.startsWith('run-') && typeof tableBaseline === 'number') {
+        const runIdx = parseInt(sortBy.slice(4), 10)
+        const getPctDiff = (test: ComparedTest) => {
+          const val = test.values[runIdx]
+          const ref = test.values[tableBaseline]
+          if (val === undefined || ref === undefined || ref === 0) return undefined
+          return ((val - ref) / ref) * 100
+        }
+        const aDiff = getPctDiff(a)
+        const bDiff = getPctDiff(b)
+        if (aDiff === undefined && bDiff === undefined) cmp = 0
+        else if (aDiff === undefined) cmp = 1
+        else if (bDiff === undefined) cmp = -1
+        else cmp = aDiff - bDiff
+      } else {
+        switch (sortBy) {
+          case 'order':
+            cmp = a.order - b.order
+            break
+          case 'name':
+            cmp = a.name.localeCompare(b.name)
+            break
+          case 'avgValue':
+            cmp = (a.avgValue ?? 0) - (b.avgValue ?? 0)
+            break
+        }
       }
       return sortDir === 'asc' ? cmp : -cmp
     })
     return sorted
-  }, [filteredTests, sortBy, sortDir])
+  }, [filteredTests, sortBy, sortDir, tableBaseline])
 
   const totalPages = Math.ceil(sortedTests.length / PAGE_SIZE)
   const paginatedTests = sortedTests.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const handleSort = (column: SortColumn) => {
     if (sortBy === column) {
-      setSortDir(sortDir === 'desc' ? 'asc' : 'desc')
+      onSortChange(column, sortDir === 'desc' ? 'asc' : 'desc')
     } else {
-      setSortBy(column)
-      setSortDir('asc')
+      onSortChange(column, 'asc')
     }
     setCurrentPage(1)
   }
 
   return (
     <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-        <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
-          Per-Test Comparison ({filteredTests.length})
-        </h3>
-        <div className="flex items-center gap-1.5">
-          <input
-            type="text"
-            placeholder={useRegex ? 'Regex pattern...' : 'Filter tests...'}
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-            className={clsx(
-              'rounded-xs border bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
-              useRegex && searchQuery && (() => { try { new RegExp(searchQuery); return false } catch { return true } })()
-                ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
-                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
-            )}
-          />
-          <button
-            onClick={() => setUseRegex(!useRegex)}
-            title={useRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
-            className={clsx(
-              'rounded-xs px-1.5 py-1 font-mono text-sm/6 transition-colors',
-              useRegex
-                ? 'bg-blue-500 text-white'
-                : 'border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
-            )}
-          >
-            .*
-          </button>
+      <div className="flex items-center border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+        <div className="flex items-center gap-2">
+          <Table className="size-4 text-gray-400 dark:text-gray-500" />
+          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Per-Test Comparison ({filteredTests.length})</h3>
         </div>
       </div>
 
@@ -291,6 +284,44 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
         </div>
       )}
 
+      <div className="flex items-center gap-1.5 border-b border-gray-200 px-4 py-2 dark:border-gray-700">
+        <span className="text-xs/5 text-gray-500 dark:text-gray-400">Baseline:</span>
+        <div className="flex flex-wrap gap-1">
+          {(['best', 'worst'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => onTableBaselineChange(mode)}
+              className={clsx(
+                'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                tableBaseline === mode
+                  ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+              )}
+            >
+              {mode === 'best' ? (activeMetric.higherIsBetter ? 'Fastest' : 'Lowest') : (activeMetric.higherIsBetter ? 'Slowest' : 'Highest')}
+            </button>
+          ))}
+          {runs.map((run, i) => {
+            const slot = RUN_SLOTS[run.index]
+            return (
+              <button
+                key={slot.label}
+                onClick={() => onTableBaselineChange(i)}
+                className={clsx(
+                  'inline-flex items-center gap-1 rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                  tableBaseline === i
+                    ? `${slot.badgeBgClass} ${slot.badgeTextClass} ring-1 ring-current`
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                )}
+              >
+                <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
+                {formatRunLabel(slot, run, labelMode)}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
@@ -298,13 +329,28 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
               <SortableHeader label="#" column="order" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-12 px-3 py-3" />
               <SortableHeader label="Test Name" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
               <SortableHeader label="Avg" column="avgValue" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
-              {runs.map((run) => {
+              {runs.map((run, i) => {
                 const slot = RUN_SLOTS[run.index]
+                const colId: SortColumn = `run-${i}`
+                const isSortable = typeof tableBaseline === 'number' && i !== tableBaseline
+                const isActive = sortBy === colId
                 return (
-                  <th key={slot.label} className={clsx('px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
-                    <div className="flex flex-col items-end gap-1">
+                  <th
+                    key={slot.label}
+                    onClick={isSortable ? () => handleSort(colId) : undefined}
+                    className={clsx(
+                      'px-4 py-3 text-right text-xs/5 font-medium uppercase tracking-wider',
+                      slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`,
+                      isSortable && 'cursor-pointer select-none',
+                    )}
+                  >
+                    <div className="flex flex-col items-end gap-1" title={formatRunLabel(slot, run, labelMode)}>
                       <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-5 rounded-full object-cover" />
-                      {slot.label} {activeMetric.unit}
+                      <span className="inline-flex items-center">
+                        {slot.label}
+                        {isSortable && <SortIcon direction={isActive ? sortDir : 'asc'} active={isActive} />}
+                      </span>
+                      <span>{activeMetric.unit}</span>
                     </div>
                   </th>
                 )
@@ -314,9 +360,14 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {paginatedTests.map((test) => {
               const defined = test.values.filter((v): v is number => v !== undefined)
-              const bestValue = defined.length > 0
-                ? (activeMetric.higherIsBetter ? Math.max(...defined) : Math.min(...defined))
-                : undefined
+              let refValue: number | undefined
+              if (typeof tableBaseline === 'number') {
+                refValue = test.values[tableBaseline]
+              } else if (defined.length > 0) {
+                refValue = tableBaseline === 'best'
+                  ? (activeMetric.higherIsBetter ? Math.max(...defined) : Math.min(...defined))
+                  : (activeMetric.higherIsBetter ? Math.min(...defined) : Math.max(...defined))
+              }
 
               return (
                 <tr key={test.name} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
@@ -330,18 +381,19 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                     {test.avgValue !== undefined ? activeMetric.format(test.avgValue) : '-'}
                   </td>
                   {test.values.map((val, i) => {
-                    const isBest = val !== undefined && val === bestValue
-                    const diff = val !== undefined && bestValue !== undefined
-                      ? (activeMetric.higherIsBetter ? val - bestValue : bestValue - val)
+                    const isRef = val !== undefined && val === refValue
+                    const diff = val !== undefined && refValue !== undefined
+                      ? (activeMetric.higherIsBetter ? val - refValue : refValue - val)
                       : undefined
                     return (
                       <td key={RUN_SLOTS[i].label} className="whitespace-nowrap px-4 py-2 text-right text-sm/6">
-                        <div className={isBest ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
+                        <div className={isRef ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
                           {val !== undefined ? activeMetric.format(val) : '-'}
                         </div>
-                        {diff !== undefined && !isBest && (
-                          <div className="text-xs/4" style={{ color: getDiffColor(diff, bestValue!) }}>
-                            {activeMetric.higherIsBetter ? diff.toFixed(2) : `+${Math.abs(diff).toFixed(2)}`}
+                        {diff !== undefined && !isRef && refValue! > 0 && (
+                          <div className="text-xs/4" style={{ color: getDiffColor(diff, refValue!) }}>
+                            {diff >= 0 ? '+' : '-'}{activeMetric.format(Math.abs(diff))}
+                            {' '}({diff >= 0 ? '+' : '-'}{((Math.abs(diff) / refValue!) * 100).toFixed(1)}%)
                           </div>
                         )}
                       </td>

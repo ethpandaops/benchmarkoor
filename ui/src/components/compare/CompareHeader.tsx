@@ -1,16 +1,18 @@
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { X } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { RunConfig } from '@/api/types'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { StrategyIcon } from '@/components/shared/StrategyIcon'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { formatTimestamp, formatRelativeTime } from '@/utils/date'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface CompareHeaderProps {
   runs: CompareRun[]
+  labelMode: LabelMode
   onRemoveRun?: (runId: string) => void
+  onMoveRun?: (fromIndex: number, toIndex: number) => void
 }
 
 function RunCard({
@@ -19,24 +21,48 @@ function RunCard({
   label,
   accentClass,
   onRemove,
+  onMoveLeft,
+  onMoveRight,
 }: {
   config: RunConfig
   runId: string
   label: string
   accentClass: string
   onRemove?: () => void
+  onMoveLeft?: () => void
+  onMoveRight?: () => void
 }) {
   return (
     <div className={clsx('relative flex-1 rounded-sm border-t-3 bg-white p-4 shadow-xs dark:bg-gray-800', accentClass)}>
-      {onRemove && (
-        <button
-          onClick={onRemove}
-          className="absolute top-2 right-2 rounded-sm p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300"
-          title="Remove from comparison"
-        >
-          <X className="size-3.5" />
-        </button>
-      )}
+      <div className="absolute top-2 right-2 flex items-center gap-0.5">
+        {onMoveLeft && (
+          <button
+            onClick={onMoveLeft}
+            className="rounded-sm p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+            title="Move left"
+          >
+            <ChevronLeft className="size-3.5" />
+          </button>
+        )}
+        {onMoveRight && (
+          <button
+            onClick={onMoveRight}
+            className="rounded-sm p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+            title="Move right"
+          >
+            <ChevronRight className="size-3.5" />
+          </button>
+        )}
+        {onRemove && (
+          <button
+            onClick={onRemove}
+            className="rounded-sm p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+            title="Remove from comparison"
+          >
+            <X className="size-3.5" />
+          </button>
+        )}
+      </div>
       <div className="mb-2 flex items-center gap-2">
         <span className="text-xs/5 font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
           {label}
@@ -99,19 +125,21 @@ const GRID_COLS: Record<number, string> = {
   5: 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-5',
 }
 
-export function CompareHeader({ runs, onRemoveRun }: CompareHeaderProps) {
+export function CompareHeader({ runs, labelMode, onRemoveRun, onMoveRun }: CompareHeaderProps) {
   return (
     <div className={clsx('grid gap-4', GRID_COLS[runs.length] ?? GRID_COLS[2])}>
-      {runs.map((run) => {
+      {runs.map((run, i) => {
         const slot = RUN_SLOTS[run.index]
         return (
           <RunCard
             key={run.runId}
             config={run.config}
             runId={run.runId}
-            label={`Run ${slot.label}`}
+            label={`Run ${formatRunLabel(slot, run, labelMode)}`}
             accentClass={slot.borderClass}
             onRemove={onRemoveRun && runs.length > 2 ? () => onRemoveRun(run.runId) : undefined}
+            onMoveLeft={onMoveRun && i > 0 ? () => onMoveRun(i, i - 1) : undefined}
+            onMoveRight={onMoveRun && i < runs.length - 1 ? () => onMoveRun(i, i + 1) : undefined}
           />
         )
       })}

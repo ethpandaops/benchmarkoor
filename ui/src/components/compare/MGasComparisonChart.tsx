@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
+import { Flame } from 'lucide-react'
 import type { RunResult, SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
-import { type CompareRun, RUN_SLOTS } from './constants'
+import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface MGasComparisonChartProps {
   runs: CompareRun[]
   suiteTests?: SuiteTest[]
   stepFilter: StepTypeOption[]
+  labelMode: LabelMode
+  testNameFilter?: (name: string) => boolean
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -31,6 +34,7 @@ function useDarkMode() {
 
 interface MGasDataPoint {
   testIndex: number
+  testOrder: number
   testName: string
   mgas: number
 }
@@ -39,6 +43,7 @@ function buildMGasData(
   result: RunResult,
   suiteTests: SuiteTest[] | undefined,
   stepFilter: StepTypeOption[],
+  nameFilter?: (name: string) => boolean,
 ): MGasDataPoint[] {
   const suiteOrder = new Map<string, number>()
   if (suiteTests) {
@@ -47,6 +52,7 @@ function buildMGasData(
 
   const entries: { name: string; order: number; mgas: number }[] = []
   for (const [name, entry] of Object.entries(result.tests)) {
+    if (nameFilter && !nameFilter(name)) continue
     const stats = getAggregatedStats(entry, stepFilter)
     const mgas = calculateMGasPerSec(stats)
     if (mgas === undefined) continue
@@ -55,10 +61,10 @@ function buildMGasData(
   }
 
   entries.sort((a, b) => a.order - b.order)
-  return entries.map((e, i) => ({ testIndex: i + 1, testName: e.name, mgas: e.mgas }))
+  return entries.map((e, i) => ({ testIndex: i + 1, testOrder: e.order, testName: e.name, mgas: e.mgas }))
 }
 
-export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasComparisonChartProps) {
+export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, testNameFilter }: MGasComparisonChartProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -82,8 +88,8 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
   const onEvents = useMemo(() => ({ datazoom: handleZoom }), [handleZoom])
 
   const pointsPerRun = useMemo(
-    () => runs.map((r) => r.result ? buildMGasData(r.result, suiteTests, stepFilter) : []),
-    [runs, suiteTests, stepFilter],
+    () => runs.map((r) => r.result ? buildMGasData(r.result, suiteTests, stepFilter, testNameFilter) : []),
+    [runs, suiteTests, stepFilter, testNameFilter],
   )
 
   const option = useMemo(() => {
@@ -91,7 +97,14 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
     const splitLineColor = isDark ? '#374151' : '#e5e7eb'
     const maxLen = Math.max(...pointsPerRun.map((p) => p.length))
-    const clientBySeriesName = new Map(runs.map((_r, i) => [`Run ${RUN_SLOTS[i].label}`, runs[i].config.instance.client]))
+    // Build a map from sequential index to original test order for axis labels
+    const indexToOrder = new Map<number, number>()
+    for (const points of pointsPerRun) {
+      for (const d of points) {
+        indexToOrder.set(d.testIndex, d.testOrder)
+      }
+    }
+    const clientBySeriesName = new Map(runs.map((r, i) => [`Run ${formatRunLabel(RUN_SLOTS[i], r, labelMode)}`, r.config.instance.client]))
 
     return {
       backgroundColor: 'transparent',
@@ -112,12 +125,12 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
         textStyle: { color: textColor },
         extraCssText: 'max-width: 300px; white-space: normal;',
         formatter: (
-          params: Array<{ seriesName: string; color: string; value: [number, number, string] }>,
+          params: Array<{ seriesName: string; color: string; value: [number, number, string, number] }>,
         ) => {
           if (!params.length) return ''
-          const testIndex = params[0].value[0]
+          const testOrder = params[0].value[3]
           const testName = params[0].value[2]
-          let content = `<strong>Test #${testIndex}</strong>`
+          let content = `<strong>Test #${testOrder}</strong>`
           if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
           content += '<br/>'
           params.forEach((p) => {
@@ -137,7 +150,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
         axisLabel: {
           color: textColor,
           fontSize: 11,
-          formatter: (value: number) => `#${value}`,
+          formatter: (value: number) => `#${indexToOrder.get(value) ?? value}`,
         },
         axisLine: { show: true, lineStyle: { color: axisLineColor } },
         axisTick: { show: true, lineStyle: { color: axisLineColor } },
@@ -174,7 +187,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
           fillerColor: isDark ? 'rgba(139, 92, 246, 0.3)' : 'rgba(139, 92, 246, 0.1)',
           backgroundColor: isDark ? '#374151' : '#f3f4f6',
           textStyle: { color: textColor },
-          labelFormatter: (value: number) => `#${Math.round(value)}`,
+          labelFormatter: (value: number) => `#${indexToOrder.get(Math.round(value)) ?? Math.round(value)}`,
         },
         {
           type: 'inside' as const,
@@ -190,33 +203,36 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter }: MGasCompar
         const slot = RUN_SLOTS[i]
         const points = pointsPerRun[i]
         return {
-          name: `Run ${slot.label}`,
+          name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
           type: 'line' as const,
           smooth: maxLen <= 100,
           showSymbol: maxLen <= 100,
           symbolSize: 4,
           lineStyle: { width: 2 },
-          data: points.map((d) => [d.testIndex, d.mgas, d.testName]),
+          data: points.map((d) => [d.testIndex, d.mgas, d.testName, d.testOrder]),
           itemStyle: { color: slot.color },
           areaStyle: { opacity: 0.08, color: slot.color },
         }
       }),
     }
-  }, [pointsPerRun, runs, isDark, zoomRange])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, testNameFilter])
 
   if (pointsPerRun.every((p) => p.length === 0)) return null
 
   return (
     <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">MGas/s per Test</h3>
+        <div className="flex items-center gap-2">
+          <Flame className="size-4 text-gray-400 dark:text-gray-500" />
+          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">MGas/s per Test</h3>
+        </div>
         <div className="flex items-center gap-2 text-xs/5">
           {runs.map((run) => {
             const slot = RUN_SLOTS[run.index]
             return (
               <span key={slot.label} className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 font-medium ${slot.badgeBgClass} ${slot.badgeTextClass}`}>
                 <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
-                {slot.label}
+                {formatRunLabel(slot, run, labelMode)}
               </span>
             )
           })}

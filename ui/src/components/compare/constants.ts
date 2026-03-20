@@ -85,3 +85,17 @@ export interface CompareRun {
   result: RunResult | null
   index: number
 }
+
+export type LabelMode = 'none' | 'instance-id'
+
+export const LABEL_MODE_OPTIONS: { value: LabelMode; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'instance-id', label: 'Instance ID' },
+]
+
+export function formatRunLabel(slot: RunSlot, run: CompareRun, labelMode: LabelMode): string {
+  if (labelMode === 'instance-id' && run.config.instance.id) {
+    return `${slot.label} (${run.config.instance.id})`
+  }
+  return slot.label
+}
