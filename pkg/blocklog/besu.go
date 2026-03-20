@@ -2,15 +2,21 @@ package blocklog
 
 import (
 	"encoding/json"
+	"regexp"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 )
 
-// besuParser is a stub parser for Besu client logs.
-// Returns nil, false until the log format is known.
+// besuLogPattern matches Besu SlowBlock log lines (after ANSI stripping).
+// Format: <timestamp> | <thread> | WARN  | SlowBlock | {JSON}
+var besuLogPattern = regexp.MustCompile(
+	`^.+\|\s*(?:WARN|INFO)\s*\|\s*SlowBlock\s*\|\s*(\{.+\})\s*$`,
+)
+
+// besuParser parses JSON payloads from Besu client SlowBlock logs.
 type besuParser struct{}
 
-// NewBesuParser creates a new Besu log parser (stub).
+// NewBesuParser creates a new Besu log parser.
 func NewBesuParser() Parser {
 	return &besuParser{}
 }
@@ -18,9 +24,24 @@ func NewBesuParser() Parser {
 // Ensure interface compliance.
 var _ Parser = (*besuParser)(nil)
 
-// ParseLine is a stub that always returns nil, false.
-func (p *besuParser) ParseLine(_ string) (json.RawMessage, bool) {
-	return nil, false
+// ParseLine extracts JSON from a Besu SlowBlock log line.
+func (p *besuParser) ParseLine(line string) (json.RawMessage, bool) {
+	// Strip ANSI escape codes — Besu logs include color/style sequences.
+	line = ansiPattern.ReplaceAllString(line, "")
+
+	matches := besuLogPattern.FindStringSubmatch(line)
+	if len(matches) < 2 {
+		return nil, false
+	}
+
+	jsonStr := matches[1]
+
+	// Validate that it's valid JSON.
+	if !json.Valid([]byte(jsonStr)) {
+		return nil, false
+	}
+
+	return json.RawMessage(jsonStr), true
 }
 
 // ClientType returns the client type.
