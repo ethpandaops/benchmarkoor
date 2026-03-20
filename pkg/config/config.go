@@ -596,6 +596,7 @@ type ClientDefaults struct {
 	WaitAfterRPCReady                string                            `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 	RunTimeout                       string                            `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
 	PostTestRPCCalls                 []PostTestRPCCall                 `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
+	PostTestSleepDuration            string                            `yaml:"post_test_sleep_duration,omitempty" mapstructure:"post_test_sleep_duration"`
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
 }
@@ -620,6 +621,7 @@ type ClientInstance struct {
 	WaitAfterRPCReady                string                            `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 	RunTimeout                       string                            `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
 	PostTestRPCCalls                 []PostTestRPCCall                 `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
+	PostTestSleepDuration            string                            `yaml:"post_test_sleep_duration,omitempty" mapstructure:"post_test_sleep_duration"`
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
 }
@@ -1043,6 +1045,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		return err
 	}
 
+	// Validate post_test_sleep_duration settings.
+	if err := c.validatePostTestSleepDuration(); err != nil {
+		return err
+	}
+
 	// Validate run_timeout settings.
 	if err := c.validateRunTimeout(); err != nil {
 		return err
@@ -1285,6 +1292,29 @@ func (c *Config) GetWaitAfterRPCReady(instance *ClientInstance) time.Duration {
 	}
 
 	d, err := time.ParseDuration(waitStr)
+	if err != nil {
+		return 0
+	}
+
+	return d
+}
+
+// GetPostTestSleepDuration returns the duration to sleep after each test.
+// Instance-level value overrides the global default. Returns 0 if not set.
+func (c *Config) GetPostTestSleepDuration(instance *ClientInstance) time.Duration {
+	var sleepStr string
+
+	if instance.PostTestSleepDuration != "" {
+		sleepStr = instance.PostTestSleepDuration
+	} else {
+		sleepStr = c.Runner.Client.Config.PostTestSleepDuration
+	}
+
+	if sleepStr == "" {
+		return 0
+	}
+
+	d, err := time.ParseDuration(sleepStr)
 	if err != nil {
 		return 0
 	}
@@ -1682,6 +1712,25 @@ func (c *Config) validateWaitAfterRPCReady() error {
 			if _, err := time.ParseDuration(waitStr); err != nil {
 				return fmt.Errorf("instance %q: invalid wait_after_rpc_ready %q: %w",
 					instance.ID, waitStr, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validatePostTestSleepDuration validates post_test_sleep_duration settings.
+func (c *Config) validatePostTestSleepDuration() error {
+	for _, instance := range c.Runner.Instances {
+		sleepStr := instance.PostTestSleepDuration
+		if sleepStr == "" {
+			sleepStr = c.Runner.Client.Config.PostTestSleepDuration
+		}
+
+		if sleepStr != "" {
+			if _, err := time.ParseDuration(sleepStr); err != nil {
+				return fmt.Errorf("instance %q: invalid post_test_sleep_duration %q: %w",
+					instance.ID, sleepStr, err)
 			}
 		}
 	}

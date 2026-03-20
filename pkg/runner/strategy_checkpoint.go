@@ -489,6 +489,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 			BlockLogCollector:             params.BlockLogCollector,
 			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
 			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
+			PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(params.Instance),
 		}
 
 		result, execErr := r.executor.ExecuteTests(ctx, execOpts)

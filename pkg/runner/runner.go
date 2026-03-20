@@ -170,6 +170,7 @@ type ResolvedInstance struct {
 	RetryNewPayloadsSyncingState     *config.RetryNewPayloadsSyncingConfig    `json:"retry_new_payloads_syncing_state,omitempty"`
 	ResourceLimits                   *ResolvedResourceLimits                  `json:"resource_limits,omitempty"`
 	PostTestRPCCalls                 []config.PostTestRPCCall                 `json:"post_test_rpc_calls,omitempty"`
+	PostTestSleepDuration            string                                   `json:"post_test_sleep_duration,omitempty"`
 	BootstrapFCU                     *config.BootstrapFCUConfig               `json:"bootstrap_fcu,omitempty"`
 	CheckpointRestoreStrategyOptions *config.CheckpointRestoreStrategyOptions `json:"checkpoint_restore_strategy_options,omitempty"`
 }
