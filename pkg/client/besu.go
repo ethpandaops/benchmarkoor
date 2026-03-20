@@ -32,7 +32,7 @@ func (s *besuSpec) DefaultCommand() []string {
 		"--rpc-http-enabled=true",
 		"--rpc-http-host=0.0.0.0",
 		"--rpc-http-port=8545",
-		"--rpc-http-api=ETH,NET,CLIQUE,DEBUG,MINER,NET,PERM,ADMIN,TXPOOL,WEB3",
+		"--rpc-http-api=ETH,NET,DEBUG,MINER,NET,PERM,ADMIN,TXPOOL,WEB3",
 		"--rpc-http-cors-origins=*",
 		"--Xhttp-timeout-seconds=660",
 		"--host-allowlist=*",
