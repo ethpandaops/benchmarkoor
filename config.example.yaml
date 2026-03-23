@@ -20,13 +20,6 @@ runner:
   # Uses Go duration format (e.g., "1h", "30m", "2h30m").
   # Can also be set via BENCHMARKOOR_RUNNER_RUN_TIMEOUT environment variable.
   # run_timeout: 4h
-  # Optional: Arbitrary key-value labels attached to this benchmark run.
-  # Labels appear in the run's config.json and can be used for filtering/organization.
-  # Can also be set via CLI: --metadata.label=env=production --metadata.label=team=platform
-  # metadata:
-  #   labels:
-  #     env: production
-  #     team: platform
   # Optional directory configurations.
   # directories:
   #   # Directory for temporary datadir copies (defaults to system temp).
@@ -379,6 +372,14 @@ runner:
       #   # CPU frequency governor (common: performance, powersave, schedutil)
       #   # Defaults to "performance" when cpu_freq is set
       #   cpu_freq_governor: performance
+      # Optional: Default metadata labels for all instances.
+      # Labels appear in each run's config.json and can be used for filtering/organization.
+      # Can also be set via CLI: --metadata.label=env=production --metadata.label=team=platform
+      # Instance-level labels (see instances below) are merged and take precedence.
+      # metadata:
+      #   labels:
+      #     env: production
+      #     team: platform
       # Genesis file URLs per client type
       genesis:
         besu: https://github.com/nethermindeth/gas-benchmarks/raw/refs/heads/main/scripts/genesisfiles/besu/zkevmgenesis.json
@@ -466,6 +467,9 @@ runner:
       #       enabled: true
       #       filename: trace
       # bootstrap_fcu: true  # Instance-level override (optional)
+      # metadata:  # Instance-level labels (optional, merged with client defaults, instance wins)
+      #   labels:
+      #     variant: snap-sync
 
     # Example: running multiple clients
     # - id: nethermind-latest

@@ -79,7 +79,6 @@ type RunnerConfig struct {
 	DropCachesPath     string            `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
 	CPUSysfsPath       string            `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
 	GitHubToken        string            `yaml:"github_token,omitempty" mapstructure:"github_token"`
-	Metadata           MetadataConfig    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 	Benchmark          BenchmarkConfig   `yaml:"benchmark" mapstructure:"benchmark"`
 	Client             ClientConfig      `yaml:"client" mapstructure:"client"`
 	Instances          []ClientInstance  `yaml:"instances" mapstructure:"instances"`
@@ -598,6 +597,7 @@ type ClientDefaults struct {
 	PostTestRPCCalls                 []PostTestRPCCall                 `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
+	Metadata                         MetadataConfig                    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 }
 
 // ClientInstance defines a single client instance to benchmark.
@@ -622,6 +622,7 @@ type ClientInstance struct {
 	PostTestRPCCalls                 []PostTestRPCCall                 `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
+	Metadata                         MetadataConfig                    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 }
 
 // expandEnvWithDefaults is a mapping function for os.Expand that supports
@@ -1426,6 +1427,29 @@ func (c *Config) GetCheckpointRestartContainer(instance *ClientInstance) bool {
 	}
 
 	return opts.RestartContainer
+}
+
+// GetMetadataLabels returns the merged metadata labels for an instance.
+// Client-level metadata labels serve as defaults; instance-level labels
+// override specific keys.
+func (c *Config) GetMetadataLabels(instance *ClientInstance) map[string]string {
+	defaults := c.Runner.Client.Config.Metadata.Labels
+	overrides := instance.Metadata.Labels
+
+	if len(defaults) == 0 && len(overrides) == 0 {
+		return nil
+	}
+
+	merged := make(map[string]string, len(defaults)+len(overrides))
+	for k, v := range defaults {
+		merged[k] = v
+	}
+
+	for k, v := range overrides {
+		merged[k] = v
+	}
+
+	return merged
 }
 
 // ParseByteSize parses a human-readable byte size string into bytes.

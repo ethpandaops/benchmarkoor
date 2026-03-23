@@ -64,11 +64,11 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("invalid metadata label %q: must be key=value", entry)
 		}
 
-		if cfg.Runner.Metadata.Labels == nil {
-			cfg.Runner.Metadata.Labels = make(map[string]string, len(metadataLabels))
+		if cfg.Runner.Client.Config.Metadata.Labels == nil {
+			cfg.Runner.Client.Config.Metadata.Labels = make(map[string]string, len(metadataLabels))
 		}
 
-		cfg.Runner.Metadata.Labels[k] = v
+		cfg.Runner.Client.Config.Metadata.Labels[k] = v
 	}
 
 	// Parse results owner configuration.

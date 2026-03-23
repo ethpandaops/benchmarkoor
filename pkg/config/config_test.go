@@ -1195,14 +1195,14 @@ func TestLoad_MetadataLabels(t *testing.T) {
 	t.Run("parses labels from yaml", func(t *testing.T) {
 		configContent := `
 runner:
-  metadata:
-    labels:
-      env: production
-      team: platform
   client:
     config:
       genesis:
         geth: http://example.com/genesis.json
+      metadata:
+        labels:
+          env: production
+          team: platform
   instances:
     - id: test-instance
       client: geth
@@ -1214,9 +1214,9 @@ runner:
 		cfg, err := Load(configPath)
 		require.NoError(t, err)
 
-		require.Len(t, cfg.Runner.Metadata.Labels, 2)
-		assert.Equal(t, "production", cfg.Runner.Metadata.Labels["env"])
-		assert.Equal(t, "platform", cfg.Runner.Metadata.Labels["team"])
+		require.Len(t, cfg.Runner.Client.Config.Metadata.Labels, 2)
+		assert.Equal(t, "production", cfg.Runner.Client.Config.Metadata.Labels["env"])
+		assert.Equal(t, "platform", cfg.Runner.Client.Config.Metadata.Labels["team"])
 	})
 
 	t.Run("empty metadata produces no errors", func(t *testing.T) {
@@ -1237,18 +1237,18 @@ runner:
 		cfg, err := Load(configPath)
 		require.NoError(t, err)
 
-		assert.Nil(t, cfg.Runner.Metadata.Labels)
+		assert.Nil(t, cfg.Runner.Client.Config.Metadata.Labels)
 	})
 
 	t.Run("empty labels map produces no errors", func(t *testing.T) {
 		configContent := `
 runner:
-  metadata:
-    labels: {}
   client:
     config:
       genesis:
         geth: http://example.com/genesis.json
+      metadata:
+        labels: {}
   instances:
     - id: test-instance
       client: geth
@@ -1260,8 +1260,64 @@ runner:
 		cfg, err := Load(configPath)
 		require.NoError(t, err)
 
-		assert.Empty(t, cfg.Runner.Metadata.Labels)
+		assert.Empty(t, cfg.Runner.Client.Config.Metadata.Labels)
 	})
+}
+
+func TestGetMetadataLabels(t *testing.T) {
+	tests := []struct {
+		name           string
+		clientLabels   map[string]string
+		instanceLabels map[string]string
+		expected       map[string]string
+	}{
+		{
+			name:     "no labels at either level",
+			expected: nil,
+		},
+		{
+			name:         "only client-level labels",
+			clientLabels: map[string]string{"env": "production", "team": "platform"},
+			expected:     map[string]string{"env": "production", "team": "platform"},
+		},
+		{
+			name:           "only instance-level labels",
+			instanceLabels: map[string]string{"variant": "snap-sync"},
+			expected:       map[string]string{"variant": "snap-sync"},
+		},
+		{
+			name:           "both levels no overlap",
+			clientLabels:   map[string]string{"env": "production"},
+			instanceLabels: map[string]string{"variant": "snap-sync"},
+			expected:       map[string]string{"env": "production", "variant": "snap-sync"},
+		},
+		{
+			name:           "instance overrides client on conflict",
+			clientLabels:   map[string]string{"env": "production", "team": "platform"},
+			instanceLabels: map[string]string{"env": "staging"},
+			expected:       map[string]string{"env": "staging", "team": "platform"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							Metadata: MetadataConfig{Labels: tt.clientLabels},
+						},
+					},
+				},
+			}
+			instance := &ClientInstance{
+				Metadata: MetadataConfig{Labels: tt.instanceLabels},
+			}
+
+			result := cfg.GetMetadataLabels(instance)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
 func TestValidateAPIStorage(t *testing.T) {

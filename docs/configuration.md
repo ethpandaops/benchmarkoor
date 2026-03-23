@@ -141,17 +141,30 @@ sudo systemctl start podman.socket
 
 #### Metadata Labels
 
-The `runner.metadata.labels` field attaches arbitrary key-value pairs to a benchmark run. Labels are included in the output `config.json` and can be used for filtering and organization (e.g., in the UI or CI pipelines).
+The `runner.client.config.metadata.labels` field attaches arbitrary key-value pairs to benchmark runs. Labels are included in each run's output `config.json` and can be used for filtering and organization (e.g., in the UI or CI pipelines).
+
+Labels can be set at the client level (defaults for all instances) and overridden per instance. Instance-level labels are merged with client-level labels, with instance values taking precedence on conflict.
 
 ```yaml
 runner:
-  metadata:
-    labels:
-      env: production
-      team: platform
+  client:
+    config:
+      metadata:
+        labels:
+          env: production
+          team: platform
+  instances:
+    - id: geth-latest
+      client: geth
+      metadata:
+        labels:
+          env: staging      # overrides client-level "env"
+          variant: snap-sync  # additional instance-specific label
 ```
 
-Labels can also be set (or overridden) via the CLI flag `--metadata.label`:
+In this example, `geth-latest` runs will have labels `env=staging`, `team=platform`, and `variant=snap-sync`.
+
+Labels can also be set (or overridden) at the client level via the CLI flag `--metadata.label`:
 
 ```bash
 benchmarkoor run --config config.yaml \

@@ -602,9 +602,11 @@ func (r *runner) runContainerLifecycle(
 		},
 	}
 
-	// Attach metadata labels if configured.
-	if r.cfg.FullConfig != nil && len(r.cfg.FullConfig.Runner.Metadata.Labels) > 0 {
-		runConfig.Metadata = &r.cfg.FullConfig.Runner.Metadata
+	// Attach metadata labels if configured (merged: client defaults + instance overrides).
+	if r.cfg.FullConfig != nil {
+		if labels := r.cfg.FullConfig.GetMetadataLabels(instance); len(labels) > 0 {
+			runConfig.Metadata = &config.MetadataConfig{Labels: labels}
+		}
 	}
 
 	if len(params.GenesisGroups) > 0 {
