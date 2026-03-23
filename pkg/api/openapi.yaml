@@ -1474,6 +1474,11 @@ components:
           type: string
         termination_reason:
           type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Run metadata labels (key-value pairs)
         instance:
           type: object
           properties:

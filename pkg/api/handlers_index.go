@@ -68,6 +68,13 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			entry.Tests.Steps = &executor.IndexStepsStats{}
 		}
 
+		if run.MetadataJSON != "" {
+			var m map[string]string
+			if json.Unmarshal([]byte(run.MetadataJSON), &m) == nil {
+				entry.Metadata = m
+			}
+		}
+
 		entries = append(entries, indexEntryWithDP{
 			DiscoveryPath: run.DiscoveryPath,
 			IndexEntry:    entry,

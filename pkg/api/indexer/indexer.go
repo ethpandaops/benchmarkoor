@@ -430,6 +430,15 @@ func (idx *indexer) indexRun(
 		}
 	}
 
+	// Serialize metadata labels to JSON.
+	metadataJSON := ""
+	if len(entry.Metadata) > 0 {
+		b, mErr := json.Marshal(entry.Metadata)
+		if mErr == nil {
+			metadataJSON = string(b)
+		}
+	}
+
 	now := time.Now().UTC()
 
 	run := &indexstore.Run{
@@ -449,6 +458,7 @@ func (idx *indexer) indexRun(
 		TestsPassed:       entry.Tests.TestsPassed,
 		TestsFailed:       entry.Tests.TestsFailed,
 		StepsJSON:         stepsJSON,
+		MetadataJSON:      metadataJSON,
 		IndexedAt:         now,
 	}
 

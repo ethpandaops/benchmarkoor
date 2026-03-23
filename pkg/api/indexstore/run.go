@@ -28,6 +28,9 @@ type Run struct {
 	// Per-step stats serialized as JSON.
 	StepsJSON string `gorm:"type:text"`
 
+	// Run metadata labels serialized as JSON.
+	MetadataJSON string `gorm:"type:text"`
+
 	IndexedAt   time.Time
 	ReindexedAt *time.Time
 }

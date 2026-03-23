@@ -30,6 +30,7 @@ export interface IndexEntry {
   }
   status?: RunStatus
   termination_reason?: string
+  metadata?: Record<string, string>
 }
 
 export interface IndexStepStats {

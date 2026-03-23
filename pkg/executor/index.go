@@ -23,14 +23,15 @@ type Index struct {
 
 // IndexEntry contains summary information for a single benchmark run.
 type IndexEntry struct {
-	RunID             string          `json:"run_id"`
-	Timestamp         int64           `json:"timestamp"`
-	TimestampEnd      int64           `json:"timestamp_end,omitempty"`
-	SuiteHash         string          `json:"suite_hash,omitempty"`
-	Instance          *IndexInstance  `json:"instance"`
-	Tests             *IndexTestStats `json:"tests"`
-	Status            string          `json:"status,omitempty"`
-	TerminationReason string          `json:"termination_reason,omitempty"`
+	RunID             string            `json:"run_id"`
+	Timestamp         int64             `json:"timestamp"`
+	TimestampEnd      int64             `json:"timestamp_end,omitempty"`
+	SuiteHash         string            `json:"suite_hash,omitempty"`
+	Instance          *IndexInstance    `json:"instance"`
+	Tests             *IndexTestStats   `json:"tests"`
+	Status            string            `json:"status,omitempty"`
+	TerminationReason string            `json:"termination_reason,omitempty"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
 }
 
 // IndexInstance contains the client instance information for the index.
@@ -84,6 +85,9 @@ type runConfigJSON struct {
 		Passed int `json:"passed"`
 		Failed int `json:"failed"`
 	} `json:"test_counts,omitempty"`
+	Metadata *struct {
+		Labels map[string]string `json:"labels"`
+	} `json:"metadata,omitempty"`
 }
 
 // GenerateIndex scans the results directory and builds an index from all runs.
@@ -368,7 +372,7 @@ func BuildIndexEntryFromData(
 		testStats.TestsFailed = runConfig.TestCounts.Failed
 	}
 
-	return &IndexEntry{
+	entry := &IndexEntry{
 		RunID:             runID,
 		Timestamp:         runConfig.Timestamp,
 		TimestampEnd:      runConfig.TimestampEnd,
@@ -382,7 +386,13 @@ func BuildIndexEntryFromData(
 			RollbackStrategy: runConfig.Instance.RollbackStrategy,
 		},
 		Tests: testStats,
-	}, nil
+	}
+
+	if runConfig.Metadata != nil && len(runConfig.Metadata.Labels) > 0 {
+		entry.Metadata = runConfig.Metadata.Labels
+	}
+
+	return entry, nil
 }
 
 // WriteIndex writes the index to index.json in the runs subdirectory.
