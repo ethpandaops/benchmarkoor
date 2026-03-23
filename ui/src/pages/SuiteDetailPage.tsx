@@ -19,6 +19,7 @@ import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
+import { parseLabelFilters, serializeLabelFilters, type LabelFilter } from '@/components/runs/labelFilterUtils'
 import { LoadingState, Spinner } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
@@ -88,6 +89,7 @@ export function SuiteDetailPage() {
     chartPassingOnly?: string
     heatmapColor?: ColorNormalization
     steps?: string
+    labels?: string
     hq?: string
     hn?: string
     hr?: string
@@ -101,6 +103,7 @@ export function SuiteDetailPage() {
   const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite', hq, hn, hr, hFs, hStat, hCs, hTh, hRpc, hPs } = search
   const chartPassingOnly = search.chartPassingOnly !== 'false'
   const stepFilter = parseStepFilter(search.steps)
+  const labelFilters = parseLabelFilters(search.labels)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: suiteStats, isLoading: suiteStatsLoading } = useSuiteStats(suiteHash)
   const { data: index } = useIndex()
@@ -242,9 +245,12 @@ export function SuiteDetailPage() {
       if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
       if (status === 'timeout' && e.status !== 'timeout') return false
       if (status === 'cancelled' && e.status !== 'cancelled') return false
+      for (const lf of labelFilters) {
+        if (e.metadata?.[lf.key] !== lf.value) return false
+      }
       return true
     })
-  }, [suiteRunsAll, client, image, status])
+  }, [suiteRunsAll, client, image, status, labelFilters])
 
   const sortedRuns = useMemo(() => sortIndexEntries(filteredRuns, sortBy, sortDir, stepFilter), [filteredRuns, sortBy, sortDir, stepFilter])
   const totalRunsPages = Math.ceil(sortedRuns.length / runsPageSize)
@@ -260,7 +266,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client: newClient, image, status, sortBy, sortDir, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client: newClient, image, status, sortBy, sortDir, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -269,7 +275,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image: newImage, status, sortBy, sortDir, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image: newImage, status, sortBy, sortDir, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -278,7 +284,16 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status: newStatus, sortBy, sortDir, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status: newStatus, sortBy, sortDir, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
+    })
+  }
+
+  const handleLabelFiltersChange = (newFilters: LabelFilter[]) => {
+    setRunsPage(1)
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { tab, client, image, status, sortBy, sortDir, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(newFilters) },
     })
   }
 
@@ -329,7 +344,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy: newSortBy, sortDir: newSortDir, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy: newSortBy, sortDir: newSortDir, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -337,7 +352,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, filesPage: page, q, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage: page, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -345,7 +360,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, filesPage: 1, q: query || undefined, chartMode, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage: 1, q: query || undefined, chartMode, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -353,7 +368,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail: index, opcodeSort, q, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail: index, opcodeSort, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -361,7 +376,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort: sort === 'name' ? undefined : sort, q, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort: sort === 'name' ? undefined : sort, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -371,7 +386,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode: mode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -379,7 +394,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: passingOnly ? undefined : 'false', heatmapColor, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: passingOnly ? undefined : 'false', heatmapColor, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -387,7 +402,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor: mode, steps: serializeStepFilter(stepFilter) },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor: mode, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -467,7 +482,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(steps) },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(steps), labels: serializeLabelFilters(labelFilters) },
     })
   }
 
@@ -784,6 +799,9 @@ export function SuiteDetailPage() {
                     onImageChange={handleImageChange}
                     selectedStatus={status}
                     onStatusChange={handleStatusChange}
+                    entries={suiteRunsAll}
+                    labelFilters={labelFilters}
+                    onLabelFiltersChange={handleLabelFiltersChange}
                   />
                 </div>
                 {filteredRuns.length === 0 ? (

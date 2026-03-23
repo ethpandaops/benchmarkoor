@@ -2,6 +2,9 @@ import { Listbox, ListboxButton, ListboxOption, ListboxOptions } from '@headless
 import clsx from 'clsx'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { StrategyIcon } from '@/components/shared/StrategyIcon'
+import { LabelFilters } from './LabelFilters'
+import type { LabelFilter } from './labelFilterUtils'
+import type { IndexEntry } from '@/api/types'
 
 export type TestStatusFilter = 'all' | 'passing' | 'failing' | 'timeout' | 'cancelled'
 
@@ -20,6 +23,9 @@ interface RunFiltersProps {
   strategies?: string[]
   selectedStrategy?: string | undefined
   onStrategyChange?: (strategy: string | undefined) => void
+  entries?: IndexEntry[]
+  labelFilters?: LabelFilter[]
+  onLabelFiltersChange?: (filters: LabelFilter[]) => void
 }
 
 function ChevronIcon() {
@@ -109,6 +115,9 @@ export function RunFilters({
   strategies,
   selectedStrategy,
   onStrategyChange,
+  entries,
+  labelFilters,
+  onLabelFiltersChange,
 }: RunFiltersProps) {
   const clientOptions = [{ value: '' as const, label: 'All clients' }, ...clients.map((c) => ({ value: c, label: c }))]
   const imageOptions = [{ value: '' as const, label: 'All images' }, ...images.map((i) => ({ value: i, label: i }))]
@@ -123,50 +132,55 @@ export function RunFilters({
   const strategyOptions = strategies ? [{ value: '' as const, label: 'All strategies' }, ...strategies.map((s) => ({ value: s, label: s, icon: <StrategyIcon strategy={s} /> }))] : []
 
   return (
-    <div className="flex flex-wrap items-center gap-4">
-      <FilterDropdown
-        label="Client"
-        value={selectedClient ?? ''}
-        onChange={(v) => onClientChange(v || undefined)}
-        options={clientOptions}
-        allLabel="All clients"
-      />
-      <FilterDropdown
-        label="Image"
-        value={selectedImage ?? ''}
-        onChange={(v) => onImageChange(v || undefined)}
-        options={imageOptions}
-        allLabel="All images"
-        width="w-64"
-      />
-      {suites && onSuiteChange && (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-4">
         <FilterDropdown
-          label="Suite"
-          value={selectedSuite ?? ''}
-          onChange={(v) => onSuiteChange(v || undefined)}
-          options={suiteOptions}
-          allLabel="All suites"
-          width="w-44"
+          label="Client"
+          value={selectedClient ?? ''}
+          onChange={(v) => onClientChange(v || undefined)}
+          options={clientOptions}
+          allLabel="All clients"
         />
-      )}
-      {strategies && strategies.length > 0 && onStrategyChange && (
         <FilterDropdown
-          label="Strategy"
-          value={selectedStrategy ?? ''}
-          onChange={(v) => onStrategyChange(v || undefined)}
-          options={strategyOptions}
-          allLabel="All strategies"
-          width="w-52"
+          label="Image"
+          value={selectedImage ?? ''}
+          onChange={(v) => onImageChange(v || undefined)}
+          options={imageOptions}
+          allLabel="All images"
+          width="w-64"
         />
+        {suites && onSuiteChange && (
+          <FilterDropdown
+            label="Suite"
+            value={selectedSuite ?? ''}
+            onChange={(v) => onSuiteChange(v || undefined)}
+            options={suiteOptions}
+            allLabel="All suites"
+            width="w-44"
+          />
+        )}
+        {strategies && strategies.length > 0 && onStrategyChange && (
+          <FilterDropdown
+            label="Strategy"
+            value={selectedStrategy ?? ''}
+            onChange={(v) => onStrategyChange(v || undefined)}
+            options={strategyOptions}
+            allLabel="All strategies"
+            width="w-52"
+          />
+        )}
+        <FilterDropdown
+          label="Status"
+          value={selectedStatus}
+          onChange={(v) => onStatusChange((v || 'all') as TestStatusFilter)}
+          options={statusOptions}
+          allLabel="All runs"
+          width="w-36"
+        />
+      </div>
+      {entries && labelFilters && onLabelFiltersChange && (
+        <LabelFilters entries={entries} filters={labelFilters} onChange={onLabelFiltersChange} />
       )}
-      <FilterDropdown
-        label="Status"
-        value={selectedStatus}
-        onChange={(v) => onStatusChange((v || 'all') as TestStatusFilter)}
-        options={statusOptions}
-        allLabel="All runs"
-        width="w-36"
-      />
     </div>
   )
 }

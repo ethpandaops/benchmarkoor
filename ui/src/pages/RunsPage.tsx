@@ -10,6 +10,7 @@ import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } f
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
+import { parseLabelFilters, serializeLabelFilters, type LabelFilter } from '@/components/runs/labelFilterUtils'
 import { Pagination } from '@/components/shared/Pagination'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -35,8 +36,10 @@ export function RunsPage() {
     sortBy?: SortColumn
     sortDir?: SortDirection
     steps?: string
+    labels?: string
   }
-  const { page = 1, pageSize = DEFAULT_PAGE_SIZE, client, image, suite, strategy, status = 'all', sortBy = 'timestamp', sortDir = 'desc', steps } = search
+  const { page = 1, pageSize = DEFAULT_PAGE_SIZE, client, image, suite, strategy, status = 'all', sortBy = 'timestamp', sortDir = 'desc', steps, labels } = search
+  const labelFilters = parseLabelFilters(labels)
 
   // Parse step filter from URL
   const parseStepFilter = (stepsParam: string | undefined): IndexStepType[] => {
@@ -111,9 +114,12 @@ export function RunsPage() {
       if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
       if (status === 'timeout' && e.status !== 'timeout') return false
       if (status === 'cancelled' && e.status !== 'cancelled') return false
+      for (const lf of labelFilters) {
+        if (e.metadata?.[lf.key] !== lf.value) return false
+      }
       return true
     })
-  }, [index, client, image, suite, strategy, status])
+  }, [index, client, image, suite, strategy, status, labelFilters])
 
   const sortedEntries = useMemo(() => sortIndexEntries(filteredEntries, sortBy, sortDir, stepFilter), [filteredEntries, sortBy, sortDir, stepFilter])
   const totalPages = Math.ceil(sortedEntries.length / localPageSize)
@@ -121,49 +127,54 @@ export function RunsPage() {
 
   const handlePageChange = (newPage: number) => {
     setLocalPage(newPage)
-    navigate({ to: '/runs', search: { page: newPage, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: newPage, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels } })
   }
 
   const handlePageSizeChange = (newSize: number) => {
     setLocalPageSize(newSize)
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: newSize, client, image, suite, strategy, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: newSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels } })
   }
 
   const handleClientChange = (newClient: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client: newClient, image, suite, strategy, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client: newClient, image, suite, strategy, status, sortBy, sortDir, steps, labels } })
   }
 
   const handleImageChange = (newImage: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image: newImage, suite, strategy, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image: newImage, suite, strategy, status, sortBy, sortDir, steps, labels } })
   }
 
   const handleSuiteChange = (newSuite: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite: newSuite, strategy, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite: newSuite, strategy, status, sortBy, sortDir, steps, labels } })
   }
 
   const handleStrategyChange = (newStrategy: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy: newStrategy, status, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy: newStrategy, status, sortBy, sortDir, steps, labels } })
   }
 
   const handleStatusChange = (newStatus: TestStatusFilter) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status: newStatus, sortBy, sortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status: newStatus, sortBy, sortDir, steps, labels } })
   }
 
   const handleSortChange = (newSortBy: SortColumn, newSortDir: SortDirection) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy: newSortBy, sortDir: newSortDir, steps } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy: newSortBy, sortDir: newSortDir, steps, labels } })
   }
 
   const handleStepFilterChange = (newFilter: IndexStepType[]) => {
     const stepsParam = newFilter.length === ALL_INDEX_STEP_TYPES.length ? undefined : newFilter.join(',')
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps: stepsParam } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps: stepsParam, labels } })
+  }
+
+  const handleLabelFiltersChange = (newFilters: LabelFilter[]) => {
+    setLocalPage(1)
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels: serializeLabelFilters(newFilters) } })
   }
 
   // Compare mode state
@@ -302,6 +313,9 @@ export function RunsPage() {
               onStrategyChange={handleStrategyChange}
               selectedStatus={status}
               onStatusChange={handleStatusChange}
+              entries={index?.entries}
+              labelFilters={labelFilters}
+              onLabelFiltersChange={handleLabelFiltersChange}
             />
           </div>
         </div>
