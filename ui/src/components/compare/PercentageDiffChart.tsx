@@ -3,7 +3,7 @@ import ReactECharts from 'echarts-for-react'
 import { ArrowRightLeft } from 'lucide-react'
 import type { SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
-import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import type { ZoomRange } from './MGasComparisonChart'
 
 interface PercentageDiffChartProps {
@@ -18,6 +18,7 @@ interface PercentageDiffChartProps {
   testNameFilter?: (name: string) => boolean
   zoomRange?: ZoomRange
   onZoomChange?: (range: ZoomRange) => void
+  chartType?: ChartType
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -112,7 +113,7 @@ function buildDiffData(
   }))
 }
 
-export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange, testNameFilter, zoomRange: externalZoom, onZoomChange }: PercentageDiffChartProps) {
+export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line' }: PercentageDiffChartProps) {
   const isDark = useDarkMode()
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
@@ -283,30 +284,40 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
         },
         ...otherRunIndices.map((runIdx, seriesIdx) => {
           const slot = RUN_SLOTS[runIdx]
-          return {
+          const data = diffData.map((d) => {
+            const diff = d.diffs[seriesIdx]
+            const absMGas = d.values[seriesIdx]
+            if (diff === null || absMGas === null) return null
+            if (diffFilter === 'faster' && diff < 0) return null
+            if (diffFilter === 'slower' && diff > 0) return null
+            return {
+              value: [d.testIndex, diff, d.testName, d.baselineValue, absMGas, d.testOrder],
+            }
+          }).filter(Boolean)
+          const base = {
             name: `vs ${formatRunLabel(slot, runs[runIdx], labelMode)}`,
+            data,
+            itemStyle: { color: slot.color },
+          }
+          if (chartType === 'bar') {
+            return { ...base, type: 'bar' as const, barMaxWidth: 6 }
+          }
+          if (chartType === 'dot') {
+            return { ...base, type: 'scatter' as const, symbolSize: 4 }
+          }
+          return {
+            ...base,
             type: 'line' as const,
             smooth: diffData.length <= 100,
             showSymbol: diffData.length <= 100,
             symbolSize: 4,
             lineStyle: { width: 2 },
-            data: diffData.map((d) => {
-              const diff = d.diffs[seriesIdx]
-              const absMGas = d.values[seriesIdx]
-              if (diff === null || absMGas === null) return null
-              if (diffFilter === 'faster' && diff < 0) return null
-              if (diffFilter === 'slower' && diff > 0) return null
-              return {
-                value: [d.testIndex, diff, d.testName, d.baselineValue, absMGas, d.testOrder],
-              }
-            }).filter(Boolean),
-            itemStyle: { color: slot.color },
             areaStyle: { opacity: 0.08, color: slot.color },
           }
         }),
       ],
     }
-  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode, diffFilter])
+  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode, diffFilter, chartType])
 
   if (runs.every((r) => r.result === null)) return null
 

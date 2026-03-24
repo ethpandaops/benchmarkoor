@@ -88,6 +88,14 @@ export interface CompareRun {
 
 export type LabelMode = 'none' | 'instance-id'
 
+export type ChartType = 'line' | 'bar' | 'dot'
+
+export const CHART_TYPE_OPTIONS: { value: ChartType; label: string }[] = [
+  { value: 'line', label: 'Line' },
+  { value: 'bar', label: 'Bar' },
+  { value: 'dot', label: 'Dot' },
+]
+
 export const LABEL_MODE_OPTIONS: { value: LabelMode; label: string }[] = [
   { value: 'none', label: 'None' },
   { value: 'instance-id', label: 'Instance ID' },

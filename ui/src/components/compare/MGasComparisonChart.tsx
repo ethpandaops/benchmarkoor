@@ -3,7 +3,7 @@ import ReactECharts from 'echarts-for-react'
 import { Flame } from 'lucide-react'
 import type { RunResult, SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
-import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 export interface ZoomRange {
   start: number
@@ -18,6 +18,7 @@ interface MGasComparisonChartProps {
   testNameFilter?: (name: string) => boolean
   zoomRange?: ZoomRange
   onZoomChange?: (range: ZoomRange) => void
+  chartType?: ChartType
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -71,7 +72,7 @@ function buildMGasData(
   return entries.map((e, i) => ({ testIndex: i + 1, testOrder: e.order, testName: e.name, mgas: e.mgas }))
 }
 
-export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, testNameFilter, zoomRange: externalZoom, onZoomChange }: MGasComparisonChartProps) {
+export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line' }: MGasComparisonChartProps) {
   const isDark = useDarkMode()
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
@@ -212,20 +213,30 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
       series: runs.map((_run, i) => {
         const slot = RUN_SLOTS[i]
         const points = pointsPerRun[i]
-        return {
+        const data = points.map((d) => [d.testIndex, d.mgas, d.testName, d.testOrder])
+        const base = {
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
+          data,
+          itemStyle: { color: slot.color },
+        }
+        if (chartType === 'bar') {
+          return { ...base, type: 'bar' as const, barMaxWidth: 6 }
+        }
+        if (chartType === 'dot') {
+          return { ...base, type: 'scatter' as const, symbolSize: 4 }
+        }
+        return {
+          ...base,
           type: 'line' as const,
           smooth: maxLen <= 100,
           showSymbol: maxLen <= 100,
           symbolSize: 4,
           lineStyle: { width: 2 },
-          data: points.map((d) => [d.testIndex, d.mgas, d.testName, d.testOrder]),
-          itemStyle: { color: slot.color },
           areaStyle: { opacity: 0.08, color: slot.color },
         }
       }),
     }
-  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, testNameFilter])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType])
 
   if (pointsPerRun.every((p) => p.length === 0)) return null
 
