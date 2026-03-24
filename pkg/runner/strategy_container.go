@@ -102,7 +102,7 @@ func (r *runner) runTestsWithContainerStrategy(
 		}
 
 		// Stop the initial container so writes are flushed to disk.
-		log.Debug("Stopping container for ZFS snapshot")
+		log.Info("Stopping container for ZFS snapshot")
 
 		stopStart := time.Now()
 
@@ -110,7 +110,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			return nil, fmt.Errorf("stopping container for ZFS snapshot: %w", err)
 		}
 
-		log.WithField("duration", time.Since(stopStart)).Debug(
+		log.WithField("duration", time.Since(stopStart)).Info(
 			"Container stopped for ZFS snapshot",
 		)
 
@@ -177,7 +177,7 @@ func (r *runner) runTestsWithContainerStrategy(
 		defer sr.cleanup()
 
 		// Remove the initial container (we'll create fresh ones per test).
-		log.Debug("Removing initial container")
+		log.Info("Removing initial container")
 
 		rmStart := time.Now()
 
@@ -187,7 +187,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			log.WithError(err).Warn("Failed to remove initial container")
 		}
 
-		log.WithField("duration", time.Since(rmStart)).Debug(
+		log.WithField("duration", time.Since(rmStart)).Info(
 			"Initial container removed",
 		)
 	}
@@ -222,7 +222,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			stopCancel()
 
-			log.WithField("duration", time.Since(stopStart)).Debug(
+			log.WithField("duration", time.Since(stopStart)).Info(
 				"Container stopped on cancellation",
 			)
 
@@ -245,7 +245,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			rmCancel()
 
-			log.WithField("duration", time.Since(rmStart)).Debug(
+			log.WithField("duration", time.Since(rmStart)).Info(
 				"Container removed on cancellation",
 			)
 
@@ -270,7 +270,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			if i > 0 {
 				// Force-remove container from previous test (no graceful
 				// stop needed — ZFS rollback discards the datadir anyway).
-				testLog.Debug("Force-removing container before ZFS rollback")
+				testLog.Info("Force-removing container before ZFS rollback")
 
 				rmStart := time.Now()
 
@@ -282,7 +282,7 @@ func (r *runner) runTestsWithContainerStrategy(
 					)
 				}
 
-				testLog.WithField("duration", time.Since(rmStart)).Debug(
+				testLog.WithField("duration", time.Since(rmStart)).Info(
 					"Container removed before ZFS rollback",
 				)
 
@@ -468,7 +468,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			testLog.Info("Recreating container for next test")
 
 			// Stop container first so Docker flushes remaining logs.
-			testLog.Debug("Stopping container for recreate")
+			testLog.Info("Stopping container for recreate")
 
 			stopStart := time.Now()
 
@@ -478,7 +478,7 @@ func (r *runner) runTestsWithContainerStrategy(
 				testLog.WithError(err).Warn("Failed to stop container")
 			}
 
-			testLog.WithField("duration", time.Since(stopStart)).Debug(
+			testLog.WithField("duration", time.Since(stopStart)).Info(
 				"Container stopped for recreate",
 			)
 
@@ -486,7 +486,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
 			// Remove the stopped container.
-			testLog.Debug("Removing stopped container")
+			testLog.Info("Removing stopped container")
 
 			rmStart := time.Now()
 
@@ -496,7 +496,7 @@ func (r *runner) runTestsWithContainerStrategy(
 				testLog.WithError(err).Warn("Failed to remove container")
 			}
 
-			testLog.WithField("duration", time.Since(rmStart)).Debug(
+			testLog.WithField("duration", time.Since(rmStart)).Info(
 				"Container removed for recreate",
 			)
 
@@ -780,7 +780,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			stopCancel()
 
-			log.WithField("duration", time.Since(stopStart)).Debug(
+			log.WithField("duration", time.Since(stopStart)).Info(
 				"Container stopped after death/interruption",
 			)
 

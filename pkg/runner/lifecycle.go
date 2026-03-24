@@ -734,7 +734,7 @@ func (r *runner) runContainerLifecycle(
 
 		stopCancel()
 
-		log.WithField("duration", time.Since(stopStart)).Debug(
+		log.WithField("duration", time.Since(stopStart)).Info(
 			"Container stopped",
 		)
 
@@ -751,7 +751,7 @@ func (r *runner) runContainerLifecycle(
 			log.WithError(rmErr).Warn("Failed to remove container")
 		}
 
-		log.WithField("duration", time.Since(rmStart)).Debug(
+		log.WithField("duration", time.Since(rmStart)).Info(
 			"Container removed",
 		)
 

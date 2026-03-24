@@ -108,7 +108,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 			return nil, fmt.Errorf("stopping container before checkpoint restart: %w", err)
 		}
 
-		log.WithField("duration", time.Since(stopStart)).Debug(
+		log.WithField("duration", time.Since(stopStart)).Info(
 			"Container stopped for checkpoint restart",
 		)
 
@@ -428,7 +428,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		// Restore container from checkpoint.
 		restoreName := fmt.Sprintf("%s-restore-%d", params.ContainerSpec.Name, i)
-		testLog.Debug("Restoring container from checkpoint")
+		testLog.Info("Restoring container from checkpoint")
 
 		restoreStart := time.Now()
 
@@ -442,7 +442,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 			return combined, fmt.Errorf("restoring container for test %d: %w", i, err)
 		}
 
-		testLog.WithField("duration", time.Since(restoreStart)).Debug(
+		testLog.WithField("duration", time.Since(restoreStart)).Info(
 			"Container restored from checkpoint",
 		)
 
@@ -520,7 +520,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 		// Force-remove the container (no graceful stop needed — ZFS
 		// rollback discards the datadir anyway). Use a fresh context
 		// so this succeeds even if the parent was cancelled (CTRL+C).
-		testLog.Debug("Force-removing restored container")
+		testLog.Info("Force-removing restored container")
 
 		rmStart := time.Now()
 		rmCtx, rmCancel := context.WithTimeout(
@@ -537,7 +537,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		rmCancel()
 
-		testLog.WithField("duration", time.Since(rmStart)).Debug(
+		testLog.WithField("duration", time.Since(rmStart)).Info(
 			"Restored container removed",
 		)
 
