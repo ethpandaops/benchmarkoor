@@ -399,12 +399,12 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
               <th className="pb-1 text-right font-medium">Faster</th>
               <th className="pb-1 text-right font-medium">Avg %</th>
               <th className="pb-1 text-right font-medium">P95 %</th>
-              <th className="pb-1 text-right font-medium">P99 %</th>
-              <th className="pb-1 text-right font-medium">Slower</th>
+              <th className="pb-1 pr-3 text-right font-medium">P99 %</th>
+              <th className="border-l border-gray-200 pb-1 pl-3 text-right font-medium dark:border-gray-600">Slower</th>
               <th className="pb-1 text-right font-medium">Avg %</th>
               <th className="pb-1 text-right font-medium">P95 %</th>
-              <th className="pb-1 text-right font-medium">P99 %</th>
-              <th className="pb-1 text-right font-medium">Equal</th>
+              <th className="pb-1 pr-3 text-right font-medium">P99 %</th>
+              <th className="border-l border-gray-200 pb-1 pl-3 text-right font-medium dark:border-gray-600">Equal</th>
               <th className="pb-1 text-right font-medium">Total</th>
             </tr>
           </thead>
@@ -441,12 +441,12 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
                   <td className="py-1 text-right font-medium text-green-600 dark:text-green-400">{fasterPcts.length}</td>
                   <td className="py-1 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${avg(fasterPcts).toFixed(1)}%` : '-'}</td>
                   <td className="py-1 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${percentile(fasterPcts, 95).toFixed(1)}%` : '-'}</td>
-                  <td className="py-1 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${percentile(fasterPcts, 99).toFixed(1)}%` : '-'}</td>
-                  <td className="py-1 text-right font-medium text-red-600 dark:text-red-400">{slowerPcts.length}</td>
+                  <td className="py-1 pr-3 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${percentile(fasterPcts, 99).toFixed(1)}%` : '-'}</td>
+                  <td className="border-l border-gray-200 py-1 pl-3 text-right font-medium text-red-600 dark:border-gray-600 dark:text-red-400">{slowerPcts.length}</td>
                   <td className="py-1 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${avg(slowerPcts).toFixed(1)}%` : '-'}</td>
                   <td className="py-1 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${percentile(slowerPcts, 95).toFixed(1)}%` : '-'}</td>
-                  <td className="py-1 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${percentile(slowerPcts, 99).toFixed(1)}%` : '-'}</td>
-                  <td className="py-1 text-right text-gray-400 dark:text-gray-500">{equal}</td>
+                  <td className="py-1 pr-3 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${percentile(slowerPcts, 99).toFixed(1)}%` : '-'}</td>
+                  <td className="border-l border-gray-200 py-1 pl-3 text-right text-gray-400 dark:border-gray-600 dark:text-gray-500">{equal}</td>
                   <td className="py-1 text-right text-gray-500 dark:text-gray-400">{total}</td>
                 </tr>
               )
