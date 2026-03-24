@@ -731,23 +731,37 @@ func (r *runner) runContainerLifecycle(
 		stopCtx, stopCancel := context.WithTimeout(
 			context.Background(), 30*time.Second,
 		)
+
+		stopStart := time.Now()
+
 		if stopErr := r.containerMgr.StopContainer(
 			stopCtx, containerID,
 		); stopErr != nil {
 			log.WithError(stopErr).Debug("Failed to stop container")
 		}
+
 		stopCancel()
+
+		log.WithField("duration", time.Since(stopStart)).Info(
+			"Container stopped",
+		)
 
 		// Now that the container is stopped, the log-streaming
 		// goroutine should return quickly.
 		waitForLogDrain(&logDone, &logCancel, logDrainTimeout)
 
 		// Remove the stopped container.
+		rmStart := time.Now()
+
 		if rmErr := r.containerMgr.RemoveContainer(
 			context.Background(), containerID,
 		); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove container")
 		}
+
+		log.WithField("duration", time.Since(rmStart)).Info(
+			"Container removed",
+		)
 
 		_ = logFile.Close()
 	})

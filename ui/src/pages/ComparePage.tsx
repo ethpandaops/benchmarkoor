@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
@@ -13,6 +13,7 @@ import { CompareHeader } from '@/components/compare/CompareHeader'
 import { StickyRunBar } from '@/components/compare/StickyRunBar'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
+import { type ChartType, CHART_TYPE_OPTIONS } from '@/components/compare/constants'
 import { PercentageDiffChart } from '@/components/compare/PercentageDiffChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
 import { ResourceComparisonCharts } from '@/components/compare/ResourceComparisonCharts'
@@ -123,6 +124,9 @@ export function ComparePage() {
   const diffFilter = (search.diffFilter === 'faster' || search.diffFilter === 'slower' ? search.diffFilter : 'all') as 'all' | 'faster' | 'slower'
   const testFilter = search.filter ?? ''
   const testFilterRegex = search.filterRegex === '1'
+  const [sharedZoom, setSharedZoom] = useState(true)
+  const [chartZoom, setChartZoom] = useState({ start: 0, end: 100 })
+  const [chartType, setChartType] = useState<ChartType>('line')
 
   const testNameFilter = useMemo(() => {
     if (!testFilter) return undefined
@@ -253,6 +257,37 @@ export function ComparePage() {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
+          <span>Chart:</span>
+          <div className="flex gap-1">
+            {CHART_TYPE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setChartType(opt.value)}
+                className={`rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
+                  chartType === opt.value
+                    ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span>Shared Zoom:</span>
+          <button
+            onClick={() => setSharedZoom(!sharedZoom)}
+            className={`rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
+              sharedZoom
+                ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+            }`}
+          >
+            {sharedZoom ? 'On' : 'Off'}
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5">
           <span>Filter:</span>
           <input
             type="text"
@@ -302,16 +337,16 @@ export function ComparePage() {
       <MetricsComparison runs={runs} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} />
 
       {allResults && (
-        <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} labelMode={labelMode} testNameFilter={testNameFilter} />
+        <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} labelMode={labelMode} testNameFilter={testNameFilter} zoomRange={sharedZoom ? chartZoom : undefined} onZoomChange={sharedZoom ? setChartZoom : undefined} chartType={chartType} />
       )}
 
       {allResults && (
-        <PercentageDiffChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} diffFilter={diffFilter} onDiffFilterChange={setDiffFilter} testNameFilter={testNameFilter} />
+        <PercentageDiffChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} diffFilter={diffFilter} onDiffFilterChange={setDiffFilter} testNameFilter={testNameFilter} zoomRange={sharedZoom ? chartZoom : undefined} onZoomChange={sharedZoom ? setChartZoom : undefined} chartType={chartType} />
       )}
 
       <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} labelMode={labelMode} testNameFilter={testNameFilter} />
 
-      {allResults && <ResourceComparisonCharts runs={runs} labelMode={labelMode} testNameFilter={testNameFilter} suiteTests={suite?.tests} />}
+      {allResults && <ResourceComparisonCharts runs={runs} labelMode={labelMode} testNameFilter={testNameFilter} suiteTests={suite?.tests} zoomRange={sharedZoom ? chartZoom : undefined} onZoomChange={sharedZoom ? setChartZoom : undefined} chartType={chartType} />}
 
       {allResults && (
         <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} blockLogsPerRun={blockLogsPerRun} labelMode={labelMode} tableBaseline={tableBaseline} onTableBaselineChange={setTableBaseline} sortBy={tableSortBy} sortDir={tableSortDir} onSortChange={setTableSort} testNameFilter={testNameFilter} />

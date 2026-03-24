@@ -2,15 +2,21 @@ package blocklog
 
 import (
 	"encoding/json"
+	"regexp"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 )
 
-// nethermindParser is a stub parser for Nethermind client logs.
-// Returns nil, false until the log format is known.
+// nethermindLogPattern matches Nethermind Slow block log lines (after ANSI stripping).
+// Format: <timestamp> | {JSON with "msg":"Slow block"}
+var nethermindLogPattern = regexp.MustCompile(
+	`^\s*\d+\s+\w+\s+\d+:\d+:\d+\s*\|\s*(\{.+\})\s*$`,
+)
+
+// nethermindParser parses JSON payloads from Nethermind client Slow block logs.
 type nethermindParser struct{}
 
-// NewNethermindParser creates a new Nethermind log parser (stub).
+// NewNethermindParser creates a new Nethermind log parser.
 func NewNethermindParser() Parser {
 	return &nethermindParser{}
 }
@@ -18,9 +24,32 @@ func NewNethermindParser() Parser {
 // Ensure interface compliance.
 var _ Parser = (*nethermindParser)(nil)
 
-// ParseLine is a stub that always returns nil, false.
-func (p *nethermindParser) ParseLine(_ string) (json.RawMessage, bool) {
-	return nil, false
+// ParseLine extracts JSON from a Nethermind Slow block log line.
+func (p *nethermindParser) ParseLine(line string) (json.RawMessage, bool) {
+	// Strip ANSI escape codes — Nethermind logs include color/style sequences.
+	line = ansiPattern.ReplaceAllString(line, "")
+
+	matches := nethermindLogPattern.FindStringSubmatch(line)
+	if len(matches) < 2 {
+		return nil, false
+	}
+
+	jsonStr := matches[1]
+
+	// Validate that it's valid JSON and contains the expected "Slow block" message.
+	var probe struct {
+		Msg string `json:"msg"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &probe); err != nil {
+		return nil, false
+	}
+
+	if probe.Msg != "Slow block" {
+		return nil, false
+	}
+
+	return json.RawMessage(jsonStr), true
 }
 
 // ClientType returns the client type.
