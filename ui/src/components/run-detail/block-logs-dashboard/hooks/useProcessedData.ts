@@ -21,28 +21,31 @@ export function useProcessedData(
 
     // Transform raw block logs to processed data
     let data: ProcessedTestData[] = Object.entries(blockLogs).map(([testName, entry]) => {
-      const overheadMs = entry.timing.state_read_ms + entry.timing.state_hash_ms + entry.timing.commit_ms
+      const stateReadMs = entry.timing?.state_read_ms ?? 0
+      const stateHashMs = entry.timing?.state_hash_ms ?? 0
+      const commitMs = entry.timing?.commit_ms ?? 0
+      const overheadMs = stateReadMs + stateHashMs + commitMs
 
       return {
         testName,
         testOrder: executionOrder.get(testName) ?? Infinity,
         category: parseCategory(testName),
-        throughput: entry.throughput.mgas_per_sec,
-        executionMs: entry.timing.execution_ms,
-        totalMs: entry.timing.total_ms,
+        throughput: entry.throughput?.mgas_per_sec ?? 0,
+        executionMs: entry.timing?.execution_ms ?? 0,
+        totalMs: entry.timing?.total_ms ?? 0,
         overheadMs,
-        stateReadMs: entry.timing.state_read_ms,
-        stateHashMs: entry.timing.state_hash_ms,
-        commitMs: entry.timing.commit_ms,
-        accountCacheHitRate: entry.cache.account.hit_rate,
-        storageCacheHitRate: entry.cache.storage.hit_rate,
-        codeCacheHitRate: entry.cache.code.hit_rate,
-        accountCacheHits: entry.cache.account.hits,
-        accountCacheMisses: entry.cache.account.misses,
-        storageCacheHits: entry.cache.storage.hits,
-        storageCacheMisses: entry.cache.storage.misses,
-        codeCacheHits: entry.cache.code.hits,
-        codeCacheMisses: entry.cache.code.misses,
+        stateReadMs,
+        stateHashMs,
+        commitMs,
+        accountCacheHitRate: entry.cache?.account?.hit_rate ?? 0,
+        storageCacheHitRate: entry.cache?.storage?.hit_rate ?? 0,
+        codeCacheHitRate: entry.cache?.code?.hit_rate ?? 0,
+        accountCacheHits: entry.cache?.account?.hits ?? 0,
+        accountCacheMisses: entry.cache?.account?.misses ?? 0,
+        storageCacheHits: entry.cache?.storage?.hits ?? 0,
+        storageCacheMisses: entry.cache?.storage?.misses ?? 0,
+        codeCacheHits: entry.cache?.code?.hits ?? 0,
+        codeCacheMisses: entry.cache?.code?.misses ?? 0,
         gasUsed: entry.block.gas_used,
         txCount: entry.block.tx_count,
         // Normalized values will be calculated after filtering

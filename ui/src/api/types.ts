@@ -491,11 +491,11 @@ export interface BlockLogCache {
 
 export interface BlockLogEntry {
   block: BlockLogBlock
-  timing: BlockLogTiming
-  throughput: BlockLogThroughput
-  state_reads: BlockLogStateReads
-  state_writes: BlockLogStateWrites
-  cache: BlockLogCache
+  timing?: BlockLogTiming
+  throughput?: BlockLogThroughput
+  state_reads?: BlockLogStateReads
+  state_writes?: BlockLogStateWrites
+  cache?: BlockLogCache
 }
 
 export type BlockLogs = Record<string, BlockLogEntry>
