@@ -102,9 +102,15 @@ func (r *runner) runTestsWithCheckpointRestore(
 	if r.cfg.FullConfig.GetCheckpointRestartContainer(params.Instance) {
 		log.Info("Restarting container before checkpoint for clean process state")
 
+		stopStart := time.Now()
+
 		if err := r.containerMgr.StopContainer(ctx, containerID); err != nil {
 			return nil, fmt.Errorf("stopping container before checkpoint restart: %w", err)
 		}
+
+		log.WithField("duration", time.Since(stopStart)).Debug(
+			"Container stopped for checkpoint restart",
+		)
 
 		// Drain logs from the stopped container.
 		waitForLogDrain(logDone, logCancel, logDrainTimeout)
@@ -275,9 +281,17 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 	waitAfterTCPDrop := r.cfg.FullConfig.GetCheckpointWaitAfterTCPDropConns(params.Instance)
 
+	log.Info("Checkpointing container")
+
+	cpStart := time.Now()
+
 	if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath, waitAfterTCPDrop); err != nil {
 		return nil, fmt.Errorf("checkpointing container: %w", err)
 	}
+
+	log.WithField("duration", time.Since(cpStart)).Info(
+		"Container checkpointed",
+	)
 
 	defer func() {
 		_ = os.Remove(exportPath)
@@ -414,6 +428,9 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		// Restore container from checkpoint.
 		restoreName := fmt.Sprintf("%s-restore-%d", params.ContainerSpec.Name, i)
+		testLog.Debug("Restoring container from checkpoint")
+
+		restoreStart := time.Now()
 
 		restoredID, err := cpMgr.RestoreContainer(ctx, exportPath, &podman.RestoreOptions{
 			Name:        restoreName,
@@ -424,6 +441,10 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 			return combined, fmt.Errorf("restoring container for test %d: %w", i, err)
 		}
+
+		testLog.WithField("duration", time.Since(restoreStart)).Debug(
+			"Container restored from checkpoint",
+		)
 
 		// Register cleanup for this iteration.
 		iterID := restoredID
@@ -499,9 +520,13 @@ func (r *runner) runTestsWithCheckpointRestore(
 		// Force-remove the container (no graceful stop needed — ZFS
 		// rollback discards the datadir anyway). Use a fresh context
 		// so this succeeds even if the parent was cancelled (CTRL+C).
+		testLog.Debug("Force-removing restored container")
+
+		rmStart := time.Now()
 		rmCtx, rmCancel := context.WithTimeout(
 			context.Background(), 30*time.Second,
 		)
+
 		if rmErr := r.containerMgr.RemoveContainer(
 			rmCtx, restoredID,
 		); rmErr != nil && !isContainerNotFound(rmErr) {
@@ -509,7 +534,12 @@ func (r *runner) runTestsWithCheckpointRestore(
 				"Failed to remove restored container",
 			)
 		}
+
 		rmCancel()
+
+		testLog.WithField("duration", time.Since(rmStart)).Debug(
+			"Restored container removed",
+		)
 
 		waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
