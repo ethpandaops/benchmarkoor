@@ -239,6 +239,7 @@ export interface InstanceConfig {
   retry_new_payloads_syncing_state?: RetryNewPayloadsSyncingConfig
   resource_limits?: ResourceLimitsConfig
   post_test_rpc_calls?: PostTestRPCCallConfig[]
+  post_test_sleep_duration?: string
   checkpoint_restore_strategy_options?: CheckpointRestoreStrategyOptions
 }
 

@@ -538,7 +538,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		}
 
 		if opts.PostTestSleepDuration > 0 {
-			log.WithField("duration", opts.PostTestSleepDuration).Debug("Sleeping after test")
+			log.WithField("duration", opts.PostTestSleepDuration).Info("Sleeping after test")
 			time.Sleep(opts.PostTestSleepDuration)
 		}
 
