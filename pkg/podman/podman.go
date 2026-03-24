@@ -298,12 +298,15 @@ func (m *manager) StartContainer(ctx context.Context, containerID string) error 
 	return nil
 }
 
-// StopContainer stops a container.
+// StopContainer stops a container with a 30-second graceful shutdown timeout.
 func (m *manager) StopContainer(ctx context.Context, containerID string) error {
 	conn, cancel := m.connWithCtx(ctx)
 	defer cancel()
 
-	if err := containers.Stop(conn, containerID, nil); err != nil {
+	timeout := uint(30)
+	if err := containers.Stop(conn, containerID, &containers.StopOptions{
+		Timeout: &timeout,
+	}); err != nil {
 		return fmt.Errorf("stopping container %s: %w", containerID[:12], err)
 	}
 
