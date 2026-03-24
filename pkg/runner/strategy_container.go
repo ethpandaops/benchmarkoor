@@ -287,6 +287,31 @@ func (r *runner) runTestsWithContainerStrategy(
 				)
 
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+				// Flush dirty pages and drop caches BEFORE rollback.
+				// The killed container's MAP_SHARED mmap writes leave
+				// dirty pages in the page cache. Writing to drop_caches
+				// triggers a sync first, which would write those stale
+				// pages onto the rolled-back dataset — effectively
+				// undoing the rollback for recently-written blocks
+				// (e.g. MDBX meta-pages). By syncing and dropping
+				// caches before the rollback, we ensure no dirty pages
+				// survive to corrupt the post-rollback state.
+				if dropCachesPath != "" {
+					if syncErr := exec.Command("sync").Run(); syncErr != nil {
+						testLog.WithError(syncErr).Warn(
+							"Failed to sync before rollback",
+						)
+					}
+
+					if cacheErr := os.WriteFile(
+						dropCachesPath, []byte("3"), 0,
+					); cacheErr != nil {
+						testLog.WithError(cacheErr).Warn(
+							"Failed to drop page caches before rollback",
+						)
+					}
+				}
 			}
 
 			// Rollback the ZFS dataset to the ready-state snapshot.
