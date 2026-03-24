@@ -69,12 +69,12 @@ function buildBlockLogDataPoints(
     points.push({
       testIndex: index + 1,
       testName,
-      throughput: entry.throughput.mgas_per_sec,
-      executionMs: entry.timing.execution_ms,
-      overheadMs: entry.timing.state_read_ms + entry.timing.state_hash_ms + entry.timing.commit_ms,
-      accountCacheHitRate: entry.cache.account.hit_rate,
-      storageCacheHitRate: entry.cache.storage.hit_rate,
-      codeCacheHitRate: entry.cache.code.hit_rate,
+      throughput: entry.throughput?.mgas_per_sec ?? 0,
+      executionMs: entry.timing?.execution_ms ?? 0,
+      overheadMs: (entry.timing?.state_read_ms ?? 0) + (entry.timing?.state_hash_ms ?? 0) + (entry.timing?.commit_ms ?? 0),
+      accountCacheHitRate: entry.cache?.account?.hit_rate ?? 0,
+      storageCacheHitRate: entry.cache?.storage?.hit_rate ?? 0,
+      codeCacheHitRate: entry.cache?.code?.hit_rate ?? 0,
     })
   })
   return points
