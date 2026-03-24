@@ -4,6 +4,7 @@ import { ArrowRightLeft } from 'lucide-react'
 import type { SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import type { ZoomRange } from './MGasComparisonChart'
 
 interface PercentageDiffChartProps {
   runs: CompareRun[]
@@ -15,6 +16,8 @@ interface PercentageDiffChartProps {
   diffFilter: 'all' | 'faster' | 'slower'
   onDiffFilterChange: (val: 'all' | 'faster' | 'slower') => void
   testNameFilter?: (name: string) => boolean
+  zoomRange?: ZoomRange
+  onZoomChange?: (range: ZoomRange) => void
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -109,9 +112,10 @@ function buildDiffData(
   }))
 }
 
-export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange, testNameFilter }: PercentageDiffChartProps) {
+export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange, testNameFilter, zoomRange: externalZoom, onZoomChange }: PercentageDiffChartProps) {
   const isDark = useDarkMode()
-  const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
+  const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
+  const zoomRange = externalZoom ?? internalZoom
   const prevZoomRef = useRef(zoomRange)
 
   const handleZoom = useCallback((params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
@@ -125,10 +129,12 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
       end = params.end
     }
     if (start !== undefined && end !== undefined && (prevZoomRef.current.start !== start || prevZoomRef.current.end !== end)) {
-      prevZoomRef.current = { start, end }
-      setZoomRange({ start, end })
+      const newRange = { start, end }
+      prevZoomRef.current = newRange
+      setInternalZoom(newRange)
+      onZoomChange?.(newRange)
     }
-  }, [])
+  }, [onZoomChange])
 
   const onEvents = useMemo(() => ({ datazoom: handleZoom }), [handleZoom])
 

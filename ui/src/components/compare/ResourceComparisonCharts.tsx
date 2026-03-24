@@ -4,6 +4,7 @@ import { Cpu } from 'lucide-react'
 import type { TestEntry, ResourceTotals, SuiteTest } from '@/api/types'
 import { formatBytes } from '@/utils/format'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import type { ZoomRange } from './MGasComparisonChart'
 
 interface AggregatedResourceData {
   totals: ResourceTotals
@@ -78,6 +79,8 @@ interface ResourceComparisonChartsProps {
   labelMode: LabelMode
   testNameFilter?: (name: string) => boolean
   suiteTests?: SuiteTest[]
+  zoomRange?: ZoomRange
+  onZoomChange?: (range: ZoomRange) => void
 }
 
 interface ResourceDataPoint {
@@ -180,17 +183,20 @@ function ChartSection({ title, option, onZoom }: ChartSectionProps) {
   )
 }
 
-export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suiteTests }: ResourceComparisonChartsProps) {
+export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suiteTests, zoomRange: externalZoom, onZoomChange }: ResourceComparisonChartsProps) {
   const isDark = useDarkMode()
-  const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
+  const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
+  const zoomRange = externalZoom ?? internalZoom
   const prevZoomRef = useRef(zoomRange)
 
   const handleZoom = useCallback((start: number, end: number) => {
     if (prevZoomRef.current.start !== start || prevZoomRef.current.end !== end) {
-      prevZoomRef.current = { start, end }
-      setZoomRange({ start, end })
+      const newRange = { start, end }
+      prevZoomRef.current = newRange
+      setInternalZoom(newRange)
+      onZoomChange?.(newRange)
     }
-  }, [])
+  }, [onZoomChange])
 
   const pointsPerRun = useMemo(
     () => runs.map((r) => r.result ? buildDataPoints(r.result.tests, testNameFilter, suiteTests) : []),
