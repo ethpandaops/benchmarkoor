@@ -496,23 +496,9 @@ func (r *runner) runTestsWithCheckpointRestore(
 			testLog.WithError(execErr).Error("Test execution failed")
 		}
 
-		// Stop the container first so the attach connection closes,
-		// then remove it. Use a fresh context so this succeeds even
-		// if the parent context was cancelled (e.g., CTRL+C).
-		stopCtx, stopCancel := context.WithTimeout(
-			context.Background(), 30*time.Second,
-		)
-		if stopErr := r.containerMgr.StopContainer(
-			stopCtx, restoredID,
-		); stopErr != nil {
-			testLog.WithError(stopErr).Debug(
-				"Failed to stop restored container",
-			)
-		}
-		stopCancel()
-
-		waitForLogDrain(logDone, logCancel, logDrainTimeout)
-
+		// Force-remove the container (no graceful stop needed — ZFS
+		// rollback discards the datadir anyway). Use a fresh context
+		// so this succeeds even if the parent was cancelled (CTRL+C).
 		rmCtx, rmCancel := context.WithTimeout(
 			context.Background(), 30*time.Second,
 		)
@@ -524,6 +510,8 @@ func (r *runner) runTestsWithCheckpointRestore(
 			)
 		}
 		rmCancel()
+
+		waitForLogDrain(logDone, logCancel, logDrainTimeout)
 
 		// Aggregate results.
 		if result != nil {
