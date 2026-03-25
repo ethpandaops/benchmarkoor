@@ -9,6 +9,7 @@ import { useSuite } from '@/api/hooks/useSuite'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
+import { FilterInput } from '@/components/shared/FilterInput'
 import { CompareHeader } from '@/components/compare/CompareHeader'
 import { StickyRunBar } from '@/components/compare/StickyRunBar'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
@@ -289,11 +290,10 @@ export function ComparePage() {
         </div>
         <div className="flex items-center gap-1.5">
           <span>Filter:</span>
-          <input
-            type="text"
+          <FilterInput
             placeholder={testFilterRegex ? 'Regex pattern...' : 'Filter tests...'}
             value={testFilter}
-            onChange={(e) => setTestFilter(e.target.value)}
+            onValueChange={setTestFilter}
             className={clsx(
               'rounded-xs border bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
               testFilterRegex && testFilter && (() => { try { new RegExp(testFilter); return false } catch { return true } })()

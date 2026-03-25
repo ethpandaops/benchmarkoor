@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { type CompareRun, type LabelMode, LABEL_MODE_OPTIONS, RUN_SLOTS, formatRunLabel } from './constants'
+import { FilterInput } from '@/components/shared/FilterInput'
 
 interface StickyRunBarProps {
   runs: CompareRun[]
@@ -65,11 +66,10 @@ export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, 
         </div>
         <div className="flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">
           <span>Filter:</span>
-          <input
-            type="text"
+          <FilterInput
             placeholder={testFilterRegex ? 'Regex...' : 'Filter...'}
             value={testFilter}
-            onChange={(e) => onTestFilterChange(e.target.value)}
+            onValueChange={onTestFilterChange}
             className={clsx(
               'w-36 rounded-xs border bg-white px-2 py-0.5 text-xs/5 placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
               testFilterRegex && testFilter && (() => { try { new RegExp(testFilter); return false } catch { return true } })()

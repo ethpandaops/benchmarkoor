@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { TabPanel } from '@headlessui/react'
 import { Blocks, CircleHelp, X, Maximize2 } from 'lucide-react'
 import type { BlockLogs, SuiteTest } from '@/api/types'
+import { FilterInput } from '@/components/shared/FilterInput'
 import { useDashboardState } from './hooks/useDashboardState'
 import { useProcessedData } from './hooks/useProcessedData'
 import { DashboardFilters } from './components/DashboardFilters'
@@ -102,11 +103,10 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
       </div>
       <div className="flex items-center gap-2">
         {onSearchChange && (
-          <input
-            type="text"
+          <FilterInput
             placeholder="Filter tests..."
             value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
+            onValueChange={onSearchChange}
             className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
           />
         )}
