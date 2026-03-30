@@ -251,7 +251,7 @@ export function SuitesPage() {
     labels?: string
   }
   const { page = 1, sortBy = 'lastRun', sortDir = 'desc' } = search
-  const groupByKeys = useMemo(() => parseGroupBy(search.groupBy), [search.groupBy])
+  const groupByKeys = useMemo(() => parseGroupBy(search.groupBy ?? 'context'), [search.groupBy])
   const labelFilters = useMemo(() => parseLabelFilters(search.labels), [search.labels])
   const { data: index, isLoading, error, refetch } = useIndex()
   const [currentPage, setCurrentPage] = useState(page)
