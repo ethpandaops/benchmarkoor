@@ -87,9 +87,9 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
           <span className="text-xs/4 text-gray-400 dark:text-gray-500">{formatTimestampTime(suite.lastRun)}</span>
         </span>
       </td>
-      <td className="whitespace-nowrap px-3 py-2 sm:px-4 sm:py-2.5">
+      <td className="px-3 py-2 sm:px-4 sm:py-2.5">
         <div className="flex items-center gap-2">
-          <JDenticon value={suite.hash} size={24} className="shrink-0 rounded-xs" />
+          <JDenticon value={suite.hash} size={24} className="shrink-0 self-start rounded-xs" />
           <div className="flex flex-col">
             <Link
               to="/suites/$suiteHash"
@@ -101,6 +101,21 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
             </Link>
             {suiteInfo?.metadata?.labels?.name && (
               <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{suite.hash}</span>
+            )}
+            {suiteInfo?.metadata?.labels && Object.keys(suiteInfo.metadata.labels).some((k) => k !== 'name') && (
+              <div className="flex flex-wrap gap-1">
+                {Object.entries(suiteInfo.metadata.labels)
+                  .filter(([key]) => key !== 'name')
+                  .map(([key, value]) => (
+                    <span
+                      key={key}
+                      className="inline-flex items-center gap-1 rounded-xs bg-gray-100 px-1.5 py-0.5 text-xs/4 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                    >
+                      <span className="font-medium text-gray-500 dark:text-gray-500">{key}:</span>
+                      {value}
+                    </span>
+                  ))}
+              </div>
             )}
           </div>
         </div>
@@ -169,7 +184,15 @@ export function SuitesTable({
 
   return (
     <div className="overflow-x-auto rounded-xs bg-white shadow-xs dark:bg-gray-800">
-      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+      <table className="min-w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
+        <colgroup>
+          <col className="w-28" />      {/* Last Run */}
+          <col />                        {/* Suite (takes remaining space) */}
+          <col className="w-32" />       {/* Source */}
+          <col className="w-28" />       {/* Pre-Run Steps */}
+          <col className="w-32" />       {/* Filter */}
+          <col className="w-24" />       {/* Runs */}
+        </colgroup>
         <thead className="bg-gray-50 dark:bg-gray-900">
           <tr>
             <SortableHeader label="Last Run" column="lastRun" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
