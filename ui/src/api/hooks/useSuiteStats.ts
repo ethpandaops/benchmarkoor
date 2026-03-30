@@ -11,7 +11,7 @@ export function useSuiteStats(suiteHash: string | undefined) {
 
       if (isIndexingEnabled(config) && config.api?.baseUrl) {
         const response = await fetch(
-          `${config.api.baseUrl}/api/v1/index/suites/${suiteHash}/stats`,
+          `${config.api.baseUrl}/api/v1/index/suites/${suiteHash}/stats?max_runs_per_client=25`,
           { credentials: 'include' },
         )
 

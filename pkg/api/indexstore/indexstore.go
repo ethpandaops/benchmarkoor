@@ -36,6 +36,9 @@ type Store interface {
 	ListTestStatsBySuite(
 		ctx context.Context, suiteHash string,
 	) ([]TestStat, error)
+	ListTestStatsBySuiteRecent(
+		ctx context.Context, suiteHash string, maxRunsPerClient int,
+	) ([]TestStat, error)
 	DeleteTestStatsForRun(ctx context.Context, runID string) error
 
 	ListAllRuns(ctx context.Context) ([]Run, error)
@@ -464,6 +467,78 @@ func (s *store) ListTestStatsBySuite(
 		Where("suite_hash = ?", suiteHash).
 		Find(&stats).Error; err != nil {
 		return nil, fmt.Errorf("listing test stats: %w", err)
+	}
+
+	return stats, nil
+}
+
+// clientRunRow holds the lightweight result of the distinct client/run_id
+// query used by ListTestStatsBySuiteRecent.
+type clientRunRow struct {
+	Client   string
+	RunID    string
+	RunStart int64
+}
+
+// ListTestStatsBySuiteRecent returns test stats for the N most recent runs
+// per client within a suite. This avoids fetching the entire suite history
+// which can be millions of rows for large suites.
+func (s *store) ListTestStatsBySuiteRecent(
+	ctx context.Context, suiteHash string, maxRunsPerClient int,
+) ([]TestStat, error) {
+	// Step 1: lightweight query to get distinct client/run combos.
+	var rows []clientRunRow
+	if err := s.readDB.WithContext(ctx).
+		Model(&TestStat{}).
+		Select("DISTINCT client, run_id, run_start").
+		Where("suite_hash = ?", suiteHash).
+		Order("run_start DESC").
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf(
+			"listing recent client runs: %w", err,
+		)
+	}
+
+	// Step 2: group by client, take top N run_ids per client.
+	clientRuns := make(map[string]int, 8)
+	runIDs := make([]string, 0, maxRunsPerClient*4)
+
+	for i := range rows {
+		client := rows[i].Client
+		if clientRuns[client] >= maxRunsPerClient {
+			continue
+		}
+
+		clientRuns[client]++
+
+		runIDs = append(runIDs, rows[i].RunID)
+	}
+
+	if len(runIDs) == 0 {
+		return nil, nil
+	}
+
+	// Step 3: fetch full test_stats for the selected run_ids.
+	// Batch the IN clause to stay within SQLite's bind variable limit.
+	const batchSize = 500
+
+	stats := make([]TestStat, 0, len(runIDs)*100)
+
+	for i := 0; i < len(runIDs); i += batchSize {
+		end := min(i+batchSize, len(runIDs))
+		batch := runIDs[i:end]
+
+		var batchStats []TestStat
+		if err := s.readDB.WithContext(ctx).
+			Where("suite_hash = ? AND run_id IN ?",
+				suiteHash, batch).
+			Find(&batchStats).Error; err != nil {
+			return nil, fmt.Errorf(
+				"listing test stats for recent runs: %w", err,
+			)
+		}
+
+		stats = append(stats, batchStats...)
 	}
 
 	return stats, nil
