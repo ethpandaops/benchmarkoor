@@ -151,8 +151,8 @@ function SuiteRow({ suite, isInactive, hidden }: { suite: SuiteEntry; isInactive
           <span className="text-gray-400 dark:text-gray-500">-</span>
         )}
       </td>
-      <td className="whitespace-nowrap px-3 py-2 sm:px-4 sm:py-2.5">
-        <Badge variant="info">{suite.runCount} runs</Badge>
+      <td className="whitespace-nowrap px-3 py-2 text-right sm:px-4 sm:py-2.5">
+        <Badge variant="info">{suite.runCount}</Badge>
       </td>
     </tr>
   )
