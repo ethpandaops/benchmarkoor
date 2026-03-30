@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -96,8 +97,18 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	durations, err := s.indexStore.ListTestStatsBySuite(
-		r.Context(), suiteHash,
+	// Parse max_runs_per_client: default 30, clamp to [1, 200].
+	maxRuns := 30
+	if v := r.URL.Query().Get("max_runs_per_client"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			maxRuns = n
+		}
+	}
+
+	maxRuns = max(1, min(200, maxRuns))
+
+	durations, err := s.indexStore.ListTestStatsBySuiteRecent(
+		r.Context(), suiteHash, maxRuns,
 	)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError,

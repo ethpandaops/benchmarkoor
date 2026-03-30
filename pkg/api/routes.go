@@ -16,6 +16,7 @@ func (s *server) buildRouter() http.Handler {
 	r.Use(chimw.Recoverer)
 	r.Use(s.requestLogger)
 	r.Use(s.corsMiddleware())
+	r.Use(chimw.Compress(5))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public endpoints.
