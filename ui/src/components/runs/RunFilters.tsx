@@ -69,7 +69,7 @@ function FilterDropdown<T extends string>({
               <ChevronIcon />
             </span>
           </ListboxButton>
-          <ListboxOptions className="absolute z-10 mt-1 max-h-60 w-full min-w-max overflow-auto rounded-sm bg-white py-1 text-base shadow-sm ring-1 ring-black/5 focus:outline-hidden dark:bg-gray-800 dark:ring-gray-700">
+          <ListboxOptions className="absolute z-50 mt-1 max-h-60 w-full min-w-max overflow-auto rounded-sm bg-white py-1 text-base shadow-sm ring-1 ring-black/5 focus:outline-hidden dark:bg-gray-800 dark:ring-gray-700">
             {options.map((option) => (
               <ListboxOption
                 key={option.value}
