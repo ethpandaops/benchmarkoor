@@ -587,6 +587,14 @@ func (r *runner) runContainerLifecycle(
 				}
 				return nil
 			}(),
+			PostTestSleepDuration: func() string {
+				if r.cfg.FullConfig != nil {
+					if d := r.cfg.FullConfig.GetPostTestSleepDuration(instance); d > 0 {
+						return d.String()
+					}
+				}
+				return ""
+			}(),
 			BootstrapFCU: func() *config.BootstrapFCUConfig {
 				if r.cfg.FullConfig != nil {
 					return r.cfg.FullConfig.GetBootstrapFCU(instance)
@@ -725,23 +733,37 @@ func (r *runner) runContainerLifecycle(
 		stopCtx, stopCancel := context.WithTimeout(
 			context.Background(), 30*time.Second,
 		)
+
+		stopStart := time.Now()
+
 		if stopErr := r.containerMgr.StopContainer(
 			stopCtx, containerID,
 		); stopErr != nil {
 			log.WithError(stopErr).Debug("Failed to stop container")
 		}
+
 		stopCancel()
+
+		log.WithField("duration", time.Since(stopStart)).Info(
+			"Container stopped",
+		)
 
 		// Now that the container is stopped, the log-streaming
 		// goroutine should return quickly.
 		waitForLogDrain(&logDone, &logCancel, logDrainTimeout)
 
 		// Remove the stopped container.
+		rmStart := time.Now()
+
 		if rmErr := r.containerMgr.RemoveContainer(
 			context.Background(), containerID,
 		); rmErr != nil {
 			log.WithError(rmErr).Warn("Failed to remove container")
 		}
+
+		log.WithField("duration", time.Since(rmStart)).Info(
+			"Container removed",
+		)
 
 		_ = logFile.Close()
 	})
@@ -1026,6 +1048,7 @@ func (r *runner) runContainerLifecycle(
 				BlockLogCollector:             params.BlockLogCollector,
 				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
 				PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(instance),
+				PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(instance),
 			}
 
 			result, execErr = r.executor.ExecuteTests(execCtx, execOpts)

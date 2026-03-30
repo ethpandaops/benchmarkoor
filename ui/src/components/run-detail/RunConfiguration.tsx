@@ -380,6 +380,23 @@ export function RunConfiguration({ instance, system, startBlock, metadata }: Run
                 </div>
               )}
 
+              {instance.post_test_sleep_duration && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Post-Test Sleep Duration</dt>
+                  <dd className="mt-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                        {instance.post_test_sleep_duration}
+                      </span>
+                      <CopyButton text={instance.post_test_sleep_duration} />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Sleep duration after each test, allowing clients time for internal cleanup.
+                    </p>
+                  </dd>
+                </div>
+              )}
+
               {instance.genesis && (
                 <div>
                   <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Genesis</dt>

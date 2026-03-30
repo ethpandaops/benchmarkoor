@@ -3,7 +3,8 @@ import ReactECharts from 'echarts-for-react'
 import { ArrowRightLeft } from 'lucide-react'
 import type { SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
-import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import type { ZoomRange } from './MGasComparisonChart'
 
 interface PercentageDiffChartProps {
   runs: CompareRun[]
@@ -15,6 +16,9 @@ interface PercentageDiffChartProps {
   diffFilter: 'all' | 'faster' | 'slower'
   onDiffFilterChange: (val: 'all' | 'faster' | 'slower') => void
   testNameFilter?: (name: string) => boolean
+  zoomRange?: ZoomRange
+  onZoomChange?: (range: ZoomRange) => void
+  chartType?: ChartType
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -109,9 +113,10 @@ function buildDiffData(
   }))
 }
 
-export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange, testNameFilter }: PercentageDiffChartProps) {
+export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line' }: PercentageDiffChartProps) {
   const isDark = useDarkMode()
-  const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
+  const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
+  const zoomRange = externalZoom ?? internalZoom
   const prevZoomRef = useRef(zoomRange)
 
   const handleZoom = useCallback((params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
@@ -125,10 +130,12 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
       end = params.end
     }
     if (start !== undefined && end !== undefined && (prevZoomRef.current.start !== start || prevZoomRef.current.end !== end)) {
-      prevZoomRef.current = { start, end }
-      setZoomRange({ start, end })
+      const newRange = { start, end }
+      prevZoomRef.current = newRange
+      setInternalZoom(newRange)
+      onZoomChange?.(newRange)
     }
-  }, [])
+  }, [onZoomChange])
 
   const onEvents = useMemo(() => ({ datazoom: handleZoom }), [handleZoom])
 
@@ -277,30 +284,40 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
         },
         ...otherRunIndices.map((runIdx, seriesIdx) => {
           const slot = RUN_SLOTS[runIdx]
-          return {
+          const data = diffData.map((d) => {
+            const diff = d.diffs[seriesIdx]
+            const absMGas = d.values[seriesIdx]
+            if (diff === null || absMGas === null) return null
+            if (diffFilter === 'faster' && diff < 0) return null
+            if (diffFilter === 'slower' && diff > 0) return null
+            return {
+              value: [d.testIndex, diff, d.testName, d.baselineValue, absMGas, d.testOrder],
+            }
+          }).filter(Boolean)
+          const base = {
             name: `vs ${formatRunLabel(slot, runs[runIdx], labelMode)}`,
+            data,
+            itemStyle: { color: slot.color },
+          }
+          if (chartType === 'bar') {
+            return { ...base, type: 'bar' as const, barMaxWidth: 6 }
+          }
+          if (chartType === 'dot') {
+            return { ...base, type: 'scatter' as const, symbolSize: 4 }
+          }
+          return {
+            ...base,
             type: 'line' as const,
             smooth: diffData.length <= 100,
             showSymbol: diffData.length <= 100,
             symbolSize: 4,
             lineStyle: { width: 2 },
-            data: diffData.map((d) => {
-              const diff = d.diffs[seriesIdx]
-              const absMGas = d.values[seriesIdx]
-              if (diff === null || absMGas === null) return null
-              if (diffFilter === 'faster' && diff < 0) return null
-              if (diffFilter === 'slower' && diff > 0) return null
-              return {
-                value: [d.testIndex, diff, d.testName, d.baselineValue, absMGas, d.testOrder],
-              }
-            }).filter(Boolean),
-            itemStyle: { color: slot.color },
             areaStyle: { opacity: 0.08, color: slot.color },
           }
         }),
       ],
     }
-  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode, diffFilter])
+  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode, diffFilter, chartType])
 
   if (runs.every((r) => r.result === null)) return null
 
@@ -393,12 +410,12 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
               <th className="pb-1 text-right font-medium">Faster</th>
               <th className="pb-1 text-right font-medium">Avg %</th>
               <th className="pb-1 text-right font-medium">P95 %</th>
-              <th className="pb-1 text-right font-medium">P99 %</th>
-              <th className="pb-1 text-right font-medium">Slower</th>
+              <th className="pb-1 pr-3 text-right font-medium">P99 %</th>
+              <th className="border-l border-gray-200 pb-1 pl-3 text-right font-medium dark:border-gray-600">Slower</th>
               <th className="pb-1 text-right font-medium">Avg %</th>
               <th className="pb-1 text-right font-medium">P95 %</th>
-              <th className="pb-1 text-right font-medium">P99 %</th>
-              <th className="pb-1 text-right font-medium">Equal</th>
+              <th className="pb-1 pr-3 text-right font-medium">P99 %</th>
+              <th className="border-l border-gray-200 pb-1 pl-3 text-right font-medium dark:border-gray-600">Equal</th>
               <th className="pb-1 text-right font-medium">Total</th>
             </tr>
           </thead>
@@ -435,12 +452,12 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
                   <td className="py-1 text-right font-medium text-green-600 dark:text-green-400">{fasterPcts.length}</td>
                   <td className="py-1 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${avg(fasterPcts).toFixed(1)}%` : '-'}</td>
                   <td className="py-1 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${percentile(fasterPcts, 95).toFixed(1)}%` : '-'}</td>
-                  <td className="py-1 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${percentile(fasterPcts, 99).toFixed(1)}%` : '-'}</td>
-                  <td className="py-1 text-right font-medium text-red-600 dark:text-red-400">{slowerPcts.length}</td>
+                  <td className="py-1 pr-3 text-right text-green-600 dark:text-green-400">{fasterPcts.length > 0 ? `+${percentile(fasterPcts, 99).toFixed(1)}%` : '-'}</td>
+                  <td className="border-l border-gray-200 py-1 pl-3 text-right font-medium text-red-600 dark:border-gray-600 dark:text-red-400">{slowerPcts.length}</td>
                   <td className="py-1 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${avg(slowerPcts).toFixed(1)}%` : '-'}</td>
                   <td className="py-1 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${percentile(slowerPcts, 95).toFixed(1)}%` : '-'}</td>
-                  <td className="py-1 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${percentile(slowerPcts, 99).toFixed(1)}%` : '-'}</td>
-                  <td className="py-1 text-right text-gray-400 dark:text-gray-500">{equal}</td>
+                  <td className="py-1 pr-3 text-right text-red-600 dark:text-red-400">{slowerPcts.length > 0 ? `-${percentile(slowerPcts, 99).toFixed(1)}%` : '-'}</td>
+                  <td className="border-l border-gray-200 py-1 pl-3 text-right text-gray-400 dark:border-gray-600 dark:text-gray-500">{equal}</td>
                   <td className="py-1 text-right text-gray-500 dark:text-gray-400">{total}</td>
                 </tr>
               )

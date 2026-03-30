@@ -58,6 +58,17 @@ function formatGas(gas: number): string {
   return gas.toString()
 }
 
+/** Format a number with toFixed, returning "N/A" when the value is undefined. */
+function fmt(v: number | undefined, decimals: number): string {
+  return v != null ? v.toFixed(decimals) : 'N/A'
+}
+
+/** Calculate percentage, returning 0 when the denominator is missing or zero. */
+function pct(value: number | undefined, total: number | undefined): number {
+  if (value == null || total == null || total === 0) return 0
+  return (value / total) * 100
+}
+
 interface BlockLogDetailsProps {
   blockLog: BlockLogEntry
 }
@@ -68,127 +79,140 @@ export function BlockLogDetails({ blockLog }: BlockLogDetailsProps) {
   const textColor = isDark ? '#e5e7eb' : '#374151'
   const subTextColor = isDark ? '#9ca3af' : '#6b7280'
 
+  const { timing, throughput, state_reads, state_writes, cache } = blockLog
+  const hasTiming = timing != null && timing.total_ms != null
+  const hasOverhead = hasTiming && timing.state_read_ms != null && timing.state_hash_ms != null && timing.commit_ms != null
+  const hasCache = cache != null && cache.account != null && cache.storage != null && cache.code != null
+  const hasStateOps = state_reads != null && state_writes != null
+
   // Calculate overhead time (non-execution time)
-  const overheadMs = blockLog.timing.state_read_ms + blockLog.timing.state_hash_ms + blockLog.timing.commit_ms
-  const executionPct = (blockLog.timing.execution_ms / blockLog.timing.total_ms) * 100
-  const overheadPct = (overheadMs / blockLog.timing.total_ms) * 100
+  const overheadMs = hasOverhead ? timing.state_read_ms + timing.state_hash_ms + timing.commit_ms : undefined
+  const executionPct = hasTiming && timing.execution_ms != null ? pct(timing.execution_ms, timing.total_ms) : 0
+  const overheadPct = pct(overheadMs, timing?.total_ms)
 
   // Timing breakdown bar chart options
-  const timingBarOption = useMemo(() => ({
-    tooltip: {
-      trigger: 'item',
-      appendToBody: true,
-      backgroundColor: isDark ? '#1f2937' : '#ffffff',
-      borderColor: isDark ? '#374151' : '#e5e7eb',
-      textStyle: { color: textColor },
-      formatter: (params: { seriesName: string; value: number }) => {
-        const pct = ((params.value / blockLog.timing.total_ms) * 100).toFixed(1)
-        return `${params.seriesName}: ${params.value.toFixed(2)}ms (${pct}%)`
-      },
-    },
-    grid: {
-      left: 0,
-      right: 0,
-      top: 0,
-      bottom: 0,
-      containLabel: false,
-    },
-    xAxis: {
-      type: 'value' as const,
-      max: blockLog.timing.total_ms,
-      show: false,
-    },
-    yAxis: {
-      type: 'category' as const,
-      data: [''],
-      show: false,
-    },
-    series: [
-      {
-        name: 'Execution',
-        type: 'bar',
-        stack: 'total',
-        barWidth: '100%',
-        data: [blockLog.timing.execution_ms],
-        itemStyle: { color: COLORS.green },
-        emphasis: { itemStyle: { color: COLORS.green } },
-      },
-      {
-        name: 'State Read',
-        type: 'bar',
-        stack: 'total',
-        data: [blockLog.timing.state_read_ms],
-        itemStyle: { color: COLORS.blue },
-        emphasis: { itemStyle: { color: COLORS.blue } },
-      },
-      {
-        name: 'State Hash',
-        type: 'bar',
-        stack: 'total',
-        data: [blockLog.timing.state_hash_ms],
-        itemStyle: { color: COLORS.orange },
-        emphasis: { itemStyle: { color: COLORS.orange } },
-      },
-      {
-        name: 'Commit',
-        type: 'bar',
-        stack: 'total',
-        data: [blockLog.timing.commit_ms],
-        itemStyle: { color: COLORS.purple },
-        emphasis: { itemStyle: { color: COLORS.purple } },
-      },
-    ],
-  }), [blockLog.timing, isDark, textColor])
-
-  // Overhead pie chart options
-  const overheadPieOption = useMemo(() => ({
-    tooltip: {
-      trigger: 'item',
-      backgroundColor: isDark ? '#1f2937' : '#ffffff',
-      borderColor: isDark ? '#374151' : '#e5e7eb',
-      textStyle: { color: textColor },
-      formatter: (params: { name: string; value: number; percent: number }) => {
-        return `${params.name}: ${params.value.toFixed(2)}ms (${params.percent.toFixed(1)}%)`
-      },
-    },
-    legend: {
-      orient: 'vertical' as const,
-      right: 0,
-      top: 'center',
-      textStyle: { color: textColor, fontSize: 11 },
-      itemWidth: 12,
-      itemHeight: 8,
-    },
-    series: [
-      {
-        type: 'pie',
-        radius: ['50%', '70%'],
-        center: ['35%', '50%'],
-        avoidLabelOverlap: false,
-        label: { show: false },
-        labelLine: { show: false },
-        data: [
-          { name: 'State Read', value: blockLog.timing.state_read_ms, itemStyle: { color: COLORS.blue } },
-          { name: 'State Hash', value: blockLog.timing.state_hash_ms, itemStyle: { color: COLORS.orange } },
-          { name: 'Commit', value: blockLog.timing.commit_ms, itemStyle: { color: COLORS.purple } },
-        ].filter(d => d.value > 0),
-        emphasis: {
-          itemStyle: {
-            shadowBlur: 10,
-            shadowOffsetX: 0,
-            shadowColor: 'rgba(0, 0, 0, 0.5)',
-          },
+  const timingBarOption = useMemo(() => {
+    if (!hasTiming) return null
+    return {
+      tooltip: {
+        trigger: 'item',
+        appendToBody: true,
+        backgroundColor: isDark ? '#1f2937' : '#ffffff',
+        borderColor: isDark ? '#374151' : '#e5e7eb',
+        textStyle: { color: textColor },
+        formatter: (params: { seriesName: string; value: number }) => {
+          const p = pct(params.value, timing.total_ms)
+          return `${params.seriesName}: ${params.value.toFixed(2)}ms (${p.toFixed(1)}%)`
         },
       },
-    ],
-  }), [blockLog.timing, isDark, textColor])
+      grid: {
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        containLabel: false,
+      },
+      xAxis: {
+        type: 'value' as const,
+        max: timing.total_ms,
+        show: false,
+      },
+      yAxis: {
+        type: 'category' as const,
+        data: [''],
+        show: false,
+      },
+      series: [
+        timing.execution_ms != null && {
+          name: 'Execution',
+          type: 'bar',
+          stack: 'total',
+          barWidth: '100%',
+          data: [timing.execution_ms],
+          itemStyle: { color: COLORS.green },
+          emphasis: { itemStyle: { color: COLORS.green } },
+        },
+        timing.state_read_ms != null && {
+          name: 'State Read',
+          type: 'bar',
+          stack: 'total',
+          data: [timing.state_read_ms],
+          itemStyle: { color: COLORS.blue },
+          emphasis: { itemStyle: { color: COLORS.blue } },
+        },
+        timing.state_hash_ms != null && {
+          name: 'State Hash',
+          type: 'bar',
+          stack: 'total',
+          data: [timing.state_hash_ms],
+          itemStyle: { color: COLORS.orange },
+          emphasis: { itemStyle: { color: COLORS.orange } },
+        },
+        timing.commit_ms != null && {
+          name: 'Commit',
+          type: 'bar',
+          stack: 'total',
+          data: [timing.commit_ms],
+          itemStyle: { color: COLORS.purple },
+          emphasis: { itemStyle: { color: COLORS.purple } },
+        },
+      ].filter(Boolean),
+    }
+  }, [hasTiming, timing, isDark, textColor])
+
+  // Overhead pie chart options
+  const overheadPieOption = useMemo(() => {
+    if (!hasOverhead) return null
+    return {
+      tooltip: {
+        trigger: 'item',
+        backgroundColor: isDark ? '#1f2937' : '#ffffff',
+        borderColor: isDark ? '#374151' : '#e5e7eb',
+        textStyle: { color: textColor },
+        formatter: (params: { name: string; value: number; percent: number }) => {
+          return `${params.name}: ${params.value.toFixed(2)}ms (${params.percent.toFixed(1)}%)`
+        },
+      },
+      legend: {
+        orient: 'vertical' as const,
+        right: 0,
+        top: 'center',
+        textStyle: { color: textColor, fontSize: 11 },
+        itemWidth: 12,
+        itemHeight: 8,
+      },
+      series: [
+        {
+          type: 'pie',
+          radius: ['50%', '70%'],
+          center: ['35%', '50%'],
+          avoidLabelOverlap: false,
+          label: { show: false },
+          labelLine: { show: false },
+          data: [
+            { name: 'State Read', value: timing.state_read_ms, itemStyle: { color: COLORS.blue } },
+            { name: 'State Hash', value: timing.state_hash_ms, itemStyle: { color: COLORS.orange } },
+            { name: 'Commit', value: timing.commit_ms, itemStyle: { color: COLORS.purple } },
+          ].filter(d => d.value > 0),
+          emphasis: {
+            itemStyle: {
+              shadowBlur: 10,
+              shadowOffsetX: 0,
+              shadowColor: 'rgba(0, 0, 0, 0.5)',
+            },
+          },
+        },
+      ],
+    }
+  }, [hasOverhead, timing, isDark, textColor])
 
   // Cache performance stacked bar chart
   const cacheBarOption = useMemo(() => {
+    if (!hasCache) return null
     const categories = ['Account', 'Storage', 'Code']
-    const hits = [blockLog.cache.account.hits, blockLog.cache.storage.hits, blockLog.cache.code.hits]
-    const misses = [blockLog.cache.account.misses, blockLog.cache.storage.misses, blockLog.cache.code.misses]
-    const hitRates = [blockLog.cache.account.hit_rate, blockLog.cache.storage.hit_rate, blockLog.cache.code.hit_rate]
+    const hits = [cache.account.hits, cache.storage.hits, cache.code.hits]
+    const misses = [cache.account.misses, cache.storage.misses, cache.code.misses]
+    const hitRates = [cache.account.hit_rate, cache.storage.hit_rate, cache.code.hit_rate]
 
     return {
       tooltip: {
@@ -203,7 +227,7 @@ export function BlockLogDetails({ blockLog }: BlockLogDetailsProps) {
           let content = `<strong>${params[0].name}</strong><br/>`
           content += `Hit Rate: ${hitRates[idx].toFixed(1)}%<br/>`
           params.forEach(p => {
-            content += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;"></span>${p.seriesName}: ${p.value.toLocaleString()} (${((p.value / total) * 100).toFixed(1)}%)<br/>`
+            content += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;"></span>${p.seriesName}: ${p.value.toLocaleString()} (${total > 0 ? ((p.value / total) * 100).toFixed(1) : '0.0'}%)<br/>`
           })
           return content
         },
@@ -261,14 +285,15 @@ export function BlockLogDetails({ blockLog }: BlockLogDetailsProps) {
         },
       ],
     }
-  }, [blockLog.cache, isDark, textColor])
+  }, [hasCache, cache, isDark, textColor])
 
   // State operations grouped bar chart
   const stateOpsOption = useMemo(() => {
+    if (!hasStateOps) return null
     const categories = ['Accounts', 'Storage', 'Code']
-    const reads = [blockLog.state_reads.accounts, blockLog.state_reads.storage_slots, blockLog.state_reads.code]
-    const writes = [blockLog.state_writes.accounts, blockLog.state_writes.storage_slots, blockLog.state_writes.code]
-    const deleted = [blockLog.state_writes.accounts_deleted, blockLog.state_writes.storage_slots_deleted, 0]
+    const reads = [state_reads.accounts, state_reads.storage_slots, state_reads.code]
+    const writes = [state_writes.accounts, state_writes.storage_slots, state_writes.code]
+    const deleted = [state_writes.accounts_deleted, state_writes.storage_slots_deleted, 0]
 
     return {
       tooltip: {
@@ -345,7 +370,7 @@ export function BlockLogDetails({ blockLog }: BlockLogDetailsProps) {
         },
       ],
     }
-  }, [blockLog.state_reads, blockLog.state_writes, isDark, textColor])
+  }, [hasStateOps, state_reads, state_writes, isDark, textColor])
 
   return (
     <div className="flex flex-col gap-4">
@@ -365,92 +390,112 @@ export function BlockLogDetails({ blockLog }: BlockLogDetailsProps) {
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <MetricCard
           label="MGas/s"
-          value={blockLog.throughput.mgas_per_sec.toFixed(1)}
+          value={fmt(throughput?.mgas_per_sec, 1)}
         />
         <MetricCard
           label="Total Time"
-          value={`${blockLog.timing.total_ms.toFixed(1)}ms`}
+          value={timing?.total_ms != null ? `${timing.total_ms.toFixed(1)}ms` : 'N/A'}
         />
         <MetricCard
           label="Gas Used"
-          value={formatGas(blockLog.block.gas_used)}
+          value={blockLog.block.gas_used != null ? formatGas(blockLog.block.gas_used) : 'N/A'}
         />
         <MetricCard
           label="Transactions"
-          value={blockLog.block.tx_count.toString()}
+          value={blockLog.block.tx_count != null ? blockLog.block.tx_count.toString() : 'N/A'}
         />
       </div>
 
-      {/* Timing Breakdown */}
-      <div className="flex flex-col gap-2">
-        <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Time Breakdown</div>
-        <div className="h-6 overflow-hidden rounded-xs">
-          <ReactECharts
-            option={timingBarOption}
-            style={{ height: '24px', width: '100%' }}
-            opts={{ renderer: 'svg' }}
-          />
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: subTextColor }}>
-          <span>
-            <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.green }} />
-            Execution: {blockLog.timing.execution_ms.toFixed(1)}ms ({executionPct.toFixed(1)}%)
-          </span>
-          <span>
-            <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.blue }} />
-            State Read: {blockLog.timing.state_read_ms.toFixed(1)}ms ({((blockLog.timing.state_read_ms / blockLog.timing.total_ms) * 100).toFixed(1)}%)
-          </span>
-          <span>
-            <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.orange }} />
-            State Hash: {blockLog.timing.state_hash_ms.toFixed(1)}ms ({((blockLog.timing.state_hash_ms / blockLog.timing.total_ms) * 100).toFixed(1)}%)
-          </span>
-          <span>
-            <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.purple }} />
-            Commit: {blockLog.timing.commit_ms.toFixed(1)}ms ({((blockLog.timing.commit_ms / blockLog.timing.total_ms) * 100).toFixed(1)}%)
-          </span>
-          <span className="ml-auto font-medium">
-            Overhead: {overheadMs.toFixed(1)}ms ({overheadPct.toFixed(1)}%)
-          </span>
-        </div>
-      </div>
-
-      {/* Two-column grid for Overhead Pie and Cache Performance */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {/* Overhead Breakdown Pie */}
-        <div className="flex flex-col gap-2 rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
-          <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Overhead Breakdown</div>
-          <ReactECharts
-            option={overheadPieOption}
-            style={{ height: '150px', width: '100%' }}
-            opts={{ renderer: 'svg' }}
-          />
-        </div>
-
-        {/* Cache Performance */}
-        <div className="flex flex-col gap-2 rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
-          <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Cache Performance</div>
-          <ReactECharts
-            option={cacheBarOption}
-            style={{ height: '150px', width: '100%' }}
-            opts={{ renderer: 'svg' }}
-          />
-        </div>
-      </div>
-
-      {/* State Operations */}
-      <div className="flex flex-col gap-2 rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-medium text-gray-700 dark:text-gray-300">State Operations</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">
-            Code bytes: {formatBytes(blockLog.state_reads.code_bytes)} read, {formatBytes(blockLog.state_writes.code_bytes)} written
+      {/* Timing Breakdown — only shown when timing data exists */}
+      {hasTiming && timingBarOption && (
+        <div className="flex flex-col gap-2">
+          <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Time Breakdown</div>
+          <div className="h-6 overflow-hidden rounded-xs">
+            <ReactECharts
+              option={timingBarOption}
+              style={{ height: '24px', width: '100%' }}
+              opts={{ renderer: 'svg' }}
+            />
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: subTextColor }}>
+            {timing.execution_ms != null && (
+              <span>
+                <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.green }} />
+                Execution: {timing.execution_ms.toFixed(1)}ms ({executionPct.toFixed(1)}%)
+              </span>
+            )}
+            {timing.state_read_ms != null && (
+              <span>
+                <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.blue }} />
+                State Read: {timing.state_read_ms.toFixed(1)}ms ({pct(timing.state_read_ms, timing.total_ms).toFixed(1)}%)
+              </span>
+            )}
+            {timing.state_hash_ms != null && (
+              <span>
+                <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.orange }} />
+                State Hash: {timing.state_hash_ms.toFixed(1)}ms ({pct(timing.state_hash_ms, timing.total_ms).toFixed(1)}%)
+              </span>
+            )}
+            {timing.commit_ms != null && (
+              <span>
+                <span className="mr-1 inline-block size-2 rounded-xs" style={{ backgroundColor: COLORS.purple }} />
+                Commit: {timing.commit_ms.toFixed(1)}ms ({pct(timing.commit_ms, timing.total_ms).toFixed(1)}%)
+              </span>
+            )}
+            {overheadMs != null && (
+              <span className="ml-auto font-medium">
+                Overhead: {overheadMs.toFixed(1)}ms ({overheadPct.toFixed(1)}%)
+              </span>
+            )}
           </div>
         </div>
-        <ReactECharts
-          option={stateOpsOption}
-          style={{ height: '180px', width: '100%' }}
-          opts={{ renderer: 'svg' }}
-        />
-      </div>
+      )}
+
+      {/* Two-column grid for Overhead Pie and Cache Performance */}
+      {(hasOverhead || hasCache) && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* Overhead Breakdown Pie */}
+          {hasOverhead && overheadPieOption && (
+            <div className="flex flex-col gap-2 rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
+              <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Overhead Breakdown</div>
+              <ReactECharts
+                option={overheadPieOption}
+                style={{ height: '150px', width: '100%' }}
+                opts={{ renderer: 'svg' }}
+              />
+            </div>
+          )}
+
+          {/* Cache Performance */}
+          {hasCache && cacheBarOption && (
+            <div className="flex flex-col gap-2 rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
+              <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Cache Performance</div>
+              <ReactECharts
+                option={cacheBarOption}
+                style={{ height: '150px', width: '100%' }}
+                opts={{ renderer: 'svg' }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* State Operations */}
+      {hasStateOps && stateOpsOption && (
+        <div className="flex flex-col gap-2 rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-medium text-gray-700 dark:text-gray-300">State Operations</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              Code bytes: {formatBytes(state_reads.code_bytes)} read, {formatBytes(state_writes.code_bytes)} written
+            </div>
+          </div>
+          <ReactECharts
+            option={stateOpsOption}
+            style={{ height: '180px', width: '100%' }}
+            opts={{ renderer: 'svg' }}
+          />
+        </div>
+      )}
     </div>
   )
 }

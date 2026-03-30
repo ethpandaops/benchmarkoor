@@ -91,6 +91,7 @@ interface ExecutionRowProps {
   time?: number
   status?: number // 0=success, 1=fail
   mgasPerSec?: number
+  gasUsed?: number
 }
 
 function StatusIndicator({ status }: { status?: number }) {
@@ -112,7 +113,7 @@ function StatusIndicator({ status }: { status?: number }) {
   )
 }
 
-function ExecutionRow({ index, request, response, time, status, mgasPerSec }: ExecutionRowProps) {
+function ExecutionRow({ index, request, response, time, status, mgasPerSec, gasUsed }: ExecutionRowProps) {
   const [expanded, setExpanded] = useState(false)
   const method = parseMethod(request)
 
@@ -131,6 +132,11 @@ function ExecutionRow({ index, request, response, time, status, mgasPerSec }: Ex
         {mgasPerSec !== undefined && (
           <span className="shrink-0 text-sm/6 font-medium text-blue-600 dark:text-blue-400">
             {mgasPerSec.toFixed(2)} MGas/s
+            {gasUsed !== undefined && (
+              <span className="ml-1 font-normal text-gray-500 dark:text-gray-400">
+                ({(gasUsed / 1e6).toFixed(2)}M gas)
+              </span>
+            )}
           </span>
         )}
         {time !== undefined && (
@@ -210,6 +216,7 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType }: Executi
             time={resultDetails?.duration_ns[index]}
             status={resultDetails?.status[index]}
             mgasPerSec={resultDetails?.mgas_s[String(index)]}
+            gasUsed={resultDetails?.gas_used[String(index)]}
           />
         ))}
       </div>

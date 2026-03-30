@@ -3,7 +3,8 @@ import ReactECharts from 'echarts-for-react'
 import { Cpu } from 'lucide-react'
 import type { TestEntry, ResourceTotals, SuiteTest } from '@/api/types'
 import { formatBytes } from '@/utils/format'
-import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import type { ZoomRange } from './MGasComparisonChart'
 
 interface AggregatedResourceData {
   totals: ResourceTotals
@@ -78,6 +79,9 @@ interface ResourceComparisonChartsProps {
   labelMode: LabelMode
   testNameFilter?: (name: string) => boolean
   suiteTests?: SuiteTest[]
+  zoomRange?: ZoomRange
+  onZoomChange?: (range: ZoomRange) => void
+  chartType?: ChartType
 }
 
 interface ResourceDataPoint {
@@ -180,17 +184,20 @@ function ChartSection({ title, option, onZoom }: ChartSectionProps) {
   )
 }
 
-export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suiteTests }: ResourceComparisonChartsProps) {
+export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suiteTests, zoomRange: externalZoom, onZoomChange, chartType = 'line' }: ResourceComparisonChartsProps) {
   const isDark = useDarkMode()
-  const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
+  const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
+  const zoomRange = externalZoom ?? internalZoom
   const prevZoomRef = useRef(zoomRange)
 
   const handleZoom = useCallback((start: number, end: number) => {
     if (prevZoomRef.current.start !== start || prevZoomRef.current.end !== end) {
-      prevZoomRef.current = { start, end }
-      setZoomRange({ start, end })
+      const newRange = { start, end }
+      prevZoomRef.current = newRange
+      setInternalZoom(newRange)
+      onZoomChange?.(newRange)
     }
-  }, [])
+  }, [onZoomChange])
 
   const pointsPerRun = useMemo(
     () => runs.map((r) => r.result ? buildDataPoints(r.result.tests, testNameFilter, suiteTests) : []),
@@ -268,13 +275,17 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
       ],
     }
 
-    const createLineSeries = () => ({
-      type: 'line' as const,
-      smooth: maxLen <= 100,
-      showSymbol: maxLen <= 100,
-      symbolSize: 4,
-      lineStyle: { width: 2 },
-    })
+    const createSeriesStyle = () => {
+      if (chartType === 'bar') return { type: 'bar' as const, barMaxWidth: 6 }
+      if (chartType === 'dot') return { type: 'scatter' as const, symbolSize: 4 }
+      return {
+        type: 'line' as const,
+        smooth: maxLen <= 100,
+        showSymbol: maxLen <= 100,
+        symbolSize: 4,
+        lineStyle: { width: 2 },
+      }
+    }
 
     // Map series names to client: "Run A" → client, "A Read" → client, "A Write" → client
     const clientBySeriesName = new Map<string, string>()
@@ -329,10 +340,10 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
         const points = pointsPerRun[i]
         return {
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
-          ...createLineSeries(),
+          ...createSeriesStyle(),
           data: points.map((d) => [d.testIndex, d[field], d.testName, d.testOrder]),
           itemStyle: { color: slot.color },
-          areaStyle: { opacity: 0.08, color: slot.color },
+          ...(chartType === 'line' ? { areaStyle: { opacity: 0.08, color: slot.color } } : {}),
         }
       })
 
@@ -393,7 +404,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
     }
 
     return { cpuPercentOption, memoryMBOption, cpuTimeOption, memoryDeltaOption, diskReadBytesOption, diskWriteBytesOption, diskReadOpsOption, diskWriteOpsOption }
-  }, [pointsPerRun, runs, isDark, zoomRange, labelMode])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType])
 
   if (!hasData) return null
 

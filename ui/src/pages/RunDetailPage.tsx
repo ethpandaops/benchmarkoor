@@ -19,6 +19,7 @@ import { ClientStat } from '@/components/shared/ClientStat'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { StatusAlert } from '@/components/shared/StatusBadge'
+import { FilterInput } from '@/components/shared/FilterInput'
 import { formatTimestamp, formatDurationSeconds } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
 import { useIndex } from '@/api/hooks/useIndex'
@@ -717,11 +718,10 @@ export function RunDetailPage() {
                 <Flame className="size-4 text-gray-400 dark:text-gray-500" />
                 Performance Heatmap
               </h3>
-              <input
-                type="text"
+              <FilterInput
                 placeholder="Filter tests..."
                 value={q}
-                onChange={(e) => handleSearchChange(e.target.value)}
+                onValueChange={handleSearchChange}
                 className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
               />
             </div>
