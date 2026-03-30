@@ -14,6 +14,14 @@ import { EmptyState } from '@/components/shared/EmptyState'
 
 const PAGE_SIZE = 20
 const NO_VALUE = '(no value)'
+const DAY_MS = 24 * 60 * 60 * 1000
+const INACTIVE_OPTIONS = [
+  { label: '7d', days: 7 },
+  { label: '14d', days: 14 },
+  { label: '30d', days: 30 },
+  { label: '90d', days: 90 },
+] as const
+const DEFAULT_INACTIVE_DAYS = 7
 
 interface SuiteEntry {
   hash: string
@@ -34,8 +42,8 @@ function parseGroupBy(raw: string | undefined): string[] {
   return raw.split(',').filter(Boolean)
 }
 
-function serializeGroupBy(keys: string[]): string | undefined {
-  return keys.length > 0 ? keys.join(',') : undefined
+function serializeGroupBy(keys: string[]): string {
+  return keys.length > 0 ? keys.join(',') : 'none'
 }
 
 /** Parse URL param `key:val1|val2,key2:val3` into a Map */
@@ -249,9 +257,18 @@ export function SuitesPage() {
     sortDir?: SuiteSortDirection
     groupBy?: string
     labels?: string
+    hideInactive?: string
+    inactiveDays?: string
   }
   const { page = 1, sortBy = 'lastRun', sortDir = 'desc' } = search
-  const groupByKeys = useMemo(() => parseGroupBy(search.groupBy ?? 'context'), [search.groupBy])
+  const hideInactive = search.hideInactive === '1'
+  const inactiveDays = Number(search.inactiveDays) || DEFAULT_INACTIVE_DAYS
+  const inactiveThresholdMs = inactiveDays * DAY_MS
+  const [now] = useState(() => Date.now())
+  const groupByKeys = useMemo(
+    () => parseGroupBy(search.groupBy === 'none' ? undefined : (search.groupBy ?? 'context')),
+    [search.groupBy],
+  )
   const labelFilters = useMemo(() => parseLabelFilters(search.labels), [search.labels])
   const { data: index, isLoading, error, refetch } = useIndex()
   const [currentPage, setCurrentPage] = useState(page)
@@ -357,7 +374,15 @@ export function SuitesPage() {
       }
     }
 
+    const isAllInactive = (group: GroupEntry) =>
+      group.suites.every((s) => (now - s.lastRun * 1000) > inactiveThresholdMs)
+
     return Array.from(grouped.values()).sort((a, b) => {
+      // Groups where all suites are inactive sort to the bottom
+      const aAllInactive = isAllInactive(a)
+      const bAllInactive = isAllInactive(b)
+      if (aAllInactive !== bAllInactive) return aAllInactive ? 1 : -1
+
       const aHasNoValue = Object.values(a.labels).some((v) => v === NO_VALUE)
       const bHasNoValue = Object.values(b.labels).some((v) => v === NO_VALUE)
       if (aHasNoValue !== bHasNoValue) return aHasNoValue ? 1 : -1
@@ -367,7 +392,7 @@ export function SuitesPage() {
       }
       return 0
     })
-  }, [groupByKeys, filteredSuites, suiteInfoMap])
+  }, [groupByKeys, filteredSuites, suiteInfoMap, now, inactiveThresholdMs])
 
   const updateSearch = useCallback(
     (patch: Record<string, string | number | undefined>) => {
@@ -375,12 +400,12 @@ export function SuitesPage() {
         to: '/suites',
         search: {
           page: search.page, sortBy: search.sortBy, sortDir: search.sortDir,
-          groupBy: search.groupBy, labels: search.labels, ...patch,
+          groupBy: search.groupBy, labels: search.labels, hideInactive: search.hideInactive, inactiveDays: search.inactiveDays, ...patch,
         },
         replace: true,
       })
     },
-    [navigate, search.page, search.sortBy, search.sortDir, search.groupBy, search.labels],
+    [navigate, search.page, search.sortBy, search.sortDir, search.groupBy, search.labels, search.hideInactive, search.inactiveDays],
   )
 
   const handlePageChange = (newPage: number) => {
@@ -426,7 +451,38 @@ export function SuitesPage() {
         <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">
           Test Suites ({filteredSuites.length}{labelFilters.size > 0 && ` / ${suites.length}`})
         </h1>
-        {labelKeys.length > 0 && (
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 text-sm/6 text-gray-600 dark:text-gray-400">
+            <span>Inactive:</span>
+            <div className="flex gap-1">
+              {INACTIVE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.days}
+                  onClick={() => updateSearch({ inactiveDays: opt.days === DEFAULT_INACTIVE_DAYS ? undefined : String(opt.days) })}
+                  className={clsx(
+                    'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                    inactiveDays === opt.days
+                      ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => updateSearch({ hideInactive: hideInactive ? undefined : '1' })}
+              className={clsx(
+                'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                hideInactive
+                  ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+              )}
+            >
+              Hide
+            </button>
+          </div>
+          {labelKeys.length > 0 && (
           <div className="flex items-center gap-2 text-sm/6 text-gray-600 dark:text-gray-400">
             <span>Group by:</span>
             <div className="flex gap-1">
@@ -447,6 +503,7 @@ export function SuitesPage() {
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {labelKeys.length > 0 && (
@@ -462,6 +519,7 @@ export function SuitesPage() {
         <div className="flex flex-col gap-8">
           {groups.map((group) => {
             const groupKey = groupByKeys.map((k) => `${k}=${group.labels[k]}`).join(', ')
+            const inactiveCount = group.suites.filter((s) => (now - s.lastRun * 1000) > inactiveThresholdMs).length
             return (
               <div key={groupKey} className="flex flex-col gap-3">
                 <h2 className="flex flex-wrap items-center gap-2 text-lg/7 font-semibold text-gray-900 dark:text-gray-100">
@@ -474,17 +532,17 @@ export function SuitesPage() {
                     </span>
                   ))}
                   <span className="text-sm/6 font-normal text-gray-500 dark:text-gray-400">
-                    ({group.suites.length})
+                    ({group.suites.length}{inactiveCount > 0 && `, ${inactiveCount} inactive`})
                   </span>
                 </h2>
-                <SuitesTable suites={group.suites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} />
+                <SuitesTable suites={group.suites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} hideInactive={hideInactive} inactiveThresholdMs={inactiveThresholdMs} />
               </div>
             )
           })}
         </div>
       ) : (
         <>
-          <SuitesTable suites={paginatedSuites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} />
+          <SuitesTable suites={paginatedSuites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} hideInactive={hideInactive} inactiveThresholdMs={inactiveThresholdMs} />
 
           {totalPages > 1 && (
             <div className="flex justify-center">

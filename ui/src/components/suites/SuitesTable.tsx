@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { useSuite } from '@/api/hooks/useSuite'
@@ -21,6 +21,8 @@ interface SuitesTableProps {
   sortBy?: SuiteSortColumn
   sortDir?: SuiteSortDirection
   onSortChange?: (column: SuiteSortColumn, direction: SuiteSortDirection) => void
+  hideInactive?: boolean
+  inactiveThresholdMs?: number
 }
 
 function SortIcon({ direction, active }: { direction: SuiteSortDirection; active: boolean }) {
@@ -72,14 +74,19 @@ function StaticHeader({ label }: { label: string }) {
   )
 }
 
-function SuiteRow({ suite }: { suite: SuiteEntry }) {
+function SuiteRow({ suite, isInactive, hidden }: { suite: SuiteEntry; isInactive?: boolean; hidden?: boolean }) {
   const navigate = useNavigate()
   const { data: suiteInfo } = useSuite(suite.hash)
+
+  if (hidden) return null
 
   return (
     <tr
       onClick={() => navigate({ to: '/suites/$suiteHash', params: { suiteHash: suite.hash } })}
-      className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
+      className={clsx(
+        'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
+        isInactive && 'opacity-40',
+      )}
     >
       <td className="whitespace-nowrap px-3 py-2 text-sm/6 text-gray-500 sm:px-4 sm:py-2.5 dark:text-gray-400">
         <span className="flex flex-col" title={formatRelativeTime(suite.lastRun)}>
@@ -151,12 +158,22 @@ function SuiteRow({ suite }: { suite: SuiteEntry }) {
   )
 }
 
+const DEFAULT_INACTIVE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000
+
+function useNow() {
+  const [now] = useState(() => Date.now())
+  return now
+}
+
 export function SuitesTable({
   suites,
   sortBy = 'lastRun',
   sortDir = 'desc',
   onSortChange,
+  hideInactive,
+  inactiveThresholdMs = DEFAULT_INACTIVE_THRESHOLD_MS,
 }: SuitesTableProps) {
+  const now = useNow()
   const handleSort = (column: SuiteSortColumn) => {
     if (onSortChange) {
       const newDirection = sortBy === column && sortDir === 'desc' ? 'asc' : 'desc'
@@ -185,14 +202,7 @@ export function SuitesTable({
   return (
     <div className="overflow-x-auto rounded-xs bg-white shadow-xs dark:bg-gray-800">
       <table className="min-w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
-        <colgroup>
-          <col className="w-28" />      {/* Last Run */}
-          <col />                        {/* Suite (takes remaining space) */}
-          <col className="w-32" />       {/* Source */}
-          <col className="w-28" />       {/* Pre-Run Steps */}
-          <col className="w-32" />       {/* Filter */}
-          <col className="w-24" />       {/* Runs */}
-        </colgroup>
+        <colgroup><col className="w-28" /><col /><col className="w-32" /><col className="w-28" /><col className="w-32" /><col className="w-24" /></colgroup>
         <thead className="bg-gray-50 dark:bg-gray-900">
           <tr>
             <SortableHeader label="Last Run" column="lastRun" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
@@ -205,7 +215,12 @@ export function SuitesTable({
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
           {sortedSuites.map((suite) => (
-            <SuiteRow key={suite.hash} suite={suite} />
+            <SuiteRow
+              key={suite.hash}
+              suite={suite}
+              isInactive={(now - suite.lastRun * 1000) > inactiveThresholdMs}
+              hidden={hideInactive && (now - suite.lastRun * 1000) > inactiveThresholdMs}
+            />
           ))}
         </tbody>
       </table>
