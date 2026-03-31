@@ -992,6 +992,28 @@ export function SuiteDetailPage() {
                             navigate({ to: '/compare', search: { runs: ids.join(',') } })
                           }
                         } : undefined}
+                        onCompareClientAcrossGroups={groupBy ? (client) => {
+                          // Find the latest successful run for this client in each group
+                          const sorted = [...suiteRunsAll]
+                            .filter((r) => r.instance.client === client)
+                            .sort((a, b) => b.timestamp - a.timestamp)
+                          const seenGroups = new Set<string>()
+                          const ids: string[] = []
+                          for (const run of sorted) {
+                            const groupValue = groupBy === 'instance_id'
+                              ? run.instance.id
+                              : (run.metadata?.[groupBy] ?? '(none)')
+                            if (seenGroups.has(groupValue)) continue
+                            if (run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total) {
+                              seenGroups.add(groupValue)
+                              ids.push(run.run_id)
+                            }
+                            if (ids.length >= MAX_COMPARE_RUNS) break
+                          }
+                          if (ids.length >= MIN_COMPARE_RUNS) {
+                            navigate({ to: '/compare', search: { runs: ids.join(',') } })
+                          }
+                        } : undefined}
                         isDark={isDark}
                         colorNormalization={heatmapColor}
                         onColorNormalizationChange={handleHeatmapColorChange}
