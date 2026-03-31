@@ -85,20 +85,42 @@ function SortableHeader({
 function SuiteCell({ suiteHash }: { suiteHash: string }) {
   const { data: suiteInfo } = useSuite(suiteHash)
   const name = suiteInfo?.metadata?.labels?.name
-  const tooltip = name ? `${name} (${suiteHash})` : suiteHash
+  const labels = suiteInfo?.metadata?.labels
+    ? Object.entries(suiteInfo.metadata.labels).filter(([k]) => k !== 'name')
+    : []
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="group/suite relative flex items-center gap-2">
       <JDenticon value={suiteHash} size={20} className="shrink-0 rounded-xs" />
       <Link
         to="/suites/$suiteHash"
         params={{ suiteHash }}
         onClick={(e) => e.stopPropagation()}
         className="text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
-        title={tooltip}
       >
         {suiteHash.slice(0, 4)}
       </Link>
+      <div className="pointer-events-none absolute top-full left-0 z-50 mt-1 hidden w-max max-w-xs rounded-sm bg-white px-3 py-2 text-xs/5 shadow-lg ring-1 ring-gray-200 group-hover/suite:block dark:bg-gray-800 dark:ring-gray-700">
+        <div className="flex flex-col gap-1.5">
+          {name && <div className="font-medium text-gray-900 dark:text-gray-100">{name}</div>}
+          <div className="font-mono text-gray-400 dark:text-gray-500">{suiteHash}</div>
+          {suiteInfo?.filter && (
+            <div className="text-gray-500 dark:text-gray-400">Filter: {suiteInfo.filter}</div>
+          )}
+          {suiteInfo && (
+            <div className="text-gray-500 dark:text-gray-400">{suiteInfo.tests.length} tests</div>
+          )}
+          {labels.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {labels.map(([k, v]) => (
+                <span key={k} className="inline-flex items-center gap-1 rounded-xs border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-xs/4 font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                  <span className="font-semibold">{k}</span>={v}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -163,7 +185,7 @@ export function RunsTable({
             <tr
               onClick={selectable ? () => onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id)) : undefined}
               className={clsx(
-                'group relative cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                'group relative cursor-pointer transition-colors hover:z-20 hover:bg-gray-50 dark:hover:bg-gray-700/50',
                 entry.status === 'container_died' && 'bg-red-50/50 dark:bg-red-900/10',
                 entry.status === 'cancelled' && 'bg-yellow-50/50 dark:bg-yellow-900/10',
                 entry.status === 'timeout' && 'bg-orange-50/50 dark:bg-orange-900/10',
@@ -284,14 +306,16 @@ export function RunsTable({
                     >
                       <Tag className="size-3.5" />
                     </button>
-                    <div className="pointer-events-none absolute right-0 bottom-full z-50 mb-1 hidden w-max max-w-xs rounded-sm bg-white px-3 py-2 text-xs/5 shadow-lg ring-1 ring-gray-200 group-hover/tag:block dark:bg-gray-800 dark:ring-gray-700">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-gray-400 dark:text-gray-500">ID: {entry.instance.id}</span>
-                        {entryLabels.map(([k, v]) => (
-                          <span key={k} className="inline-flex items-center gap-1 rounded-xs border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-xs/4 font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                            <span className="font-semibold">{k}</span>={v}
-                          </span>
-                        ))}
+                    <div className="pointer-events-none absolute right-0 top-full z-50 mt-1 hidden w-max max-w-xs rounded-sm bg-white px-3 py-2 text-xs/5 shadow-lg ring-1 ring-gray-200 group-hover/tag:block dark:bg-gray-800 dark:ring-gray-700">
+                      <div className="flex flex-col gap-1.5">
+                        <div className="text-gray-400 dark:text-gray-500">Instance ID: {entry.instance.id}</div>
+                        <div className="flex flex-wrap gap-1">
+                          {entryLabels.map(([k, v]) => (
+                            <span key={k} className="inline-flex items-center gap-1 rounded-xs border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-xs/4 font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                              <span className="font-semibold">{k}</span>={v}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
