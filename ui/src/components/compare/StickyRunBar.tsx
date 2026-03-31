@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { type CompareRun, type LabelMode, LABEL_MODE_OPTIONS, RUN_SLOTS, formatRunLabel } from './constants'
+import { type CompareRun, type LabelMode, buildLabelModeOptions, RUN_SLOTS, formatRunLabel } from './constants'
 import { FilterInput } from '@/components/shared/FilterInput'
 
 interface StickyRunBarProps {
@@ -49,7 +49,7 @@ export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, 
         <div className="flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">
           <span>Labels:</span>
           <div className="flex gap-1">
-            {LABEL_MODE_OPTIONS.map((opt) => (
+            {buildLabelModeOptions(runs).map((opt) => (
               <button
                 key={opt.value}
                 onClick={() => onLabelModeChange(opt.value)}

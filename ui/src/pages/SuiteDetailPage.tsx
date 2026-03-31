@@ -1011,7 +1011,8 @@ export function SuiteDetailPage() {
                             if (ids.length >= MAX_COMPARE_RUNS) break
                           }
                           if (ids.length >= MIN_COMPARE_RUNS) {
-                            navigate({ to: '/compare', search: { runs: ids.join(',') } })
+                            const labels = groupBy === 'instance_id' ? 'instance-id' : `label:${groupBy}`
+                            navigate({ to: '/compare', search: { runs: ids.join(','), labels } })
                           }
                         } : undefined}
                         isDark={isDark}

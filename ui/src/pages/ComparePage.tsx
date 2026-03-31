@@ -21,7 +21,7 @@ import { ResourceComparisonCharts } from '@/components/compare/ResourceCompariso
 import { BlockLogsComparison } from '@/components/compare/BlockLogsComparison'
 import { ConfigDiff } from '@/components/compare/ConfigDiff'
 import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER } from '@/pages/RunDetailPage'
-import { MIN_COMPARE_RUNS, MAX_COMPARE_RUNS, LABEL_MODE_OPTIONS, type CompareRun, type LabelMode } from '@/components/compare/constants'
+import { MIN_COMPARE_RUNS, MAX_COMPARE_RUNS, buildLabelModeOptions, type CompareRun, type LabelMode } from '@/components/compare/constants'
 
 function parseStepFilter(param: string | undefined): StepTypeOption[] {
   if (!param) return DEFAULT_STEP_FILTER
@@ -113,7 +113,7 @@ export function ComparePage() {
   const { data: suite } = useSuite(suiteHash)
   const headerRef = useRef<HTMLDivElement>(null)
   const baselineIdx = Math.min(Math.max(parseInt(search.baseline ?? '0', 10) || 0, 0), runIds.length - 1)
-  const labelMode: LabelMode = search.labels === 'instance-id' ? 'instance-id' : 'none'
+  const labelMode: LabelMode = search.labels ?? 'none'
   const tableBaseline: 'best' | 'worst' | number = search.tableBase === 'worst'
     ? 'worst'
     : search.tableBase !== undefined && search.tableBase !== 'best'
@@ -206,6 +206,8 @@ export function ComparePage() {
     index: i,
   }))
 
+  const labelModeOptions = buildLabelModeOptions(runs)
+
   // Suite mismatch: check if all hashes are the same
   const uniqueHashes = new Set(runs.map((r) => r.config.suite_hash).filter(Boolean))
   const suiteMismatch = uniqueHashes.size > 1
@@ -242,7 +244,7 @@ export function ComparePage() {
         <div className="flex items-center gap-1.5">
           <span>Labels:</span>
           <div className="flex gap-1">
-            {LABEL_MODE_OPTIONS.map((opt) => (
+            {labelModeOptions.map((opt) => (
               <button
                 key={opt.value}
                 onClick={() => setLabelMode(opt.value)}

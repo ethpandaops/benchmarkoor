@@ -86,7 +86,7 @@ export interface CompareRun {
   index: number
 }
 
-export type LabelMode = 'none' | 'instance-id'
+export type LabelMode = string
 
 export type ChartType = 'line' | 'bar' | 'dot'
 
@@ -96,14 +96,33 @@ export const CHART_TYPE_OPTIONS: { value: ChartType; label: string }[] = [
   { value: 'dot', label: 'Dot' },
 ]
 
-export const LABEL_MODE_OPTIONS: { value: LabelMode; label: string }[] = [
+export const LABEL_MODE_BASE_OPTIONS: { value: LabelMode; label: string }[] = [
   { value: 'none', label: 'None' },
   { value: 'instance-id', label: 'Instance ID' },
 ]
 
+/** Build the full label mode options from the base options + label keys found in runs. */
+export function buildLabelModeOptions(runs: CompareRun[]): { value: LabelMode; label: string }[] {
+  const keys = new Set<string>()
+  for (const run of runs) {
+    if (run.config.metadata?.labels) {
+      for (const key of Object.keys(run.config.metadata.labels)) {
+        if (!key.startsWith('github.') && key !== 'name') keys.add(key)
+      }
+    }
+  }
+  const labelOptions = Array.from(keys).sort().map((key) => ({ value: `label:${key}`, label: key }))
+  return [...LABEL_MODE_BASE_OPTIONS, ...labelOptions]
+}
+
 export function formatRunLabel(slot: RunSlot, run: CompareRun, labelMode: LabelMode): string {
   if (labelMode === 'instance-id' && run.config.instance.id) {
     return `${slot.label} (${run.config.instance.id})`
+  }
+  if (labelMode.startsWith('label:')) {
+    const key = labelMode.slice(6)
+    const value = run.config.metadata?.labels?.[key]
+    if (value) return `${slot.label} (${value})`
   }
   return slot.label
 }
