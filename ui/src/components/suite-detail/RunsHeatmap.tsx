@@ -635,9 +635,26 @@ export function RunsHeatmap({
                   const mgas = calculateMGasPerSec(tooltipStats.gasUsed, tooltipStats.gasUsedDuration)
                   return mgas !== undefined ? <div>MGas/s: {mgas.toFixed(2)}</div> : null
                 })()}
+                <div className="text-gray-500 dark:text-gray-400">
+                  Instance ID: {tooltip.run.instance.id}
+                </div>
                 <div className="truncate text-gray-500 dark:text-gray-400" style={{ maxWidth: '200px' }}>
                   {tooltip.run.instance.image}
                 </div>
+                {tooltip.run.metadata && (() => {
+                  const labels = Object.entries(tooltip.run.metadata!)
+                    .filter(([k]) => !k.startsWith('github.') && k !== 'name')
+                  if (labels.length === 0) return null
+                  return (
+                    <div className="flex flex-wrap gap-1">
+                      {labels.map(([k, v]) => (
+                        <span key={k} className="rounded-xs bg-gray-100 px-1.5 py-0.5 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                          {k}={v}
+                        </span>
+                      ))}
+                    </div>
+                  )
+                })()}
                 <div className="flex gap-2">
                   <span className="text-green-600 dark:text-green-400">
                     {tooltip.run.tests.tests_passed} passed
