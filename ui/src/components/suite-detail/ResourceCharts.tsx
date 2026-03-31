@@ -333,6 +333,7 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick, isLargeDatas
       <h4 className="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">{metric.label}</h4>
       <ReactECharts
         option={option}
+        notMerge
         style={{ height: '250px', width: '100%' }}
         opts={{ renderer: 'svg' }}
         onEvents={{ click: handleChartClick, ...(isLargeDataset && { datazoom: handleDataZoom }) }}

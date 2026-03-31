@@ -353,6 +353,7 @@ export function MGasChart({
       )}
       <ReactECharts
         option={option}
+        notMerge
         style={{ height: '250px', width: '100%' }}
         opts={{ renderer: 'svg' }}
         onEvents={{ click: handleChartClick, ...(isLargeDataset && { datazoom: handleDataZoom }) }}

@@ -1,8 +1,8 @@
-import { useCallback, useMemo, useState, useEffect } from 'react'
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
-import { ChevronRight, SquareStack, GitCompareArrows, LayoutGrid, Clock, Grid3X3, Trash2 } from 'lucide-react'
+import { ChevronRight, SquareStack, GitCompareArrows, LayoutGrid, Clock, Grid3X3, Trash2, Plus, X } from 'lucide-react'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
@@ -20,6 +20,8 @@ import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
 import { parseLabelFilters, serializeLabelFilters, type LabelFilters } from '@/components/runs/labelFilterUtils'
+import { ClientBadge } from '@/components/shared/ClientBadge'
+import { getBaseClient } from '@/utils/client-colors'
 import { LoadingState, Spinner } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
@@ -66,6 +68,183 @@ function OpcodeHeatmapSection({ tests, onTestClick }: { tests: SuiteTest[]; onTe
         </div>
       )}
     </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ChartFilters — client toggles + label chip filters for the Run Charts
+// ---------------------------------------------------------------------------
+
+interface ChartFiltersProps {
+  clients: string[]
+  clientFilter: Set<string>
+  onClientFilterChange: (filter: Set<string>) => void
+  labelKeys: string[]
+  labelValues: Map<string, string[]>
+  labelFilters: Map<string, Set<string>>
+  onLabelFiltersChange: (filters: Map<string, Set<string>>) => void
+}
+
+function ChartFilters({
+  clients, clientFilter, onClientFilterChange,
+  labelKeys, labelValues, labelFilters, onLabelFiltersChange,
+}: ChartFiltersProps) {
+  const [keyDropdownOpen, setKeyDropdownOpen] = useState(false)
+  const [valueDropdownKey, setValueDropdownKey] = useState<string | null>(null)
+  const keyRef = useRef<HTMLDivElement>(null)
+  const valueRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (keyDropdownOpen && keyRef.current && !keyRef.current.contains(e.target as Node)) setKeyDropdownOpen(false)
+      if (valueDropdownKey && valueRef.current && !valueRef.current.contains(e.target as Node)) setValueDropdownKey(null)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [keyDropdownOpen, valueDropdownKey])
+
+  const toggleClient = (c: string) => {
+    const next = new Set(clientFilter)
+    if (next.has(c)) { next.delete(c) } else { next.add(c) }
+    onClientFilterChange(next)
+  }
+
+  const availableLabelKeys = labelKeys.filter((k) => !labelFilters.has(k) && k !== valueDropdownKey)
+
+  const toggleLabelValue = (key: string, value: string) => {
+    const next = new Map(labelFilters)
+    const values = new Set(next.get(key) ?? [])
+    if (values.has(value)) {
+      values.delete(value)
+      if (values.size === 0) next.delete(key)
+      else next.set(key, values)
+    } else {
+      values.add(value)
+      next.set(key, values)
+    }
+    onLabelFiltersChange(next)
+  }
+
+  const removeLabelFilter = (key: string) => {
+    const next = new Map(labelFilters)
+    next.delete(key)
+    onLabelFiltersChange(next)
+    if (valueDropdownKey === key) setValueDropdownKey(null)
+  }
+
+  const chipKeys = Array.from(labelFilters.keys())
+  if (valueDropdownKey && !labelFilters.has(valueDropdownKey)) chipKeys.push(valueDropdownKey)
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* Client toggles */}
+      {clients.map((c) => {
+        const active = clientFilter.size === 0 || clientFilter.has(c)
+        return (
+          <button
+            key={c}
+            onClick={() => toggleClient(c)}
+            className={clsx(
+              'transition-opacity',
+              !active && 'opacity-30 hover:opacity-60',
+            )}
+          >
+            <ClientBadge client={c} />
+          </button>
+        )
+      })}
+
+      {/* Label filter chips */}
+      {chipKeys.map((key) => {
+        const values = labelFilters.get(key)
+        const isPending = !values
+        return (
+          <div key={key} className="relative" ref={valueDropdownKey === key ? valueRef : undefined}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setValueDropdownKey(valueDropdownKey === key ? null : key)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setValueDropdownKey(valueDropdownKey === key ? null : key) } }}
+              className={clsx(
+                'flex cursor-pointer items-center gap-1.5 rounded-xs border px-2 py-1 text-xs/5 font-medium transition-colors',
+                isPending
+                  ? 'border-dashed border-blue-300 bg-blue-50/50 text-blue-500 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-400'
+                  : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50',
+              )}
+            >
+              <span className="font-semibold">{key}</span>
+              {values && values.size > 0 && (
+                <>
+                  <span>=</span>
+                  <span>{Array.from(values).join(', ')}</span>
+                </>
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); if (isPending) setValueDropdownKey(null); else removeLabelFilter(key) }}
+                className="ml-0.5 rounded-xs p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+            {valueDropdownKey === key && (
+              <div className="absolute top-full left-0 z-50 mt-1 max-h-64 min-w-48 overflow-y-auto rounded-xs border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+                {(labelValues.get(key) ?? []).map((val) => {
+                  const selected = values?.has(val) ?? false
+                  return (
+                    <button
+                      key={val}
+                      onClick={() => toggleLabelValue(key, val)}
+                      className={clsx(
+                        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm/6 transition-colors',
+                        selected
+                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                          : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700',
+                      )}
+                    >
+                      <span className={clsx(
+                        'flex size-4 shrink-0 items-center justify-center rounded-xs border text-xs/3',
+                        selected
+                          ? 'border-blue-500 bg-blue-500 text-white dark:border-blue-400 dark:bg-blue-400'
+                          : 'border-gray-300 dark:border-gray-600',
+                      )}>
+                        {selected && '✓'}
+                      </span>
+                      {val}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* Add label filter button */}
+      {availableLabelKeys.length > 0 && (
+        <div className="relative" ref={keyRef}>
+          <button
+            onClick={() => { setKeyDropdownOpen(!keyDropdownOpen); setValueDropdownKey(null) }}
+            className="flex items-center gap-1 rounded-xs border border-dashed border-gray-300 px-2 py-1 text-xs/5 text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
+          >
+            <Plus className="size-3" />
+            Label
+          </button>
+          {keyDropdownOpen && (
+            <div className="absolute top-full left-0 z-50 mt-1 min-w-36 overflow-hidden rounded-xs border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+              {availableLabelKeys.map((key) => (
+                <button
+                  key={key}
+                  onClick={() => { setKeyDropdownOpen(false); setValueDropdownKey(key) }}
+                  className="flex w-full px-3 py-1.5 text-left text-sm/6 text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                >
+                  {key}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -177,6 +356,8 @@ export function SuiteDetailPage() {
   const [heatmapExpanded, setHeatmapExpanded] = useState(true)
   const [chartExpanded, setChartExpanded] = useState(true)
   const [chartZoomRange, setChartZoomRange] = useState({ start: 0, end: 100 })
+  const [chartClientFilter, setChartClientFilter] = useState<Set<string>>(new Set())
+  const [chartLabelFilters, setChartLabelFilters] = useState<Map<string, Set<string>>>(new Map())
   const handleChartZoomChange = useCallback((range: { start: number; end: number }) => {
     setChartZoomRange(range)
   }, [])
@@ -237,10 +418,48 @@ export function SuiteDetailPage() {
     return groupedRunsAll.filter((entry) => !entry.status || entry.status === 'completed')
   }, [groupedRunsAll])
 
-  const chartRuns = useMemo(() => {
+  const chartRunsBase = useMemo(() => {
     if (!chartPassingOnly) return completedRuns
     return completedRuns.filter((entry) => entry.tests.tests_total === entry.tests.tests_passed)
   }, [completedRuns, chartPassingOnly])
+
+  // Derive available base clients and label keys/values for chart filtering
+  const { chartClients, chartLabelKeys, chartLabelValues } = useMemo(() => {
+    const clientSet = new Set<string>()
+    const valMap = new Map<string, Set<string>>()
+    for (const run of chartRunsBase) {
+      clientSet.add(getBaseClient(run.instance.client))
+      if (run.metadata) {
+        for (const [key, value] of Object.entries(run.metadata)) {
+          if (key.startsWith('github.') || key === 'name') continue
+          let set = valMap.get(key)
+          if (!set) { set = new Set(); valMap.set(key, set) }
+          set.add(value)
+        }
+      }
+    }
+    const keys = Array.from(valMap.keys()).sort()
+    const values = new Map<string, string[]>()
+    for (const [key, set] of valMap) values.set(key, Array.from(set).sort())
+    return { chartClients: Array.from(clientSet).sort(), chartLabelKeys: keys, chartLabelValues: values }
+  }, [chartRunsBase])
+
+  const chartRuns = useMemo(() => {
+    let runs = chartRunsBase
+    if (chartClientFilter.size > 0) {
+      runs = runs.filter((r) => chartClientFilter.has(getBaseClient(r.instance.client)))
+    }
+    if (chartLabelFilters.size > 0) {
+      runs = runs.filter((r) => {
+        for (const [key, allowed] of chartLabelFilters) {
+          const actual = r.metadata?.[key]
+          if (!actual || !allowed.has(actual)) return false
+        }
+        return true
+      })
+    }
+    return runs
+  }, [chartRunsBase, chartClientFilter, chartLabelFilters])
 
   const clients = useMemo(() => {
     const clientSet = new Set(suiteRunsAll.map((e) => e.instance.client))
@@ -814,6 +1033,18 @@ export function SuiteDetailPage() {
                           </button>
                         </div>
                       </div>
+                      {/* Chart filters: client toggles + label chips */}
+                      {(chartClients.length > 1 || chartLabelKeys.length > 0) && (
+                        <ChartFilters
+                          clients={chartClients}
+                          clientFilter={chartClientFilter}
+                          onClientFilterChange={setChartClientFilter}
+                          labelKeys={chartLabelKeys}
+                          labelValues={chartLabelValues}
+                          labelFilters={chartLabelFilters}
+                          onLabelFiltersChange={setChartLabelFilters}
+                        />
+                      )}
                       <div className="flex items-center gap-3">
                         <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
                         <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Performance</span>
