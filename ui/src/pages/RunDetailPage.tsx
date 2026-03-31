@@ -613,6 +613,26 @@ export function RunDetailPage() {
       </div>
 
       {config.metadata?.labels && (() => {
+        const userLabels = Object.entries(config.metadata.labels)
+          .filter(([k]) => !k.startsWith('github.') && k !== 'name')
+        if (userLabels.length === 0) return null
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            {userLabels.map(([key, value]) => (
+              <span
+                key={key}
+                className="inline-flex items-center gap-1.5 rounded-xs border border-blue-200 bg-blue-50 px-2 py-1 text-xs/5 font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+              >
+                <span className="font-semibold">{key}</span>
+                <span>=</span>
+                <span>{value}</span>
+              </span>
+            ))}
+          </div>
+        )
+      })()}
+
+      {config.metadata?.labels && (() => {
         const gh = Object.entries(config.metadata.labels)
           .filter(([k]) => k.startsWith('github.'))
           .reduce<Record<string, string>>((acc, [k, v]) => { acc[k.replace('github.', '')] = v; return acc }, {})
