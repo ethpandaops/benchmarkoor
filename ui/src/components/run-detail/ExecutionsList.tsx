@@ -201,11 +201,28 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType }: Executi
     return <p className="py-2 text-sm/6 text-gray-500 dark:text-gray-400">No execution data available</p>
   }
 
+  const totalDurationNs = resultDetails?.duration_ns.reduce((sum, ns) => sum + ns, 0) ?? 0
+  const totalGasUsed = resultDetails?.gas_used
+    ? Object.values(resultDetails.gas_used).reduce((sum, g) => sum + g, 0)
+    : 0
+
   return (
     <div className="mt-4 max-w-full overflow-hidden">
-      <h4 className="mb-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
-        Executions ({requests.length})
-      </h4>
+      <div className="mb-2 flex items-center justify-between">
+        <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+          Executions ({requests.length})
+        </h4>
+        {totalDurationNs > 0 && (
+          <span className="text-sm/6 text-gray-500 dark:text-gray-400">
+            Total: <Duration nanoseconds={totalDurationNs} />
+            {totalGasUsed > 0 && (
+              <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                ({(totalGasUsed / 1_000_000).toFixed(2)} MGas)
+              </span>
+            )}
+          </span>
+        )}
+      </div>
       <div className="overflow-hidden rounded-xs border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
         {requests.map((request, index) => (
           <ExecutionRow
