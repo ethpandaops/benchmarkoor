@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, GitCompareArrows } from 'lucide-react'
 import { type IndexEntry, type IndexStepType, getIndexAggregatedStats, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { formatTimestamp } from '@/utils/date'
 import { ClientBadge } from '@/components/shared/ClientBadge'
@@ -91,6 +91,8 @@ interface RunsHeatmapProps {
   runs: IndexEntry[]
   /** When set, runs are grouped by this label key (or 'instance_id') before client grouping. */
   groupBy?: string
+  /** Called with the runs of a group when the per-group compare button is clicked. */
+  onCompareGroup?: (runs: IndexEntry[]) => void
   isDark: boolean
   colorNormalization?: ColorNormalization
   onColorNormalizationChange?: (mode: ColorNormalization) => void
@@ -121,6 +123,7 @@ interface TooltipData {
 export function RunsHeatmap({
   runs,
   groupBy,
+  onCompareGroup,
   isDark,
   colorNormalization = 'suite',
   onColorNormalizationChange,
@@ -444,6 +447,18 @@ export function RunsHeatmap({
                 <span>=</span>
                 <span>{section.label}</span>
               </span>
+              {onCompareGroup && (
+                <button
+                  onClick={() => {
+                    const allGroupRuns = section.clients.flatMap((c) => section.clientRuns[c])
+                    onCompareGroup(allGroupRuns)
+                  }}
+                  className="flex shrink-0 cursor-pointer items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                  title="Compare latest successful run per client in this group"
+                >
+                  <GitCompareArrows className="size-3.5" />
+                </button>
+              )}
               <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
             </div>
           )}

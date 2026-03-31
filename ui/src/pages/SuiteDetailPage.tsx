@@ -973,7 +973,33 @@ export function SuiteDetailPage() {
                   </div>
                   {heatmapExpanded && (
                     <div className="border-t border-gray-200 p-3 sm:p-4 dark:border-gray-700">
-                      <RunsHeatmap runs={suiteRunsAll} groupBy={groupBy} isDark={isDark} colorNormalization={heatmapColor} onColorNormalizationChange={handleHeatmapColorChange} stepFilter={stepFilter} selectable={compareMode} selectedRunIds={selectedRunIds} onSelectionChange={handleSelectionChange} />
+                      <RunsHeatmap
+                        runs={suiteRunsAll}
+                        groupBy={groupBy}
+                        onCompareGroup={groupBy ? (groupRuns) => {
+                          const sorted = [...groupRuns].sort((a, b) => b.timestamp - a.timestamp)
+                          const seen = new Set<string>()
+                          const ids: string[] = []
+                          for (const run of sorted) {
+                            if (seen.has(run.instance.client)) continue
+                            if (run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total) {
+                              seen.add(run.instance.client)
+                              ids.push(run.run_id)
+                            }
+                            if (ids.length >= MAX_COMPARE_RUNS) break
+                          }
+                          if (ids.length >= MIN_COMPARE_RUNS) {
+                            navigate({ to: '/compare', search: { runs: ids.join(',') } })
+                          }
+                        } : undefined}
+                        isDark={isDark}
+                        colorNormalization={heatmapColor}
+                        onColorNormalizationChange={handleHeatmapColorChange}
+                        stepFilter={stepFilter}
+                        selectable={compareMode}
+                        selectedRunIds={selectedRunIds}
+                        onSelectionChange={handleSelectionChange}
+                      />
                     </div>
                   )}
                 </div>
