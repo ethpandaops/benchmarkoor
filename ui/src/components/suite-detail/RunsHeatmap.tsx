@@ -22,12 +22,27 @@ const COLORS = [
   '#ef4444', // red - worst
 ]
 
-function getColorByNormalizedValue(value: number, min: number, max: number, higherIsBetter: boolean): string {
-  if (max === min) return COLORS[2] // middle color if all same
-  let normalized = (value - min) / (max - min)
-  if (higherIsBetter) normalized = 1 - normalized // reverse for MGas/s (higher is better)
-  const level = Math.min(4, Math.floor(normalized * 5))
-  return COLORS[level]
+/**
+ * Create a percentile-based color mapper. Values are split into equal-sized
+ * quintiles so the color spread is balanced regardless of outliers.
+ */
+function createColorScale(values: number[], higherIsBetter: boolean): (value: number) => string {
+  if (values.length === 0) return () => COLORS[2]
+  const sorted = [...values].sort((a, b) => a - b)
+  return (value: number) => {
+    // Binary search for rank position
+    let lo = 0
+    let hi = sorted.length
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1
+      if (sorted[mid] < value) lo = mid + 1
+      else hi = mid
+    }
+    let percentile = lo / sorted.length
+    if (higherIsBetter) percentile = 1 - percentile
+    const level = Math.min(4, Math.floor(percentile * 5))
+    return COLORS[level]
+  }
 }
 
 function formatDurationMinSec(nanoseconds: number): string {
@@ -74,6 +89,8 @@ export type MetricMode = 'duration' | 'mgas'
 
 interface RunsHeatmapProps {
   runs: IndexEntry[]
+  /** When set, runs are grouped by this label key (or 'instance_id') before client grouping. */
+  groupBy?: string
   isDark: boolean
   colorNormalization?: ColorNormalization
   onColorNormalizationChange?: (mode: ColorNormalization) => void
@@ -85,6 +102,16 @@ interface RunsHeatmapProps {
   onSelectionChange?: (runId: string, selected: boolean) => void
 }
 
+interface GroupSection {
+  label: string
+  clients: string[]
+  clientRuns: Record<string, IndexEntry[]>
+  clientDurationStats: Record<string, ClientStats>
+  clientMgasStats: Record<string, ClientStats>
+  clientDurationScales: Record<string, (v: number) => string>
+  clientMgasScales: Record<string, (v: number) => string>
+}
+
 interface TooltipData {
   run: IndexEntry
   x: number
@@ -93,6 +120,7 @@ interface TooltipData {
 
 export function RunsHeatmap({
   runs,
+  groupBy,
   isDark,
   colorNormalization = 'suite',
   onColorNormalizationChange,
@@ -118,15 +146,13 @@ export function RunsHeatmap({
 
   const {
     clientRuns,
-    minDuration,
-    maxDuration,
-    minMgas,
-    maxMgas,
-    clientDurationMinMax,
-    clientMgasMinMax,
     clientDurationStats,
     clientMgasStats,
     clients,
+    suiteDurationScale,
+    suiteMgasScale,
+    clientDurationScales,
+    clientMgasScales,
   } = useMemo(() => {
     // Group runs by client
     const grouped: Record<string, IndexEntry[]> = {}
@@ -138,10 +164,13 @@ export function RunsHeatmap({
 
     // Sort each client's runs by timestamp (oldest first) and take last N
     const clientRuns: Record<string, IndexEntry[]> = {}
-    const clientDurationMinMax: Record<string, { min: number; max: number }> = {}
-    const clientMgasMinMax: Record<string, { min: number; max: number }> = {}
     const clientDurationStats: Record<string, ClientStats> = {}
     const clientMgasStats: Record<string, ClientStats> = {}
+    const clientDurationScales: Record<string, (v: number) => string> = {}
+    const clientMgasScales: Record<string, (v: number) => string> = {}
+
+    const allDurations: number[] = []
+    const allMgas: number[] = []
 
     for (const [client, clientRunsAll] of Object.entries(grouped)) {
       const sorted = [...clientRunsAll].sort((a, b) => b.timestamp - a.timestamp)
@@ -151,11 +180,7 @@ export function RunsHeatmap({
       const durations = clientRuns[client].map((r) => getIndexAggregatedStats(r, stepFilter).duration)
       const sortedDurations = [...durations].sort((a, b) => a - b)
       const durationSum = durations.reduce((acc, d) => acc + d, 0)
-
-      clientDurationMinMax[client] = {
-        min: sortedDurations[0],
-        max: sortedDurations[sortedDurations.length - 1],
-      }
+      allDurations.push(...durations)
 
       clientDurationStats[client] = {
         min: sortedDurations[0],
@@ -166,6 +191,8 @@ export function RunsHeatmap({
         last: durations[0],
       }
 
+      clientDurationScales[client] = createColorScale(durations, false)
+
       // Calculate MGas/s stats
       const mgasValues = clientRuns[client]
         .map((r) => {
@@ -173,15 +200,11 @@ export function RunsHeatmap({
           return calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
         })
         .filter((v): v is number => v !== undefined)
+      allMgas.push(...mgasValues)
 
       if (mgasValues.length > 0) {
         const sortedMgas = [...mgasValues].sort((a, b) => a - b)
         const mgasSum = mgasValues.reduce((acc, v) => acc + v, 0)
-
-        clientMgasMinMax[client] = {
-          min: sortedMgas[0],
-          max: sortedMgas[sortedMgas.length - 1],
-        }
 
         clientMgasStats[client] = {
           min: sortedMgas[0],
@@ -192,66 +215,130 @@ export function RunsHeatmap({
           last: mgasValues[0],
         }
       } else {
-        clientMgasMinMax[client] = { min: 0, max: 0 }
         clientMgasStats[client] = {}
       }
+
+      clientMgasScales[client] = createColorScale(mgasValues, true)
     }
-
-    // Calculate min/max across all runs
-    let minDuration = Infinity
-    let maxDuration = -Infinity
-    let minMgas = Infinity
-    let maxMgas = -Infinity
-
-    for (const run of runs) {
-      const stats = getIndexAggregatedStats(run, stepFilter)
-      minDuration = Math.min(minDuration, stats.duration)
-      maxDuration = Math.max(maxDuration, stats.duration)
-
-      const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
-      if (mgas !== undefined) {
-        minMgas = Math.min(minMgas, mgas)
-        maxMgas = Math.max(maxMgas, mgas)
-      }
-    }
-
-    if (minMgas === Infinity) minMgas = 0
-    if (maxMgas === -Infinity) maxMgas = 0
 
     // Sort clients alphabetically
     const clients = Object.keys(clientRuns).sort()
 
     return {
       clientRuns,
-      minDuration,
-      maxDuration,
-      minMgas,
-      maxMgas,
-      clientDurationMinMax,
-      clientMgasMinMax,
       clientDurationStats,
       clientMgasStats,
       clients,
+      suiteDurationScale: createColorScale(allDurations, false),
+      suiteMgasScale: createColorScale(allMgas, true),
+      clientDurationScales,
+      clientMgasScales,
     }
   }, [runs, stepFilter])
 
-  const getColorForRun = (run: IndexEntry) => {
+  // When groupBy is set, split runs into sections by label value
+  const groupSections: GroupSection[] | null = useMemo(() => {
+    if (!groupBy) return null
+
+    // Partition runs by group value
+    const grouped = new Map<string, IndexEntry[]>()
+    for (const run of runs) {
+      const value = groupBy === 'instance_id'
+        ? run.instance.id
+        : (run.metadata?.[groupBy] ?? '(none)')
+      let list = grouped.get(value)
+      if (!list) {
+        list = []
+        grouped.set(value, list)
+      }
+      list.push(run)
+    }
+
+    const sections: GroupSection[] = []
+    for (const [label, groupRuns] of Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b))) {
+      const byClient: Record<string, IndexEntry[]> = {}
+      for (const run of groupRuns) {
+        const c = run.instance.client
+        if (!byClient[c]) byClient[c] = []
+        byClient[c].push(run)
+      }
+
+      const sectionClientRuns: Record<string, IndexEntry[]> = {}
+      const sectionDurationStats: Record<string, ClientStats> = {}
+      const sectionMgasStats: Record<string, ClientStats> = {}
+      const sectionDurationScales: Record<string, (v: number) => string> = {}
+      const sectionMgasScales: Record<string, (v: number) => string> = {}
+
+      for (const [c, cRuns] of Object.entries(byClient)) {
+        const sorted = [...cRuns].sort((a, b) => b.timestamp - a.timestamp)
+        sectionClientRuns[c] = sorted.slice(0, MAX_RUNS_PER_CLIENT)
+
+        const durations = sectionClientRuns[c].map((r) => getIndexAggregatedStats(r, stepFilter).duration)
+        const sortedD = [...durations].sort((a, b) => a - b)
+        const dSum = durations.reduce((acc, d) => acc + d, 0)
+        sectionDurationStats[c] = {
+          min: sortedD[0], max: sortedD[sortedD.length - 1],
+          mean: dSum / durations.length,
+          p95: calculatePercentile(sortedD, 95), p99: calculatePercentile(sortedD, 99),
+          last: durations[0],
+        }
+        sectionDurationScales[c] = createColorScale(durations, false)
+
+        const mgasVals = sectionClientRuns[c]
+          .map((r) => { const s = getIndexAggregatedStats(r, stepFilter); return calculateMGasPerSec(s.gasUsed, s.gasUsedDuration) })
+          .filter((v): v is number => v !== undefined)
+        if (mgasVals.length > 0) {
+          const sortedM = [...mgasVals].sort((a, b) => a - b)
+          const mSum = mgasVals.reduce((acc, v) => acc + v, 0)
+          sectionMgasStats[c] = {
+            min: sortedM[0], max: sortedM[sortedM.length - 1],
+            mean: mSum / mgasVals.length,
+            p95: calculatePercentile(sortedM, 95), p99: calculatePercentile(sortedM, 99),
+            last: mgasVals[0],
+          }
+        } else {
+          sectionMgasStats[c] = {}
+        }
+        sectionMgasScales[c] = createColorScale(mgasVals, true)
+      }
+
+      sections.push({
+        label,
+        clients: Object.keys(sectionClientRuns).sort(),
+        clientRuns: sectionClientRuns,
+        clientDurationStats: sectionDurationStats,
+        clientMgasStats: sectionMgasStats,
+        clientDurationScales: sectionDurationScales,
+        clientMgasScales: sectionMgasScales,
+      })
+    }
+
+    return sections
+  }, [groupBy, runs, stepFilter])
+
+  const getColorForRun = (
+    run: IndexEntry,
+    overrides?: {
+      mgasScales: Record<string, (v: number) => string>
+      durationScales: Record<string, (v: number) => string>
+    },
+  ) => {
     const stats = getIndexAggregatedStats(run, stepFilter)
     if (metricMode === 'mgas') {
       const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
-      if (mgas === undefined) return COLORS[2] // middle color if no data
+      if (mgas === undefined) return COLORS[2]
 
       if (colorNormalization === 'client') {
-        const { min, max } = clientMgasMinMax[run.instance.client]
-        return getColorByNormalizedValue(mgas, min, max, true)
+        const scales = overrides?.mgasScales ?? clientMgasScales
+        return scales[run.instance.client]?.(mgas) ?? COLORS[2]
       }
-      return getColorByNormalizedValue(mgas, minMgas, maxMgas, true)
+      return suiteMgasScale(mgas)
     } else {
       if (colorNormalization === 'client') {
-        const { min, max } = clientDurationMinMax[run.instance.client]
-        return getColorByNormalizedValue(stats.duration, min, max, false)
+        const scales = overrides?.durationScales ?? clientDurationScales
+        return scales[run.instance.client]?.(stats.duration) ?? COLORS[2]
       }
-      return getColorByNormalizedValue(stats.duration, minDuration, maxDuration, false)
+      return suiteDurationScale(stats.duration)
     }
   }
 
@@ -347,122 +434,140 @@ export function RunsHeatmap({
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
-        {/* Stats header */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div className="hidden w-28 shrink-0 sm:block" />
-          <div className="flex-1" />
-          <div className="hidden shrink-0 gap-3 border-l border-transparent pl-3 font-mono text-xs/5 font-medium text-gray-400 md:flex dark:text-gray-500">
-            <span className="w-10 text-center">Min</span>
-            <span className="w-10 text-center">Max</span>
-            <span className="w-10 text-center">P95</span>
-            <span className="w-10 text-center">P99</span>
-            <span className="w-10 text-center">Mean</span>
-            <span className="w-10 text-center">Last</span>
-          </div>
-        </div>
-        {clients.map((client) => {
-          const stats = metricMode === 'mgas' ? clientMgasStats[client] : clientDurationStats[client]
-          const formatStatValue = (v?: number) => {
-            if (v === undefined) return '-'
-            if (metricMode === 'mgas') return v.toFixed(1)
-            return formatDurationCompact(v)
-          }
-          return (
-            <div key={client} className="flex items-center gap-2 sm:gap-3">
-              <div className="shrink-0 sm:w-28">
-                <span className="sm:hidden">
-                  <ClientBadge client={client} hideLabel />
-                </span>
-                <span className="hidden sm:inline-flex">
-                  <ClientBadge client={client} />
-                </span>
-              </div>
-              <div className="flex min-w-0 flex-1 flex-wrap gap-1">
-                {clientRuns[client].map((run) => {
-                  const runStats = getIndexAggregatedStats(run, stepFilter)
-                  const completed = isRunCompleted(run)
-                  return (
-                    <button
-                      key={run.run_id}
-                      onClick={() => handleRunClick(run)}
-                      onMouseEnter={(e) => handleMouseEnter(run, e)}
-                      onMouseLeave={handleMouseLeave}
-                      className={clsx(
-                        'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
-                        selectable && selectedRunIds?.has(run.run_id) && 'scale-110 ring-2 ring-blue-500 dark:ring-blue-400',
-                        run.tests.tests_total - run.tests.tests_passed > 0 && completed && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-orange-500',
-                        !completed && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
-                      )}
-                      style={{ backgroundColor: completed ? getColorForRun(run) : '#6b7280' }}
-                      title={`${formatTimestamp(run.timestamp)} - ${completed ? formatDurationMinSec(runStats.duration) : run.status}`}
-                    >
-                      {completed && run.tests.tests_total - run.tests.tests_passed > 0 && (
-                        <svg className="absolute inset-0 size-5" viewBox="0 0 20 20" fill="none">
-                          <text x="10" y="15" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="system-ui">!</text>
-                        </svg>
-                      )}
-                      {!completed && (
-                        <svg className="absolute inset-0 size-5 text-red-600 dark:text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path d="M4 4l12 12M4 16L16 4" stroke="currentColor" strokeWidth="2" fill="none" />
-                        </svg>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="hidden shrink-0 gap-3 border-l border-gray-200 pl-3 font-mono text-xs/5 text-gray-500 md:flex dark:border-gray-700 dark:text-gray-400">
-                <span className="w-10 text-center">{formatStatValue(stats.min)}</span>
-                <span className="w-10 text-center">{formatStatValue(stats.max)}</span>
-                <span className="w-10 text-center">{formatStatValue(stats.p95)}</span>
-                <span className="w-10 text-center">{formatStatValue(stats.p99)}</span>
-                <span className="w-10 text-center">{formatStatValue(stats.mean)}</span>
-                <span className="w-10 text-center">{formatStatValue(stats.last)}</span>
-              </div>
+      {(groupSections ?? [{ label: '', clients, clientRuns, clientDurationStats, clientMgasStats, clientDurationScales, clientMgasScales }]).map((section, sectionIdx) => (
+        <div key={section.label || '_default'} className={clsx(sectionIdx > 0 && 'mt-4')}>
+          {section.label && (
+            <div className="mb-2 flex items-center gap-3">
+              <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
+              <span className="inline-flex items-center gap-1.5 rounded-xs border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs/5 font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                <span className="font-semibold">{groupBy}</span>
+                <span>=</span>
+                <span>{section.label}</span>
+              </span>
+              <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
             </div>
-          )
-        })}
-      </div>
-
-      {/* Mobile stats summary */}
-      <div className="mt-3 overflow-x-auto md:hidden">
-        <table className="w-full text-xs/5">
-          <thead>
-            <tr className="text-gray-400 dark:text-gray-500">
-              <th className="py-1 pr-3 text-left font-medium">Client</th>
-              <th className="px-2 py-1 text-center font-medium">Min</th>
-              <th className="px-2 py-1 text-center font-medium">Max</th>
-              <th className="px-2 py-1 text-center font-medium">P95</th>
-              <th className="px-2 py-1 text-center font-medium">P99</th>
-              <th className="px-2 py-1 text-center font-medium">Mean</th>
-              <th className="px-2 py-1 text-center font-medium">Last</th>
-            </tr>
-          </thead>
-          <tbody className="font-mono text-gray-500 dark:text-gray-400">
-            {clients.map((client) => {
-              const s = metricMode === 'mgas' ? clientMgasStats[client] : clientDurationStats[client]
-              const fmt = (v?: number) => {
+          )}
+          <div className="flex flex-col gap-2">
+            {/* Stats header */}
+            {sectionIdx === 0 && (
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="hidden w-28 shrink-0 sm:block" />
+                <div className="flex-1" />
+                <div className="hidden shrink-0 gap-3 border-l border-transparent pl-3 font-mono text-xs/5 font-medium text-gray-400 md:flex dark:text-gray-500">
+                  <span className="w-10 text-center">Min</span>
+                  <span className="w-10 text-center">Max</span>
+                  <span className="w-10 text-center">P95</span>
+                  <span className="w-10 text-center">P99</span>
+                  <span className="w-10 text-center">Mean</span>
+                  <span className="w-10 text-center">Last</span>
+                </div>
+              </div>
+            )}
+            {section.clients.map((client) => {
+              const stats = metricMode === 'mgas' ? section.clientMgasStats[client] : section.clientDurationStats[client]
+              const colorOverrides = groupSections ? { mgasScales: section.clientMgasScales, durationScales: section.clientDurationScales } : undefined
+              const formatStatValue = (v?: number) => {
                 if (v === undefined) return '-'
                 if (metricMode === 'mgas') return v.toFixed(1)
                 return formatDurationCompact(v)
               }
               return (
-                <tr key={client} className="border-t border-gray-100 dark:border-gray-700">
-                  <td className="py-1 pr-3">
-                    <ClientBadge client={client} hideLabel />
-                  </td>
-                  <td className="px-2 py-1 text-center">{fmt(s.min)}</td>
-                  <td className="px-2 py-1 text-center">{fmt(s.max)}</td>
-                  <td className="px-2 py-1 text-center">{fmt(s.p95)}</td>
-                  <td className="px-2 py-1 text-center">{fmt(s.p99)}</td>
-                  <td className="px-2 py-1 text-center">{fmt(s.mean)}</td>
-                  <td className="px-2 py-1 text-center">{fmt(s.last)}</td>
-                </tr>
+                <div key={`${section.label}-${client}`} className="flex items-center gap-2 sm:gap-3">
+                  <div className="shrink-0 sm:w-28">
+                    <span className="sm:hidden">
+                      <ClientBadge client={client} hideLabel />
+                    </span>
+                    <span className="hidden sm:inline-flex">
+                      <ClientBadge client={client} />
+                    </span>
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+                    {section.clientRuns[client].map((run) => {
+                      const runStats = getIndexAggregatedStats(run, stepFilter)
+                      const completed = isRunCompleted(run)
+                      return (
+                        <button
+                          key={run.run_id}
+                          onClick={() => handleRunClick(run)}
+                          onMouseEnter={(e) => handleMouseEnter(run, e)}
+                          onMouseLeave={handleMouseLeave}
+                          className={clsx(
+                            'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
+                            selectable && selectedRunIds?.has(run.run_id) && 'scale-110 ring-2 ring-blue-500 dark:ring-blue-400',
+                            run.tests.tests_total - run.tests.tests_passed > 0 && completed && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-orange-500',
+                            !completed && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
+                          )}
+                          style={{ backgroundColor: completed ? getColorForRun(run, colorOverrides) : '#6b7280' }}
+                          title={`${formatTimestamp(run.timestamp)} - ${completed ? formatDurationMinSec(runStats.duration) : run.status}`}
+                        >
+                          {completed && run.tests.tests_total - run.tests.tests_passed > 0 && (
+                            <svg className="absolute inset-0 size-5" viewBox="0 0 20 20" fill="none">
+                              <text x="10" y="15" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="system-ui">!</text>
+                            </svg>
+                          )}
+                          {!completed && (
+                            <svg className="absolute inset-0 size-5 text-red-600 dark:text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path d="M4 4l12 12M4 16L16 4" stroke="currentColor" strokeWidth="2" fill="none" />
+                            </svg>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="hidden shrink-0 gap-3 border-l border-gray-200 pl-3 font-mono text-xs/5 text-gray-500 md:flex dark:border-gray-700 dark:text-gray-400">
+                    <span className="w-10 text-center">{formatStatValue(stats.min)}</span>
+                    <span className="w-10 text-center">{formatStatValue(stats.max)}</span>
+                    <span className="w-10 text-center">{formatStatValue(stats.p95)}</span>
+                    <span className="w-10 text-center">{formatStatValue(stats.p99)}</span>
+                    <span className="w-10 text-center">{formatStatValue(stats.mean)}</span>
+                    <span className="w-10 text-center">{formatStatValue(stats.last)}</span>
+                  </div>
+                </div>
               )
             })}
-          </tbody>
-        </table>
-      </div>
+          </div>
+
+          {/* Mobile stats summary */}
+          <div className="mt-3 overflow-x-auto md:hidden">
+            <table className="w-full text-xs/5">
+              <thead>
+                <tr className="text-gray-400 dark:text-gray-500">
+                  <th className="py-1 pr-3 text-left font-medium">Client</th>
+                  <th className="px-2 py-1 text-center font-medium">Min</th>
+                  <th className="px-2 py-1 text-center font-medium">Max</th>
+                  <th className="px-2 py-1 text-center font-medium">P95</th>
+                  <th className="px-2 py-1 text-center font-medium">P99</th>
+                  <th className="px-2 py-1 text-center font-medium">Mean</th>
+                  <th className="px-2 py-1 text-center font-medium">Last</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono text-gray-500 dark:text-gray-400">
+                {section.clients.map((client) => {
+                  const s = metricMode === 'mgas' ? section.clientMgasStats[client] : section.clientDurationStats[client]
+                  const fmt = (v?: number) => {
+                    if (v === undefined) return '-'
+                    if (metricMode === 'mgas') return v.toFixed(1)
+                    return formatDurationCompact(v)
+                  }
+                  return (
+                    <tr key={`${section.label}-${client}`} className="border-t border-gray-100 dark:border-gray-700">
+                      <td className="py-1 pr-3">
+                        <ClientBadge client={client} hideLabel />
+                      </td>
+                      <td className="px-2 py-1 text-center">{fmt(s.min)}</td>
+                      <td className="px-2 py-1 text-center">{fmt(s.max)}</td>
+                      <td className="px-2 py-1 text-center">{fmt(s.p95)}</td>
+                      <td className="px-2 py-1 text-center">{fmt(s.p99)}</td>
+                      <td className="px-2 py-1 text-center">{fmt(s.mean)}</td>
+                      <td className="px-2 py-1 text-center">{fmt(s.last)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
 
       {/* Legend */}
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">

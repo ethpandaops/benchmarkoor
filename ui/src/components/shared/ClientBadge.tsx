@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { getClientColors } from '@/utils/client-colors'
+import { getBaseClient, getClientColors } from '@/utils/client-colors'
 
 interface ClientBadgeProps {
   client: string
@@ -13,8 +13,9 @@ function capitalizeFirst(str: string): string {
 }
 
 export function ClientBadge({ client, className, hideLabel = false }: ClientBadgeProps) {
+  const base = getBaseClient(client)
   const colors = getClientColors(client)
-  const logoPath = `/img/clients/${client}.jpg`
+  const logoPath = `/img/clients/${base}.jpg`
 
   return (
     <span

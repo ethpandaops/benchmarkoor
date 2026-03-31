@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import clsx from 'clsx'
 import type { IndexEntry, ResourceTotals } from '@/api/types'
+import { getClientChartColor } from '@/utils/client-colors'
 import { formatBytes } from '@/utils/format'
 
 export type XAxisMode = 'time' | 'runCount'
@@ -25,16 +26,6 @@ interface DataPoint {
   image: string
 }
 
-const CLIENT_COLORS: Record<string, string> = {
-  geth: '#3b82f6',
-  reth: '#f97316',
-  nethermind: '#a855f7',
-  besu: '#22c55e',
-  erigon: '#ef4444',
-  nimbus: '#eab308',
-}
-
-const DEFAULT_COLOR = '#6b7280'
 
 function capitalizeFirst(str: string): string {
   if (!str) return str
@@ -171,7 +162,7 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick, isLargeDatas
       symbolSize: isLargeDataset ? 4 : 6,
       lineStyle: { width: isLargeDataset ? 1.5 : 2 },
       sampling: isLargeDataset ? ('lttb' as const) : undefined,
-      itemStyle: { color: CLIENT_COLORS[client] ?? DEFAULT_COLOR },
+      itemStyle: { color: getClientChartColor(client) },
       emphasis: {
         itemStyle: { borderWidth: 2, borderColor: '#fff' },
       },

@@ -37,13 +37,34 @@ export const clientColors: Record<string, { bg: string; text: string; darkBg: st
   },
 }
 
+/** Extract the base client name from a potentially grouped name like "geth / mainnet". */
+export function getBaseClient(client: string): string {
+  return client.includes(' / ') ? client.slice(0, client.indexOf(' / ')) : client
+}
+
 export function getClientColors(client: string) {
   return (
-    clientColors[client] ?? {
+    clientColors[getBaseClient(client)] ?? {
       bg: 'bg-gray-100',
       text: 'text-gray-800',
       darkBg: 'dark:bg-gray-700',
       darkText: 'dark:text-gray-200',
     }
   )
+}
+
+/** Chart hex colors per client (used by ECharts series). */
+const clientChartColors: Record<string, string> = {
+  geth: '#3b82f6',
+  reth: '#f97316',
+  nethermind: '#a855f7',
+  besu: '#22c55e',
+  erigon: '#ef4444',
+  nimbus: '#eab308',
+}
+
+const DEFAULT_CHART_COLOR = '#6b7280'
+
+export function getClientChartColor(client: string): string {
+  return clientChartColors[getBaseClient(client)] ?? DEFAULT_CHART_COLOR
 }

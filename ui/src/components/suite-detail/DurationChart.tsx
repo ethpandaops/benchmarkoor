@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, getIndexAggregatedStats, ALL_INDEX_STEP_TYPES } from '@/api/types'
+import { getClientChartColor } from '@/utils/client-colors'
 
 export type XAxisMode = 'time' | 'runCount'
 
@@ -25,16 +26,6 @@ interface DataPoint {
   image: string
 }
 
-const CLIENT_COLORS: Record<string, string> = {
-  geth: '#3b82f6',
-  reth: '#f97316',
-  nethermind: '#a855f7',
-  besu: '#22c55e',
-  erigon: '#ef4444',
-  nimbus: '#eab308',
-}
-
-const DEFAULT_COLOR = '#6b7280'
 
 function capitalizeFirst(str: string): string {
   if (!str) return str
@@ -128,7 +119,7 @@ export function DurationChart({
       },
       sampling: isLargeDataset ? ('lttb' as const) : undefined,
       itemStyle: {
-        color: CLIENT_COLORS[client] ?? DEFAULT_COLOR,
+        color: getClientChartColor(client),
       },
       emphasis: {
         itemStyle: {
