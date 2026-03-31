@@ -10,7 +10,7 @@ import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } f
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
-import { parseLabelFilters, serializeLabelFilters, type LabelFilter } from '@/components/runs/labelFilterUtils'
+import { parseLabelFilters, serializeLabelFilters, type LabelFilters } from '@/components/runs/labelFilterUtils'
 import { Pagination } from '@/components/shared/Pagination'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -114,8 +114,9 @@ export function RunsPage() {
       if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
       if (status === 'timeout' && e.status !== 'timeout') return false
       if (status === 'cancelled' && e.status !== 'cancelled') return false
-      for (const lf of labelFilters) {
-        if (e.metadata?.[lf.key] !== lf.value) return false
+      for (const [key, allowedValues] of labelFilters) {
+        const actual = e.metadata?.[key]
+        if (!actual || !allowedValues.has(actual)) return false
       }
       return true
     })
@@ -172,7 +173,7 @@ export function RunsPage() {
     navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps: stepsParam, labels } })
   }
 
-  const handleLabelFiltersChange = (newFilters: LabelFilter[]) => {
+  const handleLabelFiltersChange = (newFilters: LabelFilters) => {
     setLocalPage(1)
     navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels: serializeLabelFilters(newFilters) } })
   }

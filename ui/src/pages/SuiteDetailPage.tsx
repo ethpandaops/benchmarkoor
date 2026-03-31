@@ -19,7 +19,7 @@ import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
-import { parseLabelFilters, serializeLabelFilters, type LabelFilter } from '@/components/runs/labelFilterUtils'
+import { parseLabelFilters, serializeLabelFilters, type LabelFilters } from '@/components/runs/labelFilterUtils'
 import { LoadingState, Spinner } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
@@ -245,8 +245,9 @@ export function SuiteDetailPage() {
       if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
       if (status === 'timeout' && e.status !== 'timeout') return false
       if (status === 'cancelled' && e.status !== 'cancelled') return false
-      for (const lf of labelFilters) {
-        if (e.metadata?.[lf.key] !== lf.value) return false
+      for (const [key, allowedValues] of labelFilters) {
+        const actual = e.metadata?.[key]
+        if (!actual || !allowedValues.has(actual)) return false
       }
       return true
     })
@@ -288,7 +289,7 @@ export function SuiteDetailPage() {
     })
   }
 
-  const handleLabelFiltersChange = (newFilters: LabelFilter[]) => {
+  const handleLabelFiltersChange = (newFilters: LabelFilters) => {
     setRunsPage(1)
     navigate({
       to: '/suites/$suiteHash',
