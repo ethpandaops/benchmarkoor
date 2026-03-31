@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { Table } from 'lucide-react'
 import type { SuiteTest, AggregatedStats, BlockLogs, BlockLogEntry } from '@/api/types'
@@ -387,14 +388,26 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                       : undefined
                     return (
                       <td key={RUN_SLOTS[i].label} className="whitespace-nowrap px-4 py-2 text-right text-sm/6">
-                        <div className={isRef ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
-                          {val !== undefined ? activeMetric.format(val) : '-'}
-                        </div>
-                        {diff !== undefined && !isRef && refValue! > 0 && (
-                          <div className="text-xs/4" style={{ color: getDiffColor(diff, refValue!) }}>
-                            {diff >= 0 ? '+' : '-'}{activeMetric.format(Math.abs(diff))}
-                            {' '}({diff >= 0 ? '+' : '-'}{((Math.abs(diff) / refValue!) * 100).toFixed(1)}%)
-                          </div>
+                        {val !== undefined ? (
+                          <Link
+                            to="/runs/$runId"
+                            params={{ runId: runs[i].runId }}
+                            search={{ testModal: test.name }}
+                            target="_blank"
+                            className="block hover:underline"
+                          >
+                            <div className={isRef ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
+                              {activeMetric.format(val)}
+                            </div>
+                            {diff !== undefined && !isRef && refValue! > 0 && (
+                              <div className="text-xs/4" style={{ color: getDiffColor(diff, refValue!) }}>
+                                {diff >= 0 ? '+' : '-'}{activeMetric.format(Math.abs(diff))}
+                                {' '}({diff >= 0 ? '+' : '-'}{((Math.abs(diff) / refValue!) * 100).toFixed(1)}%)
+                              </div>
+                            )}
+                          </Link>
+                        ) : (
+                          <div className="text-gray-500 dark:text-gray-400">-</div>
                         )}
                       </td>
                     )
