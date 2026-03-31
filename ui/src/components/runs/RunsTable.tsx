@@ -1,3 +1,4 @@
+import { Fragment, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, getIndexAggregatedStats } from '@/api/types'
@@ -7,6 +8,7 @@ import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { StrategyIcon } from '@/components/shared/StrategyIcon'
+import { Tag } from 'lucide-react'
 import { formatTimestampDate, formatTimestampTime, formatRelativeTime } from '@/utils/date'
 import { formatDuration, formatNumber } from '@/utils/format'
 import { type SortColumn, type SortDirection } from './sortEntries'
@@ -113,6 +115,17 @@ export function RunsTable({
   onSelectionChange,
   selectionVariant = 'compare',
 }: RunsTableProps) {
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+
+  const toggleExpanded = (runId: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(runId)) next.delete(runId)
+      else next.add(runId)
+      return next
+    })
+  }
+
   const handleSort = (column: SortColumn) => {
     if (onSortChange) {
       const newDirection = sortBy === column && sortDir === 'desc' ? 'asc' : 'desc'
@@ -135,14 +148,19 @@ export function RunsTable({
             <SortableHeader label="F" column="failed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-1.5 py-2 sm:px-2 sm:py-2" />
             <SortableHeader label="P" column="passed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-1.5 py-2 sm:px-2 sm:py-2" />
             <SortableHeader label="T" column="total" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-1.5 py-2 sm:px-2 sm:py-2" />
+            <th className="w-8 px-1 py-2" />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
           {entries.map((entry) => {
             const hasFailures = entry.status !== 'container_died' && entry.status !== 'cancelled' && entry.status !== 'timeout' && entry.tests.tests_total - entry.tests.tests_passed > 0
+            const entryLabels = entry.metadata
+              ? Object.entries(entry.metadata).filter(([k]) => !k.startsWith('github.') && k !== 'name')
+              : []
+            const colSpan = (selectable ? 1 : 0) + 3 + (showSuite ? 1 : 0) + 6
             return (
+            <Fragment key={entry.run_id}>
             <tr
-              key={entry.run_id}
               onClick={selectable ? () => onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id)) : undefined}
               className={clsx(
                 'group relative cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
@@ -252,7 +270,53 @@ export function RunsTable({
                   </>
                 )
               })()}
+              <td className="relative z-10 px-1 py-2 text-center">
+                {entryLabels.length > 0 && (
+                  <div className="group/tag relative inline-block">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleExpanded(entry.run_id) }}
+                      className={clsx(
+                        'rounded-xs p-0.5 transition-colors',
+                        expandedRows.has(entry.run_id)
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300',
+                      )}
+                    >
+                      <Tag className="size-3.5" />
+                    </button>
+                    <div className="pointer-events-none absolute right-0 bottom-full z-50 mb-1 hidden w-max max-w-xs rounded-sm bg-white px-3 py-2 text-xs/5 shadow-lg ring-1 ring-gray-200 group-hover/tag:block dark:bg-gray-800 dark:ring-gray-700">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-gray-400 dark:text-gray-500">ID: {entry.instance.id}</span>
+                        {entryLabels.map(([k, v]) => (
+                          <span key={k} className="inline-flex items-center gap-1 rounded-xs border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-xs/4 font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                            <span className="font-semibold">{k}</span>={v}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </td>
             </tr>
+            {entryLabels.length > 0 && expandedRows.has(entry.run_id) && (
+              <tr>
+                <td colSpan={colSpan} className="bg-gray-50/50 px-3 py-1.5 sm:px-4 dark:bg-gray-900/30">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <span className="text-xs/4 text-gray-400 dark:text-gray-500">
+                      ID: {entry.instance.id}
+                    </span>
+                    {entryLabels.map(([k, v]) => (
+                      <span key={k} className="inline-flex items-center gap-1 rounded-xs border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-xs/4 font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                        <span className="font-semibold">{k}</span>
+                        <span>=</span>
+                        <span>{v}</span>
+                      </span>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            )}
+            </Fragment>
           )})}
         </tbody>
       </table>
