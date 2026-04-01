@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { fetchText } from '@/api/client'
+import { fetchText, fetchHead, fetchPartialText } from '@/api/client'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useSuite } from '@/api/hooks/useSuite'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -365,6 +365,40 @@ const VirtualLineRow = memo(function VirtualLineRow({
   )
 })
 
+const MAX_FULL_LOAD = 10 * 1024 * 1024 // 10MB — load whole file below this (chunked above)
+const CHUNK_SIZE = 10 * 1024 * 1024 // 10MB per chunk
+
+function LoadMoreSentinel({ loading, onVisible }: { loading: boolean; onVisible: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const onVisibleRef = useRef(onVisible)
+
+  useEffect(() => {
+    onVisibleRef.current = onVisible
+  }, [onVisible])
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) onVisibleRef.current() },
+      { threshold: 0 },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div ref={ref} className="flex justify-center py-3">
+      {loading && (
+        <div className="flex items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">
+          <div className="size-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600" />
+          Loading more...
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function FileViewerPage() {
   const { runId } = useParams({ from: '/runs/$runId/fileviewer' })
   const navigate = useNavigate()
@@ -379,23 +413,95 @@ export function FileViewerPage() {
   const { data: config } = useRunConfig(runId)
   const { data: suite } = useSuite(config?.suite_hash ?? '')
 
-  const {
-    data: fileContent,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ['run', runId, 'file', filename],
-    queryFn: async () => {
-      const basePath = search.base ?? `runs/${runId}`
-      const { data, status } = await fetchText(`${basePath}/${filename}`)
-      if (!data) {
-        throw new Error(`Failed to fetch log: ${status}`)
-      }
-      return data
-    },
+  const filePath = useMemo(() => {
+    const basePath = search.base ?? `runs/${runId}`
+    return `${basePath}/${filename}`
+  }, [search.base, runId, filename])
+
+  // Step 1: HEAD to get file size
+  const { data: headResult, isLoading: headLoading } = useQuery({
+    queryKey: ['fileviewer-head', filePath],
+    queryFn: () => fetchHead(filePath),
     enabled: !!runId && !!filename,
   })
+
+  const totalSize = headResult?.exists && headResult.size !== null ? headResult.size : null
+  const isLargeFile = totalSize !== null && totalSize > MAX_FULL_LOAD
+
+  // Step 2a: Small files — load fully
+  const { data: fullContent, isLoading: fullLoading, error: fullError } = useQuery({
+    queryKey: ['fileviewer-full', filePath],
+    queryFn: async () => {
+      const { data, status } = await fetchText(filePath, { cacheBust: false })
+      if (!data) throw new Error(`Failed to fetch file: ${status}`)
+      return data
+    },
+    enabled: !!runId && !!filename && headResult !== undefined && !isLargeFile,
+  })
+
+  // Step 2b: Large files — chunk-based loading from the start
+  const [chunks, setChunks] = useState<string[]>([])
+  const [loadedBytes, setLoadedBytes] = useState(0) // how many bytes loaded so far
+  const [chunkLoading, setChunkLoading] = useState(false)
+  const hasMoreChunks = isLargeFile && totalSize !== null && loadedBytes < totalSize
+
+  // Reset chunks when file changes
+  useEffect(() => {
+    setChunks([])
+    setLoadedBytes(0)
+  }, [filePath])
+
+  // Load initial chunk for large files
+  useEffect(() => {
+    if (!isLargeFile || totalSize === null || chunks.length > 0 || chunkLoading) return
+    setChunkLoading(true)
+    const size = Math.min(CHUNK_SIZE, totalSize)
+    fetchPartialText(filePath, size, 0).then(({ data }) => {
+      if (!data) { setChunkLoading(false); return }
+      // Drop the last partial line (save the byte count before trimming)
+      const lastNl = data.lastIndexOf('\n')
+      const text = lastNl >= 0 ? data.slice(0, lastNl) : data
+      const bytesConsumed = lastNl >= 0 ? lastNl + 1 : data.length
+      setChunks([text])
+      setLoadedBytes(bytesConsumed)
+      setChunkLoading(false)
+    })
+  }, [isLargeFile, totalSize, filePath, chunks.length, chunkLoading])
+
+  const loadNextChunk = useCallback(() => {
+    if (!isLargeFile || totalSize === null || loadedBytes >= totalSize || chunkLoading) return
+    setChunkLoading(true)
+    const size = Math.min(CHUNK_SIZE, totalSize - loadedBytes)
+    fetchPartialText(filePath, size, loadedBytes).then(({ data }) => {
+      if (!data) { setChunkLoading(false); return }
+      // Drop the last partial line unless we reached the end
+      const atEnd = loadedBytes + size >= totalSize
+      let text = data
+      let bytesConsumed = data.length
+      if (!atEnd) {
+        const lastNl = data.lastIndexOf('\n')
+        if (lastNl >= 0) {
+          text = data.slice(0, lastNl)
+          bytesConsumed = lastNl + 1
+        }
+      }
+      setChunks((prev) => [...prev, text])
+      setLoadedBytes((prev) => prev + bytesConsumed)
+      setChunkLoading(false)
+    })
+  }, [isLargeFile, totalSize, loadedBytes, chunkLoading, filePath])
+
+  const isLoading = headLoading || fullLoading || (isLargeFile && chunks.length === 0 && chunkLoading)
+  const error = fullError
+
+  const fileContent = isLargeFile
+    ? (chunks.length > 0 ? chunks.join('\n') : undefined)
+    : fullContent
+
+  const refetch = useCallback(() => {
+    setChunks([])
+    setLoadedBytes(0)
+  }, [])
 
   const lines = useMemo(() => fileContent?.split('\n') ?? [], [fileContent])
   const useAnsi = useMemo(() => fileContent ? hasAnsiCodes(fileContent) : false, [fileContent])
@@ -547,6 +653,11 @@ export function FileViewerPage() {
             <DownloadButton content={fileContent} filename={filename} />
           </div>
         </div>
+        {isLargeFile && totalSize !== null && (
+          <div className="border-b border-blue-200 bg-blue-50 px-4 py-1.5 text-xs/5 text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+            Large file ({(totalSize / 1024 / 1024).toFixed(1)} MB) — loaded {(loadedBytes / 1024 / 1024).toFixed(1)} MB ({lines.length} lines)
+          </div>
+        )}
         <div ref={scrollContainerRef} className="max-h-[80vh] overflow-auto">
           <div
             className="relative w-full"
@@ -577,6 +688,9 @@ export function FileViewerPage() {
               )
             })}
           </div>
+          {hasMoreChunks && (
+            <LoadMoreSentinel loading={chunkLoading} onVisible={loadNextChunk} />
+          )}
         </div>
       </div>
     </div>
