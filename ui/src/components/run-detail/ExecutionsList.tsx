@@ -1,9 +1,11 @@
 import { useState, useCallback, useEffect } from 'react'
 import clsx from 'clsx'
+import { useQuery } from '@tanstack/react-query'
 import { ChevronRight } from 'lucide-react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useTestRequests, useTestResponses, useTestResultDetails, useTestRequestSummaries, type StepType } from '@/api/hooks/useTestDetails'
+import { useTestRequests, useTestResponses, useTestResultDetails, useTestRequestSummaries, useTestResponseSummaries, type StepType } from '@/api/hooks/useTestDetails'
+import { fetchPartialText } from '@/api/client'
 import { Duration } from '@/components/shared/Duration'
 
 function useDarkMode() {
@@ -90,17 +92,33 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+interface LazyLineInfo {
+  /** Full path to the file (e.g. "suites/{hash}/{test}/setup.request") */
+  filePath: string
+  /** Byte offset of this line within the file */
+  byteOffset: number
+  /** Byte size of this line */
+  byteSize: number
+}
+
 interface ExecutionRowProps {
   index: number
   request?: string
   requestSize?: number
   /** Method name from partial fetch (used when full request is unavailable). */
   methodName?: string
+  /** Info for lazy-loading request content on expand (when full file was too large). */
+  requestLineInfo?: LazyLineInfo
   response?: string
+  responseSize?: number
   time?: number
   status?: number // 0=success, 1=fail
   mgasPerSec?: number
   gasUsed?: number
+  /** File viewer link for the response file at this line. */
+  responseViewerUrl?: string
+  /** File viewer link for the request file at this line. */
+  requestViewerUrl?: string
 }
 
 function StatusIndicator({ status }: { status?: number }) {
@@ -122,10 +140,26 @@ function StatusIndicator({ status }: { status?: number }) {
   )
 }
 
-function ExecutionRow({ index, request, requestSize, methodName, response, time, status, mgasPerSec, gasUsed }: ExecutionRowProps) {
+const MAX_LAZY_LINE_SIZE = 1_000_000 // 1MB — lazy-load lines up to this size
+
+function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, responseViewerUrl, requestViewerUrl }: ExecutionRowProps) {
   const [expanded, setExpanded] = useState(false)
   const method = request ? parseMethod(request) : methodName
-  const canExpand = !!request || !!response
+
+  // Lazy-load request content for lines that are small enough but weren't in the full fetch
+  const canLazyLoad = !request && !!requestLineInfo && requestLineInfo.byteSize <= MAX_LAZY_LINE_SIZE
+  const { data: lazyRequest } = useQuery({
+    queryKey: ['lazy-line', requestLineInfo?.filePath, requestLineInfo?.byteOffset, requestLineInfo?.byteSize],
+    queryFn: async () => {
+      if (!requestLineInfo) return null
+      const { data } = await fetchPartialText(requestLineInfo.filePath, requestLineInfo.byteSize, requestLineInfo.byteOffset)
+      return data
+    },
+    enabled: expanded && canLazyLoad,
+  })
+
+  const effectiveRequest = request ?? lazyRequest ?? undefined
+  const canExpand = !!effectiveRequest || !!response || !!responseViewerUrl || !!requestViewerUrl || canLazyLoad
 
   return (
     <div className="max-w-full overflow-hidden border-b border-gray-200 last:border-b-0 dark:border-gray-700">
@@ -154,15 +188,19 @@ function ExecutionRow({ index, request, requestSize, methodName, response, time,
             )}
           </span>
         )}
-        {(requestSize !== undefined || request || response) && (
+        {(requestSize !== undefined || request || responseSize !== undefined || response) && (
           <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500">
             {(requestSize !== undefined || request) && (
               <span title="Request size">
                 {formatBytes(requestSize ?? new Blob([request!]).size)}
               </span>
             )}
-            {(requestSize !== undefined || request) && response && ' / '}
-            {response && <span title="Response size">{formatBytes(new Blob([response]).size)}</span>}
+            {(requestSize !== undefined || request) && (responseSize !== undefined || response) && ' / '}
+            {(responseSize !== undefined || response) && (
+              <span title="Response size">
+                {formatBytes(responseSize ?? new Blob([response!]).size)}
+              </span>
+            )}
           </span>
         )}
         {time !== undefined && (
@@ -176,16 +214,45 @@ function ExecutionRow({ index, request, requestSize, methodName, response, time,
       {expanded && (
         <div className="bg-gray-50 px-4 py-3 dark:bg-gray-900/50">
           <div className="flex flex-col gap-3">
-            {request && (
+            {effectiveRequest && (
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <h5 className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                     Request
                   </h5>
-                  <CopyButton text={formatJson(request)} />
+                  <CopyButton text={formatJson(effectiveRequest)} />
                 </div>
                 <div className="w-0 min-w-full overflow-x-auto rounded-xs bg-gray-100 dark:bg-gray-800">
-                  <JsonBlock code={formatJson(request)} />
+                  <JsonBlock code={formatJson(effectiveRequest)} />
+                </div>
+              </div>
+            )}
+            {!effectiveRequest && canLazyLoad && expanded && (
+              <div>
+                <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Request
+                </h5>
+                <div className="flex items-center gap-2 py-2 text-sm/6 text-gray-500 dark:text-gray-400">
+                  <div className="size-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600" />
+                  Loading...
+                </div>
+              </div>
+            )}
+            {!effectiveRequest && !canLazyLoad && requestViewerUrl && (
+              <div>
+                <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Request
+                </h5>
+                <div className="rounded-xs bg-gray-100 px-3 py-2 text-sm/6 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                  This file is too large to display here{requestSize !== undefined ? ` (${formatBytes(requestSize)})` : ''}.{' '}
+                  <a
+                    href={requestViewerUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    View request in file viewer →
+                  </a>
                 </div>
               </div>
             )}
@@ -199,6 +266,24 @@ function ExecutionRow({ index, request, requestSize, methodName, response, time,
                 </div>
                 <div className="w-0 min-w-full overflow-x-auto rounded-xs bg-gray-100 dark:bg-gray-800">
                   <JsonBlock code={formatJson(response)} />
+                </div>
+              </div>
+            )}
+            {!response && responseViewerUrl && (
+              <div>
+                <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Response
+                </h5>
+                <div className="rounded-xs bg-gray-100 px-3 py-2 text-sm/6 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                  This file is too large to display here{responseSize !== undefined ? ` (${formatBytes(responseSize)})` : ''}.{' '}
+                  <a
+                    href={responseViewerUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    View response in file viewer →
+                  </a>
                 </div>
               </div>
             )}
@@ -216,7 +301,22 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType }: Executi
   const { data: responses, error: responsesError } = useTestResponses(runId, testName, stepType)
   const { data: resultDetails, isLoading: detailsLoading, error: detailsError } = useTestResultDetails(runId, testName, stepType)
   const { data: requestSummaries } = useTestRequestSummaries(suiteHash, testName, stepType)
+  const { data: responseSummaries } = useTestResponseSummaries(runId, testName, stepType)
   const [page, setPage] = useState(1)
+
+  // Compute byte offsets for each request line (for lazy Range fetches)
+  const requestFilePath = `suites/${suiteHash}/${testName}/${stepType}.request`
+  const requestByteOffsets = requestSummaries
+    ? (() => {
+        const offsets: number[] = []
+        let offset = 0
+        for (const s of requestSummaries) {
+          offsets.push(offset)
+          offset += s.size + 1 // +1 for the newline
+        }
+        return offsets
+      })()
+    : undefined
 
   // Treat response/detail fetch errors as missing data (not all steps have responses)
   const safeRequests = requestsError ? undefined : requests
@@ -280,11 +380,21 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType }: Executi
               request={safeRequests?.[index]}
               requestSize={requestSummaries?.[index]?.size}
               methodName={requestSummaries?.[index]?.head.match(/"method"\s*:\s*"([^"]+)"/)?.[1]}
+              requestLineInfo={!safeRequests?.[index] && requestSummaries?.[index] && requestByteOffsets
+                ? { filePath: requestFilePath, byteOffset: requestByteOffsets[index], byteSize: requestSummaries[index].size }
+                : undefined}
               response={safeResponses?.[index]}
+              responseSize={responseSummaries?.[index]?.size}
               time={safeDetails?.duration_ns[index]}
               status={safeDetails?.status[index]}
               mgasPerSec={safeDetails?.mgas_s[String(index)]}
               gasUsed={safeDetails?.gas_used[String(index)]}
+              responseViewerUrl={!safeResponses?.[index] && responseSummaries?.[index] && responseSummaries[index].size > 1_000_000
+                ? `/runs/${runId}/fileviewer?file=${encodeURIComponent(`${testName}/${stepType}.response`)}&lines=${index + 1}`
+                : undefined}
+              requestViewerUrl={!safeRequests?.[index] && requestSummaries?.[index] && requestSummaries[index].size > 1_000_000
+                ? `/runs/${runId}/fileviewer?base=${encodeURIComponent(`suites/${suiteHash}`)}&file=${encodeURIComponent(`${testName}/${stepType}.request`)}&lines=${index + 1}`
+                : undefined}
             />
           )
         })}

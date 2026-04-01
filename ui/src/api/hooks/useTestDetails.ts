@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchText, fetchData, fetchHead, fetchLineSummaries } from '../client'
 import type { AggregatedStats, ResultDetails } from '../types'
 
-const MAX_REQUEST_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+const MAX_INLINE_FILE_SIZE = 50 * 1024 * 1024 // 50MB — skip full fetch above this
 
 // Step types for test execution
 export type StepType = 'setup' | 'test' | 'cleanup' | 'pre_run'
@@ -31,11 +31,33 @@ export function useTestResponses(runId: string, testName: string, stepType: Step
   return useQuery({
     queryKey: ['run', runId, 'test', testName, 'step', stepType, 'responses'],
     queryFn: async () => {
+      const head = await fetchHead(path)
+      if (head.exists && head.size !== null && head.size > MAX_INLINE_FILE_SIZE) {
+        return null
+      }
+
       const { data, status } = await fetchText(path)
       if (!data) {
         throw new Error(`Failed to fetch responses: ${status}`)
       }
       return data.trim().split('\n')
+    },
+    enabled: !!runId && !!testName,
+  })
+}
+
+/** Stream response file for per-line summaries (works for any file size). */
+export function useTestResponseSummaries(runId: string, testName: string, stepType: StepType) {
+  const path = `runs/${runId}/${testName}/${stepType}.response`
+
+  return useQuery({
+    queryKey: ['run', runId, 'test', testName, 'step', stepType, 'response-summaries'],
+    queryFn: async () => {
+      const { data, status } = await fetchLineSummaries(path)
+      if (!data) {
+        throw new Error(`Failed to stream response file: ${status}`)
+      }
+      return data
     },
     enabled: !!runId && !!testName,
   })
@@ -65,13 +87,10 @@ export function useTestRequests(suiteHash: string, testName: string, stepType: S
   return useQuery({
     queryKey: ['suite', suiteHash, 'test', testName, 'step', stepType, 'requests'],
     queryFn: async () => {
-      // Check file size first to avoid crashing on huge request files
+      // Skip full fetch for very large files — streaming summaries handle the rest
       const head = await fetchHead(path)
-      if (head.exists && head.size !== null && head.size > MAX_REQUEST_FILE_SIZE) {
-        throw new Error(
-          `Request file too large (${(head.size / 1024 / 1024).toFixed(0)}MB). ` +
-          `Execution details cannot be displayed.`,
-        )
+      if (head.exists && head.size !== null && head.size > MAX_INLINE_FILE_SIZE) {
+        return null
       }
 
       const { data, status } = await fetchText(path)

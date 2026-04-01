@@ -15,10 +15,10 @@ import { JDenticon } from '@/components/shared/JDenticon'
 const ESTIMATED_LINE_HEIGHT = 20
 const SYNTAX_HIGHLIGHT_LINE_LIMIT = 5_000
 
-function parseLineSelection(linesParam: string | undefined): Set<number> {
-  if (!linesParam) return new Set()
+function parseLineSelection(linesParam: string | number | undefined): Set<number> {
+  if (linesParam === undefined || linesParam === null) return new Set()
   const selected = new Set<number>()
-  const parts = linesParam.split(',')
+  const parts = String(linesParam).split(',')
   for (const part of parts) {
     if (part.includes('-')) {
       const [start, end] = part.split('-').map(Number)
@@ -368,7 +368,7 @@ const VirtualLineRow = memo(function VirtualLineRow({
 export function FileViewerPage() {
   const { runId } = useParams({ from: '/runs/$runId/fileviewer' })
   const navigate = useNavigate()
-  const search = useSearch({ from: '/runs/$runId/fileviewer' }) as { file?: string; lines?: string }
+  const search = useSearch({ from: '/runs/$runId/fileviewer' }) as { file?: string; lines?: string; base?: string }
   const filename = search.file
   const selectedLines = parseLineSelection(search.lines)
 
@@ -387,7 +387,8 @@ export function FileViewerPage() {
   } = useQuery({
     queryKey: ['run', runId, 'file', filename],
     queryFn: async () => {
-      const { data, status } = await fetchText(`runs/${runId}/${filename}`)
+      const basePath = search.base ?? `runs/${runId}`
+      const { data, status } = await fetchText(`${basePath}/${filename}`)
       if (!data) {
         throw new Error(`Failed to fetch log: ${status}`)
       }

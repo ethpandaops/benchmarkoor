@@ -153,16 +153,16 @@ export async function fetchText(path: string): Promise<FetchResult<string>> {
 }
 
 /**
- * Fetch only the first `bytes` of a text file (using Range header).
+ * Fetch a byte range of a text file (using Range header).
  * Falls back to a full fetch + truncation if the server doesn't support Range.
  */
-export async function fetchPartialText(path: string, bytes: number): Promise<FetchResult<string>> {
+export async function fetchPartialText(path: string, bytes: number, offset = 0): Promise<FetchResult<string>> {
   const config = await loadRuntimeConfig()
   const url = getDataUrl(path, config)
 
   let response: Response
 
-  const headers: HeadersInit = { Range: `bytes=0-${bytes - 1}` }
+  const headers: HeadersInit = { Range: `bytes=${offset}-${offset + bytes - 1}` }
 
   if (isS3Mode(config)) {
     response = await fetchViaS3(url)
