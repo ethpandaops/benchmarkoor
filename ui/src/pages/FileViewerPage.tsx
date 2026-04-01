@@ -491,6 +491,9 @@ export function FileViewerPage() {
     })
   }, [isLargeFile, totalSize, loadedBytes, chunkLoading, filePath])
 
+  // Auto-load chunks until the target selected line is available
+  const targetLine = selectedLines.size > 0 ? Math.max(...selectedLines) : 0
+
   const isLoading = headLoading || fullLoading || (isLargeFile && chunks.length === 0 && chunkLoading)
   const error = fullError
 
@@ -504,6 +507,14 @@ export function FileViewerPage() {
   }, [])
 
   const lines = useMemo(() => fileContent?.split('\n') ?? [], [fileContent])
+
+  // Keep loading chunks until the target line from the URL is reachable
+  useEffect(() => {
+    if (!isLargeFile || !hasMoreChunks || chunkLoading || targetLine === 0) return
+    if (lines.length < targetLine) {
+      loadNextChunk()
+    }
+  }, [isLargeFile, hasMoreChunks, chunkLoading, targetLine, lines.length, loadNextChunk])
   const useAnsi = useMemo(() => fileContent ? hasAnsiCodes(fileContent) : false, [fileContent])
   const language = useMemo(() => fileContent ? detectLanguage(fileContent) : 'bash', [fileContent])
   const useSyntax = useMemo(() => !useAnsi && lines.length <= SYNTAX_HIGHLIGHT_LINE_LIMIT, [useAnsi, lines.length])
@@ -569,12 +580,15 @@ export function FileViewerPage() {
     [selectedLines, lastClickedLine, updateSelectedLines]
   )
 
-  // Scroll to first selected line on initial load
+  // Scroll to first selected line once it's available
   useEffect(() => {
     if (lines.length > 0 && selectedLines.size > 0 && !hasScrolledRef.current) {
       const firstLine = Math.min(...selectedLines)
-      virtualizer.scrollToIndex(firstLine - 1, { align: 'center' })
-      hasScrolledRef.current = true
+      // Wait until the target line is loaded before scrolling
+      if (firstLine <= lines.length) {
+        virtualizer.scrollToIndex(firstLine - 1, { align: 'center' })
+        hasScrolledRef.current = true
+      }
     }
   }, [lines.length, selectedLines, virtualizer])
 
@@ -654,8 +668,14 @@ export function FileViewerPage() {
           </div>
         </div>
         {isLargeFile && totalSize !== null && (
-          <div className="border-b border-blue-200 bg-blue-50 px-4 py-1.5 text-xs/5 text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
-            Large file ({(totalSize / 1024 / 1024).toFixed(1)} MB) — loaded {(loadedBytes / 1024 / 1024).toFixed(1)} MB ({lines.length} lines)
+          <div className="flex items-center gap-2 border-b border-blue-200 bg-blue-50 px-4 py-1.5 text-xs/5 text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+            {chunkLoading && (
+              <div className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-blue-300 border-t-blue-600" />
+            )}
+            <span>
+              Large file ({(totalSize / 1024 / 1024).toFixed(1)} MB) — loaded {(loadedBytes / 1024 / 1024).toFixed(1)} MB ({lines.length} lines)
+              {chunkLoading && targetLine > lines.length && ` — loading to line ${targetLine}...`}
+            </span>
           </div>
         )}
         <div ref={scrollContainerRef} className="max-h-[80vh] overflow-auto">
