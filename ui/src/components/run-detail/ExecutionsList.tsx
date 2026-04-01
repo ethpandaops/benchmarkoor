@@ -159,6 +159,8 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
   })
 
   const effectiveRequest = request ?? lazyRequest ?? undefined
+  const effectiveRequestSize = requestSize ?? (request ? new Blob([request]).size : undefined)
+  const effectiveResponseSize = responseSize ?? (response ? new Blob([response]).size : undefined)
   const canExpand = !!effectiveRequest || !!response || !!responseViewerUrl || !!requestViewerUrl || canLazyLoad
 
   return (
@@ -177,7 +179,11 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
           <span className="size-4 shrink-0" />
         )}
         <span className="w-10 shrink-0 font-mono text-sm/6 text-gray-500 dark:text-gray-400">#{index}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-sm/6 text-gray-900 dark:text-gray-100">{method ?? '-'}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+          {method ?? (requestSize === undefined
+            ? <span className="inline-block size-3 animate-spin rounded-full border border-gray-300 border-t-gray-600" />
+            : '-')}
+        </span>
         {mgasPerSec !== undefined && (
           <span className="shrink-0 text-sm/6 font-medium text-blue-600 dark:text-blue-400">
             {mgasPerSec.toFixed(2)} MGas/s
@@ -188,21 +194,23 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
             )}
           </span>
         )}
-        {(requestSize !== undefined || request || responseSize !== undefined || response) && (
-          <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500">
-            {(requestSize !== undefined || request) && (
-              <span title="Request size">
-                {formatBytes(requestSize ?? new Blob([request!]).size)}
-              </span>
-            )}
-            {(requestSize !== undefined || request) && (responseSize !== undefined || response) && ' / '}
-            {(responseSize !== undefined || response) && (
-              <span title="Response size">
-                {formatBytes(responseSize ?? new Blob([response!]).size)}
-              </span>
-            )}
-          </span>
-        )}
+        <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500">
+          {requestSize !== undefined || request ? (
+            <span title="Request size">
+              {formatBytes(requestSize ?? new Blob([request!]).size)}
+            </span>
+          ) : (
+            <span className="inline-block size-2.5 animate-spin rounded-full border border-gray-300 border-t-gray-500" />
+          )}
+          {' / '}
+          {responseSize !== undefined || response ? (
+            <span title="Response size">
+              {formatBytes(responseSize ?? new Blob([response!]).size)}
+            </span>
+          ) : (
+            <span className="inline-block size-2.5 animate-spin rounded-full border border-gray-300 border-t-gray-500" />
+          )}
+        </span>
         {time !== undefined && (
           <span className="shrink-0 text-sm/6 text-gray-500 dark:text-gray-400">
             <Duration nanoseconds={time} />
@@ -218,7 +226,7 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <h5 className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                    Request
+                    Request{effectiveRequestSize !== undefined && <span className="ml-1 normal-case tracking-normal">({formatBytes(effectiveRequestSize)})</span>}
                   </h5>
                   <CopyButton text={formatJson(effectiveRequest)} />
                 </div>
@@ -241,10 +249,10 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
             {!effectiveRequest && !canLazyLoad && requestViewerUrl && (
               <div>
                 <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  Request
+                  Request{effectiveRequestSize !== undefined && <span className="ml-1 normal-case tracking-normal">({formatBytes(effectiveRequestSize)})</span>}
                 </h5>
                 <div className="rounded-xs bg-gray-100 px-3 py-2 text-sm/6 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                  This file is too large to display here{requestSize !== undefined ? ` (${formatBytes(requestSize)})` : ''}.{' '}
+                  This file is too large to display here.{' '}
                   <a
                     href={requestViewerUrl}
                     target="_blank"
@@ -260,7 +268,7 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <h5 className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                    Response
+                    Response{effectiveResponseSize !== undefined && <span className="ml-1 normal-case tracking-normal">({formatBytes(effectiveResponseSize)})</span>}
                   </h5>
                   <CopyButton text={formatJson(response)} />
                 </div>
@@ -272,10 +280,10 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
             {!response && responseViewerUrl && (
               <div>
                 <h5 className="mb-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  Response
+                  Response{effectiveResponseSize !== undefined && <span className="ml-1 normal-case tracking-normal">({formatBytes(effectiveResponseSize)})</span>}
                 </h5>
                 <div className="rounded-xs bg-gray-100 px-3 py-2 text-sm/6 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                  This file is too large to display here{responseSize !== undefined ? ` (${formatBytes(responseSize)})` : ''}.{' '}
+                  This file is too large to display here.{' '}
                   <a
                     href={responseViewerUrl}
                     target="_blank"

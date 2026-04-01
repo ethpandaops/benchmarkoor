@@ -1,5 +1,6 @@
+import { useEffect, useReducer } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchText, fetchData, fetchHead, fetchLineSummaries } from '../client'
+import { fetchText, fetchData, fetchHead, streamLineSummaries, type LineSummary } from '../client'
 import type { AggregatedStats, ResultDetails } from '../types'
 
 const MAX_INLINE_FILE_SIZE = 50 * 1024 * 1024 // 50MB — skip full fetch above this
@@ -36,7 +37,7 @@ export function useTestResponses(runId: string, testName: string, stepType: Step
         return null
       }
 
-      const { data, status } = await fetchText(path)
+      const { data, status } = await fetchText(path, { cacheBust: false })
       if (!data) {
         throw new Error(`Failed to fetch responses: ${status}`)
       }
@@ -46,21 +47,59 @@ export function useTestResponses(runId: string, testName: string, stepType: Step
   })
 }
 
-/** Stream response file for per-line summaries (works for any file size). */
+/** Stream response file and return per-line summaries progressively. */
 export function useTestResponseSummaries(runId: string, testName: string, stepType: StepType) {
   const path = `runs/${runId}/${testName}/${stepType}.response`
+  return useStreamingSummaries(path, !!runId && !!testName)
+}
 
-  return useQuery({
-    queryKey: ['run', runId, 'test', testName, 'step', stepType, 'response-summaries'],
-    queryFn: async () => {
-      const { data, status } = await fetchLineSummaries(path)
-      if (!data) {
-        throw new Error(`Failed to stream response file: ${status}`)
-      }
-      return data
-    },
-    enabled: !!runId && !!testName,
-  })
+/**
+ * Progressive streaming hook — streams a newline-delimited file and
+ * updates state as each line is scanned so UI rows appear one by one.
+ */
+
+type StreamAction =
+  | { type: 'reset'; path: string }
+  | { type: 'line'; summary: LineSummary }
+  | { type: 'done' }
+
+interface StreamState {
+  data: LineSummary[] | undefined
+  isStreaming: boolean
+  path: string
+}
+
+function streamReducer(state: StreamState, action: StreamAction): StreamState {
+  switch (action.type) {
+    case 'reset':
+      return { data: undefined, isStreaming: true, path: action.path }
+    case 'line':
+      return { ...state, data: state.data ? [...state.data, action.summary] : [action.summary] }
+    case 'done':
+      return { ...state, isStreaming: false }
+  }
+}
+
+function useStreamingSummaries(path: string, enabled: boolean) {
+  const [state, dispatch] = useReducer(streamReducer, { data: undefined, isStreaming: false, path: '' })
+
+  useEffect(() => {
+    if (!enabled) return
+
+    let cancelled = false
+    dispatch({ type: 'reset', path })
+
+    streamLineSummaries(path, (summary) => {
+      if (!cancelled) dispatch({ type: 'line', summary })
+    }).finally(() => {
+      if (!cancelled) dispatch({ type: 'done' })
+    })
+
+    return () => { cancelled = true }
+  }, [path, enabled])
+
+  const current = state.path === path ? state : { data: undefined, isStreaming: enabled }
+  return { data: current.data, isStreaming: current.isStreaming }
 }
 
 export function useTestAggregated(runId: string, testName: string, stepType: StepType) {
@@ -93,7 +132,7 @@ export function useTestRequests(suiteHash: string, testName: string, stepType: S
         return null
       }
 
-      const { data, status } = await fetchText(path)
+      const { data, status } = await fetchText(path, { cacheBust: false })
       if (!data) {
         throw new Error(`Failed to fetch requests: ${status}`)
       }
@@ -104,22 +143,10 @@ export function useTestRequests(suiteHash: string, testName: string, stepType: S
 }
 
 /**
- * Stream the request file and return per-line summaries (byte size +
- * first 256 bytes for method extraction). Works for any file size since
- * the full content is never held in memory.
+ * Stream the request file and return per-line summaries progressively.
+ * Updates state as each line is scanned so early rows appear immediately.
  */
 export function useTestRequestSummaries(suiteHash: string, testName: string, stepType: StepType) {
   const path = `suites/${suiteHash}/${testName}/${stepType}.request`
-
-  return useQuery({
-    queryKey: ['suite', suiteHash, 'test', testName, 'step', stepType, 'request-summaries'],
-    queryFn: async () => {
-      const { data, status } = await fetchLineSummaries(path)
-      if (!data) {
-        throw new Error(`Failed to stream request file: ${status}`)
-      }
-      return data
-    },
-    enabled: !!suiteHash && !!testName,
-  })
+  return useStreamingSummaries(path, !!suiteHash && !!testName)
 }
