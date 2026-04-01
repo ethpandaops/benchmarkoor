@@ -151,3 +151,92 @@ export async function fetchText(path: string): Promise<FetchResult<string>> {
 
   return { data, status: response.status }
 }
+
+/**
+ * Fetch only the first `bytes` of a text file (using Range header).
+ * Falls back to a full fetch + truncation if the server doesn't support Range.
+ */
+export async function fetchPartialText(path: string, bytes: number): Promise<FetchResult<string>> {
+  const config = await loadRuntimeConfig()
+  const url = getDataUrl(path, config)
+
+  let response: Response
+
+  const headers: HeadersInit = { Range: `bytes=0-${bytes - 1}` }
+
+  if (isS3Mode(config)) {
+    response = await fetchViaS3(url)
+  } else if (isLocalMode(config)) {
+    response = await fetch(cacheBustUrl(url), { credentials: 'include', headers })
+  } else {
+    response = await fetch(cacheBustUrl(url), { headers })
+  }
+
+  if (!response.ok && response.status !== 206) {
+    return { data: null, status: response.status }
+  }
+
+  const data = await response.text()
+  return { data: data.slice(0, bytes), status: response.status }
+}
+
+export interface LineSummary {
+  size: number
+  /** First N bytes of the line (UTF-8 decoded), for extracting metadata like method names. */
+  head: string
+}
+
+/**
+ * Stream a text file and return per-line byte sizes and the first
+ * `headBytes` characters of each line. The file content is never
+ * held in memory — only the lightweight summaries are kept.
+ */
+const LINE_HEAD_BYTES = 256
+
+export async function fetchLineSummaries(path: string): Promise<FetchResult<LineSummary[]>> {
+  const config = await loadRuntimeConfig()
+  const url = getDataUrl(path, config)
+
+  let response: Response
+
+  if (isS3Mode(config)) {
+    response = await fetchViaS3(url)
+  } else if (isLocalMode(config)) {
+    response = await fetch(cacheBustUrl(url), { credentials: 'include' })
+  } else {
+    response = await fetch(cacheBustUrl(url))
+  }
+
+  if (!response.ok || !response.body) {
+    return { data: null, status: response.status }
+  }
+
+  const lines: LineSummary[] = []
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  const newline = 10 // '\n'
+  let lineSize = 0
+  const headBuf: number[] = []
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    for (let i = 0; i < value.length; i++) {
+      if (value[i] === newline) {
+        lines.push({ size: lineSize, head: decoder.decode(new Uint8Array(headBuf)) })
+        lineSize = 0
+        headBuf.length = 0
+      } else {
+        lineSize++
+        if (headBuf.length < LINE_HEAD_BYTES) headBuf.push(value[i])
+      }
+    }
+  }
+
+  // Last line (if no trailing newline)
+  if (lineSize > 0) {
+    lines.push({ size: lineSize, head: decoder.decode(new Uint8Array(headBuf)) })
+  }
+
+  return { data: lines, status: response.status }
+}
