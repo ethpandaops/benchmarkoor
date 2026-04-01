@@ -196,6 +196,9 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
             </>
           ) : ''}
         </span>
+        <span className="w-16 shrink-0 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+          {time !== undefined ? <Duration nanoseconds={time} /> : ''}
+        </span>
         <span className="w-28 shrink-0 text-right text-xs text-gray-400 dark:text-gray-500">
           {requestSize !== undefined || request ? (
             <span title="Request size">
@@ -212,9 +215,6 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
           ) : (
             <span className="inline-block size-2.5 animate-spin rounded-full border border-gray-300 border-t-gray-500" />
           )}
-        </span>
-        <span className="w-16 shrink-0 text-right text-sm/6 text-gray-500 dark:text-gray-400">
-          {time !== undefined ? <Duration nanoseconds={time} /> : ''}
         </span>
         <span className="w-12 shrink-0 text-right">
           <StatusIndicator status={status} />
