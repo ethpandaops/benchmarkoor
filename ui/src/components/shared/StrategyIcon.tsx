@@ -14,10 +14,10 @@ export function StrategyIcon({ strategy, className }: { strategy?: string; class
   switch (strategy) {
     case 'none':
       return (
-        <svg className={iconClass} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <svg className={iconClass} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <title>{tooltip}</title>
-          <circle cx="8" cy="8" r="6" />
-          <line x1="3.75" y1="12.25" x2="12.25" y2="3.75" />
+          <line x1="2" y1="8" x2="11" y2="8" />
+          <path d="M9 5l3 3-3 3" />
         </svg>
       )
     case 'rpc-debug-setHead':
