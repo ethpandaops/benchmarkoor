@@ -20,6 +20,8 @@ func (s *gethSpec) DefaultImage() string {
 
 func (s *gethSpec) DefaultCommand() []string {
 	return []string{
+		// Config file with HTTP timeout overrides.
+		"--config=/tmp/config.toml",
 		// Data directory - should always point to /data
 		"--datadir=/data",
 		// Peering / Syncing
@@ -93,5 +95,16 @@ func (s *gethSpec) RPCRollbackSpec() *RPCRollbackSpec {
 	return &RPCRollbackSpec{
 		Method:    RollbackMethodSetHeadHex,
 		RPCMethod: "debug_setHead",
+	}
+}
+
+func (s *gethSpec) DefaultConfigFiles() map[string]string {
+	return map[string]string{
+		"/tmp/config.toml": `[Node.HTTPTimeouts]
+ReadTimeout = 300000000000 # 300s
+ReadHeaderTimeout = 300000000000 # 300s
+WriteTimeout = 300000000000 # 300s
+IdleTimeout = 120000000000 # 120s
+`,
 	}
 }

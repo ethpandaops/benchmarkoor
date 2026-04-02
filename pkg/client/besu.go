@@ -99,3 +99,7 @@ func (s *besuSpec) RPCRollbackSpec() *RPCRollbackSpec {
 		RPCMethod: "debug_setHead",
 	}
 }
+
+func (s *besuSpec) DefaultConfigFiles() map[string]string {
+	return nil
+}

@@ -82,6 +82,11 @@ type Spec interface {
 	// RPCRollbackSpec returns the client's rollback RPC method and parameter format.
 	// Returns nil if the client does not support rollback.
 	RPCRollbackSpec() *RPCRollbackSpec
+
+	// DefaultConfigFiles returns config files to mount into the container.
+	// Keys are target paths inside the container, values are file contents.
+	// Returns nil if no config files are needed.
+	DefaultConfigFiles() map[string]string
 }
 
 // Registry manages client specifications.

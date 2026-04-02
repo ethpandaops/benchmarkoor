@@ -105,3 +105,7 @@ func (s *erigonSpec) DefaultEnvironment() map[string]string {
 func (s *erigonSpec) RPCRollbackSpec() *RPCRollbackSpec {
 	return nil
 }
+
+func (s *erigonSpec) DefaultConfigFiles() map[string]string {
+	return nil
+}

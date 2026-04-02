@@ -248,6 +248,21 @@ func (r *runner) runContainerLifecycle(
 		})
 	}
 
+	// Mount default config files from the client spec.
+	for target, content := range spec.DefaultConfigFiles() {
+		cfgFile := filepath.Join(tempDir, filepath.Base(target))
+		if err := os.WriteFile(cfgFile, []byte(content), 0644); err != nil {
+			return fmt.Errorf("writing config file %s: %w", target, err)
+		}
+
+		mounts = append(mounts, docker.Mount{
+			Type:     "bind",
+			Source:   cfgFile,
+			Target:   target,
+			ReadOnly: true,
+		})
+	}
+
 	// Run init container if required (skip when using datadir or no genesis).
 	if spec.RequiresInit() && !useDataDir && genesisSource != "" {
 		log.Info("Running init container")

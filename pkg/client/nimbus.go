@@ -84,3 +84,7 @@ func (s *nimbusSpec) DefaultEnvironment() map[string]string {
 func (s *nimbusSpec) RPCRollbackSpec() *RPCRollbackSpec {
 	return nil
 }
+
+func (s *nimbusSpec) DefaultConfigFiles() map[string]string {
+	return nil
+}

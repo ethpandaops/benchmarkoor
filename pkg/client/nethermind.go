@@ -96,3 +96,7 @@ func (s *nethermindSpec) RPCRollbackSpec() *RPCRollbackSpec {
 		RPCMethod: "debug_resetHead",
 	}
 }
+
+func (s *nethermindSpec) DefaultConfigFiles() map[string]string {
+	return nil
+}

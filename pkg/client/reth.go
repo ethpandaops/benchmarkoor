@@ -86,3 +86,7 @@ func (s *rethSpec) DefaultEnvironment() map[string]string {
 func (s *rethSpec) RPCRollbackSpec() *RPCRollbackSpec {
 	return nil
 }
+
+func (s *rethSpec) DefaultConfigFiles() map[string]string {
+	return nil
+}
