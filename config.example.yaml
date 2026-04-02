@@ -129,7 +129,27 @@ runner:
     #     #     cleanup:
     #     #       - "tests/cleanup/*.txt"
     #
-    #     # Option 3: EEST (Ethereum Execution Spec Tests) fixtures from GitHub releases.
+    #     # Option 3: Archive source (ZIP or tar.gz, local or remote URL).
+    #     # Downloads (if URL), extracts, and discovers tests from the archive contents.
+    #     # GitHub Actions artifact URLs are auto-converted to API download endpoints.
+    #     # archive:
+    #     #   file: https://github.com/NethermindEth/gas-benchmarks/actions/runs/23847558369/artifacts/6222084759
+    #     #   pre_run_steps:
+    #     #     - "perf-devnet-3/gas-bump.txt"
+    #     #     - "perf-devnet-3/funding.txt"
+    #     #   steps:
+    #     #     setup:
+    #     #       - "perf-devnet-3/setup/*.txt"
+    #     #     test:
+    #     #       - "perf-devnet-3/testing/*.txt"
+    #     #   # Optional: External opcode metadata file within the archive.
+    #     #   # JSON mapping test names to opcode counts: {"test_name": {"OPCODE": count}}
+    #     #   # opcodes: "opcodes_tracing.json"
+    #     #   # Optional: Separate archive containing the opcodes file.
+    #     #   # If not set, the opcodes file is searched in the main archive.
+    #     #   # opcodes_file: https://github.com/.../artifacts/6222074312
+    #
+    #     # Option 4: EEST (Ethereum Execution Spec Tests) fixtures from GitHub releases.
     #     # Downloads fixtures directly from ethereum/execution-spec-tests releases.
     #     # Genesis files are auto-resolved per client type from the release.
     #     # eest_fixtures:
@@ -141,7 +161,7 @@ runner:
     #     #   # fixtures_url: https://example.com/fixtures_benchmark.tar.gz
     #     #   # genesis_url: https://example.com/benchmark_genesis.tar.gz
     #
-    #     # Option 3b: EEST fixtures from GitHub Actions artifacts.
+    #     # Option 4b: EEST fixtures from GitHub Actions artifacts.
     #     # Alternative to releases - downloads from workflow run artifacts.
     #     # Uses the gh CLI if available, otherwise falls back to the GitHub REST API
     #     # (requires runner.github_token or BENCHMARKOOR_RUNNER_GITHUB_TOKEN).
@@ -154,7 +174,7 @@ runner:
     #     #   # genesis_artifact_run_id: "12345678901"
     #     #   # fixtures_subdir also works with artifacts
     #
-    #     # Option 3c: EEST fixtures from local directories.
+    #     # Option 4c: EEST fixtures from local directories.
     #     # Points directly at already-extracted fixtures and genesis directories.
     #     # No downloading or caching — useful for local development with locally-built EEST fixtures.
     #     # eest_fixtures:
@@ -163,7 +183,7 @@ runner:
     #     #   # fixtures_subdir also works with local directories
     #     #   # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
     #
-    #     # Option 3d: EEST fixtures from local .tar.gz tarballs.
+    #     # Option 4d: EEST fixtures from local .tar.gz tarballs.
     #     # Extracts tarballs to a cache directory (keyed by content hash, re-extraction skipped
     #     # if already cached). Useful when you have locally-built tarballs but haven't extracted them.
     #     # eest_fixtures:

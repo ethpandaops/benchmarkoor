@@ -154,28 +154,28 @@ function SearchIcon({ className }: { className?: string }) {
   return <Search className={className} />
 }
 
-// Component for displaying EEST fixture info
+// Component for displaying EEST fixture info and opcode counts
 export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test: SuiteTest; opcodeSort: OpcodeSortMode; onOpcodeSortChange: (sort: OpcodeSortMode) => void }) {
   const info = test.eest?.info
-  if (!info) return null
+  const opcodes = test.opcode_count ?? info?.opcode_count
 
-  const fields = [
+  const fields = info ? [
     { label: 'Description', value: info.description },
     { label: 'Comment', value: info.comment },
     { label: 'Fixture Format', value: info['fixture-format'] },
     { label: 'Filling Tool', value: info['filling-transition-tool'] },
     { label: 'Hash', value: info.hash },
     { label: 'URL', value: info.url },
-  ].filter((f) => f.value)
+  ].filter((f) => f.value) : []
 
-  const hasOpcodes = info.opcode_count && Object.keys(info.opcode_count).length > 0
+  const hasOpcodes = opcodes && Object.keys(opcodes).length > 0
 
   if (fields.length === 0 && !hasOpcodes) return null
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Badge variant="default">EEST Info</Badge>
+        <Badge variant="default">{info ? 'EEST Info' : 'Opcode Info'}</Badge>
       </div>
       <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm/6">
@@ -212,7 +212,7 @@ export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test
               </button>
             </div>
             <div className="flex flex-wrap gap-1">
-              {Object.entries(info.opcode_count!)
+              {Object.entries(opcodes!)
                 .sort(opcodeSort === 'name'
                   ? ([a], [b]) => a.localeCompare(b)
                   : ([, a], [, b]) => b - a
@@ -247,7 +247,7 @@ function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: {
     { key: 'cleanup', label: 'Cleanup step', file: test.cleanup },
   ].filter((s) => s.file) as { key: string; label: string; file: SuiteFile }[]
 
-  const hasInfo = !!test.eest?.info
+  const hasInfo = !!test.eest?.info || (test.opcode_count && Object.keys(test.opcode_count).length > 0)
   if (steps.length === 0 && !hasInfo) {
     return <div className="p-4 text-sm/6 text-gray-500">No step files available</div>
   }

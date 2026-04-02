@@ -335,6 +335,8 @@ type LocalSourceV2 struct {
 // The file can be a local path or a URL (HTTP/HTTPS) to a ZIP or tar.gz archive.
 type ArchiveSourceConfig struct {
 	File        string       `yaml:"file" mapstructure:"file"`
+	OpcodesFile string       `yaml:"opcodes_file,omitempty" mapstructure:"opcodes_file"`
+	Opcodes     string       `yaml:"opcodes,omitempty" mapstructure:"opcodes"`
 	PreRunSteps []string     `yaml:"pre_run_steps,omitempty" mapstructure:"pre_run_steps"`
 	Steps       *StepsConfig `yaml:"steps,omitempty" mapstructure:"steps"`
 }

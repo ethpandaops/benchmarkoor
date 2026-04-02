@@ -4,6 +4,11 @@ import type { SuiteTest } from '@/api/types'
 import { getGroupedOpcodes, getCategoryColor } from '@/utils/opcodeCategories'
 import type { CategorySpan, GroupedResult } from '@/utils/opcodeCategories'
 
+/** Returns the opcode count map from the top-level field or EEST info fallback. */
+function getOpcodeCount(test: SuiteTest): Record<string, number> | undefined {
+  return test.opcode_count ?? test.eest?.info?.opcode_count
+}
+
 export interface ExtraColumn {
   name: string
   getValue: (testIndex: number) => number | undefined
@@ -756,7 +761,7 @@ export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQue
   const testsWithOpcodes = useMemo(() => {
     return tests
       .map((t, i) => ({ test: t, index: i }))
-      .filter((t) => t.test.eest?.info?.opcode_count && Object.keys(t.test.eest.info.opcode_count).length > 0)
+      .filter((t) => { const oc = getOpcodeCount(t.test); return oc && Object.keys(oc).length > 0 })
   }, [tests])
 
   const filteredTests = useMemo(() => {
@@ -768,7 +773,7 @@ export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQue
   const allOpcodes = useMemo(() => {
     const set = new Set<string>()
     for (const { test } of testsWithOpcodes) {
-      const counts = test.eest?.info?.opcode_count
+      const counts = getOpcodeCount(test)
       if (counts) {
         for (const op of Object.keys(counts)) {
           set.add(op)
@@ -836,7 +841,7 @@ export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQue
 
   const getCount = useCallback(
     (test: SuiteTest, col: string): number => {
-      const counts = test.eest?.info?.opcode_count
+      const counts = getOpcodeCount(test)
       if (!counts) return 0
       if (expanded) {
         // If groupStack is on, a column might be a subcategory name

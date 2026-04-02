@@ -243,7 +243,7 @@ runner:
 
 #### Test Sources
 
-Tests can be loaded from a local directory, a git repository, or EEST (Ethereum Execution Spec Tests) fixtures. Only one source type can be configured.
+Tests can be loaded from a local directory, a git repository, an archive file, or EEST (Ethereum Execution Spec Tests) fixtures. Only one source type can be configured.
 
 ##### Local Source
 
@@ -298,6 +298,46 @@ tests:
 | `steps.setup` | []string | No | Glob patterns for setup phase files |
 | `steps.test` | []string | No | Glob patterns for test phase files |
 | `steps.cleanup` | []string | No | Glob patterns for cleanup phase files |
+
+##### Archive Source
+
+Tests can be loaded from a ZIP or tar.gz archive file, either from a local path or a URL (including GitHub Actions artifacts).
+
+```yaml
+tests:
+  source:
+    archive:
+      file: https://github.com/NethermindEth/gas-benchmarks/actions/runs/23847558369/artifacts/6222084759
+      pre_run_steps:
+        - "perf-devnet-3/gas-bump.txt"
+        - "perf-devnet-3/funding.txt"
+      steps:
+        setup:
+          - "perf-devnet-3/setup/*.txt"
+        test:
+          - "perf-devnet-3/testing/*.txt"
+      # Optional: External opcode metadata for the test suite.
+      # When provided, opcode counts are included in the suite summary.json
+      # and displayed in the UI opcode heatmap.
+      opcodes: "opcodes_tracing.json"
+      # Optional: Separate archive containing the opcodes file.
+      # If not set, the opcodes file is searched in the main archive.
+      # opcodes_file: https://github.com/NethermindEth/gas-benchmarks/actions/runs/23847558369/artifacts/6222074312
+```
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `file` | string | Yes | Local path or URL to a ZIP or tar.gz archive. GitHub Actions artifact URLs are auto-converted to API endpoints |
+| `pre_run_steps` | []string | No | Glob patterns for steps executed once before all tests |
+| `steps.setup` | []string | No | Glob patterns for setup phase files |
+| `steps.test` | []string | No | Glob patterns for test phase files |
+| `steps.cleanup` | []string | No | Glob patterns for cleanup phase files |
+| `opcodes` | string | No | Filename within the archive containing opcode count metadata (e.g., `opcodes_tracing.json`). The file must be a JSON object mapping test names to opcode counts: `{"test_name": {"OPCODE": count, ...}}` |
+| `opcodes_file` | string | No | Separate archive URL/path containing the opcodes file. If not set, the opcodes file is searched in the main `file` archive |
+
+**GitHub Actions artifacts:** Browser URLs like `https://github.com/{owner}/{repo}/actions/runs/{run_id}/artifacts/{artifact_id}` are automatically converted to the GitHub API download endpoint. A GitHub token is required for artifact downloads (set via `runner.github_token` or `BENCHMARKOOR_RUNNER_GITHUB_TOKEN`).
+
+**Archive extraction:** ZIP archives are extracted and any inner tarballs (common in GitHub Actions artifacts) are automatically extracted as well.
 
 ##### EEST Fixtures Source
 

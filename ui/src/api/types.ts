@@ -397,6 +397,7 @@ export interface SuiteTest {
   test?: SuiteFile
   cleanup?: SuiteFile
   eest?: SuiteTestEEST
+  opcode_count?: Record<string, number>
 }
 
 export interface SourceInfo {

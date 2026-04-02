@@ -81,6 +81,7 @@ type SuiteTest struct {
 	Test        *SuiteFile     `json:"test,omitempty"`
 	Cleanup     *SuiteFile     `json:"cleanup,omitempty"`
 	EEST        *SuiteTestEEST `json:"eest,omitempty"`
+	OpcodeCount map[string]int `json:"opcode_count,omitempty"`
 }
 
 // ComputeSuiteHash computes a hash of all test file contents.
@@ -183,6 +184,12 @@ func CreateSuiteOutput(
 
 			if test.EESTInfo != nil {
 				suiteTest.EEST = &SuiteTestEEST{Info: test.EESTInfo}
+				suiteTest.OpcodeCount = test.EESTInfo.OpcodeCount
+			}
+
+			// External opcode data takes precedence over EEST-derived opcodes.
+			if test.OpcodeCount != nil {
+				suiteTest.OpcodeCount = test.OpcodeCount
 			}
 
 			// Create test directory.
