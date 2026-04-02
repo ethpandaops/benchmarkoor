@@ -3,6 +3,7 @@ package executor
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/rand"
@@ -283,6 +284,63 @@ func TestDetectArchiveFormat(t *testing.T) {
 	}
 }
 
+func TestArchiveSource_CachesDownload(t *testing.T) {
+	var requestCount int
+
+	// Serve a zip file and count requests.
+	zipBuf := createTestZipBytes(t, map[string]string{
+		"tests/test/001.txt": "content",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Length", strconv.Itoa(len(zipBuf)))
+			w.WriteHeader(http.StatusOK)
+
+			return
+		}
+
+		requestCount++
+		w.Header().Set("Content-Length", strconv.Itoa(len(zipBuf)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(zipBuf)
+	}))
+	defer srv.Close()
+
+	cacheDir := t.TempDir()
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	makeSrc := func() *ArchiveSource {
+		return &ArchiveSource{
+			log:      log.WithField("source", "archive"),
+			cacheDir: cacheDir,
+			cfg: &config.ArchiveSourceConfig{
+				File: srv.URL + "/tests.zip",
+				Steps: &config.StepsConfig{
+					Test: []string{"tests/test/*"},
+				},
+			},
+		}
+	}
+
+	// First run: downloads the file.
+	s1 := makeSrc()
+	result, err := s1.Prepare(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(result.Tests))
+	assert.Equal(t, 1, requestCount)
+	require.NoError(t, s1.Cleanup())
+
+	// Second run: uses cached file, no new download.
+	s2 := makeSrc()
+	result, err = s2.Prepare(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(result.Tests))
+	assert.Equal(t, 1, requestCount, "expected no additional download request")
+	require.NoError(t, s2.Cleanup())
+}
+
 func TestDownloadToFile_Parallel(t *testing.T) {
 	// Create a test payload large enough to trigger parallel downloads.
 	payload := make([]byte, minParallelSize+1024)
@@ -458,4 +516,25 @@ func createTestTarGz(t *testing.T, path string, files map[string]string) {
 	require.NoError(t, tw.Close())
 	require.NoError(t, gw.Close())
 	require.NoError(t, f.Close())
+}
+
+// createTestZipBytes creates a zip in memory and returns its bytes.
+func createTestZipBytes(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+
+	w := zip.NewWriter(&buf)
+
+	for name, content := range files {
+		fw, err := w.Create(name)
+		require.NoError(t, err)
+
+		_, err = fw.Write([]byte(content))
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, w.Close())
+
+	return buf.Bytes()
 }

@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -95,23 +97,49 @@ func (s *ArchiveSource) GetSourceInfo() (*SuiteSource, error) {
 	return &SuiteSource{Archive: info}, nil
 }
 
-// resolveFile returns the local path to the archive file, downloading it first
-// if the configured file is a URL.
+// resolveFile returns the local path to the archive file. For URLs, it checks
+// the cache directory first and only downloads if the file is not already cached.
 func (s *ArchiveSource) resolveFile(ctx context.Context) (string, error) {
 	file := s.cfg.File
 
 	if strings.HasPrefix(file, "http://") || strings.HasPrefix(file, "https://") {
-		s.log.WithField("url", file).Info("Downloading archive")
+		cachedPath := s.cachedArchivePath()
 
-		destPath := filepath.Join(s.basePath, "archive-download")
+		if _, err := os.Stat(cachedPath); err == nil {
+			s.log.WithFields(logrus.Fields{
+				"url":  file,
+				"path": cachedPath,
+			}).Info("Using cached archive")
+
+			return cachedPath, nil
+		}
+
+		s.log.WithField("url", file).Info("Downloading archive")
 
 		downloadURL, token := s.resolveDownloadURL(file)
 
-		if err := downloadToFile(ctx, downloadURL, destPath, token, s.log); err != nil {
+		// Download to a temp file first, then rename for atomic cache writes.
+		tmpPath := cachedPath + ".tmp"
+
+		if err := os.MkdirAll(filepath.Dir(cachedPath), 0755); err != nil {
+			return "", fmt.Errorf("creating cache directory: %w", err)
+		}
+
+		if err := downloadToFile(ctx, downloadURL, tmpPath, token, s.log); err != nil {
+			_ = os.Remove(tmpPath)
+
 			return "", err
 		}
 
-		return destPath, nil
+		if err := os.Rename(tmpPath, cachedPath); err != nil {
+			_ = os.Remove(tmpPath)
+
+			return "", fmt.Errorf("caching archive: %w", err)
+		}
+
+		s.log.WithField("path", cachedPath).Info("Archive cached")
+
+		return cachedPath, nil
 	}
 
 	// Local file path — resolve relative paths.
@@ -129,6 +157,20 @@ func (s *ArchiveSource) resolveFile(ctx context.Context) (string, error) {
 	}
 
 	return file, nil
+}
+
+// cachedArchivePath returns a stable file path in the cache directory derived
+// from the configured URL, so repeated runs reuse the same downloaded file.
+func (s *ArchiveSource) cachedArchivePath() string {
+	hash := sha256.Sum256([]byte(s.cfg.File))
+	name := "archive-" + hex.EncodeToString(hash[:8])
+
+	cacheDir := s.cacheDir
+	if cacheDir == "" {
+		cacheDir = os.TempDir()
+	}
+
+	return filepath.Join(cacheDir, name)
 }
 
 // resolveDownloadURL converts browser URLs to API URLs where needed and returns
