@@ -27,9 +27,10 @@ type SuiteInfo struct {
 
 // SuiteSource contains source information for the suite.
 type SuiteSource struct {
-	Git   *GitSourceInfo   `json:"git,omitempty"`
-	Local *LocalSourceInfo `json:"local,omitempty"`
-	EEST  *EESTSourceInfo  `json:"eest,omitempty"`
+	Git     *GitSourceInfo     `json:"git,omitempty"`
+	Local   *LocalSourceInfo   `json:"local,omitempty"`
+	Archive *ArchiveSourceInfo `json:"archive,omitempty"`
+	EEST    *EESTSourceInfo    `json:"eest,omitempty"`
 }
 
 // GitSourceInfo contains git repository source information.
@@ -44,6 +45,13 @@ type GitSourceInfo struct {
 // LocalSourceInfo contains local directory source information.
 type LocalSourceInfo struct {
 	BaseDir     string            `json:"base_dir"`
+	PreRunSteps []string          `json:"pre_run_steps,omitempty"`
+	Steps       *SourceStepsGlobs `json:"steps,omitempty"`
+}
+
+// ArchiveSourceInfo contains archive file source information.
+type ArchiveSourceInfo struct {
+	File        string            `json:"file"`
 	PreRunSteps []string          `json:"pre_run_steps,omitempty"`
 	Steps       *SourceStepsGlobs `json:"steps,omitempty"`
 }

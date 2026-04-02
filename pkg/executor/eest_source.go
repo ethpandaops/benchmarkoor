@@ -2,7 +2,6 @@ package executor
 
 import (
 	"archive/tar"
-	"archive/zip"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -466,152 +465,19 @@ func (s *EESTSource) downloadGitHubArtifact(ctx context.Context, artifactName, r
 
 // extractZip extracts a zip archive to the target directory.
 func (s *EESTSource) extractZip(zipPath, targetDir string) error {
-	r, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return fmt.Errorf("opening zip: %w", err)
-	}
-
-	defer func() { _ = r.Close() }()
-
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		return fmt.Errorf("creating target directory: %w", err)
-	}
-
-	for _, f := range r.File {
-		target := filepath.Join(targetDir, filepath.Clean(f.Name))
-		if !strings.HasPrefix(target, filepath.Clean(targetDir)+string(os.PathSeparator)) {
-			return fmt.Errorf("invalid zip entry: %s", f.Name)
-		}
-
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0755); err != nil {
-				return fmt.Errorf("creating directory: %w", err)
-			}
-
-			continue
-		}
-
-		// Ensure parent directory exists.
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return fmt.Errorf("creating parent directory: %w", err)
-		}
-
-		outFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
-		if err != nil {
-			return fmt.Errorf("creating file: %w", err)
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			_ = outFile.Close()
-
-			return fmt.Errorf("opening zip entry: %w", err)
-		}
-
-		if _, err := io.Copy(outFile, rc); err != nil {
-			_ = rc.Close()
-			_ = outFile.Close()
-
-			return fmt.Errorf("extracting file: %w", err)
-		}
-
-		_ = rc.Close()
-		_ = outFile.Close()
-	}
-
-	return nil
+	return extractZipFile(zipPath, targetDir)
 }
 
-// extractInnerTarballs finds .tar.gz files in the directory, extracts them in-place,
-// and removes the original tarball. GitHub Actions artifacts contain .tar.gz files
-// inside the outer zip.
+// extractInnerTarballs finds .tar.gz files in the directory, extracts them
+// in-place, and removes the original tarball. GitHub Actions artifacts contain
+// .tar.gz files inside the outer zip.
 func (s *EESTSource) extractInnerTarballs(_ context.Context, dir string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return fmt.Errorf("reading directory %s: %w", dir, err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tar.gz") {
-			continue
-		}
-
-		tarballPath := filepath.Join(dir, entry.Name())
-
-		s.log.WithField("file", tarballPath).Debug("Extracting inner tarball")
-
-		if err := s.extractLocalTarball(tarballPath, dir); err != nil {
-			return fmt.Errorf("extracting %s: %w", entry.Name(), err)
-		}
-
-		// Remove the tarball after successful extraction.
-		if err := os.Remove(tarballPath); err != nil {
-			s.log.WithError(err).WithField("file", tarballPath).Warn("Failed to remove extracted tarball")
-		}
-	}
-
-	return nil
+	return extractInnerTarballs(dir, s.log)
 }
 
 // extractLocalTarball extracts a local .tar.gz file to the target directory.
 func (s *EESTSource) extractLocalTarball(tarballPath, targetDir string) error {
-	f, err := os.Open(tarballPath)
-	if err != nil {
-		return fmt.Errorf("opening tarball: %w", err)
-	}
-
-	defer func() { _ = f.Close() }()
-
-	gzr, err := gzip.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("creating gzip reader: %w", err)
-	}
-
-	defer func() { _ = gzr.Close() }()
-
-	tr := tar.NewReader(gzr)
-
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			return fmt.Errorf("reading tar: %w", err)
-		}
-
-		target := filepath.Join(targetDir, filepath.Clean(header.Name))
-		if !strings.HasPrefix(target, filepath.Clean(targetDir)+string(os.PathSeparator)) {
-			return fmt.Errorf("invalid tar entry: %s", header.Name)
-		}
-
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0755); err != nil {
-				return fmt.Errorf("creating directory: %w", err)
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return fmt.Errorf("creating parent directory: %w", err)
-			}
-
-			outFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
-			if err != nil {
-				return fmt.Errorf("creating file: %w", err)
-			}
-
-			if _, err := io.Copy(outFile, tr); err != nil {
-				_ = outFile.Close()
-
-				return fmt.Errorf("extracting file: %w", err)
-			}
-
-			_ = outFile.Close()
-		}
-	}
-
-	return nil
+	return extractTarGzFile(tarballPath, targetDir)
 }
 
 // downloadAndExtractTarball downloads a tarball and extracts it to the target directory.
