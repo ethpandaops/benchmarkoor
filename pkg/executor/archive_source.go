@@ -107,7 +107,7 @@ func (s *ArchiveSource) resolveFile(ctx context.Context) (string, error) {
 
 		downloadURL, token := s.resolveDownloadURL(file)
 
-		if err := downloadToFile(ctx, downloadURL, destPath, token); err != nil {
+		if err := downloadToFile(ctx, downloadURL, destPath, token, s.log); err != nil {
 			return "", err
 		}
 
@@ -148,6 +148,14 @@ func (s *ArchiveSource) resolveDownloadURL(rawURL string) (string, string) {
 			"repo":        repo,
 			"artifact_id": artifactID,
 		}).Info("Detected GitHub artifact URL, using API endpoint")
+
+		if s.githubToken == "" {
+			s.log.Warn(
+				"GitHub token is required for artifact downloads. " +
+					"Set runner.github_token in config or " +
+					"BENCHMARKOOR_RUNNER_GITHUB_TOKEN env var",
+			)
+		}
 
 		return apiURL, s.githubToken
 	}

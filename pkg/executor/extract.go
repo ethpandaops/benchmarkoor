@@ -172,10 +172,14 @@ func extractInnerTarballs(dir string, log logrus.FieldLogger) error {
 	return nil
 }
 
+const progressLogInterval = 10 * 1024 * 1024 // 10 MiB between progress logs
+
 // downloadToFile downloads a URL to a local file path using plain HTTP with
 // redirect following. If bearerToken is non-empty, it is sent as an
-// Authorization header.
-func downloadToFile(ctx context.Context, url, destPath, bearerToken string) error {
+// Authorization header. Download progress is logged periodically.
+func downloadToFile(
+	ctx context.Context, url, destPath, bearerToken string, log logrus.FieldLogger,
+) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
@@ -197,12 +201,25 @@ func downloadToFile(ctx context.Context, url, destPath, bearerToken string) erro
 		return fmt.Errorf("downloading %s: HTTP %d", url, resp.StatusCode)
 	}
 
+	totalSize := resp.ContentLength
+	if totalSize > 0 {
+		log.WithField("size", formatBytes(totalSize)).Info("Download starting")
+	} else {
+		log.Info("Download starting (unknown size)")
+	}
+
 	out, err := os.Create(destPath)
 	if err != nil {
 		return fmt.Errorf("creating file %s: %w", destPath, err)
 	}
 
-	if _, err := io.Copy(out, resp.Body); err != nil {
+	pw := &progressWriter{
+		log:       log,
+		total:     totalSize,
+		nextLogAt: progressLogInterval,
+	}
+
+	if _, err := io.Copy(out, io.TeeReader(resp.Body, pw)); err != nil {
 		_ = out.Close()
 		_ = os.Remove(destPath)
 
@@ -213,7 +230,58 @@ func downloadToFile(ctx context.Context, url, destPath, bearerToken string) erro
 		return fmt.Errorf("closing file %s: %w", destPath, err)
 	}
 
+	log.WithField("size", formatBytes(pw.written)).Info("Download complete")
+
 	return nil
+}
+
+// progressWriter tracks bytes written and logs progress periodically.
+type progressWriter struct {
+	log       logrus.FieldLogger
+	total     int64
+	written   int64
+	nextLogAt int64
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	pw.written += int64(n)
+
+	if pw.written >= pw.nextLogAt {
+		fields := logrus.Fields{
+			"downloaded": formatBytes(pw.written),
+		}
+
+		if pw.total > 0 {
+			pct := float64(pw.written) / float64(pw.total) * 100
+			fields["total"] = formatBytes(pw.total)
+			fields["progress"] = fmt.Sprintf("%.0f%%", pct)
+		}
+
+		pw.log.WithFields(fields).Info("Downloading")
+		pw.nextLogAt = pw.written + progressLogInterval
+	}
+
+	return n, nil
+}
+
+// formatBytes returns a human-readable byte size string.
+func formatBytes(b int64) string {
+	const (
+		mib = 1024 * 1024
+		gib = 1024 * mib
+	)
+
+	switch {
+	case b >= gib:
+		return fmt.Sprintf("%.1f GiB", float64(b)/float64(gib))
+	case b >= mib:
+		return fmt.Sprintf("%.1f MiB", float64(b)/float64(mib))
+	case b >= 1024:
+		return fmt.Sprintf("%.1f KiB", float64(b)/1024)
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
 }
 
 // detectArchiveFormat determines the archive format from file extension,
