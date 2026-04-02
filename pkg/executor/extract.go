@@ -173,11 +173,17 @@ func extractInnerTarballs(dir string, log logrus.FieldLogger) error {
 }
 
 // downloadToFile downloads a URL to a local file path using plain HTTP with
-// redirect following.
-func downloadToFile(ctx context.Context, url, destPath string) error {
+// redirect following. If bearerToken is non-empty, it is sent as an
+// Authorization header.
+func downloadToFile(ctx context.Context, url, destPath, bearerToken string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
+	}
+
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+		req.Header.Set("Accept", "application/vnd.github+json")
 	}
 
 	resp, err := http.DefaultClient.Do(req)

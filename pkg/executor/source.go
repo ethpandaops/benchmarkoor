@@ -114,10 +114,11 @@ func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir, filte
 
 	if cfg.Archive != nil {
 		return &ArchiveSource{
-			log:      log.WithField("source", "archive"),
-			cfg:      cfg.Archive,
-			cacheDir: cacheDir,
-			filter:   filter,
+			log:         log.WithField("source", "archive"),
+			cfg:         cfg.Archive,
+			cacheDir:    cacheDir,
+			filter:      filter,
+			githubToken: githubToken,
 		}
 	}
 

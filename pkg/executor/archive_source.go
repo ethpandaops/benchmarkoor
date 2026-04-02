@@ -5,20 +5,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/sirupsen/logrus"
 )
 
+// ghArtifactURLPattern matches GitHub Actions artifact browser URLs:
+// https://github.com/{owner}/{repo}/actions/runs/{run_id}/artifacts/{artifact_id}
+var ghArtifactURLPattern = regexp.MustCompile(
+	`^https://github\.com/([^/]+/[^/]+)/actions/runs/\d+/artifacts/(\d+)$`,
+)
+
 // ArchiveSource downloads and extracts an archive file, then discovers tests
 // from the extracted contents using glob patterns.
 type ArchiveSource struct {
-	log      logrus.FieldLogger
-	cfg      *config.ArchiveSourceConfig
-	cacheDir string
-	filter   string
-	basePath string // temp directory where archive was extracted
+	log         logrus.FieldLogger
+	cfg         *config.ArchiveSourceConfig
+	cacheDir    string
+	filter      string
+	githubToken string
+	basePath    string // temp directory where archive was extracted
 }
 
 // Prepare downloads (if URL) and extracts the archive, then discovers tests.
@@ -97,7 +105,9 @@ func (s *ArchiveSource) resolveFile(ctx context.Context) (string, error) {
 
 		destPath := filepath.Join(s.basePath, "archive-download")
 
-		if err := downloadToFile(ctx, file, destPath); err != nil {
+		downloadURL, token := s.resolveDownloadURL(file)
+
+		if err := downloadToFile(ctx, downloadURL, destPath, token); err != nil {
 			return "", err
 		}
 
@@ -119,6 +129,30 @@ func (s *ArchiveSource) resolveFile(ctx context.Context) (string, error) {
 	}
 
 	return file, nil
+}
+
+// resolveDownloadURL converts browser URLs to API URLs where needed and returns
+// the appropriate auth token. For GitHub Actions artifact URLs, it converts to
+// the GitHub API download endpoint with bearer token auth.
+func (s *ArchiveSource) resolveDownloadURL(rawURL string) (string, string) {
+	matches := ghArtifactURLPattern.FindStringSubmatch(rawURL)
+	if matches != nil {
+		repo := matches[1]
+		artifactID := matches[2]
+		apiURL := fmt.Sprintf(
+			"https://api.github.com/repos/%s/actions/artifacts/%s/zip",
+			repo, artifactID,
+		)
+
+		s.log.WithFields(logrus.Fields{
+			"repo":        repo,
+			"artifact_id": artifactID,
+		}).Info("Detected GitHub artifact URL, using API endpoint")
+
+		return apiURL, s.githubToken
+	}
+
+	return rawURL, ""
 }
 
 // extractArchive detects the archive format and extracts it to the base path.

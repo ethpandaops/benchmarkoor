@@ -170,6 +170,50 @@ func TestArchiveSource_PrepareFileNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not exist")
 }
 
+func TestArchiveSource_ResolveDownloadURL(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	source := &ArchiveSource{
+		log:         log.WithField("source", "archive"),
+		githubToken: "gh-test-token",
+	}
+
+	tests := []struct {
+		name          string
+		input         string
+		expectedURL   string
+		expectedToken string
+	}{
+		{
+			name:          "GitHub artifact URL",
+			input:         "https://github.com/NethermindEth/gas-benchmarks/actions/runs/23847558369/artifacts/6222084759",
+			expectedURL:   "https://api.github.com/repos/NethermindEth/gas-benchmarks/actions/artifacts/6222084759/zip",
+			expectedToken: "gh-test-token",
+		},
+		{
+			name:          "regular URL unchanged",
+			input:         "https://example.com/fixtures.zip",
+			expectedURL:   "https://example.com/fixtures.zip",
+			expectedToken: "",
+		},
+		{
+			name:          "GitHub non-artifact URL unchanged",
+			input:         "https://github.com/owner/repo/releases/download/v1/file.zip",
+			expectedURL:   "https://github.com/owner/repo/releases/download/v1/file.zip",
+			expectedToken: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url, token := source.resolveDownloadURL(tt.input)
+			assert.Equal(t, tt.expectedURL, url)
+			assert.Equal(t, tt.expectedToken, token)
+		})
+	}
+}
+
 func TestDetectArchiveFormat(t *testing.T) {
 	tests := []struct {
 		name     string
