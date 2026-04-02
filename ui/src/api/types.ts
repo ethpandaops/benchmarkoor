@@ -420,6 +420,15 @@ export interface SourceInfo {
       cleanup?: string[]
     }
   }
+  archive?: {
+    file: string
+    pre_run_steps?: string[]
+    steps?: {
+      setup?: string[]
+      test?: string[]
+      cleanup?: string[]
+    }
+  }
   eest?: {
     github_repo: string
     github_release?: string

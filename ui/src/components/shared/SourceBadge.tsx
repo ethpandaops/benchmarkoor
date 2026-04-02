@@ -13,6 +13,14 @@ function GitHubIcon({ className }: { className?: string }) {
   )
 }
 
+function ArchiveIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-2 6h-2v2h-2v-2h-2v-2h2v-2h2v2h2v2z" />
+    </svg>
+  )
+}
+
 function FolderIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -55,6 +63,35 @@ export function SourceBadge({ source, label }: SourceBadgeProps) {
         <GitHubIcon className="size-4" />
         {label && <span className="text-xs/5">{label}</span>}
       </a>
+    )
+  }
+
+  if (source.archive) {
+    const isUrl = source.archive.file.startsWith('http://') || source.archive.file.startsWith('https://')
+
+    if (isUrl) {
+      return (
+        <a
+          href={source.archive.file}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={source.archive.file}
+          className="inline-flex items-center gap-1.5 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+        >
+          <ArchiveIcon className="size-4" />
+          {label && <span className="text-xs/5">{label}</span>}
+        </a>
+      )
+    }
+
+    return (
+      <span
+        title={source.archive.file}
+        className="inline-flex items-center gap-1.5 text-gray-600 dark:text-gray-400"
+      >
+        <ArchiveIcon className="size-4" />
+        {label && <span className="text-xs/5">{label}</span>}
+      </span>
     )
   }
 
