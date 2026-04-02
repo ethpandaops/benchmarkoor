@@ -177,7 +177,7 @@ func extractInnerTarballs(dir string, log logrus.FieldLogger) error {
 const (
 	progressLogInterval = 10 * 1024 * 1024 // 10 MiB between progress logs
 	defaultChunkSize    = 25 * 1024 * 1024 // 25 MiB per chunk
-	defaultParallelism  = 4                // number of parallel download workers
+	defaultParallelism  = 8                // number of parallel download workers
 	minParallelSize     = 10 * 1024 * 1024 // don't parallelize below 10 MiB
 )
 
