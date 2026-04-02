@@ -609,6 +609,46 @@ func TestSourceConfig_Validate(t *testing.T) {
 			wantErr:   true,
 			errSubstr: "does not exist",
 		},
+		{
+			name: "valid archive source with URL",
+			source: SourceConfig{
+				Archive: &ArchiveSourceConfig{
+					File: "https://example.com/fixtures.zip",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid archive source with local file",
+			source: SourceConfig{
+				Archive: &ArchiveSourceConfig{
+					File: fixturesTarball,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "archive missing file",
+			source: SourceConfig{
+				Archive: &ArchiveSourceConfig{},
+			},
+			wantErr:   true,
+			errSubstr: "archive.file is required",
+		},
+		{
+			name: "multiple sources not allowed - archive and git",
+			source: SourceConfig{
+				Archive: &ArchiveSourceConfig{
+					File: "https://example.com/fixtures.zip",
+				},
+				Git: &GitSourceV2{
+					Repo:    "https://github.com/test/repo",
+					Version: "v1.0.0",
+				},
+			},
+			wantErr:   true,
+			errSubstr: "cannot specify multiple sources",
+		},
 	}
 
 	for _, tt := range tests {
@@ -923,6 +963,15 @@ func TestSourceConfig_IsConfigured(t *testing.T) {
 				EESTFixtures: &EESTFixturesSource{
 					GitHubRepo:    "test/repo",
 					GitHubRelease: "v1",
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "archive source",
+			source: SourceConfig{
+				Archive: &ArchiveSourceConfig{
+					File: "https://example.com/fixtures.zip",
 				},
 			},
 			expected: true,

@@ -123,6 +123,10 @@ function SourceTypeBadge({ source }: { source: SourceInfo }) {
     return <Badge variant="warning">Local</Badge>
   }
 
+  if (source.archive) {
+    return <Badge variant="info">Archive</Badge>
+  }
+
   if (source.eest) {
     const hasArtifacts =
       source.eest.fixtures_artifact_name || source.eest.genesis_artifact_name
@@ -177,6 +181,65 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
             <dd className="mt-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">{source.local.base_dir}</dd>
           </div>
           <StepsInfo steps={source.local.steps} preRunSteps={source.local.pre_run_steps} />
+        </div>
+      </Card>
+    )
+  }
+
+  if (source.archive) {
+    const isUrl = source.archive.file.startsWith('http://') || source.archive.file.startsWith('https://')
+    const ghRunMatch = source.archive.file.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)\/artifacts\/\d+$/)
+    const ghRunUrl = ghRunMatch ? `https://github.com/${ghRunMatch[1]}/actions/runs/${ghRunMatch[2]}` : null
+
+    return (
+      <Card title={<span className="flex items-center gap-2">{title}<SourceTypeBadge source={source} /></span>} collapsible>
+        <div className="flex flex-col gap-4">
+          <dl className="grid grid-cols-1 gap-4">
+            <div>
+              <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Archive File</dt>
+              <dd className="mt-1 break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                {isUrl ? (
+                  <a
+                    href={source.archive.file}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    {source.archive.file}
+                  </a>
+                ) : (
+                  source.archive.file
+                )}
+              </dd>
+            </div>
+            {ghRunUrl && (
+              <div>
+                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">GitHub Actions Run</dt>
+                <dd className="mt-1 break-all text-sm/6">
+                  <a
+                    href={ghRunUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    {ghRunUrl}
+                  </a>
+                </dd>
+              </div>
+            )}
+          </dl>
+          <StepsInfo steps={source.archive.steps} preRunSteps={source.archive.pre_run_steps} />
+          {ghRunUrl && (
+            <a
+              href={ghRunUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-fit items-center gap-2 rounded-sm bg-gray-900 px-3 py-1.5 text-sm/6 font-medium text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300"
+            >
+              <GitHubIcon className="size-4" />
+              View Actions Run
+            </a>
+          )}
         </div>
       </Card>
     )

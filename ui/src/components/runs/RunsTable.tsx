@@ -108,7 +108,7 @@ function SuiteCell({ suiteHash }: { suiteHash: string }) {
             <div className="text-gray-500 dark:text-gray-400">Filter: {suiteInfo.filter}</div>
           )}
           {suiteInfo && (
-            <div className="text-gray-500 dark:text-gray-400">{suiteInfo.tests.length} tests</div>
+            <div className="text-gray-500 dark:text-gray-400">{suiteInfo.tests?.length ?? 0} tests</div>
           )}
           {labels.length > 0 && (
             <div className="flex flex-wrap gap-1">

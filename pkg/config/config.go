@@ -148,9 +148,10 @@ type TestsConfig struct {
 // SourceConfig defines where to find test files.
 type SourceConfig struct {
 	// New unified source options.
-	Git          *GitSourceV2        `yaml:"git,omitempty" mapstructure:"git"`
-	Local        *LocalSourceV2      `yaml:"local,omitempty" mapstructure:"local"`
-	EESTFixtures *EESTFixturesSource `yaml:"eest_fixtures,omitempty" mapstructure:"eest_fixtures"`
+	Git          *GitSourceV2         `yaml:"git,omitempty" mapstructure:"git"`
+	Local        *LocalSourceV2       `yaml:"local,omitempty" mapstructure:"local"`
+	Archive      *ArchiveSourceConfig `yaml:"archive,omitempty" mapstructure:"archive"`
+	EESTFixtures *EESTFixturesSource  `yaml:"eest_fixtures,omitempty" mapstructure:"eest_fixtures"`
 }
 
 // EESTFixturesSource defines an EEST fixtures source from GitHub releases, artifacts,
@@ -330,6 +331,14 @@ type LocalSourceV2 struct {
 	Steps       *StepsConfig `yaml:"steps,omitempty" mapstructure:"steps"`
 }
 
+// ArchiveSourceConfig defines an archive file source for tests.
+// The file can be a local path or a URL (HTTP/HTTPS) to a ZIP or tar.gz archive.
+type ArchiveSourceConfig struct {
+	File        string       `yaml:"file" mapstructure:"file"`
+	PreRunSteps []string     `yaml:"pre_run_steps,omitempty" mapstructure:"pre_run_steps"`
+	Steps       *StepsConfig `yaml:"steps,omitempty" mapstructure:"steps"`
+}
+
 // StepsConfig defines glob patterns for each step type.
 type StepsConfig struct {
 	Setup   []string `yaml:"setup,omitempty" mapstructure:"setup"`
@@ -339,7 +348,7 @@ type StepsConfig struct {
 
 // IsConfigured returns true if any test source is configured.
 func (s *SourceConfig) IsConfigured() bool {
-	return s.Git != nil || s.Local != nil || s.EESTFixtures != nil
+	return s.Git != nil || s.Local != nil || s.Archive != nil || s.EESTFixtures != nil
 }
 
 // DefaultContainerDir is the default container mount path for data directories.
@@ -1096,12 +1105,16 @@ func (s *SourceConfig) Validate() error {
 		count++
 	}
 
+	if s.Archive != nil {
+		count++
+	}
+
 	if s.EESTFixtures != nil {
 		count++
 	}
 
 	if count > 1 {
-		return fmt.Errorf("cannot specify multiple sources (git, local, eest_fixtures)")
+		return fmt.Errorf("cannot specify multiple sources (git, local, archive, eest_fixtures)")
 	}
 
 	if s.Git != nil {
@@ -1121,6 +1134,12 @@ func (s *SourceConfig) Validate() error {
 
 		if _, err := os.Stat(s.Local.BaseDir); os.IsNotExist(err) {
 			return fmt.Errorf("local.base_dir %q does not exist", s.Local.BaseDir)
+		}
+	}
+
+	if s.Archive != nil {
+		if s.Archive.File == "" {
+			return fmt.Errorf("archive.file is required")
 		}
 	}
 

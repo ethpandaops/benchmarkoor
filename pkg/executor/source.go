@@ -112,6 +112,16 @@ func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir, filte
 		}
 	}
 
+	if cfg.Archive != nil {
+		return &ArchiveSource{
+			log:         log.WithField("source", "archive"),
+			cfg:         cfg.Archive,
+			cacheDir:    cacheDir,
+			filter:      filter,
+			githubToken: githubToken,
+		}
+	}
+
 	if cfg.EESTFixtures != nil {
 		return NewEESTSource(log, cfg.EESTFixtures, cacheDir, filter, githubToken)
 	}
