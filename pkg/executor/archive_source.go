@@ -290,23 +290,43 @@ func (s *ArchiveSource) loadOpcodes(ctx context.Context, prepared *PreparedSourc
 	}
 
 	// Match opcode data to discovered tests by name.
+	// Test names from glob discovery include the .txt extension, but opcode
+	// JSON keys typically omit it, so we try both the full name and without .txt.
 	matched := 0
 
 	for _, test := range prepared.Tests {
-		if counts, ok := opcodeMap[test.Name]; ok {
+		name := test.Name
+		if counts, ok := opcodeMap[name]; ok {
 			test.OpcodeCount = counts
 			matched++
+		} else if trimmed, hasSuffix := strings.CutSuffix(name, ".txt"); hasSuffix {
+			if counts, ok := opcodeMap[trimmed]; ok {
+				test.OpcodeCount = counts
+				matched++
+			}
+		}
+	}
+
+	// Count opcode entries that are relevant (pass the filter) but didn't match a test.
+	filtered := len(opcodeMap)
+	if s.filter != "" {
+		filtered = 0
+
+		for key := range opcodeMap {
+			if strings.Contains(key, s.filter) {
+				filtered++
+			}
 		}
 	}
 
 	s.log.WithFields(logrus.Fields{
 		"file":          s.cfg.Opcodes,
-		"total_entries": len(opcodeMap),
+		"total_entries": filtered,
 		"matched_tests": matched,
 		"total_tests":   len(prepared.Tests),
 	}).Info("Loaded external opcode data")
 
-	if unmatched := len(opcodeMap) - matched; unmatched > 0 {
+	if unmatched := filtered - matched; unmatched > 0 {
 		s.log.WithField("unmatched", unmatched).Warn(
 			"Some opcode entries did not match any discovered test",
 		)
