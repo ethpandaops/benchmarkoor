@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 )
@@ -172,23 +174,83 @@ func extractInnerTarballs(dir string, log logrus.FieldLogger) error {
 	return nil
 }
 
-const progressLogInterval = 10 * 1024 * 1024 // 10 MiB between progress logs
+const (
+	progressLogInterval = 10 * 1024 * 1024 // 10 MiB between progress logs
+	defaultChunkSize    = 25 * 1024 * 1024 // 25 MiB per chunk
+	defaultParallelism  = 4                // number of parallel download workers
+	minParallelSize     = 10 * 1024 * 1024 // don't parallelize below 10 MiB
+)
 
-// downloadToFile downloads a URL to a local file path using plain HTTP with
-// redirect following. If bearerToken is non-empty, it is sent as an
-// Authorization header. Download progress is logged periodically.
+// downloadToFile downloads a URL to a local file. It probes for range request
+// support and downloads chunks in parallel when the server supports it,
+// falling back to a single sequential download otherwise.
 func downloadToFile(
 	ctx context.Context, url, destPath, bearerToken string, log logrus.FieldLogger,
+) error {
+	totalSize, supportsRange, err := probeDownload(ctx, url, bearerToken)
+	if err != nil {
+		return err
+	}
+
+	if supportsRange && totalSize >= minParallelSize {
+		log.WithFields(logrus.Fields{
+			"size":    formatBytes(totalSize),
+			"workers": defaultParallelism,
+		}).Info("Downloading with parallel range requests")
+
+		return downloadParallel(ctx, url, destPath, bearerToken, totalSize, log)
+	}
+
+	if totalSize > 0 {
+		log.WithField("size", formatBytes(totalSize)).
+			Info("Downloading (server does not support range requests)")
+	} else {
+		log.Info("Downloading (unknown size)")
+	}
+
+	return downloadSequential(ctx, url, destPath, bearerToken, totalSize, log)
+}
+
+// probeDownload sends a HEAD request to determine file size and range support.
+func probeDownload(
+	ctx context.Context, url, bearerToken string,
+) (totalSize int64, supportsRange bool, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return 0, false, fmt.Errorf("creating HEAD request: %w", err)
+	}
+
+	applyAuth(req, bearerToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, false, fmt.Errorf("probing %s: %w", url, err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, false, fmt.Errorf("probing %s: HTTP %d", url, resp.StatusCode)
+	}
+
+	acceptRanges := resp.Header.Get("Accept-Ranges")
+	supportsRange = acceptRanges == "bytes" && resp.ContentLength > 0
+
+	return resp.ContentLength, supportsRange, nil
+}
+
+// downloadSequential downloads the file in a single GET request with progress
+// logging.
+func downloadSequential(
+	ctx context.Context, url, destPath, bearerToken string,
+	totalSize int64, log logrus.FieldLogger,
 ) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
 
-	if bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+bearerToken)
-		req.Header.Set("Accept", "application/vnd.github+json")
-	}
+	applyAuth(req, bearerToken)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -201,23 +263,12 @@ func downloadToFile(
 		return fmt.Errorf("downloading %s: HTTP %d", url, resp.StatusCode)
 	}
 
-	totalSize := resp.ContentLength
-	if totalSize > 0 {
-		log.WithField("size", formatBytes(totalSize)).Info("Download starting")
-	} else {
-		log.Info("Download starting (unknown size)")
-	}
-
 	out, err := os.Create(destPath)
 	if err != nil {
 		return fmt.Errorf("creating file %s: %w", destPath, err)
 	}
 
-	pw := &progressWriter{
-		log:       log,
-		total:     totalSize,
-		nextLogAt: progressLogInterval,
-	}
+	pw := newProgressLogger(log, totalSize)
 
 	if _, err := io.Copy(out, io.TeeReader(resp.Body, pw)); err != nil {
 		_ = out.Close()
@@ -230,36 +281,202 @@ func downloadToFile(
 		return fmt.Errorf("closing file %s: %w", destPath, err)
 	}
 
-	log.WithField("size", formatBytes(pw.written)).Info("Download complete")
+	log.WithField("size", formatBytes(pw.Written())).Info("Download complete")
 
 	return nil
 }
 
-// progressWriter tracks bytes written and logs progress periodically.
-type progressWriter struct {
-	log       logrus.FieldLogger
-	total     int64
-	written   int64
-	nextLogAt int64
+// downloadParallel downloads the file using multiple concurrent range requests
+// and assembles the chunks into the destination file.
+func downloadParallel(
+	ctx context.Context, url, destPath, bearerToken string,
+	totalSize int64, log logrus.FieldLogger,
+) error {
+	// Pre-allocate the output file.
+	out, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("creating file %s: %w", destPath, err)
+	}
+
+	if err := out.Truncate(totalSize); err != nil {
+		_ = out.Close()
+
+		return fmt.Errorf("pre-allocating file: %w", err)
+	}
+
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("closing pre-allocated file: %w", err)
+	}
+
+	// Build chunk list.
+	type chunk struct {
+		index      int
+		start, end int64 // inclusive byte range
+	}
+
+	chunks := make([]chunk, 0, (totalSize/defaultChunkSize)+1)
+
+	for start := int64(0); start < totalSize; start += defaultChunkSize {
+		end := start + defaultChunkSize - 1
+		if end >= totalSize {
+			end = totalSize - 1
+		}
+
+		chunks = append(chunks, chunk{
+			index: len(chunks),
+			start: start,
+			end:   end,
+		})
+	}
+
+	pw := newProgressLogger(log, totalSize)
+
+	// Download chunks in parallel.
+	var (
+		wg      sync.WaitGroup
+		errOnce sync.Once
+		dlErr   error
+		sem     = make(chan struct{}, defaultParallelism)
+	)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	for _, c := range chunks {
+		wg.Add(1)
+
+		go func(c chunk) {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				errOnce.Do(func() { dlErr = ctx.Err() })
+
+				return
+			}
+
+			if err := downloadChunk(ctx, url, destPath, bearerToken, c.start, c.end, pw); err != nil {
+				errOnce.Do(func() {
+					dlErr = fmt.Errorf("chunk %d (%s-%s): %w",
+						c.index, formatBytes(c.start), formatBytes(c.end), err,
+					)
+					cancel()
+				})
+			}
+		}(c)
+	}
+
+	wg.Wait()
+
+	if dlErr != nil {
+		_ = os.Remove(destPath)
+
+		return fmt.Errorf("parallel download failed: %w", dlErr)
+	}
+
+	log.WithField("size", formatBytes(totalSize)).Info("Download complete")
+
+	return nil
 }
 
-func (pw *progressWriter) Write(p []byte) (int, error) {
+// downloadChunk downloads a single byte range and writes it at the correct
+// offset in the destination file.
+func downloadChunk(
+	ctx context.Context, url, destPath, bearerToken string,
+	start, end int64, pw *progressLogger,
+) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	applyAuth(req, bearerToken)
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusPartialContent {
+		return fmt.Errorf("expected HTTP 206, got %d", resp.StatusCode)
+	}
+
+	f, err := os.OpenFile(destPath, os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("opening file for writing: %w", err)
+	}
+
+	defer func() { _ = f.Close() }()
+
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return fmt.Errorf("seeking to offset %d: %w", start, err)
+	}
+
+	if _, err := io.Copy(f, io.TeeReader(resp.Body, pw)); err != nil {
+		return fmt.Errorf("writing chunk: %w", err)
+	}
+
+	return nil
+}
+
+// applyAuth sets bearer token authentication headers on a request.
+func applyAuth(req *http.Request, bearerToken string) {
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+		req.Header.Set("Accept", "application/vnd.github+json")
+	}
+}
+
+// progressLogger tracks total bytes downloaded across concurrent workers and
+// logs progress periodically. Safe for concurrent use.
+type progressLogger struct {
+	log       logrus.FieldLogger
+	total     int64
+	written   atomic.Int64
+	nextLogAt atomic.Int64
+}
+
+// newProgressLogger creates a progress logger for the given total size.
+func newProgressLogger(log logrus.FieldLogger, total int64) *progressLogger {
+	pl := &progressLogger{
+		log:   log,
+		total: total,
+	}
+	pl.nextLogAt.Store(progressLogInterval)
+
+	return pl
+}
+
+// Written returns the total bytes written so far.
+func (pl *progressLogger) Written() int64 {
+	return pl.written.Load()
+}
+
+func (pl *progressLogger) Write(p []byte) (int, error) {
 	n := len(p)
-	pw.written += int64(n)
+	current := pl.written.Add(int64(n))
 
-	if pw.written >= pw.nextLogAt {
-		fields := logrus.Fields{
-			"downloaded": formatBytes(pw.written),
+	threshold := pl.nextLogAt.Load()
+	if current >= threshold {
+		// CAS to avoid duplicate log lines from concurrent writers.
+		if pl.nextLogAt.CompareAndSwap(threshold, current+progressLogInterval) {
+			fields := logrus.Fields{
+				"downloaded": formatBytes(current),
+			}
+
+			if pl.total > 0 {
+				pct := float64(current) / float64(pl.total) * 100
+				fields["total"] = formatBytes(pl.total)
+				fields["progress"] = fmt.Sprintf("%.0f%%", pct)
+			}
+
+			pl.log.WithFields(fields).Info("Downloading")
 		}
-
-		if pw.total > 0 {
-			pct := float64(pw.written) / float64(pw.total) * 100
-			fields["total"] = formatBytes(pw.total)
-			fields["progress"] = fmt.Sprintf("%.0f%%", pct)
-		}
-
-		pw.log.WithFields(fields).Info("Downloading")
-		pw.nextLogAt = pw.written + progressLogInterval
 	}
 
 	return n, nil

@@ -5,9 +5,15 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/sirupsen/logrus"
@@ -275,6 +281,113 @@ func TestDetectArchiveFormat(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDownloadToFile_Parallel(t *testing.T) {
+	// Create a test payload large enough to trigger parallel downloads.
+	payload := make([]byte, minParallelSize+1024)
+	_, err := rand.Read(payload)
+	require.NoError(t, err)
+
+	// Serve with Accept-Ranges support (Go's http.ServeContent does this).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "test.bin", timeZero, newByteReadSeeker(payload))
+	}))
+	defer srv.Close()
+
+	tmpDir := t.TempDir()
+	destPath := filepath.Join(tmpDir, "downloaded")
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	err = downloadToFile(context.Background(), srv.URL, destPath, "", log)
+	require.NoError(t, err)
+
+	got, err := os.ReadFile(destPath)
+	require.NoError(t, err)
+	assert.Equal(t, payload, got)
+}
+
+func TestDownloadToFile_SequentialFallback(t *testing.T) {
+	payload := []byte("small-content-no-parallel")
+
+	// Server that does NOT support range requests.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	tmpDir := t.TempDir()
+	destPath := filepath.Join(tmpDir, "downloaded")
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	err := downloadToFile(context.Background(), srv.URL, destPath, "", log)
+	require.NoError(t, err)
+
+	got, err := os.ReadFile(destPath)
+	require.NoError(t, err)
+	assert.Equal(t, payload, got)
+}
+
+func TestDownloadToFile_BearerToken(t *testing.T) {
+	var receivedAuth string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data"))
+	}))
+	defer srv.Close()
+
+	tmpDir := t.TempDir()
+	destPath := filepath.Join(tmpDir, "downloaded")
+	log := logrus.New()
+
+	err := downloadToFile(context.Background(), srv.URL, destPath, "my-token", log)
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer my-token", receivedAuth)
+}
+
+// byteReadSeeker wraps a byte slice to implement io.ReadSeeker for
+// http.ServeContent (which enables Accept-Ranges support).
+type byteReadSeeker struct {
+	data   []byte
+	offset int64
+}
+
+// timeZero is used as the modtime for http.ServeContent so it doesn't
+// generate Last-Modified headers that interfere with tests.
+var timeZero = time.Time{}
+
+func newByteReadSeeker(data []byte) *byteReadSeeker {
+	return &byteReadSeeker{data: data}
+}
+
+func (b *byteReadSeeker) Read(p []byte) (int, error) {
+	if b.offset >= int64(len(b.data)) {
+		return 0, io.EOF
+	}
+
+	n := copy(p, b.data[b.offset:])
+	b.offset += int64(n)
+
+	return n, nil
+}
+
+func (b *byteReadSeeker) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		b.offset = offset
+	case io.SeekCurrent:
+		b.offset += offset
+	case io.SeekEnd:
+		b.offset = int64(len(b.data)) + offset
+	}
+
+	return b.offset, nil
 }
 
 // createTestZip creates a zip file with the given text files.
