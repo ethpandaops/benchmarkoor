@@ -593,7 +593,7 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 		}
 
 		if info.IsDir() {
-			if info.Name() == "pre_alloc" {
+			if info.Name() == "pre_alloc" || info.Name() == "pre_run" {
 				return filepath.SkipDir
 			}
 
@@ -610,83 +610,19 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 			return fmt.Errorf("reading fixture %s: %w", path, err)
 		}
 
-		fixtures, err := eest.ParseFixtureFile(data)
-		if err != nil {
+		// Detect format and route to the appropriate parser/converter.
+		format := eest.DetectFixtureFormat(data)
+
+		switch format {
+		case eest.SupportedStatefulFixtureFormat:
+			s.processStatefulFixtures(data, path, result, testsByFixtureKey)
+		case eest.SupportedFixtureFormat:
+			s.processGenesisFixtures(data, path, result, testsByFixtureKey)
+		default:
 			s.log.WithFields(logrus.Fields{
-				"file":  path,
-				"error": err,
-			}).Warn("Failed to parse fixture file, skipping")
-
-			return nil
-		}
-
-		// Convert each fixture to tests.
-		for name, fixture := range fixtures {
-			// Skip fixtures that don't have the supported format.
-			if !fixture.IsSupportedFormat() {
-				format := ""
-				if fixture.Info != nil {
-					format = fixture.Info.FixtureFormat
-				}
-
-				s.log.WithFields(logrus.Fields{
-					"file":    path,
-					"fixture": name,
-					"format":  format,
-				}).Debug("Skipping fixture with unsupported format")
-
-				continue
-			}
-
-			// Apply filter to individual test names too.
-			if s.filter != "" && !strings.Contains(name, s.filter) {
-				continue
-			}
-
-			converted, err := eest.ConvertFixture(name, fixture)
-			if err != nil {
-				s.log.WithFields(logrus.Fields{
-					"file":    path,
-					"fixture": name,
-					"error":   err,
-				}).Warn("Failed to convert fixture, skipping")
-
-				continue
-			}
-
-			// Build test name from the fixture key.
-			// The fixture key is a pytest node ID like
-			// "tests/benchmark/.../test_foo.py::test_bar[params]".
-			// Strip the leading "tests/" directory prefix if present
-			// since it's a pytest artifact, not part of the test identity.
-			testName := name
-			if after, ok := strings.CutPrefix(testName, "tests/"); ok {
-				testName = after
-			}
-
-			test := &TestWithSteps{
-				Name:     testName,
-				EESTInfo: fixture.Info,
-			}
-
-			// Create setup step if there are setup lines.
-			if len(converted.SetupLines) > 0 {
-				test.Setup = &StepFile{
-					Name:     testName + "/setup",
-					Provider: &linesProvider{lines: converted.SetupLines},
-				}
-			}
-
-			// Create test step.
-			if len(converted.TestLines) > 0 {
-				test.Test = &StepFile{
-					Name:     testName + "/test",
-					Provider: &linesProvider{lines: converted.TestLines},
-				}
-			}
-
-			result.Tests = append(result.Tests, test)
-			testsByFixtureKey[name] = test
+				"file":   path,
+				"format": format,
+			}).Debug("Skipping fixture file with unsupported format")
 		}
 
 		return nil
@@ -695,6 +631,9 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("walking fixtures directory: %w", err)
 	}
+
+	// Scan pre_run/ directory for global setup payload files.
+	s.loadPreRunSteps(searchDir, result)
 
 	// Sort tests by name for consistent ordering.
 	sort.Slice(result.Tests, func(i, j int) bool {
@@ -725,6 +664,207 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 	}
 
 	return result, nil
+}
+
+// processGenesisFixtures parses and converts genesis-based (blockchain_test_engine_x) fixtures.
+func (s *EESTSource) processGenesisFixtures(
+	data []byte,
+	path string,
+	result *PreparedSource,
+	testsByFixtureKey map[string]*TestWithSteps,
+) {
+	fixtures, err := eest.ParseFixtureFile(data)
+	if err != nil {
+		s.log.WithFields(logrus.Fields{
+			"file":  path,
+			"error": err,
+		}).Warn("Failed to parse fixture file, skipping")
+
+		return
+	}
+
+	for name, fixture := range fixtures {
+		if !fixture.IsSupportedFormat() {
+			continue
+		}
+
+		if s.filter != "" && !strings.Contains(name, s.filter) {
+			continue
+		}
+
+		converted, err := eest.ConvertFixture(name, fixture)
+		if err != nil {
+			s.log.WithFields(logrus.Fields{
+				"file":    path,
+				"fixture": name,
+				"error":   err,
+			}).Warn("Failed to convert fixture, skipping")
+
+			continue
+		}
+
+		s.addConvertedTest(name, fixture.Info, converted, result, testsByFixtureKey)
+	}
+}
+
+// processStatefulFixtures parses and converts stateful (blockchain_test_stateful_engine) fixtures.
+func (s *EESTSource) processStatefulFixtures(
+	data []byte,
+	path string,
+	result *PreparedSource,
+	testsByFixtureKey map[string]*TestWithSteps,
+) {
+	fixtures, err := eest.ParseStatefulFixtureFile(data)
+	if err != nil {
+		s.log.WithFields(logrus.Fields{
+			"file":  path,
+			"error": err,
+		}).Warn("Failed to parse stateful fixture file, skipping")
+
+		return
+	}
+
+	for name, fixture := range fixtures {
+		if !fixture.IsSupportedFormat() {
+			continue
+		}
+
+		if s.filter != "" && !strings.Contains(name, s.filter) {
+			continue
+		}
+
+		converted, err := eest.ConvertStatefulFixture(name, fixture)
+		if err != nil {
+			s.log.WithFields(logrus.Fields{
+				"file":    path,
+				"fixture": name,
+				"error":   err,
+			}).Warn("Failed to convert stateful fixture, skipping")
+
+			continue
+		}
+
+		test := s.addConvertedTest(name, fixture.Info, converted, result, testsByFixtureKey)
+		test.GenesisHash = converted.GenesisHash
+	}
+}
+
+// addConvertedTest builds a TestWithSteps from a ConvertedTest and adds it to the result.
+func (s *EESTSource) addConvertedTest(
+	name string,
+	info *eest.FixtureInfo,
+	converted *eest.ConvertedTest,
+	result *PreparedSource,
+	testsByFixtureKey map[string]*TestWithSteps,
+) *TestWithSteps {
+	// Build test name from the fixture key.
+	// The fixture key is a pytest node ID like
+	// "tests/benchmark/.../test_foo.py::test_bar[params]".
+	// Strip the leading "tests/" directory prefix if present
+	// since it's a pytest artifact, not part of the test identity.
+	testName := name
+	if after, ok := strings.CutPrefix(testName, "tests/"); ok {
+		testName = after
+	}
+
+	test := &TestWithSteps{
+		Name:     testName,
+		EESTInfo: info,
+	}
+
+	if len(converted.SetupLines) > 0 {
+		test.Setup = &StepFile{
+			Name:     testName + "/setup",
+			Provider: &linesProvider{lines: converted.SetupLines},
+		}
+	}
+
+	if len(converted.TestLines) > 0 {
+		test.Test = &StepFile{
+			Name:     testName + "/test",
+			Provider: &linesProvider{lines: converted.TestLines},
+		}
+	}
+
+	result.Tests = append(result.Tests, test)
+	testsByFixtureKey[name] = test
+
+	return test
+}
+
+// loadPreRunSteps scans the pre_run/ directory for global setup
+// payload files and adds them as PreRunSteps.
+func (s *EESTSource) loadPreRunSteps(searchDir string, result *PreparedSource) {
+	preRunDir := filepath.Join(searchDir, "pre_run")
+
+	entries, err := os.ReadDir(preRunDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+
+		s.log.WithError(err).Warn("Failed to read pre_run directory")
+
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(preRunDir, entry.Name()))
+		if err != nil {
+			s.log.WithFields(logrus.Fields{
+				"file":  entry.Name(),
+				"error": err,
+			}).Warn("Failed to read pre-run file, skipping")
+
+			continue
+		}
+
+		var preRun eest.PreRunFixture
+		if err := json.Unmarshal(data, &preRun); err != nil {
+			s.log.WithFields(logrus.Fields{
+				"file":  entry.Name(),
+				"error": err,
+			}).Warn("Failed to parse pre-run file, skipping")
+
+			continue
+		}
+
+		if len(preRun.EngineNewPayloads) == 0 {
+			continue
+		}
+
+		s.log.WithFields(logrus.Fields{
+			"file":                 entry.Name(),
+			"snapshot_block_number": preRun.SnapshotBlockNumber,
+			"snapshot_block_hash":   preRun.SnapshotBlockHash,
+		}).Info("Pre-run references snapshot state")
+
+		lines, err := eest.ConvertPreRunFixture(&preRun)
+		if err != nil {
+			s.log.WithFields(logrus.Fields{
+				"file":  entry.Name(),
+				"error": err,
+			}).Warn("Failed to convert pre-run fixture, skipping")
+
+			continue
+		}
+
+		if len(lines) > 0 {
+			result.PreRunSteps = append(result.PreRunSteps, &StepFile{
+				Name:     "pre_run/" + entry.Name(),
+				Provider: &linesProvider{lines: lines},
+			})
+
+			s.log.WithFields(logrus.Fields{
+				"file":     entry.Name(),
+				"payloads": len(preRun.EngineNewPayloads),
+			}).Info("Loaded pre-run step")
+		}
+	}
 }
 
 // Cleanup is a no-op for EEST sources (we keep the cache).
