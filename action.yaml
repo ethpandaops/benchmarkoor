@@ -20,6 +20,11 @@ inputs:
     required: false
     default: ''
 
+  git-repo:
+    description: 'Git repository URL to clone for building the image. Only used when image is not provided. Defaults to ethpandaops/benchmarkoor.'
+    required: false
+    default: 'https://github.com/ethpandaops/benchmarkoor.git'
+
   upload-artifacts:
     description: 'Whether to upload run results as GitHub artifacts'
     required: false
@@ -65,8 +70,10 @@ runs:
           GIT_REF="master"
         fi
 
-        echo "Cloning https://github.com/ethpandaops/benchmarkoor.git at ref $GIT_REF"
-        git clone https://github.com/ethpandaops/benchmarkoor.git benchmarkoor-build
+        GIT_REPO="${{ inputs.git-repo }}"
+
+        echo "Cloning ${GIT_REPO} at ref $GIT_REF"
+        git clone "${GIT_REPO}" benchmarkoor-build
         cd benchmarkoor-build
         git checkout "$GIT_REF"
 
