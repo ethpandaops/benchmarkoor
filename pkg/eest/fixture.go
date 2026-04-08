@@ -6,8 +6,11 @@ import (
 	"strconv"
 )
 
-// SupportedFixtureFormat is the fixture format we support.
+// SupportedFixtureFormat is the fixture format for genesis-based tests.
 const SupportedFixtureFormat = "blockchain_test_engine_x"
+
+// SupportedStatefulFixtureFormat is the fixture format for snapshot-based stateful tests.
+const SupportedStatefulFixtureFormat = "blockchain_test_stateful_engine"
 
 // Fixture represents a single EEST test fixture.
 type Fixture struct {
@@ -31,6 +34,43 @@ type FixtureInfo struct {
 // IsSupportedFormat returns true if the fixture has a supported format.
 func (f *Fixture) IsSupportedFormat() bool {
 	return f.Info != nil && f.Info.FixtureFormat == SupportedFixtureFormat
+}
+
+// StatefulFixture represents a snapshot-based stateful EEST test fixture.
+// Unlike Fixture, it has no genesis or pre-alloc — state comes from an
+// external network snapshot referenced by SnapshotBlockNumber/Hash.
+type StatefulFixture struct {
+	Info                   *FixtureInfo        `json:"_info"`
+	Network                string              `json:"network"`
+	LastBlockHash          string              `json:"lastblockhash"`
+	Config                 *FixtureConfig      `json:"config"`
+	SnapshotBlockNumber    string              `json:"snapshotBlockNumber"`
+	SnapshotBlockHash      string              `json:"snapshotBlockHash"`
+	StartBlockNumber       string              `json:"startBlockNumber"`
+	StartBlockHash         string              `json:"startBlockHash"`
+	SetupEngineNewPayloads []*EngineNewPayload `json:"setupEngineNewPayloads"`
+	EngineNewPayloads      []*EngineNewPayload `json:"engineNewPayloads"`
+}
+
+// PreRunFixture represents a pre-run payload file for stateful benchmarks.
+// Contains global setup blocks (e.g. factory deploy) that bridge the gap
+// between the raw snapshot and the start block.
+type PreRunFixture struct {
+	Network             string              `json:"network"`
+	SnapshotBlockNumber string              `json:"snapshotBlockNumber"`
+	SnapshotBlockHash   string              `json:"snapshotBlockHash"`
+	EngineNewPayloads   []*EngineNewPayload `json:"engineNewPayloads"`
+}
+
+// FixtureConfig contains chain configuration for a fixture.
+type FixtureConfig struct {
+	Network string `json:"network"`
+	ChainID string `json:"chainid"`
+}
+
+// IsSupportedFormat returns true if the stateful fixture has a supported format.
+func (f *StatefulFixture) IsSupportedFormat() bool {
+	return f.Info != nil && f.Info.FixtureFormat == SupportedStatefulFixtureFormat
 }
 
 // BlockHeader represents an Ethereum block header.
@@ -206,7 +246,7 @@ type Consolidate struct {
 	TargetPubkey  string `json:"targetPubkey"`
 }
 
-// ParseFixtureFile parses a fixture JSON file.
+// ParseFixtureFile parses a fixture JSON file containing genesis-based fixtures.
 // The file contains a map of test names to Fixture objects.
 func ParseFixtureFile(data []byte) (map[string]*Fixture, error) {
 	var fixtures map[string]*Fixture
@@ -215,4 +255,38 @@ func ParseFixtureFile(data []byte) (map[string]*Fixture, error) {
 	}
 
 	return fixtures, nil
+}
+
+// ParseStatefulFixtureFile parses a fixture JSON file containing stateful fixtures.
+// The file contains a map of test names to StatefulFixture objects.
+func ParseStatefulFixtureFile(data []byte) (map[string]*StatefulFixture, error) {
+	var fixtures map[string]*StatefulFixture
+	if err := json.Unmarshal(data, &fixtures); err != nil {
+		return nil, err
+	}
+
+	return fixtures, nil
+}
+
+// DetectFixtureFormat inspects a fixture JSON file and returns the format
+// string from the first entry's _info.fixture-format field.
+// Returns empty string if the format cannot be determined.
+func DetectFixtureFormat(data []byte) string {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return ""
+	}
+
+	for _, entry := range raw {
+		var info struct {
+			Info *FixtureInfo `json:"_info"`
+		}
+		if err := json.Unmarshal(entry, &info); err == nil && info.Info != nil {
+			return info.Info.FixtureFormat
+		}
+
+		break // only check the first entry
+	}
+
+	return ""
 }
