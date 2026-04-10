@@ -280,6 +280,7 @@ func (r *runner) runContainerLifecycle(
 			Command:     spec.InitCommand(),
 			Mounts:      mounts,
 			NetworkName: r.cfg.ContainerNetwork,
+			SecurityOpt: []string{"seccomp=unconfined"},
 			Labels: map[string]string{
 				"benchmarkoor.instance":   instance.ID,
 				"benchmarkoor.client":     instance.Client,
@@ -666,6 +667,7 @@ func (r *runner) runContainerLifecycle(
 		Mounts:         mounts,
 		NetworkName:    r.cfg.ContainerNetwork,
 		ResourceLimits: containerResourceLimits,
+		SecurityOpt:    []string{"seccomp=unconfined"},
 		Labels: map[string]string{
 			"benchmarkoor.instance":   instance.ID,
 			"benchmarkoor.client":     instance.Client,

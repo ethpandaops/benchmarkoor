@@ -938,6 +938,7 @@ func (r *runner) runInitForRecreate(
 		Command:     spec.InitCommand(),
 		Mounts:      mounts,
 		NetworkName: r.cfg.ContainerNetwork,
+		SecurityOpt: []string{"seccomp=unconfined"},
 		Labels: map[string]string{
 			"benchmarkoor.instance":   instance.ID,
 			"benchmarkoor.client":     instance.Client,
