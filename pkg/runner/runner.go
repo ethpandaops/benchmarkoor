@@ -184,35 +184,38 @@ func NewRunner(
 	exec executor.Executor,
 	cpufreqMgr cpufreq.Manager,
 	uploader upload.Uploader,
+	preRunLogBuffer *BufferHook,
 ) Runner {
 	if cfg.ReadyTimeout == 0 {
 		cfg.ReadyTimeout = DefaultReadyTimeout
 	}
 
 	return &runner{
-		logger:       log,
-		log:          log.WithField("component", "runner"),
-		cfg:          cfg,
-		containerMgr: containerMgr,
-		registry:     registry,
-		executor:     exec,
-		cpufreqMgr:   cpufreqMgr,
-		uploader:     uploader,
-		done:         make(chan struct{}),
+		logger:          log,
+		log:             log.WithField("component", "runner"),
+		cfg:             cfg,
+		containerMgr:    containerMgr,
+		registry:        registry,
+		executor:        exec,
+		cpufreqMgr:      cpufreqMgr,
+		uploader:        uploader,
+		preRunLogBuffer: preRunLogBuffer,
+		done:            make(chan struct{}),
 	}
 }
 
 type runner struct {
-	logger       *logrus.Logger     // The actual logger (for hook management)
-	log          logrus.FieldLogger // The field logger (for logging with fields)
-	cfg          *Config
-	containerMgr docker.ContainerManager
-	registry     client.Registry
-	executor     executor.Executor
-	cpufreqMgr   cpufreq.Manager
-	uploader     upload.Uploader
-	done         chan struct{}
-	wg           sync.WaitGroup
+	logger          *logrus.Logger     // The actual logger (for hook management)
+	log             logrus.FieldLogger // The field logger (for logging with fields)
+	cfg             *Config
+	containerMgr    docker.ContainerManager
+	registry        client.Registry
+	executor        executor.Executor
+	cpufreqMgr      cpufreq.Manager
+	uploader        upload.Uploader
+	preRunLogBuffer *BufferHook // Buffered logs from before RunInstance (may be nil).
+	done            chan struct{}
+	wg              sync.WaitGroup
 }
 
 // Ensure interface compliance.
@@ -389,6 +392,14 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	}
 	r.logger.AddHook(logHook)
 	defer r.removeHook(logHook)
+
+	// Flush any pre-instance logs (config validation, cleanup, image pulls,
+	// etc.) that were buffered before RunInstance was called.
+	if r.preRunLogBuffer != nil {
+		if err := r.preRunLogBuffer.FlushTo(benchmarkoorLogFile); err != nil {
+			return fmt.Errorf("flushing pre-run logs: %w", err)
+		}
+	}
 
 	log := r.log.WithFields(logrus.Fields{
 		"instance": instance.ID,

@@ -68,6 +68,61 @@ func clientLogPrefix(clientName string) func() string {
 	}
 }
 
+// BufferHook writes formatted log lines to a temporary file so they can be
+// replayed into files created later (e.g. per-instance benchmarkoor.log).
+// Install it on the logger before the runner starts so that pre-instance
+// logs are captured without unbounded memory growth.
+type BufferHook struct {
+	formatter logrus.Formatter
+	file      *os.File
+}
+
+// NewBufferHook creates a BufferHook backed by a temporary file in tmpDir.
+// If tmpDir is empty the system default is used. The caller must call Close
+// when the hook is no longer needed.
+func NewBufferHook(formatter logrus.Formatter, tmpDir string) (*BufferHook, error) {
+	f, err := os.CreateTemp(tmpDir, "benchmarkoor-prelog-*.log")
+	if err != nil {
+		return nil, fmt.Errorf("creating pre-run log buffer: %w", err)
+	}
+
+	return &BufferHook{formatter: formatter, file: f}, nil
+}
+
+// Levels returns all log levels.
+func (h *BufferHook) Levels() []logrus.Level { return logrus.AllLevels }
+
+// Fire formats and appends a log entry to the temporary file.
+func (h *BufferHook) Fire(entry *logrus.Entry) error {
+	line, err := h.formatter.Format(entry)
+	if err != nil {
+		return err
+	}
+
+	_, err = h.file.Write(line)
+
+	return err
+}
+
+// FlushTo copies all buffered log lines to w.
+func (h *BufferHook) FlushTo(w io.Writer) error {
+	if _, err := h.file.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("seeking pre-run log buffer: %w", err)
+	}
+
+	if _, err := io.Copy(w, h.file); err != nil {
+		return fmt.Errorf("copying pre-run log buffer: %w", err)
+	}
+
+	return nil
+}
+
+// Close removes the temporary file.
+func (h *BufferHook) Close() {
+	_ = h.file.Close()
+	_ = os.Remove(h.file.Name())
+}
+
 // fileHook writes log entries to a file.
 type fileHook struct {
 	writer    io.Writer
