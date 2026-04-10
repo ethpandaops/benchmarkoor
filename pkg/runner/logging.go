@@ -68,6 +68,46 @@ func clientLogPrefix(clientName string) func() string {
 	}
 }
 
+// BufferHook buffers formatted log lines so they can be replayed into files
+// created later (e.g. per-instance benchmarkoor.log). Install it on the
+// logger before the runner starts so that pre-instance logs are captured.
+type BufferHook struct {
+	formatter logrus.Formatter
+	lines     [][]byte
+}
+
+// NewBufferHook creates a BufferHook that formats entries with the given
+// formatter.
+func NewBufferHook(formatter logrus.Formatter) *BufferHook {
+	return &BufferHook{formatter: formatter}
+}
+
+// Levels returns all log levels.
+func (h *BufferHook) Levels() []logrus.Level { return logrus.AllLevels }
+
+// Fire formats and buffers a log entry.
+func (h *BufferHook) Fire(entry *logrus.Entry) error {
+	line, err := h.formatter.Format(entry)
+	if err != nil {
+		return err
+	}
+
+	h.lines = append(h.lines, line)
+
+	return nil
+}
+
+// FlushTo flushes all buffered lines to w.
+func (h *BufferHook) FlushTo(w io.Writer) error {
+	for _, line := range h.lines {
+		if _, err := w.Write(line); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // fileHook writes log entries to a file.
 type fileHook struct {
 	writer    io.Writer

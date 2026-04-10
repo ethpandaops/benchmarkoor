@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -47,25 +46,6 @@ func init() {
 		"Add metadata label as key=value (can be repeated)")
 }
 
-// logFileHook writes log entries to a file.
-type logFileHook struct {
-	writer    io.Writer
-	formatter logrus.Formatter
-}
-
-func (h *logFileHook) Levels() []logrus.Level { return logrus.AllLevels }
-
-func (h *logFileHook) Fire(entry *logrus.Entry) error {
-	line, err := h.formatter.Format(entry)
-	if err != nil {
-		return err
-	}
-
-	_, err = h.writer.Write(line)
-
-	return err
-}
-
 func runBenchmark(cmd *cobra.Command, args []string) error {
 	if len(cfgFiles) == 0 {
 		return fmt.Errorf("config file is required (use --config)")
@@ -97,26 +77,10 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parsing results_owner: %w", err)
 	}
 
-	// Setup top-level benchmarkoor.log in the results directory so that all
-	// logs (config validation, cleanup, image pulls, etc.) are captured, not
-	// just the per-instance logs.
-	if err := fsutil.MkdirAll(cfg.Runner.Benchmark.ResultsDir, 0755, resultsOwner); err != nil {
-		return fmt.Errorf("creating results directory: %w", err)
-	}
-
-	topLevelLogFile, err := fsutil.Create(
-		filepath.Join(cfg.Runner.Benchmark.ResultsDir, "benchmarkoor.log"), resultsOwner,
-	)
-	if err != nil {
-		return fmt.Errorf("creating top-level benchmarkoor log file: %w", err)
-	}
-	defer func() { _ = topLevelLogFile.Close() }()
-
-	topLevelLogHook := &logFileHook{
-		writer:    topLevelLogFile,
-		formatter: log.Formatter,
-	}
-	log.AddHook(topLevelLogHook)
+	// Buffer all log entries so they can be replayed into each instance's
+	// benchmarkoor.log file, capturing logs from before RunInstance is called.
+	preRunLogBuffer := runner.NewBufferHook(log.Formatter)
+	log.AddHook(preRunLogBuffer)
 
 	// Use consistent log format when client logs go to stdout.
 	if cfg.Runner.ClientLogsToStdout {
@@ -339,7 +303,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			FullConfig:         cfg,
 		}
 
-		r := runner.NewRunner(log, runnerCfg, containerMgr, registry, exec, cpufreqMgr, resultsUploader)
+		r := runner.NewRunner(log, runnerCfg, containerMgr, registry, exec, cpufreqMgr, resultsUploader, preRunLogBuffer)
 
 		if err := r.Start(ctx); err != nil {
 			return fmt.Errorf("starting runner: %w", err)
