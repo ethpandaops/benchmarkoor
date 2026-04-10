@@ -193,7 +193,7 @@ func (m *manager) CreateContainer(
 	// Map SecurityOpt entries to specgen fields.
 	for _, opt := range spec.SecurityOpt {
 		if opt == "seccomp=unconfined" || opt == "seccomp:unconfined" {
-			s.SeccompPolicy = "unconfined"
+			s.SeccompProfilePath = "unconfined"
 		}
 	}
 
