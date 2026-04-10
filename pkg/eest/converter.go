@@ -63,6 +63,68 @@ func ConvertFixture(name string, fixture *Fixture) (*ConvertedTest, error) {
 	return result, nil
 }
 
+// ConvertStatefulFixture converts a stateful EEST fixture to JSON-RPC calls.
+// Unlike ConvertFixture, phases are explicit: setupEngineNewPayloads become
+// setup steps and engineNewPayloads become test steps.
+func ConvertStatefulFixture(name string, fixture *StatefulFixture) (*ConvertedTest, error) {
+	if fixture == nil {
+		return nil, fmt.Errorf("fixture is nil")
+	}
+
+	if len(fixture.EngineNewPayloads) == 0 {
+		return nil, fmt.Errorf("fixture has no test payloads")
+	}
+
+	result := &ConvertedTest{
+		Name:         name,
+		SetupLines:   make([]string, 0),
+		TestLines:    make([]string, 0),
+		GenesisHash:  fixture.SnapshotBlockHash,
+		FinalHash:    fixture.LastBlockHash,
+		PayloadCount: len(fixture.SetupEngineNewPayloads) + len(fixture.EngineNewPayloads),
+	}
+
+	// Convert setup payloads.
+	for i, payload := range fixture.SetupEngineNewPayloads {
+		lines, err := convertPayload(payload, i+1)
+		if err != nil {
+			return nil, fmt.Errorf("converting setup payload %d: %w", i, err)
+		}
+
+		result.SetupLines = append(result.SetupLines, lines...)
+	}
+
+	// Convert test payloads.
+	idOffset := len(fixture.SetupEngineNewPayloads)
+
+	for i, payload := range fixture.EngineNewPayloads {
+		lines, err := convertPayload(payload, idOffset+i+1)
+		if err != nil {
+			return nil, fmt.Errorf("converting test payload %d: %w", i, err)
+		}
+
+		result.TestLines = append(result.TestLines, lines...)
+	}
+
+	return result, nil
+}
+
+// ConvertPreRunFixture converts a pre-run fixture to JSON-RPC lines.
+func ConvertPreRunFixture(fixture *PreRunFixture) ([]string, error) {
+	var lines []string
+
+	for i, payload := range fixture.EngineNewPayloads {
+		converted, err := convertPayload(payload, i+1)
+		if err != nil {
+			return nil, fmt.Errorf("converting pre-run payload %d: %w", i, err)
+		}
+
+		lines = append(lines, converted...)
+	}
+
+	return lines, nil
+}
+
 // convertPayload generates JSON-RPC lines for a single payload.
 func convertPayload(payload *EngineNewPayload, id int) ([]string, error) {
 	if payload.ExecutionPayload == nil {
