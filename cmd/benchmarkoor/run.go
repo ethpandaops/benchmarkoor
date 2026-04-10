@@ -77,8 +77,15 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parsing results_owner: %w", err)
 	}
 
+	// Use consistent log format when client logs go to stdout.
+	if cfg.Runner.ClientLogsToStdout {
+		log.SetFormatter(&consistentFormatter{prefix: "🔵"})
+	}
+
 	// Buffer all log entries to a temp file so they can be replayed into each
 	// instance's benchmarkoor.log, capturing logs from before RunInstance.
+	// Created after the formatter is set so the buffered output matches the
+	// per-instance log format.
 	preRunLogBuffer, err := runner.NewBufferHook(log.Formatter, cfg.Runner.Directories.TmpCacheDir)
 	if err != nil {
 		return fmt.Errorf("creating pre-run log buffer: %w", err)
@@ -86,11 +93,6 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	defer preRunLogBuffer.Close()
 
 	log.AddHook(preRunLogBuffer)
-
-	// Use consistent log format when client logs go to stdout.
-	if cfg.Runner.ClientLogsToStdout {
-		log.SetFormatter(&consistentFormatter{prefix: "🔵"})
-	}
 
 	// Setup context with signal handling.
 	ctx, cancel := context.WithCancel(context.Background())
