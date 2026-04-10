@@ -77,9 +77,14 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parsing results_owner: %w", err)
 	}
 
-	// Buffer all log entries so they can be replayed into each instance's
-	// benchmarkoor.log file, capturing logs from before RunInstance is called.
-	preRunLogBuffer := runner.NewBufferHook(log.Formatter)
+	// Buffer all log entries to a temp file so they can be replayed into each
+	// instance's benchmarkoor.log, capturing logs from before RunInstance.
+	preRunLogBuffer, err := runner.NewBufferHook(log.Formatter, cfg.Runner.Directories.TmpCacheDir)
+	if err != nil {
+		return fmt.Errorf("creating pre-run log buffer: %w", err)
+	}
+	defer preRunLogBuffer.Close()
+
 	log.AddHook(preRunLogBuffer)
 
 	// Use consistent log format when client logs go to stdout.
