@@ -26,6 +26,9 @@ interface RunFiltersProps {
   entries?: IndexEntry[]
   labelFilters?: LabelFiltersType
   onLabelFiltersChange?: (filters: LabelFiltersType) => void
+  suiteLabelKeys?: Map<string, string[]>
+  suiteLabelFilters?: LabelFiltersType
+  onSuiteLabelFiltersChange?: (filters: LabelFiltersType) => void
 }
 
 function ChevronIcon() {
@@ -118,6 +121,9 @@ export function RunFilters({
   entries,
   labelFilters,
   onLabelFiltersChange,
+  suiteLabelKeys,
+  suiteLabelFilters,
+  onSuiteLabelFiltersChange,
 }: RunFiltersProps) {
   const clientOptions = [{ value: '' as const, label: 'All clients' }, ...clients.map((c) => ({ value: c, label: c }))]
   const imageOptions = [{ value: '' as const, label: 'All images' }, ...images.map((i) => ({ value: i, label: i }))]
@@ -178,8 +184,11 @@ export function RunFilters({
           width="w-36"
         />
       </div>
+      {suiteLabelKeys && suiteLabelKeys.size > 0 && suiteLabelFilters && onSuiteLabelFiltersChange && (
+        <LabelFilters entries={[]} filters={suiteLabelFilters} onChange={onSuiteLabelFiltersChange} availableLabels={suiteLabelKeys} addButtonLabel="Suite label" />
+      )}
       {entries && labelFilters && onLabelFiltersChange && (
-        <LabelFilters entries={entries} filters={labelFilters} onChange={onLabelFiltersChange} />
+        <LabelFilters entries={entries} filters={labelFilters} onChange={onLabelFiltersChange} addButtonLabel="Run label" />
       )}
     </div>
   )

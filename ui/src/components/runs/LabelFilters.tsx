@@ -8,9 +8,13 @@ interface LabelFiltersProps {
   entries: IndexEntry[]
   filters: LabelFiltersType
   onChange: (filters: LabelFiltersType) => void
+  /** Optional pre-computed label keys/values (overrides entries-based extraction when provided). */
+  availableLabels?: Map<string, string[]>
+  /** Label for the add-filter button (defaults to "Label"). */
+  addButtonLabel?: string
 }
 
-export function LabelFilters({ entries, filters, onChange }: LabelFiltersProps) {
+export function LabelFilters({ entries, filters, onChange, availableLabels, addButtonLabel = 'Label' }: LabelFiltersProps) {
   const [keyDropdownOpen, setKeyDropdownOpen] = useState(false)
   const [valueDropdownKey, setValueDropdownKey] = useState<string | null>(null)
   const keyRef = useRef<HTMLDivElement>(null)
@@ -31,6 +35,9 @@ export function LabelFilters({ entries, filters, onChange }: LabelFiltersProps) 
   }, [keyDropdownOpen, valueDropdownKey])
 
   const { allKeys, valuesForKey } = useMemo(() => {
+    if (availableLabels) {
+      return { allKeys: Array.from(availableLabels.keys()).sort(), valuesForKey: availableLabels }
+    }
     const valMap = new Map<string, Set<string>>()
     for (const entry of entries) {
       if (entry.metadata) {
@@ -50,7 +57,7 @@ export function LabelFilters({ entries, filters, onChange }: LabelFiltersProps) 
       values.set(key, Array.from(set).sort())
     }
     return { allKeys: keys, valuesForKey: values }
-  }, [entries])
+  }, [entries, availableLabels])
 
   if (allKeys.length === 0) return null
 
@@ -184,7 +191,7 @@ export function LabelFilters({ entries, filters, onChange }: LabelFiltersProps) 
             className="flex items-center gap-1 rounded-xs border border-dashed border-gray-300 px-2 py-1 text-xs/5 text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-300"
           >
             <Plus className="size-3" />
-            Label
+            {addButtonLabel}
           </button>
 
           {keyDropdownOpen && (

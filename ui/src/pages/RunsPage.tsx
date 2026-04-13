@@ -37,9 +37,11 @@ export function RunsPage() {
     sortDir?: SortDirection
     steps?: string
     labels?: string
+    suiteLabels?: string
   }
-  const { page = 1, pageSize = DEFAULT_PAGE_SIZE, client, image, suite, strategy, status = 'all', sortBy = 'timestamp', sortDir = 'desc', steps, labels } = search
+  const { page = 1, pageSize = DEFAULT_PAGE_SIZE, client, image, suite, strategy, status = 'all', sortBy = 'timestamp', sortDir = 'desc', steps, labels, suiteLabels } = search
   const labelFilters = parseLabelFilters(labels)
+  const suiteLabelFilters = parseLabelFilters(suiteLabels)
 
   // Parse step filter from URL
   const parseStepFilter = (stepsParam: string | undefined): IndexStepType[] => {
@@ -96,12 +98,63 @@ export function RunsPage() {
     })),
   })
 
-  const suites = useMemo(() => {
+  const allSuites = useMemo(() => {
     return suiteHashes.map((hash, i) => {
       const name = suiteQueries[i]?.data?.metadata?.labels?.name
       return { hash, name }
     })
   }, [suiteHashes, suiteQueries])
+
+  // Build suite info map and extract available suite label keys/values for filtering.
+  const suiteInfoMap = useMemo(() => {
+    const map = new Map<string, Record<string, string>>()
+    for (let i = 0; i < suiteHashes.length; i++) {
+      const labels = suiteQueries[i]?.data?.metadata?.labels
+      if (labels) map.set(suiteHashes[i], labels)
+    }
+    return map
+  }, [suiteHashes, suiteQueries])
+
+  const suiteLabelKeys = useMemo(() => {
+    const valMap = new Map<string, Set<string>>()
+    for (const labels of suiteInfoMap.values()) {
+      for (const [key, value] of Object.entries(labels)) {
+        if (key === 'name') continue
+        let set = valMap.get(key)
+        if (!set) {
+          set = new Set()
+          valMap.set(key, set)
+        }
+        set.add(value)
+      }
+    }
+    const result = new Map<string, string[]>()
+    for (const [key, set] of valMap) {
+      result.set(key, Array.from(set).sort())
+    }
+    return result
+  }, [suiteInfoMap])
+
+  // Pre-compute the set of suite hashes matching the suite label filters.
+  const matchingSuiteHashes = useMemo(() => {
+    if (suiteLabelFilters.size === 0) return null
+    const matching = new Set<string>()
+    for (const [hash, labels] of suiteInfoMap) {
+      let match = true
+      for (const [key, allowedValues] of suiteLabelFilters) {
+        const actual = labels[key]
+        if (!actual || !allowedValues.has(actual)) { match = false; break }
+      }
+      if (match) matching.add(hash)
+    }
+    return matching
+  }, [suiteInfoMap, suiteLabelFilters])
+
+  // Filter the suite dropdown options by active suite label filters.
+  const suites = useMemo(() => {
+    if (!matchingSuiteHashes) return allSuites
+    return allSuites.filter((s) => matchingSuiteHashes.has(s.hash))
+  }, [allSuites, matchingSuiteHashes])
 
   const filteredEntries = useMemo(() => {
     if (!index) return []
@@ -114,13 +167,14 @@ export function RunsPage() {
       if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
       if (status === 'timeout' && e.status !== 'timeout') return false
       if (status === 'cancelled' && e.status !== 'cancelled') return false
+      if (matchingSuiteHashes && (!e.suite_hash || !matchingSuiteHashes.has(e.suite_hash))) return false
       for (const [key, allowedValues] of labelFilters) {
         const actual = e.metadata?.[key]
         if (!actual || !allowedValues.has(actual)) return false
       }
       return true
     })
-  }, [index, client, image, suite, strategy, status, labelFilters])
+  }, [index, client, image, suite, strategy, status, labelFilters, matchingSuiteHashes])
 
   const sortedEntries = useMemo(() => sortIndexEntries(filteredEntries, sortBy, sortDir, stepFilter), [filteredEntries, sortBy, sortDir, stepFilter])
   const totalPages = Math.ceil(sortedEntries.length / localPageSize)
@@ -128,54 +182,59 @@ export function RunsPage() {
 
   const handlePageChange = (newPage: number) => {
     setLocalPage(newPage)
-    navigate({ to: '/runs', search: { page: newPage, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels } })
+    navigate({ to: '/runs', search: { page: newPage, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels, suiteLabels } })
   }
 
   const handlePageSizeChange = (newSize: number) => {
     setLocalPageSize(newSize)
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: newSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: newSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels, suiteLabels } })
   }
 
   const handleClientChange = (newClient: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client: newClient, image, suite, strategy, status, sortBy, sortDir, steps, labels } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client: newClient, image, suite, strategy, status, sortBy, sortDir, steps, labels, suiteLabels } })
   }
 
   const handleImageChange = (newImage: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image: newImage, suite, strategy, status, sortBy, sortDir, steps, labels } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image: newImage, suite, strategy, status, sortBy, sortDir, steps, labels, suiteLabels } })
   }
 
   const handleSuiteChange = (newSuite: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite: newSuite, strategy, status, sortBy, sortDir, steps, labels } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite: newSuite, strategy, status, sortBy, sortDir, steps, labels, suiteLabels } })
   }
 
   const handleStrategyChange = (newStrategy: string | undefined) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy: newStrategy, status, sortBy, sortDir, steps, labels } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy: newStrategy, status, sortBy, sortDir, steps, labels, suiteLabels } })
   }
 
   const handleStatusChange = (newStatus: TestStatusFilter) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status: newStatus, sortBy, sortDir, steps, labels } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status: newStatus, sortBy, sortDir, steps, labels, suiteLabels } })
   }
 
   const handleSortChange = (newSortBy: SortColumn, newSortDir: SortDirection) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy: newSortBy, sortDir: newSortDir, steps, labels } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy: newSortBy, sortDir: newSortDir, steps, labels, suiteLabels } })
   }
 
   const handleStepFilterChange = (newFilter: IndexStepType[]) => {
     const stepsParam = newFilter.length === ALL_INDEX_STEP_TYPES.length ? undefined : newFilter.join(',')
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps: stepsParam, labels } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps: stepsParam, labels, suiteLabels } })
   }
 
   const handleLabelFiltersChange = (newFilters: LabelFilters) => {
     setLocalPage(1)
-    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels: serializeLabelFilters(newFilters) } })
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels: serializeLabelFilters(newFilters), suiteLabels } })
+  }
+
+  const handleSuiteLabelFiltersChange = (newFilters: LabelFilters) => {
+    setLocalPage(1)
+    navigate({ to: '/runs', search: { page: 1, pageSize: localPageSize, client, image, suite, strategy, status, sortBy, sortDir, steps, labels, suiteLabels: serializeLabelFilters(newFilters) } })
   }
 
   // Compare mode state
@@ -317,6 +376,9 @@ export function RunsPage() {
               entries={index?.entries}
               labelFilters={labelFilters}
               onLabelFiltersChange={handleLabelFiltersChange}
+              suiteLabelKeys={suiteLabelKeys}
+              suiteLabelFilters={suiteLabelFilters}
+              onSuiteLabelFiltersChange={handleSuiteLabelFiltersChange}
             />
           </div>
         </div>
