@@ -142,12 +142,6 @@ runner:
     #     #       - "perf-devnet-3/setup/*.txt"
     #     #     test:
     #     #       - "perf-devnet-3/testing/*.txt"
-    #     #   # Optional: External opcode metadata file within the archive.
-    #     #   # JSON mapping test names to opcode counts: {"test_name": {"OPCODE": count}}
-    #     #   # opcodes: "opcodes_tracing.json"
-    #     #   # Optional: Separate archive containing the opcodes file.
-    #     #   # If not set, the opcodes file is searched in the main archive.
-    #     #   # opcodes_file: https://github.com/.../artifacts/6222074312
     #
     #     # Option 4: EEST (Ethereum Execution Spec Tests) fixtures from GitHub releases.
     #     # Downloads fixtures directly from ethereum/execution-spec-tests releases.
@@ -190,6 +184,12 @@ runner:
     #     #   local_fixtures_tarball: /home/user/eest-output/fixtures_benchmark.tar.gz
     #     #   local_genesis_tarball: /home/user/eest-output/benchmark_genesis.tar.gz
     #     #   # fixtures_subdir also works with local tarballs
+    #
+    #   # Optional: External opcode metadata for the test suite.
+    #   # A JSON file mapping test names to opcode counts: {"test_name": {"OPCODE": count, ...}}
+    #   # Can be a local path or a URL (including GitHub Actions artifact URLs).
+    #   # opcode_source:
+    #   #   file: opcodes_tracing.json
 
 # Optional: API server for authentication and user management.
 # When configured, the UI can integrate with the API for login, admin, and role-based access.
