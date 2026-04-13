@@ -116,7 +116,6 @@ type BenchmarkConfig struct {
 	GenerateSuiteStatsMethod        string               `yaml:"generate_suite_stats_method,omitempty" mapstructure:"generate_suite_stats_method"`
 	ResultsUpload                   *ResultsUploadConfig `yaml:"results_upload,omitempty" mapstructure:"results_upload"`
 	Tests                           TestsConfig          `yaml:"tests,omitempty" mapstructure:"tests"`
-	OpcodeSource                    *OpcodeSourceConfig  `yaml:"opcode_source,omitempty" mapstructure:"opcode_source"`
 }
 
 // ResultsUploadConfig contains configuration for uploading results.
@@ -141,9 +140,10 @@ type S3UploadConfig struct {
 
 // TestsConfig contains test execution settings.
 type TestsConfig struct {
-	Filter   string         `yaml:"filter,omitempty" mapstructure:"filter"`
-	Metadata MetadataConfig `yaml:"metadata,omitempty" mapstructure:"metadata"`
-	Source   SourceConfig   `yaml:"source,omitempty" mapstructure:"source"`
+	Filter       string              `yaml:"filter,omitempty" mapstructure:"filter"`
+	Metadata     MetadataConfig      `yaml:"metadata,omitempty" mapstructure:"metadata"`
+	Source       SourceConfig        `yaml:"source,omitempty" mapstructure:"source"`
+	OpcodeSource *OpcodeSourceConfig `yaml:"opcode_source,omitempty" mapstructure:"opcode_source"`
 }
 
 // SourceConfig defines where to find test files.

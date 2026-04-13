@@ -333,13 +333,14 @@ tests:
 
 ##### Opcode Source
 
-Optional external opcode metadata can be configured at the benchmark level, independent of the test source:
+Optional external opcode metadata can be configured alongside the test source:
 
 ```yaml
 runner:
   benchmark:
-    opcode_source:
-      file: opcodes_tracing.json  # Local path or URL to a JSON file
+    tests:
+      opcode_source:
+        file: opcodes_tracing.json  # Local path or URL to a JSON file
 ```
 
 | Option | Type | Required | Description |
