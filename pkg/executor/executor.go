@@ -90,7 +90,8 @@ type ExecutionResult struct {
 type Config struct {
 	Source                          *config.SourceConfig
 	Filter                          string
-	Metadata                        *config.MetadataConfig // Suite-level metadata labels
+	Metadata                        *config.MetadataConfig     // Suite-level metadata labels
+	OpcodeSource                    *config.OpcodeSourceConfig // Optional external opcode metadata
 	CacheDir                        string
 	ResultsDir                      string
 	ResultsOwner                    *fsutil.OwnerConfig // Optional file ownership for results directory
@@ -141,6 +142,13 @@ func (e *executor) Start(ctx context.Context) error {
 		"pre_run_steps": len(prepared.PreRunSteps),
 		"tests":         len(prepared.Tests),
 	}).Info("Test sources ready")
+
+	// Load external opcode metadata if configured.
+	if e.cfg.OpcodeSource != nil && e.cfg.OpcodeSource.File != "" {
+		if err := e.loadOpcodes(ctx); err != nil {
+			return fmt.Errorf("loading opcodes: %w", err)
+		}
+	}
 
 	// Create suite output if results directory is configured.
 	if e.cfg.ResultsDir != "" {

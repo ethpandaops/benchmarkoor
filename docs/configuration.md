@@ -316,13 +316,11 @@ tests:
           - "perf-devnet-3/setup/*.txt"
         test:
           - "perf-devnet-3/testing/*.txt"
-      # Optional: External opcode metadata for the test suite.
-      # When provided, opcode counts are included in the suite summary.json
-      # and displayed in the UI opcode heatmap.
-      opcodes: "opcodes_tracing.json"
-      # Optional: Separate archive containing the opcodes file.
-      # If not set, the opcodes file is searched in the main archive.
-      # opcodes_file: https://github.com/NethermindEth/gas-benchmarks/actions/runs/23847558369/artifacts/6222074312
+    # Optional: External opcode metadata for the test suite.
+    # A JSON file mapping test names to opcode counts.
+    # Can be a local path or URL.
+    opcode_source:
+      file: opcodes_tracing.json
 ```
 
 | Option | Type | Required | Description |
@@ -332,8 +330,21 @@ tests:
 | `steps.setup` | []string | No | Glob patterns for setup phase files |
 | `steps.test` | []string | No | Glob patterns for test phase files |
 | `steps.cleanup` | []string | No | Glob patterns for cleanup phase files |
-| `opcodes` | string | No | Filename within the archive containing opcode count metadata (e.g., `opcodes_tracing.json`). The file must be a JSON object mapping test names to opcode counts: `{"test_name": {"OPCODE": count, ...}}` |
-| `opcodes_file` | string | No | Separate archive URL/path containing the opcodes file. If not set, the opcodes file is searched in the main `file` archive |
+
+##### Opcode Source
+
+Optional external opcode metadata can be configured at the benchmark level, independent of the test source:
+
+```yaml
+runner:
+  benchmark:
+    opcode_source:
+      file: opcodes_tracing.json  # Local path or URL to a JSON file
+```
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `file` | string | Yes | Local path or URL to a JSON file mapping test names to opcode counts: `{"test_name": {"OPCODE": count, ...}}` |
 
 **GitHub Actions artifacts:** Browser URLs like `https://github.com/{owner}/{repo}/actions/runs/{run_id}/artifacts/{artifact_id}` are automatically converted to the GitHub API download endpoint. A GitHub token is required for artifact downloads (set via `runner.github_token` or `BENCHMARKOOR_RUNNER_GITHUB_TOKEN`).
 

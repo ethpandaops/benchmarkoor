@@ -242,6 +242,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 				Source:                          &cfg.Runner.Benchmark.Tests.Source,
 				Filter:                          cfg.Runner.Benchmark.Tests.Filter,
 				Metadata:                        suiteMetadata,
+				OpcodeSource:                    cfg.Runner.Benchmark.OpcodeSource,
 				CacheDir:                        cacheDir,
 				ResultsDir:                      cfg.Runner.Benchmark.ResultsDir,
 				ResultsOwner:                    resultsOwner,

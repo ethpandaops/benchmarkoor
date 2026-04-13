@@ -116,6 +116,7 @@ type BenchmarkConfig struct {
 	GenerateSuiteStatsMethod        string               `yaml:"generate_suite_stats_method,omitempty" mapstructure:"generate_suite_stats_method"`
 	ResultsUpload                   *ResultsUploadConfig `yaml:"results_upload,omitempty" mapstructure:"results_upload"`
 	Tests                           TestsConfig          `yaml:"tests,omitempty" mapstructure:"tests"`
+	OpcodeSource                    *OpcodeSourceConfig  `yaml:"opcode_source,omitempty" mapstructure:"opcode_source"`
 }
 
 // ResultsUploadConfig contains configuration for uploading results.
@@ -335,10 +336,14 @@ type LocalSourceV2 struct {
 // The file can be a local path or a URL (HTTP/HTTPS) to a ZIP or tar.gz archive.
 type ArchiveSourceConfig struct {
 	File        string       `yaml:"file" mapstructure:"file"`
-	OpcodesFile string       `yaml:"opcodes_file,omitempty" mapstructure:"opcodes_file"`
-	Opcodes     string       `yaml:"opcodes,omitempty" mapstructure:"opcodes"`
 	PreRunSteps []string     `yaml:"pre_run_steps,omitempty" mapstructure:"pre_run_steps"`
 	Steps       *StepsConfig `yaml:"steps,omitempty" mapstructure:"steps"`
+}
+
+// OpcodeSourceConfig defines an external opcode metadata file.
+// The file is a JSON map of test name → opcode → count.
+type OpcodeSourceConfig struct {
+	File string `yaml:"file" mapstructure:"file"` // Local path or URL to a JSON file.
 }
 
 // StepsConfig defines glob patterns for each step type.

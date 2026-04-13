@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,13 +23,12 @@ var ghArtifactURLPattern = regexp.MustCompile(
 // ArchiveSource downloads and extracts an archive file, then discovers tests
 // from the extracted contents using glob patterns.
 type ArchiveSource struct {
-	log            logrus.FieldLogger
-	cfg            *config.ArchiveSourceConfig
-	cacheDir       string
-	filter         string
-	githubToken    string
-	basePath       string // temp directory where archive was extracted
-	opcodeBasePath string // temp directory for separate opcode archive
+	log         logrus.FieldLogger
+	cfg         *config.ArchiveSourceConfig
+	cacheDir    string
+	filter      string
+	githubToken string
+	basePath    string // temp directory where archive was extracted
 }
 
 // Prepare downloads (if URL) and extracts the archive, then discovers tests.
@@ -77,22 +75,11 @@ func (s *ArchiveSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 		return nil, err
 	}
 
-	if err := s.loadOpcodes(ctx, prepared); err != nil {
-		_ = os.RemoveAll(s.basePath)
-		s.basePath = ""
-
-		return nil, fmt.Errorf("loading opcodes: %w", err)
-	}
-
 	return prepared, nil
 }
 
-// Cleanup removes the temporary extraction directories.
+// Cleanup removes the temporary extraction directory.
 func (s *ArchiveSource) Cleanup() error {
-	if s.opcodeBasePath != "" {
-		_ = os.RemoveAll(s.opcodeBasePath)
-	}
-
 	if s.basePath != "" {
 		return os.RemoveAll(s.basePath)
 	}
@@ -253,241 +240,4 @@ func (s *ArchiveSource) extractArchive(archivePath string) error {
 	}
 
 	return nil
-}
-
-// loadOpcodes loads external opcode count data and attaches it to discovered tests.
-func (s *ArchiveSource) loadOpcodes(ctx context.Context, prepared *PreparedSource) error {
-	if s.cfg.Opcodes == "" {
-		return nil
-	}
-
-	searchDir := s.basePath
-
-	// If a separate opcode archive is configured, download and extract it.
-	if s.cfg.OpcodesFile != "" {
-		opcodeDir, err := s.resolveOpcodeArchive(ctx)
-		if err != nil {
-			return fmt.Errorf("resolving opcode archive: %w", err)
-		}
-
-		searchDir = opcodeDir
-	}
-
-	// Find and read the opcodes file.
-	opcodePath, err := findFileInDir(searchDir, s.cfg.Opcodes)
-	if err != nil {
-		return fmt.Errorf("finding opcodes file %q: %w", s.cfg.Opcodes, err)
-	}
-
-	data, err := os.ReadFile(opcodePath)
-	if err != nil {
-		return fmt.Errorf("reading opcodes file %q: %w", opcodePath, err)
-	}
-
-	var opcodeMap map[string]map[string]int
-	if err := json.Unmarshal(data, &opcodeMap); err != nil {
-		return fmt.Errorf("parsing opcodes file: %w", err)
-	}
-
-	// Match opcode data to discovered tests by name.
-	// Test names from glob discovery include the .txt extension, but opcode
-	// JSON keys typically omit it, so we try both the full name and without .txt.
-	matched := 0
-
-	for _, test := range prepared.Tests {
-		name := test.Name
-		if counts, ok := opcodeMap[name]; ok {
-			test.OpcodeCount = counts
-			matched++
-		} else if trimmed, hasSuffix := strings.CutSuffix(name, ".txt"); hasSuffix {
-			if counts, ok := opcodeMap[trimmed]; ok {
-				test.OpcodeCount = counts
-				matched++
-			}
-		}
-	}
-
-	// Count opcode entries that are relevant (pass the filter) but didn't match a test.
-	filtered := len(opcodeMap)
-	if s.filter != "" {
-		filtered = 0
-
-		for key := range opcodeMap {
-			if strings.Contains(key, s.filter) {
-				filtered++
-			}
-		}
-	}
-
-	s.log.WithFields(logrus.Fields{
-		"file":          s.cfg.Opcodes,
-		"total_entries": filtered,
-		"matched_tests": matched,
-		"total_tests":   len(prepared.Tests),
-	}).Info("Loaded external opcode data")
-
-	if unmatched := filtered - matched; unmatched > 0 {
-		s.log.WithField("unmatched", unmatched).Warn(
-			"Some opcode entries did not match any discovered test",
-		)
-	}
-
-	return nil
-}
-
-// resolveOpcodeArchive downloads and extracts the separate opcode archive,
-// returning the path to the extraction directory.
-func (s *ArchiveSource) resolveOpcodeArchive(ctx context.Context) (string, error) {
-	parentDir := s.cacheDir
-	if parentDir == "" {
-		parentDir = os.TempDir()
-	}
-
-	tmpDir, err := os.MkdirTemp(parentDir, "opcode-archive-*")
-	if err != nil {
-		return "", fmt.Errorf("creating opcode temp directory: %w", err)
-	}
-
-	s.opcodeBasePath = tmpDir
-
-	archivePath, err := s.resolveRemoteFile(ctx, s.cfg.OpcodesFile)
-	if err != nil {
-		return "", fmt.Errorf("resolving opcode file: %w", err)
-	}
-
-	if err := s.extractToDir(archivePath, tmpDir); err != nil {
-		return "", fmt.Errorf("extracting opcode archive: %w", err)
-	}
-
-	s.log.WithField("path", tmpDir).Info("Extracted opcode archive")
-
-	return tmpDir, nil
-}
-
-// resolveRemoteFile resolves a file URL or local path, downloading and caching
-// remote files.
-func (s *ArchiveSource) resolveRemoteFile(ctx context.Context, file string) (string, error) {
-	if strings.HasPrefix(file, "http://") || strings.HasPrefix(file, "https://") {
-		hash := sha256.Sum256([]byte(file))
-		name := "archive-" + hex.EncodeToString(hash[:8])
-
-		cacheDir := s.cacheDir
-		if cacheDir == "" {
-			cacheDir = os.TempDir()
-		}
-
-		cachedPath := filepath.Join(cacheDir, name)
-
-		if _, err := os.Stat(cachedPath); err == nil {
-			s.log.WithFields(logrus.Fields{
-				"url":  file,
-				"path": cachedPath,
-			}).Info("Using cached file")
-
-			return cachedPath, nil
-		}
-
-		s.log.WithField("url", file).Info("Downloading file")
-
-		downloadURL, token := s.resolveDownloadURL(file)
-
-		tmpPath := cachedPath + ".tmp"
-
-		if err := os.MkdirAll(filepath.Dir(cachedPath), 0755); err != nil {
-			return "", fmt.Errorf("creating cache directory: %w", err)
-		}
-
-		if err := downloadToFile(ctx, downloadURL, tmpPath, token, s.log); err != nil {
-			_ = os.Remove(tmpPath)
-
-			return "", err
-		}
-
-		if err := os.Rename(tmpPath, cachedPath); err != nil {
-			_ = os.Remove(tmpPath)
-
-			return "", fmt.Errorf("caching file: %w", err)
-		}
-
-		return cachedPath, nil
-	}
-
-	// Local file path.
-	if !filepath.IsAbs(file) {
-		absPath, err := filepath.Abs(file)
-		if err != nil {
-			return "", fmt.Errorf("resolving path %q: %w", file, err)
-		}
-
-		file = absPath
-	}
-
-	if _, err := os.Stat(file); os.IsNotExist(err) {
-		return "", fmt.Errorf("file %q does not exist", file)
-	}
-
-	return file, nil
-}
-
-// extractToDir detects the archive format and extracts to the given directory.
-func (s *ArchiveSource) extractToDir(archivePath, destDir string) error {
-	format, err := detectArchiveFormat(archivePath)
-	if err != nil {
-		return err
-	}
-
-	switch format {
-	case archiveFormatZip:
-		if err := extractZipFile(archivePath, destDir); err != nil {
-			return fmt.Errorf("extracting zip: %w", err)
-		}
-
-		if err := extractInnerTarballs(destDir, s.log); err != nil {
-			return fmt.Errorf("extracting inner tarballs: %w", err)
-		}
-	case archiveFormatTarGz:
-		if err := extractTarGzFile(archivePath, destDir); err != nil {
-			return fmt.Errorf("extracting tar.gz: %w", err)
-		}
-	default:
-		return fmt.Errorf("unsupported archive format: %s", format)
-	}
-
-	return nil
-}
-
-// findFileInDir searches for a file by name within a directory tree.
-func findFileInDir(dir, filename string) (string, error) {
-	// Try direct path first.
-	direct := filepath.Join(dir, filename)
-	if _, err := os.Stat(direct); err == nil {
-		return direct, nil
-	}
-
-	// Walk the directory to find the file.
-	var found string
-
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-
-		if !info.IsDir() && info.Name() == filename {
-			found = path
-
-			return filepath.SkipAll
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("walking directory: %w", err)
-	}
-
-	if found == "" {
-		return "", fmt.Errorf("file %q not found in %q", filename, dir)
-	}
-
-	return found, nil
 }
