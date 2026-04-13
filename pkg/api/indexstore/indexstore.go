@@ -678,10 +678,17 @@ func (s *store) DeleteTestStatsBlockLogsForRun(
 }
 
 // UpsertSuite inserts or updates a suite record keyed by suite_hash.
+// Uses a map for Assign so update values are not overwritten when
+// FirstOrCreate populates the struct with the existing DB record.
 func (s *store) UpsertSuite(ctx context.Context, suite *Suite) error {
 	result := s.db.WithContext(ctx).
 		Where("suite_hash = ?", suite.SuiteHash).
-		Assign(suite).
+		Assign(map[string]any{
+			"discovery_path": suite.DiscoveryPath,
+			"name":           suite.Name,
+			"tests_total":    suite.TestsTotal,
+			"indexed_at":     suite.IndexedAt,
+		}).
 		FirstOrCreate(suite)
 	if result.Error != nil {
 		return fmt.Errorf("upserting suite: %w", result.Error)

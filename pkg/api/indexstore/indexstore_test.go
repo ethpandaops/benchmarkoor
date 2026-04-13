@@ -291,3 +291,32 @@ func TestStore_TestStatCRUD(t *testing.T) {
 	assert.Equal(t, runID2, remaining[0].RunID)
 	assert.Equal(t, "TestA", remaining[0].TestName)
 }
+
+func TestStore_UpsertSuiteUpdatesName(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	original := &indexstore.Suite{
+		SuiteHash:     "hash-abc",
+		DiscoveryPath: "dp/test",
+		Name:          "old-name",
+		TestsTotal:    5,
+		IndexedAt:     time.Now().UTC(),
+	}
+	require.NoError(t, s.UpsertSuite(ctx, original))
+
+	// Upsert the same hash with a different name.
+	updated := &indexstore.Suite{
+		SuiteHash:     "hash-abc",
+		DiscoveryPath: "dp/test",
+		Name:          "new-name",
+		TestsTotal:    5,
+		IndexedAt:     time.Now().UTC(),
+	}
+	require.NoError(t, s.UpsertSuite(ctx, updated))
+
+	// The struct should reflect the updated name.
+	assert.Equal(t, "new-name", updated.Name)
+	assert.NotZero(t, updated.ID, "ID should be populated after upsert")
+	assert.Equal(t, original.ID, updated.ID, "upsert must not create a duplicate")
+}
