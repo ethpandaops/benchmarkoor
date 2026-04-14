@@ -107,10 +107,12 @@ func (s *ArchiveSource) GetSourceInfo() (*SuiteSource, error) {
 	return &SuiteSource{Archive: info}, nil
 }
 
-// resolveFile returns the local path to the archive file. For URLs, it checks
-// the cache directory first and only downloads if the file is not already cached.
-// When the config uses `parts`, the parts are downloaded (with caching) and
-// concatenated into a single cached file.
+// resolveFile returns the local path to the archive file. For URLs, it
+// checks the cache directory first and validates any existing cached copy
+// against the origin (via HEAD + ETag/Last-Modified) before reuse. If the
+// remote has changed or has no cache entry yet, a fresh copy is downloaded.
+// When the config uses `parts`, the parts are resolved (each with its own
+// validation) and concatenated into a single cached file.
 func (s *ArchiveSource) resolveFile(ctx context.Context) (string, error) {
 	if len(s.cfg.Parts) > 0 {
 		return s.resolvePartsFile(ctx)
@@ -119,43 +121,14 @@ func (s *ArchiveSource) resolveFile(ctx context.Context) (string, error) {
 	file := s.cfg.File
 
 	if strings.HasPrefix(file, "http://") || strings.HasPrefix(file, "https://") {
-		cachedPath := s.cachedArchivePath()
-
-		if _, err := os.Stat(cachedPath); err == nil {
-			s.log.WithFields(logrus.Fields{
-				"url":  file,
-				"path": cachedPath,
-			}).Info("Using cached archive")
-
-			return cachedPath, nil
-		}
-
-		s.log.WithField("url", file).Info("Downloading archive")
-
 		downloadURL, token := s.resolveDownloadURL(file)
 
-		// Download to a temp file first, then rename for atomic cache writes.
-		tmpPath := cachedPath + ".tmp"
-
-		if err := os.MkdirAll(filepath.Dir(cachedPath), 0755); err != nil {
-			return "", fmt.Errorf("creating cache directory: %w", err)
-		}
-
-		if err := downloadToFile(ctx, downloadURL, tmpPath, token, s.log); err != nil {
-			_ = os.Remove(tmpPath)
-
+		res, err := fetchCached(ctx, s.log, file, downloadURL, token, s.cacheDir, "archive")
+		if err != nil {
 			return "", err
 		}
 
-		if err := os.Rename(tmpPath, cachedPath); err != nil {
-			_ = os.Remove(tmpPath)
-
-			return "", fmt.Errorf("caching archive: %w", err)
-		}
-
-		s.log.WithField("path", cachedPath).Info("Archive cached")
-
-		return cachedPath, nil
+		return res.Path, nil
 	}
 
 	// Local file path — resolve relative paths.
@@ -175,27 +148,19 @@ func (s *ArchiveSource) resolveFile(ctx context.Context) (string, error) {
 	return file, nil
 }
 
-// cachedArchivePath returns a stable file path in the cache directory derived
-// from the configured URL, so repeated runs reuse the same downloaded file.
-func (s *ArchiveSource) cachedArchivePath() string {
-	hash := sha256.Sum256([]byte(s.cfg.File))
-	name := "archive-" + hex.EncodeToString(hash[:8])
-
+// resolvePartsFile resolves each configured part (validating HTTP caches
+// against the origin) and concatenates them into a single combined cache
+// file. The combined file is rebuilt whenever any part was (re-)downloaded
+// during resolution, so updating a part on the origin causes the combined
+// archive to be regenerated on the next run.
+func (s *ArchiveSource) resolvePartsFile(ctx context.Context) (string, error) {
 	cacheDir := s.cacheDir
 	if cacheDir == "" {
 		cacheDir = os.TempDir()
 	}
 
-	return filepath.Join(cacheDir, name)
-}
-
-// resolvePartsFile downloads (with caching) all configured parts and
-// concatenates them in order into a single cached file, returning its path.
-// Local paths and URLs can be mixed freely in the parts list.
-func (s *ArchiveSource) resolvePartsFile(ctx context.Context) (string, error) {
-	cacheDir := s.cacheDir
-	if cacheDir == "" {
-		cacheDir = os.TempDir()
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return "", fmt.Errorf("creating cache directory: %w", err)
 	}
 
 	// Combined cache key is derived from the full ordered parts list so any
@@ -203,18 +168,10 @@ func (s *ArchiveSource) resolvePartsFile(ctx context.Context) (string, error) {
 	combined := sha256.Sum256([]byte(strings.Join(s.cfg.Parts, "\n")))
 	combinedPath := filepath.Join(cacheDir, "archive-parts-"+hex.EncodeToString(combined[:8]))
 
-	if _, err := os.Stat(combinedPath); err == nil {
-		s.log.WithField("path", combinedPath).Info("Using cached combined archive")
-
-		return combinedPath, nil
-	}
-
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return "", fmt.Errorf("creating cache directory: %w", err)
-	}
-
-	// Resolve each part to a local file path (downloading URLs as needed).
+	// Resolve each part to a local file path (validating URL caches).
 	partPaths := make([]string, 0, len(s.cfg.Parts))
+
+	anyPartChanged := false
 
 	for i, part := range s.cfg.Parts {
 		s.log.WithFields(logrus.Fields{
@@ -223,12 +180,26 @@ func (s *ArchiveSource) resolvePartsFile(ctx context.Context) (string, error) {
 			"ref":   part,
 		}).Info("Resolving archive part")
 
-		partPath, err := s.resolvePart(ctx, part, cacheDir)
+		partPath, changed, err := s.resolvePart(ctx, part, cacheDir)
 		if err != nil {
 			return "", fmt.Errorf("resolving part %d (%s): %w", i+1, part, err)
 		}
 
+		if changed {
+			anyPartChanged = true
+		}
+
 		partPaths = append(partPaths, partPath)
+	}
+
+	// Reuse the combined file only when it exists AND no underlying part
+	// was refreshed during this call.
+	if !anyPartChanged {
+		if _, err := os.Stat(combinedPath); err == nil {
+			s.log.WithField("path", combinedPath).Info("Using cached combined archive")
+
+			return combinedPath, nil
+		}
 	}
 
 	// Concatenate all parts into a temporary file, then atomically rename.
@@ -251,56 +222,38 @@ func (s *ArchiveSource) resolvePartsFile(ctx context.Context) (string, error) {
 	return combinedPath, nil
 }
 
-// resolvePart resolves a single part reference (URL or local path) to a local
-// file path, downloading and caching remote parts in cacheDir.
-func (s *ArchiveSource) resolvePart(ctx context.Context, part, cacheDir string) (string, error) {
+// resolvePart resolves a single part reference (URL or local path) to a
+// local file path. Remote parts are cache-validated via fetchCached.
+// Returns (path, changed, error), where `changed` is true when the call
+// produced a fresh download; used by resolvePartsFile to know when the
+// concatenated combined file needs to be rebuilt.
+func (s *ArchiveSource) resolvePart(ctx context.Context, part, cacheDir string) (string, bool, error) {
 	if strings.HasPrefix(part, "http://") || strings.HasPrefix(part, "https://") {
-		hash := sha256.Sum256([]byte(part))
-		cachedPath := filepath.Join(cacheDir, "archive-part-"+hex.EncodeToString(hash[:8]))
-
-		if _, err := os.Stat(cachedPath); err == nil {
-			s.log.WithFields(logrus.Fields{
-				"url":  part,
-				"path": cachedPath,
-			}).Info("Using cached archive part")
-
-			return cachedPath, nil
-		}
-
 		downloadURL, token := s.resolveDownloadURL(part)
 
-		tmpPath := cachedPath + ".tmp"
-
-		if err := downloadToFile(ctx, downloadURL, tmpPath, token, s.log); err != nil {
-			_ = os.Remove(tmpPath)
-
-			return "", err
+		res, err := fetchCached(ctx, s.log, part, downloadURL, token, cacheDir, "archive-part")
+		if err != nil {
+			return "", false, err
 		}
 
-		if err := os.Rename(tmpPath, cachedPath); err != nil {
-			_ = os.Remove(tmpPath)
-
-			return "", fmt.Errorf("caching archive part: %w", err)
-		}
-
-		return cachedPath, nil
+		return res.Path, res.Changed, nil
 	}
 
 	// Local file path — resolve relative paths.
 	if !filepath.IsAbs(part) {
 		absPath, err := filepath.Abs(part)
 		if err != nil {
-			return "", fmt.Errorf("resolving path %q: %w", part, err)
+			return "", false, fmt.Errorf("resolving path %q: %w", part, err)
 		}
 
 		part = absPath
 	}
 
 	if _, err := os.Stat(part); os.IsNotExist(err) {
-		return "", fmt.Errorf("archive part %q does not exist", part)
+		return "", false, fmt.Errorf("archive part %q does not exist", part)
 	}
 
-	return part, nil
+	return part, false, nil
 }
 
 // concatFiles concatenates src files (in order) into dst. dst is created (or

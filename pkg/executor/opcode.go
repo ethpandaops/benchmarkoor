@@ -2,8 +2,6 @@ package executor
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -80,29 +78,11 @@ func (e *executor) loadOpcodes(ctx context.Context) error {
 }
 
 // resolveFile resolves a file reference that can be a local path or HTTP(S)
-// URL. Remote files are downloaded and cached in cacheDir.
+// URL. Remote files are cache-validated (via HEAD + ETag/Last-Modified)
+// before being reused; if the origin has changed, a fresh copy is
+// downloaded.
 func resolveFile(ctx context.Context, file, cacheDir, githubToken string, log logrus.FieldLogger) (string, error) {
 	if strings.HasPrefix(file, "http://") || strings.HasPrefix(file, "https://") {
-		hash := sha256.Sum256([]byte(file))
-		name := "opcode-" + hex.EncodeToString(hash[:8])
-
-		if cacheDir == "" {
-			cacheDir = os.TempDir()
-		}
-
-		cachedPath := filepath.Join(cacheDir, name)
-
-		if _, err := os.Stat(cachedPath); err == nil {
-			log.WithFields(logrus.Fields{
-				"url":  file,
-				"path": cachedPath,
-			}).Info("Using cached opcode file")
-
-			return cachedPath, nil
-		}
-
-		log.WithField("url", file).Info("Downloading opcode file")
-
 		downloadURL := file
 
 		var token string
@@ -116,25 +96,12 @@ func resolveFile(ctx context.Context, file, cacheDir, githubToken string, log lo
 			token = githubToken
 		}
 
-		tmpPath := cachedPath + ".tmp"
-
-		if err := os.MkdirAll(filepath.Dir(cachedPath), 0755); err != nil {
-			return "", fmt.Errorf("creating cache directory: %w", err)
-		}
-
-		if err := downloadToFile(ctx, downloadURL, tmpPath, token, log); err != nil {
-			_ = os.Remove(tmpPath)
-
+		res, err := fetchCached(ctx, log, file, downloadURL, token, cacheDir, "opcode")
+		if err != nil {
 			return "", err
 		}
 
-		if err := os.Rename(tmpPath, cachedPath); err != nil {
-			_ = os.Remove(tmpPath)
-
-			return "", fmt.Errorf("caching file: %w", err)
-		}
-
-		return cachedPath, nil
+		return res.Path, nil
 	}
 
 	// Local file path.

@@ -7,12 +7,16 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -354,6 +358,131 @@ func splitBytes(b []byte, n int) [][]byte {
 	}
 
 	return chunks
+}
+
+func TestArchiveSource_PartsReconcatenateOnOriginChange(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Build two tar.gz archives, A (one test) and B (two tests). Split
+	// each into two parts. Serve A's parts initially, then flip the ETag
+	// on the second part's server to serve B's second half and verify the
+	// combined file is regenerated on the next Prepare().
+	pathA := filepath.Join(tmpDir, "a.tar.gz")
+	createTestTarGz(t, pathA, map[string]string{
+		"mytest/test/a.txt": "content-a",
+	})
+	pathB := filepath.Join(tmpDir, "b.tar.gz")
+	createTestTarGz(t, pathB, map[string]string{
+		"mytest/test/b1.txt": "content-b1",
+		"mytest/test/b2.txt": "content-b2",
+	})
+
+	bytesA, err := os.ReadFile(pathA)
+	require.NoError(t, err)
+	bytesB, err := os.ReadFile(pathB)
+	require.NoError(t, err)
+
+	chunksA := splitBytes(bytesA, 2)
+	chunksB := splitBytes(bytesB, 2)
+
+	var currentPart2 atomic.Value
+	currentPart2.Store(chunksA[1])
+
+	var etagPart2 atomic.Value
+	etagPart2.Store(`"a"`)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var data []byte
+		var etag string
+
+		switch r.URL.Path {
+		case "/part1":
+			data = chunksA[0]
+			etag = `"a"`
+		case "/part2":
+			data = currentPart2.Load().([]byte)
+			etag = etagPart2.Load().(string)
+		default:
+			http.NotFound(w, r)
+			return
+		}
+
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.WriteHeader(http.StatusOK)
+
+		if r.Method == http.MethodGet {
+			_, _ = w.Write(data)
+		}
+	}))
+	defer srv.Close()
+
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	makeSrc := func() *ArchiveSource {
+		return &ArchiveSource{
+			log:      log.WithField("source", "archive"),
+			cacheDir: tmpDir,
+			cfg: &config.ArchiveSourceConfig{
+				Parts: []string{srv.URL + "/part1", srv.URL + "/part2"},
+				Steps: &config.StepsConfig{
+					Test: []string{"mytest/test/*"},
+				},
+			},
+		}
+	}
+
+	// First run: downloads both parts and writes the combined archive.
+	s1 := makeSrc()
+	result, err := s1.Prepare(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(result.Tests), "first run sees only A's single test")
+	require.NoError(t, s1.Cleanup())
+
+	// Origin publishes a new second half with a different ETag. The
+	// rebuilt combined archive must reflect it.
+	currentPart2.Store(chunksB[1])
+	etagPart2.Store(`"b"`)
+
+	// We also need to replace part1 on the origin since A and B differ
+	// from byte 0 — but here we care about the control flow, so instead
+	// we make A -> A+B2 (first half of A, second half of B). That's
+	// gibberish as a tar.gz; switch both halves to B.
+	// Simpler: also update part1 so the combined is B.
+	// Since we only have one endpoint for /part1, stub it out:
+	//  -> we already serve chunksA[0] unconditionally. Update via a flag.
+	//
+	// For this test the primary assertion is that the re-download of
+	// part2 (ETag change) triggers a rebuild of the combined file, even
+	// if its content is garbled.
+
+	s2 := makeSrc()
+	_, err = s2.Prepare(context.Background())
+	// Extraction will likely fail (chunksA[0] + chunksB[1] is not a valid
+	// tar.gz). We only care that the combined cached file got rebuilt.
+	_ = err
+	require.NoError(t, s2.Cleanup())
+
+	// Verify: the combined cached file now has byte content reflecting
+	// chunksA[0] + chunksB[1], not the original chunksA[0] + chunksA[1].
+	combinedKey := filepath.Join(
+		tmpDir,
+		"archive-parts-"+shortHashCombined(srv.URL+"/part1", srv.URL+"/part2"),
+	)
+	got, err := os.ReadFile(combinedKey) //nolint:gosec // test-only
+	require.NoError(t, err)
+
+	want := append([]byte{}, chunksA[0]...)
+	want = append(want, chunksB[1]...)
+	assert.Equal(t, want, got, "combined file must be rebuilt when any part ETag changes")
+}
+
+// shortHashCombined mirrors how resolvePartsFile computes its combined
+// cache key from the ordered parts list.
+func shortHashCombined(parts ...string) string {
+	h := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+	return hex.EncodeToString(h[:8])
 }
 
 func TestArchiveSource_PrepareWithParts(t *testing.T) {
