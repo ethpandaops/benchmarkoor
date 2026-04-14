@@ -341,6 +341,159 @@ func TestArchiveSource_CachesDownload(t *testing.T) {
 	require.NoError(t, s2.Cleanup())
 }
 
+// splitBytes splits b into n roughly-equal chunks. Used to simulate a tar.gz
+// archive that has been split across multiple .part files.
+func splitBytes(b []byte, n int) [][]byte {
+	chunks := make([][]byte, n)
+	chunkSize := (len(b) + n - 1) / n
+
+	for i := range n {
+		start := i * chunkSize
+		end := min(start+chunkSize, len(b))
+		chunks[i] = b[start:end]
+	}
+
+	return chunks
+}
+
+func TestArchiveSource_PrepareWithParts(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Build a real tar.gz in memory, then split it into two parts.
+	fullPath := filepath.Join(tmpDir, "full.tar.gz")
+	createTestTarGz(t, fullPath, map[string]string{
+		"mytest/test/abc.txt": "test-content",
+		"mytest/test/def.txt": "another-content",
+	})
+
+	fullBytes, err := os.ReadFile(fullPath)
+	require.NoError(t, err)
+	chunks := splitBytes(fullBytes, 2)
+
+	var part1Count, part2Count int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var data []byte
+
+		switch r.URL.Path {
+		case "/part1":
+			data = chunks[0]
+			if r.Method == http.MethodGet {
+				part1Count++
+			}
+		case "/part2":
+			data = chunks[1]
+			if r.Method == http.MethodGet {
+				part2Count++
+			}
+		default:
+			http.NotFound(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.WriteHeader(http.StatusOK)
+
+		if r.Method == http.MethodGet {
+			_, _ = w.Write(data)
+		}
+	}))
+	defer srv.Close()
+
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	makeSrc := func() *ArchiveSource {
+		return &ArchiveSource{
+			log:      log.WithField("source", "archive"),
+			cacheDir: tmpDir,
+			cfg: &config.ArchiveSourceConfig{
+				Parts: []string{srv.URL + "/part1", srv.URL + "/part2"},
+				Steps: &config.StepsConfig{
+					Test: []string{"mytest/test/*"},
+				},
+			},
+		}
+	}
+
+	// First run: downloads both parts and concatenates them.
+	s1 := makeSrc()
+	result, err := s1.Prepare(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 2, len(result.Tests))
+	assert.Equal(t, 1, part1Count)
+	assert.Equal(t, 1, part2Count)
+	require.NoError(t, s1.Cleanup())
+
+	// Second run: uses cached combined file, no new downloads.
+	s2 := makeSrc()
+	result, err = s2.Prepare(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 2, len(result.Tests))
+	assert.Equal(t, 1, part1Count, "expected no additional part1 download")
+	assert.Equal(t, 1, part2Count, "expected no additional part2 download")
+	require.NoError(t, s2.Cleanup())
+}
+
+func TestArchiveSource_PrepareWithLocalParts(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	fullPath := filepath.Join(tmpDir, "full.tar.gz")
+	createTestTarGz(t, fullPath, map[string]string{
+		"mytest/test/abc.txt": "test-content",
+	})
+
+	fullBytes, err := os.ReadFile(fullPath)
+	require.NoError(t, err)
+	chunks := splitBytes(fullBytes, 3)
+
+	partPaths := make([]string, 3)
+	for i, chunk := range chunks {
+		partPaths[i] = filepath.Join(tmpDir, "chunk-"+strconv.Itoa(i)+".part")
+		require.NoError(t, os.WriteFile(partPaths[i], chunk, 0644))
+	}
+
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	source := &ArchiveSource{
+		log:      log.WithField("source", "archive"),
+		cacheDir: tmpDir,
+		cfg: &config.ArchiveSourceConfig{
+			Parts: partPaths,
+			Steps: &config.StepsConfig{
+				Test: []string{"mytest/test/*"},
+			},
+		},
+	}
+
+	result, err := source.Prepare(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(result.Tests))
+	require.NoError(t, source.Cleanup())
+}
+
+func TestArchiveSource_GetSourceInfo_Parts(t *testing.T) {
+	parts := []string{
+		"https://example.com/tests.tar.gz.00.part",
+		"https://example.com/tests.tar.gz.01.part",
+	}
+	source := &ArchiveSource{
+		cfg: &config.ArchiveSourceConfig{
+			Parts: parts,
+			Steps: &config.StepsConfig{
+				Test: []string{"test/*"},
+			},
+		},
+	}
+
+	info, err := source.GetSourceInfo()
+	require.NoError(t, err)
+	require.NotNil(t, info.Archive)
+	assert.Empty(t, info.Archive.File)
+	assert.Equal(t, parts, info.Archive.Parts)
+}
+
 func TestDownloadToFile_Parallel(t *testing.T) {
 	// Create a test payload large enough to trigger parallel downloads.
 	payload := make([]byte, minParallelSize+1024)

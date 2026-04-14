@@ -334,8 +334,13 @@ type LocalSourceV2 struct {
 
 // ArchiveSourceConfig defines an archive file source for tests.
 // The file can be a local path or a URL (HTTP/HTTPS) to a ZIP or tar.gz archive.
+// Alternatively, `parts` can be a list of paths/URLs that are concatenated in
+// order into the final archive (useful when the archive is split across
+// multiple files because of per-asset size limits). `file` and `parts` are
+// mutually exclusive.
 type ArchiveSourceConfig struct {
-	File        string       `yaml:"file" mapstructure:"file"`
+	File        string       `yaml:"file,omitempty" mapstructure:"file"`
+	Parts       []string     `yaml:"parts,omitempty" mapstructure:"parts"`
 	PreRunSteps []string     `yaml:"pre_run_steps,omitempty" mapstructure:"pre_run_steps"`
 	Steps       *StepsConfig `yaml:"steps,omitempty" mapstructure:"steps"`
 }
@@ -1145,8 +1150,15 @@ func (s *SourceConfig) Validate() error {
 	}
 
 	if s.Archive != nil {
-		if s.Archive.File == "" {
-			return fmt.Errorf("archive.file is required")
+		hasFile := s.Archive.File != ""
+		hasParts := len(s.Archive.Parts) > 0
+
+		if !hasFile && !hasParts {
+			return fmt.Errorf("archive.file or archive.parts is required")
+		}
+
+		if hasFile && hasParts {
+			return fmt.Errorf("archive.file and archive.parts are mutually exclusive")
 		}
 	}
 

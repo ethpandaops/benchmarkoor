@@ -325,11 +325,26 @@ tests:
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `file` | string | Yes | Local path or URL to a ZIP or tar.gz archive. GitHub Actions artifact URLs are auto-converted to API endpoints |
+| `file` | string | One of `file`/`parts` | Local path or URL to a ZIP or tar.gz archive. GitHub Actions artifact URLs are auto-converted to API endpoints |
+| `parts` | []string | One of `file`/`parts` | Ordered list of local paths or URLs to concatenate into the final archive. Useful when the archive is split because of per-asset size limits. Mutually exclusive with `file` |
 | `pre_run_steps` | []string | No | Glob patterns for steps executed once before all tests |
 | `steps.setup` | []string | No | Glob patterns for setup phase files |
 | `steps.test` | []string | No | Glob patterns for test phase files |
 | `steps.cleanup` | []string | No | Glob patterns for cleanup phase files |
+
+**Multi-part archives:** when an archive is too large for a single asset upload, `parts` accepts an ordered list of URLs or local paths. All parts are downloaded (with caching) and concatenated into a single file before extraction:
+
+```yaml
+tests:
+  source:
+    archive:
+      parts:
+        - https://github.com/org/repo/releases/download/v1.0.0/tests.tar.gz.00.part
+        - https://github.com/org/repo/releases/download/v1.0.0/tests.tar.gz.01.part
+      steps:
+        test:
+          - "testing/*.txt"
+```
 
 ##### Opcode Source
 

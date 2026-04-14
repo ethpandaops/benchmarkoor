@@ -134,6 +134,12 @@ runner:
     #     # GitHub Actions artifact URLs are auto-converted to API download endpoints.
     #     # archive:
     #     #   file: https://github.com/NethermindEth/gas-benchmarks/actions/runs/23847558369/artifacts/6222084759
+    #     #   # Alternative to `file`: a list of parts to download and concatenate.
+    #     #   # Useful when the archive is split across multiple files because of
+    #     #   # per-asset size limits. Mutually exclusive with `file`.
+    #     #   # parts:
+    #     #   #   - https://example.com/tests.tar.gz.00.part
+    #     #   #   - https://example.com/tests.tar.gz.01.part
     #     #   pre_run_steps:
     #     #     - "perf-devnet-3/gas-bump.txt"
     #     #     - "perf-devnet-3/funding.txt"

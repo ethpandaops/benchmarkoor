@@ -51,7 +51,8 @@ type LocalSourceInfo struct {
 
 // ArchiveSourceInfo contains archive file source information.
 type ArchiveSourceInfo struct {
-	File        string            `json:"file"`
+	File        string            `json:"file,omitempty"`
+	Parts       []string          `json:"parts,omitempty"`
 	PreRunSteps []string          `json:"pre_run_steps,omitempty"`
 	Steps       *SourceStepsGlobs `json:"steps,omitempty"`
 }

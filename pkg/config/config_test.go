@@ -628,12 +628,35 @@ func TestSourceConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "archive missing file",
+			name: "archive missing file and parts",
 			source: SourceConfig{
 				Archive: &ArchiveSourceConfig{},
 			},
 			wantErr:   true,
-			errSubstr: "archive.file is required",
+			errSubstr: "archive.file or archive.parts is required",
+		},
+		{
+			name: "valid archive source with parts",
+			source: SourceConfig{
+				Archive: &ArchiveSourceConfig{
+					Parts: []string{
+						"https://example.com/fixtures.tar.gz.00.part",
+						"https://example.com/fixtures.tar.gz.01.part",
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "archive file and parts are mutually exclusive",
+			source: SourceConfig{
+				Archive: &ArchiveSourceConfig{
+					File:  "https://example.com/fixtures.tar.gz",
+					Parts: []string{"https://example.com/fixtures.tar.gz.00.part"},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "mutually exclusive",
 		},
 		{
 			name: "multiple sources not allowed - archive and git",

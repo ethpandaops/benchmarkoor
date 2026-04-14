@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -91,6 +92,7 @@ func (s *ArchiveSource) Cleanup() error {
 func (s *ArchiveSource) GetSourceInfo() (*SuiteSource, error) {
 	info := &ArchiveSourceInfo{
 		File:        s.cfg.File,
+		Parts:       s.cfg.Parts,
 		PreRunSteps: s.cfg.PreRunSteps,
 	}
 
@@ -107,7 +109,13 @@ func (s *ArchiveSource) GetSourceInfo() (*SuiteSource, error) {
 
 // resolveFile returns the local path to the archive file. For URLs, it checks
 // the cache directory first and only downloads if the file is not already cached.
+// When the config uses `parts`, the parts are downloaded (with caching) and
+// concatenated into a single cached file.
 func (s *ArchiveSource) resolveFile(ctx context.Context) (string, error) {
+	if len(s.cfg.Parts) > 0 {
+		return s.resolvePartsFile(ctx)
+	}
+
 	file := s.cfg.File
 
 	if strings.HasPrefix(file, "http://") || strings.HasPrefix(file, "https://") {
@@ -179,6 +187,149 @@ func (s *ArchiveSource) cachedArchivePath() string {
 	}
 
 	return filepath.Join(cacheDir, name)
+}
+
+// resolvePartsFile downloads (with caching) all configured parts and
+// concatenates them in order into a single cached file, returning its path.
+// Local paths and URLs can be mixed freely in the parts list.
+func (s *ArchiveSource) resolvePartsFile(ctx context.Context) (string, error) {
+	cacheDir := s.cacheDir
+	if cacheDir == "" {
+		cacheDir = os.TempDir()
+	}
+
+	// Combined cache key is derived from the full ordered parts list so any
+	// change to the list produces a fresh combined file.
+	combined := sha256.Sum256([]byte(strings.Join(s.cfg.Parts, "\n")))
+	combinedPath := filepath.Join(cacheDir, "archive-parts-"+hex.EncodeToString(combined[:8]))
+
+	if _, err := os.Stat(combinedPath); err == nil {
+		s.log.WithField("path", combinedPath).Info("Using cached combined archive")
+
+		return combinedPath, nil
+	}
+
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return "", fmt.Errorf("creating cache directory: %w", err)
+	}
+
+	// Resolve each part to a local file path (downloading URLs as needed).
+	partPaths := make([]string, 0, len(s.cfg.Parts))
+
+	for i, part := range s.cfg.Parts {
+		s.log.WithFields(logrus.Fields{
+			"part":  i + 1,
+			"total": len(s.cfg.Parts),
+			"ref":   part,
+		}).Info("Resolving archive part")
+
+		partPath, err := s.resolvePart(ctx, part, cacheDir)
+		if err != nil {
+			return "", fmt.Errorf("resolving part %d (%s): %w", i+1, part, err)
+		}
+
+		partPaths = append(partPaths, partPath)
+	}
+
+	// Concatenate all parts into a temporary file, then atomically rename.
+	tmpPath := combinedPath + ".tmp"
+
+	if err := concatFiles(tmpPath, partPaths); err != nil {
+		_ = os.Remove(tmpPath)
+
+		return "", fmt.Errorf("concatenating parts: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, combinedPath); err != nil {
+		_ = os.Remove(tmpPath)
+
+		return "", fmt.Errorf("caching combined archive: %w", err)
+	}
+
+	s.log.WithField("path", combinedPath).Info("Combined archive parts")
+
+	return combinedPath, nil
+}
+
+// resolvePart resolves a single part reference (URL or local path) to a local
+// file path, downloading and caching remote parts in cacheDir.
+func (s *ArchiveSource) resolvePart(ctx context.Context, part, cacheDir string) (string, error) {
+	if strings.HasPrefix(part, "http://") || strings.HasPrefix(part, "https://") {
+		hash := sha256.Sum256([]byte(part))
+		cachedPath := filepath.Join(cacheDir, "archive-part-"+hex.EncodeToString(hash[:8]))
+
+		if _, err := os.Stat(cachedPath); err == nil {
+			s.log.WithFields(logrus.Fields{
+				"url":  part,
+				"path": cachedPath,
+			}).Info("Using cached archive part")
+
+			return cachedPath, nil
+		}
+
+		downloadURL, token := s.resolveDownloadURL(part)
+
+		tmpPath := cachedPath + ".tmp"
+
+		if err := downloadToFile(ctx, downloadURL, tmpPath, token, s.log); err != nil {
+			_ = os.Remove(tmpPath)
+
+			return "", err
+		}
+
+		if err := os.Rename(tmpPath, cachedPath); err != nil {
+			_ = os.Remove(tmpPath)
+
+			return "", fmt.Errorf("caching archive part: %w", err)
+		}
+
+		return cachedPath, nil
+	}
+
+	// Local file path — resolve relative paths.
+	if !filepath.IsAbs(part) {
+		absPath, err := filepath.Abs(part)
+		if err != nil {
+			return "", fmt.Errorf("resolving path %q: %w", part, err)
+		}
+
+		part = absPath
+	}
+
+	if _, err := os.Stat(part); os.IsNotExist(err) {
+		return "", fmt.Errorf("archive part %q does not exist", part)
+	}
+
+	return part, nil
+}
+
+// concatFiles concatenates src files (in order) into dst. dst is created (or
+// truncated) and written through a streamed copy so memory usage stays flat.
+func concatFiles(dst string, srcs []string) error {
+	out, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("creating %s: %w", dst, err)
+	}
+	defer out.Close() //nolint:errcheck
+
+	for _, src := range srcs {
+		in, err := os.Open(src) //nolint:gosec // trusted paths under our cache
+		if err != nil {
+			return fmt.Errorf("opening %s: %w", src, err)
+		}
+
+		if _, err := io.Copy(out, in); err != nil {
+			_ = in.Close()
+
+			return fmt.Errorf("copying %s: %w", src, err)
+		}
+
+		if err := in.Close(); err != nil {
+			return fmt.Errorf("closing %s: %w", src, err)
+		}
+	}
+
+	return out.Close()
 }
 
 // resolveDownloadURL converts browser URLs to API URLs where needed and returns
