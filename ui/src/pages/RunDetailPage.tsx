@@ -144,12 +144,17 @@ export function RunDetailPage() {
   const stepFilter = parseStepFilter(search.steps)
   const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, preRunModal, heatmapGroup, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt } = search
 
-  const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId)
-  const { data: result, isLoading: resultLoading, refetch: refetchResult } = useRunResult(runId)
+  const { data: liveRuns, isLoading: liveRunsLoading } = useLiveRuns()
+  const liveRun = liveRuns?.find((lr) => lr.run_id === runId)
+
+  // Skip fetching config/result on the on-disk backend while we know the
+  // run is live — the files won't exist yet, and blocking the UI on three
+  // retries of a 404'ing fetch delays the live view unnecessarily.
+  const fetchOnDisk = !liveRun
+  const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId, fetchOnDisk)
+  const { data: result, isLoading: resultLoading, refetch: refetchResult } = useRunResult(runId, fetchOnDisk)
   const { data: suite } = useSuite(config?.suite_hash ?? '')
   const { data: index } = useIndex()
-  const { data: liveRuns } = useLiveRuns()
-  const liveRun = liveRuns?.find((lr) => lr.run_id === runId)
   const { data: containerLogHead, isLoading: containerLogLoading } = useQuery({
     queryKey: ['run', runId, 'container-log-head'],
     queryFn: () => fetchHead(`runs/${runId}/container.log`),
@@ -162,7 +167,7 @@ export function RunDetailPage() {
   })
   const { data: blockLogs } = useBlockLogs(runId)
 
-  const isLoading = configLoading || resultLoading
+  const isLoading = liveRunsLoading || configLoading || resultLoading
   const error = configError
 
   const [compareMode, setCompareMode] = useState(false)
@@ -285,16 +290,17 @@ export function RunDetailPage() {
     updateSearch({ dlFmt: format !== 'curl' ? format : undefined })
   }
 
-  if (isLoading) {
-    return <LoadingState message="Loading run details..." />
+  // Short-circuit: if the ingest API is reporting this run as live and
+  // we don't have a completed config.json yet, render the live view
+  // immediately. This avoids waiting for on-disk config.json retries,
+  // which would block the UI for several seconds while react-query
+  // exhausts its retry budget against a 404.
+  if (liveRun && !config) {
+    return <LiveRunDetailView run={liveRun} />
   }
 
-  // If the run is being actively reported by a runner and its files aren't
-  // yet on the storage backend, show the lightweight live view instead of
-  // the error state. Once the run finishes and config.json lands, the next
-  // refetch will drop us back into the normal detail view.
-  if (!config && liveRun) {
-    return <LiveRunDetailView run={liveRun} />
+  if (isLoading) {
+    return <LoadingState message="Loading run details..." />
   }
 
   if (error) {
