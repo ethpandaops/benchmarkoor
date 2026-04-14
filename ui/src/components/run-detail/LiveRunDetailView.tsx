@@ -12,6 +12,7 @@ import { useSuite } from '@/api/hooks/useSuite'
 import { useIndex } from '@/api/hooks/useIndex'
 import { formatTimestamp } from '@/utils/date'
 import { formatNumber } from '@/utils/format'
+import { computeLiveEta, formatEtaShort, formatEtaTooltip, formatHoursMinutes, formatClockHoursMinutes } from '@/components/runs/liveEta'
 import { DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
 
 interface LiveRunDetailViewProps {
@@ -42,6 +43,10 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
   const rollbackStrategy = cfg?.instance.rollback_strategy ?? run.rollback_strategy
   const startTimestamp = cfg?.timestamp ?? run.timestamp
   const labels = cfg?.metadata?.labels ?? run.metadata
+
+  const eta = computeLiveEta(startTimestamp, completed, total)
+  const etaShort = formatEtaShort(eta)
+  const etaTooltip = formatEtaTooltip(eta)
 
   const clientRuns = useMemo(() => {
     if (!index || !run.suite_hash || !clientName) return []
@@ -124,11 +129,20 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
         </div>
         <div className="col-span-3 rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
           <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Progress</p>
-          <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
-            {total > 0 ? `${progress.toFixed(1)}%` : '-'}
+          <p className="mt-1 flex items-baseline gap-3 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
+            <span>{total > 0 ? `${progress.toFixed(1)}%` : '-'}</span>
+            {etaShort && (
+              <span
+                className="text-sm/6 font-normal text-gray-500 dark:text-gray-400"
+                title={etaTooltip}
+              >
+                {etaShort}
+              </span>
+            )}
           </p>
-          <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
-            {formatNumber(completed)} of {formatNumber(total)} tests complete
+          <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400" title={etaTooltip}>
+            {formatNumber(completed)} of {formatNumber(total)} tests complete · Elapsed {formatHoursMinutes(eta.elapsedSec)}
+            {eta.etaAtMs !== undefined && <> · ETA {formatClockHoursMinutes(new Date(eta.etaAtMs))}</>}
           </p>
           <div className="mt-2 h-1.5 w-full overflow-hidden rounded-sm bg-gray-200 dark:bg-gray-700">
             <div

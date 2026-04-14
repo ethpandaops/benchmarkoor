@@ -12,6 +12,7 @@ import { Tag } from 'lucide-react'
 import { formatTimestampDate, formatTimestampTime, formatRelativeTime } from '@/utils/date'
 import { formatDuration, formatNumber } from '@/utils/format'
 import { type SortColumn, type SortDirection } from './sortEntries'
+import { computeLiveEta, formatEtaShort, formatEtaTooltip } from './liveEta'
 
 // Calculates MGas/s from gas_used and gas_used_duration
 function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number | undefined {
@@ -295,6 +296,7 @@ export function RunsTable({
                           passed={entry.tests.tests_passed}
                           failed={entry.tests.tests_failed}
                           total={entry.tests.tests_total}
+                          startTimestamp={entry.timestamp}
                         />
                       ) : entry.timestamp_end ? (
                         <Duration nanoseconds={(entry.timestamp_end - entry.timestamp) * 1_000_000_000} />
@@ -379,18 +381,26 @@ export function RunsTable({
   )
 }
 
-// LiveProgress renders the test progress for an in-progress run. It shows
-// "N / total" and a thin progress bar scaled by completed-fraction of the
-// total tests.
-function LiveProgress({ passed, failed, total }: { passed: number; failed: number; total: number }) {
+// LiveProgress renders the test progress for an in-progress run. Shows
+// "N / total" plus an ETA line and a thin progress bar. Hover adds
+// full tooltip detail (elapsed, remaining, wall-clock ETA).
+function LiveProgress({ passed, failed, total, startTimestamp }: { passed: number; failed: number; total: number; startTimestamp: number }) {
   const completed = passed + failed
   const pct = total > 0 ? Math.min(100, (completed / total) * 100) : 0
 
+  const eta = computeLiveEta(startTimestamp, completed, total)
+  const etaShort = formatEtaShort(eta)
+
   return (
-    <div className="inline-flex min-w-[5rem] flex-col items-end gap-1">
+    <div className="inline-flex min-w-[5rem] flex-col items-end gap-1" title={formatEtaTooltip(eta)}>
       <span className="text-xs/5 tabular-nums">
         {completed}/{total || '?'}
       </span>
+      {etaShort && (
+        <span className="text-[10px]/3 text-gray-400 tabular-nums dark:text-gray-500">
+          {etaShort}
+        </span>
+      )}
       <div className="h-1 w-full overflow-hidden rounded-sm bg-gray-200 dark:bg-gray-700">
         <div
           className="h-full bg-blue-500 transition-all dark:bg-blue-400"
