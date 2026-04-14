@@ -6,7 +6,7 @@ import { ChevronRight, SquareStack, GitCompareArrows, LayoutGrid, Clock, Grid3X3
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
-import { useIndex } from '@/api/hooks/useIndex'
+import { useIndex, useLiveRuns } from '@/api/hooks/useIndex'
 import { useDeleteRuns } from '@/api/hooks/useAdmin'
 import { DurationChart, type XAxisMode } from '@/components/suite-detail/DurationChart'
 import { MGasChart } from '@/components/suite-detail/MGasChart'
@@ -287,6 +287,7 @@ export function SuiteDetailPage() {
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: suiteStats, isLoading: suiteStatsLoading } = useSuiteStats(suiteHash)
   const { data: index } = useIndex()
+  const { data: liveRuns } = useLiveRuns()
   const [runsPage, setRunsPage] = useState(1)
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [compareMode, setCompareMode] = useState(false)
@@ -377,8 +378,50 @@ export function SuiteDetailPage() {
 
   const suiteRunsAll = useMemo(() => {
     if (!index) return []
-    return index.entries.filter((entry) => entry.suite_hash === suiteHash)
-  }, [index, suiteHash])
+
+    const indexed = index.entries.filter((entry) => entry.suite_hash === suiteHash)
+
+    // Merge in any live runs for this suite that aren't already in the
+    // indexed list. Same dedup rule as /runs: a live entry is suppressed
+    // when an indexed entry with the same run_id already exists.
+    if (liveRuns && liveRuns.length > 0) {
+      const indexedRunIDs = new Set(indexed.map((e) => e.run_id))
+      const ephemeral: IndexEntry[] = []
+
+      for (const lr of liveRuns) {
+        if (lr.suite_hash !== suiteHash) continue
+        if (indexedRunIDs.has(lr.run_id)) continue
+
+        ephemeral.push({
+          run_id: lr.run_id,
+          timestamp: lr.timestamp,
+          timestamp_end: lr.timestamp_end,
+          suite_hash: lr.suite_hash,
+          instance: {
+            id: lr.instance_id ?? '',
+            client: lr.client ?? '',
+            image: lr.image ?? '',
+            rollback_strategy: lr.rollback_strategy,
+          },
+          tests: {
+            tests_total: lr.tests_total,
+            tests_passed: lr.tests_passed,
+            tests_failed: lr.tests_failed,
+            steps: {},
+          },
+          status: lr.status,
+          termination_reason: lr.termination_reason,
+          metadata: lr.metadata,
+        })
+      }
+
+      if (ephemeral.length > 0) {
+        return [...ephemeral, ...indexed]
+      }
+    }
+
+    return indexed
+  }, [index, liveRuns, suiteHash])
 
   // Collect available label keys for the group-by selector
   const groupByLabelKeys = useMemo(() => {
