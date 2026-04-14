@@ -137,7 +137,7 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
             />
           </div>
           <p className="mt-3 text-xs/5 text-gray-500 dark:text-gray-400">
-            Full per-test results (MGas/s, calls, durations) will appear here once the run completes.
+            Full per-test results (MGas/s, calls, durations) will appear here once the run completes and gets uploaded.
           </p>
         </div>
       </div>
