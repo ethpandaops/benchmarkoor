@@ -187,31 +187,60 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
   }
 
   if (source.archive) {
-    const isUrl = source.archive.file.startsWith('http://') || source.archive.file.startsWith('https://')
-    const ghRunMatch = source.archive.file.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)\/artifacts\/\d+$/)
+    const archive = source.archive
+    const file = archive.file ?? ''
+    const parts = archive.parts ?? []
+    const isUrl = (s: string) => s.startsWith('http://') || s.startsWith('https://')
+    const ghRunRegex = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)\/artifacts\/\d+$/
+    const ghRunMatch = file ? file.match(ghRunRegex) : null
     const ghRunUrl = ghRunMatch ? `https://github.com/${ghRunMatch[1]}/actions/runs/${ghRunMatch[2]}` : null
 
     return (
       <Card title={<span className="flex items-center gap-2">{title}<SourceTypeBadge source={source} /></span>} collapsible>
         <div className="flex flex-col gap-4">
           <dl className="grid grid-cols-1 gap-4">
-            <div>
-              <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Archive File</dt>
-              <dd className="mt-1 break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">
-                {isUrl ? (
-                  <a
-                    href={source.archive.file}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline dark:text-blue-400"
-                  >
-                    {source.archive.file}
-                  </a>
-                ) : (
-                  source.archive.file
-                )}
-              </dd>
-            </div>
+            {file && (
+              <div>
+                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Archive File</dt>
+                <dd className="mt-1 break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                  {isUrl(file) ? (
+                    <a
+                      href={file}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {file}
+                    </a>
+                  ) : (
+                    file
+                  )}
+                </dd>
+              </div>
+            )}
+            {parts.length > 0 && (
+              <div>
+                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Archive Parts ({parts.length})</dt>
+                <dd className="mt-1 flex flex-col gap-1 font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                  {parts.map((p, i) => (
+                    <span key={i} className="break-all">
+                      {isUrl(p) ? (
+                        <a
+                          href={p}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                          {p}
+                        </a>
+                      ) : (
+                        p
+                      )}
+                    </span>
+                  ))}
+                </dd>
+              </div>
+            )}
             {ghRunUrl && (
               <div>
                 <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">GitHub Actions Run</dt>
@@ -228,7 +257,7 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
               </div>
             )}
           </dl>
-          <StepsInfo steps={source.archive.steps} preRunSteps={source.archive.pre_run_steps} />
+          <StepsInfo steps={archive.steps} preRunSteps={archive.pre_run_steps} />
           {ghRunUrl && (
             <a
               href={ghRunUrl}

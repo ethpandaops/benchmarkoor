@@ -67,15 +67,19 @@ export function SourceBadge({ source, label }: SourceBadgeProps) {
   }
 
   if (source.archive) {
-    const isUrl = source.archive.file.startsWith('http://') || source.archive.file.startsWith('https://')
+    const file = source.archive.file ?? ''
+    const parts = source.archive.parts ?? []
+    const primary = file || parts[0] || ''
+    const title = file ? file : parts.length > 0 ? `${parts.length} parts` : ''
+    const isUrl = primary.startsWith('http://') || primary.startsWith('https://')
 
-    if (isUrl) {
+    if (isUrl && file) {
       return (
         <a
-          href={source.archive.file}
+          href={file}
           target="_blank"
           rel="noopener noreferrer"
-          title={source.archive.file}
+          title={title}
           className="inline-flex items-center gap-1.5 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
         >
           <ArchiveIcon className="size-4" />
@@ -86,7 +90,7 @@ export function SourceBadge({ source, label }: SourceBadgeProps) {
 
     return (
       <span
-        title={source.archive.file}
+        title={title}
         className="inline-flex items-center gap-1.5 text-gray-600 dark:text-gray-400"
       >
         <ArchiveIcon className="size-4" />

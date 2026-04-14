@@ -422,7 +422,8 @@ export interface SourceInfo {
     }
   }
   archive?: {
-    file: string
+    file?: string
+    parts?: string[]
     pre_run_steps?: string[]
     steps?: {
       setup?: string[]
