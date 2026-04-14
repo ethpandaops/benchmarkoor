@@ -474,6 +474,14 @@ func (idx *indexer) indexRun(
 		return fmt.Errorf("upserting run: %w", err)
 	}
 
+	// Once a run has been indexed from disk, drop any live entry for it so
+	// the UI doesn't see both the live and the canonical row at once. We
+	// don't fail the whole run on a delete error.
+	if err := idx.store.DeleteLiveRun(ctx, dp, runID); err != nil {
+		idx.log.WithError(err).WithField("run_id", runID).
+			Debug("Failed to delete live run entry")
+	}
+
 	// Index test stats if result.json is present and suite hash is set.
 	if len(resultData) > 0 && entry.SuiteHash != "" {
 		if err := idx.indexTestStats(

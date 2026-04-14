@@ -6,7 +6,7 @@ import { LabelFilters } from './LabelFilters'
 import type { LabelFilters as LabelFiltersType } from './labelFilterUtils'
 import type { IndexEntry } from '@/api/types'
 
-export type TestStatusFilter = 'all' | 'passing' | 'failing' | 'timeout' | 'cancelled'
+export type TestStatusFilter = 'all' | 'passing' | 'failing' | 'timeout' | 'cancelled' | 'running'
 
 interface RunFiltersProps {
   clients: string[]
@@ -129,6 +129,7 @@ export function RunFilters({
   const imageOptions = [{ value: '' as const, label: 'All images' }, ...images.map((i) => ({ value: i, label: i }))]
   const statusOptions: { value: TestStatusFilter | ''; label: string }[] = [
     { value: 'all', label: 'All runs' },
+    { value: 'running', label: 'In progress' },
     { value: 'passing', label: 'Passing only' },
     { value: 'failing', label: 'Has failures' },
     { value: 'timeout', label: 'Timed out' },

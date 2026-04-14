@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Check, AlertTriangle, X, Clock } from 'lucide-react'
+import { Check, AlertTriangle, X, Clock, Loader } from 'lucide-react'
 import type { RunStatus } from '@/api/types'
 
 interface StatusBadgeProps {
@@ -10,6 +10,11 @@ interface StatusBadgeProps {
 }
 
 const statusConfig: Record<RunStatus, { label: string; className: string; icon: React.ReactNode }> = {
+  running: {
+    label: 'Running',
+    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200',
+    icon: <Loader className="size-3.5 animate-spin" />,
+  },
   completed: {
     label: 'Completed',
     className: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200',
@@ -80,8 +85,8 @@ interface StatusAlertProps {
 }
 
 export function StatusAlert({ status, terminationReason, containerExitCode, containerOOMKilled }: StatusAlertProps) {
-  // Only show alert for non-completed statuses
-  if (!status || status === 'completed') {
+  // Only show alert for failure-like statuses; running/completed are not alerts.
+  if (!status || status === 'completed' || status === 'running') {
     return null
   }
 
@@ -90,21 +95,24 @@ export function StatusAlert({ status, terminationReason, containerExitCode, cont
     return null
   }
 
-  const alertClasses = {
+  const alertClasses: Record<RunStatus, string> = {
+    running: '',
     container_died: 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20',
     cancelled: 'border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/20',
     timeout: 'border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/20',
     completed: '',
   }
 
-  const iconClasses = {
+  const iconClasses: Record<RunStatus, string> = {
+    running: '',
     container_died: 'text-red-600 dark:text-red-400',
     cancelled: 'text-yellow-600 dark:text-yellow-400',
     timeout: 'text-orange-600 dark:text-orange-400',
     completed: '',
   }
 
-  const textClasses = {
+  const textClasses: Record<RunStatus, string> = {
+    running: '',
     container_died: 'text-red-800 dark:text-red-200',
     cancelled: 'text-yellow-800 dark:text-yellow-200',
     timeout: 'text-orange-800 dark:text-orange-200',

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	dockerclient "github.com/docker/docker/client"
+	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
 	"github.com/ethpandaops/benchmarkoor/pkg/blocklog"
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
@@ -18,6 +20,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
+	"github.com/ethpandaops/benchmarkoor/pkg/livereport"
 	"github.com/ethpandaops/benchmarkoor/pkg/upload"
 	"github.com/sirupsen/logrus"
 )
@@ -95,6 +98,7 @@ type RunConfig struct {
 
 // Run status constants.
 const (
+	RunStatusRunning       = "running"
 	RunStatusCompleted     = "completed"
 	RunStatusFailed        = "failed"
 	RunStatusContainerDied = "container_died"
@@ -355,6 +359,134 @@ type containerRunParams struct {
 	UseDataDir           bool                      // Whether a pre-populated datadir is used.
 	BlockLogCollector    blocklog.Collector        // Optional collector for capturing block logs.
 	AccumulatedTestCount *TestCounts               // Shared across genesis groups for accumulation.
+	LiveState            *liveRunState             // Optional: live status state shared with the reporter goroutine.
+}
+
+// liveRunState is a tiny mutable snapshot of run state shared between the
+// lifecycle code (which writes status transitions) and the live-reporting
+// goroutine (which reads them to build snapshots).
+type liveRunState struct {
+	mu                sync.RWMutex
+	status            string
+	terminationReason string
+	timestampEnd      int64
+	// configJSON is the most recent serialized RunConfig. Lifecycle code
+	// calls SetConfig every time it writes config.json to disk so the
+	// reporter can include the latest content in its next snapshot.
+	configJSON []byte
+	// onChange is optionally set by the reporter; invoked (non-blocking)
+	// whenever SetConfig stores a new config, so the reporter can flush an
+	// out-of-band report immediately instead of waiting for its next tick.
+	onChange func()
+}
+
+func (s *liveRunState) SetStatus(status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status = status
+}
+
+func (s *liveRunState) SetTerminal(status, reason string, endTs int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status = status
+	s.terminationReason = reason
+	s.timestampEnd = endTs
+}
+
+// SetConfig serializes the given config to JSON and stores it so the next
+// live report snapshot carries the updated content. Errors are silently
+// dropped — the run is more important than the reporter. When an onChange
+// callback is set, it is invoked after the update so the reporter can
+// flush an immediate out-of-band report.
+func (s *liveRunState) SetConfig(cfg any) {
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return
+	}
+
+	s.mu.Lock()
+	s.configJSON = b
+	cb := s.onChange
+	s.mu.Unlock()
+
+	if cb != nil {
+		cb()
+	}
+}
+
+func (s *liveRunState) Snapshot() (status, reason string, endTs int64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.status, s.terminationReason, s.timestampEnd
+}
+
+// SnapshotConfig returns the latest serialized RunConfig. nil if no
+// SetConfig call has happened yet.
+func (s *liveRunState) SnapshotConfig() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.configJSON
+}
+
+// liveSnapshotter returns a function that builds a LiveRunReport from the
+// current run state plus the executor's live test counters. Used by the
+// reporter goroutine.
+func (r *runner) liveSnapshotter(
+	instance *config.ClientInstance,
+	runID string,
+	runTimestamp int64,
+	state *liveRunState,
+) func() indexstore.LiveRunReport {
+	return func() indexstore.LiveRunReport {
+		status, reason, endTs := state.Snapshot()
+
+		report := indexstore.LiveRunReport{
+			RunID:             runID,
+			Timestamp:         runTimestamp,
+			TimestampEnd:      endTs,
+			Status:            status,
+			TerminationReason: reason,
+			InstanceID:        instance.ID,
+			Client:            instance.Client,
+			Image:             instance.Image,
+		}
+
+		if r.cfg.FullConfig != nil {
+			report.RollbackStrategy = r.cfg.FullConfig.GetRollbackStrategy(instance)
+			report.SuiteHash = ""
+			if r.executor != nil {
+				report.SuiteHash = r.executor.GetSuiteHash()
+			}
+			if labels := r.cfg.FullConfig.GetMetadataLabels(instance); len(labels) > 0 {
+				report.Metadata = labels
+			}
+		}
+
+		if r.executor != nil {
+			progress := r.executor.GetProgress()
+			report.TestsTotal = progress.TestsTotal
+			report.TestsPassed = progress.TestsPassed
+			report.TestsFailed = progress.TestsFailed
+
+			// Before ExecuteTests has started, progress.TestsTotal is 0
+			// because the executor hasn't seeded its live counters yet.
+			// Fall back to the prepared test list so the UI shows the
+			// planned total from the very first report.
+			if report.TestsTotal == 0 {
+				report.TestsTotal = len(r.executor.GetTests())
+			}
+		}
+
+		// Attach the latest config.json snapshot if the lifecycle has
+		// written one; the UI uses it to render the full configuration
+		// panels for in-progress runs.
+		if cfg := state.SnapshotConfig(); len(cfg) > 0 {
+			report.Config = cfg
+		}
+
+		return report
+	}
 }
 
 // RunInstance runs a single client instance through its lifecycle.
@@ -406,6 +538,48 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		"run_id":   runID,
 	})
 	log.Info("Starting client instance")
+
+	// Reset the executor's live progress counters and seed the total with
+	// the full prepared test count. Strategies that call ExecuteTests once
+	// per test (checkpoint-restore, container-recreate) rely on this being
+	// done exactly once per RunInstance so counters accumulate.
+	if r.executor != nil {
+		r.executor.ResetProgress(len(r.executor.GetTests()))
+	}
+
+	// Set up live status reporting if enabled. The reporter posts periodic
+	// snapshots of the run state to the configured benchmarkoor API. The
+	// liveState struct is shared with the lifecycle code, which writes
+	// status transitions into it.
+	liveState := &liveRunState{status: RunStatusRunning}
+
+	var reporter livereport.Reporter
+
+	if r.cfg.FullConfig != nil &&
+		r.cfg.FullConfig.Runner.LiveReporting != nil &&
+		r.cfg.FullConfig.Runner.LiveReporting.Enabled {
+		lrCfg := r.cfg.FullConfig.Runner.LiveReporting
+
+		// Use the composite run directory name as the run_id so live rows
+		// match the canonical Run rows produced by the on-disk indexer.
+		// The UI links to runs by this id via the /runs/$runId route.
+		compositeRunID := fmt.Sprintf("%d_%s_%s", runTimestamp, runID, instance.ID)
+
+		snap := r.liveSnapshotter(instance, compositeRunID, runTimestamp, liveState)
+		reporter = livereport.New(r.logger, lrCfg, snap)
+		reporter.Start(ctx)
+
+		// Whenever the lifecycle writes a new config, push a report
+		// immediately so the API shows it without waiting for the next
+		// periodic tick.
+		liveState.mu.Lock()
+		liveState.onChange = func() {
+			reporter.ReportNow(ctx)
+		}
+		liveState.mu.Unlock()
+
+		defer reporter.Stop()
+	}
 
 	// Get client spec.
 	spec, err := r.registry.Get(client.ClientType(instance.Client))
@@ -489,6 +663,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 						ImageName:            imageName,
 						ImageDigest:          imageDigest,
 						AccumulatedTestCount: accumulatedTestCounts,
+						LiveState:            liveState,
 					}
 
 					if err := r.runContainerLifecycle(
@@ -527,6 +702,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		GenesisSource:   genesisSource,
 		ImageName:       imageName,
 		ImageDigest:     imageDigest,
+		LiveState:       liveState,
 	}
 
 	return r.runContainerLifecycle(

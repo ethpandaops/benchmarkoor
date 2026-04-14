@@ -2,10 +2,10 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { SquareStack, Trash2 } from 'lucide-react'
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useQueries } from '@tanstack/react-query'
-import { useIndex } from '@/api/hooks/useIndex'
+import { useIndex, useLiveRuns } from '@/api/hooks/useIndex'
 import { useDeleteRuns } from '@/api/hooks/useAdmin'
 import { fetchData } from '@/api/client'
-import type { SuiteInfo } from '@/api/types'
+import type { SuiteInfo, IndexEntry } from '@/api/types'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
@@ -52,6 +52,7 @@ export function RunsPage() {
 
   const stepFilter = parseStepFilter(steps)
   const { data: index, isLoading, error, refetch } = useIndex()
+  const { data: liveRuns } = useLiveRuns()
   const [localPage, setLocalPage] = useState(page)
   const [localPageSize, setLocalPageSize] = useState(pageSize)
 
@@ -156,17 +157,64 @@ export function RunsPage() {
     return allSuites.filter((s) => matchingSuiteHashes.has(s.hash))
   }, [allSuites, matchingSuiteHashes])
 
+  // Merge in-progress live runs as ephemeral IndexEntry rows. A live run is
+  // suppressed when an indexed entry with the same run_id already exists,
+  // so we never show duplicate rows during the brief window when the
+  // on-disk indexer hasn't yet purged the live entry.
+  const mergedEntries = useMemo(() => {
+    if (!index) return [] as typeof index extends undefined ? never : IndexEntry[]
+    if (!liveRuns || liveRuns.length === 0) return index.entries
+
+    const indexedRunIDs = new Set(index.entries.map((e) => e.run_id))
+    const ephemeral: IndexEntry[] = []
+
+    for (const lr of liveRuns) {
+      if (indexedRunIDs.has(lr.run_id)) continue
+
+      ephemeral.push({
+        run_id: lr.run_id,
+        timestamp: lr.timestamp,
+        timestamp_end: lr.timestamp_end,
+        suite_hash: lr.suite_hash,
+        instance: {
+          id: lr.instance_id ?? '',
+          client: lr.client ?? '',
+          image: lr.image ?? '',
+          rollback_strategy: lr.rollback_strategy,
+        },
+        tests: {
+          tests_total: lr.tests_total,
+          tests_passed: lr.tests_passed,
+          tests_failed: lr.tests_failed,
+          steps: {},
+        },
+        status: lr.status,
+        termination_reason: lr.termination_reason,
+        metadata: lr.metadata,
+      })
+    }
+
+    return [...ephemeral, ...index.entries]
+  }, [index, liveRuns])
+
   const filteredEntries = useMemo(() => {
-    if (!index) return []
-    return index.entries.filter((e) => {
+    return mergedEntries.filter((e) => {
       if (client && e.instance.client !== client) return false
       if (image && e.instance.image !== image) return false
       if (suite && e.suite_hash !== suite) return false
       if (strategy && e.instance.rollback_strategy !== strategy) return false
-      if (status === 'passing' && e.tests.tests_total - e.tests.tests_passed > 0) return false
-      if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
+      // For live runs, failure count means actually-reported failures, not
+      // "tests not yet passed". Apply the same convention here.
+      {
+        const failed = e.status === 'running'
+          ? e.tests.tests_failed
+          : e.tests.tests_total - e.tests.tests_passed
+        if (status === 'passing' && failed > 0) return false
+        if (status === 'failing' && failed === 0) return false
+      }
       if (status === 'timeout' && e.status !== 'timeout') return false
       if (status === 'cancelled' && e.status !== 'cancelled') return false
+      if (status === 'running' && e.status !== 'running') return false
       if (matchingSuiteHashes && (!e.suite_hash || !matchingSuiteHashes.has(e.suite_hash))) return false
       for (const [key, allowedValues] of labelFilters) {
         const actual = e.metadata?.[key]
@@ -174,7 +222,7 @@ export function RunsPage() {
       }
       return true
     })
-  }, [index, client, image, suite, strategy, status, labelFilters, matchingSuiteHashes])
+  }, [mergedEntries, client, image, suite, strategy, status, labelFilters, matchingSuiteHashes])
 
   const sortedEntries = useMemo(() => sortIndexEntries(filteredEntries, sortBy, sortDir, stepFilter), [filteredEntries, sortBy, sortDir, stepFilter])
   const totalPages = Math.ceil(sortedEntries.length / localPageSize)

@@ -123,6 +123,35 @@ runner:
 | `cpu_sysfs_path` | string | `/sys/devices/system/cpu` | Base path for CPU sysfs files (for containerized environments where `/sys` is read-only and the host path is bind-mounted elsewhere, e.g., `/host_sys_cpu`) |
 | `metadata.labels` | map[string]string | - | Arbitrary key-value labels attached to the run (see [Metadata Labels](#metadata-labels)) |
 | `github_token` | string | - | GitHub token for downloading Actions artifacts via REST API. Not needed if `gh` CLI is installed and authenticated. Requires `actions:read` scope. Can also be set via `BENCHMARKOOR_RUNNER_GITHUB_TOKEN` env var |
+| `live_reporting` | object | - | Stream periodic run-status reports to a benchmarkoor API instance so the UI can display in-progress runs. See [Live Reporting](#live-reporting) |
+
+#### Live Reporting
+
+When `live_reporting` is enabled, every run posts a snapshot of its current state (status, test counts, metadata labels) to the configured benchmarkoor API at a jittered interval. The API stores these in a separate `live_runs` table and the UI merges them into the runs view as ephemeral rows. Once the on-disk indexer picks up the same run from storage, the live entry is removed automatically.
+
+```yaml
+runner:
+  live_reporting:
+    enabled: true
+    endpoint: https://benchmarkoor.example.com
+    token: my-shared-secret
+    discovery_path: my-host/benchmarks  # must match a discovery path on the API side
+    interval: 1m
+    jitter_fraction: 0.2
+    timeout: 10s
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable live reporting |
+| `endpoint` | string | - | Base URL of the benchmarkoor API (no trailing path), e.g. `https://api.example.com` |
+| `token` | string | - | Shared bearer token; must match `api.ingest.token` on the API side |
+| `discovery_path` | string | - | Discovery path the runner's results will be published under. Used as part of the unique key on the API |
+| `interval` | string | `1m` | Base reporting interval (Go duration). Each tick adds random jitter |
+| `jitter_fraction` | float | `0.2` | Random jitter as a fraction of `interval`. `0` uses the default; negative disables jitter entirely |
+| `timeout` | string | `10s` | Per-request HTTP timeout |
+
+Reports are best-effort: HTTP failures are logged at WARN and dropped. The next tick will retry with the latest snapshot. On `Stop()`, the runner sends one final synchronous report so the terminal status reaches the API.
 
 #### Container Runtime
 

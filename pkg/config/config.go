@@ -70,18 +70,83 @@ type Config struct {
 
 // RunnerConfig contains all run-specific configuration settings.
 type RunnerConfig struct {
-	ContainerRuntime   string            `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
-	ClientLogsToStdout bool              `yaml:"client_logs_to_stdout" mapstructure:"client_logs_to_stdout"`
-	ContainerNetwork   string            `yaml:"container_network" mapstructure:"container_network"`
-	CleanupOnStart     bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
-	RunTimeout         string            `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
-	Directories        DirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
-	DropCachesPath     string            `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
-	CPUSysfsPath       string            `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
-	GitHubToken        string            `yaml:"github_token,omitempty" mapstructure:"github_token"`
-	Benchmark          BenchmarkConfig   `yaml:"benchmark" mapstructure:"benchmark"`
-	Client             ClientConfig      `yaml:"client" mapstructure:"client"`
-	Instances          []ClientInstance  `yaml:"instances" mapstructure:"instances"`
+	ContainerRuntime   string               `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
+	ClientLogsToStdout bool                 `yaml:"client_logs_to_stdout" mapstructure:"client_logs_to_stdout"`
+	ContainerNetwork   string               `yaml:"container_network" mapstructure:"container_network"`
+	CleanupOnStart     bool                 `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
+	RunTimeout         string               `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
+	Directories        DirectoriesConfig    `yaml:"directories,omitempty" mapstructure:"directories"`
+	DropCachesPath     string               `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
+	CPUSysfsPath       string               `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
+	GitHubToken        string               `yaml:"github_token,omitempty" mapstructure:"github_token"`
+	LiveReporting      *LiveReportingConfig `yaml:"live_reporting,omitempty" mapstructure:"live_reporting"`
+	Benchmark          BenchmarkConfig      `yaml:"benchmark" mapstructure:"benchmark"`
+	Client             ClientConfig         `yaml:"client" mapstructure:"client"`
+	Instances          []ClientInstance     `yaml:"instances" mapstructure:"instances"`
+}
+
+// LiveReportingConfig enables periodic run-status reports to a benchmarkoor
+// API instance. When enabled, each run posts a snapshot of its state
+// (status, test counts, etc.) to the API at a jittered interval so the UI
+// can display in-progress runs.
+type LiveReportingConfig struct {
+	Enabled        bool    `yaml:"enabled" mapstructure:"enabled"`
+	Endpoint       string  `yaml:"endpoint" mapstructure:"endpoint"`
+	Token          string  `yaml:"token" mapstructure:"token"`
+	DiscoveryPath  string  `yaml:"discovery_path" mapstructure:"discovery_path"`
+	Interval       string  `yaml:"interval,omitempty" mapstructure:"interval"`               // default 1m
+	JitterFraction float64 `yaml:"jitter_fraction,omitempty" mapstructure:"jitter_fraction"` // default 0.2
+	Timeout        string  `yaml:"timeout,omitempty" mapstructure:"timeout"`                 // default 10s
+}
+
+// Default values for LiveReportingConfig when fields are left empty.
+const (
+	DefaultLiveReportingInterval       = time.Minute
+	DefaultLiveReportingJitterFraction = 0.2
+	DefaultLiveReportingTimeout        = 10 * time.Second
+)
+
+// GetInterval returns the reporting interval with the default applied.
+func (l *LiveReportingConfig) GetInterval() time.Duration {
+	if l == nil || l.Interval == "" {
+		return DefaultLiveReportingInterval
+	}
+
+	d, err := time.ParseDuration(l.Interval)
+	if err != nil {
+		return DefaultLiveReportingInterval
+	}
+
+	return d
+}
+
+// GetJitterFraction returns the jitter fraction with the default applied
+// when the field is unset (zero value). To disable jitter entirely, use a
+// negative value in the config and we'll clamp it to zero.
+func (l *LiveReportingConfig) GetJitterFraction() float64 {
+	if l == nil || l.JitterFraction == 0 {
+		return DefaultLiveReportingJitterFraction
+	}
+
+	if l.JitterFraction < 0 {
+		return 0
+	}
+
+	return l.JitterFraction
+}
+
+// GetTimeout returns the per-request timeout with the default applied.
+func (l *LiveReportingConfig) GetTimeout() time.Duration {
+	if l == nil || l.Timeout == "" {
+		return DefaultLiveReportingTimeout
+	}
+
+	d, err := time.ParseDuration(l.Timeout)
+	if err != nil {
+		return DefaultLiveReportingTimeout
+	}
+
+	return d
 }
 
 // MetadataConfig contains arbitrary metadata labels for a benchmark run.
@@ -1092,9 +1157,61 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		return err
 	}
 
+	// Validate live_reporting settings.
+	if err := c.validateLiveReporting(); err != nil {
+		return err
+	}
+
 	// Validate API settings.
 	if err := c.ValidateAPI(); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// validateLiveReporting checks the runner.live_reporting config when enabled.
+func (c *Config) validateLiveReporting() error {
+	lr := c.Runner.LiveReporting
+	if lr == nil || !lr.Enabled {
+		return nil
+	}
+
+	if lr.Endpoint == "" {
+		return fmt.Errorf("runner.live_reporting.endpoint is required when enabled")
+	}
+
+	if lr.Token == "" {
+		return fmt.Errorf("runner.live_reporting.token is required when enabled")
+	}
+
+	if lr.DiscoveryPath == "" {
+		return fmt.Errorf("runner.live_reporting.discovery_path is required when enabled")
+	}
+
+	if lr.Interval != "" {
+		if _, err := time.ParseDuration(lr.Interval); err != nil {
+			return fmt.Errorf(
+				"runner.live_reporting.interval: invalid duration %q: %w",
+				lr.Interval, err,
+			)
+		}
+	}
+
+	if lr.Timeout != "" {
+		if _, err := time.ParseDuration(lr.Timeout); err != nil {
+			return fmt.Errorf(
+				"runner.live_reporting.timeout: invalid duration %q: %w",
+				lr.Timeout, err,
+			)
+		}
+	}
+
+	if lr.JitterFraction >= 1 {
+		return fmt.Errorf(
+			"runner.live_reporting.jitter_fraction: must be < 1, got %v",
+			lr.JitterFraction,
+		)
 	}
 
 	return nil
@@ -2080,6 +2197,33 @@ func (c *Config) ValidateAPI() error {
 	// Validate indexing settings.
 	if err := c.validateAPIIndexing(); err != nil {
 		return err
+	}
+
+	// Validate ingest settings.
+	if err := c.validateAPIIngest(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateAPIIngest validates the ingest configuration.
+func (c *Config) validateAPIIngest() error {
+	if c.API.Ingest == nil {
+		return nil
+	}
+
+	if c.API.Ingest.Token == "" {
+		return fmt.Errorf("api.ingest.token is required when ingest is configured")
+	}
+
+	if c.API.Ingest.StaleThreshold != "" {
+		if _, err := time.ParseDuration(c.API.Ingest.StaleThreshold); err != nil {
+			return fmt.Errorf(
+				"api.ingest.stale_threshold: invalid duration %q: %w",
+				c.API.Ingest.StaleThreshold, err,
+			)
+		}
 	}
 
 	return nil

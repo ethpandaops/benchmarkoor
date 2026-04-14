@@ -2,6 +2,7 @@ package indexstore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -20,6 +21,10 @@ type Store interface {
 	Stop() error
 
 	UpsertRun(ctx context.Context, run *Run) error
+	UpsertLiveRun(ctx context.Context, report *LiveRunReport) error
+	ListLiveRuns(ctx context.Context) ([]LiveRun, error)
+	DeleteLiveRun(ctx context.Context, discoveryPath, runID string) error
+	DeleteStaleLiveRuns(ctx context.Context, olderThan time.Time) (int64, error)
 	ListRuns(ctx context.Context, discoveryPath string) ([]Run, error)
 	ListRunIDs(ctx context.Context, discoveryPath string) ([]string, error)
 	ListIncompleteRunIDs(
@@ -129,6 +134,7 @@ func (s *store) Start(ctx context.Context) error {
 		&TestStat{},
 		&TestStatsBlockLog{},
 		&Suite{},
+		&LiveRun{},
 	); err != nil {
 		return fmt.Errorf("running index migrations: %w", err)
 	}
@@ -243,6 +249,103 @@ func (s *store) UpsertRun(ctx context.Context, run *Run) error {
 	}
 
 	return nil
+}
+
+// UpsertLiveRun applies a status report from a runner to the live_runs
+// table. The composite key (discovery_path, run_id) identifies the row.
+// Every report refreshes last_reported_at so the stale watcher can detect
+// abandoned runs.
+func (s *store) UpsertLiveRun(ctx context.Context, r *LiveRunReport) error {
+	now := time.Now().UTC()
+
+	// Always-written fields. We use Updates() with a map so an empty map is
+	// not interpreted as "clear all fields".
+	fields := map[string]any{
+		"timestamp":          r.Timestamp,
+		"timestamp_end":      r.TimestampEnd,
+		"suite_hash":         r.SuiteHash,
+		"status":             r.Status,
+		"termination_reason": r.TerminationReason,
+		"instance_id":        r.InstanceID,
+		"client":             r.Client,
+		"image":              r.Image,
+		"rollback_strategy":  r.RollbackStrategy,
+		"tests_total":        r.TestsTotal,
+		"tests_passed":       r.TestsPassed,
+		"tests_failed":       r.TestsFailed,
+		"last_reported_at":   now,
+	}
+
+	if r.Metadata != nil {
+		b, err := json.Marshal(r.Metadata)
+		if err != nil {
+			return fmt.Errorf("marshalling metadata: %w", err)
+		}
+
+		fields["metadata_json"] = string(b)
+	}
+
+	// Only overwrite config_json when the runner actually supplied one.
+	// Empty Config means "no update" — preserve whatever was last stored
+	// so a later zero-config report doesn't wipe an earlier good one.
+	if len(r.Config) > 0 {
+		fields["config_json"] = string(r.Config)
+	}
+
+	seed := &LiveRun{
+		DiscoveryPath:  r.DiscoveryPath,
+		RunID:          r.RunID,
+		LastReportedAt: now,
+	}
+
+	result := s.db.WithContext(ctx).
+		Where("discovery_path = ? AND run_id = ?", r.DiscoveryPath, r.RunID).
+		Assign(fields).
+		FirstOrCreate(seed)
+	if result.Error != nil {
+		return fmt.Errorf("upserting live run: %w", result.Error)
+	}
+
+	return nil
+}
+
+// ListLiveRuns returns all live runs ordered by their start timestamp
+// descending (newest first).
+func (s *store) ListLiveRuns(ctx context.Context) ([]LiveRun, error) {
+	var runs []LiveRun
+	if err := s.readDB.WithContext(ctx).
+		Order("timestamp DESC").
+		Find(&runs).Error; err != nil {
+		return nil, fmt.Errorf("listing live runs: %w", err)
+	}
+
+	return runs, nil
+}
+
+// DeleteLiveRun removes a live run row. Called by the on-disk indexer
+// once it has indexed the canonical Run, so the live entry doesn't show
+// up alongside the indexed one in the UI.
+func (s *store) DeleteLiveRun(ctx context.Context, dp, runID string) error {
+	if err := s.db.WithContext(ctx).
+		Where("discovery_path = ? AND run_id = ?", dp, runID).
+		Delete(&LiveRun{}).Error; err != nil {
+		return fmt.Errorf("deleting live run: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteStaleLiveRuns removes any live run whose last_reported_at is older
+// than the given threshold. Returns the number of rows deleted.
+func (s *store) DeleteStaleLiveRuns(ctx context.Context, olderThan time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).
+		Where("last_reported_at < ?", olderThan).
+		Delete(&LiveRun{})
+	if result.Error != nil {
+		return 0, fmt.Errorf("deleting stale live runs: %w", result.Error)
+	}
+
+	return result.RowsAffected, nil
 }
 
 // ListRuns returns all runs for a given discovery path ordered by timestamp.
@@ -394,7 +497,13 @@ func (s *store) ListRunIDs(
 }
 
 // terminalStatuses are run statuses that will not change.
-var terminalStatuses = []string{"completed", "failed", "cancelled", "container_died", "timeout"}
+var terminalStatuses = []string{
+	RunStatusCompleted,
+	RunStatusFailed,
+	RunStatusCancelled,
+	RunStatusContainerDied,
+	RunStatusTimedOut,
+}
 
 // ListIncompleteRunIDs returns run IDs where the result has not been indexed
 // and the run is still potentially in progress. A run is considered

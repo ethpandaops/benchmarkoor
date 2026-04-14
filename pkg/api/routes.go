@@ -84,6 +84,7 @@ func (s *server) buildRouter() http.Handler {
 
 				r.Get("/", s.handleIndex)
 				r.Get("/suites/{hash}/stats", s.handleSuiteStats)
+				r.Get("/live_runs", s.handleListLiveRuns)
 
 				r.Route("/query", func(r chi.Router) {
 					r.Get("/runs", s.handleQueryRuns)
@@ -93,6 +94,23 @@ func (s *server) buildRouter() http.Handler {
 						s.handleQueryTestStatsBlockLogs)
 					r.Get("/suites", s.handleQuerySuites)
 				})
+			})
+		}
+
+		// Ingest endpoint for runners to post live status reports.
+		// Only registered when an ingest token is configured AND the index
+		// store is available (ingest writes to the live_runs table).
+		if s.indexStore != nil && s.cfg.Ingest != nil && s.cfg.Ingest.Token != "" {
+			r.Route("/ingest", func(r chi.Router) {
+				r.Use(s.requireIngestToken)
+
+				if s.cfg.Server.RateLimit.Enabled {
+					r.Use(s.rateLimitMiddleware(
+						s.cfg.Server.RateLimit.Authenticated,
+					))
+				}
+
+				r.Post("/runs", s.handleIngestRun)
 			})
 		}
 

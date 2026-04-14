@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchData, fetchViaS3 } from '../client'
-import type { Index, IndexEntry } from '../types'
+import type { Index, IndexEntry, LiveRun } from '../types'
 import {
   loadRuntimeConfig,
   isS3Mode,
@@ -8,6 +8,10 @@ import {
   isIndexingEnabled,
   registerDiscoveryMapping,
 } from '@/config/runtime'
+
+// How often to refetch the runs/live runs lists. 30s strikes a balance
+// between freshness for in-progress runs and request volume.
+const RUNS_REFETCH_INTERVAL_MS = 30_000
 
 const emptyIndex: Index = { generated: 0, entries: [] }
 
@@ -132,6 +136,7 @@ function mergeIndexResults(results: (Index | null)[]): Index {
 export function useIndex() {
   return useQuery({
     queryKey: ['index'],
+    refetchInterval: RUNS_REFETCH_INTERVAL_MS,
     queryFn: async () => {
       const config = await loadRuntimeConfig()
 
@@ -158,6 +163,33 @@ export function useIndex() {
       }
 
       return data
+    },
+  })
+}
+
+// useLiveRuns returns the list of in-progress runs being reported by
+// runners via the API ingest endpoint. Returns an empty list when the
+// API isn't configured / indexing isn't enabled.
+export function useLiveRuns() {
+  return useQuery({
+    queryKey: ['live-runs'],
+    refetchInterval: RUNS_REFETCH_INTERVAL_MS,
+    queryFn: async (): Promise<LiveRun[]> => {
+      const config = await loadRuntimeConfig()
+      if (!config.api?.baseUrl || !isIndexingEnabled(config)) return []
+
+      const response = await fetch(
+        `${config.api.baseUrl}/api/v1/index/live_runs`,
+        { credentials: 'include' },
+      )
+
+      if (response.status === 404) return []
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch live runs: ${response.status}`)
+      }
+
+      return (await response.json()) as LiveRun[]
     },
   })
 }

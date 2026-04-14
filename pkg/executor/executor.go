@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"text/template"
 	"time"
 
@@ -48,6 +49,24 @@ type Executor interface {
 
 	// GetSource returns the underlying source, which can be used for genesis resolution.
 	GetSource() Source
+
+	// GetProgress returns a snapshot of the current test execution counts.
+	// Safe to call concurrently from any goroutine while ExecuteTests runs.
+	GetProgress() ProgressSnapshot
+
+	// ResetProgress resets the live progress counters and seeds the total.
+	// Call this exactly once at the start of a logical run, BEFORE any
+	// ExecuteTests invocation. Strategies that invoke ExecuteTests multiple
+	// times per run (e.g. checkpoint-restore, container-recreate) rely on
+	// this so the counters accumulate across calls instead of being reset.
+	ResetProgress(total int)
+}
+
+// ProgressSnapshot is a point-in-time view of the executor's test progress.
+type ProgressSnapshot struct {
+	TestsTotal  int
+	TestsPassed int
+	TestsFailed int
 }
 
 // BlockLogCollector is an interface for capturing JSON payloads from client logs.
@@ -116,6 +135,12 @@ type executor struct {
 	suiteHash   string
 	validator   jsonrpc.Validator
 	statsReader stats.Reader
+
+	// Live progress counters updated during ExecuteTests. Safe to read
+	// concurrently via GetProgress().
+	progressTotal  atomic.Int64
+	progressPassed atomic.Int64
+	progressFailed atomic.Int64
 }
 
 // Ensure interface compliance.
@@ -228,6 +253,24 @@ func (e *executor) GetTests() []*TestWithSteps {
 // GetSource returns the underlying source.
 func (e *executor) GetSource() Source {
 	return e.source
+}
+
+// GetProgress returns a snapshot of the executor's live test counters.
+// Safe to call concurrently from any goroutine while ExecuteTests runs.
+func (e *executor) GetProgress() ProgressSnapshot {
+	return ProgressSnapshot{
+		TestsTotal:  int(e.progressTotal.Load()),
+		TestsPassed: int(e.progressPassed.Load()),
+		TestsFailed: int(e.progressFailed.Load()),
+	}
+}
+
+// ResetProgress resets the live counters and seeds the total. Call exactly
+// once per logical run before any ExecuteTests invocation.
+func (e *executor) ResetProgress(total int) {
+	e.progressTotal.Store(int64(total))
+	e.progressPassed.Store(0)
+	e.progressFailed.Store(0)
 }
 
 // RunPreRunSteps executes the suite's pre-run steps against the given endpoint.
@@ -552,9 +595,11 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 		if testPassed {
 			testsPassed++
+			e.progressPassed.Add(1)
 			log.Info("Test completed successfully")
 		} else {
 			testsFailed++
+			e.progressFailed.Add(1)
 			log.Warn("Test completed with failures")
 		}
 	}

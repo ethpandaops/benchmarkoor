@@ -302,6 +302,24 @@ api:
 - You want the UI to always show up-to-date data without manual regeneration
 - You are running the API server as a long-lived service
 
+## Ingest (live run reporting)
+
+The optional `api.ingest` section enables an authenticated endpoint that benchmarkoor runners use to stream live run-status snapshots to the API. Live entries land in a separate `live_runs` table so they never interfere with the canonical `runs` table populated by the indexer; the UI merges both views.
+
+```yaml
+api:
+  ingest:
+    token: my-shared-secret
+    stale_threshold: 5m
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `token` | string | - | Shared bearer token. Runners must send `Authorization: Bearer <token>`. The ingest endpoint is only registered when this is set |
+| `stale_threshold` | string | `5m` | A live-run row is removed when no new report has arrived within this window (Go duration) |
+
+A background goroutine on the API scans every 30s and deletes live rows whose `last_reported_at` is older than `stale_threshold`. When the on-disk indexer later picks up a real run with the same `(discovery_path, run_id)`, the live row is removed immediately so the UI doesn't show duplicate rows.
+
 ## API Endpoints
 
 All endpoints are under the `/api/v1` prefix.
@@ -354,6 +372,15 @@ Available only when [indexing](#indexing) is enabled.
 | `GET` | `/index/query/test_stats` | Query test stat data with PostgREST-style filtering, sorting, and pagination |
 | `GET` | `/index/query/test_stats_block_logs` | Query per-block log data with PostgREST-style filtering, sorting, and pagination |
 | `GET` | `/index/query/suites` | Query suite data with PostgREST-style filtering, sorting, and pagination |
+| `GET` | `/index/live_runs` | List all live (in-progress) runs reported by runners via the ingest endpoint. Returns an array of `LiveRunResponse` objects |
+
+### Ingest (requires `Authorization: Bearer <api.ingest.token>`)
+
+Available only when [ingest](#ingest-live-run-reporting) is configured.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/ingest/runs` | Upsert a `LiveRunReport` for an in-progress run. Returns 204 on success, 401 on bad token, 400 on missing required fields |
 
 #### Row count
 

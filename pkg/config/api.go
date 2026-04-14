@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 // APIConfig contains all API server configuration.
 type APIConfig struct {
 	Server   APIServerConfig    `yaml:"server" mapstructure:"server"`
@@ -7,6 +9,35 @@ type APIConfig struct {
 	Database APIDatabaseConfig  `yaml:"database" mapstructure:"database"`
 	Storage  APIStorageConfig   `yaml:"storage,omitempty" mapstructure:"storage"`
 	Indexing *APIIndexingConfig `yaml:"indexing,omitempty" mapstructure:"indexing"`
+	Ingest   *APIIngestConfig   `yaml:"ingest,omitempty" mapstructure:"ingest"`
+}
+
+// APIIngestConfig configures the live-run ingest endpoint that accepts
+// periodic status reports from benchmarkoor runners. When Token is set,
+// runs can post to POST /api/v1/ingest/runs using that bearer token.
+type APIIngestConfig struct {
+	Token          string `yaml:"token" mapstructure:"token"`
+	StaleThreshold string `yaml:"stale_threshold,omitempty" mapstructure:"stale_threshold"` // default 5m
+}
+
+// DefaultAPIIngestStaleThreshold is the default time after which a live
+// run with no recent reports is purged from the live_runs table.
+const DefaultAPIIngestStaleThreshold = "5m"
+
+// GetStaleThreshold returns the parsed stale threshold or the default.
+func (c *APIIngestConfig) GetStaleThreshold() time.Duration {
+	if c == nil || c.StaleThreshold == "" {
+		d, _ := time.ParseDuration(DefaultAPIIngestStaleThreshold)
+		return d
+	}
+
+	d, err := time.ParseDuration(c.StaleThreshold)
+	if err != nil {
+		d, _ := time.ParseDuration(DefaultAPIIngestStaleThreshold)
+		return d
+	}
+
+	return d
 }
 
 // APIIndexingConfig configures the background indexing service that

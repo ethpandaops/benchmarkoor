@@ -7,6 +7,8 @@ import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
+import { MetadataLabels } from '@/components/run-detail/MetadataLabels'
+import { GitHubSection } from '@/components/run-detail/GitHubSection'
 import { FilesPanel } from '@/components/run-detail/FilesPanel'
 import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts'
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
@@ -22,12 +24,13 @@ import { StatusAlert } from '@/components/shared/StatusBadge'
 import { FilterInput } from '@/components/shared/FilterInput'
 import { formatTimestamp, formatDurationSeconds } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
-import { useIndex } from '@/api/hooks/useIndex'
+import { useIndex, useLiveRuns } from '@/api/hooks/useIndex'
+import { LiveRunDetailView } from '@/components/run-detail/LiveRunDetailView'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
 import { BlockLogsDashboard } from '@/components/run-detail/block-logs-dashboard'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
-import { Flame, Download, Github, ExternalLink, SquareStack, GitCompareArrows, Trash2 } from 'lucide-react'
+import { Flame, Download, SquareStack, GitCompareArrows, Trash2 } from 'lucide-react'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 import { useAuth } from '@/hooks/useAuth'
 import { useDeleteRuns } from '@/api/hooks/useAdmin'
@@ -145,6 +148,8 @@ export function RunDetailPage() {
   const { data: result, isLoading: resultLoading, refetch: refetchResult } = useRunResult(runId)
   const { data: suite } = useSuite(config?.suite_hash ?? '')
   const { data: index } = useIndex()
+  const { data: liveRuns } = useLiveRuns()
+  const liveRun = liveRuns?.find((lr) => lr.run_id === runId)
   const { data: containerLogHead, isLoading: containerLogLoading } = useQuery({
     queryKey: ['run', runId, 'container-log-head'],
     queryFn: () => fetchHead(`runs/${runId}/container.log`),
@@ -282,6 +287,14 @@ export function RunDetailPage() {
 
   if (isLoading) {
     return <LoadingState message="Loading run details..." />
+  }
+
+  // If the run is being actively reported by a runner and its files aren't
+  // yet on the storage backend, show the lightweight live view instead of
+  // the error state. Once the run finishes and config.json lands, the next
+  // refetch will drop us back into the normal detail view.
+  if (!config && liveRun) {
+    return <LiveRunDetailView run={liveRun} />
   }
 
   if (error) {
@@ -612,111 +625,9 @@ export function RunDetailPage() {
         )}
       </div>
 
-      {config.metadata?.labels && (() => {
-        const userLabels = Object.entries(config.metadata.labels)
-          .filter(([k]) => !k.startsWith('github.') && k !== 'name')
-        if (userLabels.length === 0) return null
-        return (
-          <div className="flex flex-wrap items-center gap-2">
-            {userLabels.map(([key, value]) => (
-              <span
-                key={key}
-                className="inline-flex items-center gap-1.5 rounded-xs border border-blue-200 bg-blue-50 px-2 py-1 text-xs/5 font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-              >
-                <span className="font-semibold">{key}</span>
-                <span>=</span>
-                <span>{value}</span>
-              </span>
-            ))}
-          </div>
-        )
-      })()}
+      <MetadataLabels labels={config.metadata?.labels} />
 
-      {config.metadata?.labels && (() => {
-        const gh = Object.entries(config.metadata.labels)
-          .filter(([k]) => k.startsWith('github.'))
-          .reduce<Record<string, string>>((acc, [k, v]) => { acc[k.replace('github.', '')] = v; return acc }, {})
-        if (Object.keys(gh).length === 0) return null
-        const repoUrl = gh.repository ? `https://github.com/${gh.repository}` : undefined
-        const commitUrl = repoUrl && gh.sha ? `${repoUrl}/commit/${gh.sha}` : undefined
-        const runUrl = repoUrl && gh.run_id ? `${repoUrl}/actions/runs/${gh.run_id}` : undefined
-        const jobUrl = runUrl && gh.job_id ? `${runUrl}#step:0:0` : undefined
-        return (
-          <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
-            <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-              <Github className="size-4 text-gray-500 dark:text-gray-400" />
-              <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">GitHub</h3>
-              {runUrl && (
-                <a href={runUrl} target="_blank" rel="noopener noreferrer" className="ml-auto flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
-                  View workflow run <ExternalLink className="size-3" />
-                </a>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-x-8 gap-y-2 px-4 py-3 text-sm/6 sm:grid-cols-3 lg:grid-cols-4">
-              {gh.repository && (
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Repository</p>
-                  {repoUrl ? (
-                    <a href={repoUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{gh.repository}</a>
-                  ) : (
-                    <p className="font-medium text-gray-900 dark:text-gray-100">{gh.repository}</p>
-                  )}
-                </div>
-              )}
-              {gh.workflow && (
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Workflow</p>
-                  <p className="font-medium text-gray-900 dark:text-gray-100">{gh.workflow}</p>
-                </div>
-              )}
-              {gh.ref && (
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Ref</p>
-                  <p className="font-mono text-xs font-medium text-gray-900 dark:text-gray-100">{gh.ref.replace('refs/heads/', '').replace('refs/tags/', '')}</p>
-                </div>
-              )}
-              {gh.event_name && (
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Event</p>
-                  <p className="font-medium text-gray-900 dark:text-gray-100">{gh.event_name}</p>
-                </div>
-              )}
-              {gh.sha && (
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Commit</p>
-                  {commitUrl ? (
-                    <a href={commitUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{gh.sha.slice(0, 8)}</a>
-                  ) : (
-                    <p className="font-mono text-xs font-medium text-gray-900 dark:text-gray-100">{gh.sha.slice(0, 8)}</p>
-                  )}
-                </div>
-              )}
-              {gh.actor && (
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Actor</p>
-                  <a href={`https://github.com/${gh.actor}`} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{gh.actor}</a>
-                </div>
-              )}
-              {gh.job && (
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Job</p>
-                  {jobUrl ? (
-                    <a href={jobUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">{gh.job}</a>
-                  ) : (
-                    <p className="font-medium text-gray-900 dark:text-gray-100">{gh.job}</p>
-                  )}
-                </div>
-              )}
-              {gh.run_number && (
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Run Number</p>
-                  <p className="font-medium text-gray-900 dark:text-gray-100">#{gh.run_number}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )
-      })()}
+      <GitHubSection labels={config.metadata?.labels} />
 
       <RunConfiguration instance={config.instance} system={config.system} startBlock={config.start_block} metadata={config.metadata} />
 

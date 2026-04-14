@@ -5,7 +5,32 @@ export interface Index {
 }
 
 // Run status type
-export type RunStatus = 'completed' | 'container_died' | 'cancelled' | 'timeout'
+export type RunStatus = 'running' | 'completed' | 'container_died' | 'cancelled' | 'timeout'
+
+// Live run reported by an active runner via the ingest endpoint. Mirrors
+// indexstore.LiveRunResponse on the API side.
+export interface LiveRun {
+  id: number
+  discovery_path: string
+  run_id: string
+  timestamp: number
+  timestamp_end?: number
+  suite_hash?: string
+  status: RunStatus
+  termination_reason?: string
+  instance_id?: string
+  client?: string
+  image?: string
+  rollback_strategy?: string
+  tests_total: number
+  tests_passed: number
+  tests_failed: number
+  metadata?: Record<string, string>
+  // The full config.json content as reported by the runner. Mirrors the
+  // on-disk config.json schema so the UI can reuse RunConfiguration.
+  config?: RunConfig
+  last_reported_at: string
+}
 
 export interface IndexEntry {
   run_id: string

@@ -39,6 +39,18 @@ runner:
   # Can also be set via BENCHMARKOOR_RUNNER_GITHUB_TOKEN environment variable.
   # github_token: ${GITHUB_TOKEN:-}
 
+  # Optional: Stream periodic run-status reports to a benchmarkoor API
+  # instance so the UI can show in-progress runs. The API must have a
+  # matching `api.ingest.token` configured.
+  # live_reporting:
+  #   enabled: true
+  #   endpoint: https://benchmarkoor.example.com
+  #   token: my-shared-secret
+  #   discovery_path: my-host/benchmarks
+  #   interval: 1m
+  #   jitter_fraction: 0.2
+  #   timeout: 10s
+
   benchmark:
     results_dir: ${RESULTS_DIR:-./results}
     # Optional: Set ownership (user:group) for results files. Useful when running as root.
@@ -282,6 +294,14 @@ runner:
 #   #     # Keys become URL prefixes (e.g. /api/v1/files/results/...).
 #   #     discovery_paths:
 #   #       results: /data/benchmarkoor/results
+#   # Optional: Accept live status reports from benchmarkoor runners.
+#   # When configured, runners can POST snapshots to /api/v1/ingest/runs
+#   # using `Authorization: Bearer <token>`. Live reports are stored in a
+#   # separate live_runs table and shown in the UI alongside indexed runs.
+#   # The token here MUST match `runner.live_reporting.token` on each runner.
+#   # ingest:
+#   #   token: ${INGEST_TOKEN:-changeme}
+#   #   stale_threshold: 5m  # remove live runs that haven't reported within this window
 
   client:
     config:

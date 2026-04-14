@@ -649,6 +649,10 @@ func (r *runner) runContainerLifecycle(
 		log.WithError(err).Warn("Failed to write run config")
 	}
 
+	if params.LiveState != nil {
+		params.LiveState.SetConfig(runConfig)
+	}
+
 	// Build container spec.
 	containerName := fmt.Sprintf("benchmarkoor-%s-%s", runID, instance.ID)
 	if params.GenesisGroupHash != "" {
@@ -893,6 +897,10 @@ func (r *runner) runContainerLifecycle(
 			)
 		}
 
+		if params.LiveState != nil {
+			params.LiveState.SetConfig(runConfig)
+		}
+
 		return fmt.Errorf("waiting for RPC: %w", err)
 	}
 
@@ -983,6 +991,10 @@ func (r *runner) runContainerLifecycle(
 		log.WithError(err).Warn(
 			"Failed to update run config with client version",
 		)
+	}
+
+	if params.LiveState != nil {
+		params.LiveState.SetConfig(runConfig)
 	}
 
 	// Execute tests if executor is configured.
@@ -1164,6 +1176,15 @@ func (r *runner) runContainerLifecycle(
 	// Record when the run ended.
 	runConfig.TimestampEnd = time.Now().Unix()
 
+	// Push the terminal status to the live-reporter state so the next
+	// snapshot (including the synchronous one fired by Reporter.Stop()) sees
+	// the final values.
+	if params.LiveState != nil {
+		params.LiveState.SetTerminal(
+			runConfig.Status, runConfig.TerminationReason, runConfig.TimestampEnd,
+		)
+	}
+
 	// Write final config with status.
 	if err := writeRunConfig(
 		runResultsDir, runConfig, r.cfg.ResultsOwner,
@@ -1171,6 +1192,10 @@ func (r *runner) runContainerLifecycle(
 		log.WithError(err).Warn("Failed to write final run config with status")
 	} else {
 		log.WithField("status", runConfig.Status).Info("Run completed")
+	}
+
+	if params.LiveState != nil {
+		params.LiveState.SetConfig(runConfig)
 	}
 
 	// Write block logs if any were captured.

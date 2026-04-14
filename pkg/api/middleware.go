@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
 	"strings"
 	"time"
@@ -199,4 +200,38 @@ func userFromContext(ctx context.Context) *store.User {
 	user, _ := ctx.Value(userContextKey).(*store.User)
 
 	return user
+}
+
+// requireIngestToken authenticates a runner using the shared ingest token
+// configured via api.ingest.token. This is a separate auth path from
+// session/API-key auth because runners are not users and the ingest token
+// is a single static shared secret.
+func (s *server) requireIngestToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expected := ""
+		if s.cfg.Ingest != nil {
+			expected = s.cfg.Ingest.Token
+		}
+
+		if expected == "" {
+			writeJSON(w, http.StatusServiceUnavailable,
+				errorResponse{"ingest endpoint is not configured"})
+
+			return
+		}
+
+		got := ""
+		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			got = h[7:]
+		}
+
+		if got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
+			writeJSON(w, http.StatusUnauthorized,
+				errorResponse{"invalid ingest token"})
+
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

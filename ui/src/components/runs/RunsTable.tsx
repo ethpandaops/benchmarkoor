@@ -175,7 +175,13 @@ export function RunsTable({
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
           {entries.map((entry) => {
-            const hasFailures = entry.status !== 'container_died' && entry.status !== 'cancelled' && entry.status !== 'timeout' && entry.tests.tests_total - entry.tests.tests_passed > 0
+            // For live runs, only count actually-reported failures. For
+            // other statuses we fall back to (total - passed) for rows
+            // whose tests_failed field isn't populated.
+            const failedCount = entry.status === 'running'
+              ? entry.tests.tests_failed
+              : entry.tests.tests_total - entry.tests.tests_passed
+            const hasFailures = entry.status !== 'container_died' && entry.status !== 'cancelled' && entry.status !== 'timeout' && failedCount > 0
             const entryLabels = entry.metadata
               ? Object.entries(entry.metadata).filter(([k]) => !k.startsWith('github.') && k !== 'name')
               : []
@@ -186,6 +192,7 @@ export function RunsTable({
               onClick={selectable ? () => onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id)) : undefined}
               className={clsx(
                 'group relative cursor-pointer transition-colors hover:z-20 hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                entry.status === 'running' && 'bg-blue-50/50 dark:bg-blue-900/10',
                 entry.status === 'container_died' && 'bg-red-50/50 dark:bg-red-900/10',
                 entry.status === 'cancelled' && 'bg-yellow-50/50 dark:bg-yellow-900/10',
                 entry.status === 'timeout' && 'bg-orange-50/50 dark:bg-orange-900/10',
@@ -210,11 +217,12 @@ export function RunsTable({
               )}
               <td className={clsx(
                 'whitespace-nowrap px-3 py-2 text-sm/6 text-gray-500 sm:px-4 sm:py-2.5 dark:text-gray-400 border-l-3',
+                entry.status === 'running' && 'border-blue-400 dark:border-blue-500',
                 entry.status === 'container_died' && 'border-red-400 dark:border-red-500',
                 entry.status === 'cancelled' && 'border-yellow-400 dark:border-yellow-500',
                 entry.status === 'timeout' && 'border-orange-400 dark:border-orange-500',
                 hasFailures && 'border-orange-400 dark:border-orange-500',
-                entry.status !== 'container_died' && entry.status !== 'cancelled' && entry.status !== 'timeout' && !hasFailures && 'border-transparent',
+                entry.status !== 'running' && entry.status !== 'container_died' && entry.status !== 'cancelled' && entry.status !== 'timeout' && !hasFailures && 'border-transparent',
               )}>
                 {!selectable && (
                   <Link
@@ -226,7 +234,15 @@ export function RunsTable({
                   />
                 )}
                 <span className="flex flex-col" title={formatRelativeTime(entry.timestamp)}>
-                  <span>{formatTimestampDate(entry.timestamp)}</span>
+                  <span className="flex items-center gap-2">
+                    {formatTimestampDate(entry.timestamp)}
+                    {entry.status === 'running' && (
+                      <span
+                        className="size-1.5 animate-pulse rounded-full bg-blue-500 dark:bg-blue-400"
+                        title="Live — runner is reporting status"
+                      />
+                    )}
+                  </span>
                   <span className="text-xs/4 text-gray-400 dark:text-gray-500">{formatTimestampTime(entry.timestamp)}</span>
                 </span>
               </td>
@@ -274,14 +290,29 @@ export function RunsTable({
                       })()}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-gray-500 sm:px-4 sm:py-2.5 dark:text-gray-400">
-                      {entry.timestamp_end
-                        ? <Duration nanoseconds={(entry.timestamp_end - entry.timestamp) * 1_000_000_000} />
-                        : '-'}
+                      {entry.status === 'running' ? (
+                        <LiveProgress
+                          passed={entry.tests.tests_passed}
+                          failed={entry.tests.tests_failed}
+                          total={entry.tests.tests_total}
+                        />
+                      ) : entry.timestamp_end ? (
+                        <Duration nanoseconds={(entry.timestamp_end - entry.timestamp) * 1_000_000_000} />
+                      ) : (
+                        '-'
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-1.5 py-2 text-center sm:px-2 sm:py-2.5">
-                      {entry.tests.tests_total - entry.tests.tests_passed > 0 && (
-                        <Badge variant="error">{entry.tests.tests_total - entry.tests.tests_passed}</Badge>
-                      )}
+                      {(() => {
+                        // For live runs, show only the tests the runner has
+                        // actually marked as failed. For completed runs, fall
+                        // back to (total - passed) for back-compat with rows
+                        // whose tests_failed field isn't populated.
+                        const failed = entry.status === 'running'
+                          ? entry.tests.tests_failed
+                          : entry.tests.tests_total - entry.tests.tests_passed
+                        return failed > 0 ? <Badge variant="error">{failed}</Badge> : null
+                      })()}
                     </td>
                     <td className="whitespace-nowrap px-1.5 py-2 text-center sm:px-2 sm:py-2.5">
                       <Badge variant="success">{entry.tests.tests_passed}</Badge>
@@ -344,6 +375,28 @@ export function RunsTable({
           )})}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// LiveProgress renders the test progress for an in-progress run. It shows
+// "N / total" and a thin progress bar scaled by completed-fraction of the
+// total tests.
+function LiveProgress({ passed, failed, total }: { passed: number; failed: number; total: number }) {
+  const completed = passed + failed
+  const pct = total > 0 ? Math.min(100, (completed / total) * 100) : 0
+
+  return (
+    <div className="inline-flex min-w-[5rem] flex-col items-end gap-1">
+      <span className="text-xs/5 tabular-nums">
+        {completed}/{total || '?'}
+      </span>
+      <div className="h-1 w-full overflow-hidden rounded-sm bg-gray-200 dark:bg-gray-700">
+        <div
+          className="h-full bg-blue-500 transition-all dark:bg-blue-400"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   )
 }

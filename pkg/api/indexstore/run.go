@@ -2,6 +2,17 @@ package indexstore
 
 import "time"
 
+// Run status values. These mirror the runner-side constants but are
+// duplicated here to avoid an import cycle.
+const (
+	RunStatusRunning       = "running"
+	RunStatusCompleted     = "completed"
+	RunStatusFailed        = "failed"
+	RunStatusContainerDied = "container_died"
+	RunStatusCancelled     = "cancelled"
+	RunStatusTimedOut      = "timeout"
+)
+
 // Run represents a single indexed benchmark run in the database.
 type Run struct {
 	ID                uint   `gorm:"primaryKey"`

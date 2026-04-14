@@ -178,6 +178,9 @@ func (s *server) Start(ctx context.Context) error {
 		}
 	}
 
+	// Start the stale live-runs watcher (no-op when ingest is unconfigured).
+	s.startStaleLiveRunsWatcher(ctx)
+
 	return nil
 }
 

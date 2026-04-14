@@ -320,3 +320,166 @@ func TestStore_UpsertSuiteUpdatesName(t *testing.T) {
 	assert.NotZero(t, updated.ID, "ID should be populated after upsert")
 	assert.Equal(t, original.ID, updated.ID, "upsert must not create a duplicate")
 }
+
+func TestStore_UpsertLiveRun_ConfigRoundtrip(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	rawCfg := `{"timestamp":1000,"instance":{"client":"geth"},"system":{"hostname":"h"}}`
+
+	require.NoError(t, s.UpsertLiveRun(ctx, &indexstore.LiveRunReport{
+		DiscoveryPath: "dp",
+		RunID:         "run-cfg",
+		Timestamp:     1000,
+		Status:        "running",
+		Config:        []byte(rawCfg),
+	}))
+
+	live, err := s.ListLiveRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, live, 1)
+	assert.Equal(t, rawCfg, live[0].ConfigJSON, "ConfigJSON must round-trip exactly")
+
+	// Second report without Config must preserve the previously stored value.
+	require.NoError(t, s.UpsertLiveRun(ctx, &indexstore.LiveRunReport{
+		DiscoveryPath: "dp",
+		RunID:         "run-cfg",
+		Status:        "running",
+		TestsPassed:   5,
+	}))
+	live, err = s.ListLiveRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, live, 1)
+	assert.Equal(t, rawCfg, live[0].ConfigJSON, "config_json must not be wiped by a report without Config")
+}
+
+func TestStore_UpsertLiveRun_InsertAndUpdate(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	report := &indexstore.LiveRunReport{
+		DiscoveryPath: "dp/live",
+		RunID:         "run-1",
+		Timestamp:     1000,
+		Status:        "running",
+		Client:        "geth",
+		Image:         "ethereum/client-go:latest",
+		TestsTotal:    10,
+		TestsPassed:   3,
+		Metadata:      map[string]string{"env": "ci"},
+	}
+	require.NoError(t, s.UpsertLiveRun(ctx, report))
+
+	live, err := s.ListLiveRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, live, 1)
+	assert.Equal(t, "running", live[0].Status)
+	assert.Equal(t, 3, live[0].TestsPassed)
+	assert.Contains(t, live[0].MetadataJSON, `"env":"ci"`)
+	first := live[0]
+
+	// Update with later report.
+	report.TestsPassed = 7
+	report.TestsFailed = 1
+	require.NoError(t, s.UpsertLiveRun(ctx, report))
+
+	live, err = s.ListLiveRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, live, 1, "second report must not create a duplicate row")
+	assert.Equal(t, first.ID, live[0].ID)
+	assert.Equal(t, 7, live[0].TestsPassed)
+	assert.Equal(t, 1, live[0].TestsFailed)
+}
+
+func TestStore_LiveRun_DoesNotInterfereWithRun(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	// A canonical Run that the on-disk indexer wrote.
+	run := &indexstore.Run{
+		DiscoveryPath: "dp/x",
+		RunID:         "shared-id",
+		Timestamp:     1000,
+		TimestampEnd:  2000,
+		Status:        "completed",
+		Client:        "geth",
+		HasResult:     true,
+		TestsTotal:    10,
+		TestsPassed:   10,
+		StepsJSON:     `{"setup":{"count":10}}`,
+		IndexedAt:     time.Now().UTC(),
+	}
+	require.NoError(t, s.UpsertRun(ctx, run))
+
+	// A live report claiming the same run is still running.
+	require.NoError(t, s.UpsertLiveRun(ctx, &indexstore.LiveRunReport{
+		DiscoveryPath: "dp/x",
+		RunID:         "shared-id",
+		Status:        "running",
+		TestsPassed:   3,
+	}))
+
+	// The Run table entry must be untouched.
+	got, err := s.GetRunByRunID(ctx, "shared-id")
+	require.NoError(t, err)
+	assert.Equal(t, "completed", got.Status)
+	assert.Equal(t, 10, got.TestsPassed)
+	assert.Equal(t, `{"setup":{"count":10}}`, got.StepsJSON)
+}
+
+func TestStore_DeleteLiveRun(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, s.UpsertLiveRun(ctx, &indexstore.LiveRunReport{
+		DiscoveryPath: "dp/x",
+		RunID:         "doomed",
+		Status:        "running",
+	}))
+
+	live, err := s.ListLiveRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, live, 1)
+
+	require.NoError(t, s.DeleteLiveRun(ctx, "dp/x", "doomed"))
+
+	live, err = s.ListLiveRuns(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, live)
+}
+
+func TestStore_DeleteStaleLiveRuns(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+
+	require.NoError(t, s.UpsertLiveRun(ctx, &indexstore.LiveRunReport{
+		DiscoveryPath: "dp/x",
+		RunID:         "fresh-1",
+		Status:        "running",
+	}))
+	require.NoError(t, s.UpsertLiveRun(ctx, &indexstore.LiveRunReport{
+		DiscoveryPath: "dp/x",
+		RunID:         "fresh-2",
+		Status:        "running",
+	}))
+
+	// A threshold in the past leaves freshly-reported rows alone.
+	count, err := s.DeleteStaleLiveRuns(ctx, now.Add(-time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), count)
+
+	live, err := s.ListLiveRuns(ctx)
+	require.NoError(t, err)
+	assert.Len(t, live, 2)
+
+	// A threshold in the future deletes everything.
+	count, err = s.DeleteStaleLiveRuns(ctx, now.Add(time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+
+	live, err = s.ListLiveRuns(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, live)
+}
