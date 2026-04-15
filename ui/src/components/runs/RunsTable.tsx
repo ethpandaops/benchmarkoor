@@ -187,32 +187,48 @@ export function RunsTable({
               ? Object.entries(entry.metadata).filter(([k]) => !k.startsWith('github.') && k !== 'name')
               : []
             const colSpan = (selectable ? 1 : 0) + 3 + (showSuite ? 1 : 0) + 6
+            // Live (in-progress) runs are not selectable for compare or
+            // delete: comparison needs finished per-test results, and
+            // deletion mustn't race with the active runner.
+            const isLive = entry.status === 'running'
+            const rowSelectable = selectable && !isLive
+            const selectTooltip = selectable && isLive
+              ? (selectionVariant === 'delete'
+                  ? 'Cannot delete a run while it is still in progress'
+                  : 'Cannot compare a run while it is still in progress')
+              : undefined
             return (
             <Fragment key={entry.run_id}>
             <tr
-              onClick={selectable ? () => onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id)) : undefined}
+              onClick={rowSelectable ? () => onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id)) : undefined}
               className={clsx(
-                'group relative cursor-pointer transition-colors hover:z-20 hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                'group relative transition-colors hover:z-20 hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                (!selectable || rowSelectable) && 'cursor-pointer',
                 entry.status === 'running' && 'bg-blue-50/50 dark:bg-blue-900/10',
                 entry.status === 'container_died' && 'bg-red-50/50 dark:bg-red-900/10',
                 entry.status === 'cancelled' && 'bg-yellow-50/50 dark:bg-yellow-900/10',
                 entry.status === 'timeout' && 'bg-orange-50/50 dark:bg-orange-900/10',
                 hasFailures && 'bg-orange-50/50 dark:bg-orange-900/10',
-                selectable && selectedRunIds?.has(entry.run_id) && selectionVariant === 'compare' && 'ring-2 ring-inset ring-blue-400 dark:ring-blue-500',
-                selectable && selectedRunIds?.has(entry.run_id) && selectionVariant === 'delete' && 'ring-2 ring-inset ring-red-400 dark:ring-red-500',
+                rowSelectable && selectedRunIds?.has(entry.run_id) && selectionVariant === 'compare' && 'ring-2 ring-inset ring-blue-400 dark:ring-blue-500',
+                rowSelectable && selectedRunIds?.has(entry.run_id) && selectionVariant === 'delete' && 'ring-2 ring-inset ring-red-400 dark:ring-red-500',
               )}
             >
               {selectable && (
-                <td className="relative z-10 whitespace-nowrap px-2 py-2 text-center sm:px-3 sm:py-4">
+                <td className="relative z-10 whitespace-nowrap px-2 py-2 text-center sm:px-3 sm:py-4" title={selectTooltip}>
                   <input
                     type="checkbox"
-                    checked={selectedRunIds?.has(entry.run_id) ?? false}
+                    checked={rowSelectable ? (selectedRunIds?.has(entry.run_id) ?? false) : false}
+                    disabled={!rowSelectable}
                     onChange={(e) => {
                       e.stopPropagation()
-                      onSelectionChange?.(entry.run_id, e.target.checked)
+                      if (rowSelectable) onSelectionChange?.(entry.run_id, e.target.checked)
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    className={clsx('size-4 rounded-xs border-gray-300 dark:border-gray-600', selectionVariant === 'delete' ? 'text-red-600 focus:ring-red-500' : 'text-blue-600 focus:ring-blue-500')}
+                    className={clsx(
+                      'size-4 rounded-xs border-gray-300 dark:border-gray-600',
+                      selectionVariant === 'delete' ? 'text-red-600 focus:ring-red-500' : 'text-blue-600 focus:ring-blue-500',
+                      !rowSelectable && 'cursor-not-allowed opacity-40',
+                    )}
                   />
                 </td>
               )}
