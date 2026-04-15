@@ -286,7 +286,7 @@ export function SuiteDetailPage() {
   const labelFilters = parseLabelFilters(search.labels)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
   const { data: suiteStats, isLoading: suiteStatsLoading } = useSuiteStats(suiteHash)
-  const { data: index } = useIndex()
+  const { data: index, isLoading: indexLoading } = useIndex()
   const { data: liveRuns } = useLiveRuns()
   const [runsPage, setRunsPage] = useState(1)
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -903,7 +903,11 @@ export function SuiteDetailPage() {
         </TabList>
         <TabPanels className="mt-4">
           <TabPanel>
-            {suiteRunsAll.length === 0 ? (
+            {indexLoading && suiteRunsAll.length === 0 ? (
+              <div className="flex justify-center py-8">
+                <Spinner size="md" />
+              </div>
+            ) : suiteRunsAll.length === 0 ? (
               <p className="py-8 text-center text-sm/6 text-gray-500 dark:text-gray-400">
                 No runs found for this suite.
               </p>
