@@ -377,58 +377,59 @@ export function RunsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">Runs ({filteredEntries.length})</h1>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-sm/6 font-medium text-gray-700 dark:text-gray-300">Metric steps:</span>
-            <div className="flex items-center gap-1">
-              {ALL_INDEX_STEP_TYPES.map((step) => (
-                <button
-                  key={step}
-                  onClick={() => {
-                    const newFilter = stepFilter.includes(step)
-                      ? stepFilter.filter((s) => s !== step)
-                      : [...stepFilter, step]
-                    if (newFilter.length > 0) {
-                      handleStepFilterChange(newFilter)
-                    }
-                  }}
-                  className={`rounded-sm px-2.5 py-1 text-xs font-medium capitalize transition-colors ${
-                    stepFilter.includes(step)
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                      : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
-                  }`}
-                >
-                  {step}
-                </button>
-              ))}
-            </div>
+      <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">Runs ({filteredEntries.length})</h1>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs/5 font-medium text-gray-700 dark:text-gray-300">Metric steps:</span>
+          <div className="flex items-center gap-1">
+            {ALL_INDEX_STEP_TYPES.map((step) => (
+              <button
+                key={step}
+                onClick={() => {
+                  const newFilter = stepFilter.includes(step)
+                    ? stepFilter.filter((s) => s !== step)
+                    : [...stepFilter, step]
+                  if (newFilter.length > 0) {
+                    handleStepFilterChange(newFilter)
+                  }
+                }}
+                className={`rounded-sm px-2.5 py-1 text-xs font-medium capitalize transition-colors ${
+                  stepFilter.includes(step)
+                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                    : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
+                }`}
+              >
+                {step}
+              </button>
+            ))}
           </div>
-          <div className="flex flex-wrap items-end justify-end gap-4">
-            <RunFilters
-              clients={clients}
-              selectedClient={client}
-              onClientChange={handleClientChange}
-              images={images}
-              selectedImage={image}
-              onImageChange={handleImageChange}
-              suites={suites}
-              selectedSuite={suite}
-              onSuiteChange={handleSuiteChange}
-              strategies={strategies}
-              selectedStrategy={strategy}
-              onStrategyChange={handleStrategyChange}
-              selectedStatus={status}
-              onStatusChange={handleStatusChange}
-              entries={index?.entries}
-              labelFilters={labelFilters}
-              onLabelFiltersChange={handleLabelFiltersChange}
-              suiteLabelKeys={suiteLabelKeys}
-              suiteLabelFilters={suiteLabelFilters}
-              onSuiteLabelFiltersChange={handleSuiteLabelFiltersChange}
-            />
-          </div>
+        </div>
+        <div className="flex flex-wrap items-end gap-4">
+          <RunFilters
+            clients={clients}
+            selectedClient={client}
+            onClientChange={handleClientChange}
+            images={images}
+            selectedImage={image}
+            onImageChange={handleImageChange}
+            suites={suites}
+            selectedSuite={suite}
+            onSuiteChange={handleSuiteChange}
+            strategies={strategies}
+            selectedStrategy={strategy}
+            onStrategyChange={handleStrategyChange}
+            selectedStatus={status}
+            onStatusChange={handleStatusChange}
+            entries={index?.entries}
+            labelFilters={labelFilters}
+            onLabelFiltersChange={handleLabelFiltersChange}
+            suiteLabelKeys={suiteLabelKeys}
+            suiteLabelFilters={suiteLabelFilters}
+            onSuiteLabelFiltersChange={handleSuiteLabelFiltersChange}
+            liveRunsCount={liveRuns?.length ?? 0}
+            onLiveRunsIndicatorClick={() => handleStatusChange(status === 'running' ? 'all' : 'running')}
+          />
         </div>
       </div>
 
@@ -580,3 +581,4 @@ export function RunsPage() {
     </div>
   )
 }
+

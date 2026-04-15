@@ -536,10 +536,18 @@ export function SuiteDetailPage() {
     return suiteRunsAll.filter((e) => {
       if (client && e.instance.client !== client) return false
       if (image && e.instance.image !== image) return false
-      if (status === 'passing' && e.tests.tests_total - e.tests.tests_passed > 0) return false
-      if (status === 'failing' && e.tests.tests_total - e.tests.tests_passed === 0) return false
+      // For live runs, failure count means actually-reported failures, not
+      // "tests not yet passed". Apply the same convention as RunsPage.
+      {
+        const failed = e.status === 'running'
+          ? e.tests.tests_failed
+          : e.tests.tests_total - e.tests.tests_passed
+        if (status === 'passing' && failed > 0) return false
+        if (status === 'failing' && failed === 0) return false
+      }
       if (status === 'timeout' && e.status !== 'timeout') return false
       if (status === 'cancelled' && e.status !== 'cancelled') return false
+      if (status === 'running' && e.status !== 'running') return false
       for (const [key, allowedValues] of labelFilters) {
         const actual = e.metadata?.[key]
         if (!actual || !allowedValues.has(actual)) return false
@@ -1210,6 +1218,8 @@ export function SuiteDetailPage() {
                     entries={suiteRunsAll}
                     labelFilters={labelFilters}
                     onLabelFiltersChange={handleLabelFiltersChange}
+                    liveRunsCount={liveRuns?.filter((lr) => lr.suite_hash === suiteHash).length ?? 0}
+                    onLiveRunsIndicatorClick={() => handleStatusChange(status === 'running' ? 'all' : 'running')}
                   />
                 </div>
                 {filteredRuns.length === 0 ? (

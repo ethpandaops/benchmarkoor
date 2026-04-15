@@ -29,6 +29,11 @@ interface RunFiltersProps {
   suiteLabelKeys?: Map<string, string[]>
   suiteLabelFilters?: LabelFiltersType
   onSuiteLabelFiltersChange?: (filters: LabelFiltersType) => void
+  /** Number of currently-live runs. When > 0, a small indicator is shown
+   *  next to the Status dropdown. */
+  liveRunsCount?: number
+  /** Called when the user clicks the live indicator. */
+  onLiveRunsIndicatorClick?: () => void
 }
 
 function ChevronIcon() {
@@ -124,6 +129,8 @@ export function RunFilters({
   suiteLabelKeys,
   suiteLabelFilters,
   onSuiteLabelFiltersChange,
+  liveRunsCount = 0,
+  onLiveRunsIndicatorClick,
 }: RunFiltersProps) {
   const clientOptions = [{ value: '' as const, label: 'All clients' }, ...clients.map((c) => ({ value: c, label: c }))]
   const imageOptions = [{ value: '' as const, label: 'All images' }, ...images.map((i) => ({ value: i, label: i }))]
@@ -184,6 +191,32 @@ export function RunFilters({
           allLabel="All runs"
           width="w-36"
         />
+        {liveRunsCount > 0 && (
+          <div className="flex flex-col gap-1">
+            {/* Empty label keeps vertical alignment with the labeled dropdowns. */}
+            <label className="text-sm/5 font-medium text-transparent select-none">&nbsp;</label>
+            <button
+              onClick={onLiveRunsIndicatorClick}
+              title={selectedStatus === 'running' ? 'Show all runs' : 'Filter to in-progress runs only'}
+              className={clsx(
+                'relative cursor-pointer rounded-sm py-2 pr-3 pl-3 text-left text-sm/6 shadow-xs ring-1 ring-inset transition-colors',
+                selectedStatus === 'running'
+                  ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
+                  : 'bg-blue-50 text-blue-700 ring-blue-200 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-200 dark:ring-blue-800 dark:hover:bg-blue-900/50',
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <span
+                  className={clsx(
+                    'size-1.5 animate-pulse rounded-full',
+                    selectedStatus === 'running' ? 'bg-white' : 'bg-blue-500 dark:bg-blue-400',
+                  )}
+                />
+                {liveRunsCount} in progress
+              </span>
+            </button>
+          </div>
+        )}
       </div>
       {suiteLabelKeys && suiteLabelKeys.size > 0 && suiteLabelFilters && onSuiteLabelFiltersChange && (
         <LabelFilters entries={[]} filters={suiteLabelFilters} onChange={onSuiteLabelFiltersChange} availableLabels={suiteLabelKeys} addButtonLabel="Suite label" />
