@@ -11,6 +11,11 @@ function isRunCompleted(run: IndexEntry): boolean {
   return !run.status || run.status === 'completed'
 }
 
+// Check if a run is still in progress (being reported by an active runner).
+function isRunLive(run: IndexEntry): boolean {
+  return run.status === 'running'
+}
+
 const MAX_RUNS_PER_CLIENT = 30
 
 // 5-level discrete color scale (green to red for duration, reversed for MGas/s)
@@ -350,6 +355,13 @@ export function RunsHeatmap({
 
   const handleRunClick = (run: IndexEntry) => {
     if (selectable) {
+      // Live runs are not selectable for compare — their per-test
+      // results don't exist yet. Let the click fall through to nav.
+      if (isRunLive(run)) {
+        navigate({ to: '/runs/$runId', params: { runId: run.run_id } })
+        return
+      }
+
       onSelectionChange?.(run.run_id, !selectedRunIds?.has(run.run_id))
     } else {
       navigate({
@@ -512,6 +524,13 @@ export function RunsHeatmap({
                     {section.clientRuns[client].map((run) => {
                       const runStats = getIndexAggregatedStats(run, stepFilter)
                       const completed = isRunCompleted(run)
+                      const live = isRunLive(run)
+                      // For live runs, "failed" is the reported count (not
+                      // total - passed, which would count not-yet-executed
+                      // tests as failed).
+                      const reportedFailed = live
+                        ? run.tests.tests_failed
+                        : run.tests.tests_total - run.tests.tests_passed
                       return (
                         <button
                           key={run.run_id}
@@ -519,20 +538,39 @@ export function RunsHeatmap({
                           onMouseEnter={(e) => handleMouseEnter(run, e)}
                           onMouseLeave={handleMouseLeave}
                           className={clsx(
-                            'relative size-5 shrink-0 cursor-pointer rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
+                            'relative size-5 shrink-0 rounded-xs transition-all hover:scale-110 hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-500',
+                            // Live cells in compare mode aren't selectable:
+                            // clicking falls through to nav instead.
+                            selectable && live ? 'cursor-default' : 'cursor-pointer',
                             selectable && selectedRunIds?.has(run.run_id) && 'scale-110 ring-2 ring-blue-500 dark:ring-blue-400',
-                            run.tests.tests_total - run.tests.tests_passed > 0 && completed && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-orange-500',
-                            !completed && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
+                            !live && reportedFailed > 0 && completed && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-orange-500',
+                            !live && !completed && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-red-600 dark:ring-red-500',
+                            live && !selectedRunIds?.has(run.run_id) && 'ring-2 ring-inset ring-blue-500 dark:ring-blue-400',
                           )}
-                          style={{ backgroundColor: completed ? getColorForRun(run, colorOverrides) : '#6b7280' }}
-                          title={`${formatTimestamp(run.timestamp)} - ${completed ? formatDurationMinSec(runStats.duration) : run.status}`}
+                          style={{
+                            backgroundColor: live
+                              ? '#3b82f6' // blue-500
+                              : completed
+                                ? getColorForRun(run, colorOverrides)
+                                : '#6b7280',
+                          }}
+                          title={
+                            live
+                              ? `${formatTimestamp(run.timestamp)} - in progress (${run.tests.tests_passed}/${run.tests.tests_total})`
+                              : `${formatTimestamp(run.timestamp)} - ${completed ? formatDurationMinSec(runStats.duration) : run.status}`
+                          }
                         >
-                          {completed && run.tests.tests_total - run.tests.tests_passed > 0 && (
+                          {live && (
+                            <span className="absolute inset-0 flex items-center justify-center">
+                              <span className="size-1.5 animate-pulse rounded-full bg-white" />
+                            </span>
+                          )}
+                          {!live && completed && reportedFailed > 0 && (
                             <svg className="absolute inset-0 size-5" viewBox="0 0 20 20" fill="none">
                               <text x="10" y="15" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="system-ui">!</text>
                             </svg>
                           )}
-                          {!completed && (
+                          {!live && !completed && (
                             <svg className="absolute inset-0 size-5 text-red-600 dark:text-red-400" viewBox="0 0 20 20" fill="currentColor">
                               <path d="M4 4l12 12M4 16L16 4" stroke="currentColor" strokeWidth="2" fill="none" />
                             </svg>
@@ -642,11 +680,18 @@ export function RunsHeatmap({
           {(() => {
             const tooltipStats = getIndexAggregatedStats(tooltip.run, stepFilter)
             const completed = isRunCompleted(tooltip.run)
+            const live = isRunLive(tooltip.run)
             return (
               <div className="flex flex-col gap-1">
                 <div className="font-medium">{tooltip.run.instance.client}</div>
                 <div>{formatTimestamp(tooltip.run.timestamp)}</div>
-                {!completed && (
+                {live && (
+                  <div className="flex items-center gap-1.5 font-medium text-blue-600 dark:text-blue-400">
+                    <span className="size-1.5 animate-pulse rounded-full bg-blue-500 dark:bg-blue-400" />
+                    In progress ({tooltip.run.tests.tests_passed}/{tooltip.run.tests.tests_total})
+                  </div>
+                )}
+                {!live && !completed && (
                   <div className="flex items-center gap-1 font-medium text-red-600 dark:text-red-400">
                     <AlertTriangle className="size-3.5" />
                     {tooltip.run.status === 'container_died' ? 'Container Died' : 'Cancelled'}
@@ -657,8 +702,8 @@ export function RunsHeatmap({
                     {tooltip.run.termination_reason}
                   </div>
                 )}
-                <div>Duration: {formatDurationMinSec(tooltipStats.duration)}</div>
-                {(() => {
+                {!live && <div>Duration: {formatDurationMinSec(tooltipStats.duration)}</div>}
+                {!live && (() => {
                   const mgas = calculateMGasPerSec(tooltipStats.gasUsed, tooltipStats.gasUsedDuration)
                   return mgas !== undefined ? <div>MGas/s: {mgas.toFixed(2)}</div> : null
                 })()}
@@ -686,16 +731,30 @@ export function RunsHeatmap({
                   <span className="text-green-600 dark:text-green-400">
                     {tooltip.run.tests.tests_passed} passed
                   </span>
-                  {tooltip.run.tests.tests_total - tooltip.run.tests.tests_passed > 0 && (
-                    <span className="text-red-600 dark:text-red-400">
-                      {tooltip.run.tests.tests_total - tooltip.run.tests.tests_passed} failed
-                    </span>
-                  )}
+                  {(() => {
+                    // Live runs report their failures directly; for
+                    // completed runs we fall back to total - passed so
+                    // older rows without tests_failed still render.
+                    const failed = live
+                      ? tooltip.run.tests.tests_failed
+                      : tooltip.run.tests.tests_total - tooltip.run.tests.tests_passed
+                    return failed > 0 ? (
+                      <span className="text-red-600 dark:text-red-400">
+                        {failed} failed
+                      </span>
+                    ) : null
+                  })()}
                   <span className="text-gray-500 dark:text-gray-400">
                     ({tooltip.run.tests.tests_total} total)
                   </span>
                 </div>
-                <div className="mt-1 text-gray-400 dark:text-gray-500">{selectable ? 'Click to select' : 'Click for details'}</div>
+                <div className="mt-1 text-gray-400 dark:text-gray-500">
+                  {selectable && live
+                    ? 'Live runs can\'t be compared — click for details'
+                    : selectable
+                      ? 'Click to select'
+                      : 'Click for details'}
+                </div>
               </div>
             )
           })()}

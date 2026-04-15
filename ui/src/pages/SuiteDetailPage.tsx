@@ -1037,6 +1037,9 @@ export function SuiteDetailPage() {
                           const ids: string[] = []
                           for (const run of sorted) {
                             if (seen.has(run.instance.client)) continue
+                            // Skip live runs — comparison needs finished
+                            // per-test results which don't exist yet.
+                            if (run.status === 'running') continue
                             if (run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total) {
                               seen.add(run.instance.client)
                               ids.push(run.run_id)
@@ -1055,6 +1058,8 @@ export function SuiteDetailPage() {
                           const seenGroups = new Set<string>()
                           const ids: string[] = []
                           for (const run of sorted) {
+                            // Skip live runs — can't compare in-progress runs.
+                            if (run.status === 'running') continue
                             const groupValue = groupBy === 'instance_id'
                               ? run.instance.id
                               : (run.metadata?.[groupBy] ?? '(none)')
