@@ -596,6 +596,16 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		liveState.mu.Unlock()
 
 		defer reporter.Stop()
+
+		// On-demand log streamer. Holds a persistent WS to the API
+		// but only pushes log bytes while at least one UI client is
+		// subscribed. No-op when logs_enabled is false.
+		logStreamer := livereport.NewLogStreamer(
+			r.logger, lrCfg, compositeRunID, benchmarkoorLogFile.Name(),
+		)
+		logStreamer.Start(ctx)
+
+		defer logStreamer.Stop()
 	}
 
 	// Get client spec.

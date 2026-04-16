@@ -34,37 +34,44 @@ type Indexer interface {
 var _ Indexer = (*indexer)(nil)
 
 type indexer struct {
-	log         logrus.FieldLogger
-	store       indexstore.Store
-	reader      storage.Reader
-	interval    time.Duration
-	concurrency int
-	ctx         context.Context // lifecycle context set by Start
-	done        chan struct{}
-	wg          sync.WaitGroup
-	running     atomic.Bool // prevents overlapping indexing passes
-	dbMu        sync.Mutex  // serializes DB writes to avoid SQLite contention
+	log              logrus.FieldLogger
+	store            indexstore.Store
+	reader           storage.Reader
+	interval         time.Duration
+	concurrency      int
+	onLiveRunIndexed func(runID string)
+	ctx              context.Context // lifecycle context set by Start
+	done             chan struct{}
+	wg               sync.WaitGroup
+	running          atomic.Bool // prevents overlapping indexing passes
+	dbMu             sync.Mutex  // serializes DB writes to avoid SQLite contention
 }
 
-// NewIndexer creates a new background indexer.
+// NewIndexer creates a new background indexer. `onLiveRunIndexed`, when
+// non-nil, is invoked with the run_id right after the canonical Run
+// row is upserted (and the matching live_runs row deleted). Used by
+// the API to drop log-stream state for the run since the live panel
+// is about to be superseded by the static run detail view.
 func NewIndexer(
 	log logrus.FieldLogger,
 	store indexstore.Store,
 	reader storage.Reader,
 	interval time.Duration,
 	concurrency int,
+	onLiveRunIndexed func(runID string),
 ) Indexer {
 	if concurrency <= 0 {
 		concurrency = defaultConcurrency
 	}
 
 	return &indexer{
-		log:         log.WithField("component", "indexer"),
-		store:       store,
-		reader:      reader,
-		interval:    interval,
-		concurrency: concurrency,
-		done:        make(chan struct{}),
+		log:              log.WithField("component", "indexer"),
+		store:            store,
+		reader:           reader,
+		interval:         interval,
+		concurrency:      concurrency,
+		onLiveRunIndexed: onLiveRunIndexed,
+		done:             make(chan struct{}),
 	}
 }
 
@@ -480,6 +487,12 @@ func (idx *indexer) indexRun(
 	if err := idx.store.DeleteLiveRun(ctx, dp, runID); err != nil {
 		idx.log.WithError(err).WithField("run_id", runID).
 			Debug("Failed to delete live run entry")
+	}
+
+	// Drop any live log-stream state for this run so lingering UI
+	// WebSockets get a clean run_ended signal and the buffer is freed.
+	if idx.onLiveRunIndexed != nil {
+		idx.onLiveRunIndexed(runID)
 	}
 
 	// Index test stats if result.json is present and suite hash is set.

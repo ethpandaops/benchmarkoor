@@ -9,6 +9,7 @@ import { MetadataLabels } from '@/components/run-detail/MetadataLabels'
 import { GitHubSection } from '@/components/run-detail/GitHubSection'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
 import { TestHeatmap, type SortMode, type GroupMode } from '@/components/run-detail/TestHeatmap'
+import { LiveRunLogPanel } from '@/components/run-detail/LiveRunLogPanel'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useIndex } from '@/api/hooks/useIndex'
 import { formatTimestamp } from '@/utils/date'
@@ -276,6 +277,10 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
           metadata={cfg.metadata}
         />
       )}
+
+      {/* Live log stream — collapsed by default; opening the panel is
+          what signals the runner to start pushing log bytes. */}
+      <LiveRunLogPanel runId={run.run_id} />
 
       {/* Live Performance Heatmap — fed by the per-test gas data the
           runner ships in every snapshot. Renders as soon as we have

@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.7
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0
+	github.com/coder/websocket v1.8.14
 	github.com/containers/podman/v5 v5.8.0
 	github.com/docker/docker v28.5.1+incompatible
 	github.com/docker/go-units v0.5.0

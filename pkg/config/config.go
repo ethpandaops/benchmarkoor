@@ -97,6 +97,12 @@ type LiveReportingConfig struct {
 	Interval       string  `yaml:"interval,omitempty" mapstructure:"interval"`               // default 1m
 	JitterFraction float64 `yaml:"jitter_fraction,omitempty" mapstructure:"jitter_fraction"` // default 0.2
 	Timeout        string  `yaml:"timeout,omitempty" mapstructure:"timeout"`                 // default 10s
+	// Logs* control the on-demand benchmarkoor.log streamer. When
+	// LogsEnabled is true, the runner opens a WebSocket to the API for
+	// the lifetime of the run; log bytes only flow while at least one
+	// UI client is actively watching.
+	LogsEnabled  *bool  `yaml:"logs_enabled,omitempty" mapstructure:"logs_enabled"`   // default true
+	LogsInterval string `yaml:"logs_interval,omitempty" mapstructure:"logs_interval"` // default 1s (while streaming)
 }
 
 // Default values for LiveReportingConfig when fields are left empty.
@@ -104,6 +110,7 @@ const (
 	DefaultLiveReportingInterval       = time.Minute
 	DefaultLiveReportingJitterFraction = 0.2
 	DefaultLiveReportingTimeout        = 10 * time.Second
+	DefaultLiveReportingLogsInterval   = time.Second
 )
 
 // GetInterval returns the reporting interval with the default applied.
@@ -144,6 +151,37 @@ func (l *LiveReportingConfig) GetTimeout() time.Duration {
 	d, err := time.ParseDuration(l.Timeout)
 	if err != nil {
 		return DefaultLiveReportingTimeout
+	}
+
+	return d
+}
+
+// GetLogsEnabled reports whether the on-demand log streamer should run.
+// Defaults to true when live reporting is enabled; set LogsEnabled to
+// false explicitly to disable.
+func (l *LiveReportingConfig) GetLogsEnabled() bool {
+	if l == nil {
+		return false
+	}
+
+	if l.LogsEnabled == nil {
+		return true
+	}
+
+	return *l.LogsEnabled
+}
+
+// GetLogsInterval returns the file-tail push cadence with the default
+// applied. Only relevant while a UI client is watching; between ticks
+// the streamer sleeps.
+func (l *LiveReportingConfig) GetLogsInterval() time.Duration {
+	if l == nil || l.LogsInterval == "" {
+		return DefaultLiveReportingLogsInterval
+	}
+
+	d, err := time.ParseDuration(l.LogsInterval)
+	if err != nil {
+		return DefaultLiveReportingLogsInterval
 	}
 
 	return d
@@ -1210,6 +1248,23 @@ func (c *Config) validateLiveReporting() error {
 			return fmt.Errorf(
 				"runner.live_reporting.timeout: invalid duration %q: %w",
 				lr.Timeout, err,
+			)
+		}
+	}
+
+	if lr.LogsInterval != "" {
+		d, err := time.ParseDuration(lr.LogsInterval)
+		if err != nil {
+			return fmt.Errorf(
+				"runner.live_reporting.logs_interval: invalid duration %q: %w",
+				lr.LogsInterval, err,
+			)
+		}
+
+		if d <= 0 {
+			return fmt.Errorf(
+				"runner.live_reporting.logs_interval: must be > 0, got %v",
+				d,
 			)
 		}
 	}

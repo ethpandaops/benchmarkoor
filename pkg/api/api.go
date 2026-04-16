@@ -40,6 +40,7 @@ type server struct {
 	indexer        indexer.Indexer
 	storageReader  storage.Reader
 	storageDeleter storage.Deleter
+	wsHub          *wsHub
 	httpServer     *http.Server
 	wg             sync.WaitGroup
 	done           chan struct{}
@@ -50,10 +51,13 @@ func NewServer(
 	log logrus.FieldLogger,
 	cfg *config.APIConfig,
 ) Server {
+	componentLog := log.WithField("component", "api")
+
 	return &server{
-		log:  log.WithField("component", "api"),
-		cfg:  cfg,
-		done: make(chan struct{}),
+		log:   componentLog,
+		cfg:   cfg,
+		done:  make(chan struct{}),
+		wsHub: newWsHub(componentLog),
 	}
 }
 
@@ -188,6 +192,10 @@ func (s *server) Start(ctx context.Context) error {
 func (s *server) Stop() error {
 	close(s.done)
 
+	if s.wsHub != nil {
+		s.wsHub.Stop()
+	}
+
 	if s.httpServer != nil {
 		ctx, cancel := context.WithTimeout(
 			context.Background(), shutdownTimeout,
@@ -266,10 +274,18 @@ func (s *server) prepareIndexing(ctx context.Context) error {
 		interval = d
 	}
 
+	// Drop any live log-stream state when the on-disk indexer takes
+	// over a run from the live_runs table.
+	var onLiveRunIndexed func(string)
+	if s.wsHub != nil {
+		onLiveRunIndexed = s.wsHub.DropRun
+	}
+
 	// Create the indexer (not started yet).
 	s.indexer = indexer.NewIndexer(
 		s.log, s.indexStore, s.storageReader, interval,
 		s.cfg.Indexing.Concurrency,
+		onLiveRunIndexed,
 	)
 
 	s.log.Info("Indexing service enabled")

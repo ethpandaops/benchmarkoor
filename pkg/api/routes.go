@@ -85,6 +85,7 @@ func (s *server) buildRouter() http.Handler {
 				r.Get("/", s.handleIndex)
 				r.Get("/suites/{hash}/stats", s.handleSuiteStats)
 				r.Get("/live_runs", s.handleListLiveRuns)
+				r.Get("/live_runs/{run_id}/logs/ws", s.handleLiveRunLogsWS)
 
 				r.Route("/query", func(r chi.Router) {
 					r.Get("/runs", s.handleQueryRuns)
@@ -116,6 +117,7 @@ func (s *server) buildRouter() http.Handler {
 				}
 
 				r.Post("/runs", s.handleIngestRun)
+				r.Get("/ws", s.handleIngestWS)
 			})
 		}
 

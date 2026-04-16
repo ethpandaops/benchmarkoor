@@ -45,6 +45,13 @@ func (s *server) startStaleLiveRunsWatcher(ctx context.Context) {
 					s.log.WithField("deleted", count).
 						Info("Purged stale live runs")
 				}
+
+				// Also evict idle log-stream hubs (no runner, no UI,
+				// nothing happening past the same cutoff). Their
+				// buffers sit in API memory until we drop them.
+				if s.wsHub != nil {
+					s.wsHub.EvictIdle(cutoff)
+				}
 			case <-s.done:
 				return
 			}
