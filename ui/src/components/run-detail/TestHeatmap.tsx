@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { Check, Copy, Download } from 'lucide-react'
@@ -262,6 +262,7 @@ function HeatmapCell({
   threshold,
   statusFilter,
   searchQuery,
+  popDelayMs,
   onSelect,
   onMouseEnter,
   onMouseLeave,
@@ -270,6 +271,11 @@ function HeatmapCell({
   threshold: number
   statusFilter: TestStatusFilter
   searchQuery: string
+  // popDelayMs is set when this tile just transitioned from
+  // not-processed to having a result, driving a brief scale + brightness
+  // flash. Undefined means no animation (steady state). The delay is
+  // staggered across newly-completed tiles so they pop one after another.
+  popDelayMs?: number
   onSelect: (testKey: string) => void
   onMouseEnter: (test: TestData, event: React.MouseEvent) => void
   onMouseLeave: () => void
@@ -291,7 +297,15 @@ function HeatmapCell({
   } else {
     baseStyle = { backgroundColor: getColorByThreshold(test.mgasPerSec, threshold) }
   }
-  const style = matchesFilter ? baseStyle : { ...baseStyle, opacity: 0.2 }
+  const style: React.CSSProperties = {
+    ...baseStyle,
+    transition: 'background-color 0.4s ease-out',
+    ...(matchesFilter ? {} : { opacity: 0.2 }),
+    ...(popDelayMs !== undefined && {
+      animation: 'heatmapPop 0.6s ease-out both',
+      animationDelay: `${popDelayMs}ms`,
+    }),
+  }
 
   return (
     <button
@@ -333,6 +347,13 @@ export function TestHeatmap({
   const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
   const [activeStepTab, setActiveStepTab] = useState<'test' | 'setup' | 'cleanup'>('test')
   const { data: blockLogs } = useBlockLogs(runId)
+
+  // Pop-in stagger state for newly-completed tiles. Populated below by
+  // an effect that diffs the latest testData against the previous
+  // completed set; declared up here so it's in scope when we render the
+  // cell list further down.
+  const prevCompletedRef = useRef<Set<string> | null>(null)
+  const [popDelays, setPopDelays] = useState<Map<string, number>>(new Map())
 
   const handleSortModeChange = (mode: SortMode) => {
     onSortModeChange?.(mode)
@@ -428,6 +449,58 @@ export function TestHeatmap({
 
     return { testData: data, minMgas, maxMgas }
   }, [tests, suiteTests, executionOrder, stepFilter])
+
+  // Animate tiles that just transitioned from "not processed" to having
+  // a result by giving each one a staggered pop-in. We diff against the
+  // set of completed keys from the previous render — kept in a ref —
+  // and assign each newly-completed tile a delay so they cascade in
+  // execution order. The first render seeds the ref without animating
+  // anything (avoids flashing every existing tile on initial paint).
+  useEffect(() => {
+    const completed = new Set<string>()
+    const ordered: { key: string; order: number }[] = []
+    for (const t of testData) {
+      if (!t.notProcessed) {
+        completed.add(t.testKey)
+        ordered.push({ key: t.testKey, order: t.order })
+      }
+    }
+
+    if (prevCompletedRef.current === null) {
+      prevCompletedRef.current = completed
+
+      return
+    }
+
+    const newly = ordered
+      .filter(({ key }) => !prevCompletedRef.current!.has(key))
+      .sort((a, b) => a.order - b.order)
+    prevCompletedRef.current = completed
+
+    if (newly.length === 0) return
+
+    // Stagger 60ms per tile, capped so a huge burst still finishes
+    // within ~2s. Tiles past the cap all start at the cap delay.
+    const stepMs = 60
+    const maxStaggerMs = 1800
+    const map = new Map<string, number>()
+    for (let i = 0; i < newly.length; i++) {
+      map.set(newly[i].key, Math.min(i * stepMs, maxStaggerMs))
+    }
+
+    // Intentional cascading render: this is a one-shot animation
+    // signal derived from a diff against the previous render's state,
+    // not steady-state derived data. Each testData change emits exactly
+    // two follow-up renders (set delays, then clear them after the
+    // pop), bounded and small.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPopDelays(map)
+
+    const longest = Math.min((newly.length - 1) * stepMs, maxStaggerMs) + 600 + 100
+    const t = setTimeout(() => setPopDelays(new Map()), longest)
+
+    return () => clearTimeout(t)
+  }, [testData])
 
   const sortedData = useMemo(() => {
     const sorted = [...testData]
@@ -661,6 +734,7 @@ export function TestHeatmap({
                       threshold={threshold}
                       statusFilter={statusFilter}
                       searchQuery={searchQuery}
+                      popDelayMs={popDelays.get(test.testKey)}
                       onSelect={handleSelect}
                       onMouseEnter={handleMouseEnter}
                       onMouseLeave={handleMouseLeave}
@@ -679,6 +753,7 @@ export function TestHeatmap({
                 threshold={threshold}
                 statusFilter={statusFilter}
                 searchQuery={searchQuery}
+                popDelayMs={popDelays.get(test.testKey)}
                 onSelect={handleSelect}
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}

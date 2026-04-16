@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Flame, Loader } from 'lucide-react'
 import type { LiveRun, LiveTestStats, TestEntry, AggregatedStats } from '@/api/types'
@@ -83,6 +83,35 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
   const [heatmapGroup, setHeatmapGroup] = useState<GroupMode>('none')
   const [heatmapThreshold, setHeatmapThreshold] = useState<number | undefined>(undefined)
 
+  // Smoothly tween the live counters between snapshots so users see
+  // numbers ticking up rather than jumping. Integer counters are
+  // rounded at the render site; the MGas/s float is formatted directly.
+  const animatedPassed = useAnimatedNumber(passed)
+  const animatedFailed = useAnimatedNumber(failed)
+  const animatedCompleted = useAnimatedNumber(completed)
+  const animatedProgress = useAnimatedNumber(progress)
+  const animatedMgas = useAnimatedNumber(mgasPerSec ?? 0)
+
+  // Pulse the "Live" badge whenever a new snapshot arrives (i.e.
+  // last_reported_at advances). Confirms data freshness and the
+  // runner→API link is healthy without an extra widget.
+  const prevReportRef = useRef(run.last_reported_at)
+  const [reportPulse, setReportPulse] = useState(false)
+
+  useEffect(() => {
+    if (prevReportRef.current === run.last_reported_at) return
+
+    prevReportRef.current = run.last_reported_at
+    // One-shot animation signal — setState here is intentional, the
+    // effect runs only when last_reported_at advances and emits one
+    // render to apply the pulse class plus one to clear it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setReportPulse(true)
+
+    const t = setTimeout(() => setReportPulse(false), 700)
+    return () => clearTimeout(t)
+  }, [run.last_reported_at])
+
   return (
     <div className="flex flex-col gap-6">
       {/* Breadcrumb (matches RunDetailPage). */}
@@ -107,7 +136,10 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
           )}
           <span className="truncate font-mono text-gray-900 dark:text-gray-100">{run.run_id}</span>
         </div>
-        <span className="sm:ml-auto inline-flex items-center gap-2 rounded-sm bg-blue-100 px-2 py-0.5 text-xs/5 font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+        <span
+          className="sm:ml-auto inline-flex items-center gap-2 rounded-sm bg-blue-100 px-2 py-0.5 text-xs/5 font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
+          style={reportPulse ? { animation: 'liveBadgePulse 0.7s ease-out' } : undefined}
+        >
           <Loader className="size-3.5 animate-spin" />
           Live — last report {formatRelativeAge(run.last_reported_at)}
         </span>
@@ -143,11 +175,15 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
           <p className="mt-1 flex items-center gap-2 text-2xl/8 font-semibold">
             <span className="text-gray-900 dark:text-gray-100">{total}</span>
             <span className="text-gray-400 dark:text-gray-500">/</span>
-            <span className="text-green-600 dark:text-green-400">{passed}</span>
+            <span className="text-green-600 dark:text-green-400 tabular-nums">
+              {Math.round(animatedPassed)}
+            </span>
             {failed > 0 && (
               <>
                 <span className="text-gray-400 dark:text-gray-500">/</span>
-                <span className="text-red-600 dark:text-red-400">{failed}</span>
+                <span className="text-red-600 dark:text-red-400 tabular-nums">
+                  {Math.round(animatedFailed)}
+                </span>
               </>
             )}
           </p>
@@ -158,8 +194,8 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
         </div>
         <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
           <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">MGas/s</p>
-          <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
-            {mgasPerSec !== undefined ? mgasPerSec.toFixed(2) : '-'}
+          <p className="mt-1 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+            {mgasPerSec !== undefined ? animatedMgas.toFixed(2) : '-'}
           </p>
           <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
             {mgasPerSec !== undefined
@@ -171,7 +207,9 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
         <div className="col-span-2 rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
           <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Progress</p>
           <p className="mt-1 flex items-baseline gap-3 text-2xl/8 font-semibold text-gray-900 dark:text-gray-100">
-            <span>{total > 0 ? `${progress.toFixed(1)}%` : '-'}</span>
+            <span className="tabular-nums">
+              {total > 0 ? `${animatedProgress.toFixed(1)}%` : '-'}
+            </span>
             {etaShort && (
               <span
                 className="text-sm/6 font-normal text-gray-500 dark:text-gray-400"
@@ -182,14 +220,25 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
             )}
           </p>
           <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400" title={etaTooltip}>
-            {formatNumber(completed)} of {formatNumber(total)} tests complete · Elapsed {formatHoursMinutes(eta.elapsedSec)}
+            <span className="tabular-nums">{formatNumber(Math.round(animatedCompleted))}</span> of{' '}
+            {formatNumber(total)} tests complete · Elapsed {formatHoursMinutes(eta.elapsedSec)}
             {eta.etaAtMs !== undefined && <> · ETA {formatClockHoursMinutes(new Date(eta.etaAtMs))}</>}
           </p>
           <div className="mt-2 h-1.5 w-full overflow-hidden rounded-sm bg-gray-200 dark:bg-gray-700">
             <div
-              className="h-full bg-blue-500 transition-all dark:bg-blue-400"
-              style={{ width: `${progress}%` }}
-            />
+              className="relative h-full overflow-hidden bg-blue-500 transition-all dark:bg-blue-400"
+              style={{ width: `${animatedProgress}%` }}
+            >
+              {/* Shimmer sweep — only while the run is in flight, so a
+                  completed/canceled run renders a static bar. */}
+              {run.status === 'running' && (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-0 bg-linear-to-r from-transparent via-white/40 to-transparent"
+                  style={{ animation: 'liveShimmer 1.6s ease-in-out infinite' }}
+                />
+              )}
+            </div>
           </div>
           <p className="mt-3 text-xs/5 text-gray-500 dark:text-gray-400">
             Full per-test results (calls, durations) will appear here once the run completes and gets uploaded.
@@ -277,6 +326,50 @@ function liveTestStatsToAggregated(t: LiveTestStats): AggregatedStats {
     msg_count: 0,
     method_stats: { times: {}, mgas_s: {} },
   }
+}
+
+// useAnimatedNumber tweens between successive `target` values via
+// requestAnimationFrame. Returns the in-flight value; callers round /
+// format as needed. Mid-animation target changes restart from the
+// currently-displayed value so we never visually skip backwards. Used
+// by LiveRunDetailView so the live counters glide instead of jumping.
+const ANIMATE_DURATION_MS = 450
+
+function useAnimatedNumber(target: number): number {
+  const [displayed, setDisplayed] = useState(target)
+  // displayedRef tracks the in-flight tween value so a target change
+  // mid-animation can resume from where we are rather than restarting.
+  // Only written inside the rAF step (and seeded by useState's initial
+  // value), never during render.
+  const displayedRef = useRef(target)
+
+  useEffect(() => {
+    const start = displayedRef.current
+    if (start === target) return
+
+    const delta = target - start
+    const startTime = performance.now()
+    let raf = 0
+
+    const step = (now: number) => {
+      const elapsed = now - startTime
+      const t = Math.min(1, elapsed / ANIMATE_DURATION_MS)
+      // ease-out cubic: fast start, soft landing.
+      const eased = 1 - Math.pow(1 - t, 3)
+      const value = start + delta * eased
+      displayedRef.current = value
+      // One-shot animation tick — the cascade is bounded by `t < 1`.
+       
+      setDisplayed(value)
+
+      if (t < 1) raf = requestAnimationFrame(step)
+    }
+
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [target])
+
+  return displayed
 }
 
 function formatRelativeAge(isoTimestamp: string): string {

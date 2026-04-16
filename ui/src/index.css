@@ -60,3 +60,49 @@ html {
   --scalar-background-3: #3f3f46;
   --scalar-border-color: #3f3f46;
 }
+
+/* Pop animation for live heatmap tiles when their color first appears
+   (transition from "not processed" to having a result). Combined scale
+   + brightness flash gives a visceral sense that data just landed. */
+@keyframes heatmapPop {
+  0% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  35% {
+    transform: scale(1.6);
+    filter: brightness(1.7);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+/* Sweeping shimmer for the live progress bar — drives the "still in
+   flight" feel; we apply it only while status === 'running'. The
+   element is positioned over the filled portion of the bar via
+   ::after, so the sweep only travels across the colored region. */
+@keyframes liveShimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Halo flash on the "Live" badge whenever a fresh ingest report
+   arrives. Brief expanding ring that fades to transparent — confirms
+   the runner→API connection is healthy without taking up extra space. */
+@keyframes liveBadgePulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.55);
+  }
+  60% {
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
