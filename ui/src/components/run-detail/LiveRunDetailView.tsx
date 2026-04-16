@@ -77,6 +77,20 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
   const showHeatmap =
     Object.keys(heatmapTests).length > 0 || (suite?.tests?.length ?? 0) > 0
 
+  // Heuristic for "the test the runner is currently working on": the
+  // first suite test (in execution order) that hasn't been reported as
+  // completed yet. Only meaningful while the run is still in flight.
+  const inProgressKey = useMemo(() => {
+    if (run.status !== 'running' || !suite?.tests) return undefined
+
+    const completed = run.tests ?? {}
+    for (const t of suite.tests) {
+      if (!completed[t.name]) return t.name
+    }
+
+    return undefined
+  }, [run.status, run.tests, suite])
+
   // Local state for the heatmap controls. Live view doesn't need URL
   // persistence (unlike RunDetailPage), so a plain useState is enough.
   const [heatmapSort, setHeatmapSort] = useState<SortMode>('order')
@@ -283,6 +297,7 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
             sortMode={heatmapSort}
             groupMode={heatmapGroup}
             threshold={heatmapThreshold}
+            inProgressTestKey={inProgressKey}
             onSortModeChange={setHeatmapSort}
             onGroupModeChange={setHeatmapGroup}
             onThresholdChange={setHeatmapThreshold}

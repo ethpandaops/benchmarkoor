@@ -106,3 +106,17 @@ html {
     box-shadow: 0 0 0 0 transparent;
   }
 }
+
+/* Infinite blue pulse for the heatmap tile representing the test the
+   runner is most likely currently executing — the lowest-order tile
+   that hasn't been processed yet. Signals "something is happening
+   here" between snapshots. */
+@keyframes liveTilePulse {
+  0%,
+  100% {
+    background-color: rgba(59, 130, 246, 0.25);
+  }
+  50% {
+    background-color: rgba(59, 130, 246, 0.85);
+  }
+}

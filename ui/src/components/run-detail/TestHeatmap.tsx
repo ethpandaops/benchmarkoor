@@ -110,6 +110,11 @@ interface TestHeatmapProps {
   threshold?: number
   stepFilter?: StepTypeOption[]
   postTestRPCCalls?: PostTestRPCCallConfig[]
+  // inProgressTestKey, when set, marks one tile to pulse blue
+  // continuously — used by the live view to show "the runner is
+  // working on this test right now". Caller (LiveRunDetailView) picks
+  // the lowest-order un-processed tile while status === 'running'.
+  inProgressTestKey?: string
   onSelectedTestChange?: (testName: string | undefined) => void
   onSortModeChange?: (mode: SortMode) => void
   onGroupModeChange?: (mode: GroupMode) => void
@@ -263,6 +268,7 @@ function HeatmapCell({
   statusFilter,
   searchQuery,
   popDelayMs,
+  isInProgress,
   onSelect,
   onMouseEnter,
   onMouseLeave,
@@ -276,6 +282,11 @@ function HeatmapCell({
   // flash. Undefined means no animation (steady state). The delay is
   // staggered across newly-completed tiles so they pop one after another.
   popDelayMs?: number
+  // isInProgress turns on an infinite blue pulse for the tile that
+  // represents the test the runner is most likely currently executing.
+  // Pop animation takes precedence when both are set (a tile transitions
+  // from "in progress" to "completed" on the next snapshot).
+  isInProgress?: boolean
   onSelect: (testKey: string) => void
   onMouseEnter: (test: TestData, event: React.MouseEvent) => void
   onMouseLeave: () => void
@@ -301,10 +312,16 @@ function HeatmapCell({
     ...baseStyle,
     transition: 'background-color 0.4s ease-out',
     ...(matchesFilter ? {} : { opacity: 0.2 }),
-    ...(popDelayMs !== undefined && {
-      animation: 'heatmapPop 0.6s ease-out both',
-      animationDelay: `${popDelayMs}ms`,
-    }),
+  }
+
+  // Animation precedence: a freshly-popping tile takes priority over
+  // the "in progress" pulse, since it represents the in-progress tile
+  // transitioning into a completed one on the latest snapshot.
+  if (popDelayMs !== undefined) {
+    style.animation = 'heatmapPop 0.6s ease-out both'
+    style.animationDelay = `${popDelayMs}ms`
+  } else if (isInProgress) {
+    style.animation = 'liveTilePulse 1.2s ease-in-out infinite'
   }
 
   return (
@@ -335,6 +352,7 @@ export function TestHeatmap({
   threshold: thresholdProp,
   stepFilter = ALL_STEP_TYPES,
   postTestRPCCalls,
+  inProgressTestKey,
   onSelectedTestChange,
   onSortModeChange,
   onGroupModeChange,
@@ -735,6 +753,7 @@ export function TestHeatmap({
                       statusFilter={statusFilter}
                       searchQuery={searchQuery}
                       popDelayMs={popDelays.get(test.testKey)}
+                      isInProgress={test.testKey === inProgressTestKey}
                       onSelect={handleSelect}
                       onMouseEnter={handleMouseEnter}
                       onMouseLeave={handleMouseLeave}
@@ -754,6 +773,7 @@ export function TestHeatmap({
                 statusFilter={statusFilter}
                 searchQuery={searchQuery}
                 popDelayMs={popDelays.get(test.testKey)}
+                isInProgress={test.testKey === inProgressTestKey}
                 onSelect={handleSelect}
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
