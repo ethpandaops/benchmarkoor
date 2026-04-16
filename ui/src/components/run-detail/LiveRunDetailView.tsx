@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Flame, Loader } from 'lucide-react'
 import type { LiveRun, LiveTestStats, TestEntry, AggregatedStats } from '@/api/types'
@@ -8,7 +8,7 @@ import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
 import { MetadataLabels } from '@/components/run-detail/MetadataLabels'
 import { GitHubSection } from '@/components/run-detail/GitHubSection'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
-import { TestHeatmap } from '@/components/run-detail/TestHeatmap'
+import { TestHeatmap, type SortMode, type GroupMode } from '@/components/run-detail/TestHeatmap'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useIndex } from '@/api/hooks/useIndex'
 import { formatTimestamp } from '@/utils/date'
@@ -76,6 +76,12 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
   )
   const showHeatmap =
     Object.keys(heatmapTests).length > 0 || (suite?.tests?.length ?? 0) > 0
+
+  // Local state for the heatmap controls. Live view doesn't need URL
+  // persistence (unlike RunDetailPage), so a plain useState is enough.
+  const [heatmapSort, setHeatmapSort] = useState<SortMode>('order')
+  const [heatmapGroup, setHeatmapGroup] = useState<GroupMode>('none')
+  const [heatmapThreshold, setHeatmapThreshold] = useState<number | undefined>(undefined)
 
   return (
     <div className="flex flex-col gap-6">
@@ -225,6 +231,12 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
             runId={run.run_id}
             suiteHash={run.suite_hash}
             stepFilter={DEFAULT_INDEX_STEP_FILTER}
+            sortMode={heatmapSort}
+            groupMode={heatmapGroup}
+            threshold={heatmapThreshold}
+            onSortModeChange={setHeatmapSort}
+            onGroupModeChange={setHeatmapGroup}
+            onThresholdChange={setHeatmapThreshold}
           />
         </div>
       )}

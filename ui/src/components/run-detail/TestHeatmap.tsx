@@ -795,7 +795,12 @@ export function TestHeatmap({
               <div className="text-gray-500 dark:text-gray-400">No gas usage data available</div>
             ) : null}
             {tooltip.test.hasFail && <div className="text-red-600 dark:text-red-400">Has failures</div>}
-            <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
+            {/* Only hint at clicking when the parent actually wired a
+                handler — the live view doesn't, since there are no
+                per-test details to open while the run is in progress. */}
+            {onSelectedTestChange && (
+              <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
+            )}
           </div>
         </div>
       )}

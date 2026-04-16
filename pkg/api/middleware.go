@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/subtle"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -15,7 +16,26 @@ import (
 
 type contextKey string
 
-const userContextKey contextKey = "user"
+const (
+	userContextKey                  contextKey = "user"
+	compressedRequestSizeContextKey contextKey = "compressed_request_size"
+)
+
+// countingReader wraps an io.Reader and tracks total bytes read. Used by
+// gzipRequestBody to surface the on-the-wire (gzipped) request size to
+// handlers via context — the decompressed body size is just len(body)
+// at the handler.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+
+	return n, err
+}
 
 // requestLogger logs incoming HTTP requests with status code, bytes written,
 // and duration. Canceled or slow/errored requests are logged at Warn level.
@@ -249,7 +269,12 @@ func (s *server) gzipRequestBody(next http.Handler) http.Handler {
 			return
 		}
 
-		gz, err := gzip.NewReader(r.Body)
+		// Wrap the raw body in a counter so handlers can log the
+		// on-the-wire size after they finish reading. The counter
+		// accumulates as gzip.NewReader pulls compressed bytes through.
+		cr := &countingReader{r: r.Body}
+
+		gz, err := gzip.NewReader(cr)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest,
 				errorResponse{"invalid gzip request body"})
@@ -267,6 +292,21 @@ func (s *server) gzipRequestBody(next http.Handler) http.Handler {
 		r.Header.Del("Content-Length")
 		r.ContentLength = -1
 
-		next.ServeHTTP(w, r)
+		ctx := context.WithValue(r.Context(), compressedRequestSizeContextKey, cr)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// compressedRequestSize returns the number of compressed (on-the-wire)
+// bytes read by gzipRequestBody for the current request. Returns 0 when
+// the request was not gzipped or the middleware did not run. Must be
+// called after the handler has fully read the body — until then the
+// counter is incomplete.
+func compressedRequestSize(r *http.Request) int64 {
+	cr, ok := r.Context().Value(compressedRequestSizeContextKey).(*countingReader)
+	if !ok {
+		return 0
+	}
+
+	return cr.n
 }

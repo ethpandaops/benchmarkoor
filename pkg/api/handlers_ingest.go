@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/sirupsen/logrus"
@@ -13,8 +14,20 @@ import (
 // runner and upserts it into the live_runs table. Always returns 204 on
 // success so the runner can fire-and-forget.
 func (s *server) handleIngestRun(w http.ResponseWriter, r *http.Request) {
+	// Read the body fully so we can log its decompressed size — useful
+	// for spotting payload growth (the per-test gas map scales with
+	// suite size). The middleware already inflates Content-Encoding:
+	// gzip bodies, so this size is post-decompression.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"failed to read request body"})
+
+		return
+	}
+
 	var report indexstore.LiveRunReport
-	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+	if err := json.Unmarshal(body, &report); err != nil {
 		writeJSON(w, http.StatusBadRequest,
 			errorResponse{"invalid request body"})
 
@@ -62,6 +75,11 @@ func (s *server) handleIngestRun(w http.ResponseWriter, r *http.Request) {
 		"tests_passed":   report.TestsPassed,
 		"tests_failed":   report.TestsFailed,
 		"has_config":     len(report.Config) > 0,
+		// payload_bytes is the decoded JSON size; payload_gzip_bytes is
+		// the on-the-wire size (== payload_bytes when the runner did not
+		// gzip). Both are useful for spotting payload growth.
+		"payload_bytes":      len(body),
+		"payload_gzip_bytes": compressedRequestSize(r),
 	}
 
 	if report.SuiteHash != "" {
