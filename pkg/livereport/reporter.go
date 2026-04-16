@@ -4,6 +4,7 @@ package livereport
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"math/rand/v2"
@@ -124,15 +125,33 @@ func (r *reporter) report(ctx context.Context) {
 		return
 	}
 
+	// Gzip the body. The per-test gas map carried in the snapshot scales
+	// with suite size, so this matters for large suites; the overhead is
+	// negligible for small ones. The API has matching middleware to
+	// inflate the request body transparently.
+	var buf bytes.Buffer
+
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(body); err != nil {
+		r.log.WithError(err).Warn("Failed to gzip live report")
+		return
+	}
+
+	if err := gz.Close(); err != nil {
+		r.log.WithError(err).Warn("Failed to finalize gzipped live report")
+		return
+	}
+
 	url := strings.TrimRight(r.cfg.Endpoint, "/") + "/api/v1/ingest/runs"
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 	if err != nil {
 		r.log.WithError(err).Warn("Failed to build live report request")
 		return
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Authorization", "Bearer "+r.cfg.Token)
 
 	resp, err := r.http.Do(req)

@@ -103,6 +103,11 @@ func (s *server) buildRouter() http.Handler {
 		if s.indexStore != nil && s.cfg.Ingest != nil && s.cfg.Ingest.Token != "" {
 			r.Route("/ingest", func(r chi.Router) {
 				r.Use(s.requireIngestToken)
+				// Inflate gzipped request bodies. The snapshot payload can
+				// grow large (it carries the per-test gas map for the live
+				// heatmap), so the runner gzips it. The middleware is a
+				// no-op when Content-Encoding is absent.
+				r.Use(s.gzipRequestBody)
 
 				if s.cfg.Server.RateLimit.Enabled {
 					r.Use(s.rateLimitMiddleware(

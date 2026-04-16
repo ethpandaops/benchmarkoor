@@ -2,6 +2,7 @@ package indexstore_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -389,6 +390,60 @@ func TestStore_UpsertLiveRun_InsertAndUpdate(t *testing.T) {
 	assert.Equal(t, first.ID, live[0].ID)
 	assert.Equal(t, 7, live[0].TestsPassed)
 	assert.Equal(t, 1, live[0].TestsFailed)
+}
+
+func TestStore_UpsertLiveRun_GasAndTestsRoundTrip(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	// First report carries running gas totals plus a per-test gas map
+	// (one passed, one failed). All of it lives on the live_runs row;
+	// the canonical Run / TestStat tables stay untouched.
+	require.NoError(t, s.UpsertLiveRun(ctx, &indexstore.LiveRunReport{
+		DiscoveryPath:          "dp/live",
+		RunID:                  "run-1",
+		Timestamp:              1000,
+		Status:                 "running",
+		TotalGasUsed:           1_500_000_000,
+		TotalGasUsedDurationNs: 500_000_000,
+		Tests: map[string]indexstore.LiveTestStats{
+			"alpha": {Passed: true, GasUsed: 1_000, GasUsedDurationNs: 500_000},
+			"beta":  {Passed: false},
+		},
+	}))
+
+	live, err := s.ListLiveRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, live, 1)
+	got := live[0]
+	assert.Equal(t, int64(1_500_000_000), got.TotalGasUsed)
+	assert.Equal(t, int64(500_000_000), got.TotalGasUsedDurationNs)
+	require.NotEmpty(t, got.TestsJSON, "tests_json should round-trip")
+
+	var decoded map[string]indexstore.LiveTestStats
+	require.NoError(t, json.Unmarshal([]byte(got.TestsJSON), &decoded))
+	require.Len(t, decoded, 2)
+	assert.True(t, decoded["alpha"].Passed)
+	assert.Equal(t, int64(1_000), decoded["alpha"].GasUsed)
+	assert.False(t, decoded["beta"].Passed)
+
+	// A nil Tests map means "no update" — the previously-stored map
+	// stays put rather than being wiped to "{}".
+	require.NoError(t, s.UpsertLiveRun(ctx, &indexstore.LiveRunReport{
+		DiscoveryPath:          "dp/live",
+		RunID:                  "run-1",
+		Timestamp:              1000,
+		Status:                 "running",
+		TotalGasUsed:           3_000_000_000,
+		TotalGasUsedDurationNs: 1_000_000_000,
+	}))
+
+	live, err = s.ListLiveRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, live, 1)
+	got = live[0]
+	assert.Equal(t, int64(3_000_000_000), got.TotalGasUsed, "gas totals should update")
+	assert.NotEmpty(t, got.TestsJSON, "nil Tests should not wipe stored value")
 }
 
 func TestStore_LiveRun_DoesNotInterfereWithRun(t *testing.T) {

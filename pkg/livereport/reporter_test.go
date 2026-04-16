@@ -1,6 +1,7 @@
 package livereport
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"io"
@@ -25,8 +26,14 @@ func TestReporter_PostsOnStartAndStop(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "Bearer secret", r.Header.Get("Authorization"))
+		require.Equal(t, "gzip", r.Header.Get("Content-Encoding"))
 
-		body, _ := io.ReadAll(r.Body)
+		gz, err := gzip.NewReader(r.Body)
+		require.NoError(t, err)
+		defer func() { _ = gz.Close() }()
+
+		body, err := io.ReadAll(gz)
+		require.NoError(t, err)
 		lastBody.Store(body)
 		count.Add(1)
 		w.WriteHeader(http.StatusNoContent)

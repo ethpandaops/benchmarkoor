@@ -1,6 +1,7 @@
 package api
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/subtle"
 	"net/http"
@@ -231,6 +232,40 @@ func (s *server) requireIngestToken(next http.Handler) http.Handler {
 
 			return
 		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// gzipRequestBody transparently inflates gzipped request bodies so
+// downstream handlers can read them as if they were uncompressed. Used on
+// the ingest subrouter where the runner posts large gzipped payloads
+// (per-test heatmap data). A malformed gzip stream is returned as 400.
+func (s *server) gzipRequestBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		gz, err := gzip.NewReader(r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest,
+				errorResponse{"invalid gzip request body"})
+
+			return
+		}
+		defer func() { _ = gz.Close() }()
+
+		// Replace the body with the decompressed reader. Strip the header
+		// so handlers can rely on Content-Length being absent rather than
+		// stale. ContentLength is also reset because it referred to the
+		// compressed size.
+		r.Body = gz
+		r.Header.Del("Content-Encoding")
+		r.Header.Del("Content-Length")
+		r.ContentLength = -1
 
 		next.ServeHTTP(w, r)
 	})

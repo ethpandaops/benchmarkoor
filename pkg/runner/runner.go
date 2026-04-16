@@ -468,6 +468,8 @@ func (r *runner) liveSnapshotter(
 			report.TestsTotal = progress.TestsTotal
 			report.TestsPassed = progress.TestsPassed
 			report.TestsFailed = progress.TestsFailed
+			report.TotalGasUsed = progress.TotalGasUsed
+			report.TotalGasUsedDurationNs = progress.TotalGasUsedDurationNs
 
 			// Before ExecuteTests has started, progress.TestsTotal is 0
 			// because the executor hasn't seeded its live counters yet.
@@ -475,6 +477,21 @@ func (r *runner) liveSnapshotter(
 			// planned total from the very first report.
 			if report.TestsTotal == 0 {
 				report.TestsTotal = len(r.executor.GetTests())
+			}
+
+			// Per-test gas map. Sent in every snapshot so the live
+			// heatmap stays consistent with the aggregate counters above
+			// for the same point in time. The runner gzips the request
+			// body so this stays cheap on the wire even for big suites.
+			if live := r.executor.GetLiveTests(); len(live) > 0 {
+				report.Tests = make(map[string]indexstore.LiveTestStats, len(live))
+				for name, t := range live {
+					report.Tests[name] = indexstore.LiveTestStats{
+						Passed:            t.Passed,
+						GasUsed:           t.GasUsed,
+						GasUsedDurationNs: t.GasUsedDurationNs,
+					}
+				}
 			}
 		}
 

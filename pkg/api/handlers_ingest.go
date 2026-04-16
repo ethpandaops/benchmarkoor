@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
 	"github.com/sirupsen/logrus"
+
+	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
 )
 
 // handleIngestRun accepts a periodic status report from a benchmarkoor
@@ -71,6 +72,15 @@ func (s *server) handleIngestRun(w http.ResponseWriter, r *http.Request) {
 		fields["termination_reason"] = report.TerminationReason
 	}
 
+	if report.TotalGasUsedDurationNs > 0 {
+		fields["total_gas_used"] = report.TotalGasUsed
+		fields["total_gas_used_duration_ns"] = report.TotalGasUsedDurationNs
+	}
+
+	if len(report.Tests) > 0 {
+		fields["tests_in_payload"] = len(report.Tests)
+	}
+
 	s.log.WithFields(fields).Info("Received live run report")
 
 	w.WriteHeader(http.StatusNoContent)
@@ -99,22 +109,24 @@ func (s *server) handleListLiveRuns(w http.ResponseWriter, r *http.Request) {
 // toLiveRunResponse converts a LiveRun model to its JSON DTO.
 func toLiveRunResponse(r *indexstore.LiveRun) indexstore.LiveRunResponse {
 	resp := indexstore.LiveRunResponse{
-		ID:                r.ID,
-		DiscoveryPath:     r.DiscoveryPath,
-		RunID:             r.RunID,
-		Timestamp:         r.Timestamp,
-		TimestampEnd:      r.TimestampEnd,
-		SuiteHash:         r.SuiteHash,
-		Status:            r.Status,
-		TerminationReason: r.TerminationReason,
-		InstanceID:        r.InstanceID,
-		Client:            r.Client,
-		Image:             r.Image,
-		RollbackStrategy:  r.RollbackStrategy,
-		TestsTotal:        r.TestsTotal,
-		TestsPassed:       r.TestsPassed,
-		TestsFailed:       r.TestsFailed,
-		LastReportedAt:    r.LastReportedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ID:                     r.ID,
+		DiscoveryPath:          r.DiscoveryPath,
+		RunID:                  r.RunID,
+		Timestamp:              r.Timestamp,
+		TimestampEnd:           r.TimestampEnd,
+		SuiteHash:              r.SuiteHash,
+		Status:                 r.Status,
+		TerminationReason:      r.TerminationReason,
+		InstanceID:             r.InstanceID,
+		Client:                 r.Client,
+		Image:                  r.Image,
+		RollbackStrategy:       r.RollbackStrategy,
+		TestsTotal:             r.TestsTotal,
+		TestsPassed:            r.TestsPassed,
+		TestsFailed:            r.TestsFailed,
+		TotalGasUsed:           r.TotalGasUsed,
+		TotalGasUsedDurationNs: r.TotalGasUsedDurationNs,
+		LastReportedAt:         r.LastReportedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 
 	if r.MetadataJSON != "" {
@@ -126,6 +138,13 @@ func toLiveRunResponse(r *indexstore.LiveRun) indexstore.LiveRunResponse {
 
 	if r.ConfigJSON != "" {
 		resp.Config = json.RawMessage(r.ConfigJSON)
+	}
+
+	if r.TestsJSON != "" {
+		var tests map[string]indexstore.LiveTestStats
+		if err := json.Unmarshal([]byte(r.TestsJSON), &tests); err == nil {
+			resp.Tests = tests
+		}
 	}
 
 	return resp

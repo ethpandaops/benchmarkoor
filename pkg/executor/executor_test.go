@@ -107,3 +107,73 @@ func TestBuildJSONRPCPayload(t *testing.T) {
 	assert.Contains(t, payload, `"id":1`)
 	assert.Contains(t, payload, `"0x4d2"`)
 }
+
+func TestExecutor_ProgressGasCounters(t *testing.T) {
+	e := &executor{}
+
+	// ResetProgress seeds the total and zeroes everything else, including
+	// the new gas counters that the test loop accumulates as each test
+	// completes.
+	e.ResetProgress(42)
+
+	got := e.GetProgress()
+	assert.Equal(t, 42, got.TestsTotal)
+	assert.Equal(t, 0, got.TestsPassed)
+	assert.Equal(t, 0, got.TestsFailed)
+	assert.Equal(t, int64(0), got.TotalGasUsed)
+	assert.Equal(t, int64(0), got.TotalGasUsedDurationNs)
+
+	// Simulate the test-loop accumulators firing for two completed tests.
+	e.progressPassed.Add(1)
+	e.progressGasUsed.Add(1_000_000)
+	e.progressGasUsedDuration.Add(500_000_000)
+	e.progressPassed.Add(1)
+	e.progressGasUsed.Add(2_000_000)
+	e.progressGasUsedDuration.Add(1_000_000_000)
+
+	got = e.GetProgress()
+	assert.Equal(t, 2, got.TestsPassed)
+	assert.Equal(t, int64(3_000_000), got.TotalGasUsed)
+	assert.Equal(t, int64(1_500_000_000), got.TotalGasUsedDurationNs)
+
+	// A second ResetProgress (e.g. checkpoint-restore strategy seeding a
+	// new logical run) must zero the new counters too.
+	e.ResetProgress(10)
+	got = e.GetProgress()
+	assert.Equal(t, 10, got.TestsTotal)
+	assert.Equal(t, int64(0), got.TotalGasUsed)
+	assert.Equal(t, int64(0), got.TotalGasUsedDurationNs)
+}
+
+func TestExecutor_LiveTests(t *testing.T) {
+	e := &executor{}
+	e.ResetProgress(0)
+
+	// Empty initially.
+	assert.Empty(t, e.GetLiveTests())
+
+	// Record a successful test.
+	e.recordTestCompletion("alpha", true, 1_000_000, 500_000_000)
+	live := e.GetLiveTests()
+	require.Contains(t, live, "alpha")
+	assert.True(t, live["alpha"].Passed)
+	assert.Equal(t, int64(1_000_000), live["alpha"].GasUsed)
+	assert.Equal(t, int64(500_000_000), live["alpha"].GasUsedDurationNs)
+
+	// Failed tests are recorded with zero gas so the heatmap can render
+	// fail tiles in real time.
+	e.recordTestCompletion("beta", false, 0, 0)
+	live = e.GetLiveTests()
+	assert.Len(t, live, 2)
+	assert.False(t, live["beta"].Passed)
+	assert.Equal(t, int64(0), live["beta"].GasUsed)
+
+	// GetLiveTests returns a defensive copy — mutating it must not leak.
+	live["beta"] = LiveTestStats{Passed: true}
+	assert.False(t, e.GetLiveTests()["beta"].Passed)
+
+	// ResetProgress clears the per-test map alongside the existing
+	// atomic counters.
+	e.ResetProgress(5)
+	assert.Empty(t, e.GetLiveTests())
+}

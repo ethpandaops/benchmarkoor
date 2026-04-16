@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptrace"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"text/template"
 	"time"
@@ -60,13 +62,30 @@ type Executor interface {
 	// times per run (e.g. checkpoint-restore, container-recreate) rely on
 	// this so the counters accumulate across calls instead of being reset.
 	ResetProgress(total int)
+
+	// GetLiveTests returns a defensive copy of the per-test stats map
+	// recorded by ExecuteTests as each test completes (success or failure).
+	// Entries with Passed=false carry zero gas data. The map is keyed by
+	// test name and includes one entry per completed test.
+	GetLiveTests() map[string]LiveTestStats
 }
 
 // ProgressSnapshot is a point-in-time view of the executor's test progress.
 type ProgressSnapshot struct {
-	TestsTotal  int
-	TestsPassed int
-	TestsFailed int
+	TestsTotal             int
+	TestsPassed            int
+	TestsFailed            int
+	TotalGasUsed           int64 // running sum of test-step gas_used
+	TotalGasUsedDurationNs int64 // running sum of test-step gas_used_duration (ns)
+}
+
+// LiveTestStats is the per-test record exposed via GetLiveTests for the
+// live heatmap. Failed tests are recorded with Passed=false and zero gas
+// so the heatmap can render fail tiles in real time.
+type LiveTestStats struct {
+	Passed            bool
+	GasUsed           int64
+	GasUsedDurationNs int64
 }
 
 // BlockLogCollector is an interface for capturing JSON payloads from client logs.
@@ -138,9 +157,17 @@ type executor struct {
 
 	// Live progress counters updated during ExecuteTests. Safe to read
 	// concurrently via GetProgress().
-	progressTotal  atomic.Int64
-	progressPassed atomic.Int64
-	progressFailed atomic.Int64
+	progressTotal           atomic.Int64
+	progressPassed          atomic.Int64
+	progressFailed          atomic.Int64
+	progressGasUsed         atomic.Int64 // sum of test-step gas_used for completed tests
+	progressGasUsedDuration atomic.Int64 // sum of test-step gas_used_duration (nanoseconds)
+
+	// Per-test live state: full map (one entry per completed test).
+	// Snapshot reports include this so the UI can render a live
+	// Performance Heatmap that grows as tests complete.
+	liveTestsMu sync.RWMutex
+	liveTests   map[string]LiveTestStats
 }
 
 // Ensure interface compliance.
@@ -259,9 +286,11 @@ func (e *executor) GetSource() Source {
 // Safe to call concurrently from any goroutine while ExecuteTests runs.
 func (e *executor) GetProgress() ProgressSnapshot {
 	return ProgressSnapshot{
-		TestsTotal:  int(e.progressTotal.Load()),
-		TestsPassed: int(e.progressPassed.Load()),
-		TestsFailed: int(e.progressFailed.Load()),
+		TestsTotal:             int(e.progressTotal.Load()),
+		TestsPassed:            int(e.progressPassed.Load()),
+		TestsFailed:            int(e.progressFailed.Load()),
+		TotalGasUsed:           e.progressGasUsed.Load(),
+		TotalGasUsedDurationNs: e.progressGasUsedDuration.Load(),
 	}
 }
 
@@ -271,6 +300,45 @@ func (e *executor) ResetProgress(total int) {
 	e.progressTotal.Store(int64(total))
 	e.progressPassed.Store(0)
 	e.progressFailed.Store(0)
+	e.progressGasUsed.Store(0)
+	e.progressGasUsedDuration.Store(0)
+
+	e.liveTestsMu.Lock()
+	e.liveTests = make(map[string]LiveTestStats, total)
+	e.liveTestsMu.Unlock()
+}
+
+// GetLiveTests returns a defensive copy of the per-test stats map. Safe
+// to call concurrently from any goroutine. Returns an empty (non-nil)
+// map when no tests have completed yet.
+func (e *executor) GetLiveTests() map[string]LiveTestStats {
+	e.liveTestsMu.RLock()
+	defer e.liveTestsMu.RUnlock()
+
+	out := make(map[string]LiveTestStats, len(e.liveTests))
+	maps.Copy(out, e.liveTests)
+
+	return out
+}
+
+// recordTestCompletion writes a single completed test into the live map.
+// Called from the test loop once per iteration regardless of pass/fail.
+// Failed tests carry zero gas data so the heatmap can render fail tiles.
+func (e *executor) recordTestCompletion(name string, passed bool, gasUsed, gasUsedDurationNs int64) {
+	stats := LiveTestStats{
+		Passed:            passed,
+		GasUsed:           gasUsed,
+		GasUsedDurationNs: gasUsedDurationNs,
+	}
+
+	e.liveTestsMu.Lock()
+	defer e.liveTestsMu.Unlock()
+
+	if e.liveTests == nil {
+		e.liveTests = make(map[string]LiveTestStats)
+	}
+
+	e.liveTests[name] = stats
 }
 
 // RunPreRunSteps executes the suite's pre-run steps against the given endpoint.
@@ -456,6 +524,15 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 		testPassed := true
 
+		// Per-test gas data captured from the test step's aggregated stats
+		// (zero unless the test step ran and produced a result). Hoisted
+		// out of the test-step branch so we can also feed the per-test
+		// live record at the bottom of the loop.
+		var (
+			testGasUsed           int64
+			testGasUsedDurationNs int64
+		)
+
 		// Run setup step if present.
 		if test.Setup != nil {
 			log.Info("Running setup step")
@@ -517,6 +594,15 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 				// Write test results.
 				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeTest, testResult, e.cfg.ResultsOwner); err != nil {
 					log.WithError(err).Warn("Failed to write test results")
+				}
+
+				// Capture this test's gas usage. Recorded into the running
+				// totals (drives live MGas/s) and into the per-test map
+				// (drives the live heatmap) at the bottom of the loop.
+				stats := testResult.CalculateStats()
+				if stats.GasUsedTotal > 0 && stats.GasUsedTimeTotal > 0 {
+					testGasUsed = int64(stats.GasUsedTotal) //nolint:gosec // gas values fit comfortably in int64
+					testGasUsedDurationNs = stats.GasUsedTimeTotal
 				}
 			}
 		}
@@ -602,6 +688,17 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			e.progressFailed.Add(1)
 			log.Warn("Test completed with failures")
 		}
+
+		// Update live aggregate gas counters and the per-test/recent
+		// records together. testGasUsed/testGasUsedDurationNs stay zero
+		// for failed tests or tests with no test step — that's fine, the
+		// heatmap renders such entries as fail / no-data tiles.
+		if testGasUsedDurationNs > 0 {
+			e.progressGasUsed.Add(testGasUsed)
+			e.progressGasUsedDuration.Add(testGasUsedDurationNs)
+		}
+
+		e.recordTestCompletion(test.Name, testPassed, testGasUsed, testGasUsedDurationNs)
 	}
 
 writeResults:

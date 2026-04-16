@@ -174,12 +174,24 @@ interface TestData {
   gasUsedTimeTotal: number
   hasFail: boolean
   noData: boolean
+  // notProcessed is true when the test is part of the suite but no
+  // result entry exists for it yet (live run still in progress, run
+  // canceled, etc). Distinct from noData (test ran but produced no gas
+  // data) so the cell can show a more faded "didn't run" style.
+  notProcessed: boolean
 }
 
-// Diagonal stripe pattern for tests without data
+// Diagonal stripe pattern for tests that ran but didn't produce gas data
+// (e.g. failed at setup before the test step).
 const NO_DATA_STYLE = {
   backgroundColor: '#374151',
   backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, #1f2937 2px, #1f2937 4px)',
+}
+
+// Faded style for tests that exist in the suite but haven't been
+// processed yet (in-progress live runs, canceled runs, etc).
+const NOT_PROCESSED_STYLE = {
+  backgroundColor: 'rgba(156, 163, 175, 0.15)',
 }
 
 function PostTestDumps({ runId, testName, calls }: { runId: string; testName: string; calls: PostTestRPCCallConfig[] }) {
@@ -264,11 +276,21 @@ function HeatmapCell({
 }) {
   const matchesStatusFilter =
     statusFilter === 'all' ||
-    (statusFilter === 'passed' && !test.hasFail) ||
-    (statusFilter === 'failed' && test.hasFail)
+    // Not-processed tiles are neither "passed" nor "failed" — exclude
+    // them from those filters so the user can isolate ran-and-passed /
+    // ran-and-failed tests cleanly.
+    (!test.notProcessed && statusFilter === 'passed' && !test.hasFail) ||
+    (!test.notProcessed && statusFilter === 'failed' && test.hasFail)
   const matchesSearchQuery = !searchQuery || test.testKey.toLowerCase().includes(searchQuery.toLowerCase())
   const matchesFilter = matchesStatusFilter && matchesSearchQuery
-  const baseStyle = test.noData ? NO_DATA_STYLE : { backgroundColor: getColorByThreshold(test.mgasPerSec, threshold) }
+  let baseStyle: React.CSSProperties
+  if (test.notProcessed) {
+    baseStyle = NOT_PROCESSED_STYLE
+  } else if (test.noData) {
+    baseStyle = NO_DATA_STYLE
+  } else {
+    baseStyle = { backgroundColor: getColorByThreshold(test.mgasPerSec, threshold) }
+  }
   const style = matchesFilter ? baseStyle : { ...baseStyle, opacity: 0.2 }
 
   return (
@@ -345,13 +367,42 @@ export function TestHeatmap({
     let minMgas = Infinity
     let maxMgas = -Infinity
 
-    for (const [testName, entry] of Object.entries(tests)) {
+    // Union of suite tests and tests with results, so the heatmap always
+    // shows a tile for every planned test in the suite — even if the run
+    // hasn't reached it yet (live), got canceled before it ran, or only
+    // a subset ran. Tests in `tests` but missing from `suiteTests`
+    // (shouldn't normally happen) are still included so we don't lose data.
+    const allTestNames = new Set<string>(Object.keys(tests))
+    if (suiteTests) {
+      for (const t of suiteTests) allTestNames.add(t.name)
+    }
+
+    for (const testName of allTestNames) {
+      const entry = tests[testName]
+      const order = executionOrder.get(testName) ?? Infinity
+
+      if (!entry) {
+        // Suite test with no result → tile for visual completeness only.
+        data.push({
+          testKey: testName,
+          filename: testName,
+          order,
+          mgasPerSec: 0,
+          gasUsedTotal: 0,
+          gasUsedTimeTotal: 0,
+          hasFail: false,
+          noData: true,
+          notProcessed: true,
+        })
+
+        continue
+      }
+
       // Use stepFilter for MGas/s calculation
       const statsFiltered = getAggregatedStats(entry, stepFilter)
       // Use all steps for hasFail indicator
       const statsAll = getAggregatedStats(entry, ALL_STEP_TYPES)
       const mgasPerSec = statsFiltered ? calculateMGasPerSec(statsFiltered.gas_used_total, statsFiltered.gas_used_time_total) : undefined
-      const order = executionOrder.get(testName) ?? Infinity
       const noData = mgasPerSec === undefined
 
       if (!noData) {
@@ -368,6 +419,7 @@ export function TestHeatmap({
         gasUsedTimeTotal: statsFiltered?.gas_used_time_total ?? 0,
         hasFail: statsAll ? statsAll.fail > 0 : false,
         noData,
+        notProcessed: false,
       })
     }
 
@@ -375,7 +427,7 @@ export function TestHeatmap({
     if (maxMgas === -Infinity) maxMgas = 0
 
     return { testData: data, minMgas, maxMgas }
-  }, [tests, executionOrder, stepFilter])
+  }, [tests, suiteTests, executionOrder, stepFilter])
 
   const sortedData = useMemo(() => {
     const sorted = [...testData]
@@ -577,7 +629,13 @@ export function TestHeatmap({
           </div>
         </div>
         <div className="text-xs/5 text-gray-500 dark:text-gray-400">
-          {testData.length} tests | {minMgas.toFixed(1)} - {maxMgas.toFixed(1)} MGas/s
+          {(() => {
+            const notProcessed = testData.filter((t) => t.notProcessed).length
+            if (notProcessed > 0) {
+              return `${testData.length - notProcessed}/${testData.length} tests processed | ${minMgas.toFixed(1)} - ${maxMgas.toFixed(1)} MGas/s`
+            }
+            return `${testData.length} tests | ${minMgas.toFixed(1)} - ${maxMgas.toFixed(1)} MGas/s`
+          })()}
         </div>
       </div>
 
@@ -691,6 +749,10 @@ export function TestHeatmap({
           No data
         </span>
         <span>
+          <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-gray-300 dark:ring-gray-700" style={NOT_PROCESSED_STYLE} />
+          Not processed
+        </span>
+        <span>
           <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-red-500" style={{ backgroundColor: COLORS[2] }} />
           Has failures
         </span>
@@ -711,7 +773,14 @@ export function TestHeatmap({
             {genesisMap.get(tooltip.test.testKey) && (
               <div className="text-gray-500 dark:text-gray-400">Genesis: {genesisMap.get(tooltip.test.testKey)}</div>
             )}
-            <div>MGas/s: {tooltip.test.noData ? 'No data' : tooltip.test.mgasPerSec.toFixed(2)}</div>
+            <div>
+              MGas/s:{' '}
+              {tooltip.test.notProcessed
+                ? 'Not processed yet'
+                : tooltip.test.noData
+                  ? 'No data'
+                  : tooltip.test.mgasPerSec.toFixed(2)}
+            </div>
             {!tooltip.test.noData && (
               <>
                 <div>Gas used: {(tooltip.test.gasUsedTotal / 1_000_000).toFixed(2)} MGas</div>
@@ -720,7 +789,11 @@ export function TestHeatmap({
             )}
             <div className="text-gray-500 dark:text-gray-400">Based on steps: {stepFilter.join(', ')}</div>
             <div className="w-48 break-all text-gray-500 dark:text-gray-400">{tooltip.test.filename}</div>
-            {tooltip.test.noData && <div className="text-gray-500 dark:text-gray-400">No gas usage data available</div>}
+            {tooltip.test.notProcessed ? (
+              <div className="text-gray-500 dark:text-gray-400">Test was not run</div>
+            ) : tooltip.test.noData ? (
+              <div className="text-gray-500 dark:text-gray-400">No gas usage data available</div>
+            ) : null}
             {tooltip.test.hasFail && <div className="text-red-600 dark:text-red-400">Has failures</div>}
             <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
           </div>

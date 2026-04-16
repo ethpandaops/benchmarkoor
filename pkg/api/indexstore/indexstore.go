@@ -261,19 +261,21 @@ func (s *store) UpsertLiveRun(ctx context.Context, r *LiveRunReport) error {
 	// Always-written fields. We use Updates() with a map so an empty map is
 	// not interpreted as "clear all fields".
 	fields := map[string]any{
-		"timestamp":          r.Timestamp,
-		"timestamp_end":      r.TimestampEnd,
-		"suite_hash":         r.SuiteHash,
-		"status":             r.Status,
-		"termination_reason": r.TerminationReason,
-		"instance_id":        r.InstanceID,
-		"client":             r.Client,
-		"image":              r.Image,
-		"rollback_strategy":  r.RollbackStrategy,
-		"tests_total":        r.TestsTotal,
-		"tests_passed":       r.TestsPassed,
-		"tests_failed":       r.TestsFailed,
-		"last_reported_at":   now,
+		"timestamp":                  r.Timestamp,
+		"timestamp_end":              r.TimestampEnd,
+		"suite_hash":                 r.SuiteHash,
+		"status":                     r.Status,
+		"termination_reason":         r.TerminationReason,
+		"instance_id":                r.InstanceID,
+		"client":                     r.Client,
+		"image":                      r.Image,
+		"rollback_strategy":          r.RollbackStrategy,
+		"tests_total":                r.TestsTotal,
+		"tests_passed":               r.TestsPassed,
+		"tests_failed":               r.TestsFailed,
+		"total_gas_used":             r.TotalGasUsed,
+		"total_gas_used_duration_ns": r.TotalGasUsedDurationNs,
+		"last_reported_at":           now,
 	}
 
 	if r.Metadata != nil {
@@ -290,6 +292,19 @@ func (s *store) UpsertLiveRun(ctx context.Context, r *LiveRunReport) error {
 	// so a later zero-config report doesn't wipe an earlier good one.
 	if len(r.Config) > 0 {
 		fields["config_json"] = string(r.Config)
+	}
+
+	// Per-test gas map. Always write when the runner sends one (even an
+	// empty map is meaningful — it means "no tests have completed yet"
+	// and the heatmap should clear). Nil means the runner hasn't started
+	// reporting tests, in which case we preserve the previous value.
+	if r.Tests != nil {
+		b, err := json.Marshal(r.Tests)
+		if err != nil {
+			return fmt.Errorf("marshalling tests: %w", err)
+		}
+
+		fields["tests_json"] = string(b)
 	}
 
 	seed := &LiveRun{

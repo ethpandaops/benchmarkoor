@@ -26,10 +26,26 @@ export interface LiveRun {
   tests_passed: number
   tests_failed: number
   metadata?: Record<string, string>
+  // Running totals from the test step of completed tests. Both stay zero
+  // until the first test completes, so the UI can guard on
+  // total_gas_used_duration_ns > 0 before computing MGas/s.
+  total_gas_used?: number
+  total_gas_used_duration_ns?: number
+  // Per-test gas map, one entry per completed test (success or failure).
+  // Drives the live Performance Heatmap. Failed tests carry zero gas data.
+  tests?: Record<string, LiveTestStats>
   // The full config.json content as reported by the runner. Mirrors the
   // on-disk config.json schema so the UI can reuse RunConfiguration.
   config?: RunConfig
   last_reported_at: string
+}
+
+// LiveTestStats is the per-test record carried in each LiveRun snapshot
+// for the live heatmap. Failed tests carry zero gas data.
+export interface LiveTestStats {
+  passed: boolean
+  gas_used?: number
+  gas_used_duration_ns?: number
 }
 
 export interface IndexEntry {
