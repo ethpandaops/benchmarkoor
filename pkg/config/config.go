@@ -412,8 +412,15 @@ type ArchiveSourceConfig struct {
 
 // OpcodeSourceConfig defines an external opcode metadata file.
 // The file is a JSON map of test name → opcode → count.
+//
+// Two modes are supported:
+//   - Direct file: set File to a local path or URL pointing at the JSON file.
+//   - Archive: set Archive to a .zip / .tar.gz (or GitHub Actions artifact URL).
+//     The archive is downloaded + extracted, and File is then the filename
+//     to look up inside the extracted tree.
 type OpcodeSourceConfig struct {
-	File string `yaml:"file" mapstructure:"file"` // Local path or URL to a JSON file.
+	File    string `yaml:"file" mapstructure:"file"`                 // JSON file path — inside the archive when Archive is set, otherwise a local path or URL.
+	Archive string `yaml:"archive,omitempty" mapstructure:"archive"` // Optional local path or URL to a .zip / .tar.gz archive containing File.
 }
 
 // StepsConfig defines glob patterns for each step type.

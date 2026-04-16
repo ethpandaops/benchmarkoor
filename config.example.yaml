@@ -205,8 +205,15 @@ runner:
     #
     #   # Optional: External opcode metadata for the test suite.
     #   # A JSON file mapping test names to opcode counts: {"test_name": {"OPCODE": count, ...}}
-    #   # Can be a local path or a URL (including GitHub Actions artifact URLs).
+    #   # Two modes:
+    #   #   1. Direct JSON file (local path or URL):
     #   # opcode_source:
+    #   #   file: opcodes_tracing.json
+    #   #
+    #   #   2. Archive (.zip / .tar.gz / GitHub Actions artifact) containing the JSON file.
+    #   #      `file` is the filename to look up inside the extracted archive.
+    #   # opcode_source:
+    #   #   archive: https://github.com/NethermindEth/gas-benchmarks/actions/runs/24460911828/artifacts/6456466898
     #   #   file: opcodes_tracing.json
 
 # Optional: API server for authentication and user management.

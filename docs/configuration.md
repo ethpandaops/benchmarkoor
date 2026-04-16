@@ -377,7 +377,9 @@ tests:
 
 ##### Opcode Source
 
-Optional external opcode metadata can be configured alongside the test source:
+Optional external opcode metadata can be configured alongside the test source. Two modes are supported.
+
+**Direct JSON file** — `file` is a local path or URL to the JSON file:
 
 ```yaml
 runner:
@@ -387,13 +389,27 @@ runner:
         file: opcodes_tracing.json  # Local path or URL to a JSON file
 ```
 
+**Archive mode** — `archive` is a `.zip` / `.tar.gz` (or a GitHub Actions artifact URL) that contains the JSON file; `file` is the filename to look up inside the extracted archive:
+
+```yaml
+runner:
+  benchmark:
+    tests:
+      opcode_source:
+        archive: https://github.com/NethermindEth/gas-benchmarks/actions/runs/24460911828/artifacts/6456466898
+        file: opcodes_tracing.json  # Filename inside the archive
+```
+
+`archive` can also be a plain URL to a `.zip` / `.tar.gz`, or a local path to one. When `archive` is set, `file` is interpreted as a filename inside the extracted tree (matched by basename, so nested folders are walked automatically).
+
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `file` | string | Yes | Local path or URL to a JSON file mapping test names to opcode counts: `{"test_name": {"OPCODE": count, ...}}` |
+| `file` | string | Yes | When `archive` is unset: local path or URL to the JSON file. When `archive` is set: filename to look up inside the extracted archive |
+| `archive` | string | No | Optional local path or URL to a `.zip` / `.tar.gz` / GitHub Actions artifact containing the opcode JSON file. When set, `file` names the entry inside the archive |
 
 **GitHub Actions artifacts:** Browser URLs like `https://github.com/{owner}/{repo}/actions/runs/{run_id}/artifacts/{artifact_id}` are automatically converted to the GitHub API download endpoint. A GitHub token is required for artifact downloads (set via `runner.github_token` or `BENCHMARKOOR_RUNNER_GITHUB_TOKEN`).
 
-**Archive extraction:** ZIP archives are extracted and any inner tarballs (common in GitHub Actions artifacts) are automatically extracted as well.
+**Archive extraction:** ZIP archives are extracted and any inner tarballs (common in GitHub Actions artifacts) are automatically extracted as well. Both direct-file and archive downloads are cache-validated on each run via HTTP `ETag` / `Last-Modified` — the archive (and its extraction) is refreshed automatically when the origin changes.
 
 ##### EEST Fixtures Source
 
