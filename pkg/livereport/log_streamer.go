@@ -275,36 +275,46 @@ func (s *logStreamer) runTailLoop(ctx context.Context, done <-chan struct{}, wri
 
 	var offset int64
 
+	// readAndShip drains all new bytes since the last offset in a
+	// loop, sending ≤64 KiB messages per iteration. This ensures the
+	// live view stays at real-time even during noisy phases (>64 KB
+	// per tick), rather than falling permanently behind with a fixed
+	// per-tick cap.
 	readAndShip := func() {
-		newBytes, newOffset, err := readNewBytes(s.logFilePath, offset)
-		if err != nil {
-			s.log.WithError(err).Debug("log file read failed")
-
-			return
-		}
-
-		if len(newBytes) == 0 {
-			offset = newOffset
-
-			return
-		}
-
-		// Split large chunks into <=64 KiB messages so the server's
-		// read limit is never exceeded.
 		const maxMsgBytes = 64 * 1024
-		for len(newBytes) > 0 {
-			n := min(len(newBytes), maxMsgBytes)
 
-			if err := writer.writeMessage(ctx, wsMessage{Type: "log", Text: string(newBytes[:n])}); err != nil {
-				s.log.WithError(err).Debug("Failed to send log chunk")
+		for {
+			newBytes, newOffset, err := readNewBytes(s.logFilePath, offset)
+			if err != nil {
+				s.log.WithError(err).Debug("log file read failed")
 
-				return // leave offset unchanged; next connect will retry from here
+				return
 			}
 
-			newBytes = newBytes[n:]
-		}
+			if len(newBytes) == 0 {
+				offset = newOffset
 
-		offset = newOffset
+				return
+			}
+
+			// Split into ≤64 KiB messages so the server's read-limit
+			// is never exceeded.
+			for len(newBytes) > 0 {
+				n := min(len(newBytes), maxMsgBytes)
+
+				if err := writer.writeMessage(ctx, wsMessage{Type: "log", Text: string(newBytes[:n])}); err != nil {
+					s.log.WithError(err).Debug("Failed to send log chunk")
+
+					return // leave offset unchanged; next connect will retry
+				}
+
+				newBytes = newBytes[n:]
+			}
+
+			offset = newOffset
+			// Loop back to check if more bytes appeared while we were
+			// shipping the previous batch.
+		}
 	}
 
 	// Fire once immediately so the first log chunk doesn't wait a
