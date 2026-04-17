@@ -11,6 +11,8 @@ import { useSuite } from '@/api/hooks/useSuite'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
+import { AnsiLine } from '@/components/shared/AnsiLine'
+import { hasAnsiCodes } from '@/utils/ansi'
 
 const ESTIMATED_LINE_HEIGHT = 20
 const SYNTAX_HIGHLIGHT_LINE_LIMIT = 5_000
@@ -115,16 +117,6 @@ function DownloadButton({ content, filename }: { content: string; filename: stri
   )
 }
 
-// ANSI escape code pattern
-// eslint-disable-next-line no-control-regex
-const ANSI_REGEX = /\x1b\[[0-9;]*m/g
-
-function hasAnsiCodes(content: string): boolean {
-  // Check first 10 lines for ANSI escape codes
-  const first10Lines = content.split('\n').slice(0, 10).join('\n')
-  return ANSI_REGEX.test(first10Lines)
-}
-
 function detectLanguage(content: string): string {
   // Check first few lines to detect content type
   const sample = content.slice(0, 2000)
@@ -141,140 +133,6 @@ function detectLanguage(content: string): string {
 
   // Default to bash for general log output (handles timestamps, log levels, etc.)
   return 'bash'
-}
-
-// ANSI color code to CSS color mapping
-const ANSI_COLORS: Record<number, string> = {
-  30: '#1e1e1e', // black
-  31: '#e06c75', // red
-  32: '#98c379', // green
-  33: '#e5c07b', // yellow
-  34: '#61afef', // blue
-  35: '#c678dd', // magenta
-  36: '#56b6c2', // cyan
-  37: '#abb2bf', // white
-  90: '#5c6370', // bright black (gray)
-  91: '#e06c75', // bright red
-  92: '#98c379', // bright green
-  93: '#e5c07b', // bright yellow
-  94: '#61afef', // bright blue
-  95: '#c678dd', // bright magenta
-  96: '#56b6c2', // bright cyan
-  97: '#ffffff', // bright white
-}
-
-const ANSI_BG_COLORS: Record<number, string> = {
-  40: '#1e1e1e',
-  41: '#e06c75',
-  42: '#98c379',
-  43: '#e5c07b',
-  44: '#61afef',
-  45: '#c678dd',
-  46: '#56b6c2',
-  47: '#abb2bf',
-  100: '#5c6370',
-  101: '#e06c75',
-  102: '#98c379',
-  103: '#e5c07b',
-  104: '#61afef',
-  105: '#c678dd',
-  106: '#56b6c2',
-  107: '#ffffff',
-}
-
-interface AnsiStyle {
-  color?: string
-  backgroundColor?: string
-  fontWeight?: string
-  fontStyle?: string
-  textDecoration?: string
-}
-
-function parseAnsiCodes(codes: number[]): AnsiStyle {
-  const style: AnsiStyle = {}
-
-  for (const code of codes) {
-    if (code === 0) {
-      // Reset
-      return {}
-    } else if (code === 1) {
-      style.fontWeight = 'bold'
-    } else if (code === 3) {
-      style.fontStyle = 'italic'
-    } else if (code === 4) {
-      style.textDecoration = 'underline'
-    } else if (code >= 30 && code <= 37) {
-      style.color = ANSI_COLORS[code]
-    } else if (code >= 40 && code <= 47) {
-      style.backgroundColor = ANSI_BG_COLORS[code]
-    } else if (code >= 90 && code <= 97) {
-      style.color = ANSI_COLORS[code]
-    } else if (code >= 100 && code <= 107) {
-      style.backgroundColor = ANSI_BG_COLORS[code]
-    }
-  }
-
-  return style
-}
-
-function AnsiLine({ content }: { content: string }) {
-  if (!content) {
-    return <span>&nbsp;</span>
-  }
-
-  const parts: React.ReactNode[] = []
-  let lastIndex = 0
-  let currentStyle: AnsiStyle = {}
-  let partKey = 0
-
-  // Reset regex lastIndex
-  // eslint-disable-next-line no-control-regex
-  const regex = /\x1b\[([0-9;]*)m/g
-  let match
-
-  while ((match = regex.exec(content)) !== null) {
-    // Add text before this escape code
-    if (match.index > lastIndex) {
-      const text = content.slice(lastIndex, match.index)
-      if (text) {
-        parts.push(
-          <span key={partKey++} style={currentStyle}>
-            {text}
-          </span>
-        )
-      }
-    }
-
-    // Parse the ANSI codes
-    const codesStr = match[1]
-    if (codesStr === '' || codesStr === '0') {
-      currentStyle = {}
-    } else {
-      const codes = codesStr.split(';').map(Number)
-      const newStyle = parseAnsiCodes(codes)
-      currentStyle = { ...currentStyle, ...newStyle }
-      // Reset if 0 is in the codes
-      if (codes.includes(0)) {
-        currentStyle = parseAnsiCodes(codes.filter((c) => c !== 0))
-      }
-    }
-
-    lastIndex = regex.lastIndex
-  }
-
-  // Add remaining text
-  if (lastIndex < content.length) {
-    const text = content.slice(lastIndex)
-    if (text) {
-      parts.push(
-        <span key={partKey++} style={currentStyle}>
-          {text}
-        </span>
-      )
-    }
-  }
-
-  return <>{parts.length > 0 ? parts : content}</>
 }
 
 function HighlightedLine({ content, language }: { content: string; language: string }) {
@@ -525,7 +383,7 @@ export function FileViewerPage() {
     return digits * 8 + 32
   }, [lines.length])
 
-  // eslint-disable-next-line react-hooks/incompatible-library
+   
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: () => scrollContainerRef.current,

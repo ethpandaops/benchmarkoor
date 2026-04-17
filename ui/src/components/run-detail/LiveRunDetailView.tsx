@@ -280,7 +280,11 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
 
       {/* Live log stream — collapsed by default; opening the panel is
           what signals the runner to start pushing log bytes. */}
-      <LiveRunLogPanel runId={run.run_id} />
+      <LiveRunLogPanel
+        runId={run.run_id}
+        client={clientName || undefined}
+        instanceId={instanceID || undefined}
+      />
 
       {/* Live Performance Heatmap — fed by the per-test gas data the
           runner ships in every snapshot. Renders as soon as we have
