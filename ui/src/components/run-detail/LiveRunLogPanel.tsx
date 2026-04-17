@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ArrowDown,
+  Download,
   ScrollText,
   AlertTriangle,
   Maximize2,
@@ -105,6 +106,37 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
 
   const { textRef, version, truncated, ended, connected } = useLiveRunLogsWS(runId, !stopped)
 
+  // ─── Line count + rate ─────────────────────────────────────────
+  // totalLinesRef is monotonically increasing (never decremented by
+  // buffer trimming), so rate-over-time stays meaningful even when
+  // the buffer is at its cap and linesRef.current.length is stable.
+  const totalLinesRef = useRef(0)
+  const rateSamplesRef = useRef<{ t: number; n: number }[]>([])
+  const [lineStats, setLineStats] = useState({ buffered: 0, rate: 0 })
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const now = Date.now()
+      rateSamplesRef.current.push({ t: now, n: totalLinesRef.current })
+      // Keep only the last 10 seconds of samples.
+      const cutoff = now - 10_000
+      rateSamplesRef.current = rateSamplesRef.current.filter((s) => s.t >= cutoff)
+
+      let rate = 0
+      const samples = rateSamplesRef.current
+      if (samples.length >= 2) {
+        const oldest = samples[0]
+        const newest = samples[samples.length - 1]
+        const dt = (newest.t - oldest.t) / 1000
+        if (dt > 0) rate = Math.round((newest.n - oldest.n) / dt)
+      }
+
+      setLineStats({ buffered: linesRef.current.length, rate })
+    }, 1000)
+
+    return () => window.clearInterval(id)
+  }, [])  
+
   // ─── Incremental line tracking ─────────────────────────────────
   // Instead of re-splitting the entire text on every WS message, we
   // only process the delta. `linesRef` is a stable array mutated in
@@ -130,6 +162,8 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
       const parts = dt.split('\n')
       if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop()
       linesRef.current = parts
+      // Don't add snapshot lines to totalLinesRef — they're
+      // historical buffer content, not new throughput.
       prevEndedWithNewlineRef.current = dt.endsWith('\n')
     } else if (dt.length > prevLen) {
       // Incremental append — only process the new bytes.
@@ -145,6 +179,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
         }
 
         // Remaining segments are complete new lines.
+        totalLinesRef.current += parts.length
         for (const p of parts) linesRef.current.push(p)
 
         // Trim trailing empty (from a final '\n' in the delta).
@@ -283,7 +318,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
     >
       <h3 className="flex min-w-0 items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
         <ScrollText className="size-4 shrink-0 text-gray-400 dark:text-gray-500" />
-        Runner log (live)
+        Logs
         {fullscreen && client && (
           <>
             <span className="text-gray-300 dark:text-gray-600">·</span>
@@ -331,6 +366,13 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
             </span>
           )
         })()}
+        {/* Line count + throughput rate */}
+        {lineStats.buffered > 0 && (
+          <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+            {lineStats.buffered.toLocaleString()} lines
+            {lineStats.rate > 0 && <> · ~{lineStats.rate}/s</>}
+          </span>
+        )}
       </h3>
       <div className="flex shrink-0 items-center gap-2">
         {/* Search box */}
@@ -353,7 +395,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
               type="button"
               onClick={() => setLogFilter(value)}
               className={clsx(
-                'px-2 py-1 text-xs/5 font-medium transition-colors',
+                'cursor-pointer px-2 py-1 text-xs/5 font-medium transition-colors',
                 'first:rounded-l-xs last:rounded-r-xs',
                 logFilter === value
                   ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'
@@ -364,6 +406,24 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
             </button>
           ))}
         </div>
+        {/* Download current buffer as a .log file */}
+        <button
+          type="button"
+          onClick={() => {
+            const blob = new Blob([textRef.current], { type: 'text/plain' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `${runId}.log`
+            a.click()
+            URL.revokeObjectURL(url)
+          }}
+          className="cursor-pointer rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+          title="Download log buffer"
+          aria-label="Download log buffer"
+        >
+          <Download className="size-4" />
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -376,7 +436,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
               setAutoStopAt(null)
             }
           }}
-          className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+          className="cursor-pointer rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
           title={
             stopped
               ? 'Reconnect to log stream'
@@ -391,7 +451,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
         <button
           type="button"
           onClick={() => setFullscreen((v) => !v)}
-          className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+          className="cursor-pointer rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
           title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         >
@@ -467,7 +527,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
         <button
           type="button"
           onClick={jumpToBottom}
-          className="absolute bottom-3 right-5 z-10 rounded-full bg-blue-600 p-1.5 text-white shadow-lg hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+          className="absolute bottom-3 right-5 z-10 cursor-pointer rounded-full bg-blue-600 p-1.5 text-white shadow-lg hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
           title="Jump to latest"
           aria-label="Jump to latest"
         >

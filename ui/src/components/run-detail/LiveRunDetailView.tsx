@@ -294,7 +294,7 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
           <div className="mb-4 flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
               <Flame className="size-4 text-gray-400 dark:text-gray-500" />
-              Performance Heatmap (Live)
+              Performance Heatmap
             </h3>
           </div>
           <TestHeatmap
