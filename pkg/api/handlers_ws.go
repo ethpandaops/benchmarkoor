@@ -43,6 +43,12 @@ func (s *server) handleIngestWS(w http.ResponseWriter, r *http.Request) {
 // handleLiveRunLogsWS upgrades an incoming UI connection to a
 // WebSocket. Auth is gated earlier in the router (requireAuth when
 // AnonymousRead is off). run_id comes from the URL path.
+//
+// Origin validation mirrors the HTTP CORS policy: when explicit
+// cors_origins are configured, only those origins can open a WS.
+// When the allowlist is empty or ["*"] (dev mode), any origin is
+// accepted. This is the server-side enforcement that browsers don't
+// provide via CORS on WebSocket handshakes.
 func (s *server) handleLiveRunLogsWS(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "run_id")
 	if runID == "" {
@@ -51,14 +57,22 @@ func (s *server) handleLiveRunLogsWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Reflect-the-origin is handled by the CORS middleware
-		// upstream; nhooyr's origin check would reject cross-origin
-		// connections with 403. We mirror the HTTP policy (dev mode
-		// allows any, explicit origins are allow-listed) by skipping
-		// the library's built-in check and trusting the CORS layer.
-		InsecureSkipVerify: true,
-	})
+	opts := &websocket.AcceptOptions{}
+	origins := s.cfg.Server.CORSOrigins
+
+	if len(origins) == 0 || (len(origins) == 1 && origins[0] == "*") {
+		// Dev / open mode: allow any origin (same as the HTTP CORS
+		// "reflect requesting origin" policy).
+		opts.InsecureSkipVerify = true
+	} else {
+		// Production: enforce the same origin allowlist that HTTP CORS
+		// uses. OriginPatterns uses path.Match; entries containing
+		// "://" are matched against "scheme://host" from the browser's
+		// Origin header, which is exactly the format cors_origins uses.
+		opts.OriginPatterns = origins
+	}
+
+	ws, err := websocket.Accept(w, r, opts)
 	if err != nil {
 		s.log.WithError(err).WithField("run_id", runID).
 			Warn("Failed to accept UI WS")
