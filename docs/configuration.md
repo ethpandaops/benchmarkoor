@@ -139,6 +139,8 @@ runner:
     interval: 1m
     jitter_fraction: 0.2
     timeout: 10s
+    logs_enabled: true     # default true; set false to disable the log streamer
+    logs_interval: 200ms   # file-tail push cadence while streaming
 ```
 
 | Option | Type | Default | Description |
@@ -150,6 +152,8 @@ runner:
 | `interval` | string | `1m` | Base reporting interval (Go duration). Each tick adds random jitter |
 | `jitter_fraction` | float | `0.2` | Random jitter as a fraction of `interval`. `0` uses the default; negative disables jitter entirely |
 | `timeout` | string | `10s` | Per-request HTTP timeout |
+| `logs_enabled` | bool | `true` | Enable live log streaming. When enabled, the runner opens a WebSocket to the API for the lifetime of the run. Log bytes only flow while at least one UI client has the log panel open — zero traffic otherwise |
+| `logs_interval` | string | `200ms` | How often the runner reads new bytes from `benchmarkoor.log` and pushes them over the WebSocket while streaming is active. Lower values feel smoother; the overhead is negligible since empty ticks don't send a message |
 
 Reports are best-effort: HTTP failures are logged at WARN and dropped. The next tick will retry with the latest snapshot. On `Stop()`, the runner sends one final synchronous report so the terminal status reaches the API.
 

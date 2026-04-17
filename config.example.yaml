@@ -50,6 +50,11 @@ runner:
   #   interval: 1m
   #   jitter_fraction: 0.2
   #   timeout: 10s
+  #   # Live log streaming. When enabled, the runner opens a WebSocket to
+  #   # the API for the lifetime of the run. Log bytes only flow while at
+  #   # least one UI client has the log panel open — zero traffic otherwise.
+  #   logs_enabled: true     # default true; set false to disable entirely
+  #   logs_interval: 200ms   # file-tail push cadence while streaming
 
   benchmark:
     results_dir: ${RESULTS_DIR:-./results}
