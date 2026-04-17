@@ -189,7 +189,13 @@ func (s *logStreamer) connectAndServe(ctx context.Context) error {
 	// One write-serializing mutex per connection.
 	writer := &wsWriter{ws: ws, timeout: s.cfg.GetTimeout()}
 
+	// connDone is closed when connectAndServe returns (for any reason),
+	// so the bye-sender goroutine exits with it rather than leaking
+	// across reconnects.
+	connDone := make(chan struct{})
+
 	defer func() {
+		close(connDone)
 		stopTail()
 		_ = ws.Close(websocket.StatusNormalClosure, "runner stopping")
 	}()
@@ -202,6 +208,8 @@ func (s *logStreamer) connectAndServe(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 		case <-s.done:
+		case <-connDone:
+			return // read loop exited; defer already handles cleanup
 		}
 
 		byeCtx, cancel := context.WithTimeout(context.Background(), s.cfg.GetTimeout())
