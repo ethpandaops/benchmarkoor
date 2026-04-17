@@ -3,16 +3,16 @@ import { loadRuntimeConfig } from '@/config/runtime'
 
 // useLiveRunLogsWS opens a WebSocket to the API's live-run log stream
 // endpoint for a single run. The API sends:
-//   - `{type:"snapshot", text, truncated?}` once on connect (current buffer)
+//   - `{type:"snapshot", text, truncated?}` once on connect (buffer)
 //   - `{type:"log", text}` as new chunks arrive
 //   - `{type:"truncated"}` when the ring buffer has evicted older bytes
-//   - `{type:"run_ended"}` when the run is deleted / the runner says bye
+//   - `{type:"run_ended"}` when the run is deleted / runner says bye
 //
-// The hook manages its own reconnect loop (1 s → 30 s backoff) while
-// `enabled` is true. When `enabled` flips to false (panel collapsed)
-// or `runId` changes, the current WS is closed and buffers reset.
-//
-// No React Query — streaming semantics don't fit a full-replace cache.
+// PERFORMANCE NOTE: the accumulated log text lives in a plain ref (not
+// React state) to avoid V8 GC pressure from React holding old + new
+// copies of a ≥500 KB string during reconciliation. A lightweight
+// `version` counter drives re-renders instead. WS messages are batched
+// via requestAnimationFrame so at most ~60 flushes/sec hit React.
 
 interface LogsMessage {
   type: 'snapshot' | 'log' | 'truncated' | 'run_ended'
@@ -20,8 +20,11 @@ interface LogsMessage {
   truncated?: boolean
 }
 
-interface LiveRunLogsState {
-  text: string
+export interface LiveRunLogsState {
+  /** Ref to the accumulated text buffer. Read .current in render. */
+  textRef: React.RefObject<string>
+  /** Bumped on every flush — lets consumers know text changed. */
+  version: number
   truncated: boolean
   ended: boolean
   connected: boolean
@@ -29,22 +32,25 @@ interface LiveRunLogsState {
 
 const MAX_BACKOFF_MS = 30_000
 const INITIAL_BACKOFF_MS = 1_000
+// Client-side cap so the browser doesn't OOM on a long session. The
+// server caps at 512 KB; we keep a bit more so a reconnect snapshot
+// plus subsequent deltas have headroom before we start trimming.
+const MAX_CLIENT_TEXT_BYTES = 1024 * 1024
 
 export function useLiveRunLogsWS(
   runId: string | undefined,
   enabled: boolean,
 ): LiveRunLogsState {
-  const [state, setState] = useState<LiveRunLogsState>({
-    text: '',
-    truncated: false,
-    ended: false,
-    connected: false,
-  })
+  // Text buffer lives in a ref — React never diffs or holds two
+  // copies of it. A monotonic version counter in state triggers
+  // re-renders when text changes.
+  const textRef = useRef('')
+  const [version, setVersion] = useState(0)
+  const [truncated, setTruncated] = useState(false)
+  const [ended, setEnded] = useState(false)
+  const [connected, setConnected] = useState(false)
 
-  // Ref to the active WebSocket so we can close it on cleanup, and
-  // avoid stale-closure issues with React's effect timing.
   const wsRef = useRef<WebSocket | null>(null)
-  // Guard against late messages from a WS we're already replacing.
   const generationRef = useRef(0)
 
   useEffect(() => {
@@ -57,14 +63,18 @@ export function useLiveRunLogsWS(
     let cancelled = false
     let backoff = INITIAL_BACKOFF_MS
     let reconnectTimer: number | undefined
-    // Tracks the pending rAF flush so cleanup can cancel it.
     let activeRafId = 0
 
-    // Reset state for a fresh connection (new runId or re-enable). One
-    // intentional cascading render — this is a reset signal bounded
-    // per enable/runId change, not steady-state derived data.
+    // Reset for a fresh connection.
+    textRef.current = ''
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setState({ text: '', truncated: false, ended: false, connected: false })
+    setVersion((v) => v + 1)
+     
+    setTruncated(false)
+     
+    setEnded(false)
+     
+    setConnected(false)
 
     const connect = async () => {
       if (cancelled || generationRef.current !== myGeneration) return
@@ -73,10 +83,7 @@ export function useLiveRunLogsWS(
       if (cancelled || generationRef.current !== myGeneration) return
 
       const baseUrl = config.api?.baseUrl
-      if (!baseUrl) {
-        // No API configured — nothing to connect to.
-        return
-      }
+      if (!baseUrl) return
 
       const wsUrl =
         baseUrl.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:') +
@@ -85,43 +92,56 @@ export function useLiveRunLogsWS(
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
-      // ── rAF batching ────────────────────────────────────────────
-      // At 100ms push intervals the runner can send 10+ WS messages
-      // per second. Each message triggering a setState → render →
-      // string-concat cycle creates heavy GC pressure (new 512KB
-      // string every time) and can crash Chromium-based browsers
-      // (V8 SIGILL under load). Instead, we accumulate incoming
-      // chunks in a plain string ref and flush once per animation
-      // frame, so React sees at most ~60 state updates/sec
-      // regardless of WS throughput.
+      // ── rAF batching ────────────────────────────────────────
+      // Accumulate WS messages in plain variables and flush into
+      // the ref + bump the version counter once per animation
+      // frame. This limits React renders to ~60/sec and avoids
+      // creating a new multi-hundred-KB string in React state on
+      // every message.
       let pendingText = ''
       let pendingSnapshot: { text: string; truncated: boolean } | null = null
       let pendingTruncated = false
       let pendingEnded = false
+
       const flushPending = () => {
         activeRafId = 0
         if (generationRef.current !== myGeneration) return
 
-        setState((s) => {
-          let next = s
-          if (pendingSnapshot) {
-            next = { ...next, text: pendingSnapshot.text, truncated: pendingSnapshot.truncated }
-            pendingSnapshot = null
-          }
-          if (pendingText) {
-            next = { ...next, text: next.text + pendingText }
-            pendingText = ''
-          }
-          if (pendingTruncated) {
-            next = { ...next, truncated: true }
-            pendingTruncated = false
-          }
-          if (pendingEnded) {
-            next = { ...next, ended: true }
-            pendingEnded = false
-          }
-          return next
-        })
+        if (pendingSnapshot) {
+          textRef.current = pendingSnapshot.text
+          setTruncated(pendingSnapshot.truncated)
+          pendingSnapshot = null
+        }
+
+        if (pendingText) {
+          textRef.current += pendingText
+          pendingText = ''
+        }
+
+        // Client-side cap — trim from the front if we've grown past
+        // the limit so the browser doesn't OOM on a very long run.
+        if (textRef.current.length > MAX_CLIENT_TEXT_BYTES) {
+          const overflow = textRef.current.length - MAX_CLIENT_TEXT_BYTES
+          // Find the next newline after the trim point so we don't
+          // break a line in the middle.
+          const nextNl = textRef.current.indexOf('\n', overflow)
+          textRef.current = nextNl >= 0
+            ? textRef.current.slice(nextNl + 1)
+            : textRef.current.slice(overflow)
+          setTruncated(true)
+        }
+
+        if (pendingTruncated) {
+          setTruncated(true)
+          pendingTruncated = false
+        }
+
+        if (pendingEnded) {
+          setEnded(true)
+          pendingEnded = false
+        }
+
+        setVersion((v) => v + 1)
       }
 
       const scheduleFlush = () => {
@@ -135,7 +155,7 @@ export function useLiveRunLogsWS(
         }
 
         backoff = INITIAL_BACKOFF_MS
-        setState((s) => ({ ...s, connected: true }))
+        setConnected(true)
       }
 
       ws.onmessage = (event) => {
@@ -150,8 +170,6 @@ export function useLiveRunLogsWS(
 
         switch (msg.type) {
           case 'snapshot':
-            // A snapshot replaces everything — discard any pending
-            // text that was queued before the snapshot arrived.
             pendingText = ''
             pendingSnapshot = { text: msg.text ?? '', truncated: !!msg.truncated }
             break
@@ -165,25 +183,24 @@ export function useLiveRunLogsWS(
             pendingEnded = true
             break
           default:
-            return // nothing to flush
+            return
         }
 
         scheduleFlush()
       }
 
       ws.onerror = () => {
-        // Surfaced via onclose; nothing to do here directly.
+        // Surfaced via onclose.
       }
 
       ws.onclose = () => {
         if (generationRef.current !== myGeneration) return
 
-        setState((s) => ({ ...s, connected: false }))
+        setConnected(false)
         wsRef.current = null
 
         if (cancelled) return
 
-        // Exponential backoff reconnect while still enabled.
         reconnectTimer = window.setTimeout(() => {
           if (!cancelled && generationRef.current === myGeneration) {
             void connect()
@@ -208,5 +225,5 @@ export function useLiveRunLogsWS(
     }
   }, [runId, enabled])
 
-  return state
+  return { textRef, version, truncated, ended, connected }
 }

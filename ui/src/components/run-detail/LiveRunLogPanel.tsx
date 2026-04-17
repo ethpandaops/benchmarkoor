@@ -88,7 +88,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
     return () => window.clearInterval(id)
   }, [stopped, autoStopAt])
 
-  const { text, truncated, ended, connected } = useLiveRunLogsWS(runId, !stopped)
+  const { textRef, version, truncated, ended, connected } = useLiveRunLogsWS(runId, !stopped)
 
   // ─── Incremental line tracking ─────────────────────────────────
   // Instead of re-splitting the entire text on every WS message, we
@@ -106,7 +106,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
   const [lineVersion, setLineVersion] = useState(0)
 
   useEffect(() => {
-    const dt = text
+    const dt = textRef.current
     const prevLen = prevTextLenRef.current
 
     if (dt.length < prevLen || (prevLen === 0 && dt.length > 0)) {
@@ -144,30 +144,26 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
     prevTextLenRef.current = dt.length
      
     setLineVersion((v) => v + 1)
-  }, [text])
+  }, [version]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Virtualizer + auto-follow ──────────────────────────────────
+  // ─── Virtualizer ────────────────────────────────────────────────
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // "Following" means we auto-scroll to the bottom on every new
-  // line. Default on. Turned off when the user scrolls up (detected
-  // via the wheel event, which only fires on human interaction —
-  // never on our programmatic scrollToIndex calls). The "jump to
-  // bottom" button re-enables it.
-  const [following, setFollowing] = useState(true)
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    if (e.deltaY < 0) {
-      // User scrolling up → stop following.
-      setFollowing(false)
-    } else if (e.deltaY > 0) {
-      // User scrolling down — check if they've reached the bottom.
-      const el = scrollRef.current
-      if (el && el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
-        setFollowing(true)
+  // Simple scroll model: when the stream is connected, new lines
+  // always auto-scroll to the bottom. If the user scrolls up, we
+  // disconnect the stream entirely so the viewport is completely
+  // stable (no new content, no fighting). The "jump to bottom"
+  // arrow or the reconnect button re-enables the stream.
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (e.deltaY < 0 && !stopped) {
+        // User scrolling up while connected → disconnect.
+        setStopped(true)
+        setAutoStopAt(null)
       }
-    }
-  }, [])
+    },
+    [stopped],
+  )
 
   const virtualizer = useVirtualizer({
     count: linesRef.current.length,
@@ -176,17 +172,21 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
     overscan: 30,
   })
 
-  // When following + new lines arrive, scroll the last row into view.
+  // While connected, every new line scrolls the last row into view.
+  // Once stopped (by the user scrolling up, or by the disconnect
+  // button, or by the inactivity timer), nothing moves.
   useLayoutEffect(() => {
-    if (!following) return
+    if (stopped) return
     const count = linesRef.current.length
     if (count > 0) {
       virtualizer.scrollToIndex(count - 1, { align: 'end' })
     }
-  }, [lineVersion, following]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lineVersion, stopped]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const jumpToBottom = useCallback(() => {
-    setFollowing(true)
+    setStopped(false)
+    setAutoStopAt(null)
+    lastActivityRef.current = Date.now()
     const count = linesRef.current.length
     if (count > 0) {
       virtualizer.scrollToIndex(count - 1, { align: 'end' })
@@ -207,9 +207,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
     }
   }, [fullscreen])
 
-  useEffect(() => {
-    setFollowing(true)
-  }, [fullscreen])
+
 
   // ─── Header ────────────────────────────────────────────────────
   const statusBadge = (() => {
@@ -300,7 +298,6 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
               setStopped(false)
               setAutoStopAt(null)
               lastActivityRef.current = Date.now()
-              setFollowing(true)
             } else {
               setStopped(true)
               setAutoStopAt(null)
@@ -357,7 +354,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
         onWheel={handleWheel}
         className={clsx(
           'overflow-auto bg-gray-950 font-mono text-xs/5 text-gray-100',
-          fullscreen ? 'h-full' : 'h-64 max-h-[50vh]',
+          fullscreen ? 'h-full' : 'h-96 max-h-[60vh]',
         )}
       >
         {lines.length === 0 ? (
@@ -393,7 +390,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
       {/* Floating "jump to bottom" pill — visible when the user has
           scrolled up and auto-follow is off. Clicking re-enables
           following and scrolls to the latest line. */}
-      {!following && lines.length > 0 && (
+      {stopped && lines.length > 0 && (
         <button
           type="button"
           onClick={jumpToBottom}
