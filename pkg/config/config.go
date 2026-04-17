@@ -110,7 +110,7 @@ const (
 	DefaultLiveReportingInterval       = time.Minute
 	DefaultLiveReportingJitterFraction = 0.2
 	DefaultLiveReportingTimeout        = 10 * time.Second
-	DefaultLiveReportingLogsInterval   = time.Second
+	DefaultLiveReportingLogsInterval   = 100 * time.Millisecond
 )
 
 // GetInterval returns the reporting interval with the default applied.

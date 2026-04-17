@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import type React from 'react'
 import { parseAnsiCodes, type AnsiStyle } from '@/utils/ansi'
 
@@ -6,8 +7,12 @@ import { parseAnsiCodes, type AnsiStyle } from '@/utils/ansi'
  * codes (\x1b[...m) interpreted as inline CSS styles. Unknown codes
  * are ignored silently so the text still shows, just unstyled.
  * Shared between FileViewerPage and the live log panel.
+ *
+ * Wrapped in React.memo so virtualized lists that re-render the
+ * container don't re-parse every visible line when only the line
+ * count changed.
  */
-export function AnsiLine({ content }: { content: string }) {
+export const AnsiLine = memo(function AnsiLine({ content }: { content: string }) {
   if (!content) {
     return <span>&nbsp;</span>
   }
@@ -60,4 +65,4 @@ export function AnsiLine({ content }: { content: string }) {
   }
 
   return <>{parts.length > 0 ? parts : content}</>
-}
+})
