@@ -34,16 +34,26 @@ func (s *server) startStaleLiveRunsWatcher(ctx context.Context) {
 			select {
 			case <-ticker.C:
 				cutoff := time.Now().UTC().Add(-threshold)
-				count, err := s.indexStore.DeleteStaleLiveRuns(ctx, cutoff)
+				purgedIDs, err := s.indexStore.DeleteStaleLiveRuns(ctx, cutoff)
 				if err != nil {
 					s.log.WithError(err).Warn("Failed to purge stale live runs")
 
 					continue
 				}
 
-				if count > 0 {
-					s.log.WithField("deleted", count).
+				if len(purgedIDs) > 0 {
+					s.log.WithField("deleted", len(purgedIDs)).
 						Info("Purged stale live runs")
+
+					// Notify any UI clients still watching a purged
+					// run — their runner died and the DB row is gone,
+					// so the log panel should show "run ended" rather
+					// than hanging on a dead stream.
+					if s.wsHub != nil {
+						for _, id := range purgedIDs {
+							s.wsHub.DropRun(id)
+						}
+					}
 				}
 
 				// Also evict idle log-stream hubs (no runner, no UI,

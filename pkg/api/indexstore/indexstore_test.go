@@ -521,18 +521,19 @@ func TestStore_DeleteStaleLiveRuns(t *testing.T) {
 	}))
 
 	// A threshold in the past leaves freshly-reported rows alone.
-	count, err := s.DeleteStaleLiveRuns(ctx, now.Add(-time.Hour))
+	ids, err := s.DeleteStaleLiveRuns(ctx, now.Add(-time.Hour))
 	require.NoError(t, err)
-	assert.Equal(t, int64(0), count)
+	assert.Empty(t, ids)
 
 	live, err := s.ListLiveRuns(ctx)
 	require.NoError(t, err)
 	assert.Len(t, live, 2)
 
-	// A threshold in the future deletes everything.
-	count, err = s.DeleteStaleLiveRuns(ctx, now.Add(time.Hour))
+	// A threshold in the future deletes everything and returns the ids.
+	ids, err = s.DeleteStaleLiveRuns(ctx, now.Add(time.Hour))
 	require.NoError(t, err)
-	assert.Equal(t, int64(2), count)
+	assert.Len(t, ids, 2)
+	assert.ElementsMatch(t, []string{"fresh-1", "fresh-2"}, ids)
 
 	live, err = s.ListLiveRuns(ctx)
 	require.NoError(t, err)

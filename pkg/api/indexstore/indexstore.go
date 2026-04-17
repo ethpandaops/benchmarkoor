@@ -24,7 +24,7 @@ type Store interface {
 	UpsertLiveRun(ctx context.Context, report *LiveRunReport) error
 	ListLiveRuns(ctx context.Context) ([]LiveRun, error)
 	DeleteLiveRun(ctx context.Context, discoveryPath, runID string) error
-	DeleteStaleLiveRuns(ctx context.Context, olderThan time.Time) (int64, error)
+	DeleteStaleLiveRuns(ctx context.Context, olderThan time.Time) ([]string, error)
 	ListRuns(ctx context.Context, discoveryPath string) ([]Run, error)
 	ListRunIDs(ctx context.Context, discoveryPath string) ([]string, error)
 	ListIncompleteRunIDs(
@@ -350,17 +350,37 @@ func (s *store) DeleteLiveRun(ctx context.Context, dp, runID string) error {
 	return nil
 }
 
-// DeleteStaleLiveRuns removes any live run whose last_reported_at is older
-// than the given threshold. Returns the number of rows deleted.
-func (s *store) DeleteStaleLiveRuns(ctx context.Context, olderThan time.Time) (int64, error) {
-	result := s.db.WithContext(ctx).
+// DeleteStaleLiveRuns removes any live run whose last_reported_at is
+// older than the given threshold. Returns the run_ids that were
+// deleted so callers (e.g. the stale watcher) can clean up associated
+// state like WebSocket hubs.
+func (s *store) DeleteStaleLiveRuns(ctx context.Context, olderThan time.Time) ([]string, error) {
+	// First, collect the run_ids that will be purged.
+	var stale []LiveRun
+	if err := s.db.WithContext(ctx).
+		Select("run_id").
 		Where("last_reported_at < ?", olderThan).
-		Delete(&LiveRun{})
-	if result.Error != nil {
-		return 0, fmt.Errorf("deleting stale live runs: %w", result.Error)
+		Find(&stale).Error; err != nil {
+		return nil, fmt.Errorf("finding stale live runs: %w", err)
 	}
 
-	return result.RowsAffected, nil
+	if len(stale) == 0 {
+		return nil, nil
+	}
+
+	// Delete the rows.
+	if err := s.db.WithContext(ctx).
+		Where("last_reported_at < ?", olderThan).
+		Delete(&LiveRun{}).Error; err != nil {
+		return nil, fmt.Errorf("deleting stale live runs: %w", err)
+	}
+
+	ids := make([]string, len(stale))
+	for i, r := range stale {
+		ids[i] = r.RunID
+	}
+
+	return ids, nil
 }
 
 // ListRuns returns all runs for a given discovery path ordered by timestamp.
