@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ArrowDown,
@@ -52,6 +52,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
   const [fullscreen, setFullscreen] = useState(false)
   const [stopped, setStopped] = useState(false)
   const [logFilter, setLogFilter] = useState<LogFilter>('all')
+  const [searchQuery, setSearchQuery] = useState('')
 
   // ─── Inactivity-based auto-stop ────────────────────────────────
   // Phase 1 (grace): user is active — no countdown shown.
@@ -161,41 +162,39 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
   }, [version]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Filtered line indices ──────────────────────────────────────
-  // Instead of copying the lines array, we compute a mapping from
-  // virtualizer row index → linesRef index. When filter is 'all'
-  // we skip the indirection entirely for zero overhead.
-  const filteredIndicesRef = useRef<number[]>([])
-  const filteredCountRef = useRef(0)
+  // Computed synchronously during render (useMemo, not useEffect) so
+  // the virtualizer sees the correct count on the SAME frame the
+  // filter changes — no one-frame flicker of the unfiltered list.
+  const needsFiltering = logFilter !== 'all' || searchQuery !== ''
+  const searchLower = searchQuery.toLowerCase()
 
-  // Recompute whenever lines change (lineVersion) or the filter
-  // toggles. We use refs so the virtualizer reads a stable count
-  // without needing React state (avoids an extra render cycle).
-  useEffect(() => {
-    if (logFilter === 'all') {
-      filteredIndicesRef.current = []
-      filteredCountRef.current = linesRef.current.length
-    } else {
-      const indices: number[] = []
-      for (let i = 0; i < linesRef.current.length; i++) {
-        if (lineMatchesFilter(linesRef.current[i], logFilter)) {
-          indices.push(i)
-        }
-      }
-      filteredIndicesRef.current = indices
-      filteredCountRef.current = indices.length
+  const { filteredIndices, filteredCount } = useMemo(() => {
+    if (!needsFiltering) {
+      return { filteredIndices: [] as number[], filteredCount: linesRef.current.length }
     }
-  }, [lineVersion, logFilter])
+
+    const indices: number[] = []
+    for (let i = 0; i < linesRef.current.length; i++) {
+      const line = linesRef.current[i]
+      if (!lineMatchesFilter(line, logFilter)) continue
+      if (searchLower && !line.toLowerCase().includes(searchLower)) continue
+      indices.push(i)
+    }
+
+    return { filteredIndices: indices, filteredCount: indices.length }
+    // lineVersion is a proxy for "linesRef.current changed"
+  }, [lineVersion, logFilter, needsFiltering, searchLower]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Helper: map a virtualizer row to the actual line in linesRef.
   const lineAt = useCallback(
     (virtualRow: number): string => {
-      if (logFilter === 'all') {
+      if (!needsFiltering) {
         return linesRef.current[virtualRow] ?? ''
       }
-      const realIdx = filteredIndicesRef.current[virtualRow]
-      return linesRef.current[realIdx] ?? ''
+
+      return linesRef.current[filteredIndices[virtualRow]] ?? ''
     },
-    [logFilter],
+    [needsFiltering, filteredIndices],
   )
 
   // ─── Virtualizer ────────────────────────────────────────────────
@@ -212,7 +211,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
   )
 
   const virtualizer = useVirtualizer({
-    count: filteredCountRef.current,
+    count: filteredCount,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => LINE_HEIGHT_ESTIMATE,
     overscan: 30,
@@ -220,7 +219,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
 
   useLayoutEffect(() => {
     if (stopped) return
-    const count = filteredCountRef.current
+    const count = filteredCount
     if (count > 0) {
       virtualizer.scrollToIndex(count - 1, { align: 'end' })
     }
@@ -230,11 +229,11 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
     setStopped(false)
     setAutoStopAt(null)
     lastActivityRef.current = Date.now()
-    const count = filteredCountRef.current
+    const count = filteredCount
     if (count > 0) {
       virtualizer.scrollToIndex(count - 1, { align: 'end' })
     }
-  }, [virtualizer])
+  }, [virtualizer, filteredCount])
 
   // ─── Fullscreen ────────────────────────────────────────────────
   useEffect(() => {
@@ -334,6 +333,14 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
         })()}
       </h3>
       <div className="flex shrink-0 items-center gap-2">
+        {/* Search box */}
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Filter logs…"
+          className="w-36 rounded-xs border border-gray-300 bg-white px-2 py-1 text-xs/5 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+        />
         {/* Log source filter chips */}
         <div className="flex items-center rounded-xs border border-gray-300 dark:border-gray-600">
           {([
