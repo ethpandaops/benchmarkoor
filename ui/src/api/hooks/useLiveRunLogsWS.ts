@@ -57,6 +57,8 @@ export function useLiveRunLogsWS(
     let cancelled = false
     let backoff = INITIAL_BACKOFF_MS
     let reconnectTimer: number | undefined
+    // Tracks the pending rAF flush so cleanup can cancel it.
+    let activeRafId = 0
 
     // Reset state for a fresh connection (new runId or re-enable). One
     // intentional cascading render — this is a reset signal bounded
@@ -83,6 +85,49 @@ export function useLiveRunLogsWS(
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
+      // ── rAF batching ────────────────────────────────────────────
+      // At 100ms push intervals the runner can send 10+ WS messages
+      // per second. Each message triggering a setState → render →
+      // string-concat cycle creates heavy GC pressure (new 512KB
+      // string every time) and can crash Chromium-based browsers
+      // (V8 SIGILL under load). Instead, we accumulate incoming
+      // chunks in a plain string ref and flush once per animation
+      // frame, so React sees at most ~60 state updates/sec
+      // regardless of WS throughput.
+      let pendingText = ''
+      let pendingSnapshot: { text: string; truncated: boolean } | null = null
+      let pendingTruncated = false
+      let pendingEnded = false
+      const flushPending = () => {
+        activeRafId = 0
+        if (generationRef.current !== myGeneration) return
+
+        setState((s) => {
+          let next = s
+          if (pendingSnapshot) {
+            next = { ...next, text: pendingSnapshot.text, truncated: pendingSnapshot.truncated }
+            pendingSnapshot = null
+          }
+          if (pendingText) {
+            next = { ...next, text: next.text + pendingText }
+            pendingText = ''
+          }
+          if (pendingTruncated) {
+            next = { ...next, truncated: true }
+            pendingTruncated = false
+          }
+          if (pendingEnded) {
+            next = { ...next, ended: true }
+            pendingEnded = false
+          }
+          return next
+        })
+      }
+
+      const scheduleFlush = () => {
+        if (!activeRafId) activeRafId = requestAnimationFrame(flushPending)
+      }
+
       ws.onopen = () => {
         if (generationRef.current !== myGeneration) {
           ws.close()
@@ -103,24 +148,27 @@ export function useLiveRunLogsWS(
           return
         }
 
-        setState((s) => {
-          switch (msg.type) {
-            case 'snapshot':
-              return {
-                ...s,
-                text: msg.text ?? '',
-                truncated: !!msg.truncated,
-              }
-            case 'log':
-              return { ...s, text: s.text + (msg.text ?? '') }
-            case 'truncated':
-              return { ...s, truncated: true }
-            case 'run_ended':
-              return { ...s, ended: true }
-            default:
-              return s
-          }
-        })
+        switch (msg.type) {
+          case 'snapshot':
+            // A snapshot replaces everything — discard any pending
+            // text that was queued before the snapshot arrived.
+            pendingText = ''
+            pendingSnapshot = { text: msg.text ?? '', truncated: !!msg.truncated }
+            break
+          case 'log':
+            pendingText += msg.text ?? ''
+            break
+          case 'truncated':
+            pendingTruncated = true
+            break
+          case 'run_ended':
+            pendingEnded = true
+            break
+          default:
+            return // nothing to flush
+        }
+
+        scheduleFlush()
       }
 
       ws.onerror = () => {
@@ -149,6 +197,7 @@ export function useLiveRunLogsWS(
 
     return () => {
       cancelled = true
+      if (activeRafId) cancelAnimationFrame(activeRafId)
       if (reconnectTimer !== undefined) {
         window.clearTimeout(reconnectTimer)
       }
