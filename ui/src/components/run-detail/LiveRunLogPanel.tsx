@@ -35,9 +35,23 @@ const LINE_HEIGHT_ESTIMATE = 20
  * virtualization so only visible lines are in the DOM — the total line
  * count can grow unbounded without causing render jank.
  */
+type LogFilter = 'all' | 'runner' | 'client'
+
+// Emoji prefixes used by the runner's logrus formatter to distinguish
+// benchmarkoor's own log lines from lines forwarded from the EL client.
+const RUNNER_PREFIX = '\u{1F535}' // 🔵
+const CLIENT_PREFIX = '\u{1F7E3}' // 🟣
+
+function lineMatchesFilter(line: string, filter: LogFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'runner') return line.startsWith(RUNNER_PREFIX)
+  return line.startsWith(CLIENT_PREFIX) // 'client'
+}
+
 export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelProps) {
   const [fullscreen, setFullscreen] = useState(false)
   const [stopped, setStopped] = useState(false)
+  const [logFilter, setLogFilter] = useState<LogFilter>('all')
 
   // ─── Inactivity-based auto-stop ────────────────────────────────
   // Phase 1 (grace): user is active — no countdown shown.
@@ -146,18 +160,50 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
     setLineVersion((v) => v + 1)
   }, [version]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ─── Filtered line indices ──────────────────────────────────────
+  // Instead of copying the lines array, we compute a mapping from
+  // virtualizer row index → linesRef index. When filter is 'all'
+  // we skip the indirection entirely for zero overhead.
+  const filteredIndicesRef = useRef<number[]>([])
+  const filteredCountRef = useRef(0)
+
+  // Recompute whenever lines change (lineVersion) or the filter
+  // toggles. We use refs so the virtualizer reads a stable count
+  // without needing React state (avoids an extra render cycle).
+  useEffect(() => {
+    if (logFilter === 'all') {
+      filteredIndicesRef.current = []
+      filteredCountRef.current = linesRef.current.length
+    } else {
+      const indices: number[] = []
+      for (let i = 0; i < linesRef.current.length; i++) {
+        if (lineMatchesFilter(linesRef.current[i], logFilter)) {
+          indices.push(i)
+        }
+      }
+      filteredIndicesRef.current = indices
+      filteredCountRef.current = indices.length
+    }
+  }, [lineVersion, logFilter])
+
+  // Helper: map a virtualizer row to the actual line in linesRef.
+  const lineAt = useCallback(
+    (virtualRow: number): string => {
+      if (logFilter === 'all') {
+        return linesRef.current[virtualRow] ?? ''
+      }
+      const realIdx = filteredIndicesRef.current[virtualRow]
+      return linesRef.current[realIdx] ?? ''
+    },
+    [logFilter],
+  )
+
   // ─── Virtualizer ────────────────────────────────────────────────
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Simple scroll model: when the stream is connected, new lines
-  // always auto-scroll to the bottom. If the user scrolls up, we
-  // disconnect the stream entirely so the viewport is completely
-  // stable (no new content, no fighting). The "jump to bottom"
-  // arrow or the reconnect button re-enables the stream.
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       if (e.deltaY < 0 && !stopped) {
-        // User scrolling up while connected → disconnect.
         setStopped(true)
         setAutoStopAt(null)
       }
@@ -166,18 +212,15 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
   )
 
   const virtualizer = useVirtualizer({
-    count: linesRef.current.length,
+    count: filteredCountRef.current,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => LINE_HEIGHT_ESTIMATE,
     overscan: 30,
   })
 
-  // While connected, every new line scrolls the last row into view.
-  // Once stopped (by the user scrolling up, or by the disconnect
-  // button, or by the inactivity timer), nothing moves.
   useLayoutEffect(() => {
     if (stopped) return
-    const count = linesRef.current.length
+    const count = filteredCountRef.current
     if (count > 0) {
       virtualizer.scrollToIndex(count - 1, { align: 'end' })
     }
@@ -187,7 +230,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
     setStopped(false)
     setAutoStopAt(null)
     lastActivityRef.current = Date.now()
-    const count = linesRef.current.length
+    const count = filteredCountRef.current
     if (count > 0) {
       virtualizer.scrollToIndex(count - 1, { align: 'end' })
     }
@@ -291,6 +334,29 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
         })()}
       </h3>
       <div className="flex shrink-0 items-center gap-2">
+        {/* Log source filter chips */}
+        <div className="flex items-center rounded-xs border border-gray-300 dark:border-gray-600">
+          {([
+            { value: 'all' as LogFilter, label: 'All' },
+            { value: 'runner' as LogFilter, label: '🔵 Runner' },
+            { value: 'client' as LogFilter, label: '🟣 Client' },
+          ]).map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setLogFilter(value)}
+              className={clsx(
+                'px-2 py-1 text-xs/5 font-medium transition-colors',
+                'first:rounded-l-xs last:rounded-r-xs',
+                logFilter === value
+                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'
+                  : 'bg-white text-gray-600 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           onClick={() => {
@@ -381,7 +447,7 @@ export function LiveRunLogPanel({ runId, client, instanceId }: LiveRunLogPanelPr
                 className="absolute left-0 top-0 w-full whitespace-pre-wrap px-4"
                 style={{ transform: `translateY(${row.start}px)` }}
               >
-                <AnsiLine content={lines[row.index]} />
+                <AnsiLine content={lineAt(row.index)} />
               </div>
             ))}
           </div>
