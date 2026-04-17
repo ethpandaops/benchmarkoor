@@ -22,8 +22,10 @@ import (
 //     hub to send {type:"stream_on"} to the runner. 1→0 sends
 //     {type:"stream_off"}. No TTL — we rely on the OS detecting the
 //     closed socket.
-//   - Fan-out writes are serialized per connection via the conn's own
-//     mutex + a 5 s deadline; slow / dead subscribers are kicked.
+//   - Each UI conn has a buffered send channel + a dedicated writer
+//     goroutine. Fan-out is non-blocking: if the channel is full, the
+//     conn is kicked immediately. This prevents a single slow
+//     subscriber from stalling the runner's read loop.
 
 const (
 	maxLogBytesPerRun    = 512 * 1024
@@ -32,6 +34,7 @@ const (
 	wsServerAcceptClose  = "server shutting down"
 	wsServerRunEndClose  = "run ended"
 	wsServerRunnerChange = "runner replaced"
+	uiSendChCapacity     = 64 // buffered messages per UI conn
 )
 
 // wsMessage is the common envelope; not all fields are used in every
@@ -50,8 +53,8 @@ type wsHub struct {
 
 type runHub struct {
 	mu         sync.Mutex
-	runnerConn *wsConn // nil between connects
-	uis        []*wsConn
+	runnerConn *runnerConn // nil between connects
+	uis        []*uiConn
 	buf        []byte // ring-style byte slice, capped at maxLogBytesPerRun
 	seq        int64  // total bytes ever received; monotonic across truncations
 	truncated  bool   // sticky once buffer has dropped bytes
@@ -59,15 +62,23 @@ type runHub struct {
 	updated    time.Time
 }
 
-// wsConn wraps a single WebSocket with its own write serialization.
-// nhooyr's Write must not be called concurrently, so every outbound
-// message goes through Write() which takes the mutex + a short
-// deadline.
-type wsConn struct {
-	ws    *websocket.Conn
-	mu    sync.Mutex
-	log   logrus.FieldLogger
-	label string // "runner" / "ui" — for log context
+// runnerConn wraps the runner-side WS. Commands (stream_on/off) are
+// rare and sent directly under a mutex — no need for a channel.
+type runnerConn struct {
+	ws  *websocket.Conn
+	mu  sync.Mutex
+	log logrus.FieldLogger
+}
+
+// uiConn wraps a UI-side WS with a buffered send channel + a writer
+// goroutine so fan-out never blocks the runner's read loop. If the
+// channel fills (backpressure from a slow client), the conn is kicked.
+type uiConn struct {
+	ws        *websocket.Conn
+	sendCh    chan []byte   // pre-serialized JSON messages
+	done      chan struct{} // closed when writer goroutine exits
+	closeOnce sync.Once
+	log       logrus.FieldLogger
 }
 
 func newWsHub(log logrus.FieldLogger) *wsHub {
@@ -77,27 +88,23 @@ func newWsHub(log logrus.FieldLogger) *wsHub {
 	}
 }
 
+// ── Runner registration ──────────────────────────────────────────
+
 // RegisterRunner attaches a newly-connected runner WS to the hub's
 // run. Replaces any existing runner conn (a reconnect supersedes the
-// stale one). Evaluates current subscriber state and pushes an initial
-// stream_on/off command synchronously before returning. Runs the read
-// loop until the WS closes.
+// stale one). Runs the read loop until the WS closes.
 func (h *wsHub) RegisterRunner(ctx context.Context, runID string, ws *websocket.Conn) {
-	conn := &wsConn{ws: ws, log: h.log.WithFields(logrus.Fields{"run_id": runID, "side": "runner"}), label: "runner"}
+	conn := &runnerConn{ws: ws, log: h.log.WithFields(logrus.Fields{"run_id": runID, "side": "runner"})}
 
 	rh := h.getOrCreate(runID)
 
 	rh.mu.Lock()
-	var old *wsConn
+	var old *runnerConn
 	if rh.runnerConn != nil {
 		old = rh.runnerConn
 	}
 	rh.runnerConn = conn
 	rh.updated = time.Now().UTC()
-
-	// Runners default to "not streaming" — only send stream_on if we
-	// already have UIs waiting. stream_off is never sent on connect
-	// because the runner starts in the off state anyway.
 	want := len(rh.uis) > 0
 	rh.streaming = want
 	rh.mu.Unlock()
@@ -110,7 +117,7 @@ func (h *wsHub) RegisterRunner(ctx context.Context, runID string, ws *websocket.
 	}
 
 	if want {
-		sendCommand(conn, true)
+		sendRunnerCommand(conn, true)
 	}
 
 	h.readRunnerLoop(ctx, runID, conn)
@@ -125,13 +132,14 @@ func (h *wsHub) RegisterRunner(ctx context.Context, runID string, ws *websocket.
 	conn.log.Info("Runner WS disconnected")
 }
 
-// RegisterUI attaches a newly-connected UI WS to the hub's run. Sends
-// the current buffer as a snapshot immediately, then fan-out forwards
-// live log messages to this conn. Runs the read loop until the UI
-// closes. The read loop is trivial — we only need it to notice the
-// close; UI clients don't send messages today.
+// ── UI registration ──────────────────────────────────────────────
+
+// RegisterUI attaches a newly-connected UI WS. Sends the current
+// buffer as a snapshot, starts a writer goroutine for non-blocking
+// fan-out, then blocks on a read loop (just to detect close). On
+// exit, the conn is unregistered and the writer goroutine drained.
 func (h *wsHub) RegisterUI(ctx context.Context, runID string, ws *websocket.Conn) {
-	conn := &wsConn{ws: ws, log: h.log.WithFields(logrus.Fields{"run_id": runID, "side": "ui"}), label: "ui"}
+	conn := newUIConn(ws, h.log.WithFields(logrus.Fields{"run_id": runID, "side": "ui"}))
 
 	rh := h.getOrCreate(runID)
 
@@ -139,7 +147,7 @@ func (h *wsHub) RegisterUI(ctx context.Context, runID string, ws *websocket.Conn
 		snapshot     []byte
 		wasTruncated bool
 		needStreamOn bool
-		runnerForCmd *wsConn
+		runnerForCmd *runnerConn
 	)
 
 	rh.mu.Lock()
@@ -158,21 +166,22 @@ func (h *wsHub) RegisterUI(ctx context.Context, runID string, ws *websocket.Conn
 
 	conn.log.Info("UI WS connected")
 
-	if err := writeJSONMsg(conn, wsMessage{Type: "snapshot", Text: string(snapshot), Truncated: wasTruncated}); err != nil {
-		conn.log.WithError(err).Debug("Failed to send initial snapshot")
-		_ = ws.Close(websocket.StatusInternalError, "snapshot write failed")
-
+	// Send snapshot through the channel (buffered, will not block).
+	snapMsg, _ := json.Marshal(wsMessage{Type: "snapshot", Text: string(snapshot), Truncated: wasTruncated})
+	if !conn.send(snapMsg) {
+		conn.kick()
+		conn.awaitWriter()
 		h.unregisterUI(runID, conn)
 
 		return
 	}
 
 	if needStreamOn {
-		sendCommand(runnerForCmd, true)
+		sendRunnerCommand(runnerForCmd, true)
 	}
 
 	// Read loop — we just wait for the close; UI clients don't send
-	// messages today. Still honor ping/pong via nhooyr's defaults.
+	// messages today. Ping/pong is handled by the library.
 	for {
 		_, _, err := ws.Read(ctx)
 		if err != nil {
@@ -180,13 +189,16 @@ func (h *wsHub) RegisterUI(ctx context.Context, runID string, ws *websocket.Conn
 		}
 	}
 
+	conn.kick()
+	conn.awaitWriter()
 	h.unregisterUI(runID, conn)
 	conn.log.Info("UI WS disconnected")
 }
 
+// ── Lifecycle ────────────────────────────────────────────────────
+
 // DropRun closes all WSes for the run with a run_ended notice and
-// frees the buffer. Called by the indexer right after DeleteLiveRun so
-// the takeover to a canonical Run is clean.
+// frees the buffer. Called by the indexer right after DeleteLiveRun.
 func (h *wsHub) DropRun(runID string) {
 	h.mu.Lock()
 	rh, ok := h.runs[runID]
@@ -206,9 +218,10 @@ func (h *wsHub) DropRun(runID string) {
 	rh.uis = nil
 	rh.mu.Unlock()
 
+	endedMsg, _ := json.Marshal(wsMessage{Type: "run_ended"})
 	for _, ui := range uis {
-		_ = writeJSONMsg(ui, wsMessage{Type: "run_ended"})
-		_ = ui.ws.Close(websocket.StatusNormalClosure, wsServerRunEndClose)
+		ui.send(endedMsg) // buffered; drainAndClose flushes it
+		ui.drainAndClose()
 	}
 
 	if runner != nil {
@@ -252,15 +265,13 @@ func (h *wsHub) Stop() {
 			_ = runner.ws.Close(websocket.StatusGoingAway, wsServerAcceptClose)
 		}
 		for _, ui := range uis {
-			_ = ui.ws.Close(websocket.StatusGoingAway, wsServerAcceptClose)
+			ui.kick()
 		}
 	}
 }
 
-// getOrCreate returns the runHub for runID, creating it lazily. Used
-// by Register* — we intentionally don't require a live_runs row to
-// exist before accepting WS registrations; callers (handlers) gate
-// that check earlier in the request flow.
+// ── Internals ────────────────────────────────────────────────────
+
 func (h *wsHub) getOrCreate(runID string) *runHub {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -277,7 +288,7 @@ func (h *wsHub) getOrCreate(runID string) *runHub {
 
 // readRunnerLoop handles incoming runner messages (log, bye). Returns
 // when the WS closes or ctx is cancelled.
-func (h *wsHub) readRunnerLoop(ctx context.Context, runID string, conn *wsConn) {
+func (h *wsHub) readRunnerLoop(ctx context.Context, runID string, conn *runnerConn) {
 	conn.ws.SetReadLimit(wsMaxReadFrame)
 
 	for {
@@ -305,8 +316,9 @@ func (h *wsHub) readRunnerLoop(ctx context.Context, runID string, conn *wsConn) 
 }
 
 // appendAndFanOut writes new bytes into the run's ring buffer and
-// forwards them to every subscribed UI conn. Called on every log
-// message from the runner.
+// pushes a pre-serialized message to every subscribed UI conn's
+// channel. The push is non-blocking: if a UI's channel is full (slow
+// client), that conn is kicked immediately without affecting others.
 func (h *wsHub) appendAndFanOut(runID string, data []byte) {
 	if len(data) == 0 {
 		return
@@ -334,23 +346,29 @@ func (h *wsHub) appendAndFanOut(runID string, data []byte) {
 	rh.seq += int64(len(data))
 	rh.updated = time.Now().UTC()
 
-	uis := make([]*wsConn, len(rh.uis))
+	uis := make([]*uiConn, len(rh.uis))
 	copy(uis, rh.uis)
 	rh.mu.Unlock()
 
-	msg := wsMessage{Type: "log", Text: string(data)}
+	// Pre-serialize once, push to every UI channel.
+	b, err := json.Marshal(wsMessage{Type: "log", Text: string(data)})
+	if err != nil {
+		return
+	}
+
 	for _, ui := range uis {
-		if err := writeJSONMsg(ui, msg); err != nil {
-			// Close the conn; the UI's read loop will notice and
-			// unregister itself.
-			_ = ui.ws.Close(websocket.StatusInternalError, "slow ui write")
+		if !ui.send(b) {
+			// Channel full → kick this slow subscriber. The read loop
+			// in RegisterUI will notice the close and call unregisterUI.
+			ui.log.Debug("Kicking slow UI subscriber")
+			ui.kick()
 		}
 	}
 }
 
 // unregisterUI removes a UI conn from its run. If that drops the
 // subscriber count to 0, send stream_off to the runner.
-func (h *wsHub) unregisterUI(runID string, conn *wsConn) {
+func (h *wsHub) unregisterUI(runID string, conn *uiConn) {
 	h.mu.Lock()
 	rh, ok := h.runs[runID]
 	h.mu.Unlock()
@@ -368,7 +386,7 @@ func (h *wsHub) unregisterUI(runID string, conn *wsConn) {
 		}
 	}
 
-	var runnerForCmd *wsConn
+	var runnerForCmd *runnerConn
 
 	if len(rh.uis) == 0 && rh.runnerConn != nil && rh.streaming {
 		rh.streaming = false
@@ -379,14 +397,16 @@ func (h *wsHub) unregisterUI(runID string, conn *wsConn) {
 	rh.mu.Unlock()
 
 	if runnerForCmd != nil {
-		sendCommand(runnerForCmd, false)
+		sendRunnerCommand(runnerForCmd, false)
 	}
 }
 
-// sendCommand emits stream_on / stream_off to a runner conn. Errors
-// are logged and ignored; the read loop will unregister if the conn
-// is truly dead.
-func sendCommand(conn *wsConn, on bool) {
+// ── Runner conn helpers ──────────────────────────────────────────
+
+// sendRunnerCommand emits stream_on / stream_off to a runner conn.
+// Errors are logged and ignored; the read loop will notice if the
+// conn is truly dead.
+func sendRunnerCommand(conn *runnerConn, on bool) {
 	if conn == nil {
 		return
 	}
@@ -396,24 +416,93 @@ func sendCommand(conn *wsConn, on bool) {
 		msg.Type = "stream_on"
 	}
 
-	if err := writeJSONMsg(conn, msg); err != nil {
-		conn.log.WithError(err).Debug("Failed to send stream command")
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return
 	}
-}
 
-// writeJSONMsg serializes and sends a message with the write deadline
-// applied. Caller-safe across goroutines via the per-conn mutex.
-func writeJSONMsg(conn *wsConn, msg wsMessage) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), wsWriteDeadline)
 	defer cancel()
 
-	b, err := json.Marshal(msg)
-	if err != nil {
-		return err
+	if err := conn.ws.Write(ctx, websocket.MessageText, b); err != nil {
+		conn.log.WithError(err).Debug("Failed to send stream command")
+	}
+}
+
+// ── UI conn helpers ──────────────────────────────────────────────
+
+func newUIConn(ws *websocket.Conn, log logrus.FieldLogger) *uiConn {
+	c := &uiConn{
+		ws:     ws,
+		sendCh: make(chan []byte, uiSendChCapacity),
+		done:   make(chan struct{}),
+		log:    log,
 	}
 
-	return conn.ws.Write(ctx, websocket.MessageText, b)
+	go c.writeLoop()
+
+	return c
+}
+
+// writeLoop drains the send channel and writes to the WS. Exits on
+// channel close or write error.
+func (c *uiConn) writeLoop() {
+	defer close(c.done)
+
+	for msg := range c.sendCh {
+		ctx, cancel := context.WithTimeout(context.Background(), wsWriteDeadline)
+		err := c.ws.Write(ctx, websocket.MessageText, msg)
+		cancel()
+
+		if err != nil {
+			c.log.WithError(err).Debug("UI write failed, exiting writer")
+
+			return
+		}
+	}
+}
+
+// send pushes a pre-serialized message onto the channel. Returns false
+// if the channel is full (backpressure → caller should kick this conn).
+func (c *uiConn) send(msg []byte) bool {
+	select {
+	case c.sendCh <- msg:
+		return true
+	default:
+		return false
+	}
+}
+
+// kick force-closes the WS + channel without waiting for the writer
+// goroutine to drain. Used by appendAndFanOut to kick slow subscribers
+// without blocking the runner's read loop.
+func (c *uiConn) kick() {
+	c.closeOnce.Do(func() {
+		_ = c.ws.Close(websocket.StatusInternalError, "slow client")
+		close(c.sendCh)
+		// Don't wait — the writer goroutine exits on its own after the
+		// WS close makes its current write fail.
+	})
+}
+
+// drainAndClose lets the writer goroutine flush any buffered messages
+// (e.g. a run_ended frame), waits for it to exit, then closes the WS.
+// Used by DropRun where we want the client to see the final message
+// before the connection drops.
+func (c *uiConn) drainAndClose() {
+	c.closeOnce.Do(func() {
+		close(c.sendCh)
+		<-c.done
+		_ = c.ws.Close(websocket.StatusNormalClosure, "closed")
+	})
+}
+
+// awaitWriter blocks until the writer goroutine has exited. Call after
+// kick() in cleanup paths (e.g. RegisterUI return) to prevent
+// goroutine leaks.
+func (c *uiConn) awaitWriter() {
+	<-c.done
 }
