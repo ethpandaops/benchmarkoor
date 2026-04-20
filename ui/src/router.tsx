@@ -9,6 +9,7 @@ import { LoginPage } from '@/pages/LoginPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { ApiKeysPage } from '@/pages/ApiKeysPage'
 import { ComparePage } from '@/pages/ComparePage'
+import { CompareGroupsPage } from '@/pages/CompareGroupsPage'
 import { ApiDocsPage } from '@/pages/ApiDocsPage'
 import { QueryBuilderPage } from '@/pages/QueryBuilderPage'
 
@@ -78,6 +79,12 @@ const compareRoute = createRoute({
   component: ComparePage,
 })
 
+const compareGroupsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/compare/groups',
+  component: CompareGroupsPage,
+})
+
 const apiDocsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/api-docs',
@@ -101,6 +108,7 @@ const routeTree = rootRoute.addChildren([
   adminRoute,
   apiKeysRoute,
   compareRoute,
+  compareGroupsRoute,
   apiDocsRoute,
   queryRoute,
 ])
