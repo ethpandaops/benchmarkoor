@@ -121,7 +121,7 @@ export function ComparePage() {
       ? Math.min(parseInt(search.tableBase, 10) || 0, runIds.length - 1)
       : 'best'
 
-  const tableSortBy = (search.sort ?? 'order') as 'order' | 'name' | 'avgValue' | `run-${number}`
+  const tableSortBy = (search.sort ?? 'order') as 'order' | 'name' | 'gasUsed' | 'avgValue' | `run-${number}`
   const tableSortDir = (search.sortDir === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc'
   const diffFilter = (search.diffFilter === 'faster' || search.diffFilter === 'slower' ? search.diffFilter : 'all') as 'all' | 'faster' | 'slower'
   const testFilter = search.filter ?? ''
@@ -298,7 +298,7 @@ export function ComparePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <StickyRunBar runs={runs} sentinelRef={headerRef} labelMode={labelMode} onLabelModeChange={setLabelMode} testFilter={testFilter} testFilterRegex={testFilterRegex} onTestFilterChange={setTestFilter} onTestFilterRegexChange={setTestFilterRegex} />
+      <StickyRunBar runs={runs} sentinelRef={headerRef} labelMode={labelMode} onLabelModeChange={setLabelMode} testFilter={testFilter} testFilterRegex={testFilterRegex} onTestFilterChange={setTestFilter} onTestFilterRegexChange={setTestFilterRegex} availableGasBuckets={availableGasBuckets} selectedGasBuckets={selectedGasBuckets} onToggleGasBucket={toggleGasBucket} onClearGasBuckets={() => setGasBuckets(new Set())} />
 
       {/* Breadcrumb */}
       <div className="flex min-w-0 items-center gap-2 text-sm/6 text-gray-500 dark:text-gray-400">

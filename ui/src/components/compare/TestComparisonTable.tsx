@@ -21,13 +21,14 @@ interface TestComparisonTableProps {
   testNameFilter?: (name: string) => boolean
 }
 
-type SortColumn = 'order' | 'name' | 'avgValue' | `run-${number}`
+type SortColumn = 'order' | 'name' | 'gasUsed' | 'avgValue' | `run-${number}`
 type SortDirection = 'asc' | 'desc'
 type TableBaseline = 'best' | 'worst' | number
 
 interface ComparedTest {
   name: string
   order: number
+  gasUsed: number | undefined
   values: (number | undefined)[]
   avgValue: number | undefined
 }
@@ -198,7 +199,22 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
       const defined = values.filter((v): v is number => v !== undefined)
       const avgValue = defined.length > 0 ? defined.reduce((a, b) => a + b, 0) / defined.length : undefined
 
-      tests.push({ name, order, values, avgValue })
+      // Gas used from the first run that has this test (tests are the
+      // same across compared runs in normal usage). Used for the Gas
+      // column in the table.
+      let gasUsed: number | undefined
+      for (const run of runs) {
+        const entry = run.result?.tests[name]
+        if (entry) {
+          const stats = getAggregatedStats(entry, stepFilter)
+          if (stats) {
+            gasUsed = stats.gas_used_total
+            break
+          }
+        }
+      }
+
+      tests.push({ name, order, gasUsed, values, avgValue })
     }
     return tests
   }, [runs, suiteOrder, stepFilter, activeTab, blockLogsPerRun])
@@ -233,6 +249,9 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
             break
           case 'name':
             cmp = a.name.localeCompare(b.name)
+            break
+          case 'gasUsed':
+            cmp = (a.gasUsed ?? 0) - (b.gasUsed ?? 0)
             break
           case 'avgValue':
             cmp = (a.avgValue ?? 0) - (b.avgValue ?? 0)
@@ -329,6 +348,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
             <tr>
               <SortableHeader label="#" column="order" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="w-12 px-3 py-3" />
               <SortableHeader label="Test Name" column="name" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
+              <SortableHeader label="Gas" column="gasUsed" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
               <SortableHeader label="Avg" column="avgValue" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} className="px-4 py-3 text-right" />
               {runs.map((run, i) => {
                 const slot = RUN_SLOTS[run.index]
@@ -377,6 +397,9 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                   </td>
                   <td className="max-w-sm truncate px-4 py-2 text-sm/6 text-gray-900 dark:text-gray-100" title={test.name}>
                     {test.name}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2 text-right text-xs/5 text-gray-500 dark:text-gray-400">
+                    {test.gasUsed !== undefined ? `${Math.round(test.gasUsed / 1_000_000)}M` : '-'}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 text-right text-sm/6 text-gray-400 dark:text-gray-500">
                     {test.avgValue !== undefined ? activeMetric.format(test.avgValue) : '-'}

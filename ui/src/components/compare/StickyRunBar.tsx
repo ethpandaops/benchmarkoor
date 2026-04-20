@@ -13,9 +13,14 @@ interface StickyRunBarProps {
   testFilterRegex: boolean
   onTestFilterChange: (query: string) => void
   onTestFilterRegexChange: (enabled: boolean) => void
+  /** Gas-bucket filter state for the second row */
+  availableGasBuckets: number[]
+  selectedGasBuckets: Set<number>
+  onToggleGasBucket: (bucket: number) => void
+  onClearGasBuckets: () => void
 }
 
-export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, testFilter, testFilterRegex, onTestFilterChange, onTestFilterRegexChange }: StickyRunBarProps) {
+export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, testFilter, testFilterRegex, onTestFilterChange, onTestFilterRegexChange, availableGasBuckets, selectedGasBuckets, onToggleGasBucket, onClearGasBuckets }: StickyRunBarProps) {
   const [visible, setVisible] = useState(false)
   const observerRef = useRef<IntersectionObserver | null>(null)
 
@@ -36,7 +41,8 @@ export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, 
 
   return (
     <div className="fixed top-0 right-0 left-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95">
-      <div className="mx-auto flex max-w-7xl items-center justify-center gap-4 px-4 py-2">
+      <div className="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-2">
+      <div className="flex items-center justify-center gap-4">
         {runs.map((run) => {
           const slot = RUN_SLOTS[run.index]
           return (
@@ -64,7 +70,10 @@ export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, 
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">
+      </div>
+      {/* Filter + gas bucket row */}
+      <div className="flex items-center justify-center gap-4 text-xs/5 text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-1.5">
           <span>Filter:</span>
           <FilterInput
             placeholder={testFilterRegex ? 'Regex...' : 'Filter...'}
@@ -90,6 +99,37 @@ export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, 
             .*
           </button>
         </div>
+        {availableGasBuckets.length > 1 && (
+          <div className="flex items-center gap-1.5">
+            <span>Gas:</span>
+            <div className="flex flex-wrap gap-1">
+              <button
+                onClick={onClearGasBuckets}
+                className={`rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
+                  selectedGasBuckets.size === 0
+                    ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                }`}
+              >
+                All
+              </button>
+              {availableGasBuckets.map((bucket) => (
+                <button
+                  key={bucket}
+                  onClick={() => onToggleGasBucket(bucket)}
+                  className={`rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
+                    selectedGasBuckets.has(bucket)
+                      ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {Math.round(bucket / 1_000_000)}M
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
       </div>
     </div>
   )
