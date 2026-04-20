@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
@@ -326,6 +326,21 @@ export function CompareGroupsPage() {
 
   const hasResults = syntheticRuns.length >= 2 && syntheticRuns.every((r) => r.result !== null)
 
+  // ─── Sticky bar ────────────────────────────────────────────────
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const [stickyVisible, setStickyVisible] = useState(false)
+
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => setStickyVisible(!entry.isIntersecting),
+      { threshold: 0 },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   // ─── Test detail modal ─────────────────────────────────────────
   const [selectedTest, setSelectedTest] = useState<string | null>(null)
 
@@ -375,7 +390,8 @@ export function CompareGroupsPage() {
         <span className="shrink-0 text-gray-900 dark:text-gray-100">Group Compare</span>
       </div>
 
-      {/* Group Builder */}
+      {/* Group Builder (sentinel for sticky bar) */}
+      <div ref={sentinelRef}>
       <GroupBuilder
         availableSuites={availableSuites}
         selectedSuite={suiteHash}
@@ -392,6 +408,96 @@ export function CompareGroupsPage() {
         groupRunCounts={groupRuns.map((ids) => ids.length)}
         groupMatchedRuns={groupMatchedEntries}
       />
+      </div>
+
+      {/* Sticky bar — appears when the group builder scrolls out of view */}
+      {stickyVisible && hasResults && (
+        <div className="fixed top-0 right-0 left-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95">
+          <div className="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-2">
+            <div className="flex items-center justify-center gap-4">
+              {groups.map((group, gi) => {
+                const metaStr = Object.entries(group.metadata).map(([k, v]) => `${k}=${v}`).join(', ')
+                return (
+                  <span key={gi} className="inline-flex items-center gap-1.5 rounded-sm bg-gray-100 px-2 py-0.5 text-xs/5 font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                    <img src={`/img/clients/${group.client}.jpg`} alt={group.client} className="size-3.5 rounded-full object-cover" />
+                    {metaStr || group.client}
+                  </span>
+                )
+              })}
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                {aggMode === 'avg' ? 'Average' : 'Median'} of {sampleSize}
+              </span>
+            </div>
+            <div className="flex items-center justify-center gap-4 text-xs/5 text-gray-500 dark:text-gray-400">
+              <div className="flex items-center gap-1.5">
+                <span>Filter:</span>
+                <input
+                  type="text"
+                  placeholder={testFilterRegex ? 'Regex...' : 'Filter...'}
+                  value={testFilter}
+                  onChange={(e) => updateSearch({ filter: e.target.value || undefined })}
+                  className={clsx(
+                    'w-36 rounded-xs border bg-white px-2 py-0.5 text-xs/5 placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
+                    'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
+                  )}
+                />
+                <button
+                  onClick={() => updateSearch({ filterRegex: testFilterRegex ? undefined : '1' })}
+                  title={testFilterRegex ? 'Regex mode' : 'Text mode'}
+                  className={clsx(
+                    'rounded-xs px-1 py-0.5 font-mono text-xs/5 transition-colors',
+                    testFilterRegex
+                      ? 'bg-blue-500 text-white'
+                      : 'border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                  )}
+                >
+                  .*
+                </button>
+              </div>
+              {availableGasBuckets.length > 1 && (
+                <div className="flex items-center gap-1.5">
+                  <span>Gas:</span>
+                  <div className="flex flex-wrap gap-1">
+                    <button
+                      onClick={() => updateSearch({ gasBuckets: undefined })}
+                      className={clsx(
+                        'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                        selectedGasBuckets.size === 0
+                          ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                      )}
+                    >
+                      All
+                    </button>
+                    {availableGasBuckets.map((bucket) => {
+                      const isSelected = selectedGasBuckets.has(bucket)
+                      return (
+                        <button
+                          key={bucket}
+                          onClick={() => {
+                            const next = new Set(selectedGasBuckets)
+                            if (isSelected) next.delete(bucket); else next.add(bucket)
+                            const sorted = [...next].sort((a, b) => a - b)
+                            updateSearch({ gasBuckets: sorted.length > 0 ? sorted.map((v) => String(v / 1_000_000)).join(',') : undefined })
+                          }}
+                          className={clsx(
+                            'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                            isSelected
+                              ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                          )}
+                        >
+                          {Math.round(bucket / 1_000_000)}M
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {isLoading && allRunIds.length > 0 && (
         <LoadingState message={`Loading results for ${allRunIds.length} runs across ${groups.length} groups...`} />
