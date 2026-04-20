@@ -19,6 +19,8 @@ interface TestComparisonTableProps {
   sortDir: SortDirection
   onSortChange: (column: SortColumn, direction: SortDirection) => void
   testNameFilter?: (name: string) => boolean
+  /** When provided, clicking a row calls this with the test name (for opening a detail modal). */
+  onTestClick?: (testName: string) => void
 }
 
 type SortColumn = 'order' | 'name' | 'gasUsed' | 'avgValue' | `run-${number}`
@@ -131,7 +133,7 @@ function SortableHeader({
 
 const PAGE_SIZE = 50
 
-export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun, labelMode, tableBaseline, onTableBaselineChange, sortBy, sortDir, onSortChange, testNameFilter }: TestComparisonTableProps) {
+export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun, labelMode, tableBaseline, onTableBaselineChange, sortBy, sortDir, onSortChange, testNameFilter, onTestClick }: TestComparisonTableProps) {
   const [activeTab, setActiveTab] = useState('mgas')
   const [currentPage, setCurrentPage] = useState(1)
 
@@ -391,7 +393,11 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
               }
 
               return (
-                <tr key={test.name} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                <tr
+                  key={test.name}
+                  className={clsx('hover:bg-gray-50 dark:hover:bg-gray-700/50', onTestClick && 'cursor-pointer')}
+                  onClick={onTestClick ? () => onTestClick(test.name) : undefined}
+                >
                   <td className="whitespace-nowrap px-3 py-2 text-center text-xs/5 text-gray-400 dark:text-gray-500">
                     {test.order || '-'}
                   </td>

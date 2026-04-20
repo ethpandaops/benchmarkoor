@@ -18,6 +18,7 @@ import { ResourceComparisonCharts } from '@/components/compare/ResourceCompariso
 import { GroupBuilder } from '@/components/compare/GroupBuilder'
 import { type GroupDef, parseGroupsParam, encodeGroupsParam } from '@/components/compare/groupUtils'
 import { averageResults } from '@/utils/averageResults'
+import { TestDetailModal } from '@/components/compare/TestDetailModal'
 
 function parseStepFilter(param: string | undefined): StepTypeOption[] {
   if (!param) return DEFAULT_STEP_FILTER
@@ -325,6 +326,31 @@ export function CompareGroupsPage() {
 
   const hasResults = syntheticRuns.length >= 2 && syntheticRuns.every((r) => r.result !== null)
 
+  // ─── Test detail modal ─────────────────────────────────────────
+  const [selectedTest, setSelectedTest] = useState<string | null>(null)
+
+  // Per-group individual results (not averaged) for the detail modal.
+  const groupResultsForModal = useMemo(() => {
+    if (!selectedTest) return []
+    let offset = 0
+    return groups.map((_, gi) => {
+      const runIds = groupRuns[gi] ?? []
+      const results: RunResult[] = []
+      for (let ri = 0; ri < runIds.length; ri++) {
+        const r = resultQueries[offset + ri]?.data
+        if (r) results.push(r)
+      }
+      offset += runIds.length
+      return results
+    })
+  }, [selectedTest, groups, groupRuns, resultQueries])
+
+  const groupTimestampsForModal = useMemo(() => {
+    return groupMatchedEntries.map((entries) =>
+      entries.slice(0, sampleSize).map((e) => e.timestamp),
+    )
+  }, [groupMatchedEntries, sampleSize])
+
   return (
     <div className="flex flex-col gap-6">
       {/* Breadcrumb */}
@@ -550,6 +576,7 @@ export function CompareGroupsPage() {
             sortDir={tableSortDir}
             onSortChange={(col, dir) => updateSearch({ sort: col === 'order' ? undefined : col, sortDir: dir === 'asc' ? undefined : dir })}
             testNameFilter={testNameFilter}
+            onTestClick={setSelectedTest}
           />
         </>
       )}
@@ -558,6 +585,21 @@ export function CompareGroupsPage() {
         <div className="rounded-sm bg-yellow-50 p-4 text-sm/6 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300">
           Not enough result data to compare. Make sure the selected runs have completed with results.
         </div>
+      )}
+
+      {/* Test detail modal — shows per-run breakdown for a single test */}
+      {selectedTest && (
+        <TestDetailModal
+          testName={selectedTest}
+          testOrder={suite?.tests ? suite.tests.findIndex((t) => t.name === selectedTest) + 1 : undefined}
+          groups={groups}
+          groupResults={groupResultsForModal}
+          groupTimestamps={groupTimestampsForModal}
+          groupRunIds={groupRuns}
+          stepFilter={stepFilter}
+          sampleSize={sampleSize}
+          onClose={() => setSelectedTest(null)}
+        />
       )}
     </div>
   )
