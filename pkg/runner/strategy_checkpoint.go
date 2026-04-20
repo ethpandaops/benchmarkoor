@@ -104,7 +104,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		stopStart := time.Now()
 
-		if err := r.containerMgr.StopContainer(ctx, containerID); err != nil {
+		if err := r.containerMgr.StopContainer(ctx, containerID, nil); err != nil {
 			return nil, fmt.Errorf("stopping container before checkpoint restart: %w", err)
 		}
 

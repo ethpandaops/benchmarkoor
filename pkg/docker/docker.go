@@ -33,7 +33,11 @@ type ContainerManager interface {
 	// Container operations.
 	CreateContainer(ctx context.Context, spec *ContainerSpec) (string, error)
 	StartContainer(ctx context.Context, containerID string) error
-	StopContainer(ctx context.Context, containerID string) error
+	// StopContainer sends SIGTERM and waits up to timeoutSec for a
+	// graceful exit before falling back to SIGKILL. Use a generous
+	// timeout when data integrity matters (e.g. ZFS snapshot after
+	// pre-run steps). Passing nil uses the daemon's default (10 s).
+	StopContainer(ctx context.Context, containerID string, timeoutSec *int) error
 	RemoveContainer(ctx context.Context, containerID string) error
 
 	// Init container support.
@@ -304,13 +308,28 @@ func (m *manager) StartContainer(ctx context.Context, containerID string) error 
 	return nil
 }
 
+// DefaultStopTimeoutSec is the SIGTERM grace period before SIGKILL
+// when no explicit timeout is passed to StopContainer.
+const DefaultStopTimeoutSec = 60
+
 // StopContainer stops a container.
-func (m *manager) StopContainer(ctx context.Context, containerID string) error {
-	if err := m.client.ContainerStop(ctx, containerID, container.StopOptions{}); err != nil {
+func (m *manager) StopContainer(ctx context.Context, containerID string, timeoutSec *int) error {
+	t := timeoutSec
+	if t == nil {
+		d := DefaultStopTimeoutSec
+		t = &d
+	}
+
+	if err := m.client.ContainerStop(ctx, containerID, container.StopOptions{
+		Timeout: t,
+	}); err != nil {
 		return fmt.Errorf("stopping container %s: %w", containerID[:12], err)
 	}
 
-	m.log.WithField("id", containerID[:12]).Debug("Stopped container")
+	m.log.WithFields(logrus.Fields{
+		"id":      containerID[:12],
+		"timeout": *t,
+	}).Debug("Stopped container")
 
 	return nil
 }

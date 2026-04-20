@@ -758,7 +758,7 @@ func (r *runner) runContainerLifecycle(
 		stopStart := time.Now()
 
 		if stopErr := r.containerMgr.StopContainer(
-			stopCtx, containerID,
+			stopCtx, containerID, nil,
 		); stopErr != nil {
 			log.WithError(stopErr).Debug("Failed to stop container")
 		}

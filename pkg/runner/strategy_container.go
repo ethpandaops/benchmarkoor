@@ -106,7 +106,7 @@ func (r *runner) runTestsWithContainerStrategy(
 
 		stopStart := time.Now()
 
-		if err := r.containerMgr.StopContainer(ctx, containerID); err != nil {
+		if err := r.containerMgr.StopContainer(ctx, containerID, nil); err != nil {
 			return nil, fmt.Errorf("stopping container for ZFS snapshot: %w", err)
 		}
 
@@ -213,7 +213,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			stopStart := time.Now()
 
 			if err := r.containerMgr.StopContainer(
-				stopCtx, currentContainerID,
+				stopCtx, currentContainerID, nil,
 			); err != nil {
 				log.WithError(err).Debug(
 					"Failed to stop container on cancellation",
@@ -498,7 +498,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			stopStart := time.Now()
 
 			if err := r.containerMgr.StopContainer(
-				ctx, currentContainerID,
+				ctx, currentContainerID, nil,
 			); err != nil {
 				testLog.WithError(err).Warn("Failed to stop container")
 			}
@@ -797,7 +797,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			stopStart := time.Now()
 
 			if stopErr := r.containerMgr.StopContainer(
-				stopCtx, currentContainerID,
+				stopCtx, currentContainerID, nil,
 			); stopErr != nil {
 				log.WithError(stopErr).Debug(
 					"Failed to stop container after death/interruption",

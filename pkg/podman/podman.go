@@ -299,11 +299,20 @@ func (m *manager) StartContainer(ctx context.Context, containerID string) error 
 }
 
 // StopContainer stops a container.
-func (m *manager) StopContainer(ctx context.Context, containerID string) error {
+func (m *manager) StopContainer(ctx context.Context, containerID string, timeoutSec *int) error {
 	conn, cancel := m.connWithCtx(ctx)
 	defer cancel()
 
-	if err := containers.Stop(conn, containerID, nil); err != nil {
+	var opts *containers.StopOptions
+	if timeoutSec != nil {
+		t := uint(*timeoutSec)
+		opts = new(containers.StopOptions).WithTimeout(t)
+	} else {
+		t := uint(docker.DefaultStopTimeoutSec)
+		opts = new(containers.StopOptions).WithTimeout(t)
+	}
+
+	if err := containers.Stop(conn, containerID, opts); err != nil {
 		return fmt.Errorf("stopping container %s: %w", containerID[:12], err)
 	}
 
