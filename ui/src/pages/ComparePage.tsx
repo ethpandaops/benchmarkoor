@@ -44,6 +44,7 @@ export function ComparePage() {
     diffFilter?: string
     filter?: string
     filterRegex?: string
+    gasBuckets?: string
   }
 
   // Backward-compat redirect: ?a=X&b=Y → ?runs=X,Y
@@ -129,27 +130,83 @@ export function ComparePage() {
   const [chartZoom, setChartZoom] = useState({ start: 0, end: 100 })
   const [chartType, setChartType] = useState<ChartType>('line')
 
-  const testNameFilter = useMemo(() => {
-    if (!testFilter) return undefined
-    if (testFilterRegex) {
-      try {
-        const re = new RegExp(testFilter, 'i')
-        return (name: string) => re.test(name)
-      } catch {
-        return undefined
+  // ─── Gas bucket filter ─────────────────────────────────────────
+  // Parse the currently-selected gas buckets from the URL. Empty set
+  // means "show all" (no filtering). Values are in millions (e.g.
+  // "30,60" means the 30M and 60M buckets).
+  const GAS_BUCKET_STEP = 30_000_000 // 30M gas per bucket
+
+  const selectedGasBuckets = useMemo(() => {
+    if (!search.gasBuckets) return new Set<number>()
+    return new Set(
+      search.gasBuckets.split(',').map((s) => parseInt(s, 10) * 1_000_000).filter((n) => !isNaN(n)),
+    )
+  }, [search.gasBuckets])
+
+  // Compute per-test gas used from the first run that has results.
+  // Used both for the available-buckets list and for the filter.
+  const testGasMap = useMemo(() => {
+    const map = new Map<string, number>()
+    // Use the first result that's loaded — tests are typically the
+    // same across compared runs (same suite).
+    const result = resultQueries.find((q) => q.data)?.data
+    if (!result) return map
+    for (const [name, entry] of Object.entries(result.tests)) {
+      const step = entry.steps?.test
+      if (step) {
+        map.set(name, step.aggregated.gas_used_total)
       }
     }
-    const q = testFilter.toLowerCase()
-    return (name: string) => name.toLowerCase().includes(q)
-  }, [testFilter, testFilterRegex])
+    return map
+  }, [resultQueries])
+
+  // Available gas buckets sorted ascending. Shown as chips.
+  const availableGasBuckets = useMemo(() => {
+    const buckets = new Set<number>()
+    for (const gas of testGasMap.values()) {
+      buckets.add(Math.round(gas / GAS_BUCKET_STEP) * GAS_BUCKET_STEP)
+    }
+    return [...buckets].sort((a, b) => a - b)
+  }, [testGasMap, GAS_BUCKET_STEP])
+
+  const testNameFilter = useMemo(() => {
+    // Combine text/regex filter with gas-bucket filter.
+    const textFn = (() => {
+      if (!testFilter) return undefined
+      if (testFilterRegex) {
+        try {
+          const re = new RegExp(testFilter, 'i')
+          return (name: string) => re.test(name)
+        } catch {
+          return undefined
+        }
+      }
+      const q = testFilter.toLowerCase()
+      return (name: string) => name.toLowerCase().includes(q)
+    })()
+
+    const gasFn = selectedGasBuckets.size > 0
+      ? (name: string) => {
+          const gas = testGasMap.get(name)
+          if (gas === undefined) return false
+          const bucket = Math.round(gas / GAS_BUCKET_STEP) * GAS_BUCKET_STEP
+          return selectedGasBuckets.has(bucket)
+        }
+      : undefined
+
+    if (!textFn && !gasFn) return undefined
+    if (textFn && !gasFn) return textFn
+    if (!textFn && gasFn) return gasFn
+    return (name: string) => textFn!(name) && gasFn!(name)
+  }, [testFilter, testFilterRegex, selectedGasBuckets, testGasMap, GAS_BUCKET_STEP])
 
   const updateSearch = useCallback((patch: Record<string, string | undefined>) => {
     navigate({
       to: '/compare',
-      search: { runs: search.runs, steps: search.steps, baseline: search.baseline, labels: search.labels, tableBase: search.tableBase, sort: search.sort, sortDir: search.sortDir, diffFilter: search.diffFilter, filter: search.filter, filterRegex: search.filterRegex, ...patch },
+      search: { runs: search.runs, steps: search.steps, baseline: search.baseline, labels: search.labels, tableBase: search.tableBase, sort: search.sort, sortDir: search.sortDir, diffFilter: search.diffFilter, filter: search.filter, filterRegex: search.filterRegex, gasBuckets: search.gasBuckets, ...patch },
       replace: true,
     })
-  }, [navigate, search.runs, search.steps, search.baseline, search.labels, search.tableBase, search.sort, search.sortDir, search.diffFilter, search.filter, search.filterRegex])
+  }, [navigate, search.runs, search.steps, search.baseline, search.labels, search.tableBase, search.sort, search.sortDir, search.diffFilter, search.filter, search.filterRegex, search.gasBuckets])
 
   const setBaselineIdx = useCallback((idx: number) => {
     updateSearch({ baseline: idx > 0 ? String(idx) : undefined })
@@ -172,6 +229,31 @@ export function ComparePage() {
   const setTestFilterRegex = useCallback((enabled: boolean) => {
     updateSearch({ filterRegex: enabled ? '1' : undefined })
   }, [updateSearch])
+
+  const setGasBuckets = useCallback(
+    (buckets: Set<number>) => {
+      if (buckets.size === 0) {
+        updateSearch({ gasBuckets: undefined })
+      } else {
+        const sorted = [...buckets].sort((a, b) => a - b)
+        updateSearch({ gasBuckets: sorted.map((v) => String(v / 1_000_000)).join(',') })
+      }
+    },
+    [updateSearch],
+  )
+
+  const toggleGasBucket = useCallback(
+    (bucket: number) => {
+      const next = new Set(selectedGasBuckets)
+      if (next.has(bucket)) {
+        next.delete(bucket)
+      } else {
+        next.add(bucket)
+      }
+      setGasBuckets(next)
+    },
+    [selectedGasBuckets, setGasBuckets],
+  )
 
   // Handle backward-compat redirect in progress
   if (search.a && search.b && !search.runs) {
@@ -316,6 +398,36 @@ export function ComparePage() {
             .*
           </button>
         </div>
+        {availableGasBuckets.length > 1 && (
+          <div className="flex items-center gap-1.5">
+            <span>Gas:</span>
+            <div className="flex flex-wrap gap-1">
+              <button
+                onClick={() => setGasBuckets(new Set())}
+                className={`rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
+                  selectedGasBuckets.size === 0
+                    ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                }`}
+              >
+                All
+              </button>
+              {availableGasBuckets.map((bucket) => (
+                <button
+                  key={bucket}
+                  onClick={() => toggleGasBucket(bucket)}
+                  className={`rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors ${
+                    selectedGasBuckets.has(bucket)
+                      ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {Math.round(bucket / 1_000_000)}M
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {suiteMismatch && (
@@ -336,7 +448,7 @@ export function ComparePage() {
         }} />
       </div>
 
-      <MetricsComparison runs={runs} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} />
+      <MetricsComparison runs={runs} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} testNameFilter={testNameFilter} />
 
       {allResults && (
         <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} labelMode={labelMode} testNameFilter={testNameFilter} zoomRange={sharedZoom ? chartZoom : undefined} onZoomChange={sharedZoom ? setChartZoom : undefined} chartType={chartType} />

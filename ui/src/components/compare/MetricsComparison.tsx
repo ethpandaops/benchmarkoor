@@ -12,6 +12,7 @@ interface MetricsComparisonProps {
   baselineIdx: number
   onBaselineChange: (idx: number) => void
   labelMode: LabelMode
+  testNameFilter?: (name: string) => boolean
 }
 
 interface ComputedMetrics {
@@ -26,14 +27,22 @@ interface ComputedMetrics {
   totalRuntime: number | undefined
 }
 
-function computeMetrics(config: RunConfig, result: RunResult | null, stepFilter: StepTypeOption[]): ComputedMetrics {
-  const aggregatedStats = result
-    ? Object.values(result.tests).map((t) => getAggregatedStats(t, stepFilter)).filter((s): s is AggregatedStats => s !== undefined)
+function computeMetrics(config: RunConfig, result: RunResult | null, stepFilter: StepTypeOption[], testNameFilter?: (name: string) => boolean): ComputedMetrics {
+  const filteredTests = result
+    ? Object.entries(result.tests).filter(([name]) => !testNameFilter || testNameFilter(name))
     : []
 
-  const testCount = config.test_counts?.total ?? (result ? Object.keys(result.tests).length : 0)
-  const passedTests = config.test_counts?.passed ?? aggregatedStats.filter((s) => s.fail === 0).length
-  const failedTests = config.test_counts ? (config.test_counts.total - config.test_counts.passed) : aggregatedStats.filter((s) => s.fail > 0).length
+  const aggregatedStats = filteredTests
+    .map(([, t]) => getAggregatedStats(t, stepFilter))
+    .filter((s): s is AggregatedStats => s !== undefined)
+
+  const testCount = testNameFilter
+    ? filteredTests.length
+    : (config.test_counts?.total ?? (result ? Object.keys(result.tests).length : 0))
+  const passedTests = testNameFilter
+    ? aggregatedStats.filter((s) => s.fail === 0).length
+    : (config.test_counts?.passed ?? aggregatedStats.filter((s) => s.fail === 0).length)
+  const failedTests = testCount - passedTests
   const totalDuration = aggregatedStats.reduce((sum, s) => sum + s.time_total, 0)
   const totalGasUsed = aggregatedStats.reduce((sum, s) => sum + s.gas_used_total, 0)
   const totalGasUsedTime = aggregatedStats.reduce((sum, s) => sum + s.gas_used_time_total, 0)
@@ -149,8 +158,8 @@ function MetricCard({
   )
 }
 
-export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineChange, labelMode }: MetricsComparisonProps) {
-  const metrics = runs.map((r) => computeMetrics(r.config, r.result, stepFilter))
+export function MetricsComparison({ runs, stepFilter, baselineIdx, onBaselineChange, labelMode, testNameFilter }: MetricsComparisonProps) {
+  const metrics = runs.map((r) => computeMetrics(r.config, r.result, stepFilter, testNameFilter))
   const clients = runs.map((r) => r.config.instance.client)
   const runLabels = runs.map((r) => formatRunLabel(RUN_SLOTS[r.index], r, labelMode))
   const base = metrics[baselineIdx]
