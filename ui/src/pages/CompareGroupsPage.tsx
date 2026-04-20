@@ -177,7 +177,9 @@ export function CompareGroupsPage() {
       const metaStr = Object.entries(groups[gi].metadata)
         .map(([k, v]) => `${k}=${v}`)
         .join(', ')
-      const label = metaStr ? `${groups[gi].client} (${metaStr})` : groups[gi].client
+      // Client name is omitted since the logo image already identifies
+      // it. Show only the metadata filters, or a generic "default" if none.
+      const label = metaStr || 'default'
 
       const synConfig: RunConfig = {
         ...config,
