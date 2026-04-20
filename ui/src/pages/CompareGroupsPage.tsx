@@ -14,6 +14,7 @@ import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
 import { PercentageDiffChart } from '@/components/compare/PercentageDiffChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
+import { ResourceComparisonCharts } from '@/components/compare/ResourceComparisonCharts'
 import { GroupBuilder } from '@/components/compare/GroupBuilder'
 import { type GroupDef, parseGroupsParam, encodeGroupsParam } from '@/components/compare/groupUtils'
 import { averageResults } from '@/utils/averageResults'
@@ -515,6 +516,16 @@ export function CompareGroupsPage() {
             diffFilter="all"
             onDiffFilterChange={() => {}}
             testNameFilter={testNameFilter}
+            zoomRange={sharedZoom ? chartZoom : undefined}
+            onZoomChange={sharedZoom ? setChartZoom : undefined}
+            chartType={chartType}
+          />
+
+          <ResourceComparisonCharts
+            runs={syntheticRuns}
+            labelMode="instance-id"
+            testNameFilter={testNameFilter}
+            suiteTests={suite?.tests}
             zoomRange={sharedZoom ? chartZoom : undefined}
             onZoomChange={sharedZoom ? setChartZoom : undefined}
             chartType={chartType}

@@ -1,4 +1,4 @@
-import type { RunResult, AggregatedStats, TestEntry } from '@/api/types'
+import type { RunResult, AggregatedStats, TestEntry, ResourceTotals } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 
 export interface AveragedResult {
@@ -37,6 +37,13 @@ export function averageResults(
       success: number[]
       fail: number[]
       msgCount: number[]
+      cpuUsec: number[]
+      memoryDeltaBytes: number[]
+      memoryBytes: number[]
+      diskReadBytes: number[]
+      diskWriteBytes: number[]
+      diskReadIops: number[]
+      diskWriteIops: number[]
     }
   >()
 
@@ -54,6 +61,13 @@ export function averageResults(
           success: [],
           fail: [],
           msgCount: [],
+          cpuUsec: [],
+          memoryDeltaBytes: [],
+          memoryBytes: [],
+          diskReadBytes: [],
+          diskWriteBytes: [],
+          diskReadIops: [],
+          diskWriteIops: [],
         }
         testSamples.set(name, samples)
       }
@@ -64,6 +78,23 @@ export function averageResults(
       samples.success.push(stats.success)
       samples.fail.push(stats.fail)
       samples.msgCount.push(stats.msg_count)
+
+      // getAggregatedStats doesn't include resource_totals in its
+      // return value, so read it directly from the step entries.
+      for (const stepKey of stepFilter) {
+        const step = entry.steps?.[stepKey]
+        const r = step?.aggregated?.resource_totals
+        if (r) {
+          samples.cpuUsec.push(r.cpu_usec ?? 0)
+          samples.memoryDeltaBytes.push(r.memory_delta_bytes ?? 0)
+          samples.memoryBytes.push(r.memory_bytes ?? 0)
+          samples.diskReadBytes.push(r.disk_read_bytes ?? 0)
+          samples.diskWriteBytes.push(r.disk_write_bytes ?? 0)
+          samples.diskReadIops.push(r.disk_read_iops ?? 0)
+          samples.diskWriteIops.push(r.disk_write_iops ?? 0)
+          break // one step's resource data per test is enough
+        }
+      }
     }
   }
 
@@ -76,6 +107,20 @@ export function averageResults(
     const gasUsedTotal = agg(samples.gasUsedTotal)
     const gasUsedTimeTotal = agg(samples.gasUsedTimeTotal)
 
+    // Build resource_totals if we have samples for it.
+    let resource_totals: ResourceTotals | undefined
+    if (samples.cpuUsec.length > 0) {
+      resource_totals = {
+        cpu_usec: agg(samples.cpuUsec),
+        memory_delta_bytes: agg(samples.memoryDeltaBytes),
+        memory_bytes: agg(samples.memoryBytes),
+        disk_read_bytes: agg(samples.diskReadBytes),
+        disk_write_bytes: agg(samples.diskWriteBytes),
+        disk_read_iops: agg(samples.diskReadIops),
+        disk_write_iops: agg(samples.diskWriteIops),
+      }
+    }
+
     const aggregated: AggregatedStats = {
       gas_used_total: gasUsedTotal,
       gas_used_time_total: gasUsedTimeTotal,
@@ -84,6 +129,7 @@ export function averageResults(
       fail: Math.round(agg(samples.fail)),
       msg_count: Math.round(agg(samples.msgCount)),
       method_stats: { times: {}, mgas_s: {} },
+      resource_totals,
     }
 
     // Build the TestEntry with the active step populated.
