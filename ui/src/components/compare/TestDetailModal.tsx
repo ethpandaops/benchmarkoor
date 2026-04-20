@@ -39,6 +39,15 @@ export function TestDetailModal({
 }: TestDetailModalProps) {
   const SLOT_COLORS = ['text-blue-700 dark:text-blue-300', 'text-orange-700 dark:text-orange-300', 'text-purple-700 dark:text-purple-300', 'text-green-700 dark:text-green-300', 'text-red-700 dark:text-red-300']
 
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
+  const toggleGroupExpand = (gi: number) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(gi)) next.delete(gi); else next.add(gi)
+      return next
+    })
+  }
+
   type SortKey = 'run' | 'mgas' | 'gasUsed' | 'duration'
   const [sortKey, setSortKey] = useState<SortKey>('run')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -174,8 +183,16 @@ export function TestDetailModal({
                   </div>
                 )}
 
-                {/* Per-run table */}
-                <table className="w-full text-xs">
+                {/* Per-run table (collapsed by default) */}
+                <button
+                  type="button"
+                  onClick={() => toggleGroupExpand(gi)}
+                  className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  <span className={clsx('transition-transform', expandedGroups.has(gi) && 'rotate-90')}>▶</span>
+                  {expandedGroups.has(gi) ? 'Hide' : 'Show'} individual runs ({group.runs.length})
+                </button>
+                {expandedGroups.has(gi) && <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
                       <SortableHeader label="Run" sortKey="run" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="left" />
@@ -213,7 +230,7 @@ export function TestDetailModal({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table>}
 
               </div>
             ))}
