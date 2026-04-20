@@ -97,11 +97,13 @@ export function CompareGroupsPage() {
 
   // ─── Run selection from the index ──────────────────────────────
   // For each group, find the latest N runs matching the criteria.
-  const groupRuns = useMemo(() => {
+  // All matched entries per group (sorted newest-first, NOT truncated
+  // to sample size). Used for the run-boxes display in the builder.
+  const groupMatchedEntries = useMemo(() => {
     if (!index || !suiteHash || groups.length === 0) return []
 
-    return groups.map((group) => {
-      const matching = index.entries
+    return groups.map((group) =>
+      index.entries
         .filter((e) => {
           if (e.suite_hash !== suiteHash) return false
           if (e.instance.client !== group.client) return false
@@ -110,12 +112,15 @@ export function CompareGroupsPage() {
           }
           return true
         })
-        .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
-        .slice(0, sampleSize)
+        .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)),
+    )
+  }, [index, suiteHash, groups])
 
-      return matching.map((e) => e.run_id)
-    })
-  }, [index, suiteHash, groups, sampleSize])
+  // Run IDs used for data fetching (truncated to sample size).
+  const groupRuns = useMemo(
+    () => groupMatchedEntries.map((entries) => entries.slice(0, sampleSize).map((e) => e.run_id)),
+    [groupMatchedEntries, sampleSize],
+  )
 
   // Flatten all run IDs for batch fetching.
   const allRunIds = useMemo(() => groupRuns.flat(), [groupRuns])
@@ -359,6 +364,7 @@ export function CompareGroupsPage() {
         aggMode={aggMode}
         onAggModeChange={setAggMode}
         groupRunCounts={groupRuns.map((ids) => ids.length)}
+        groupMatchedRuns={groupMatchedEntries}
       />
 
       {isLoading && allRunIds.length > 0 && (

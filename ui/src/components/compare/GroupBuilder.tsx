@@ -1,6 +1,10 @@
+import { useState } from 'react'
 import clsx from 'clsx'
 import { Plus, Trash2 } from 'lucide-react'
 import { JDenticon } from '@/components/shared/JDenticon'
+import { type IndexEntry, getIndexAggregatedStats } from '@/api/types'
+import { formatTimestamp } from '@/utils/date'
+import { formatDuration } from '@/utils/format'
 import type { GroupDef } from './groupUtils'
 
 // ── Props ────────────────────────────────────────────────────────
@@ -19,6 +23,8 @@ interface GroupBuilderProps {
   aggMode: 'avg' | 'median'
   onAggModeChange: (mode: 'avg' | 'median') => void
   groupRunCounts: number[]
+  /** Matched index entries per group (sorted newest-first, full list before sample-size truncation). */
+  groupMatchedRuns: IndexEntry[][]
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -37,6 +43,7 @@ export function GroupBuilder({
   aggMode,
   onAggModeChange,
   groupRunCounts,
+  groupMatchedRuns,
 }: GroupBuilderProps) {
   const addGroup = () => {
     const nextClient = availableClients.find((c) => !groups.some((g) => g.client === c)) ?? availableClients[0] ?? ''
@@ -130,6 +137,7 @@ export function GroupBuilder({
               availableMetadataKeys={availableMetadataKeys}
               runCount={groupRunCounts[idx] ?? 0}
               sampleSize={sampleSize}
+              matchedRuns={groupMatchedRuns[idx] ?? []}
               onClientChange={(client) => updateGroup(idx, { client, metadata: {} })}
               onAddMetadata={(key, val) => addMetadata(idx, key, val)}
               onRemoveMetadata={(key) => removeMetadata(idx, key)}
@@ -161,6 +169,7 @@ function GroupCard({
   availableMetadataKeys,
   runCount,
   sampleSize,
+  matchedRuns,
   onClientChange,
   onAddMetadata,
   onRemoveMetadata,
@@ -173,6 +182,7 @@ function GroupCard({
   availableMetadataKeys: Map<string, Set<string>>
   runCount: number
   sampleSize: number
+  matchedRuns: IndexEntry[]
   onClientChange: (client: string) => void
   onAddMetadata: (key: string, value: string) => void
   onRemoveMetadata: (key: string) => void
@@ -290,6 +300,125 @@ function GroupCard({
           })}
         </div>
       )}
+
+      {/* Per-group aggregate stats across the sampled runs */}
+      {matchedRuns.length > 0 && (() => {
+        const sampled = matchedRuns.slice(0, sampleSize)
+        const mgasValues = sampled
+          .map((r) => {
+            const s = getIndexAggregatedStats(r)
+            return s.gasUsedDuration > 0 ? (s.gasUsed * 1000) / s.gasUsedDuration : undefined
+          })
+          .filter((v): v is number => v !== undefined)
+          .sort((a, b) => a - b)
+
+        if (mgasValues.length === 0) return null
+
+        const min = mgasValues[0]
+        const max = mgasValues[mgasValues.length - 1]
+        const mean = mgasValues.reduce((a, b) => a + b, 0) / mgasValues.length
+        const p95 = mgasValues[Math.min(Math.floor(mgasValues.length * 0.95), mgasValues.length - 1)]
+        const p99 = mgasValues[Math.min(Math.floor(mgasValues.length * 0.99), mgasValues.length - 1)]
+
+        return (
+          <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-300">
+            <span>Mean: <strong>{mean.toFixed(2)}</strong></span>
+            <span>Min: {min.toFixed(2)}</span>
+            <span>Max: {max.toFixed(2)}</span>
+            <span>P95: {p95.toFixed(2)}</span>
+            <span>P99: {p99.toFixed(2)}</span>
+            <span className="text-gray-400 dark:text-gray-500">MGas/s</span>
+          </div>
+        )
+      })()}
+
+      {/* Run boxes — shows which runs matched and which are used in the sample */}
+      {matchedRuns.length > 0 && <RunBoxes runs={matchedRuns} sampleSize={sampleSize} />}
+    </div>
+  )
+}
+
+// ── Run boxes with tooltip ───────────────────────────────────────
+
+function RunBoxes({ runs, sampleSize }: { runs: IndexEntry[]; sampleSize: number }) {
+  const [tooltip, setTooltip] = useState<{ run: IndexEntry; x: number; y: number } | null>(null)
+
+  return (
+    <div className="relative flex flex-wrap items-center gap-1">
+      <span className="mr-1 text-xs text-gray-500 dark:text-gray-400">Runs:</span>
+      {runs.map((run, i) => {
+        const inSample = i < sampleSize
+        const passed = run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total
+        const failed = run.status === 'container_died' || run.status === 'cancelled'
+
+        return (
+          <a
+            key={run.run_id}
+            href={`/runs/${run.run_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onMouseEnter={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              setTooltip({ run, x: rect.left + rect.width / 2, y: rect.top })
+            }}
+            onMouseLeave={() => setTooltip(null)}
+            className={clsx(
+              'relative size-4 shrink-0 rounded-xs',
+              !inSample && 'opacity-30',
+              inSample && 'ring-1 ring-inset ring-black/10 dark:ring-white/10',
+            )}
+            style={{
+              backgroundColor: failed
+                ? '#6b7280'
+                : passed
+                  ? '#22c55e'
+                  : '#eab308',
+            }}
+          >
+            {failed && (
+              <svg className="absolute inset-0 size-4 text-red-500" viewBox="0 0 16 16" fill="none">
+                <path d="M3 3l10 10M3 13L13 3" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+            )}
+          </a>
+        )
+      })}
+
+      {tooltip && (() => {
+        const stats = getIndexAggregatedStats(tooltip.run)
+        const mgas = stats.gasUsedDuration > 0 ? (stats.gasUsed * 1000) / stats.gasUsedDuration : undefined
+        return (
+          <div
+            className="pointer-events-none fixed z-50 rounded-sm bg-white px-3 py-2 text-xs/5 shadow-lg ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:ring-gray-700"
+            style={{ left: tooltip.x, top: tooltip.y - 8, transform: 'translate(-50%, -100%)' }}
+          >
+            <div className="flex flex-col gap-1">
+              <div className="font-medium">{formatTimestamp(tooltip.run.timestamp)}</div>
+              {(tooltip.run.status === 'container_died' || tooltip.run.status === 'cancelled') && (
+                <div className="font-medium text-red-600 dark:text-red-400">
+                  {tooltip.run.status === 'container_died' ? 'Container Died' : 'Cancelled'}
+                </div>
+              )}
+              <div>Duration: {formatDuration(stats.duration)}</div>
+              {mgas !== undefined && <div>MGas/s: {mgas.toFixed(2)}</div>}
+              <div className="flex gap-2">
+                <span className="text-green-600 dark:text-green-400">
+                  {tooltip.run.tests.tests_passed} passed
+                </span>
+                {tooltip.run.tests.tests_total - tooltip.run.tests.tests_passed > 0 && (
+                  <span className="text-red-600 dark:text-red-400">
+                    {tooltip.run.tests.tests_total - tooltip.run.tests.tests_passed} failed
+                  </span>
+                )}
+                <span className="text-gray-500 dark:text-gray-400">
+                  ({tooltip.run.tests.tests_total} total)
+                </span>
+              </div>
+              <div className="text-gray-400 dark:text-gray-500">Click to open run details</div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
