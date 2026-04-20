@@ -9,7 +9,7 @@ import { useSuite } from '@/api/hooks/useSuite'
 import { LoadingState } from '@/components/shared/Spinner'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER } from '@/pages/RunDetailPage'
-import { type CompareRun } from '@/components/compare/constants'
+import { type CompareRun, type ChartType, CHART_TYPE_OPTIONS } from '@/components/compare/constants'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
 import { PercentageDiffChart } from '@/components/compare/PercentageDiffChart'
@@ -34,9 +34,12 @@ export function CompareGroupsPage() {
     steps?: string
     baseline?: string
     tableBase?: string
+    chart?: string
     sort?: string
     sortDir?: string
     filter?: string
+    filterRegex?: string
+    gasBuckets?: string
   }
 
   const suiteHash = search.suite ?? ''
@@ -60,9 +63,12 @@ export function CompareGroupsPage() {
           steps: search.steps,
           baseline: search.baseline,
           tableBase: search.tableBase,
+          chart: search.chart,
           sort: search.sort,
           sortDir: search.sortDir,
           filter: search.filter,
+          filterRegex: search.filterRegex,
+          gasBuckets: search.gasBuckets,
           ...patch,
         },
         replace: true,
@@ -239,16 +245,75 @@ export function CompareGroupsPage() {
     : search.tableBase !== undefined && search.tableBase !== 'best'
       ? Math.min(parseInt(search.tableBase, 10) || 0, syntheticRuns.length - 1)
       : 'best'
+  const chartType: ChartType = (search.chart as ChartType) ?? 'line'
   const [sharedZoom, setSharedZoom] = useState(true)
   const [chartZoom, setChartZoom] = useState({ start: 0, end: 100 })
   const tableSortBy = (search.sort ?? 'order') as 'order' | 'name' | 'gasUsed' | 'avgValue' | `run-${number}`
   const tableSortDir = (search.sortDir === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc'
   const testFilter = search.filter ?? ''
+  const testFilterRegex = search.filterRegex === '1'
+
+  // ─── Gas bucket filter ─────────────────────────────────────────
+  const GAS_BUCKET_STEP = 30_000_000
+
+  const selectedGasBuckets = useMemo(() => {
+    if (!search.gasBuckets) return new Set<number>()
+    return new Set(
+      search.gasBuckets.split(',').map((s) => parseInt(s, 10) * 1_000_000).filter((n) => !isNaN(n)),
+    )
+  }, [search.gasBuckets])
+
+  // Compute per-test gas from the first synthetic result for bucketing.
+  const testGasMap = useMemo(() => {
+    const map = new Map<string, number>()
+    const result = syntheticRuns.find((r) => r.result)?.result
+    if (!result) return map
+    for (const [name, entry] of Object.entries(result.tests)) {
+      const step = entry.steps?.test
+      if (step) map.set(name, step.aggregated.gas_used_total)
+    }
+    return map
+  }, [syntheticRuns])
+
+  const availableGasBuckets = useMemo(() => {
+    const buckets = new Set<number>()
+    for (const gas of testGasMap.values()) {
+      buckets.add(Math.round(gas / GAS_BUCKET_STEP) * GAS_BUCKET_STEP)
+    }
+    return [...buckets].sort((a, b) => a - b)
+  }, [testGasMap, GAS_BUCKET_STEP])
+
+  // ─── Combined test name filter ────────────────────────────────
   const testNameFilter = useMemo(() => {
-    if (!testFilter) return undefined
-    const q = testFilter.toLowerCase()
-    return (name: string) => name.toLowerCase().includes(q)
-  }, [testFilter])
+    const textFn = (() => {
+      if (!testFilter) return undefined
+      if (testFilterRegex) {
+        try {
+          const re = new RegExp(testFilter, 'i')
+          return (name: string) => re.test(name)
+        } catch {
+          return undefined
+        }
+      }
+      const q = testFilter.toLowerCase()
+      return (name: string) => name.toLowerCase().includes(q)
+    })()
+
+    const needsGasFilter = selectedGasBuckets.size > 0
+    const gasFn = needsGasFilter
+      ? (name: string) => {
+          const gas = testGasMap.get(name)
+          if (gas === undefined) return false
+          const bucket = Math.round(gas / GAS_BUCKET_STEP) * GAS_BUCKET_STEP
+          return selectedGasBuckets.has(bucket)
+        }
+      : undefined
+
+    if (!textFn && !gasFn) return undefined
+    if (textFn && !gasFn) return textFn
+    if (!textFn && gasFn) return gasFn
+    return (name: string) => textFn!(name) && gasFn!(name)
+  }, [testFilter, testFilterRegex, selectedGasBuckets, testGasMap, GAS_BUCKET_STEP])
 
   const hasResults = syntheticRuns.length >= 2 && syntheticRuns.every((r) => r.result !== null)
 
@@ -319,6 +384,25 @@ export function CompareGroupsPage() {
               ))}
             </div>
             <div className="flex items-center gap-1.5">
+              <span>Chart:</span>
+              <div className="flex gap-1">
+                {CHART_TYPE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => updateSearch({ chart: opt.value === 'line' ? undefined : opt.value })}
+                    className={clsx(
+                      'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                      chartType === opt.value
+                        ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
               <span>Shared Zoom:</span>
               <button
                 onClick={() => setSharedZoom(!sharedZoom)}
@@ -332,6 +416,73 @@ export function CompareGroupsPage() {
                 {sharedZoom ? 'On' : 'Off'}
               </button>
             </div>
+            <div className="flex items-center gap-1.5">
+              <span>Filter:</span>
+              <input
+                type="text"
+                placeholder={testFilterRegex ? 'Regex pattern...' : 'Filter tests...'}
+                value={testFilter}
+                onChange={(e) => updateSearch({ filter: e.target.value || undefined })}
+                className={clsx(
+                  'w-36 rounded-xs border bg-white px-2 py-0.5 text-xs/5 placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
+                  testFilterRegex && testFilter && (() => { try { new RegExp(testFilter); return false } catch { return true } })()
+                    ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
+                    : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
+                )}
+              />
+              <button
+                onClick={() => updateSearch({ filterRegex: testFilterRegex ? undefined : '1' })}
+                title={testFilterRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
+                className={clsx(
+                  'rounded-xs px-1.5 py-0.5 font-mono text-xs/5 transition-colors',
+                  testFilterRegex
+                    ? 'bg-blue-500 text-white'
+                    : 'border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                )}
+              >
+                .*
+              </button>
+            </div>
+            {availableGasBuckets.length > 1 && (
+              <div className="flex items-center gap-1.5">
+                <span>Gas:</span>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    onClick={() => updateSearch({ gasBuckets: undefined })}
+                    className={clsx(
+                      'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                      selectedGasBuckets.size === 0
+                        ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                    )}
+                  >
+                    All
+                  </button>
+                  {availableGasBuckets.map((bucket) => {
+                    const isSelected = selectedGasBuckets.has(bucket)
+                    return (
+                      <button
+                        key={bucket}
+                        onClick={() => {
+                          const next = new Set(selectedGasBuckets)
+                          if (isSelected) next.delete(bucket); else next.add(bucket)
+                          const sorted = [...next].sort((a, b) => a - b)
+                          updateSearch({ gasBuckets: sorted.length > 0 ? sorted.map((v) => String(v / 1_000_000)).join(',') : undefined })
+                        }}
+                        className={clsx(
+                          'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                          isSelected
+                            ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
+                        )}
+                      >
+                        {Math.round(bucket / 1_000_000)}M
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <MetricsComparison
@@ -351,7 +502,7 @@ export function CompareGroupsPage() {
             testNameFilter={testNameFilter}
             zoomRange={sharedZoom ? chartZoom : undefined}
             onZoomChange={sharedZoom ? setChartZoom : undefined}
-            chartType="line"
+            chartType={chartType}
           />
 
           <PercentageDiffChart
@@ -366,7 +517,7 @@ export function CompareGroupsPage() {
             testNameFilter={testNameFilter}
             zoomRange={sharedZoom ? chartZoom : undefined}
             onZoomChange={sharedZoom ? setChartZoom : undefined}
-            chartType="line"
+            chartType={chartType}
           />
 
           <TestComparisonTable
