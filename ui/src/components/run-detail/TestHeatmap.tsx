@@ -120,6 +120,10 @@ interface TestHeatmapProps {
   onGroupModeChange?: (mode: GroupMode) => void
   onThresholdChange?: (threshold: number) => void
   onSearchChange?: (query: string) => void
+  activeStepTab?: 'test' | 'setup' | 'cleanup'
+  onActiveStepTabChange?: (tab: 'test' | 'setup' | 'cleanup') => void
+  expandedExecRows?: Set<number>
+  onExpandedExecRowsChange?: (rows: Set<number>) => void
 }
 
 const COLORS = [
@@ -357,13 +361,22 @@ export function TestHeatmap({
   onSortModeChange,
   onGroupModeChange,
   onThresholdChange,
+  activeStepTab: activeStepTabProp,
+  onActiveStepTabChange,
+  expandedExecRows,
+  onExpandedExecRowsChange,
 }: TestHeatmapProps) {
   const sortMode = sortModeProp ?? 'order'
   const groupMode = groupModeProp ?? 'none'
   const threshold = thresholdProp ?? DEFAULT_THRESHOLD
   const [tooltip, setTooltip] = useState<{ test: TestData; x: number; y: number } | null>(null)
   const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
-  const [activeStepTab, setActiveStepTab] = useState<'test' | 'setup' | 'cleanup'>('test')
+  const [activeStepTabLocal, setActiveStepTabLocal] = useState<'test' | 'setup' | 'cleanup'>('test')
+  const activeStepTab = activeStepTabProp ?? activeStepTabLocal
+  const setActiveStepTab = (tab: 'test' | 'setup' | 'cleanup') => {
+    setActiveStepTabLocal(tab)
+    onActiveStepTabChange?.(tab)
+  }
   const { data: blockLogs } = useBlockLogs(runId)
 
   // Pop-in stagger state for newly-completed tiles. Populated below by
@@ -1005,6 +1018,8 @@ export function TestHeatmap({
                           suiteHash={suiteHash}
                           testName={selectedTest}
                           stepType={activeStep.key}
+                          expandedRows={expandedExecRows}
+                          onExpandedRowsChange={onExpandedExecRowsChange}
                         />
                       </div>
                     )}

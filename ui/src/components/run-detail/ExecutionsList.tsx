@@ -67,6 +67,8 @@ interface ExecutionsListProps {
   suiteHash: string
   testName: string
   stepType: StepType
+  expandedRows?: Set<number>
+  onExpandedRowsChange?: (rows: Set<number>) => void
 }
 
 function parseMethod(request: string): string {
@@ -142,8 +144,13 @@ function StatusIndicator({ status }: { status?: number }) {
 
 const MAX_LAZY_LINE_SIZE = 1_000_000 // 1MB — lazy-load lines up to this size
 
-function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, responseViewerUrl, requestViewerUrl }: ExecutionRowProps) {
-  const [expanded, setExpanded] = useState(false)
+function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, responseViewerUrl, requestViewerUrl, expanded: expandedProp, onExpandedChange }: ExecutionRowProps & { expanded?: boolean; onExpandedChange?: (index: number, expanded: boolean) => void }) {
+  const [expandedLocal, setExpandedLocal] = useState(false)
+  const expanded = expandedProp ?? expandedLocal
+  const setExpanded = (v: boolean) => {
+    setExpandedLocal(v)
+    onExpandedChange?.(index, v)
+  }
   const method = request ? parseMethod(request) : methodName
 
   // Lazy-load request content for lines that are small enough but weren't in the full fetch
@@ -316,7 +323,7 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
 
 const EXECUTIONS_PAGE_SIZE = 100
 
-export function ExecutionsList({ runId, suiteHash, testName, stepType }: ExecutionsListProps) {
+export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedRows, onExpandedRowsChange }: ExecutionsListProps) {
   const { data: requests, isLoading: requestsLoading, error: requestsError } = useTestRequests(suiteHash, testName, stepType)
   const { data: responses, error: responsesError } = useTestResponses(runId, testName, stepType)
   const { data: resultDetails, isLoading: detailsLoading, error: detailsError } = useTestResultDetails(runId, testName, stepType)
@@ -415,6 +422,12 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType }: Executi
               requestViewerUrl={!safeRequests?.[index] && requestSummaries?.[index] && requestSummaries[index].size > 1_000_000
                 ? `/runs/${runId}/fileviewer?base=${encodeURIComponent(`suites/${suiteHash}`)}&file=${encodeURIComponent(`${testName}/${stepType}.request`)}&lines=${index + 1}`
                 : undefined}
+              expanded={expandedRows?.has(index)}
+              onExpandedChange={(idx, exp) => {
+                const next = new Set(expandedRows)
+                if (exp) next.add(idx); else next.delete(idx)
+                onExpandedRowsChange?.(next)
+              }}
             />
           )
         })}

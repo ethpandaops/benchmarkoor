@@ -137,12 +137,16 @@ export function RunDetailPage() {
     blFs?: boolean // Block Logs fullscreen
     dlModal?: boolean // Download list modal
     dlFmt?: string // Download list format
+    testStep?: string // Active step tab in test modal (test/setup/cleanup)
+    testExec?: string // Expanded execution row indices (comma-separated)
   }
   const page = Number(search.page) || 1
   const pageSize = Number(search.pageSize) || 20
   const heatmapThreshold = search.heatmapThreshold ? Number(search.heatmapThreshold) : undefined
   const stepFilter = parseStepFilter(search.steps)
-  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, preRunModal, heatmapGroup, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt } = search
+  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, preRunModal, heatmapGroup, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt, testStep, testExec } = search
+  const activeStepTab = (testStep === 'setup' || testStep === 'cleanup') ? testStep : testStep === 'test' ? testStep : undefined
+  const expandedExecRows = testExec ? new Set(testExec.split(',').map(Number).filter(n => !isNaN(n))) : undefined
 
   const { data: liveRuns, isLoading: liveRunsLoading } = useLiveRuns()
   const liveRun = liveRuns?.find((lr) => lr.run_id === runId)
@@ -251,7 +255,17 @@ export function RunDetailPage() {
   }
 
   const handleTestModalChange = (testName: string | undefined) => {
-    updateSearch({ testModal: testName })
+    // Clear step tab and expanded rows when closing or switching test
+    updateSearch({ testModal: testName, testStep: undefined, testExec: undefined })
+  }
+
+  const handleStepTabChange = (tab: 'test' | 'setup' | 'cleanup') => {
+    // Clear expanded rows when switching tabs
+    updateSearch({ testStep: tab !== 'test' ? tab : undefined, testExec: undefined })
+  }
+
+  const handleExpandedExecRowsChange = (rows: Set<number>) => {
+    updateSearch({ testExec: rows.size > 0 ? [...rows].sort((a, b) => a - b).join(',') : undefined })
   }
 
   const handlePreRunModalChange = (stepName: string | undefined) => {
@@ -680,6 +694,10 @@ export function RunDetailPage() {
               onGroupModeChange={handleHeatmapGroupChange}
               onThresholdChange={handleHeatmapThresholdChange}
               onSearchChange={handleSearchChange}
+              activeStepTab={activeStepTab}
+              onActiveStepTabChange={handleStepTabChange}
+              expandedExecRows={expandedExecRows}
+              onExpandedExecRowsChange={handleExpandedExecRowsChange}
             />
           </div>
 
