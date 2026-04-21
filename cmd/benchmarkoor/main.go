@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	versionpkg "github.com/ethpandaops/benchmarkoor/pkg/version"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -84,7 +85,9 @@ func (f *consistentFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 }
 
 var (
-	// Version information set at build time.
+	// Version information set at build time via ldflags.
+	// These are copied into pkg/version at init so other packages
+	// can access them (e.g. the runner logs them to benchmarkoor.log).
 	version = "dev"
 	commit  = "none"
 	date    = "unknown"
@@ -97,6 +100,12 @@ var (
 )
 
 func main() {
+	// Publish build-time version info to the shared package so other
+	// packages (runner, API) can access it.
+	versionpkg.Version = version
+	versionpkg.Commit = commit
+	versionpkg.Date = date
+
 	log = logrus.New()
 	log.SetOutput(os.Stdout)
 	log.SetFormatter(&utcFormatter{

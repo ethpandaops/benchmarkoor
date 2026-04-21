@@ -275,6 +275,7 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
           system={cfg.system}
           startBlock={cfg.start_block}
           metadata={cfg.metadata}
+          benchmarkoorVersion={cfg.benchmarkoor_version}
         />
       )}
 

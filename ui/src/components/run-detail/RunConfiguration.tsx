@@ -11,6 +11,7 @@ interface RunConfigurationProps {
   metadata?: {
     labels?: Record<string, string>
   }
+  benchmarkoorVersion?: string
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -45,7 +46,7 @@ function InfoItem({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-export function RunConfiguration({ instance, system, startBlock, metadata }: RunConfigurationProps) {
+export function RunConfiguration({ instance, system, startBlock, metadata, benchmarkoorVersion }: RunConfigurationProps) {
   const [expanded, setExpanded] = useState(false)
 
   const shortImage = instance.image.includes('/') ? instance.image.split('/').pop()! : instance.image
@@ -61,7 +62,7 @@ export function RunConfiguration({ instance, system, startBlock, metadata }: Run
           Configuration
         </h3>
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex min-w-0 items-center gap-1.5 truncate text-xs/5">
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs/5">
             <span className="text-gray-400 dark:text-gray-500">Image:</span>
             <span className="text-gray-600 dark:text-gray-300">{shortImage}</span>
             {instance.client_version && (
@@ -118,6 +119,18 @@ export function RunConfiguration({ instance, system, startBlock, metadata }: Run
                       {instance.client_version}
                     </span>
                     <CopyButton text={instance.client_version} />
+                  </dd>
+                </div>
+              )}
+
+              {benchmarkoorVersion && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Benchmarkoor Version</dt>
+                  <dd className="mt-1 flex items-center gap-2">
+                    <span className="font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                      {benchmarkoorVersion}
+                    </span>
+                    <CopyButton text={benchmarkoorVersion} />
                   </dd>
                 </div>
               )}

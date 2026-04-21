@@ -167,6 +167,7 @@ export interface StartBlock {
 
 // config.json per run
 export interface RunConfig {
+  benchmarkoor_version?: string
   timestamp: number
   timestamp_end?: number
   suite_hash?: string

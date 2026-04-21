@@ -22,6 +22,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/livereport"
 	"github.com/ethpandaops/benchmarkoor/pkg/upload"
+	"github.com/ethpandaops/benchmarkoor/pkg/version"
 	"github.com/sirupsen/logrus"
 )
 
@@ -81,6 +82,7 @@ type StartBlock struct {
 
 // RunConfig contains configuration for a single test run.
 type RunConfig struct {
+	BenchmarkoorVersion            string                 `json:"benchmarkoor_version,omitempty"`
 	Timestamp                      int64                  `json:"timestamp"`
 	TimestampEnd                   int64                  `json:"timestamp_end,omitempty"`
 	SuiteHash                      string                 `json:"suite_hash,omitempty"`
@@ -542,6 +544,18 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 	r.logger.AddHook(logHook)
 	defer r.removeHook(logHook)
 
+	// Log version as the very first line in benchmarkoor.log — before
+	// pre-run buffer flush so it's always the first thing you see.
+	r.log.WithFields(logrus.Fields{
+		"version": version.Version,
+		"commit":  version.Commit,
+	}).Info("Starting benchmarkoor run")
+
+	log := r.log.WithFields(logrus.Fields{
+		"instance": instance.ID,
+		"run_id":   runID,
+	})
+
 	// Flush any pre-instance logs (config validation, cleanup, image pulls,
 	// etc.) that were buffered before RunInstance was called.
 	if r.preRunLogBuffer != nil {
@@ -549,12 +563,6 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 			return fmt.Errorf("flushing pre-run logs: %w", err)
 		}
 	}
-
-	log := r.log.WithFields(logrus.Fields{
-		"instance": instance.ID,
-		"run_id":   runID,
-	})
-	log.Info("Starting client instance")
 
 	// Reset the executor's live progress counters and seed the total with
 	// the full prepared test count. Strategies that call ExecuteTests once

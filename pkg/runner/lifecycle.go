@@ -23,6 +23,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/podman"
+	"github.com/ethpandaops/benchmarkoor/pkg/version"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -561,8 +562,9 @@ func (r *runner) runContainerLifecycle(
 
 	// Write run configuration with resolved values.
 	runConfig := &RunConfig{
-		Timestamp: params.RunTimestamp,
-		System:    getSystemInfo(),
+		BenchmarkoorVersion: version.Version,
+		Timestamp:           params.RunTimestamp,
+		System:              getSystemInfo(),
 		Instance: &ResolvedInstance{
 			ID:     instance.ID,
 			Client: instance.Client,

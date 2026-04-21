@@ -635,7 +635,7 @@ export function RunDetailPage() {
 
       <GitHubSection labels={config.metadata?.labels} />
 
-      <RunConfiguration instance={config.instance} system={config.system} startBlock={config.start_block} metadata={config.metadata} />
+      <RunConfiguration instance={config.instance} system={config.system} startBlock={config.start_block} metadata={config.metadata} benchmarkoorVersion={config.benchmarkoor_version} />
 
       <FilesPanel
         runId={runId}
