@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
-import { ChevronRight, SquareStack, GitCompareArrows, LayoutGrid, Clock, Grid3X3, Trash2, Plus, X } from 'lucide-react'
+import { ChevronRight, SquareStack, GitCompareArrows, Layers, LayoutGrid, Clock, Grid3X3, Trash2, Plus, X } from 'lucide-react'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type SuiteTest } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
@@ -508,6 +508,13 @@ export function SuiteDetailPage() {
     const clientSet = new Set(suiteRunsAll.map((e) => e.instance.client))
     return Array.from(clientSet).sort()
   }, [suiteRunsAll])
+
+  // Group compare URL: pre-fills suite + one group per client.
+  const groupCompareUrl = useMemo(() => {
+    if (clients.length < 2) return undefined
+    const groups = clients.map((c) => `${c}:`).join(';')
+    return `/compare/groups?suite=${encodeURIComponent(suiteHash)}&groups=${encodeURIComponent(groups)}`
+  }, [clients, suiteHash])
 
   // Most recent successful run per client, for quick cross-client comparison.
   const recentSuccessfulPerClient = useMemo(() => {
@@ -1024,6 +1031,15 @@ export function SuiteDetailPage() {
                       >
                         <GitCompareArrows className="size-3.5" />
                       </button>
+                      {groupCompareUrl && (
+                        <a
+                          href={groupCompareUrl}
+                          className="flex items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                          title="Compare averaged groups (one group per client)"
+                        >
+                          <Layers className="size-3.5" />
+                        </a>
+                      )}
                     </div>
                   </div>
                   {heatmapExpanded && (
@@ -1074,6 +1090,27 @@ export function SuiteDetailPage() {
                             const labels = groupBy === 'instance_id' ? 'instance-id' : `label:${groupBy}`
                             navigate({ to: '/compare', search: { runs: ids.join(','), labels } })
                           }
+                        } : undefined}
+                        onGroupCompareGroup={groupBy ? (groupLabel, groupClients) => {
+                          const labelFilter = groupBy !== 'instance_id' ? `${groupBy}=${groupLabel}` : ''
+                          const groups = groupClients.map((c) => `${c}:${labelFilter}`).join(';')
+                          navigate({ to: '/compare/groups', search: { suite: suiteHash, groups } as Record<string, string> })
+                        } : undefined}
+                        onGroupCompareClientAcrossGroups={groupBy ? (client) => {
+                          // Build one group per label-value for this client.
+                          const labelValues = new Set<string>()
+                          for (const run of suiteRunsAll) {
+                            if (run.instance.client !== client) continue
+                            const val = groupBy === 'instance_id'
+                              ? run.instance.id
+                              : (run.metadata?.[groupBy] ?? '')
+                            if (val) labelValues.add(val)
+                          }
+                          const groups = [...labelValues].sort().map((val) => {
+                            if (groupBy === 'instance_id') return `${client}:`
+                            return `${client}:${groupBy}=${val}`
+                          }).join(';')
+                          navigate({ to: '/compare/groups', search: { suite: suiteHash, groups } as Record<string, string> })
                         } : undefined}
                         isDark={isDark}
                         colorNormalization={heatmapColor}
@@ -1257,6 +1294,15 @@ export function SuiteDetailPage() {
                         >
                           <GitCompareArrows className="size-4" />
                         </button>
+                        {groupCompareUrl && (
+                          <a
+                            href={groupCompareUrl}
+                            className="flex items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                            title="Compare averaged groups (one group per client)"
+                          >
+                            <Layers className="size-4" />
+                          </a>
+                        )}
                         {isAdmin && (
                           <button
                             onClick={() => deleteMode ? handleExitDeleteMode() : handleEnterDeleteMode()}
