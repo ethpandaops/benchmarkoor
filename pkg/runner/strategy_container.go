@@ -101,8 +101,16 @@ func (r *runner) runTestsWithContainerStrategy(
 			)
 		}
 
+		// Brief settle time so the client finishes any in-flight
+		// initialisation before we send SIGTERM.
+		log.Info("Waiting 2s for client to settle before stop")
+		time.Sleep(2 * time.Second)
+
 		// Stop the initial container so writes are flushed to disk.
-		log.Info("Stopping container for ZFS snapshot")
+		// Use the default 60s SIGTERM grace period so the client has
+		// time to persist its state cleanly before the ZFS snapshot.
+		log.WithField("timeout", fmt.Sprintf("%ds", docker.DefaultStopTimeoutSec)).
+			Info("Stopping container for ZFS snapshot (graceful)")
 
 		stopStart := time.Now()
 

@@ -312,6 +312,18 @@ func (m *manager) StopContainer(ctx context.Context, containerID string, timeout
 		opts = new(containers.StopOptions).WithTimeout(t)
 	}
 
+	var timeoutVal uint
+	if timeoutSec != nil {
+		timeoutVal = uint(*timeoutSec)
+	} else {
+		timeoutVal = uint(docker.DefaultStopTimeoutSec)
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"id":      containerID[:12],
+		"timeout": timeoutVal,
+	}).Info("Stopping container with SIGTERM")
+
 	if err := containers.Stop(conn, containerID, opts); err != nil {
 		return fmt.Errorf("stopping container %s: %w", containerID[:12], err)
 	}
