@@ -162,15 +162,25 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
   const effectiveRequestSize = requestSize ?? (request ? new Blob([request]).size : undefined)
   const effectiveResponseSize = responseSize ?? (response ? new Blob([response]).size : undefined)
   const canExpand = !!effectiveRequest || !!response || !!responseViewerUrl || !!requestViewerUrl || canLazyLoad
+  const isFail = status !== undefined && status !== 0
 
   return (
-    <div className="max-w-full overflow-hidden border-b border-gray-200 last:border-b-0 dark:border-gray-700">
+    <div className={clsx(
+      'max-w-full overflow-hidden border-b last:border-b-0',
+      isFail
+        ? 'border-red-300 bg-red-100 dark:border-red-800/50 dark:bg-red-900/30'
+        : 'border-gray-200 dark:border-gray-700',
+    )}>
       <button
         onClick={() => canExpand && setExpanded(!expanded)}
         className={clsx(
           'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors',
-          canExpand ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800' : 'cursor-default',
-          expanded && 'bg-gray-100 dark:bg-gray-800',
+          canExpand
+            ? isFail
+              ? 'cursor-pointer hover:bg-red-200 dark:hover:bg-red-900/40'
+              : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800'
+            : 'cursor-default',
+          expanded && (isFail ? 'bg-red-200 dark:bg-red-900/40' : 'bg-gray-100 dark:bg-gray-800'),
         )}
       >
         {canExpand ? (
