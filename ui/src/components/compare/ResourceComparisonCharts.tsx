@@ -186,6 +186,7 @@ function ChartSection({ title, option, onZoom, onTestClick, highlightedTestRef }
           style={{ height: '200px', width: '100%' }}
           opts={{ renderer: 'svg' }}
           onEvents={onEvents}
+          notMerge
         />
       </div>
     </div>

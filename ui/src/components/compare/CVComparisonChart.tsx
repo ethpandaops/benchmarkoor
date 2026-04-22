@@ -302,6 +302,7 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
           style={{ height: '300px', width: '100%' }}
           opts={{ renderer: 'svg' }}
           onEvents={onEvents}
+          notMerge
         />
       </div>
       <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">

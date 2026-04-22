@@ -271,6 +271,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
           style={{ height: '300px', width: '100%' }}
           opts={{ renderer: 'svg' }}
           onEvents={onEvents}
+          notMerge
         />
       </div>
     </div>

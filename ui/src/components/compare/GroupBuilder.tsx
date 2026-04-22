@@ -98,9 +98,9 @@ export function GroupBuilder({
           <input
             type="number"
             min={1}
-            max={20}
+            max={50}
             value={sampleSize}
-            onChange={(e) => onSampleSizeChange(Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 5)))}
+            onChange={(e) => onSampleSizeChange(Math.max(1, Math.min(50, parseInt(e.target.value, 10) || 5)))}
             className="w-14 rounded-xs border border-gray-300 bg-white px-2 py-1 text-center text-sm/6 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
           <span className="text-xs text-gray-500 dark:text-gray-400">latest runs per group</span>

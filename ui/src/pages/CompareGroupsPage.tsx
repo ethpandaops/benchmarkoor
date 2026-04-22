@@ -47,7 +47,7 @@ export function CompareGroupsPage() {
 
   const suiteHash = search.suite ?? ''
   const groups = useMemo(() => parseGroupsParam(search.groups), [search.groups])
-  const sampleSize = Math.max(1, Math.min(20, parseInt(search.sample ?? '5', 10) || 5))
+  const sampleSize = Math.max(1, Math.min(50, parseInt(search.sample ?? '5', 10) || 5))
   const aggMode = (search.agg === 'median' ? 'median' : 'avg') as 'avg' | 'median'
   const stepFilter = parseStepFilter(search.steps)
 
@@ -323,7 +323,7 @@ export function CompareGroupsPage() {
     return (name: string) => textFn!(name) && gasFn!(name)
   }, [testFilter, testFilterRegex, selectedGasBuckets, testGasMap, GAS_BUCKET_STEP])
 
-  const hasResults = syntheticRuns.length >= 2 && syntheticRuns.every((r) => r.result !== null)
+  const hasResults = syntheticRuns.length >= 1 && syntheticRuns.every((r) => r.result !== null)
 
   // ─── Sticky bar ────────────────────────────────────────────────
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -416,15 +416,28 @@ export function CompareGroupsPage() {
             <div className="flex items-center justify-center gap-4">
               {groups.map((group, gi) => {
                 const metaStr = Object.entries(group.metadata).map(([k, v]) => `${k}=${v}`).join(', ')
+                const runCount = groupRuns[gi]?.length ?? 0
                 return (
                   <span key={gi} className="inline-flex items-center gap-1.5 rounded-sm bg-gray-100 px-2 py-0.5 text-xs/5 font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200">
                     <img src={`/img/clients/${group.client}.jpg`} alt={group.client} className="size-3.5 rounded-full object-cover" />
                     {metaStr || group.client}
+                    <span className="font-mono text-gray-400 dark:text-gray-500" title={`${runCount} run${runCount === 1 ? '' : 's'} sampled`}>
+                      ({runCount})
+                    </span>
                   </span>
                 )
               })}
-              <span className="text-xs text-gray-400 dark:text-gray-500">
-                {aggMode === 'avg' ? 'Average' : 'Median'} of {sampleSize}
+              <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
+                {aggMode === 'avg' ? 'Average' : 'Median'} of
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={sampleSize}
+                  onChange={(e) => setSampleSize(Math.max(1, Math.min(50, parseInt(e.target.value, 10) || 5)))}
+                  title="Sample size — latest runs per group"
+                  className="w-12 rounded-xs border border-gray-300 bg-white px-1 py-0.5 text-center text-xs/5 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                />
               </span>
             </div>
             <div className="flex items-center justify-center gap-4 text-xs/5 text-gray-500 dark:text-gray-400">
@@ -646,21 +659,23 @@ export function CompareGroupsPage() {
             onTestClick={setSelectedTest}
           />
 
-          <PercentageDiffChart
-            runs={syntheticRuns}
-            suiteTests={suite?.tests}
-            stepFilter={stepFilter}
-            baselineIdx={baselineIdx}
-            onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
-            labelMode="instance-id"
-            diffFilter="all"
-            onDiffFilterChange={() => {}}
-            testNameFilter={testNameFilter}
-            zoomRange={sharedZoom ? chartZoom : undefined}
-            onZoomChange={sharedZoom ? setChartZoom : undefined}
-            chartType={chartType}
-            onTestClick={setSelectedTest}
-          />
+          {syntheticRuns.length >= 2 && (
+            <PercentageDiffChart
+              runs={syntheticRuns}
+              suiteTests={suite?.tests}
+              stepFilter={stepFilter}
+              baselineIdx={baselineIdx}
+              onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
+              labelMode="instance-id"
+              diffFilter="all"
+              onDiffFilterChange={() => {}}
+              testNameFilter={testNameFilter}
+              zoomRange={sharedZoom ? chartZoom : undefined}
+              onZoomChange={sharedZoom ? setChartZoom : undefined}
+              chartType={chartType}
+              onTestClick={setSelectedTest}
+            />
+          )}
 
           <CVComparisonChart
             runs={syntheticRuns}
@@ -701,7 +716,7 @@ export function CompareGroupsPage() {
         </>
       )}
 
-      {!isLoading && groups.length >= 2 && allRunIds.length > 0 && !hasResults && (
+      {!isLoading && groups.length >= 1 && allRunIds.length > 0 && !hasResults && (
         <div className="rounded-sm bg-yellow-50 p-4 text-sm/6 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300">
           Not enough result data to compare. Make sure the selected runs have completed with results.
         </div>
