@@ -4,6 +4,7 @@ import { Flame } from 'lucide-react'
 import type { RunResult, SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { useChartAreaClick } from './useChartAreaClick'
 
 export interface ZoomRange {
   start: number
@@ -19,6 +20,7 @@ interface MGasComparisonChartProps {
   zoomRange?: ZoomRange
   onZoomChange?: (range: ZoomRange) => void
   chartType?: ChartType
+  onTestClick?: (testName: string) => void
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -72,7 +74,7 @@ function buildMGasData(
   return entries.map((e, i) => ({ testIndex: i + 1, testOrder: e.order, testName: e.name, mgas: e.mgas }))
 }
 
-export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line' }: MGasComparisonChartProps) {
+export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line', onTestClick }: MGasComparisonChartProps) {
   const isDark = useDarkMode()
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
@@ -102,6 +104,8 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
     () => runs.map((r) => r.result ? buildMGasData(r.result, suiteTests, stepFilter, testNameFilter) : []),
     [runs, suiteTests, stepFilter, testNameFilter],
   )
+
+  const { highlightedTestRef, handleMouseDown, handleClick, cursor } = useChartAreaClick(onTestClick)
 
   const option = useMemo(() => {
     const textColor = isDark ? '#ffffff' : '#374151'
@@ -141,6 +145,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
           if (!params.length) return ''
           const testOrder = params[0].value[3]
           const testName = params[0].value[2]
+          highlightedTestRef.current = testName
           let content = `<strong>Test #${testOrder}</strong>`
           if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
           content += '<br/>'
@@ -218,6 +223,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
           data,
           itemStyle: { color: slot.color },
+          cursor: onTestClick ? 'pointer' : 'default',
         }
         if (chartType === 'bar') {
           return { ...base, type: 'bar' as const, barMaxWidth: 6 }
@@ -236,7 +242,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
         }
       }),
     }
-  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, onTestClick, highlightedTestRef])
 
   if (pointsPerRun.every((p) => p.length === 0)) return null
 
@@ -259,12 +265,14 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
           })}
         </div>
       </div>
-      <ReactECharts
-        option={option}
-        style={{ height: '300px', width: '100%' }}
-        opts={{ renderer: 'svg' }}
-        onEvents={onEvents}
-      />
+      <div onMouseDown={handleMouseDown} onClick={handleClick} style={{ cursor }}>
+        <ReactECharts
+          option={option}
+          style={{ height: '300px', width: '100%' }}
+          opts={{ renderer: 'svg' }}
+          onEvents={onEvents}
+        />
+      </div>
     </div>
   )
 }

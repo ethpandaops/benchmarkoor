@@ -643,6 +643,7 @@ export function CompareGroupsPage() {
             zoomRange={sharedZoom ? chartZoom : undefined}
             onZoomChange={sharedZoom ? setChartZoom : undefined}
             chartType={chartType}
+            onTestClick={setSelectedTest}
           />
 
           <PercentageDiffChart
@@ -658,6 +659,7 @@ export function CompareGroupsPage() {
             zoomRange={sharedZoom ? chartZoom : undefined}
             onZoomChange={sharedZoom ? setChartZoom : undefined}
             chartType={chartType}
+            onTestClick={setSelectedTest}
           />
 
           <CVComparisonChart
@@ -669,6 +671,7 @@ export function CompareGroupsPage() {
             onZoomChange={sharedZoom ? setChartZoom : undefined}
             chartType={chartType}
             varianceByRunIndex={varianceMap}
+            onTestClick={setSelectedTest}
           />
 
           <ResourceComparisonCharts
@@ -679,6 +682,7 @@ export function CompareGroupsPage() {
             zoomRange={sharedZoom ? chartZoom : undefined}
             onZoomChange={sharedZoom ? setChartZoom : undefined}
             chartType={chartType}
+            onTestClick={setSelectedTest}
           />
 
           <TestComparisonTable

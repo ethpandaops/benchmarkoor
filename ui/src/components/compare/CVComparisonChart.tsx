@@ -4,6 +4,7 @@ import { Activity } from 'lucide-react'
 import type { RunResult, SuiteTest } from '@/api/types'
 import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import type { ZoomRange } from './MGasComparisonChart'
+import { useChartAreaClick } from './useChartAreaClick'
 
 interface CVComparisonChartProps {
   runs: CompareRun[]
@@ -15,6 +16,7 @@ interface CVComparisonChartProps {
   chartType?: ChartType
   /** Per-run variance keyed by CompareRun.index. */
   varianceByRunIndex: Map<number, Record<string, { mgasStddev: number; mgasMean: number }>>
+  onTestClick?: (testName: string) => void
 }
 
 function useDarkMode() {
@@ -65,7 +67,7 @@ function buildCVData(
   return entries.map((e, i) => ({ testIndex: i + 1, testOrder: e.order, testName: e.name, cv: e.cv }))
 }
 
-export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line', varianceByRunIndex }: CVComparisonChartProps) {
+export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line', varianceByRunIndex, onTestClick }: CVComparisonChartProps) {
   const isDark = useDarkMode()
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
@@ -96,6 +98,8 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
     () => runs.map((r) => r.result ? buildCVData(r.result, suiteTests, varianceByRunIndex.get(r.index), testNameFilter) : []),
     [runs, suiteTests, varianceByRunIndex, testNameFilter],
   )
+
+  const { highlightedTestRef, handleMouseDown, handleClick, cursor } = useChartAreaClick(onTestClick)
 
   const option = useMemo(() => {
     const textColor = isDark ? '#ffffff' : '#374151'
@@ -134,6 +138,7 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
           if (!params.length) return ''
           const testOrder = params[0].value[3]
           const testName = params[0].value[2]
+          highlightedTestRef.current = testName
           let content = `<strong>Test #${testOrder}</strong>`
           if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
           content += '<br/>'
@@ -230,6 +235,7 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
           data,
           itemStyle: { color: slot.color },
+          cursor: onTestClick ? 'pointer' : 'default',
           ...(markLine ? { markLine } : {}),
         }
         if (chartType === 'bar') {
@@ -249,7 +255,7 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
         }
       }),
     }
-  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, threshold])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, threshold, onTestClick, highlightedTestRef])
 
   if (pointsPerRun.every((p) => p.length === 0)) return null
 
@@ -290,12 +296,14 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
           })}
         </div>
       </div>
-      <ReactECharts
-        option={option}
-        style={{ height: '300px', width: '100%' }}
-        opts={{ renderer: 'svg' }}
-        onEvents={onEvents}
-      />
+      <div onMouseDown={handleMouseDown} onClick={handleClick} style={{ cursor }}>
+        <ReactECharts
+          option={option}
+          style={{ height: '300px', width: '100%' }}
+          opts={{ renderer: 'svg' }}
+          onEvents={onEvents}
+        />
+      </div>
       <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
         <table className="w-full text-xs/5">
           <thead>

@@ -5,6 +5,7 @@ import type { TestEntry, ResourceTotals, SuiteTest } from '@/api/types'
 import { formatBytes } from '@/utils/format'
 import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import type { ZoomRange } from './MGasComparisonChart'
+import { useChartAreaClick } from './useChartAreaClick'
 
 interface AggregatedResourceData {
   totals: ResourceTotals
@@ -82,6 +83,7 @@ interface ResourceComparisonChartsProps {
   zoomRange?: ZoomRange
   onZoomChange?: (range: ZoomRange) => void
   chartType?: ChartType
+  onTestClick?: (testName: string) => void
 }
 
 interface ResourceDataPoint {
@@ -155,9 +157,11 @@ interface ChartSectionProps {
   title: string
   option: object
   onZoom: (start: number, end: number) => void
+  onTestClick?: (testName: string) => void
+  highlightedTestRef: React.MutableRefObject<string | null>
 }
 
-function ChartSection({ title, option, onZoom }: ChartSectionProps) {
+function ChartSection({ title, option, onZoom, onTestClick, highlightedTestRef }: ChartSectionProps) {
   const onEvents = useMemo(
     () => ({
       datazoom: (params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
@@ -171,20 +175,24 @@ function ChartSection({ title, option, onZoom }: ChartSectionProps) {
     [onZoom],
   )
 
+  const { handleMouseDown, handleClick, cursor } = useChartAreaClick(onTestClick, highlightedTestRef)
+
   return (
     <div className="rounded-xs bg-gray-50 p-3 dark:bg-gray-700/50">
       <h4 className="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">{title}</h4>
-      <ReactECharts
-        option={option}
-        style={{ height: '200px', width: '100%' }}
-        opts={{ renderer: 'svg' }}
-        onEvents={onEvents}
-      />
+      <div onMouseDown={handleMouseDown} onClick={handleClick} style={{ cursor }}>
+        <ReactECharts
+          option={option}
+          style={{ height: '200px', width: '100%' }}
+          opts={{ renderer: 'svg' }}
+          onEvents={onEvents}
+        />
+      </div>
     </div>
   )
 }
 
-export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suiteTests, zoomRange: externalZoom, onZoomChange, chartType = 'line' }: ResourceComparisonChartsProps) {
+export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suiteTests, zoomRange: externalZoom, onZoomChange, chartType = 'line', onTestClick }: ResourceComparisonChartsProps) {
   const isDark = useDarkMode()
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
@@ -203,6 +211,8 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
     () => runs.map((r) => r.result ? buildDataPoints(r.result.tests, testNameFilter, suiteTests) : []),
     [runs, testNameFilter, suiteTests],
   )
+
+  const highlightedTestRef = useRef<string | null>(null)
 
   const hasData = pointsPerRun.some((p) => p.length > 0)
 
@@ -312,6 +322,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
         if (!params.length) return ''
         const testName = params[0].value[2]
         const testOrder = params[0].value[3]
+        highlightedTestRef.current = testName
         let content = `<strong>Test #${testOrder}</strong>`
         if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
         content += '<br/>'
@@ -343,6 +354,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
           ...createSeriesStyle(),
           data: points.map((d) => [d.testIndex, d[field], d.testName, d.testOrder]),
           itemStyle: { color: slot.color },
+          cursor: onTestClick ? 'pointer' : 'default',
           ...(chartType === 'line' ? { areaStyle: { opacity: 0.08, color: slot.color } } : {}),
         }
       })
@@ -404,7 +416,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
     }
 
     return { cpuPercentOption, memoryMBOption, cpuTimeOption, memoryDeltaOption, diskReadBytesOption, diskWriteBytesOption, diskReadOpsOption, diskWriteOpsOption }
-  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, onTestClick, highlightedTestRef])
 
   if (!hasData) return null
 
@@ -427,14 +439,14 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <ChartSection title="CPU Usage %" option={chartOptions.cpuPercentOption} onZoom={handleZoom} />
-        <ChartSection title="Memory Usage (MB)" option={chartOptions.memoryMBOption} onZoom={handleZoom} />
-        <ChartSection title="CPU Time" option={chartOptions.cpuTimeOption} onZoom={handleZoom} />
-        <ChartSection title="Memory Delta" option={chartOptions.memoryDeltaOption} onZoom={handleZoom} />
-        <ChartSection title="Disk Read (Bytes)" option={chartOptions.diskReadBytesOption} onZoom={handleZoom} />
-        <ChartSection title="Disk Write (Bytes)" option={chartOptions.diskWriteBytesOption} onZoom={handleZoom} />
-        <ChartSection title="Disk Read IOPS" option={chartOptions.diskReadOpsOption} onZoom={handleZoom} />
-        <ChartSection title="Disk Write IOPS" option={chartOptions.diskWriteOpsOption} onZoom={handleZoom} />
+        <ChartSection title="CPU Usage %" option={chartOptions.cpuPercentOption} onZoom={handleZoom} onTestClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="Memory Usage (MB)" option={chartOptions.memoryMBOption} onZoom={handleZoom} onTestClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="CPU Time" option={chartOptions.cpuTimeOption} onZoom={handleZoom} onTestClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="Memory Delta" option={chartOptions.memoryDeltaOption} onZoom={handleZoom} onTestClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="Disk Read (Bytes)" option={chartOptions.diskReadBytesOption} onZoom={handleZoom} onTestClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="Disk Write (Bytes)" option={chartOptions.diskWriteBytesOption} onZoom={handleZoom} onTestClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="Disk Read IOPS" option={chartOptions.diskReadOpsOption} onZoom={handleZoom} onTestClick={onTestClick} highlightedTestRef={highlightedTestRef} />
+        <ChartSection title="Disk Write IOPS" option={chartOptions.diskWriteOpsOption} onZoom={handleZoom} onTestClick={onTestClick} highlightedTestRef={highlightedTestRef} />
       </div>
 
       <p className="mt-4 text-center text-xs/5 text-gray-500 dark:text-gray-400">

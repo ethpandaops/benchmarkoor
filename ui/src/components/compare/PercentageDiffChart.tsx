@@ -5,6 +5,7 @@ import type { SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import type { ZoomRange } from './MGasComparisonChart'
+import { useChartAreaClick } from './useChartAreaClick'
 
 interface PercentageDiffChartProps {
   runs: CompareRun[]
@@ -19,6 +20,7 @@ interface PercentageDiffChartProps {
   zoomRange?: ZoomRange
   onZoomChange?: (range: ZoomRange) => void
   chartType?: ChartType
+  onTestClick?: (testName: string) => void
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -113,7 +115,7 @@ function buildDiffData(
   }))
 }
 
-export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line' }: PercentageDiffChartProps) {
+export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line', onTestClick }: PercentageDiffChartProps) {
   const isDark = useDarkMode()
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
@@ -150,6 +152,8 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
     [runs, baselineIdx, suiteTests, stepFilter, testNameFilter],
   )
 
+  const { highlightedTestRef, handleMouseDown, handleClick, cursor } = useChartAreaClick(onTestClick)
+
   const option = useMemo(() => {
     const textColor = isDark ? '#ffffff' : '#374151'
     const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
@@ -183,6 +187,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           const testName = params[0].value[2]
           const baseValue = params[0].value[3]
           const testOrder = params[0].value[5]
+          highlightedTestRef.current = testName
           const baseSlot = RUN_SLOTS[baselineIdx]
           const baseClient = runs[baselineIdx].config.instance.client
           const baseImg = `<img src="/img/clients/${baseClient}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />`
@@ -298,6 +303,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
             name: `vs ${formatRunLabel(slot, runs[runIdx], labelMode)}`,
             data,
             itemStyle: { color: slot.color },
+            cursor: onTestClick ? 'pointer' : 'default',
           }
           if (chartType === 'bar') {
             return { ...base, type: 'bar' as const, barMaxWidth: 6 }
@@ -317,7 +323,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
         }),
       ],
     }
-  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode, diffFilter, chartType])
+  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode, diffFilter, chartType, onTestClick, highlightedTestRef])
 
   if (runs.every((r) => r.result === null)) return null
 
@@ -396,12 +402,14 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           ))}
         </div>
       </div>
-      <ReactECharts
-        option={option}
-        style={{ height: '300px', width: '100%' }}
-        opts={{ renderer: 'svg' }}
-        onEvents={onEvents}
-      />
+      <div onMouseDown={handleMouseDown} onClick={handleClick} style={{ cursor }}>
+        <ReactECharts
+          option={option}
+          style={{ height: '300px', width: '100%' }}
+          opts={{ renderer: 'svg' }}
+          onEvents={onEvents}
+        />
+      </div>
       <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
         <table className="w-full text-xs/5">
           <thead>
