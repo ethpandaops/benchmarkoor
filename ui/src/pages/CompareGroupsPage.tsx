@@ -43,6 +43,7 @@ export function CompareGroupsPage() {
     filter?: string
     filterRegex?: string
     gasBuckets?: string
+    diffFilter?: string
   }
 
   const suiteHash = search.suite ?? ''
@@ -72,6 +73,7 @@ export function CompareGroupsPage() {
           filter: search.filter,
           filterRegex: search.filterRegex,
           gasBuckets: search.gasBuckets,
+          diffFilter: search.diffFilter,
           ...patch,
         },
         replace: true,
@@ -667,8 +669,8 @@ export function CompareGroupsPage() {
               baselineIdx={baselineIdx}
               onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
               labelMode="instance-id"
-              diffFilter="all"
-              onDiffFilterChange={() => {}}
+              diffFilter={search.diffFilter === 'faster' || search.diffFilter === 'slower' ? search.diffFilter : 'all'}
+              onDiffFilterChange={(val) => updateSearch({ diffFilter: val === 'all' ? undefined : val })}
               testNameFilter={testNameFilter}
               zoomRange={sharedZoom ? chartZoom : undefined}
               onZoomChange={sharedZoom ? setChartZoom : undefined}
