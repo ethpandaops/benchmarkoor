@@ -3,8 +3,8 @@ import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 
 export interface AveragedResult {
   result: RunResult
-  // Per-test variance on MGas/s for error-bar display.
-  variance: Record<string, { mgasStddev: number; mgasMin: number; mgasMax: number }>
+  // Per-test variance on MGas/s for error-bar and CV% display.
+  variance: Record<string, { mgasStddev: number; mgasMean: number; mgasMin: number; mgasMax: number }>
 }
 
 /**
@@ -152,6 +152,7 @@ export function averageResults(
     const mgasStddev = stddev(mgasValues, mgasAvg)
     variance[name] = {
       mgasStddev,
+      mgasMean: mgasAvg,
       mgasMin: Math.min(...mgasValues),
       mgasMax: Math.max(...mgasValues),
     }

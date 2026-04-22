@@ -12,6 +12,7 @@ import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER } from '@/page
 import { type CompareRun, type ChartType, CHART_TYPE_OPTIONS } from '@/components/compare/constants'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
+import { CVComparisonChart } from '@/components/compare/CVComparisonChart'
 import { PercentageDiffChart } from '@/components/compare/PercentageDiffChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
 import { ResourceComparisonCharts } from '@/components/compare/ResourceComparisonCharts'
@@ -160,7 +161,7 @@ export function CompareGroupsPage() {
     if (groups.length === 0 || isLoading) return { syntheticRuns: [] as CompareRun[], varianceMap: new Map() }
 
     const runs: CompareRun[] = []
-    const varMap = new Map<number, Record<string, { mgasStddev: number; mgasMin: number; mgasMax: number }>>()
+    const varMap = new Map<number, Record<string, { mgasStddev: number; mgasMean: number; mgasMin: number; mgasMax: number }>>()
     let resultOffset = 0
 
     for (let gi = 0; gi < groups.length; gi++) {
@@ -204,8 +205,6 @@ export function CompareGroupsPage() {
 
     return { syntheticRuns: runs, varianceMap: varMap }
   }, [groups, groupRuns, configQueries, resultQueries, stepFilter, aggMode, isLoading])
-
-  void varianceMap // will be used for variance display in phase 2
 
   // ─── Available suites + clients for the builder ────────────────
   const availableSuites = useMemo(() => {
@@ -659,6 +658,17 @@ export function CompareGroupsPage() {
             zoomRange={sharedZoom ? chartZoom : undefined}
             onZoomChange={sharedZoom ? setChartZoom : undefined}
             chartType={chartType}
+          />
+
+          <CVComparisonChart
+            runs={syntheticRuns}
+            suiteTests={suite?.tests}
+            labelMode="instance-id"
+            testNameFilter={testNameFilter}
+            zoomRange={sharedZoom ? chartZoom : undefined}
+            onZoomChange={sharedZoom ? setChartZoom : undefined}
+            chartType={chartType}
+            varianceByRunIndex={varianceMap}
           />
 
           <ResourceComparisonCharts
