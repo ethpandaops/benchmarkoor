@@ -70,6 +70,7 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
   const prevZoomRef = useRef(zoomRange)
+  const [threshold, setThreshold] = useState(20)
 
   const handleZoom = useCallback((params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
     let start: number | undefined
@@ -206,10 +207,30 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
         const slot = RUN_SLOTS[i]
         const points = pointsPerRun[i]
         const data = points.map((d) => [d.testIndex, d.cv, d.testName, d.testOrder])
+        const markLine = i === 0
+          ? {
+              silent: true,
+              symbol: 'none' as const,
+              lineStyle: {
+                color: isDark ? '#ef4444' : '#dc2626',
+                type: 'dashed' as const,
+                width: 1.5,
+              },
+              label: {
+                show: true,
+                position: 'insideEndTop' as const,
+                formatter: `${threshold}%`,
+                color: isDark ? '#fca5a5' : '#b91c1c',
+                fontSize: 10,
+              },
+              data: [{ yAxis: threshold }],
+            }
+          : undefined
         const base = {
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
           data,
           itemStyle: { color: slot.color },
+          ...(markLine ? { markLine } : {}),
         }
         if (chartType === 'bar') {
           return { ...base, type: 'bar' as const, barMaxWidth: 6 }
@@ -228,13 +249,13 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
         }
       }),
     }
-  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, threshold])
 
   if (pointsPerRun.every((p) => p.length === 0)) return null
 
   return (
     <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Activity className="size-4 text-gray-400 dark:text-gray-500" />
           <h3
@@ -244,7 +265,20 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
             Coefficient of Variation per Test (MGas/s)
           </h3>
         </div>
-        <div className="flex items-center gap-2 text-xs/5">
+        <div className="flex flex-wrap items-center gap-3 text-xs/5">
+          <label className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+            <span>Threshold:</span>
+            <input
+              type="range"
+              min={0}
+              max={50}
+              step={1}
+              value={threshold}
+              onChange={(e) => setThreshold(Number(e.target.value))}
+              className="w-24 accent-red-600 dark:accent-red-500"
+            />
+            <span className="w-8 font-mono tabular-nums text-gray-700 dark:text-gray-300">{threshold}%</span>
+          </label>
           {runs.map((run) => {
             const slot = RUN_SLOTS[run.index]
             return (
