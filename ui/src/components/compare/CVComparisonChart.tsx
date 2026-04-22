@@ -296,6 +296,64 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
         opts={{ renderer: 'svg' }}
         onEvents={onEvents}
       />
+      <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+        <table className="w-full text-xs/5">
+          <thead>
+            <tr className="text-gray-500 dark:text-gray-400">
+              <th className="pb-1 text-left font-medium">Run</th>
+              <th className="pb-1 text-right font-medium" title={`Tests with CV ≤ ${threshold}%`}>Below</th>
+              <th className="pb-1 text-right font-medium">Avg</th>
+              <th className="pb-1 text-right font-medium">P95</th>
+              <th className="pb-1 pr-3 text-right font-medium">Max</th>
+              <th className="border-l border-gray-200 pb-1 pl-3 text-right font-medium dark:border-gray-600" title={`Tests with CV > ${threshold}%`}>Above</th>
+              <th className="pb-1 text-right font-medium">Avg</th>
+              <th className="pb-1 text-right font-medium">P95</th>
+              <th className="pb-1 pr-3 text-right font-medium">Max</th>
+              <th className="border-l border-gray-200 pb-1 pl-3 text-right font-medium dark:border-gray-600">Total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+            {runs.map((run, i) => {
+              const slot = RUN_SLOTS[run.index]
+              const points = pointsPerRun[i]
+              const below: number[] = []
+              const above: number[] = []
+              for (const p of points) {
+                if (p.cv > threshold) above.push(p.cv)
+                else below.push(p.cv)
+              }
+              const total = below.length + above.length
+              const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
+              const percentile = (arr: number[], p: number) => {
+                if (arr.length === 0) return 0
+                const sorted = [...arr].sort((a, b) => a - b)
+                const idx = Math.ceil((p / 100) * sorted.length) - 1
+                return sorted[Math.max(0, idx)]
+              }
+              const max = (arr: number[]) => arr.length > 0 ? Math.max(...arr) : 0
+              return (
+                <tr key={slot.label}>
+                  <td className="py-1">
+                    <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: slot.color }}>
+                      <img src={`/img/clients/${run.config.instance.client}.jpg`} alt={run.config.instance.client} className="size-3.5 rounded-full object-cover" />
+                      {formatRunLabel(slot, run, labelMode)}
+                    </span>
+                  </td>
+                  <td className="py-1 text-right font-medium text-green-600 dark:text-green-400">{below.length}</td>
+                  <td className="py-1 text-right text-green-600 dark:text-green-400">{below.length > 0 ? `${avg(below).toFixed(1)}%` : '-'}</td>
+                  <td className="py-1 text-right text-green-600 dark:text-green-400">{below.length > 0 ? `${percentile(below, 95).toFixed(1)}%` : '-'}</td>
+                  <td className="py-1 pr-3 text-right text-green-600 dark:text-green-400">{below.length > 0 ? `${max(below).toFixed(1)}%` : '-'}</td>
+                  <td className="border-l border-gray-200 py-1 pl-3 text-right font-medium text-red-600 dark:border-gray-600 dark:text-red-400">{above.length}</td>
+                  <td className="py-1 text-right text-red-600 dark:text-red-400">{above.length > 0 ? `${avg(above).toFixed(1)}%` : '-'}</td>
+                  <td className="py-1 text-right text-red-600 dark:text-red-400">{above.length > 0 ? `${percentile(above, 95).toFixed(1)}%` : '-'}</td>
+                  <td className="py-1 pr-3 text-right text-red-600 dark:text-red-400">{above.length > 0 ? `${max(above).toFixed(1)}%` : '-'}</td>
+                  <td className="border-l border-gray-200 py-1 pl-3 text-right text-gray-500 dark:border-gray-600 dark:text-gray-400">{total}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
