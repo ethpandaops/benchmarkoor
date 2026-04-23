@@ -1029,17 +1029,23 @@ export function SuiteDetailPage() {
                       >
                         <SquareStack className="size-3.5" />
                       </button>
-                      <button
-                        disabled={recentSuccessfulPerClient.length < MIN_COMPARE_RUNS}
-                        onClick={() => {
-                          const ids = recentSuccessfulPerClient.map((r) => r.run_id)
-                          navigate({ to: '/compare', search: { runs: ids.join(',') } })
-                        }}
-                        className="flex cursor-pointer items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
-                        title="Compare latest successful run per client"
-                      >
-                        <GitCompareArrows className="size-3.5" />
-                      </button>
+                      {recentSuccessfulPerClient.length >= MIN_COMPARE_RUNS ? (
+                        <a
+                          href={`/compare?runs=${encodeURIComponent(recentSuccessfulPerClient.map((r) => r.run_id).join(','))}`}
+                          className="flex items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                          title="Compare latest successful run per client"
+                        >
+                          <GitCompareArrows className="size-3.5" />
+                        </a>
+                      ) : (
+                        <button
+                          disabled
+                          className="flex cursor-not-allowed items-center justify-center rounded-xs p-1 opacity-50 shadow-xs ring-1 ring-inset bg-white text-gray-500 ring-gray-300 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600"
+                          title="Compare latest successful run per client"
+                        >
+                          <GitCompareArrows className="size-3.5" />
+                        </button>
+                      )}
                       {groupCompareUrl && (
                         <a
                           href={groupCompareUrl}
@@ -1056,7 +1062,7 @@ export function SuiteDetailPage() {
                       <RunsHeatmap
                         runs={suiteRunsAll}
                         groupBy={effectiveGroupBy}
-                        onCompareGroup={effectiveGroupBy ? (groupRuns) => {
+                        getCompareGroupHref={effectiveGroupBy ? (groupRuns) => {
                           const sorted = [...groupRuns].sort((a, b) => b.timestamp - a.timestamp)
                           const seen = new Set<string>()
                           const ids: string[] = []
@@ -1071,11 +1077,10 @@ export function SuiteDetailPage() {
                             }
                             if (ids.length >= MAX_COMPARE_RUNS) break
                           }
-                          if (ids.length >= MIN_COMPARE_RUNS) {
-                            navigate({ to: '/compare', search: { runs: ids.join(',') } })
-                          }
+                          if (ids.length < MIN_COMPARE_RUNS) return undefined
+                          return `/compare?runs=${encodeURIComponent(ids.join(','))}`
                         } : undefined}
-                        onCompareClientAcrossGroups={effectiveGroupBy ? (client) => {
+                        getCompareClientAcrossGroupsHref={effectiveGroupBy ? (client) => {
                           // Find the latest successful run for this client in each group
                           const sorted = [...suiteRunsAll]
                             .filter((r) => r.instance.client === client)
@@ -1095,17 +1100,16 @@ export function SuiteDetailPage() {
                             }
                             if (ids.length >= MAX_COMPARE_RUNS) break
                           }
-                          if (ids.length >= MIN_COMPARE_RUNS) {
-                            const labels = effectiveGroupBy === 'instance_id' ? 'instance-id' : `label:${effectiveGroupBy}`
-                            navigate({ to: '/compare', search: { runs: ids.join(','), labels } })
-                          }
+                          if (ids.length < MIN_COMPARE_RUNS) return undefined
+                          const labels = effectiveGroupBy === 'instance_id' ? 'instance-id' : `label:${effectiveGroupBy}`
+                          return `/compare?runs=${encodeURIComponent(ids.join(','))}&labels=${encodeURIComponent(labels)}`
                         } : undefined}
-                        onGroupCompareGroup={effectiveGroupBy ? (groupLabel, groupClients) => {
+                        getGroupCompareGroupHref={effectiveGroupBy ? (groupLabel, groupClients) => {
                           const labelFilter = effectiveGroupBy !== 'instance_id' ? `${effectiveGroupBy}=${groupLabel}` : ''
                           const groups = groupClients.map((c) => `${c}:${labelFilter}`).join(';')
-                          navigate({ to: '/compare/groups', search: { suite: suiteHash, groups } as Record<string, string> })
+                          return `/compare/groups?suite=${encodeURIComponent(suiteHash)}&groups=${encodeURIComponent(groups)}`
                         } : undefined}
-                        onGroupCompareClientAcrossGroups={effectiveGroupBy ? (client) => {
+                        getGroupCompareClientAcrossGroupsHref={effectiveGroupBy ? (client) => {
                           // Build one group per label-value for this client.
                           const labelValues = new Set<string>()
                           for (const run of suiteRunsAll) {
@@ -1119,7 +1123,7 @@ export function SuiteDetailPage() {
                             if (effectiveGroupBy === 'instance_id') return `${client}:`
                             return `${client}:${effectiveGroupBy}=${val}`
                           }).join(';')
-                          navigate({ to: '/compare/groups', search: { suite: suiteHash, groups } as Record<string, string> })
+                          return `/compare/groups?suite=${encodeURIComponent(suiteHash)}&groups=${encodeURIComponent(groups)}`
                         } : undefined}
                         isDark={isDark}
                         colorNormalization={heatmapColor}
@@ -1292,17 +1296,23 @@ export function SuiteDetailPage() {
                         >
                           <SquareStack className="size-4" />
                         </button>
-                        <button
-                          disabled={recentSuccessfulPerClient.length < MIN_COMPARE_RUNS}
-                          onClick={() => {
-                            const ids = recentSuccessfulPerClient.map((r) => r.run_id)
-                            navigate({ to: '/compare', search: { runs: ids.join(',') } })
-                          }}
-                          className="flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
-                          title="Compare latest successful run per client"
-                        >
-                          <GitCompareArrows className="size-4" />
-                        </button>
+                        {recentSuccessfulPerClient.length >= MIN_COMPARE_RUNS ? (
+                          <a
+                            href={`/compare?runs=${encodeURIComponent(recentSuccessfulPerClient.map((r) => r.run_id).join(','))}`}
+                            className="flex items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                            title="Compare latest successful run per client"
+                          >
+                            <GitCompareArrows className="size-4" />
+                          </a>
+                        ) : (
+                          <button
+                            disabled
+                            className="flex cursor-not-allowed items-center justify-center rounded-xs p-1.5 opacity-50 shadow-xs ring-1 ring-inset bg-white text-gray-500 ring-gray-300 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600"
+                            title="Compare latest successful run per client"
+                          >
+                            <GitCompareArrows className="size-4" />
+                          </button>
+                        )}
                         {groupCompareUrl && (
                           <a
                             href={groupCompareUrl}

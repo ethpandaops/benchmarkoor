@@ -96,14 +96,14 @@ interface RunsHeatmapProps {
   runs: IndexEntry[]
   /** When set, runs are grouped by this label key (or 'instance_id') before client grouping. */
   groupBy?: string
-  /** Called with the runs of a group when the per-group compare button is clicked. */
-  onCompareGroup?: (runs: IndexEntry[]) => void
-  /** Called with a client name to compare its latest successful run across all groups. */
-  onCompareClientAcrossGroups?: (client: string) => void
-  /** Called with the group label + clients to open the averaged group comparison page. */
-  onGroupCompareGroup?: (groupLabel: string, clients: string[]) => void
-  /** Called with a client name to open the averaged group comparison across label groups. */
-  onGroupCompareClientAcrossGroups?: (client: string) => void
+  /** Returns the URL for the per-group compare button, or undefined to render it inert. */
+  getCompareGroupHref?: (runs: IndexEntry[]) => string | undefined
+  /** Returns the URL for comparing a client's latest successful run across groups. */
+  getCompareClientAcrossGroupsHref?: (client: string) => string | undefined
+  /** Returns the URL for the averaged group-vs-group comparison page. */
+  getGroupCompareGroupHref?: (groupLabel: string, clients: string[]) => string | undefined
+  /** Returns the URL for a client's averaged comparison across label groups. */
+  getGroupCompareClientAcrossGroupsHref?: (client: string) => string | undefined
   isDark: boolean
   colorNormalization?: ColorNormalization
   onColorNormalizationChange?: (mode: ColorNormalization) => void
@@ -134,10 +134,10 @@ interface TooltipData {
 export function RunsHeatmap({
   runs,
   groupBy,
-  onCompareGroup,
-  onCompareClientAcrossGroups,
-  onGroupCompareGroup,
-  onGroupCompareClientAcrossGroups,
+  getCompareGroupHref,
+  getCompareClientAcrossGroupsHref,
+  getGroupCompareGroupHref,
+  getGroupCompareClientAcrossGroupsHref,
   isDark,
   colorNormalization = 'suite',
   onColorNormalizationChange,
@@ -468,26 +468,23 @@ export function RunsHeatmap({
                 <span>=</span>
                 <span>{section.label}</span>
               </span>
-              {onCompareGroup && (
-                <button
-                  onClick={() => {
-                    const allGroupRuns = section.clients.flatMap((c) => section.clientRuns[c])
-                    onCompareGroup(allGroupRuns)
-                  }}
+              {getCompareGroupHref && (
+                <a
+                  href={getCompareGroupHref(section.clients.flatMap((c) => section.clientRuns[c]))}
                   className="flex shrink-0 cursor-pointer items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                   title="Compare latest successful run per client in this group"
                 >
                   <GitCompareArrows className="size-3.5" />
-                </button>
+                </a>
               )}
-              {onGroupCompareGroup && (
-                <button
-                  onClick={() => onGroupCompareGroup(section.label, section.clients)}
+              {getGroupCompareGroupHref && (
+                <a
+                  href={getGroupCompareGroupHref(section.label, section.clients)}
                   className="flex shrink-0 cursor-pointer items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                   title="Compare averaged groups for clients in this group"
                 >
                   <Layers className="size-3.5" />
-                </button>
+                </a>
               )}
               <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
             </div>
@@ -496,7 +493,7 @@ export function RunsHeatmap({
             {/* Stats header */}
             {sectionIdx === 0 && (
               <div className="flex items-center gap-2 sm:gap-3">
-                <div className={clsx('hidden shrink-0 sm:block', onGroupCompareClientAcrossGroups && groupSections ? 'w-38' : onCompareClientAcrossGroups && groupSections ? 'w-32' : 'w-28')} />
+                <div className={clsx('hidden shrink-0 sm:block', getGroupCompareClientAcrossGroupsHref && groupSections ? 'w-38' : getCompareClientAcrossGroupsHref && groupSections ? 'w-32' : 'w-28')} />
                 <div className="flex-1" />
                 <div className="hidden shrink-0 gap-3 border-l border-transparent pl-3 font-mono text-xs/5 font-medium text-gray-400 md:flex dark:text-gray-500">
                   <span className="w-10 text-center">Min</span>
@@ -518,30 +515,30 @@ export function RunsHeatmap({
               }
               return (
                 <div key={`${section.label}-${client}`} className="flex items-center gap-2 sm:gap-3">
-                  <div className={clsx('flex shrink-0 items-center gap-1', onGroupCompareClientAcrossGroups && groupSections ? 'sm:w-38' : onCompareClientAcrossGroups && groupSections ? 'sm:w-32' : 'sm:w-28')}>
+                  <div className={clsx('flex shrink-0 items-center gap-1', getGroupCompareClientAcrossGroupsHref && groupSections ? 'sm:w-38' : getCompareClientAcrossGroupsHref && groupSections ? 'sm:w-32' : 'sm:w-28')}>
                     <span className="sm:hidden">
                       <ClientBadge client={client} hideLabel />
                     </span>
                     <span className="hidden sm:inline-flex">
                       <ClientBadge client={client} />
                     </span>
-                    {onCompareClientAcrossGroups && groupSections && (
-                      <button
-                        onClick={() => onCompareClientAcrossGroups(client)}
+                    {getCompareClientAcrossGroupsHref && groupSections && (
+                      <a
+                        href={getCompareClientAcrossGroupsHref(client)}
                         className="flex shrink-0 items-center justify-center rounded-xs p-0.5 text-gray-400 transition-colors hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200"
                         title={`Compare latest successful ${client} run across groups`}
                       >
                         <GitCompareArrows className="size-3" />
-                      </button>
+                      </a>
                     )}
-                    {onGroupCompareClientAcrossGroups && groupSections && (
-                      <button
-                        onClick={() => onGroupCompareClientAcrossGroups(client)}
+                    {getGroupCompareClientAcrossGroupsHref && groupSections && (
+                      <a
+                        href={getGroupCompareClientAcrossGroupsHref(client)}
                         className="flex shrink-0 items-center justify-center rounded-xs p-0.5 text-gray-400 transition-colors hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200"
                         title={`Compare ${client} averaged across groups (group comparison)`}
                       >
                         <Layers className="size-3" />
-                      </button>
+                      </a>
                     )}
                   </div>
                   <div className="flex min-w-0 flex-1 flex-wrap gap-1">
