@@ -7,41 +7,191 @@ on:
     tags:
       - 'v*.*.*'
 
+env:
+  GHCR_REPO: ghcr.io/${{ github.repository }}
+  DOCKERFILE: Dockerfile
+
 jobs:
-  build-and-push-image:
+  meta:
+    name: Compute tags and build info
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write
-
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      tag_prefix: ${{ steps.vars.outputs.tag_prefix }}
+      additional_tags: ${{ steps.vars.outputs.additional_tags }}
+      version: ${{ steps.vars.outputs.version }}
+      commit: ${{ steps.vars.outputs.commit }}
+      date: ${{ steps.vars.outputs.date }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
-      - name: Set build version info
+      - id: vars
         run: |
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          echo "sha_short=$SHA_SHORT" >> $GITHUB_OUTPUT
+          if [[ "${{ github.ref }}" == refs/tags/v*.*.* ]]; then
+            VERSION_TAG="${GITHUB_REF#refs/tags/}"
+            echo "tag_prefix=$VERSION_TAG" >> $GITHUB_OUTPUT
+            echo "additional_tags=[\"$VERSION_TAG\",\"latest\"]" >> $GITHUB_OUTPUT
+          else
+            echo "tag_prefix=master" >> $GITHUB_OUTPUT
+            echo "additional_tags=[\"master\",\"master-latest\"]" >> $GITHUB_OUTPUT
+          fi
           VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
-          COMMIT=$(git rev-parse --short HEAD)
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "COMMIT=${COMMIT}" >> "$GITHUB_ENV"
-          echo "DATE=${DATE}" >> "$GITHUB_ENV"
-          echo "Build version: VERSION=${VERSION} COMMIT=${COMMIT} DATE=${DATE}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit=$SHA_SHORT" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
 
-      - name: Deploy docker images
-        uses: ethpandaops/actions/docker-build-push@99b48ca2b233a2eff93e6a6df76e46b718aca108
+  build_amd64:
+    name: Build amd64 image
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           registry: ghcr.io
-          registry_username: ${{ github.actor }}
-          registry_password: ${{ secrets.GITHUB_TOKEN }}
-          image_name: ${{ github.repository }}
-          push: true
-          platforms: linux/amd64,linux/arm64
-          file: Dockerfile
-          build-args: |
-            VERSION=${{ env.VERSION }}
-            COMMIT=${{ env.COMMIT }}
-            DATE=${{ env.DATE }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build amd64 docker image
+        env:
+          PREFIX: ${{ needs.meta.outputs.tag_prefix }}
+          SHA: ${{ needs.meta.outputs.sha_short }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          COMMIT: ${{ needs.meta.outputs.commit }}
+          DATE: ${{ needs.meta.outputs.date }}
+        run: |
+          docker build . --file "$DOCKERFILE" \
+            --tag "${GHCR_REPO}:${PREFIX}-amd64" \
+            --tag "${GHCR_REPO}:${PREFIX}-${SHA}-amd64" \
+            --platform=linux/amd64 \
+            --build-arg VERSION="$VERSION" \
+            --build-arg COMMIT="$COMMIT" \
+            --build-arg DATE="$DATE"
+
+      - name: Push amd64 docker images
+        env:
+          PREFIX: ${{ needs.meta.outputs.tag_prefix }}
+          SHA: ${{ needs.meta.outputs.sha_short }}
+        run: |
+          docker push "${GHCR_REPO}:${PREFIX}-amd64"
+          docker push "${GHCR_REPO}:${PREFIX}-${SHA}-amd64"
+
+  build_arm64:
+    name: Build arm64 image
+    needs: meta
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build arm64 docker image
+        env:
+          PREFIX: ${{ needs.meta.outputs.tag_prefix }}
+          SHA: ${{ needs.meta.outputs.sha_short }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          COMMIT: ${{ needs.meta.outputs.commit }}
+          DATE: ${{ needs.meta.outputs.date }}
+        run: |
+          docker build . --file "$DOCKERFILE" \
+            --tag "${GHCR_REPO}:${PREFIX}-arm64" \
+            --tag "${GHCR_REPO}:${PREFIX}-${SHA}-arm64" \
+            --platform=linux/arm64 \
+            --build-arg VERSION="$VERSION" \
+            --build-arg COMMIT="$COMMIT" \
+            --build-arg DATE="$DATE"
+
+      - name: Push arm64 docker images
+        env:
+          PREFIX: ${{ needs.meta.outputs.tag_prefix }}
+          SHA: ${{ needs.meta.outputs.sha_short }}
+        run: |
+          docker push "${GHCR_REPO}:${PREFIX}-arm64"
+          docker push "${GHCR_REPO}:${PREFIX}-${SHA}-arm64"
+
+  manifest_sha:
+    name: Multi-arch sha manifest
+    needs: [meta, build_amd64, build_arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-arch sha manifest
+        env:
+          PREFIX: ${{ needs.meta.outputs.tag_prefix }}
+          SHA: ${{ needs.meta.outputs.sha_short }}
+        run: |
+          docker buildx imagetools create -t "${GHCR_REPO}:${PREFIX}-${SHA}" \
+            "${GHCR_REPO}:${PREFIX}-${SHA}-amd64" \
+            "${GHCR_REPO}:${PREFIX}-${SHA}-arm64"
+
+  manifest_extra:
+    name: Multi-arch additional manifests
+    needs: [meta, build_amd64, build_arm64]
+    if: ${{ needs.meta.outputs.additional_tags != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        tag: ${{ fromJSON(needs.meta.outputs.additional_tags) }}
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-arch manifest ${{ matrix.tag }}
+        env:
+          PREFIX: ${{ needs.meta.outputs.tag_prefix }}
+          SHA: ${{ needs.meta.outputs.sha_short }}
+          TAG: ${{ matrix.tag }}
+        run: |
+          docker buildx imagetools create -t "${GHCR_REPO}:${TAG}" \
+            "${GHCR_REPO}:${PREFIX}-${SHA}-amd64" \
+            "${GHCR_REPO}:${PREFIX}-${SHA}-arm64"
