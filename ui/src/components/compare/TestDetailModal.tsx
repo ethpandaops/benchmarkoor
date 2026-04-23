@@ -195,18 +195,44 @@ export function TestDetailModal({
 
                 {/* Stats summary */}
                 {group.min !== undefined && (
-                  <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                    {group.average !== undefined && <span>Avg: {group.average.toFixed(2)}</span>}
-                    {group.median !== undefined && <span>Median: {group.median.toFixed(2)}</span>}
-                    <span>Min: {group.min.toFixed(2)}</span>
-                    <span>Max: {group.max?.toFixed(2)}</span>
-                    <span>Range: {((group.max ?? 0) - (group.min ?? 0)).toFixed(2)}</span>
-                    {group.stddev !== undefined && <span>σ: {group.stddev.toFixed(2)}</span>}
-                    {group.stddev !== undefined && group.average !== undefined && group.average > 0 && (
-                      <span title="Coefficient of Variation — standard deviation as a percentage of the average. Lower = more consistent across runs.">
-                        CV: {((group.stddev / group.average) * 100).toFixed(1)}%
-                      </span>
-                    )}
+                  <div className="mt-4 grid grid-cols-7 gap-x-2 border-t border-gray-200 pt-2 text-xs dark:border-gray-700">
+                    <StatCell
+                      label="Avg"
+                      value={group.average?.toFixed(2)}
+                      title="Arithmetic mean of MGas/s across the sampled runs in this group."
+                    />
+                    <StatCell
+                      label="Median"
+                      value={group.median?.toFixed(2)}
+                      title="Middle value of MGas/s across the sampled runs. Less sensitive to outliers than the average."
+                    />
+                    <StatCell
+                      label="Min"
+                      value={group.min.toFixed(2)}
+                      title="Lowest MGas/s observed across the sampled runs."
+                    />
+                    <StatCell
+                      label="Max"
+                      value={group.max?.toFixed(2)}
+                      title="Highest MGas/s observed across the sampled runs."
+                    />
+                    <StatCell
+                      label="Range"
+                      value={((group.max ?? 0) - (group.min ?? 0)).toFixed(2)}
+                      title="Max minus min — the spread of MGas/s across the sampled runs."
+                    />
+                    <StatCell
+                      label="σ"
+                      value={group.stddev?.toFixed(2)}
+                      title="Sample standard deviation of MGas/s. How much individual runs typically deviate from the average."
+                    />
+                    <StatCell
+                      label="CV"
+                      value={group.stddev !== undefined && group.average !== undefined && group.average > 0
+                        ? `${((group.stddev / group.average) * 100).toFixed(1)}%`
+                        : undefined}
+                      title="Coefficient of Variation — standard deviation as a percentage of the average. Lower = more consistent across runs."
+                    />
                   </div>
                 )}
 
@@ -338,6 +364,15 @@ function SortableHeader({ label, sortKey, currentKey, currentDir, onSort, align 
     >
       {label}{arrow}
     </th>
+  )
+}
+
+function StatCell({ label, value, title }: { label: string; value?: string; title?: string }) {
+  return (
+    <div className="flex flex-col" title={title}>
+      <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{label}</span>
+      <span className="font-mono tabular-nums text-gray-700 dark:text-gray-200">{value ?? '—'}</span>
+    </div>
   )
 }
 
