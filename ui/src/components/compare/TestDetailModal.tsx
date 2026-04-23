@@ -107,17 +107,24 @@ export function TestDetailModal({
       })
 
       const mgasValues = runs.map((r) => r.mgas).filter((v): v is number => v !== undefined)
-      const mean = mgasValues.length > 0 ? mgasValues.reduce((a, b) => a + b, 0) / mgasValues.length : undefined
+      const average = mgasValues.length > 0 ? mgasValues.reduce((a, b) => a + b, 0) / mgasValues.length : undefined
+      const median = mgasValues.length > 0
+        ? (() => {
+            const sorted = [...mgasValues].sort((a, b) => a - b)
+            const mid = Math.floor(sorted.length / 2)
+            return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+          })()
+        : undefined
       const min = mgasValues.length > 0 ? Math.min(...mgasValues) : undefined
       const max = mgasValues.length > 0 ? Math.max(...mgasValues) : undefined
-      const stddev = mgasValues.length >= 2 && mean !== undefined
-        ? Math.sqrt(mgasValues.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (mgasValues.length - 1))
+      const stddev = mgasValues.length >= 2 && average !== undefined
+        ? Math.sqrt(mgasValues.reduce((sum, v) => sum + (v - average) ** 2, 0) / (mgasValues.length - 1))
         : undefined
 
       const metaStr = Object.entries(group.metadata).map(([k, v]) => `${k}=${v}`).join(', ')
       const label = metaStr || group.client
 
-      return { label, client: group.client, runs, mean, min, max, stddev, mgasValues }
+      return { label, client: group.client, runs, average, median, min, max, stddev, mgasValues }
     })
   }, [groups, groupResults, groupTimestamps, groupRunIds, stepFilter, sampleSize, testName])
 
@@ -166,12 +173,6 @@ export function TestDetailModal({
                   <span className={clsx('text-sm/6 font-medium', SLOT_COLORS[gi % SLOT_COLORS.length])}>
                     {group.label}
                   </span>
-                  {group.mean !== undefined && (
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      mean: {group.mean.toFixed(2)} MGas/s
-                      {group.stddev !== undefined && <> · σ: {group.stddev.toFixed(2)}</>}
-                    </span>
-                  )}
                 </div>
 
                 {/* Dot chart — each dot is one run's MGas/s for this test */}
@@ -194,13 +195,16 @@ export function TestDetailModal({
 
                 {/* Stats summary */}
                 {group.min !== undefined && (
-                  <div className="mt-4 flex gap-3 border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                  <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                    {group.average !== undefined && <span>Avg: {group.average.toFixed(2)}</span>}
+                    {group.median !== undefined && <span>Median: {group.median.toFixed(2)}</span>}
                     <span>Min: {group.min.toFixed(2)}</span>
                     <span>Max: {group.max?.toFixed(2)}</span>
                     <span>Range: {((group.max ?? 0) - (group.min ?? 0)).toFixed(2)}</span>
-                    {group.stddev !== undefined && group.mean !== undefined && group.mean > 0 && (
-                      <span title="Coefficient of Variation — standard deviation as a percentage of the mean. Lower = more consistent across runs.">
-                        CV: {((group.stddev / group.mean) * 100).toFixed(1)}%
+                    {group.stddev !== undefined && <span>σ: {group.stddev.toFixed(2)}</span>}
+                    {group.stddev !== undefined && group.average !== undefined && group.average > 0 && (
+                      <span title="Coefficient of Variation — standard deviation as a percentage of the average. Lower = more consistent across runs.">
+                        CV: {((group.stddev / group.average) * 100).toFixed(1)}%
                       </span>
                     )}
                   </div>
