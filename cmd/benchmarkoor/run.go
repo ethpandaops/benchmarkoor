@@ -27,6 +27,7 @@ var (
 	limitInstanceIDs     []string
 	limitInstanceClients []string
 	metadataLabels       []string
+	stopAfterPrerun      bool
 )
 
 var runCmd = &cobra.Command{
@@ -44,6 +45,9 @@ func init() {
 		"Limit to instances with these client types (comma-separated or repeated flag)")
 	runCmd.Flags().StringSliceVar(&metadataLabels, "metadata.label", nil,
 		"Add metadata label as key=value (can be repeated)")
+	runCmd.Flags().BoolVar(&stopAfterPrerun, "stop-after-prerun", false,
+		"Exit after pre-run setup for each instance (RPC ready, bootstrap FCU done) "+
+			"without running tests. Leaves containers and data directories intact.")
 }
 
 func runBenchmark(cmd *cobra.Command, args []string) error {
@@ -322,6 +326,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			TmpCacheDir:        cfg.Runner.Directories.TmpCacheDir,
 			TestFilter:         cfg.Runner.Benchmark.Tests.Filter,
 			FullConfig:         cfg,
+			StopAfterPrerun:    stopAfterPrerun,
 		}
 
 		r := runner.NewRunner(log, runnerCfg, containerMgr, registry, exec, cpufreqMgr, resultsUploader, preRunLogBuffer)

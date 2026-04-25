@@ -505,8 +505,8 @@ func expandGlobPattern(basePath, pattern, filter string) ([]*StepFile, string, e
 			continue
 		}
 
-		// Only include .txt files.
-		if !strings.HasSuffix(match, ".txt") {
+		// Only include .txt and .jsonl files.
+		if !strings.HasSuffix(match, ".txt") && !strings.HasSuffix(match, ".jsonl") {
 			continue
 		}
 

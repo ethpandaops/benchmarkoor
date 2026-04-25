@@ -64,6 +64,11 @@ type Config struct {
 	ReadyTimeout       time.Duration
 	TestFilter         string
 	FullConfig         *config.Config // Full config for resolving per-instance settings
+	// StopAfterPrerun, when true, causes each instance lifecycle to exit
+	// after pre-run setup (RPC ready, bootstrap FCU done) without running
+	// tests, leaving containers, volumes, and data directories intact for
+	// inspection.
+	StopAfterPrerun bool
 }
 
 // TestCounts contains test count statistics for a run.

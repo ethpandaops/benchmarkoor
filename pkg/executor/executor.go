@@ -111,6 +111,7 @@ type ExecuteOptions struct {
 	RetryNewPayloadsSyncingConfig *config.RetryNewPayloadsSyncingConfig // Retry config for SYNCING responses.
 	PostTestRPCCalls              []config.PostTestRPCCall              // Arbitrary RPC calls to execute after the test step.
 	PostTestSleepDuration         time.Duration                         // Sleep duration after each test (0 = disabled).
+	FailFast                      bool                                  // If true, return an error from runStepLines on the first failed RPC call.
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -367,6 +368,11 @@ func (e *executor) RunPreRunSteps(ctx context.Context, opts *ExecuteOptions) (in
 
 		preRunResult := NewTestResult(step.Name)
 		if err := e.runStepFile(ctx, opts, step, preRunResult, false); err != nil {
+			// FailFast: surface the error to the caller without writing partial results.
+			if opts.FailFast {
+				return 0, fmt.Errorf("pre-run step %q failed: %w", step.Name, err)
+			}
+
 			log.WithError(err).Warn("Pre-run step failed")
 
 			if ctx.Err() != nil {
@@ -815,6 +821,8 @@ func (e *executor) runStepLines(
 	result *TestResult,
 	captureBlockLogs bool,
 ) error {
+	stepStart := time.Now()
+
 	for lineNum, line := range lines {
 		select {
 		case <-ctx.Done():
@@ -834,6 +842,13 @@ func (e *executor) runStepLines(
 				result.AddResult("unknown", line, "", 0, false, nil)
 			}
 
+			if opts.FailFast {
+				return fmt.Errorf(
+					"step %q line %d: failed to parse JSON-RPC payload: %w",
+					stepName, lineNum+1, err,
+				)
+			}
+
 			continue
 		}
 
@@ -850,6 +865,10 @@ func (e *executor) runStepLines(
 		succeeded := err == nil
 
 		e.log.WithFields(logrus.Fields{
+			"step":          stepName,
+			"pos":           fmt.Sprintf("%d/%d", lineNum+1, len(lines)),
+			"progress":      fmt.Sprintf("%.1f%%", float64(lineNum+1)*100/float64(len(lines))),
+			"eta":           estimateETA(stepStart, lineNum+1, len(lines)),
 			"method":        method,
 			"duration":      time.Duration(duration),
 			"full_duration": time.Duration(fullDuration),
@@ -903,9 +922,29 @@ func (e *executor) runStepLines(
 		if result != nil {
 			result.AddResult(method, line, response, duration, succeeded, resourceDelta)
 		}
+
+		if !succeeded && opts.FailFast {
+			return fmt.Errorf(
+				"step %q line %d: RPC call %s failed",
+				stepName, lineNum+1, method,
+			)
+		}
 	}
 
 	return nil
+}
+
+// estimateETA returns the projected remaining duration to finish a step,
+// based on the average time per call so far. Returns 0 when there is no
+// data yet (first call) or no work remains.
+func estimateETA(start time.Time, completed, total int) time.Duration {
+	if completed <= 0 || completed >= total {
+		return 0
+	}
+
+	avg := time.Since(start) / time.Duration(completed)
+
+	return (avg * time.Duration(total-completed)).Round(time.Second)
 }
 
 // retryNewPayloadSyncing retries an engine_newPayload call when it returns SYNCING status.

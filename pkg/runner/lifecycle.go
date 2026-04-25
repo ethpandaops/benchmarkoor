@@ -999,6 +999,46 @@ func (r *runner) runContainerLifecycle(
 		params.LiveState.SetConfig(runConfig)
 	}
 
+	// Stop after pre-run if requested: clear localCleanupFuncs first so
+	// the deferred cleanup loop is a no-op on every exit path (success
+	// or pre-run failure), leaving the container, volume/datadir, temp
+	// files, and CPU frequency settings intact for inspection. Then run
+	// the suite's pre-run steps (if any) with FailFast set so any
+	// failure surfaces immediately.
+	if r.cfg.StopAfterPrerun {
+		localCleanupFuncs = nil
+
+		if r.executor != nil {
+			preRunOpts := &executor.ExecuteOptions{
+				EngineEndpoint: fmt.Sprintf(
+					"http://%s:%d", containerIP, spec.EnginePort(),
+				),
+				JWT:        r.cfg.JWT,
+				ResultsDir: runResultsDir,
+				FailFast:   true,
+			}
+
+			if n, err := r.executor.RunPreRunSteps(execCtx, preRunOpts); err != nil {
+				return fmt.Errorf("running pre-run steps: %w", err)
+			} else if n > 0 {
+				log.WithField("steps", n).Info("Pre-run steps completed")
+			}
+		}
+
+		log.WithFields(logrus.Fields{
+			"container_id": containerID,
+			"container_ip": containerIP,
+			"rpc_endpoint": fmt.Sprintf("http://%s:%d", containerIP, spec.RPCPort()),
+			"engine_endpoint": fmt.Sprintf(
+				"http://%s:%d", containerIP, spec.EnginePort(),
+			),
+			"data_mount": dataMount.Source,
+			"run_dir":    runResultsDir,
+		}).Info("--stop-after-prerun set; exiting without running tests, leaving resources intact")
+
+		return nil
+	}
+
 	// Execute tests if executor is configured.
 	if r.executor != nil {
 		log.Info("Starting test execution")
