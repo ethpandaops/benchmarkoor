@@ -112,6 +112,7 @@ type ExecuteOptions struct {
 	PostTestRPCCalls              []config.PostTestRPCCall              // Arbitrary RPC calls to execute after the test step.
 	PostTestSleepDuration         time.Duration                         // Sleep duration after each test (0 = disabled).
 	FailFast                      bool                                  // If true, return an error from runStepLines on the first failed RPC call.
+	PreRunStepSleep               time.Duration                         // Sleep between each RPC call within pre-run step files (0 = disabled).
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -367,7 +368,7 @@ func (e *executor) RunPreRunSteps(ctx context.Context, opts *ExecuteOptions) (in
 		log.Info("Running pre-run step")
 
 		preRunResult := NewTestResult(step.Name)
-		if err := e.runStepFile(ctx, opts, step, preRunResult, false); err != nil {
+		if err := e.runStepFile(ctx, opts, step, preRunResult, false, opts.PreRunStepSleep); err != nil {
 			// FailFast: surface the error to the caller without writing partial results.
 			if opts.FailFast {
 				return 0, fmt.Errorf("pre-run step %q failed: %w", step.Name, err)
@@ -462,7 +463,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			log.Info("Running pre-run step")
 
 			preRunResult := NewTestResult(step.Name)
-			if err := e.runStepFile(ctx, opts, step, preRunResult, false); err != nil {
+			if err := e.runStepFile(ctx, opts, step, preRunResult, false, opts.PreRunStepSleep); err != nil {
 				log.WithError(err).Warn("Pre-run step failed")
 
 				// Check if the failure was due to context cancellation.
@@ -545,7 +546,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 			setupResult := NewTestResult(test.Name)
 
-			if err := e.runStepFile(ctx, opts, test.Setup, setupResult, false); err != nil {
+			if err := e.runStepFile(ctx, opts, test.Setup, setupResult, false, 0); err != nil {
 				log.WithError(err).Error("Setup step failed")
 				testPassed = false
 
@@ -581,7 +582,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 			testResult := NewTestResult(test.Name)
 
-			if err := e.runStepFile(ctx, opts, test.Test, testResult, true); err != nil {
+			if err := e.runStepFile(ctx, opts, test.Test, testResult, true, 0); err != nil {
 				log.WithError(err).Error("Test step failed")
 				testPassed = false
 
@@ -631,7 +632,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 			cleanupResult := NewTestResult(test.Name)
 
-			if err := e.runStepFile(ctx, opts, test.Cleanup, cleanupResult, false); err != nil {
+			if err := e.runStepFile(ctx, opts, test.Cleanup, cleanupResult, false, 0); err != nil {
 				log.WithError(err).Error("Cleanup step failed")
 				testPassed = false
 
@@ -757,19 +758,21 @@ writeResults:
 
 // runStepFile executes a single step file or provider.
 // If captureBlockLogs is true, blockHashes from engine_newPayload calls are registered for log matching.
+// betweenLineSleep, when > 0, sleeps for that duration between each RPC call.
 func (e *executor) runStepFile(
 	ctx context.Context,
 	opts *ExecuteOptions,
 	step *StepFile,
 	result *TestResult,
 	captureBlockLogs bool,
+	betweenLineSleep time.Duration,
 ) error {
 	// Use provider if available, otherwise read from file.
 	if step.Provider != nil {
-		return e.runStepLines(ctx, opts, step.Name, step.Provider.Lines(), result, captureBlockLogs)
+		return e.runStepLines(ctx, opts, step.Name, step.Provider.Lines(), result, captureBlockLogs, betweenLineSleep)
 	}
 
-	return e.runStepFromFile(ctx, opts, step, result, captureBlockLogs)
+	return e.runStepFromFile(ctx, opts, step, result, captureBlockLogs, betweenLineSleep)
 }
 
 // runStepFromFile reads and executes lines from a file.
@@ -779,6 +782,7 @@ func (e *executor) runStepFromFile(
 	step *StepFile,
 	result *TestResult,
 	captureBlockLogs bool,
+	betweenLineSleep time.Duration,
 ) error {
 	file, err := os.Open(step.Path)
 	if err != nil {
@@ -808,11 +812,13 @@ func (e *executor) runStepFromFile(
 		}
 	}
 
-	return e.runStepLines(ctx, opts, step.Name, lines, result, captureBlockLogs)
+	return e.runStepLines(ctx, opts, step.Name, lines, result, captureBlockLogs, betweenLineSleep)
 }
 
 // runStepLines executes JSON-RPC lines.
 // If captureBlockLogs is true, blockHashes from engine_newPayload calls are registered for log matching.
+// betweenLineSleep, when > 0, sleeps for that duration between each RPC call (after the call completes,
+// before the next one starts). Skipped after the final call. Cancellable via ctx.
 func (e *executor) runStepLines(
 	ctx context.Context,
 	opts *ExecuteOptions,
@@ -820,6 +826,7 @@ func (e *executor) runStepLines(
 	lines []string,
 	result *TestResult,
 	captureBlockLogs bool,
+	betweenLineSleep time.Duration,
 ) error {
 	stepStart := time.Now()
 
@@ -928,6 +935,15 @@ func (e *executor) runStepLines(
 				"step %q line %d: RPC call %s failed",
 				stepName, lineNum+1, method,
 			)
+		}
+
+		// Pace the replay if requested. Skip the wait after the final call.
+		if betweenLineSleep > 0 && lineNum < len(lines)-1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(betweenLineSleep):
+			}
 		}
 	}
 

@@ -178,9 +178,10 @@ func (r *runner) runTestsWithCheckpointRestore(
 	engineEndpoint := fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort())
 
 	preRunOpts := &executor.ExecuteOptions{
-		EngineEndpoint: engineEndpoint,
-		JWT:            r.cfg.JWT,
-		ResultsDir:     resultsDir,
+		EngineEndpoint:  engineEndpoint,
+		JWT:             r.cfg.JWT,
+		ResultsDir:      resultsDir,
+		PreRunStepSleep: r.cfg.PreRunStepSleep,
 	}
 
 	if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {

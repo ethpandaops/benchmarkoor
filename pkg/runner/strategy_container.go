@@ -88,9 +88,10 @@ func (r *runner) runTestsWithContainerStrategy(
 		)
 
 		preRunOpts := &executor.ExecuteOptions{
-			EngineEndpoint: engineEndpoint,
-			JWT:            r.cfg.JWT,
-			ResultsDir:     resultsDir,
+			EngineEndpoint:  engineEndpoint,
+			JWT:             r.cfg.JWT,
+			ResultsDir:      resultsDir,
+			PreRunStepSleep: r.cfg.PreRunStepSleep,
 		}
 
 		if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {
@@ -732,8 +733,9 @@ func (r *runner) runTestsWithContainerStrategy(
 				EngineEndpoint: fmt.Sprintf(
 					"http://%s:%d", currentContainerIP, spec.EnginePort(),
 				),
-				JWT:        r.cfg.JWT,
-				ResultsDir: resultsDir,
+				JWT:             r.cfg.JWT,
+				ResultsDir:      resultsDir,
+				PreRunStepSleep: r.cfg.PreRunStepSleep,
 			}
 
 			if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {

@@ -69,6 +69,10 @@ type Config struct {
 	// tests, leaving containers, volumes, and data directories intact for
 	// inspection.
 	StopAfterPrerun bool
+	// PreRunStepSleep, when > 0, inserts a sleep between each RPC call
+	// within pre-run step files. Useful for pacing replay against the
+	// engine API. 0 disables sleeping.
+	PreRunStepSleep time.Duration
 }
 
 // TestCounts contains test count statistics for a run.
