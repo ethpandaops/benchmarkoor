@@ -1013,10 +1013,11 @@ func (r *runner) runContainerLifecycle(
 				EngineEndpoint: fmt.Sprintf(
 					"http://%s:%d", containerIP, spec.EnginePort(),
 				),
-				JWT:             r.cfg.JWT,
-				ResultsDir:      runResultsDir,
-				FailFast:        true,
-				PreRunStepSleep: r.cfg.PreRunStepSleep,
+				JWT:                  r.cfg.JWT,
+				ResultsDir:           runResultsDir,
+				FailFast:             true,
+				PreRunStepSleep:      r.cfg.PreRunStepSleep,
+				SkipUntilBlockNumber: blockNum,
 			}
 
 			if n, err := r.executor.RunPreRunSteps(execCtx, preRunOpts); err != nil {
@@ -1122,6 +1123,7 @@ func (r *runner) runContainerLifecycle(
 				PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(instance),
 				PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(instance),
 				PreRunStepSleep:               r.cfg.PreRunStepSleep,
+				SkipUntilBlockNumber:          blockNum,
 			}
 
 			result, execErr = r.executor.ExecuteTests(execCtx, execOpts)

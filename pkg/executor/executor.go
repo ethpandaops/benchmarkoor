@@ -113,6 +113,7 @@ type ExecuteOptions struct {
 	PostTestSleepDuration         time.Duration                         // Sleep duration after each test (0 = disabled).
 	FailFast                      bool                                  // If true, return an error from runStepLines on the first failed RPC call.
 	PreRunStepSleep               time.Duration                         // Sleep between each RPC call within pre-run step files (0 = disabled).
+	SkipUntilBlockNumber          uint64                                // Skip pre-run RPC lines until the first engine_newPayload with blockNumber > this. 0 = no skipping.
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -830,6 +831,12 @@ func (e *executor) runStepLines(
 ) error {
 	stepStart := time.Now()
 
+	// skipping is true when we're dropping already-applied lines at the
+	// start of the file (resume scenario). Cleared once we encounter the
+	// first engine_newPayload whose blockNumber > SkipUntilBlockNumber.
+	skipping := opts.SkipUntilBlockNumber > 0
+	skippedCount := 0
+
 	for lineNum, line := range lines {
 		select {
 		case <-ctx.Done():
@@ -857,6 +864,35 @@ func (e *executor) runStepLines(
 			}
 
 			continue
+		}
+
+		// Skip already-applied lines if requested. Stay in skipping mode
+		// until we see a newPayload past the target; everything before
+		// (other newPayloads, FCUs, etc.) is for a block already on
+		// disk and would just be redundant work.
+		if skipping {
+			drop := true
+
+			if strings.HasPrefix(method, "engine_newPayload") {
+				if bn, ok := extractBlockNumber(line); ok && bn > opts.SkipUntilBlockNumber {
+					skipping = false
+					drop = false
+
+					e.log.WithFields(logrus.Fields{
+						"step":             stepName,
+						"resumed_at_line":  lineNum + 1,
+						"resumed_at_block": bn,
+						"skipped_lines":    skippedCount,
+						"skip_until_block": opts.SkipUntilBlockNumber,
+					}).Info("Resuming pre-run replay")
+				}
+			}
+
+			if drop {
+				skippedCount++
+
+				continue
+			}
 		}
 
 		// Register blockHash BEFORE the RPC call for engine_newPayload methods.

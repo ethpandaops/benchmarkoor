@@ -307,6 +307,41 @@ func extractGasUsed(request string) (uint64, error) {
 	return strconv.ParseUint(strings.TrimPrefix(payload.GasUsed, "0x"), 16, 64)
 }
 
+// extractBlockNumber extracts blockNumber from an engine_newPayload request.
+// Returns the parsed block number and ok=true on success. Returns ok=false
+// for any parse failure or missing field — callers should treat this as
+// "unknown" rather than an error.
+func extractBlockNumber(request string) (uint64, bool) {
+	var req struct {
+		Params []json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(request), &req); err != nil {
+		return 0, false
+	}
+
+	if len(req.Params) == 0 {
+		return 0, false
+	}
+
+	var payload struct {
+		BlockNumber string `json:"blockNumber"`
+	}
+	if err := json.Unmarshal(req.Params[0], &payload); err != nil {
+		return 0, false
+	}
+
+	if payload.BlockNumber == "" {
+		return 0, false
+	}
+
+	n, err := strconv.ParseUint(strings.TrimPrefix(payload.BlockNumber, "0x"), 16, 64)
+	if err != nil {
+		return 0, false
+	}
+
+	return n, true
+}
+
 // extractBlockHash extracts blockHash from an engine_newPayload request.
 func extractBlockHash(request string) (string, error) {
 	var req struct {
