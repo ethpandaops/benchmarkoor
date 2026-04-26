@@ -47,10 +47,10 @@ func init() {
 		"Limit to instances with these client types (comma-separated or repeated flag)")
 	runCmd.Flags().StringSliceVar(&metadataLabels, "metadata.label", nil,
 		"Add metadata label as key=value (can be repeated)")
-	runCmd.Flags().BoolVar(&stopAfterPrerun, "stop-after-prerun", false,
+	runCmd.Flags().BoolVar(&stopAfterPrerun, "debug.stop-after-prerun", false,
 		"Exit after pre-run setup for each instance (RPC ready, bootstrap FCU done) "+
 			"without running tests. Leaves containers and data directories intact.")
-	runCmd.Flags().DurationVar(&preRunStepSleep, "prerun-step-sleep", 0,
+	runCmd.Flags().DurationVar(&preRunStepSleep, "debug.prerun-step-sleep", 0,
 		"Sleep between each RPC call within pre-run step files (e.g. 10ms, 1s). "+
 			"Default 0 disables sleeping.")
 }
