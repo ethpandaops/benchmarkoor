@@ -701,9 +701,9 @@ func (d *DataDirConfig) Validate(prefix string) error {
 		return fmt.Errorf("%s: source_dir %q is not a directory", prefix, d.SourceDir)
 	}
 
-	validMethods := map[string]bool{"": true, "copy": true, "overlayfs": true, "fuse-overlayfs": true, "zfs": true}
+	validMethods := map[string]bool{"": true, "copy": true, "overlayfs": true, "fuse-overlayfs": true, "zfs": true, "direct": true}
 	if !validMethods[d.Method] {
-		return fmt.Errorf("%s: invalid method %q, must be: copy, overlayfs, fuse-overlayfs, zfs", prefix, d.Method)
+		return fmt.Errorf("%s: invalid method %q, must be: copy, overlayfs, fuse-overlayfs, zfs, direct", prefix, d.Method)
 	}
 
 	return nil
