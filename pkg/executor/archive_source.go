@@ -34,10 +34,16 @@ type ArchiveSource struct {
 
 // Prepare downloads (if URL) and extracts the archive, then discovers tests.
 func (s *ArchiveSource) Prepare(ctx context.Context) (*PreparedSource, error) {
-	// Create temp directory for extraction.
+	// Create temp directory for extraction. MkdirTemp requires the parent to
+	// exist, so ensure the cache dir is created (e.g. ~/.cache/benchmarkoor on
+	// a fresh host).
 	parentDir := s.cacheDir
 	if parentDir == "" {
 		parentDir = os.TempDir()
+	}
+
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		return nil, fmt.Errorf("creating cache directory: %w", err)
 	}
 
 	tmpDir, err := os.MkdirTemp(parentDir, "archive-*")
