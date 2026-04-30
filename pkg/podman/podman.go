@@ -248,6 +248,16 @@ func (m *manager) CreateContainer(
 		}
 	}
 
+	// Bump RLIMIT_NOFILE to the kernel's hard ceiling so EL clients
+	// don't trip "too many open files" errors during long benchmark
+	// runs. Applied to every container we create.
+	nofile := docker.HostMaxNofile()
+	s.Rlimits = append(s.Rlimits, specs.POSIXRlimit{
+		Type: "RLIMIT_NOFILE",
+		Hard: nofile,
+		Soft: nofile,
+	})
+
 	// Apply resource limits.
 	if spec.ResourceLimits != nil {
 		s.ResourceLimits = &specs.LinuxResources{}
