@@ -158,6 +158,7 @@ type executor struct {
 	suiteHash   string
 	validator   jsonrpc.Validator
 	statsReader stats.Reader
+	filter      *filterMatcher // compiled once from cfg.Filter
 
 	// Live progress counters updated during ExecuteTests. Safe to read
 	// concurrently via GetProgress().
@@ -179,7 +180,14 @@ var _ Executor = (*executor)(nil)
 
 // Start initializes the executor and prepares test sources.
 func (e *executor) Start(ctx context.Context) error {
-	e.source = NewSource(e.log, e.cfg.Source, e.cfg.CacheDir, e.cfg.Filter, e.cfg.GitHubToken)
+	filter, err := CompileFilter(e.cfg.Filter)
+	if err != nil {
+		return fmt.Errorf("compiling test filter: %w", err)
+	}
+
+	e.filter = filter
+
+	e.source = NewSource(e.log, e.cfg.Source, e.cfg.CacheDir, filter, e.cfg.GitHubToken)
 	if e.source == nil {
 		return fmt.Errorf("no test source configured")
 	}

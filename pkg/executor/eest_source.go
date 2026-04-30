@@ -23,7 +23,7 @@ type EESTSource struct {
 	log           logrus.FieldLogger
 	cfg           *config.EESTFixturesSource
 	cacheDir      string
-	filter        string
+	filter        *filterMatcher
 	githubToken   string
 	fixturesDir   string
 	genesisDir    string
@@ -42,7 +42,7 @@ type preAllocFile struct {
 }
 
 // NewEESTSource creates a new EEST source.
-func NewEESTSource(log logrus.FieldLogger, cfg *config.EESTFixturesSource, cacheDir, filter, githubToken string) *EESTSource {
+func NewEESTSource(log logrus.FieldLogger, cfg *config.EESTFixturesSource, cacheDir string, filter *filterMatcher, githubToken string) *EESTSource {
 	return &EESTSource{
 		log:         log.WithField("source", "eest"),
 		cfg:         cfg,
@@ -639,7 +639,7 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 			}
 
 			// Apply filter to individual test names too.
-			if s.filter != "" && !strings.Contains(name, s.filter) {
+			if !s.filter.match(name) {
 				continue
 			}
 

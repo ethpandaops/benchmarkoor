@@ -31,13 +31,16 @@ func TestDiscoverTestsFromConfig_PreRunStepsNotFiltered(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
 
+	bn128Filter, err := CompileFilter("bn128")
+	require.NoError(t, err)
+
 	result, err := discoverTestsFromConfig(
 		base,
 		[]string{"bloatnet/funding.txt", "bloatnet/gas-bump.txt"},
 		&config.StepsConfig{
 			Test: []string{"testing/*/*"},
 		},
-		"bn128", // filter that does NOT match pre_run_step paths
+		bn128Filter, // filter that does NOT match pre_run_step paths
 		log,
 	)
 	require.NoError(t, err)

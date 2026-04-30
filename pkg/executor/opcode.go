@@ -69,11 +69,11 @@ func (e *executor) loadOpcodes(ctx context.Context) error {
 
 	// Count opcode entries that are relevant (pass the filter) but didn't match a test.
 	filtered := len(opcodeMap)
-	if e.cfg.Filter != "" {
+	if !e.filter.Empty() {
 		filtered = 0
 
 		for key := range opcodeMap {
-			if strings.Contains(key, e.cfg.Filter) {
+			if e.filter.match(key) {
 				filtered++
 			}
 		}

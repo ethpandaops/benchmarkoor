@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1225,9 +1226,37 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		return err
 	}
 
+	// Validate test filter (regex syntax if "regex:" prefixed).
+	if err := c.validateTestFilter(); err != nil {
+		return err
+	}
+
 	// Validate API settings.
 	if err := c.ValidateAPI(); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// TestFilterRegexPrefix opts the test filter into regex matching when the
+// configured value starts with this prefix. Without the prefix, the filter
+// is treated as a substring match.
+const TestFilterRegexPrefix = "regex:"
+
+// validateTestFilter ensures that, when the test filter uses the "regex:"
+// prefix, the trailing expression compiles as a Go regular expression.
+// Substring filters are always valid.
+func (c *Config) validateTestFilter() error {
+	filter := c.Runner.Benchmark.Tests.Filter
+
+	expr, ok := strings.CutPrefix(filter, TestFilterRegexPrefix)
+	if !ok {
+		return nil
+	}
+
+	if _, err := regexp.Compile(expr); err != nil {
+		return fmt.Errorf("runner.benchmark.tests.filter: invalid regex %q: %w", expr, err)
 	}
 
 	return nil

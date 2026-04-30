@@ -95,7 +95,7 @@ type GenesisGroupProvider interface {
 }
 
 // NewSource creates a Source from the configuration.
-func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir, filter, githubToken string) Source {
+func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir string, filter *filterMatcher, githubToken string) Source {
 	if cfg.Local != nil {
 		return &LocalSource{
 			log:    log.WithField("source", "local"),
@@ -134,7 +134,7 @@ func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir, filte
 type LocalSource struct {
 	log      logrus.FieldLogger
 	cfg      *config.LocalSourceV2
-	filter   string
+	filter   *filterMatcher
 	basePath string
 }
 
@@ -183,7 +183,7 @@ type GitSource struct {
 	log      logrus.FieldLogger
 	cfg      *config.GitSourceV2
 	cacheDir string
-	filter   string
+	filter   *filterMatcher
 	basePath string
 }
 
@@ -391,7 +391,7 @@ func discoverTestsFromConfig(
 	basePath string,
 	preRunStepPatterns []string,
 	steps *config.StepsConfig,
-	filter string,
+	filter *filterMatcher,
 	log logrus.FieldLogger,
 ) (*PreparedSource, error) {
 	result := &PreparedSource{
@@ -404,7 +404,7 @@ func discoverTestsFromConfig(
 	// Patterns are processed in the order they appear in the config.
 	// Within each pattern, filepath.Glob returns files in lexicographic order.
 	for _, pattern := range preRunStepPatterns {
-		files, _, err := expandGlobPattern(basePath, pattern, "")
+		files, _, err := expandGlobPattern(basePath, pattern, nil)
 		if err != nil {
 			return nil, fmt.Errorf("expanding pre_run_steps pattern %q: %w", pattern, err)
 		}
@@ -455,7 +455,7 @@ func discoverTestsFromConfig(
 
 // expandGlobPatterns expands multiple glob patterns and returns unique files
 // along with the collected static prefixes from all patterns.
-func expandGlobPatterns(basePath string, patterns []string, filter string) ([]*StepFile, []string, error) {
+func expandGlobPatterns(basePath string, patterns []string, filter *filterMatcher) ([]*StepFile, []string, error) {
 	seen := make(map[string]struct{}, len(patterns)*10)
 	result := make([]*StepFile, 0, len(patterns)*10)
 	prefixes := make([]string, 0, len(patterns))
@@ -483,7 +483,7 @@ func expandGlobPatterns(basePath string, patterns []string, filter string) ([]*S
 
 // expandGlobPattern expands a single glob pattern and returns matching files
 // along with the static prefix extracted from the pattern.
-func expandGlobPattern(basePath, pattern, filter string) ([]*StepFile, string, error) {
+func expandGlobPattern(basePath, pattern string, filter *filterMatcher) ([]*StepFile, string, error) {
 	fullPattern := filepath.Join(basePath, pattern)
 	staticPrefix := extractStaticPrefix(pattern)
 
@@ -511,7 +511,7 @@ func expandGlobPattern(basePath, pattern, filter string) ([]*StepFile, string, e
 		}
 
 		// Apply filter if provided.
-		if filter != "" && !strings.Contains(match, filter) {
+		if !filter.match(match) {
 			continue
 		}
 

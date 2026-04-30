@@ -2788,3 +2788,61 @@ func TestValidateRetryNewPayloadsFailedState(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateTestFilter(t *testing.T) {
+	tests := []struct {
+		name      string
+		filter    string
+		wantErr   bool
+		errSubstr string
+	}{
+		{name: "empty is valid", filter: "", wantErr: false},
+		{name: "substring is always valid", filter: "test_keccak", wantErr: false},
+		{
+			name:    "substring with regex metachars is valid",
+			filter:  "test.*name[0]",
+			wantErr: false,
+		},
+		{
+			name:    "regex prefix with valid expression",
+			filter:  "regex:test_sstore_bloated.*benchmark_300M",
+			wantErr: false,
+		},
+		{
+			name:    "regex prefix with empty expression",
+			filter:  "regex:",
+			wantErr: false,
+		},
+		{
+			name:      "regex prefix with unclosed character class",
+			filter:    "regex:[unclosed",
+			wantErr:   true,
+			errSubstr: "invalid regex",
+		},
+		{
+			name:      "regex prefix with invalid quantifier",
+			filter:    "regex:*invalid",
+			wantErr:   true,
+			errSubstr: "invalid regex",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Benchmark: BenchmarkConfig{
+						Tests: TestsConfig{Filter: tt.filter},
+					},
+				},
+			}
+			err := cfg.validateTestFilter()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

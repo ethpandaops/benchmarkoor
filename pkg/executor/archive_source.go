@@ -27,7 +27,7 @@ type ArchiveSource struct {
 	log         logrus.FieldLogger
 	cfg         *config.ArchiveSourceConfig
 	cacheDir    string
-	filter      string
+	filter      *filterMatcher
 	githubToken string
 	basePath    string // temp directory where archive was extracted
 }

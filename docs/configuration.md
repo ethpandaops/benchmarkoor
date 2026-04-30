@@ -250,7 +250,7 @@ runner:
 | `generate_results_index_method` | string | `local` | Method for index generation: `local` (filesystem) or `s3` (read runs from S3, upload index back). Requires `results_upload.s3` when set to `s3` |
 | `generate_suite_stats` | bool | `false` | Generate `stats.json` per suite for UI heatmaps |
 | `generate_suite_stats_method` | string | `local` | Method for suite stats generation: `local` (filesystem) or `s3` (read runs from S3, upload stats back). Requires `results_upload.s3` when set to `s3` |
-| `tests.filter` | string | - | Run only tests matching this pattern |
+| `tests.filter` | string | - | Run only tests whose name (or file path) matches this pattern. Plain values match by substring; values prefixed with `regex:` match the trailing expression as a Go regular expression. See [Test Filter](#test-filter) |
 | `tests.metadata.labels` | map[string]string | - | Arbitrary key-value labels for the test suite (see [Suite Metadata Labels](#suite-metadata-labels)) |
 | `tests.source` | object | - | Test source configuration (see below) |
 
@@ -546,6 +546,38 @@ runner:
           github_repo: ethereum/execution-spec-tests
           github_release: benchmark@v0.0.7
 ```
+
+#### Test Filter
+
+The `runner.benchmark.tests.filter` selects which tests run. Two modes:
+
+| Mode | Syntax | Behavior |
+|------|--------|----------|
+| Substring (default) | `filter: "bn128"` | Test/file path must contain the literal string. Regex metacharacters are matched literally (e.g. `filter: "test.*name"` only matches paths that contain the seven-character string `test.*name`) |
+| Regex | `filter: "regex:<expr>"` | The trailing expression is compiled as a [Go regular expression](https://pkg.go.dev/regexp/syntax) and tested with `MatchString`. Anchor with `^` / `$` if you need full-string matches; flags like `(?i)` for case-insensitive are supported |
+
+Examples:
+
+```yaml
+# Substring — matches any test path containing "keccak"
+filter: "keccak"
+
+# Regex — matches "test_sstore_bloated…benchmark_300M" anywhere in the path
+filter: "regex:test_sstore_bloated.*benchmark_300M"
+
+# Regex with case-insensitive flag
+filter: "regex:(?i)KECCAK|sha256"
+
+# Regex anchored to end of path
+filter: "regex:bn128_pairing\\.txt$"
+```
+
+The filter is applied to:
+- file paths returned from glob expansion (substring match against the absolute path),
+- EEST fixture test names,
+- opcode source entries.
+
+A bad regex (e.g. unclosed character class) is rejected at config-load time with a `runner.benchmark.tests.filter: invalid regex …` error.
 
 #### Results Upload
 
