@@ -652,6 +652,7 @@ runner:
 | `wait_after_rpc_ready` | string | - | Duration to wait after RPC becomes ready (see below) |
 | `run_timeout` | string | - | Maximum duration for test execution before the run is timed out (see below) |
 | `retry_new_payloads_syncing_state` | object | - | Retry config for SYNCING responses (see below) |
+| `retry_new_payloads_failed_state` | object | - | Retry config for any non-SYNCING `engine_newPayload*` failure (see below) |
 | `resource_limits` | object | - | Container resource constraints (see [Resource Limits](#resource-limits)) |
 | `post_test_rpc_calls` | []object | - | Arbitrary RPC calls to execute after each test step (see [Post-Test RPC Calls](#post-test-rpc-calls)) |
 | `post_test_sleep_duration` | string | - | Sleep duration after each test, e.g. `200ms`, `1s` (see below) |
@@ -876,6 +877,34 @@ runner:
 - When using pre-populated data directories where clients may need time to validate chain state
 - Combined with `wait_after_rpc_ready` for clients with complex initialization
 
+Both this and `retry_new_payloads_failed_state` (below) apply to **all** `engine_newPayload*` calls — pre-run steps, setup steps, and test steps alike.
+
+##### Retry New Payloads Failed State
+
+Catch-all retry for `engine_newPayload*` calls that fail for any reason **other than** SYNCING — RPC/network errors, JSON-RPC errors (e.g. `-32603 Server error`), `INVALID` / `INVALID_BLOCK_HASH` payload statuses, or unparseable responses. Useful for transient client-side flakiness, where a single retry usually succeeds.
+
+```yaml
+runner:
+  client:
+    config:
+      retry_new_payloads_failed_state:
+        enabled: true
+        max_retries: 3
+        backoff: 500ms
+```
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `enabled` | bool | Yes | Enable retry behavior |
+| `max_retries` | int | Yes | Maximum number of retry attempts (must be ≥ 1) |
+| `backoff` | string | Yes | Delay between retries (Go duration string) |
+
+When both `retry_new_payloads_syncing_state` and `retry_new_payloads_failed_state` are enabled, SYNCING errors take the SYNCING retry path and everything else takes the failed-state retry path.
+
+**When to use:**
+- Recovering from transient JSON-RPC errors during long pre-run replays
+- Suppressing one-off failures when clients are momentarily under load (e.g. cache warm-up)
+
 
 ##### Bootstrap FCU
 
@@ -1020,6 +1049,7 @@ runner:
 | `wait_after_rpc_ready` | string | No | From `runner.client.config` | Instance-specific RPC ready wait duration |
 | `run_timeout` | string | No | From `runner.client.config` | Instance-specific run timeout duration |
 | `retry_new_payloads_syncing_state` | object | No | From `runner.client.config` | Instance-specific retry config for SYNCING responses |
+| `retry_new_payloads_failed_state` | object | No | From `runner.client.config` | Instance-specific retry config for non-SYNCING failures |
 | `resource_limits` | object | No | From `runner.client.config` | Instance-specific resource limits |
 | `post_test_rpc_calls` | []object | No | From `runner.client.config` | Instance-specific post-test RPC calls (replaces global) |
 | `post_test_sleep_duration` | string | No | From `runner.client.config` | Instance-specific post-test sleep duration |

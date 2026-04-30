@@ -178,10 +178,12 @@ func (r *runner) runTestsWithCheckpointRestore(
 	engineEndpoint := fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort())
 
 	preRunOpts := &executor.ExecuteOptions{
-		EngineEndpoint:  engineEndpoint,
-		JWT:             r.cfg.JWT,
-		ResultsDir:      resultsDir,
-		PreRunStepSleep: r.cfg.PreRunStepSleep,
+		EngineEndpoint:                engineEndpoint,
+		JWT:                           r.cfg.JWT,
+		ResultsDir:                    resultsDir,
+		PreRunStepSleep:               r.cfg.PreRunStepSleep,
+		RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+		RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
 	}
 
 	if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {
@@ -510,6 +512,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 			Tests:                         []*executor.TestWithSteps{test},
 			BlockLogCollector:             params.BlockLogCollector,
 			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+			RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
 			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
 			PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(params.Instance),
 		}

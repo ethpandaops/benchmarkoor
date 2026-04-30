@@ -241,6 +241,12 @@ export interface RetryNewPayloadsSyncingConfig {
   backoff: string
 }
 
+export interface RetryNewPayloadsFailedConfig {
+  enabled: boolean
+  max_retries: number
+  backoff: string
+}
+
 export interface DumpConfig {
   enabled: boolean
   filename?: string
@@ -280,6 +286,7 @@ export interface InstanceConfig {
   wait_after_rpc_ready?: string
   run_timeout?: string
   retry_new_payloads_syncing_state?: RetryNewPayloadsSyncingConfig
+  retry_new_payloads_failed_state?: RetryNewPayloadsFailedConfig
   resource_limits?: ResourceLimitsConfig
   post_test_rpc_calls?: PostTestRPCCallConfig[]
   post_test_sleep_duration?: string

@@ -183,6 +183,7 @@ type ResolvedInstance struct {
 	WaitAfterRPCReady                string                                   `json:"wait_after_rpc_ready,omitempty"`
 	RunTimeout                       string                                   `json:"run_timeout,omitempty"`
 	RetryNewPayloadsSyncingState     *config.RetryNewPayloadsSyncingConfig    `json:"retry_new_payloads_syncing_state,omitempty"`
+	RetryNewPayloadsFailedState      *config.RetryNewPayloadsFailedConfig     `json:"retry_new_payloads_failed_state,omitempty"`
 	ResourceLimits                   *ResolvedResourceLimits                  `json:"resource_limits,omitempty"`
 	PostTestRPCCalls                 []config.PostTestRPCCall                 `json:"post_test_rpc_calls,omitempty"`
 	PostTestSleepDuration            string                                   `json:"post_test_sleep_duration,omitempty"`

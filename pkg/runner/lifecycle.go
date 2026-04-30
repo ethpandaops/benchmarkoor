@@ -598,6 +598,12 @@ func (r *runner) runContainerLifecycle(
 				}
 				return nil
 			}(),
+			RetryNewPayloadsFailedState: func() *config.RetryNewPayloadsFailedConfig {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance)
+				}
+				return nil
+			}(),
 			ResourceLimits: resolvedResourceLimits,
 			PostTestRPCCalls: func() []config.PostTestRPCCall {
 				if r.cfg.FullConfig != nil {
@@ -1013,11 +1019,13 @@ func (r *runner) runContainerLifecycle(
 				EngineEndpoint: fmt.Sprintf(
 					"http://%s:%d", containerIP, spec.EnginePort(),
 				),
-				JWT:                  r.cfg.JWT,
-				ResultsDir:           runResultsDir,
-				FailFast:             true,
-				PreRunStepSleep:      r.cfg.PreRunStepSleep,
-				SkipUntilBlockNumber: blockNum,
+				JWT:                           r.cfg.JWT,
+				ResultsDir:                    runResultsDir,
+				FailFast:                      true,
+				PreRunStepSleep:               r.cfg.PreRunStepSleep,
+				SkipUntilBlockNumber:          blockNum,
+				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
+				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
 			}
 
 			if n, err := r.executor.RunPreRunSteps(execCtx, preRunOpts); err != nil {
@@ -1120,6 +1128,7 @@ func (r *runner) runContainerLifecycle(
 				Tests:                         params.Tests,
 				BlockLogCollector:             params.BlockLogCollector,
 				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
+				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
 				PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(instance),
 				PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(instance),
 				PreRunStepSleep:               r.cfg.PreRunStepSleep,

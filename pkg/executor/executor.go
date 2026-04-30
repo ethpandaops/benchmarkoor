@@ -109,6 +109,7 @@ type ExecuteOptions struct {
 	Tests                         []*TestWithSteps                      // Optional subset of tests to run (nil = run all).
 	BlockLogCollector             BlockLogCollector                     // Optional collector for capturing block logs from client.
 	RetryNewPayloadsSyncingConfig *config.RetryNewPayloadsSyncingConfig // Retry config for SYNCING responses.
+	RetryNewPayloadsFailedConfig  *config.RetryNewPayloadsFailedConfig  // Retry config for any non-SYNCING newPayload failure (RPC error, validation error, INVALID status).
 	PostTestRPCCalls              []config.PostTestRPCCall              // Arbitrary RPC calls to execute after the test step.
 	PostTestSleepDuration         time.Duration                         // Sleep duration after each test (0 = disabled).
 	FailFast                      bool                                  // If true, return an error from runStepLines on the first failed RPC call.
@@ -926,7 +927,11 @@ func (e *executor) runStepLines(
 			}).WithError(err).Warn("RPC call failed")
 		}
 
-		// Validate response AFTER timing, BEFORE storing result.
+		// Validate response AFTER timing, BEFORE storing result. Track the
+		// validation error so the retry decision below can distinguish
+		// SYNCING from other failure modes.
+		var validationErr error
+
 		if succeeded && e.validator != nil && response != "" {
 			if resp, parseErr := jsonrpc.Parse(response); parseErr != nil {
 				e.log.WithFields(logrus.Fields{
@@ -936,30 +941,56 @@ func (e *executor) runStepLines(
 				}).WithError(parseErr).Warn("Failed to parse JSON-RPC response")
 
 				succeeded = false
-			} else if validationErr := e.validator.Validate(method, resp); validationErr != nil {
-				// Check if this is a SYNCING error and retry is enabled.
-				if jsonrpc.IsSyncingError(validationErr) && opts.RetryNewPayloadsSyncingConfig != nil &&
-					opts.RetryNewPayloadsSyncingConfig.Enabled {
-					retrySucceeded, retryResponse, retryDuration := e.retryNewPayloadSyncing(
-						ctx, opts, line, method, stepName, lineNum,
-					)
-					if retrySucceeded {
-						succeeded = true
-						response = retryResponse
-						duration = retryDuration
-					} else {
-						succeeded = false
-					}
-				} else {
+			} else if validationErr = e.validator.Validate(method, resp); validationErr != nil {
+				succeeded = false
+			}
+		}
+
+		// Decide retry policy when a newPayload call failed. SYNCING errors
+		// take the SYNCING retry config when enabled; everything else
+		// (RPC/network error, parse error, INVALID/INVALID_BLOCK_HASH,
+		// JSON-RPC error) takes the failed-state retry config when enabled.
+		// Non-newPayload methods are not retried.
+		if !succeeded && strings.HasPrefix(method, "engine_newPayload") {
+			isSyncing := validationErr != nil && jsonrpc.IsSyncingError(validationErr)
+
+			switch {
+			case isSyncing && opts.RetryNewPayloadsSyncingConfig != nil &&
+				opts.RetryNewPayloadsSyncingConfig.Enabled:
+				retrySucceeded, retryResponse, retryDuration := e.retryNewPayloadSyncing(
+					ctx, opts, line, method, stepName, lineNum,
+				)
+				if retrySucceeded {
+					succeeded = true
+					response = retryResponse
+					duration = retryDuration
+				}
+			case opts.RetryNewPayloadsFailedConfig != nil &&
+				opts.RetryNewPayloadsFailedConfig.Enabled:
+				retrySucceeded, retryResponse, retryDuration := e.retryNewPayloadFailed(
+					ctx, opts, line, method, stepName, lineNum,
+				)
+				if retrySucceeded {
+					succeeded = true
+					response = retryResponse
+					duration = retryDuration
+				}
+			default:
+				if validationErr != nil {
 					e.log.WithFields(logrus.Fields{
 						"line":   lineNum + 1,
 						"method": method,
 						"step":   stepName,
 					}).WithError(validationErr).Warn("Response validation failed")
-
-					succeeded = false
 				}
 			}
+		} else if !succeeded && validationErr != nil {
+			// Non-newPayload validation failure: log without retry.
+			e.log.WithFields(logrus.Fields{
+				"line":   lineNum + 1,
+				"method": method,
+				"step":   stepName,
+			}).WithError(validationErr).Warn("Response validation failed")
 		}
 
 		if result != nil {
@@ -997,6 +1028,91 @@ func estimateETA(start time.Time, completed, total int) time.Duration {
 	avg := time.Since(start) / time.Duration(completed)
 
 	return (avg * time.Duration(total-completed)).Round(time.Second)
+}
+
+// retryNewPayloadFailed retries an engine_newPayload call after any kind of
+// failure (RPC/network error, parse error, validation error including
+// SYNCING). Each attempt counts toward MaxRetries regardless of the failure
+// mode. Returns whether one of the retries succeeded along with that
+// attempt's response and duration; on exhaustion it returns false.
+func (e *executor) retryNewPayloadFailed(
+	ctx context.Context,
+	opts *ExecuteOptions,
+	payload, method, stepName string,
+	lineNum int,
+) (succeeded bool, response string, duration int64) {
+	cfg := opts.RetryNewPayloadsFailedConfig
+	backoff, _ := time.ParseDuration(cfg.Backoff) // Already validated in config
+
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		e.log.WithFields(logrus.Fields{
+			"line":        lineNum + 1,
+			"method":      method,
+			"step":        stepName,
+			"attempt":     attempt,
+			"max_retries": cfg.MaxRetries,
+			"backoff":     backoff,
+		}).Info("Retrying newPayload after failure")
+
+		select {
+		case <-ctx.Done():
+			return false, "", 0
+		case <-time.After(backoff):
+		}
+
+		retryResponse, retryDuration, _, _, rpcErr := e.executeRPC(ctx, opts.EngineEndpoint, opts.JWT, payload)
+		if rpcErr != nil {
+			e.log.WithFields(logrus.Fields{
+				"line":    lineNum + 1,
+				"method":  method,
+				"step":    stepName,
+				"attempt": attempt,
+			}).WithError(rpcErr).Warn("Retry RPC call failed")
+
+			continue
+		}
+
+		resp, parseErr := jsonrpc.Parse(retryResponse)
+		if parseErr != nil {
+			e.log.WithFields(logrus.Fields{
+				"line":    lineNum + 1,
+				"method":  method,
+				"step":    stepName,
+				"attempt": attempt,
+			}).WithError(parseErr).Warn("Failed to parse retry response")
+
+			continue
+		}
+
+		if validationErr := e.validator.Validate(method, resp); validationErr != nil {
+			e.log.WithFields(logrus.Fields{
+				"line":    lineNum + 1,
+				"method":  method,
+				"step":    stepName,
+				"attempt": attempt,
+			}).WithError(validationErr).Debug("Retry validation failed, will retry")
+
+			continue
+		}
+
+		e.log.WithFields(logrus.Fields{
+			"line":    lineNum + 1,
+			"method":  method,
+			"step":    stepName,
+			"attempt": attempt,
+		}).Info("Retry succeeded")
+
+		return true, retryResponse, retryDuration
+	}
+
+	e.log.WithFields(logrus.Fields{
+		"line":        lineNum + 1,
+		"method":      method,
+		"step":        stepName,
+		"max_retries": cfg.MaxRetries,
+	}).Warn("Max retries exceeded for failed newPayload")
+
+	return false, "", 0
 }
 
 // retryNewPayloadSyncing retries an engine_newPayload call when it returns SYNCING status.

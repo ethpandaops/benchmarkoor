@@ -2673,3 +2673,118 @@ func TestValidateRunTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestGetRetryNewPayloadsFailedState(t *testing.T) {
+	tests := []struct {
+		name     string
+		global   *RetryNewPayloadsFailedConfig
+		instance *RetryNewPayloadsFailedConfig
+		expected *RetryNewPayloadsFailedConfig
+	}{
+		{
+			name:     "both nil returns nil",
+			global:   nil,
+			instance: nil,
+			expected: nil,
+		},
+		{
+			name:     "global set, instance nil inherits",
+			global:   &RetryNewPayloadsFailedConfig{Enabled: true, MaxRetries: 5, Backoff: "1s"},
+			instance: nil,
+			expected: &RetryNewPayloadsFailedConfig{Enabled: true, MaxRetries: 5, Backoff: "1s"},
+		},
+		{
+			name:     "instance overrides global",
+			global:   &RetryNewPayloadsFailedConfig{Enabled: true, MaxRetries: 5, Backoff: "1s"},
+			instance: &RetryNewPayloadsFailedConfig{Enabled: true, MaxRetries: 1, Backoff: "5s"},
+			expected: &RetryNewPayloadsFailedConfig{Enabled: true, MaxRetries: 1, Backoff: "5s"},
+		},
+		{
+			name:     "instance disabled overrides global enabled",
+			global:   &RetryNewPayloadsFailedConfig{Enabled: true, MaxRetries: 5, Backoff: "1s"},
+			instance: &RetryNewPayloadsFailedConfig{Enabled: false},
+			expected: &RetryNewPayloadsFailedConfig{Enabled: false},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RetryNewPayloadsFailedState: tt.global,
+						},
+					},
+				},
+			}
+			instance := &ClientInstance{
+				RetryNewPayloadsFailedState: tt.instance,
+			}
+			result := cfg.GetRetryNewPayloadsFailedState(instance)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestValidateRetryNewPayloadsFailedState(t *testing.T) {
+	tests := []struct {
+		name      string
+		global    *RetryNewPayloadsFailedConfig
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "disabled is valid",
+			global:  &RetryNewPayloadsFailedConfig{Enabled: false},
+			wantErr: false,
+		},
+		{
+			name:    "valid enabled config",
+			global:  &RetryNewPayloadsFailedConfig{Enabled: true, MaxRetries: 3, Backoff: "500ms"},
+			wantErr: false,
+		},
+		{
+			name:      "max_retries zero",
+			global:    &RetryNewPayloadsFailedConfig{Enabled: true, MaxRetries: 0, Backoff: "1s"},
+			wantErr:   true,
+			errSubstr: "max_retries must be at least 1",
+		},
+		{
+			name:      "missing backoff",
+			global:    &RetryNewPayloadsFailedConfig{Enabled: true, MaxRetries: 3, Backoff: ""},
+			wantErr:   true,
+			errSubstr: "backoff is required",
+		},
+		{
+			name:      "invalid backoff",
+			global:    &RetryNewPayloadsFailedConfig{Enabled: true, MaxRetries: 3, Backoff: "not-a-duration"},
+			wantErr:   true,
+			errSubstr: "invalid retry_new_payloads_failed_state.backoff",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RetryNewPayloadsFailedState: tt.global,
+						},
+					},
+					Instances: []ClientInstance{
+						{ID: "test", Client: "geth"},
+					},
+				},
+			}
+			err := cfg.validateRetryNewPayloadsFailedState()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

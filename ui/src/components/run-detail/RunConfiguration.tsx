@@ -355,6 +355,31 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
                 </div>
               )}
 
+              {instance.retry_new_payloads_failed_state?.enabled && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+                    Retry on Failed Response
+                  </dt>
+                  <dd className="mt-1 overflow-x-auto rounded-sm bg-gray-100 p-2 dark:bg-gray-900">
+                    <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">max_retries: </span>
+                        {instance.retry_new_payloads_failed_state.max_retries}
+                      </div>
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">backoff: </span>
+                        {instance.retry_new_payloads_failed_state.backoff}
+                      </div>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Retries engine_newPayload calls on any non-SYNCING failure
+                      (RPC error, JSON-RPC error, INVALID status). When SYNCING retry
+                      is also enabled, SYNCING errors take that path instead.
+                    </p>
+                  </dd>
+                </div>
+              )}
+
               {instance.post_test_rpc_calls && instance.post_test_rpc_calls.length > 0 && (
                 <div>
                   <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">

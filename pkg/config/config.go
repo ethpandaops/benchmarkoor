@@ -490,6 +490,17 @@ type RetryNewPayloadsSyncingConfig struct {
 	Backoff    string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
 }
 
+// RetryNewPayloadsFailedConfig configures retry behavior when engine_newPayload
+// fails for any reason other than SYNCING (RPC/network error, JSON-RPC error,
+// non-VALID payload status, etc.). When both this and the SYNCING config are
+// enabled, SYNCING errors take the SYNCING retry path and everything else
+// takes this path.
+type RetryNewPayloadsFailedConfig struct {
+	Enabled    bool   `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
+	MaxRetries int    `yaml:"max_retries" mapstructure:"max_retries" json:"max_retries"`
+	Backoff    string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
+}
+
 // CheckpointRestoreStrategyOptions configures options for the checkpoint-restore
 // rollback strategy (CRIU-based checkpoint/restore with Podman).
 type CheckpointRestoreStrategyOptions struct {
@@ -723,6 +734,7 @@ type ClientDefaults struct {
 	RollbackStrategy                 string                            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
 	ResourceLimits                   *ResourceLimits                   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
 	RetryNewPayloadsSyncingState     *RetryNewPayloadsSyncingConfig    `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
+	RetryNewPayloadsFailedState      *RetryNewPayloadsFailedConfig     `yaml:"retry_new_payloads_failed_state,omitempty" mapstructure:"retry_new_payloads_failed_state"`
 	WaitAfterRPCReady                string                            `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 	RunTimeout                       string                            `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
 	PostTestRPCCalls                 []PostTestRPCCall                 `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
@@ -749,6 +761,7 @@ type ClientInstance struct {
 	RollbackStrategy                 string                            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
 	ResourceLimits                   *ResourceLimits                   `yaml:"resource_limits,omitempty" mapstructure:"resource_limits"`
 	RetryNewPayloadsSyncingState     *RetryNewPayloadsSyncingConfig    `yaml:"retry_new_payloads_syncing_state,omitempty" mapstructure:"retry_new_payloads_syncing_state"`
+	RetryNewPayloadsFailedState      *RetryNewPayloadsFailedConfig     `yaml:"retry_new_payloads_failed_state,omitempty" mapstructure:"retry_new_payloads_failed_state"`
 	WaitAfterRPCReady                string                            `yaml:"wait_after_rpc_ready,omitempty" mapstructure:"wait_after_rpc_ready"`
 	RunTimeout                       string                            `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
 	PostTestRPCCalls                 []PostTestRPCCall                 `yaml:"post_test_rpc_calls,omitempty" mapstructure:"post_test_rpc_calls"`
@@ -1172,6 +1185,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		return err
 	}
 
+	// Validate retry_new_payloads_failed_state settings.
+	if err := c.validateRetryNewPayloadsFailedState(); err != nil {
+		return err
+	}
+
 	// Validate wait_after_rpc_ready settings.
 	if err := c.validateWaitAfterRPCReady(); err != nil {
 		return err
@@ -1490,6 +1508,17 @@ func (c *Config) GetRetryNewPayloadsSyncingState(instance *ClientInstance) *Retr
 	}
 
 	return c.Runner.Client.Config.RetryNewPayloadsSyncingState
+}
+
+// GetRetryNewPayloadsFailedState returns the failed-state retry config for an
+// instance. Instance-level config takes precedence over global defaults.
+// Returns nil if no config is set.
+func (c *Config) GetRetryNewPayloadsFailedState(instance *ClientInstance) *RetryNewPayloadsFailedConfig {
+	if instance.RetryNewPayloadsFailedState != nil {
+		return instance.RetryNewPayloadsFailedState
+	}
+
+	return c.Runner.Client.Config.RetryNewPayloadsFailedState
 }
 
 // GetWaitAfterRPCReady returns the duration to wait after RPC becomes ready.
@@ -1934,6 +1963,33 @@ func (c *Config) validateRetryNewPayloadsSyncingState() error {
 
 		if _, err := time.ParseDuration(cfg.Backoff); err != nil {
 			return fmt.Errorf("instance %q: invalid retry_new_payloads_syncing_state.backoff %q: %w",
+				instance.ID, cfg.Backoff, err)
+		}
+	}
+
+	return nil
+}
+
+// validateRetryNewPayloadsFailedState validates retry_new_payloads_failed_state settings.
+func (c *Config) validateRetryNewPayloadsFailedState() error {
+	for _, instance := range c.Runner.Instances {
+		cfg := c.GetRetryNewPayloadsFailedState(&instance)
+		if cfg == nil || !cfg.Enabled {
+			continue
+		}
+
+		if cfg.MaxRetries < 1 {
+			return fmt.Errorf("instance %q: retry_new_payloads_failed_state.max_retries must be at least 1",
+				instance.ID)
+		}
+
+		if cfg.Backoff == "" {
+			return fmt.Errorf("instance %q: retry_new_payloads_failed_state.backoff is required when enabled",
+				instance.ID)
+		}
+
+		if _, err := time.ParseDuration(cfg.Backoff); err != nil {
+			return fmt.Errorf("instance %q: invalid retry_new_payloads_failed_state.backoff %q: %w",
 				instance.ID, cfg.Backoff, err)
 		}
 	}

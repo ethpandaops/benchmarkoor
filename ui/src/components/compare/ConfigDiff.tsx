@@ -40,6 +40,8 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
       inst.image !== first.image
       || inst.client !== first.client
       || inst.rollback_strategy !== first.rollback_strategy
+      || JSON.stringify(inst.retry_new_payloads_syncing_state) !== JSON.stringify(first.retry_new_payloads_syncing_state)
+      || JSON.stringify(inst.retry_new_payloads_failed_state) !== JSON.stringify(first.retry_new_payloads_failed_state)
       || JSON.stringify(inst.command) !== JSON.stringify(first.command)
       || JSON.stringify(inst.environment) !== JSON.stringify(first.environment),
     ) || systems.some((sys) =>
@@ -108,6 +110,26 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
               )}
               {instances.some((i) => i.rollback_strategy) && (
                 <DiffRow label="Rollback Strategy" values={instances.map((i) => i.rollback_strategy ?? 'none')} />
+              )}
+              {instances.some((i) => i.retry_new_payloads_syncing_state) && (
+                <DiffRow
+                  label="Retry on SYNCING"
+                  values={instances.map((i) => {
+                    const r = i.retry_new_payloads_syncing_state
+                    if (!r || !r.enabled) return 'disabled'
+                    return `enabled (max=${r.max_retries}, backoff=${r.backoff})`
+                  })}
+                />
+              )}
+              {instances.some((i) => i.retry_new_payloads_failed_state) && (
+                <DiffRow
+                  label="Retry on Failure"
+                  values={instances.map((i) => {
+                    const r = i.retry_new_payloads_failed_state
+                    if (!r || !r.enabled) return 'disabled'
+                    return `enabled (max=${r.max_retries}, backoff=${r.backoff})`
+                  })}
+                />
               )}
               {instances.some((i) => i.environment) && (
                 <DiffRow
