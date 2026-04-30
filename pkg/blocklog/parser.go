@@ -33,6 +33,8 @@ func NewParser(clientType client.ClientType) Parser {
 		return NewNimbusParser()
 	case client.ClientReth:
 		return NewRethParser()
+	case client.ClientEthrex:
+		return NewEthrexParser()
 	default:
 		return NewNoopParser()
 	}

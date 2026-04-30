@@ -1405,6 +1405,7 @@ var validClients = map[string]struct{}{
 	"erigon":     {},
 	"nimbus":     {},
 	"reth":       {},
+	"ethrex":     {},
 }
 
 // validDropMemoryCachesValues contains valid values for drop_memory_caches.

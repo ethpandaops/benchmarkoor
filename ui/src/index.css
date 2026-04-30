@@ -9,6 +9,7 @@
   --color-besu: oklch(0.65 0.15 140);
   --color-erigon: oklch(0.65 0.15 20);
   --color-nimbus: oklch(0.65 0.15 80);
+  --color-ethrex: oklch(0.65 0.15 350);
 }
 
 /* Dark mode: zinc neutral grays */

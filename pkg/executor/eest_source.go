@@ -880,7 +880,7 @@ func (s *EESTSource) GetGenesisPathForGroup(genesisHash, clientType string) stri
 // resolveClientGenesis maps a client type to its genesis directory and filename.
 func (s *EESTSource) resolveClientGenesis(clientType string) (string, string) {
 	switch clientType {
-	case "geth", "erigon", "reth", "nimbus":
+	case "geth", "erigon", "reth", "nimbus", "ethrex":
 		return "go-ethereum", "genesis.json"
 	case "nethermind":
 		return "nethermind", "chainspec.json"
