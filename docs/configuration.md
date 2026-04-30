@@ -881,7 +881,7 @@ Both this and `retry_new_payloads_failed_state` (below) apply to **all** `engine
 
 ##### Retry New Payloads Failed State
 
-Catch-all retry for `engine_newPayload*` calls that fail for any reason **other than** SYNCING — RPC/network errors, JSON-RPC errors (e.g. `-32603 Server error`), `INVALID` / `INVALID_BLOCK_HASH` payload statuses, or unparseable responses. Useful for transient client-side flakiness, where a single retry usually succeeds.
+Catch-all retry for `engine_newPayload*` calls that fail for any reason **other than** SYNCING — RPC/network errors, JSON-RPC errors (e.g. `-32603 Server error`), `INVALID` / `INVALID_BLOCK_HASH` payload statuses, or unparsable responses. Useful for transient client-side flakiness, where a single retry usually succeeds.
 
 ```yaml
 runner:
