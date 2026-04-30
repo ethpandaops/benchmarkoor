@@ -115,6 +115,10 @@ func (m *manager) Start(ctx context.Context) error {
 		"runtime": info.Host.OCIRuntime.Name,
 	}).Debug("Connected to Podman daemon")
 
+	m.log.WithField("nofile", docker.HostMaxNofile()).Info(
+		"Container RLIMIT_NOFILE bumped to host kernel max",
+	)
+
 	return nil
 }
 

@@ -15,7 +15,7 @@ const DefaultMaxNofile uint64 = 1048576
 // on this host are allowed to set. On Linux it reads
 // /proc/sys/fs/nr_open, the kernel-wide cap above which RLIMIT_NOFILE
 // cannot be raised. On any other platform — or if the file is missing,
-// empty, or unparseable — it returns DefaultMaxNofile. EL clients tend
+// empty, or unparsable — it returns DefaultMaxNofile. EL clients tend
 // to keep many file descriptors open; bumping nofile to the kernel's
 // hard ceiling avoids spurious "too many open files" failures during
 // long benchmark runs.

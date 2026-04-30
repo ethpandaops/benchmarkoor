@@ -168,6 +168,9 @@ func (m *manager) Start(ctx context.Context) error {
 	}
 
 	m.log.Debug("Connected to Docker daemon")
+	m.log.WithField("nofile", HostMaxNofile()).Info(
+		"Container RLIMIT_NOFILE bumped to host kernel max",
+	)
 
 	return nil
 }
