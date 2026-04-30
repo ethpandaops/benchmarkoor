@@ -35,6 +35,12 @@ export const clientColors: Record<string, { bg: string; text: string; darkBg: st
     darkBg: 'dark:bg-yellow-900/50',
     darkText: 'dark:text-yellow-200',
   },
+  ethrex: {
+    bg: 'bg-pink-100',
+    text: 'text-pink-800',
+    darkBg: 'dark:bg-pink-900/50',
+    darkText: 'dark:text-pink-200',
+  },
 }
 
 /** Extract the base client name from a potentially grouped name like "geth / mainnet". */
@@ -61,6 +67,7 @@ const clientChartColors: Record<string, string> = {
   besu: '#22c55e',
   erigon: '#ef4444',
   nimbus: '#eab308',
+  ethrex: '#ec4899',
 }
 
 const DEFAULT_CHART_COLOR = '#6b7280'
