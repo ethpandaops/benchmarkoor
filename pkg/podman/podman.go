@@ -254,10 +254,14 @@ func (m *manager) CreateContainer(
 
 	// Bump RLIMIT_NOFILE to the kernel's hard ceiling so EL clients
 	// don't trip "too many open files" errors during long benchmark
-	// runs. Applied to every container we create.
+	// runs. Applied to every container we create. Note: Podman's
+	// addRlimits prepends "RLIMIT_" to whatever Type we pass, so the
+	// value here must be the bare suffix ("NOFILE"), not the full
+	// "RLIMIT_NOFILE" — passing the full form yields RLIMIT_RLIMIT_NOFILE
+	// at the OCI runtime layer, which runc rejects.
 	nofile := docker.HostMaxNofile()
 	s.Rlimits = append(s.Rlimits, specs.POSIXRlimit{
-		Type: "RLIMIT_NOFILE",
+		Type: "NOFILE",
 		Hard: nofile,
 		Soft: nofile,
 	})
