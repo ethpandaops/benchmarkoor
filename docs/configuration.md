@@ -689,6 +689,7 @@ runner:
 | `post_test_rpc_calls` | []object | - | Arbitrary RPC calls to execute after each test step (see [Post-Test RPC Calls](#post-test-rpc-calls)) |
 | `post_test_sleep_duration` | string | - | Sleep duration after each test, e.g. `200ms`, `1s` (see below) |
 | `bootstrap_fcu` | bool/object | - | Send an `engine_forkchoiceUpdatedV3` after RPC is ready to confirm the client is fully synced (see [Bootstrap FCU](#bootstrap-fcu)) |
+| `opcode_extraction` | object | - | Extract per-test opcode counts via `debug_traceBlockByNumber` after each test step (see [Opcode Extraction](#opcode-extraction)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
 ##### Drop Memory Caches
@@ -978,6 +979,44 @@ When using the `container-recreate` rollback strategy, the bootstrap FCU is sent
 - When starting from pre-populated data directories where the client needs time to validate state before processing Engine API requests
 - When you observe test failures due to the client returning errors or SYNCING responses on the first Engine API calls
 
+##### Opcode Extraction
+
+The `opcode_extraction` option captures per-test opcode counts as a side effect of running tests. After each test step, the runner walks the test's `engine_newPayload*` calls and runs `debug_traceBlockByNumber` against each block with a JS opcode-counting tracer. Per-tx counts are summed (and uppercased) into one map per newPayload, then appended to a per-test array. At the end of the run all the data lands in a single `test-opcodes.json` at the run results dir, in the same shape that `runner.benchmark.tests.opcode_source` expects.
+
+```yaml
+runner:
+  client:
+    config:
+      opcode_extraction:
+        enabled: true
+        timeout: 2m   # per-block trace timeout; default 2m
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | bool | Yes | `false` | Enable the post-test extraction step |
+| `timeout` | string | No | `2m` | Per-block `debug_traceBlockByNumber` timeout (Go duration). Long traces on fat blocks may need a higher value |
+
+`opcode_extraction` can be set globally under `runner.client.config` and/or per-instance under `runner.instances[]`. Instance-level config (when non-nil) fully replaces the global default. The output file shape is:
+
+```json
+{
+  "test-name.txt": [
+    { "PUSH1": 23432, "DUP1": 11231, "SSTORE": 3321 }
+  ]
+}
+```
+
+(One entry per `engine_newPayload*` in the test step, summed across all txs in that block.)
+
+**Requirements:**
+- The client must accept JS tracers via `debug_traceBlockByNumber`. Geth, Erigon, and Nethermind support them; coverage on Reth/Besu/Nimbus/ethrex varies — check your client docs.
+- The trace runs against the EL state right after the test step, before rollback, so the client must still have the block.
+
+**When to use:**
+- When you want a ground-truth opcode profile of every benchmarked test (instead of relying on `opcode_source` JSON shipped from a separate pipeline)
+- When investigating client-vs-client divergence in EVM execution paths
+
 #### Data Directories
 
 The `runner.client.datadirs` section configures pre-populated data directories per client type. When configured, the init container is skipped and data is mounted directly.
@@ -1086,6 +1125,7 @@ runner:
 | `post_test_rpc_calls` | []object | No | From `runner.client.config` | Instance-specific post-test RPC calls (replaces global) |
 | `post_test_sleep_duration` | string | No | From `runner.client.config` | Instance-specific post-test sleep duration |
 | `bootstrap_fcu` | bool/object | No | From `runner.client.config` | Instance-specific bootstrap FCU setting |
+| `opcode_extraction` | object | No | From `runner.client.config` | Instance-specific opcode extraction setting (replaces global) |
 
 ## Resource Limits
 

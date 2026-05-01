@@ -520,6 +520,41 @@ type BootstrapFCUConfig struct {
 	HeadBlockHash string `yaml:"head_block_hash" mapstructure:"head_block_hash" json:"head_block_hash,omitempty"`
 }
 
+// DefaultOpcodeExtractionTimeout is the per-block trace timeout applied
+// when opcode_extraction.timeout is unset. debug_traceBlockByNumber on
+// fat blocks can run for many seconds; 2 minutes covers most cases
+// without leaving a runaway trace stuck forever.
+const DefaultOpcodeExtractionTimeout = "2m"
+
+// OpcodeExtractionConfig configures the post-test opcode-extraction
+// step that runs debug_traceBlockByNumber against each engine_newPayload*
+// in the test step using a JS tracer that counts opcodes per tx. Counts
+// are summed across txs (and uppercased) and written into a single
+// test-opcodes.json file at the end of the run.
+type OpcodeExtractionConfig struct {
+	Enabled bool   `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
+	Timeout string `yaml:"timeout,omitempty" mapstructure:"timeout" json:"timeout,omitempty"`
+}
+
+// EffectiveTimeout returns the per-block trace timeout, defaulting to
+// DefaultOpcodeExtractionTimeout when unset/empty.
+func (c *OpcodeExtractionConfig) EffectiveTimeout() time.Duration {
+	if c == nil || c.Timeout == "" {
+		d, _ := time.ParseDuration(DefaultOpcodeExtractionTimeout)
+
+		return d
+	}
+
+	d, err := time.ParseDuration(c.Timeout)
+	if err != nil {
+		fallback, _ := time.ParseDuration(DefaultOpcodeExtractionTimeout)
+
+		return fallback
+	}
+
+	return d
+}
+
 // PostTestRPCCall defines an arbitrary RPC call to execute after the test step.
 type PostTestRPCCall struct {
 	Method  string     `yaml:"method" mapstructure:"method" json:"method"`
@@ -742,6 +777,7 @@ type ClientDefaults struct {
 	PostTestSleepDuration            string                            `yaml:"post_test_sleep_duration,omitempty" mapstructure:"post_test_sleep_duration"`
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
+	OpcodeExtraction                 *OpcodeExtractionConfig           `yaml:"opcode_extraction,omitempty" mapstructure:"opcode_extraction"`
 	Metadata                         MetadataConfig                    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 }
 
@@ -769,6 +805,7 @@ type ClientInstance struct {
 	PostTestSleepDuration            string                            `yaml:"post_test_sleep_duration,omitempty" mapstructure:"post_test_sleep_duration"`
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
+	OpcodeExtraction                 *OpcodeExtractionConfig           `yaml:"opcode_extraction,omitempty" mapstructure:"opcode_extraction"`
 	Metadata                         MetadataConfig                    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 }
 
@@ -1216,6 +1253,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		return err
 	}
 
+	// Validate opcode_extraction settings.
+	if err := c.validateOpcodeExtraction(); err != nil {
+		return err
+	}
+
 	// Validate results_upload settings.
 	if err := c.validateResultsUpload(); err != nil {
 		return err
@@ -1657,6 +1699,17 @@ func (c *Config) GetBootstrapFCU(instance *ClientInstance) *BootstrapFCUConfig {
 	}
 
 	return c.Runner.Client.Config.BootstrapFCU
+}
+
+// GetOpcodeExtraction returns the opcode-extraction config for an instance.
+// Instance-level config (when non-nil) fully replaces the global default.
+// Returns nil if not configured at either level.
+func (c *Config) GetOpcodeExtraction(instance *ClientInstance) *OpcodeExtractionConfig {
+	if instance.OpcodeExtraction != nil {
+		return instance.OpcodeExtraction
+	}
+
+	return c.Runner.Client.Config.OpcodeExtraction
 }
 
 // GetCheckpointRestoreStrategyOptions returns the checkpoint-restore strategy
@@ -2167,6 +2220,39 @@ func (c *Config) validateBootstrapFCU() error {
 						" 32-byte hex string, got %q", instance.ID, cfg.HeadBlockHash,
 				)
 			}
+		}
+	}
+
+	return nil
+}
+
+// validateOpcodeExtraction validates opcode_extraction settings.
+// Timeout (when set) must parse as a positive Go duration. An empty
+// timeout falls back to DefaultOpcodeExtractionTimeout.
+func (c *Config) validateOpcodeExtraction() error {
+	for _, instance := range c.Runner.Instances {
+		cfg := c.GetOpcodeExtraction(&instance)
+		if cfg == nil || !cfg.Enabled {
+			continue
+		}
+
+		if cfg.Timeout == "" {
+			continue
+		}
+
+		d, err := time.ParseDuration(cfg.Timeout)
+		if err != nil {
+			return fmt.Errorf(
+				"instance %q: invalid opcode_extraction.timeout %q: %w",
+				instance.ID, cfg.Timeout, err,
+			)
+		}
+
+		if d <= 0 {
+			return fmt.Errorf(
+				"instance %q: opcode_extraction.timeout must be positive, got %q",
+				instance.ID, cfg.Timeout,
+			)
 		}
 	}
 

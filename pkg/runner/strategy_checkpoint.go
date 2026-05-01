@@ -514,6 +514,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
 			RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
 			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
+			OpcodeExtraction:              r.cfg.FullConfig.GetOpcodeExtraction(params.Instance),
 			PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(params.Instance),
 		}
 

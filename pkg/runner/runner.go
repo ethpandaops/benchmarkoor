@@ -189,6 +189,7 @@ type ResolvedInstance struct {
 	PostTestSleepDuration            string                                   `json:"post_test_sleep_duration,omitempty"`
 	BootstrapFCU                     *config.BootstrapFCUConfig               `json:"bootstrap_fcu,omitempty"`
 	CheckpointRestoreStrategyOptions *config.CheckpointRestoreStrategyOptions `json:"checkpoint_restore_strategy_options,omitempty"`
+	OpcodeExtraction                 *config.OpcodeExtractionConfig           `json:"opcode_extraction,omitempty"`
 }
 
 // NewRunner creates a new runner instance.

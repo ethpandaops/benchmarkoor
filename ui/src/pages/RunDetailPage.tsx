@@ -5,6 +5,7 @@ import { fetchHead } from '@/api/client'
 import type { TestEntry, AggregatedStats, StepResult } from '@/api/types'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
+import { useRunOpcodes } from '@/api/hooks/useRunOpcodes'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
 import { MetadataLabels } from '@/components/run-detail/MetadataLabels'
@@ -34,6 +35,20 @@ import { Flame, Download, SquareStack, GitCompareArrows, Trash2 } from 'lucide-r
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 import { useAuth } from '@/hooks/useAuth'
 import { useDeleteRuns } from '@/api/hooks/useAdmin'
+
+// Per-test opcode diff between this run and the suite. Only opcodes
+// where suite count != run count are listed.
+interface OpcodeRow {
+  opcode: string
+  suite: number
+  run: number
+  delta: number
+}
+
+interface OpcodeTestDiff {
+  name: string
+  rows: OpcodeRow[]
+}
 
 // Step types that can be included in MGas/s calculation
 export type StepTypeOption = 'setup' | 'test' | 'cleanup'
@@ -158,6 +173,7 @@ export function RunDetailPage() {
   const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useRunConfig(runId, fetchOnDisk)
   const { data: result, isLoading: resultLoading, refetch: refetchResult } = useRunResult(runId, fetchOnDisk)
   const { data: suite } = useSuite(config?.suite_hash ?? '')
+  const { data: runOpcodes } = useRunOpcodes(runId, fetchOnDisk)
   const { data: index } = useIndex()
   const { data: containerLogHead, isLoading: containerLogLoading } = useQuery({
     queryKey: ['run', runId, 'container-log-head'],
@@ -176,6 +192,7 @@ export function RunDetailPage() {
 
   const [compareMode, setCompareMode] = useState(false)
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set())
+  const [showOpcodeDiff, setShowOpcodeDiff] = useState(false)
 
   const handleSelectionChange = useCallback((id: string, selected: boolean) => {
     setSelectedRunIds((prev) => {
@@ -207,6 +224,56 @@ export function RunDetailPage() {
     const sorted = [...clientRuns].sort((a, b) => b.timestamp - a.timestamp)
     return sorted.slice(0, MAX_COMPARE_RUNS)
   }, [clientRuns])
+
+  // Merge per-run opcode counts (test-opcodes.json) into the suite's
+  // SuiteTest list so OpcodeHeatmap renders run-extracted data when
+  // available. Per-test, sum counts across the array of newPayloads
+  // (one entry per engine_newPayload* in the test step). If only the
+  // suite has counts, the suite values are kept as-is.
+  const { mergedSuiteTests, opcodeDiffs } = useMemo(() => {
+    if (!suite?.tests) return { mergedSuiteTests: undefined, opcodeDiffs: [] as OpcodeTestDiff[] }
+
+    const sumPayloads = (entries: Array<Record<string, number>>): Record<string, number> => {
+      const out: Record<string, number> = {}
+      for (const entry of entries) {
+        for (const [op, count] of Object.entries(entry)) {
+          out[op] = (out[op] ?? 0) + count
+        }
+      }
+      return out
+    }
+
+    const diffOpcodes = (suiteCounts: Record<string, number>, runCounts: Record<string, number>): OpcodeRow[] => {
+      const all = new Set<string>([...Object.keys(suiteCounts), ...Object.keys(runCounts)])
+      const rows: OpcodeRow[] = []
+      for (const op of all) {
+        const s = suiteCounts[op] ?? 0
+        const r = runCounts[op] ?? 0
+        if (s !== r) rows.push({ opcode: op, suite: s, run: r, delta: r - s })
+      }
+      // Sort by largest absolute delta first.
+      rows.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+      return rows
+    }
+
+    const diffs: OpcodeTestDiff[] = []
+    const merged = suite.tests.map((t) => {
+      const runEntries = runOpcodes?.[t.name]
+      if (!runEntries || runEntries.length === 0) return t
+
+      const runCounts = sumPayloads(runEntries)
+      const suiteCounts = t.opcode_count ?? t.eest?.info?.opcode_count
+      if (suiteCounts && Object.keys(suiteCounts).length > 0) {
+        const rows = diffOpcodes(suiteCounts, runCounts)
+        if (rows.length > 0) {
+          diffs.push({ name: t.name, rows })
+        }
+      }
+      return { ...t, opcode_count: runCounts }
+    })
+
+    return { mergedSuiteTests: merged, opcodeDiffs: diffs }
+  }, [suite, runOpcodes])
 
   const updateSearch = (updates: Partial<typeof search>) => {
     navigate({
@@ -701,14 +768,70 @@ export function RunDetailPage() {
             />
           </div>
 
-          {suite?.tests && suite.tests.length > 0 && (
+          {mergedSuiteTests && mergedSuiteTests.length > 0 && (
             <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
+              {runOpcodes && Object.keys(runOpcodes).length > 0 && (
+                <div className="mb-3 rounded-sm border border-blue-200 bg-blue-50 px-3 py-2 text-xs/5 text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-200">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>
+                      Showing opcode counts extracted from this run (
+                      <code className="font-mono">test-opcodes.json</code>); suite-defined counts are
+                      overridden where available.
+                    </span>
+                    {opcodeDiffs.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowOpcodeDiff((v) => !v)}
+                        className="inline-flex items-center rounded-xs bg-yellow-100 px-1.5 py-0.5 font-medium text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-900/50 dark:text-yellow-200 dark:hover:bg-yellow-900/70"
+                      >
+                        ⚠ {opcodeDiffs.length} test{opcodeDiffs.length === 1 ? '' : 's'} differ from suite
+                        <span className="ml-1.5 text-yellow-700 dark:text-yellow-300">{showOpcodeDiff ? '▾' : '▸'}</span>
+                      </button>
+                    )}
+                  </div>
+                  {showOpcodeDiff && opcodeDiffs.length > 0 && (
+                    <div className="mt-3 max-h-96 overflow-y-auto rounded-xs border border-blue-200 bg-white p-2 text-gray-900 dark:border-blue-900/50 dark:bg-gray-900 dark:text-gray-100">
+                      <div className="flex flex-col gap-3">
+                        {opcodeDiffs.map((d) => (
+                          <div key={d.name}>
+                            <div className="mb-1 break-all font-mono text-xs/5 font-medium text-gray-900 dark:text-gray-100">
+                              {d.name}
+                            </div>
+                            <table className="min-w-full font-mono text-xs/5">
+                              <thead>
+                                <tr className="border-b border-gray-200 text-left text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                                  <th className="px-2 py-1 font-medium">Opcode</th>
+                                  <th className="px-2 py-1 text-right font-medium">Suite</th>
+                                  <th className="px-2 py-1 text-right font-medium">Run</th>
+                                  <th className="px-2 py-1 text-right font-medium">Δ</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                                {d.rows.map((r) => (
+                                  <tr key={r.opcode}>
+                                    <td className="px-2 py-1">{r.opcode}</td>
+                                    <td className="px-2 py-1 text-right text-gray-700 dark:text-gray-300">{r.suite.toLocaleString()}</td>
+                                    <td className="px-2 py-1 text-right text-gray-700 dark:text-gray-300">{r.run.toLocaleString()}</td>
+                                    <td className={`px-2 py-1 text-right font-medium ${r.delta > 0 ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+                                      {r.delta > 0 ? '+' : ''}{r.delta.toLocaleString()}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               <OpcodeHeatmap
-                tests={suite.tests}
+                tests={mergedSuiteTests}
                 extraColumns={[{
                   name: 'Mgas/s',
                   getValue: (testIndex: number) => {
-                    const testName = suite.tests[testIndex]?.name
+                    const testName = mergedSuiteTests[testIndex]?.name
                     if (!testName) return undefined
                     const entry = result.tests[testName]
                     if (!entry) return undefined
@@ -719,7 +842,7 @@ export function RunDetailPage() {
                   width: 54,
                   format: (v: number) => v.toFixed(1),
                 }]}
-                onTestClick={(testIndex) => handleTestModalChange(suite.tests[testIndex - 1]?.name)}
+                onTestClick={(testIndex) => handleTestModalChange(mergedSuiteTests[testIndex - 1]?.name)}
                 searchQuery={q}
                 onSearchChange={handleSearchChange}
                 fullscreen={ohFs}

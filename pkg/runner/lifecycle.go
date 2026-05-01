@@ -631,6 +631,12 @@ func (r *runner) runContainerLifecycle(
 				}
 				return nil
 			}(),
+			OpcodeExtraction: func() *config.OpcodeExtractionConfig {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetOpcodeExtraction(instance)
+				}
+				return nil
+			}(),
 		},
 	}
 
@@ -1130,6 +1136,7 @@ func (r *runner) runContainerLifecycle(
 				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
 				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
 				PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(instance),
+				OpcodeExtraction:              r.cfg.FullConfig.GetOpcodeExtraction(instance),
 				PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(instance),
 				PreRunStepSleep:               r.cfg.PreRunStepSleep,
 				SkipUntilBlockNumber:          blockNum,

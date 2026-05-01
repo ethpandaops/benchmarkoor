@@ -395,6 +395,13 @@ runner:
       #   enabled: true
       #   max_retries: 30
       #   backoff: 1s
+      # Optional: Run debug_traceBlockByNumber against every engine_newPayload* in
+      # the test step with a JS opcode-counting tracer, sum per-tx counts (uppercased)
+      # and write a `test-opcodes.json` at the run results dir in the same shape that
+      # `runner.benchmark.tests.opcode_source` consumes. Per-instance override allowed.
+      # opcode_extraction:
+      #   enabled: true
+      #   timeout: 2m   # per-block trace timeout; default 2m
       # Optional: Container resource limits (applied to all instances by default).
       # resource_limits:
       #   # CPU pinning - use ONE of the following:

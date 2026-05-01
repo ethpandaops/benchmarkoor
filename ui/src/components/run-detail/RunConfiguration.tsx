@@ -332,6 +332,30 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
                 </div>
               )}
 
+              {instance.opcode_extraction?.enabled && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+                    Opcode Extraction
+                  </dt>
+                  <dd className="mt-1 overflow-x-auto rounded-sm bg-gray-100 p-2 dark:bg-gray-900">
+                    <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">enabled: </span>
+                        true
+                      </div>
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">timeout: </span>
+                        {instance.opcode_extraction.timeout || '2m'}
+                      </div>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Captures per-test opcode counts via debug_traceBlockByNumber after each
+                      test step. Output: <code className="font-mono">test-opcodes.json</code> at the run dir.
+                    </p>
+                  </dd>
+                </div>
+              )}
+
               {instance.retry_new_payloads_syncing_state?.enabled && (
                 <div>
                   <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">

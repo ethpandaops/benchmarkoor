@@ -2846,3 +2846,106 @@ func TestValidateTestFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestGetOpcodeExtraction(t *testing.T) {
+	tests := []struct {
+		name     string
+		global   *OpcodeExtractionConfig
+		instance *OpcodeExtractionConfig
+		expected *OpcodeExtractionConfig
+	}{
+		{name: "both nil returns nil", global: nil, instance: nil, expected: nil},
+		{
+			name:     "global set, instance nil inherits",
+			global:   &OpcodeExtractionConfig{Enabled: true, Timeout: "5m"},
+			instance: nil,
+			expected: &OpcodeExtractionConfig{Enabled: true, Timeout: "5m"},
+		},
+		{
+			name:     "instance overrides global",
+			global:   &OpcodeExtractionConfig{Enabled: true, Timeout: "5m"},
+			instance: &OpcodeExtractionConfig{Enabled: false},
+			expected: &OpcodeExtractionConfig{Enabled: false},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{OpcodeExtraction: tt.global},
+					},
+				},
+			}
+			instance := &ClientInstance{OpcodeExtraction: tt.instance}
+			assert.Equal(t, tt.expected, cfg.GetOpcodeExtraction(instance))
+		})
+	}
+}
+
+func TestOpcodeExtractionConfig_EffectiveTimeout(t *testing.T) {
+	def, _ := time.ParseDuration(DefaultOpcodeExtractionTimeout)
+
+	tests := []struct {
+		name     string
+		cfg      *OpcodeExtractionConfig
+		expected time.Duration
+	}{
+		{name: "nil returns default", cfg: nil, expected: def},
+		{name: "empty returns default", cfg: &OpcodeExtractionConfig{Timeout: ""}, expected: def},
+		{name: "invalid returns default", cfg: &OpcodeExtractionConfig{Timeout: "not-a-duration"}, expected: def},
+		{name: "valid returns parsed", cfg: &OpcodeExtractionConfig{Timeout: "10m"}, expected: 10 * time.Minute},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.cfg.EffectiveTimeout())
+		})
+	}
+}
+
+func TestValidateOpcodeExtraction(t *testing.T) {
+	tests := []struct {
+		name      string
+		global    *OpcodeExtractionConfig
+		wantErr   bool
+		errSubstr string
+	}{
+		{name: "disabled is always valid", global: &OpcodeExtractionConfig{Enabled: false, Timeout: "garbage"}, wantErr: false},
+		{name: "enabled with empty timeout is valid (defaults)", global: &OpcodeExtractionConfig{Enabled: true}, wantErr: false},
+		{name: "enabled with valid timeout is valid", global: &OpcodeExtractionConfig{Enabled: true, Timeout: "5m"}, wantErr: false},
+		{
+			name:      "enabled with invalid timeout",
+			global:    &OpcodeExtractionConfig{Enabled: true, Timeout: "abc"},
+			wantErr:   true,
+			errSubstr: "invalid opcode_extraction.timeout",
+		},
+		{
+			name:      "enabled with non-positive timeout",
+			global:    &OpcodeExtractionConfig{Enabled: true, Timeout: "0s"},
+			wantErr:   true,
+			errSubstr: "must be positive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{OpcodeExtraction: tt.global},
+					},
+					Instances: []ClientInstance{{ID: "test", Client: "geth"}},
+				},
+			}
+			err := cfg.validateOpcodeExtraction()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
