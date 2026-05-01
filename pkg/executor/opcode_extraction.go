@@ -75,9 +75,32 @@ func (e *executor) extractTestOpcodes(
 		return
 	}
 
+	// Pre-count newPayload* lines so progress logs can show "i/total"
+	// instead of just the absolute line number, which is more useful
+	// when a step has interleaved FCUs we skip over.
+	totalPayloads := 0
+
+	for _, l := range lines {
+		if m, err := extractMethod(l); err == nil && strings.HasPrefix(m, "engine_newPayload") {
+			totalPayloads++
+		}
+	}
+
+	if totalPayloads == 0 {
+		return
+	}
+
 	timeout := cfg.EffectiveTimeout()
 
+	log.WithFields(logrus.Fields{
+		"payloads": totalPayloads,
+		"timeout":  timeout,
+	}).Info("Extracting opcode counts")
+
 	var perPayload []map[string]int
+
+	startedAll := time.Now()
+	processed := 0
 
 	for lineNum, line := range lines {
 		select {
@@ -107,11 +130,14 @@ func (e *executor) extractTestOpcodes(
 		}
 
 		blockNumberHex := fmt.Sprintf("0x%x", blockNum)
+		processed++
 
 		callLog := log.WithFields(logrus.Fields{
 			"block_number": blockNumberHex,
-			"line":         lineNum + 1,
+			"pos":          fmt.Sprintf("%d/%d", processed, totalPayloads),
 		})
+
+		traceStart := time.Now()
 
 		counts, err := e.traceBlockOpcodes(ctx, opts.RPCEndpoint, blockNumberHex, timeout)
 		if err != nil {
@@ -120,8 +146,19 @@ func (e *executor) extractTestOpcodes(
 			continue
 		}
 
+		callLog.WithFields(logrus.Fields{
+			"opcodes":  len(counts),
+			"duration": time.Since(traceStart),
+		}).Info("Traced block opcodes")
+
 		perPayload = append(perPayload, counts)
 	}
+
+	log.WithFields(logrus.Fields{
+		"payloads_traced": len(perPayload),
+		"payloads_total":  totalPayloads,
+		"duration":        time.Since(startedAll),
+	}).Info("Opcode extraction completed")
 
 	if len(perPayload) == 0 {
 		return
@@ -133,7 +170,21 @@ func (e *executor) extractTestOpcodes(
 	}
 
 	e.testOpcodes[test.Name] = append(e.testOpcodes[test.Name], perPayload...)
+	// Snapshot under the lock so the file write below sees a consistent
+	// view, then drop the lock before doing I/O.
+	snapshot := make(map[string][]map[string]int, len(e.testOpcodes))
+	for k, v := range e.testOpcodes {
+		snapshot[k] = v
+	}
 	e.opcodesMu.Unlock()
+
+	// Flush the cumulative map after every successful extraction so a
+	// cancelled run still leaves test-opcodes.json on disk with all the
+	// tests that finished before the cancel landed. The end-of-run write
+	// in ExecuteTests stays as a final safety net.
+	if err := WriteTestOpcodes(opts.ResultsDir, snapshot, e.cfg.ResultsOwner); err != nil {
+		log.WithError(err).Warn("opcode_extraction: failed to flush test-opcodes.json")
+	}
 }
 
 // traceBlockOpcodes calls debug_traceBlockByNumber with the JS
