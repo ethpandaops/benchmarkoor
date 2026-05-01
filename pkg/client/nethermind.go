@@ -33,6 +33,7 @@ func (s *nethermindSpec) DefaultCommand() []string {
 		"--JsonRpc.Host=0.0.0.0",
 		"--JsonRpc.Port=8545",
 		"--JsonRpc.EnabledModules=Net,Eth,Consensus,Subscribe,Web3,Admin,Debug,Rpc,Health,TxPool",
+		"--JsonRpc.Timeout=600000",
 		// "Engine" JSON RPC API
 		"--JsonRpc.JwtSecretFile=/tmp/jwtsecret",
 		"--JsonRpc.EngineHost=0.0.0.0",
