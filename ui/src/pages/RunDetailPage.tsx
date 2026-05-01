@@ -16,6 +16,7 @@ import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatu
 import { PreRunStepsTable } from '@/components/run-detail/PreRunStepsTable'
 import { TestHeatmap, type SortMode, type GroupMode } from '@/components/run-detail/TestHeatmap'
 import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
+import { OpcodeDiffPanel, type OpcodeDiffRow } from '@/components/run-detail/OpcodeDiffPanel'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { ClientStat } from '@/components/shared/ClientStat'
@@ -38,16 +39,9 @@ import { useDeleteRuns } from '@/api/hooks/useAdmin'
 
 // Per-test opcode diff between this run and the suite. Only opcodes
 // where suite count != run count are listed.
-interface OpcodeRow {
-  opcode: string
-  suite: number
-  run: number
-  delta: number
-}
-
 interface OpcodeTestDiff {
   name: string
-  rows: OpcodeRow[]
+  rows: OpcodeDiffRow[]
 }
 
 // Step types that can be included in MGas/s calculation
@@ -230,8 +224,14 @@ export function RunDetailPage() {
   // available. Per-test, sum counts across the array of newPayloads
   // (one entry per engine_newPayload* in the test step). If only the
   // suite has counts, the suite values are kept as-is.
-  const { mergedSuiteTests, opcodeDiffs } = useMemo(() => {
-    if (!suite?.tests) return { mergedSuiteTests: undefined, opcodeDiffs: [] as OpcodeTestDiff[] }
+  const { mergedSuiteTests, opcodeDiffs, opcodeDiffByTest } = useMemo(() => {
+    if (!suite?.tests) {
+      return {
+        mergedSuiteTests: undefined,
+        opcodeDiffs: [] as OpcodeTestDiff[],
+        opcodeDiffByTest: {} as Record<string, OpcodeDiffRow[]>,
+      }
+    }
 
     const sumPayloads = (entries: Array<Record<string, number>>): Record<string, number> => {
       const out: Record<string, number> = {}
@@ -243,9 +243,9 @@ export function RunDetailPage() {
       return out
     }
 
-    const diffOpcodes = (suiteCounts: Record<string, number>, runCounts: Record<string, number>): OpcodeRow[] => {
+    const diffOpcodes = (suiteCounts: Record<string, number>, runCounts: Record<string, number>): OpcodeDiffRow[] => {
       const all = new Set<string>([...Object.keys(suiteCounts), ...Object.keys(runCounts)])
-      const rows: OpcodeRow[] = []
+      const rows: OpcodeDiffRow[] = []
       for (const op of all) {
         const s = suiteCounts[op] ?? 0
         const r = runCounts[op] ?? 0
@@ -257,6 +257,7 @@ export function RunDetailPage() {
     }
 
     const diffs: OpcodeTestDiff[] = []
+    const byTest: Record<string, OpcodeDiffRow[]> = {}
     const merged = suite.tests.map((t) => {
       const runEntries = runOpcodes?.[t.name]
       if (!runEntries || runEntries.length === 0) return t
@@ -267,12 +268,13 @@ export function RunDetailPage() {
         const rows = diffOpcodes(suiteCounts, runCounts)
         if (rows.length > 0) {
           diffs.push({ name: t.name, rows })
+          byTest[t.name] = rows
         }
       }
       return { ...t, opcode_count: runCounts }
     })
 
-    return { mergedSuiteTests: merged, opcodeDiffs: diffs }
+    return { mergedSuiteTests: merged, opcodeDiffs: diffs, opcodeDiffByTest: byTest }
   }, [suite, runOpcodes])
 
   const updateSearch = (updates: Partial<typeof search>) => {
@@ -745,7 +747,8 @@ export function RunDetailPage() {
             </div>
             <TestHeatmap
               tests={result.tests}
-              suiteTests={suite?.tests}
+              suiteTests={mergedSuiteTests ?? suite?.tests}
+              opcodeDiffByTest={opcodeDiffByTest}
               runId={runId}
               suiteHash={config.suite_hash}
               selectedTest={testModal}
@@ -793,33 +796,7 @@ export function RunDetailPage() {
                     <div className="mt-3 max-h-96 overflow-y-auto rounded-xs border border-blue-200 bg-white p-2 text-gray-900 dark:border-blue-900/50 dark:bg-gray-900 dark:text-gray-100">
                       <div className="flex flex-col gap-3">
                         {opcodeDiffs.map((d) => (
-                          <div key={d.name}>
-                            <div className="mb-1 break-all font-mono text-xs/5 font-medium text-gray-900 dark:text-gray-100">
-                              {d.name}
-                            </div>
-                            <table className="min-w-full font-mono text-xs/5">
-                              <thead>
-                                <tr className="border-b border-gray-200 text-left text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                                  <th className="px-2 py-1 font-medium">Opcode</th>
-                                  <th className="px-2 py-1 text-right font-medium">Suite</th>
-                                  <th className="px-2 py-1 text-right font-medium">Run</th>
-                                  <th className="px-2 py-1 text-right font-medium">Δ</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                                {d.rows.map((r) => (
-                                  <tr key={r.opcode}>
-                                    <td className="px-2 py-1">{r.opcode}</td>
-                                    <td className="px-2 py-1 text-right text-gray-700 dark:text-gray-300">{r.suite.toLocaleString()}</td>
-                                    <td className="px-2 py-1 text-right text-gray-700 dark:text-gray-300">{r.run.toLocaleString()}</td>
-                                    <td className={`px-2 py-1 text-right font-medium ${r.delta > 0 ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
-                                      {r.delta > 0 ? '+' : ''}{r.delta.toLocaleString()}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                          <OpcodeDiffPanel key={d.name} caption={d.name} rows={d.rows} />
                         ))}
                       </div>
                     </div>

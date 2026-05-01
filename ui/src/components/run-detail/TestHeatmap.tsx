@@ -13,6 +13,7 @@ import type { TestStatusFilter } from './TestsTable'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 import { formatDuration, formatBytes } from '@/utils/format'
 import { EESTInfoContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
+import { OpcodeDiffPanel, type OpcodeDiffRow } from './OpcodeDiffPanel'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
 
 // Aggregate stats from selected steps of a test entry
@@ -100,6 +101,13 @@ function formatGasGroup(gasGroup: number): string {
 interface TestHeatmapProps {
   tests: Record<string, TestEntry>
   suiteTests?: SuiteTest[]
+  /**
+   * Per-test opcode diffs between this run's extracted counts and the
+   * suite-defined counts. When the selected test has an entry, a
+   * compact diff table is rendered inside its modal. Caller (the run
+   * detail page) computes this from useRunOpcodes + suite.tests.
+   */
+  opcodeDiffByTest?: Record<string, OpcodeDiffRow[]>
   runId: string
   suiteHash?: string
   selectedTest?: string
@@ -346,6 +354,7 @@ function HeatmapCell({
 export function TestHeatmap({
   tests,
   suiteTests,
+  opcodeDiffByTest,
   runId,
   suiteHash,
   selectedTest,
@@ -954,6 +963,25 @@ export function TestHeatmap({
                 const matchingSuiteTest = suiteTests?.find((t) => t.name === selectedTest)
                 if (!matchingSuiteTest) return null
                 return <EESTInfoContent test={matchingSuiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
+              })()}
+              {(() => {
+                const diffRows = opcodeDiffByTest?.[selectedTest]
+                if (!diffRows || diffRows.length === 0) return null
+                return (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-xs/5 text-yellow-800 dark:text-yellow-200">
+                      <span className="inline-flex items-center rounded-xs bg-yellow-100 px-1.5 py-0.5 font-medium dark:bg-yellow-900/50">
+                        ⚠ Opcode counts differ from suite
+                      </span>
+                      <span className="text-gray-500 dark:text-gray-400">
+                        {diffRows.length} opcode{diffRows.length === 1 ? '' : 's'} with non-zero Δ; sorted by absolute delta
+                      </span>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto rounded-xs border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-900">
+                      <OpcodeDiffPanel rows={diffRows} />
+                    </div>
+                  </div>
+                )
               })()}
               {blockLogs?.[selectedTest] && (
                 <BlockLogDetails blockLog={blockLogs[selectedTest]} />
