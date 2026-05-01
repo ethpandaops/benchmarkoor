@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, getIndexAggregatedStats } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
@@ -139,6 +139,7 @@ export function RunsTable({
   selectionVariant = 'compare',
 }: RunsTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const navigate = useNavigate()
 
   const toggleExpanded = (runId: string) => {
     setExpandedRows((prev) => {
@@ -200,7 +201,13 @@ export function RunsTable({
             return (
             <Fragment key={entry.run_id}>
             <tr
-              onClick={rowSelectable ? () => onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id)) : undefined}
+              onClick={() => {
+                if (rowSelectable) {
+                  onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id))
+                } else if (!selectable) {
+                  navigate({ to: '/runs/$runId', params: { runId: entry.run_id } })
+                }
+              }}
               className={clsx(
                 'group relative transition-colors hover:z-20 hover:bg-gray-50 dark:hover:bg-gray-700/50',
                 (!selectable || rowSelectable) && 'cursor-pointer',
@@ -241,27 +248,39 @@ export function RunsTable({
                 hasFailures && 'border-orange-400 dark:border-orange-500',
                 entry.status !== 'running' && entry.status !== 'container_died' && entry.status !== 'cancelled' && entry.status !== 'timeout' && !hasFailures && 'border-transparent',
               )}>
-                {!selectable && (
+                {!selectable ? (
                   <Link
                     to="/runs/$runId"
                     params={{ runId: entry.run_id }}
-                    className="absolute inset-0 z-0"
-                    tabIndex={-1}
-                    aria-hidden
-                  />
-                )}
-                <span className="flex flex-col" title={formatRelativeTime(entry.timestamp)}>
-                  <span className="flex items-center gap-2">
-                    {formatTimestampDate(entry.timestamp)}
-                    {entry.status === 'running' && (
-                      <span
-                        className="size-1.5 animate-pulse rounded-full bg-blue-500 dark:bg-blue-400"
-                        title="Live — runner is reporting status"
-                      />
-                    )}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex flex-col text-gray-500 dark:text-gray-400"
+                    title={formatRelativeTime(entry.timestamp)}
+                  >
+                    <span className="flex items-center gap-2">
+                      {formatTimestampDate(entry.timestamp)}
+                      {entry.status === 'running' && (
+                        <span
+                          className="size-1.5 animate-pulse rounded-full bg-blue-500 dark:bg-blue-400"
+                          title="Live — runner is reporting status"
+                        />
+                      )}
+                    </span>
+                    <span className="text-xs/4 text-gray-400 dark:text-gray-500">{formatTimestampTime(entry.timestamp)}</span>
+                  </Link>
+                ) : (
+                  <span className="flex flex-col" title={formatRelativeTime(entry.timestamp)}>
+                    <span className="flex items-center gap-2">
+                      {formatTimestampDate(entry.timestamp)}
+                      {entry.status === 'running' && (
+                        <span
+                          className="size-1.5 animate-pulse rounded-full bg-blue-500 dark:bg-blue-400"
+                          title="Live — runner is reporting status"
+                        />
+                      )}
+                    </span>
+                    <span className="text-xs/4 text-gray-400 dark:text-gray-500">{formatTimestampTime(entry.timestamp)}</span>
                   </span>
-                  <span className="text-xs/4 text-gray-400 dark:text-gray-500">{formatTimestampTime(entry.timestamp)}</span>
-                </span>
+                )}
               </td>
               <td className="whitespace-nowrap px-3 py-2 sm:px-4 sm:py-2.5">
                 <div className="flex items-center gap-2">
