@@ -94,6 +94,12 @@ export function TestName({ name, variant = 'full', showCopy = false, showRawBelo
   return (
     <span className={clsx('flex min-w-0 flex-col gap-1', className)} title={name}>
       <span className="inline-flex min-w-0 items-baseline gap-1">
+        {parsed.path && (
+          <>
+            <span className="truncate font-mono text-xs/5 text-gray-400 dark:text-gray-500">{parsed.path}</span>
+            <span className="text-xs/5 text-gray-300 dark:text-gray-600">/</span>
+          </>
+        )}
         {parsed.file && (
           <span className="truncate font-mono text-xs/5 text-gray-500 dark:text-gray-400">{parsed.file}</span>
         )}
