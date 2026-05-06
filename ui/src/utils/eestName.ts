@@ -88,8 +88,8 @@ export function parseEESTName(raw: string): EESTNameParts {
 
   const shortParts: string[] = []
   if (fn) shortParts.push(fn)
-  if (opcode) shortParts.push(opcode)
   if (benchmark) shortParts.push(benchmark)
+  if (opcode) shortParts.push(opcode)
   const short = shortParts.length > 0 ? shortParts.join(' · ') : raw
 
   return { raw, isEEST: true, file, fn, fork, opcode, benchmark, params, labels, short }

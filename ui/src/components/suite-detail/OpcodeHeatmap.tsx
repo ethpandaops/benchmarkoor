@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import clsx from 'clsx'
 import { Grid3X3, X, Maximize2 } from 'lucide-react'
 import type { SuiteTest } from '@/api/types'
 import { getGroupedOpcodes, getCategoryColor } from '@/utils/opcodeCategories'
 import type { CategorySpan, GroupedResult } from '@/utils/opcodeCategories'
-import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
-import { formatTestName } from '@/utils/eestName'
+import { TestName } from '@/components/shared/TestName'
 
 /** Returns the opcode count map from the top-level field or EEST info fallback. */
 function getOpcodeCount(test: SuiteTest): Record<string, number> | undefined {
@@ -129,10 +129,9 @@ interface HeatmapCanvasProps {
 }
 
 function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight, expanded, categorySpans, getCount, sortCol, onSortChange, onTestClick, extraColumns = [] }: HeatmapCanvasProps) {
-  const { mode: nameMode } = useNameDisplayMode()
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [tooltip, setTooltip] = useState<{ lines: { text: string; bold?: boolean }[]; x: number; y: number } | null>(null)
+  const [tooltip, setTooltip] = useState<{ lines: { text: string; bold?: boolean }[]; testName?: string; x: number; y: number } | null>(null)
   const hoverRef = useRef<{ row: number; col: number } | null>(null)
   const rafRef = useRef(0)
 
@@ -552,8 +551,8 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
                   lines: [
                     { text: `Test #${filteredTests[row].index + 1}` },
                     { text: `${ec.name}: ${formatted}`, bold: true },
-                    { text: formatTestName(filteredTests[row].test.name, nameMode) },
                   ],
+                  testName: filteredTests[row].test.name,
                   x: e.clientX,
                   y: e.clientY - 12,
                 })
@@ -633,8 +632,8 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
             lines: [
               { text: `Test #${filteredTests[row].index + 1}` },
               { text: `${colName}: ${count.toLocaleString()}`, bold: true },
-              { text: formatTestName(test.name, nameMode) },
             ],
+            testName: test.name,
             x: e.clientX,
             y: e.clientY - 12,
           })
@@ -646,7 +645,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       }
       setTooltip(null)
     },
-    [filteredTests, columns, scheduleRedraw, headerHeight, getCount, expanded, categorySpans, extraColumns, leftWidth, nameMode],
+    [filteredTests, columns, scheduleRedraw, headerHeight, getCount, expanded, categorySpans, extraColumns, leftWidth],
   )
 
   const handleClick = useCallback(
@@ -720,12 +719,17 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       </div>
       {tooltip && (
         <div
-          className="pointer-events-none fixed z-50 flex max-w-sm flex-col gap-1 break-all rounded-xs bg-gray-900 px-2 py-1.5 text-xs text-white shadow-xs dark:bg-gray-700"
+          className="pointer-events-none fixed z-50 flex max-w-sm flex-col gap-1 rounded-xs bg-gray-900 px-2 py-1.5 text-xs text-white shadow-xs dark:bg-gray-700"
           style={{ left: tooltip.x, top: tooltip.y, transform: 'translate(-50%, -100%)' }}
         >
           {tooltip.lines.map((line, i) => (
-            <div key={i} className={line.bold ? 'font-bold' : undefined}>{line.text}</div>
+            <div key={i} className={clsx('break-all', line.bold && 'font-bold')}>{line.text}</div>
           ))}
+          {tooltip.testName && (
+            <div className="border-t border-white/10 pt-1 text-white">
+              <TestName name={tooltip.testName} />
+            </div>
+          )}
         </div>
       )}
     </div>

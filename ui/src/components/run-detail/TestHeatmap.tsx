@@ -6,7 +6,6 @@ import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated, StepResu
 import { fetchHead } from '@/api/client'
 import { Modal } from '@/components/shared/Modal'
 import { TestName } from '@/components/shared/TestName'
-import { useFormattedTestName } from '@/hooks/useNameDisplayMode'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
@@ -354,8 +353,11 @@ function HeatmapCell({
 }
 
 function TooltipFilename({ name }: { name: string }) {
-  const formatted = useFormattedTestName(name)
-  return <div className="w-48 break-all text-gray-500 dark:text-gray-400">{formatted}</div>
+  return (
+    <div className="w-64 max-w-[80vw]">
+      <TestName name={name} />
+    </div>
+  )
 }
 
 export function TestHeatmap({

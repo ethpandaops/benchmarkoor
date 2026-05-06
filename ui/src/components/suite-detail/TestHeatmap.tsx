@@ -729,7 +729,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
                         <HighlightedName name={test.name} search={search} useRegex={useRegex} />
                       </span>
                     ) : (
-                      <TestName name={test.name} variant="compact" />
+                      <TestName name={test.name} />
                     )}
                   </td>
                 </tr>

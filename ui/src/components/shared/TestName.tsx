@@ -52,7 +52,7 @@ function CopyButton({ value, className }: { value: string; className?: string })
 }
 
 const chipBase =
-  'inline-flex items-center gap-1 rounded-xs px-1.5 py-0 font-mono text-[11px]/5 font-medium ring-1 ring-inset'
+  'inline-flex max-w-full items-center gap-1 break-all rounded-xs px-1.5 py-0 font-mono text-[11px]/5 font-medium ring-1 ring-inset'
 const chipNeutral =
   'bg-gray-100 text-gray-700 ring-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:ring-gray-600'
 const chipAccent =
@@ -84,8 +84,15 @@ export function TestName({ name, variant = 'full', showCopy = false, showRawBelo
     )
   }
 
-  const decomposed = (
-    <span className="inline-flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+  const hasChips =
+    parsed.opcode != null ||
+    parsed.benchmark != null ||
+    parsed.fork != null ||
+    parsed.params.length > 0 ||
+    parsed.labels.length > 0
+
+  return (
+    <span className={clsx('flex min-w-0 flex-col gap-1', className)} title={name}>
       <span className="inline-flex min-w-0 items-baseline gap-1">
         {parsed.file && (
           <span className="truncate font-mono text-xs/5 text-gray-500 dark:text-gray-400">{parsed.file}</span>
@@ -94,44 +101,34 @@ export function TestName({ name, variant = 'full', showCopy = false, showRawBelo
         <span className="truncate text-sm/5 font-medium text-gray-900 dark:text-gray-100">
           {parsed.fn}
         </span>
+        {showCopy && <CopyButton value={name} />}
       </span>
-      <span className="inline-flex flex-wrap items-baseline gap-1">
-        {parsed.opcode && (
-          <span className={clsx(chipBase, chipAccent)}>{parsed.opcode}</span>
-        )}
-        {parsed.benchmark && (
-          <span className={clsx(chipBase, chipGas)}>{parsed.benchmark}</span>
-        )}
-        {parsed.fork && (
-          <span className={clsx(chipBase, chipNeutral)}>fork:{parsed.fork}</span>
-        )}
-        {parsed.params.map(({ key, value }) => (
-          <span key={`${key}=${value}`} className={clsx(chipBase, chipNeutral)}>
-            {key}:{value}
-          </span>
-        ))}
-        {parsed.labels.map((label) => (
-          <span key={label} className={clsx(chipBase, chipNeutral)}>
-            {label}
-          </span>
-        ))}
-      </span>
-      {showCopy && <CopyButton value={name} />}
-    </span>
-  )
-
-  if (!showRawBelow) {
-    return (
-      <span className={clsx('inline-flex min-w-0 items-baseline', className)} title={name}>
-        {decomposed}
-      </span>
-    )
-  }
-
-  return (
-    <span className={clsx('flex min-w-0 flex-col gap-0.5', className)} title={name}>
-      {decomposed}
-      <code className="break-all font-mono text-[11px]/4 text-gray-400 dark:text-gray-500">{name}</code>
+      {hasChips && (
+        <span className="inline-flex flex-wrap items-baseline gap-1">
+          {parsed.benchmark && (
+            <span className={clsx(chipBase, chipGas)}>{parsed.benchmark}</span>
+          )}
+          {parsed.opcode && (
+            <span className={clsx(chipBase, chipAccent)}>{parsed.opcode}</span>
+          )}
+          {parsed.fork && (
+            <span className={clsx(chipBase, chipNeutral)}>fork:{parsed.fork}</span>
+          )}
+          {parsed.params.map(({ key, value }) => (
+            <span key={`${key}=${value}`} className={clsx(chipBase, chipNeutral)}>
+              {key}:{value}
+            </span>
+          ))}
+          {parsed.labels.map((label) => (
+            <span key={label} className={clsx(chipBase, chipNeutral)}>
+              {label}
+            </span>
+          ))}
+        </span>
+      )}
+      {showRawBelow && (
+        <code className="break-all font-mono text-[11px]/4 text-gray-400 dark:text-gray-500">{name}</code>
+      )}
     </span>
   )
 }
