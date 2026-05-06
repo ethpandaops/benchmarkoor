@@ -3,6 +3,8 @@ import { Grid3X3, X, Maximize2 } from 'lucide-react'
 import type { SuiteTest } from '@/api/types'
 import { getGroupedOpcodes, getCategoryColor } from '@/utils/opcodeCategories'
 import type { CategorySpan, GroupedResult } from '@/utils/opcodeCategories'
+import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
+import { formatTestName } from '@/utils/eestName'
 
 /** Returns the opcode count map from the top-level field or EEST info fallback. */
 function getOpcodeCount(test: SuiteTest): Record<string, number> | undefined {
@@ -127,6 +129,7 @@ interface HeatmapCanvasProps {
 }
 
 function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight, expanded, categorySpans, getCount, sortCol, onSortChange, onTestClick, extraColumns = [] }: HeatmapCanvasProps) {
+  const { mode: nameMode } = useNameDisplayMode()
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [tooltip, setTooltip] = useState<{ lines: { text: string; bold?: boolean }[]; x: number; y: number } | null>(null)
@@ -549,7 +552,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
                   lines: [
                     { text: `Test #${filteredTests[row].index + 1}` },
                     { text: `${ec.name}: ${formatted}`, bold: true },
-                    { text: filteredTests[row].test.name },
+                    { text: formatTestName(filteredTests[row].test.name, nameMode) },
                   ],
                   x: e.clientX,
                   y: e.clientY - 12,
@@ -630,7 +633,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
             lines: [
               { text: `Test #${filteredTests[row].index + 1}` },
               { text: `${colName}: ${count.toLocaleString()}`, bold: true },
-              { text: test.name },
+              { text: formatTestName(test.name, nameMode) },
             ],
             x: e.clientX,
             y: e.clientY - 12,
@@ -643,7 +646,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
       }
       setTooltip(null)
     },
-    [filteredTests, columns, scheduleRedraw, headerHeight, getCount, expanded, categorySpans, extraColumns, leftWidth],
+    [filteredTests, columns, scheduleRedraw, headerHeight, getCount, expanded, categorySpans, extraColumns, leftWidth, nameMode],
   )
 
   const handleClick = useCallback(

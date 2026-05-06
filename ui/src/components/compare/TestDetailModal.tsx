@@ -4,6 +4,7 @@ import { Check, Copy, GitCompareArrows, X } from 'lucide-react'
 import clsx from 'clsx'
 import type { RunResult } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
+import { TestName } from '@/components/shared/TestName'
 import { formatTimestamp } from '@/utils/date'
 import { type GroupDef } from './groupUtils'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from './constants'
@@ -146,10 +147,8 @@ export function TestDetailModal({
             <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
               {testOrder !== undefined ? `Test #${testOrder}` : 'Test Detail'}
             </h3>
-            <div className="mt-0.5 flex items-start gap-1.5">
-              <p className="break-all font-mono text-xs text-gray-500 dark:text-gray-400">
-                {testName}
-              </p>
+            <div className="mt-0.5 flex items-start gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <TestName name={testName} showRawBelow />
               <CopyButton text={testName} />
             </div>
           </div>

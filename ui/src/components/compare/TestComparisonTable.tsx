@@ -5,6 +5,7 @@ import { Table } from 'lucide-react'
 import type { SuiteTest, AggregatedStats, BlockLogs, BlockLogEntry } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { Pagination } from '@/components/shared/Pagination'
+import { TestName } from '@/components/shared/TestName'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface TestComparisonTableProps {
@@ -401,8 +402,8 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                   <td className="whitespace-nowrap px-3 py-2 text-center text-xs/5 text-gray-400 dark:text-gray-500">
                     {test.order || '-'}
                   </td>
-                  <td className="max-w-sm truncate px-4 py-2 text-sm/6 text-gray-900 dark:text-gray-100" title={test.name}>
-                    {test.name}
+                  <td className="max-w-sm truncate px-4 py-2 text-sm/6 text-gray-900 dark:text-gray-100">
+                    <TestName name={test.name} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 text-right text-xs/5 text-gray-500 dark:text-gray-400">
                     {test.gasUsed !== undefined ? `${Math.round(test.gasUsed / 1_000_000)}M` : '-'}

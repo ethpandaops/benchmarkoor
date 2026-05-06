@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Link, useMatchRoute, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X, FileText, Search } from 'lucide-react'
+import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X, FileText, Search, TextCursorInput } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
+import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 
 function NavLink({ to, children, onClick }: { to: string; children: React.ReactNode; onClick?: () => void }) {
   const matchRoute = useMatchRoute()
@@ -21,6 +22,26 @@ function NavLink({ to, children, onClick }: { to: string; children: React.ReactN
     >
       {children}
     </Link>
+  )
+}
+
+function NameModeSwitcher() {
+  const { mode, toggle } = useNameDisplayMode()
+  const decomposed = mode === 'decomposed'
+  return (
+    <button
+      onClick={toggle}
+      className={clsx(
+        'flex items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs/5 font-medium transition-colors',
+        decomposed
+          ? 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
+          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200',
+      )}
+      title={decomposed ? 'Showing decomposed test names — click for raw' : 'Showing raw test names — click for decomposed'}
+    >
+      <TextCursorInput className="size-4" />
+      <span className="hidden sm:inline">{decomposed ? 'decomposed' : 'raw'}</span>
+    </button>
   )
 }
 
@@ -252,6 +273,7 @@ export function Header() {
         </nav>
         <div className="ml-auto hidden items-center gap-2 md:flex">
           <AuthControls />
+          <NameModeSwitcher />
           <ThemeSwitcher />
         </div>
 
@@ -274,7 +296,8 @@ export function Header() {
           </nav>
           <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
             <AuthControls onNavigate={closeMobile} variant="mobile" />
-            <div className="mt-2 flex items-center justify-end">
+            <div className="mt-2 flex items-center justify-end gap-2">
+              <NameModeSwitcher />
               <ThemeSwitcher />
             </div>
           </div>

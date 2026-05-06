@@ -7,6 +7,7 @@ import { ClientBadge } from '@/components/shared/ClientBadge'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { Pagination } from '@/components/shared/Pagination'
 import { Spinner } from '@/components/shared/Spinner'
+import { TestName } from '@/components/shared/TestName'
 import { formatTimestamp } from '@/utils/date'
 
 const DEFAULT_PAGE_SIZE = 20
@@ -719,11 +720,17 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
                 <tr className="border-t border-gray-100 bg-gray-50/80 dark:border-gray-700/50 dark:bg-gray-900/60">
                   <td
                     colSpan={clients.length + 1 + STAT_COLUMNS.length}
-                    className="truncate px-3 py-1 font-mono text-xs/5 text-gray-400 dark:text-gray-500"
+                    className="truncate px-3 py-1 text-xs/5 text-gray-400 dark:text-gray-500"
                     title={test.name}
                   >
                     <span className="mr-1.5 font-sans text-gray-300 dark:text-gray-600">&#9656;</span>
-                    <HighlightedName name={test.name} search={search} useRegex={useRegex} />
+                    {search ? (
+                      <span className="font-mono">
+                        <HighlightedName name={test.name} search={search} useRegex={useRegex} />
+                      </span>
+                    ) : (
+                      <TestName name={test.name} variant="compact" />
+                    )}
                   </td>
                 </tr>
               )}

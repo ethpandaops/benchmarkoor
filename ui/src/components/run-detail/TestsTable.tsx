@@ -5,6 +5,7 @@ import type { TestEntry, SuiteTest, AggregatedStats, StepResult } from '@/api/ty
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
+import { TestName } from '@/components/shared/TestName'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 
 export type TestSortColumn = 'order' | 'name' | 'genesis' | 'time' | 'mgas' | 'passed' | 'failed'
@@ -357,9 +358,7 @@ export function TestsTable({
                     {executionOrder.get(testName) ?? '-'}
                   </td>
                   <td className="max-w-md px-4 py-3">
-                    <div className="truncate text-sm/6 font-medium text-gray-900 dark:text-gray-100" title={testName}>
-                      {testName}
-                    </div>
+                    <TestName name={testName} className="text-sm/6 font-medium text-gray-900 dark:text-gray-100" />
                     {entry.dir && (
                       <div className="truncate text-xs/5 text-gray-500 dark:text-gray-400" title={entry.dir}>
                         {entry.dir}
