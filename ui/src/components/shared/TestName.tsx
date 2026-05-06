@@ -66,8 +66,8 @@ export function TestName({ name, variant = 'full', showCopy = false, showRawBelo
 
   if (mode === 'raw' || !parsed?.isEEST) {
     return (
-      <span className={clsx('inline-flex min-w-0 items-baseline gap-1.5', className)} title={name}>
-        <code className={clsx('truncate font-mono text-xs/5 text-gray-700 dark:text-gray-300')}>
+      <span className={clsx('flex min-w-0 items-baseline gap-1.5', className)} title={name}>
+        <code className={clsx('min-w-0 flex-1 truncate font-mono text-xs/5 text-gray-700 dark:text-gray-300')}>
           {name}
         </code>
         {showCopy && <CopyButton value={name} />}
