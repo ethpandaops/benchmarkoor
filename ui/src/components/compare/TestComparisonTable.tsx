@@ -20,6 +20,10 @@ interface TestComparisonTableProps {
   sortDir: SortDirection
   onSortChange: (column: SortColumn, direction: SortDirection) => void
   testNameFilter?: (name: string) => boolean
+  /** Current search query string used to highlight matching chips. */
+  searchQuery?: string
+  /** Toggle a `key:value` term in the page-level search. */
+  onChipFilterToggle?: (term: string) => void
   /** When provided, clicking a row calls this with the test name (for opening a detail modal). */
   onTestClick?: (testName: string) => void
 }
@@ -134,7 +138,7 @@ function SortableHeader({
 
 const PAGE_SIZE = 50
 
-export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun, labelMode, tableBaseline, onTableBaselineChange, sortBy, sortDir, onSortChange, testNameFilter, onTestClick }: TestComparisonTableProps) {
+export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPerRun, labelMode, tableBaseline, onTableBaselineChange, sortBy, sortDir, onSortChange, testNameFilter, searchQuery, onChipFilterToggle, onTestClick }: TestComparisonTableProps) {
   const [activeTab, setActiveTab] = useState('mgas')
   const [currentPage, setCurrentPage] = useState(1)
 
@@ -403,7 +407,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                     {test.order || '-'}
                   </td>
                   <td className="max-w-sm truncate px-4 py-2 text-sm/6 text-gray-900 dark:text-gray-100">
-                    <TestName name={test.name} />
+                    <TestName name={test.name} onChipClick={onChipFilterToggle} activeQuery={searchQuery} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 text-right text-xs/5 text-gray-500 dark:text-gray-400">
                     {test.gasUsed !== undefined ? `${Math.round(test.gasUsed / 1_000_000)}M` : '-'}

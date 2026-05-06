@@ -6,7 +6,7 @@ import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
 import { TestName } from '@/components/shared/TestName'
-import { testNameMatches } from '@/utils/eestNameFilter'
+import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 
 export type TestSortColumn = 'order' | 'name' | 'genesis' | 'time' | 'mgas' | 'passed' | 'failed'
@@ -310,7 +310,7 @@ export function TestsTable({
           <input
             type="text"
             placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
-            title={`Free text matches anywhere in the raw name. Or filter by extracted fields:\nopcode:ORIGIN  gas:90M  fork:Amsterdam  file:tx_context  fn:codecopy  path:compute  label:LOG1\nUnrecognized keys hit params: mem_size:1024  code_size:0\nMultiple terms are AND.`}
+            title={TEST_FILTER_HINT}
             value={searchQuery}
             onChange={(e) => handleSearchInput(e.target.value)}
             className="w-72 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm/6 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
@@ -359,7 +359,12 @@ export function TestsTable({
                     {executionOrder.get(testName) ?? '-'}
                   </td>
                   <td className="max-w-md px-4 py-3">
-                    <TestName name={testName} className="text-sm/6 font-medium text-gray-900 dark:text-gray-100" />
+                    <TestName
+                      name={testName}
+                      onChipClick={onSearchChange ? (term) => onSearchChange(toggleSearchTerm(searchQuery, term)) : undefined}
+                      activeQuery={searchQuery}
+                      className="text-sm/6 font-medium text-gray-900 dark:text-gray-100"
+                    />
                     {entry.dir && (
                       <div className="truncate text-xs/5 text-gray-500 dark:text-gray-400" title={entry.dir}>
                         {entry.dir}

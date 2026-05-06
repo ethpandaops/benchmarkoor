@@ -6,7 +6,7 @@ import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated, StepResu
 import { fetchHead } from '@/api/client'
 import { Modal } from '@/components/shared/Modal'
 import { TestName } from '@/components/shared/TestName'
-import { testNameMatches } from '@/utils/eestNameFilter'
+import { testNameMatches, toggleSearchTerm } from '@/utils/eestNameFilter'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
@@ -377,6 +377,7 @@ export function TestHeatmap({
   postTestRPCCalls,
   inProgressTestKey,
   onSelectedTestChange,
+  onSearchChange,
   onSortModeChange,
   onGroupModeChange,
   onThresholdChange,
@@ -945,7 +946,14 @@ export function TestHeatmap({
               <div className="flex flex-col gap-2">
                 <div>
                   <div className="text-sm/6 text-gray-900 dark:text-gray-100">
-                    <TestName name={selectedTest} showRawBelow showCopy className="min-w-0" />
+                    <TestName
+                      name={selectedTest}
+                      showRawBelow
+                      showCopy
+                      onChipClick={onSearchChange ? (term) => onSearchChange(toggleSearchTerm(searchQuery, term)) : undefined}
+                      activeQuery={searchQuery}
+                      className="min-w-0"
+                    />
                   </div>
                 </div>
                 {entry.dir && (

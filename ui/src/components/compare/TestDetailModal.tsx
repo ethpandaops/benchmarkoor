@@ -21,6 +21,10 @@ interface TestDetailModalProps {
   groupRunIds: string[][]
   stepFilter: StepTypeOption[]
   sampleSize: number
+  /** Current page-level search query (used to highlight active chips). */
+  searchQuery?: string
+  /** Toggle a `key:value` term in the page-level search. */
+  onChipFilterToggle?: (term: string) => void
   onClose: () => void
 }
 
@@ -38,6 +42,8 @@ export function TestDetailModal({
   groupRunIds,
   stepFilter,
   sampleSize,
+  searchQuery,
+  onChipFilterToggle,
   onClose,
 }: TestDetailModalProps) {
   const SLOT_COLORS = ['text-blue-700 dark:text-blue-300', 'text-orange-700 dark:text-orange-300', 'text-purple-700 dark:text-purple-300', 'text-green-700 dark:text-green-300', 'text-red-700 dark:text-red-300']
@@ -148,7 +154,7 @@ export function TestDetailModal({
               {testOrder !== undefined ? `Test #${testOrder}` : 'Test Detail'}
             </h3>
             <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-              <TestName name={testName} showRawBelow showCopy />
+              <TestName name={testName} showRawBelow showCopy onChipClick={onChipFilterToggle} activeQuery={searchQuery} />
             </div>
           </div>
           <button onClick={onClose} className="shrink-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">

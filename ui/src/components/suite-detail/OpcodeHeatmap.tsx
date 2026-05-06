@@ -5,7 +5,7 @@ import type { SuiteTest } from '@/api/types'
 import { getGroupedOpcodes, getCategoryColor } from '@/utils/opcodeCategories'
 import type { CategorySpan, GroupedResult } from '@/utils/opcodeCategories'
 import { TestName } from '@/components/shared/TestName'
-import { testNameMatches } from '@/utils/eestNameFilter'
+import { testNameMatches, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 
 /** Returns the opcode count map from the top-level field or EEST info fallback. */
 function getOpcodeCount(test: SuiteTest): Record<string, number> | undefined {
@@ -945,7 +945,7 @@ export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQue
           <input
             type="text"
             placeholder="Filter… or e.g. opcode:ORIGIN"
-            title={'Free text matches the raw name. Or filter by extracted fields:\nopcode:ORIGIN  gas:90M  fork:Amsterdam  file:tx_context  fn:codecopy  path:compute  label:LOG1\nUnrecognized keys hit params: mem_size:1024  code_size:0\nMultiple terms are AND.'}
+            title={TEST_FILTER_HINT}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"

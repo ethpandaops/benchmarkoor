@@ -4,7 +4,7 @@ import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
 import type { RunConfig, RunResult } from '@/api/types'
 import { fetchData } from '@/api/client'
-import { testNameMatches } from '@/utils/eestNameFilter'
+import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { useIndex } from '@/api/hooks/useIndex'
 import { useSuite } from '@/api/hooks/useSuite'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -450,7 +450,7 @@ export function CompareGroupsPage() {
                   placeholder={testFilterRegex ? 'Regex...' : 'Filter or e.g. opcode:ORIGIN'}
                   title={testFilterRegex
                     ? 'Regex against the raw test name.'
-                    : 'Free text matches the raw name. Or filter by extracted fields:\nopcode:ORIGIN  gas:90M  fork:Amsterdam  file:tx_context  fn:codecopy  path:compute  label:LOG1\nUnrecognized keys hit params: mem_size:1024  code_size:0\nMultiple terms are AND.'}
+                    : TEST_FILTER_HINT}
                   value={testFilter}
                   onChange={(e) => updateSearch({ filter: e.target.value || undefined })}
                   className={clsx(
@@ -579,9 +579,7 @@ export function CompareGroupsPage() {
               <input
                 type="text"
                 placeholder={testFilterRegex ? 'Regex pattern...' : 'Filter… or e.g. opcode:ORIGIN'}
-                title={testFilterRegex
-                  ? 'Regex against the raw test name.'
-                  : 'Free text matches the raw name. Or filter by extracted fields:\nopcode:ORIGIN  gas:90M  fork:Amsterdam  file:tx_context  fn:codecopy  path:compute  label:LOG1\nUnrecognized keys hit params: mem_size:1024  code_size:0\nMultiple terms are AND.'}
+                title={testFilterRegex ? 'Regex against the raw test name.' : TEST_FILTER_HINT}
                 value={testFilter}
                 onChange={(e) => updateSearch({ filter: e.target.value || undefined })}
                 className={clsx(
@@ -741,6 +739,8 @@ export function CompareGroupsPage() {
           groupRunIds={groupRuns}
           stepFilter={stepFilter}
           sampleSize={sampleSize}
+          searchQuery={testFilter}
+          onChipFilterToggle={(term) => updateSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
           onClose={() => setSelectedTest(null)}
         />
       )}

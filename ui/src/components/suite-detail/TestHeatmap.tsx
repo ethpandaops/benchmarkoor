@@ -8,7 +8,7 @@ import { JDenticon } from '@/components/shared/JDenticon'
 import { Pagination } from '@/components/shared/Pagination'
 import { Spinner } from '@/components/shared/Spinner'
 import { TestName } from '@/components/shared/TestName'
-import { testNameMatches } from '@/utils/eestNameFilter'
+import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { formatTimestamp } from '@/utils/date'
 
 const DEFAULT_PAGE_SIZE = 20
@@ -528,9 +528,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
           value={search}
           onChange={(e) => handleSearchChange(e.target.value)}
           placeholder={useRegex ? 'Regex...' : 'Filter or e.g. opcode:ORIGIN'}
-          title={useRegex
-            ? 'Regex against the raw test name.'
-            : 'Free text matches the raw name. Or filter by extracted fields:\nopcode:ORIGIN  gas:90M  fork:Amsterdam  file:tx_context  fn:codecopy  path:compute  label:LOG1\nUnrecognized keys hit params: mem_size:1024  code_size:0\nMultiple terms are AND.'}
+          title={useRegex ? 'Regex against the raw test name.' : TEST_FILTER_HINT}
           className={clsx(
             'w-28 rounded-xs border bg-white px-2 py-1 text-sm placeholder-gray-400 focus:outline-hidden focus:ring-1 sm:w-auto sm:px-3 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
             useRegex && search && (() => { try { new RegExp(search); return false } catch { return true } })()
@@ -734,7 +732,11 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
                         <HighlightedName name={test.name} search={search} useRegex={useRegex} />
                       </span>
                     ) : (
-                      <TestName name={test.name} />
+                      <TestName
+                        name={test.name}
+                        onChipClick={(term) => onSearchChange?.(toggleSearchTerm(search, term) || undefined)}
+                        activeQuery={search}
+                      />
                     )}
                   </td>
                 </tr>

@@ -24,6 +24,7 @@ import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { StatusAlert } from '@/components/shared/StatusBadge'
 import { FilterInput } from '@/components/shared/FilterInput'
+import { TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { formatTimestamp, formatDurationSeconds } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
 import { useIndex, useLiveRuns } from '@/api/hooks/useIndex'
@@ -740,7 +741,7 @@ export function RunDetailPage() {
               </h3>
               <FilterInput
                 placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
-                title={`Free text matches anywhere in the raw name. Or filter by extracted fields:\nopcode:ORIGIN  gas:90M  fork:Amsterdam  file:tx_context  fn:codecopy  path:compute  label:LOG1\nUnrecognized keys hit params: mem_size:1024  code_size:0\nMultiple terms are AND.`}
+                title={TEST_FILTER_HINT}
                 value={q}
                 onValueChange={handleSearchChange}
                 className="w-72 rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { type CompareRun, type LabelMode, buildLabelModeOptions, RUN_SLOTS, formatRunLabel } from './constants'
 import { FilterInput } from '@/components/shared/FilterInput'
+import { TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 
 interface StickyRunBarProps {
   runs: CompareRun[]
@@ -77,9 +78,7 @@ export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, 
           <span>Filter:</span>
           <FilterInput
             placeholder={testFilterRegex ? 'Regex...' : 'Filter or e.g. opcode:ORIGIN'}
-            title={testFilterRegex
-              ? 'Regex against the raw test name.'
-              : 'Free text matches the raw name. Or filter by extracted fields:\nopcode:ORIGIN  gas:90M  fork:Amsterdam  file:tx_context  fn:codecopy  path:compute  label:LOG1\nUnrecognized keys hit params: mem_size:1024  code_size:0\nMultiple terms are AND.'}
+            title={testFilterRegex ? 'Regex against the raw test name.' : TEST_FILTER_HINT}
             value={testFilter}
             onValueChange={onTestFilterChange}
             className={clsx(
