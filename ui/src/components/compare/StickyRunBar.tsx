@@ -76,7 +76,10 @@ export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, 
         <div className="flex items-center gap-1.5">
           <span>Filter:</span>
           <FilterInput
-            placeholder={testFilterRegex ? 'Regex...' : 'Filter...'}
+            placeholder={testFilterRegex ? 'Regex...' : 'Filter or e.g. opcode:ORIGIN'}
+            title={testFilterRegex
+              ? 'Regex against the raw test name.'
+              : 'Free text matches the raw name. Or filter by extracted fields:\nopcode:ORIGIN  gas:90M  fork:Amsterdam  file:tx_context  fn:codecopy  path:compute  label:LOG1\nUnrecognized keys hit params: mem_size:1024  code_size:0\nMultiple terms are AND.'}
             value={testFilter}
             onValueChange={onTestFilterChange}
             className={clsx(

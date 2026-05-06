@@ -5,6 +5,7 @@ import { useQueries } from '@tanstack/react-query'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import type { BlockLogs, RunConfig, RunResult } from '@/api/types'
 import { fetchData } from '@/api/client'
+import { testNameMatches } from '@/utils/eestNameFilter'
 import { useSuite } from '@/api/hooks/useSuite'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -181,8 +182,7 @@ export function ComparePage() {
           return undefined
         }
       }
-      const q = testFilter.toLowerCase()
-      return (name: string) => name.toLowerCase().includes(q)
+      return (name: string) => testNameMatches(name, testFilter)
     })()
 
     const gasFn = selectedGasBuckets.size > 0
@@ -375,7 +375,10 @@ export function ComparePage() {
         <div className="flex items-center gap-1.5">
           <span>Filter:</span>
           <FilterInput
-            placeholder={testFilterRegex ? 'Regex pattern...' : 'Filter tests...'}
+            placeholder={testFilterRegex ? 'Regex pattern...' : 'Filter… or e.g. opcode:ORIGIN'}
+            title={testFilterRegex
+              ? 'Regex against the raw test name.'
+              : 'Free text matches the raw name. Or filter by extracted fields:\nopcode:ORIGIN  gas:90M  fork:Amsterdam  file:tx_context  fn:codecopy  path:compute  label:LOG1\nUnrecognized keys hit params: mem_size:1024  code_size:0\nMultiple terms are AND.'}
             value={testFilter}
             onValueChange={setTestFilter}
             className={clsx(

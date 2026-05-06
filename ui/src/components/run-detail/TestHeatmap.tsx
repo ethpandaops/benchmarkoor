@@ -6,6 +6,7 @@ import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated, StepResu
 import { fetchHead } from '@/api/client'
 import { Modal } from '@/components/shared/Modal'
 import { TestName } from '@/components/shared/TestName'
+import { testNameMatches } from '@/utils/eestNameFilter'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
@@ -311,7 +312,7 @@ function HeatmapCell({
     // ran-and-failed tests cleanly.
     (!test.notProcessed && statusFilter === 'passed' && !test.hasFail) ||
     (!test.notProcessed && statusFilter === 'failed' && test.hasFail)
-  const matchesSearchQuery = !searchQuery || test.testKey.toLowerCase().includes(searchQuery.toLowerCase())
+  const matchesSearchQuery = !searchQuery || testNameMatches(test.testKey, searchQuery)
   const matchesFilter = matchesStatusFilter && matchesSearchQuery
   let baseStyle: React.CSSProperties
   if (test.notProcessed) {

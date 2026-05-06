@@ -6,6 +6,7 @@ import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
 import { TestName } from '@/components/shared/TestName'
+import { testNameMatches } from '@/utils/eestNameFilter'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 
 export type TestSortColumn = 'order' | 'name' | 'genesis' | 'time' | 'mgas' | 'passed' | 'failed'
@@ -177,8 +178,7 @@ export function TestsTable({
     let filtered = Object.entries(tests)
 
     if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(([name]) => name.toLowerCase().includes(query))
+      filtered = filtered.filter(([name]) => testNameMatches(name, searchQuery))
     }
 
     // Genesis filter
@@ -309,10 +309,11 @@ export function TestsTable({
           )}
           <input
             type="text"
-            placeholder="Search tests..."
+            placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
+            title={`Free text matches anywhere in the raw name. Or filter by extracted fields:\nopcode:ORIGIN  gas:90M  fork:Amsterdam  file:tx_context  fn:codecopy  path:compute  label:LOG1\nUnrecognized keys hit params: mem_size:1024  code_size:0\nMultiple terms are AND.`}
             value={searchQuery}
             onChange={(e) => handleSearchInput(e.target.value)}
-            className="w-64 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm/6 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+            className="w-72 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm/6 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
         </div>
       </div>
