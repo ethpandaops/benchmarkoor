@@ -15,8 +15,8 @@ runner:
       filter: "bn128"
       source:
         eest_fixtures:
-          github_repo: ethereum/execution-spec-tests
-          github_release: benchmark@v0.0.7
+          github_repo: ethereum/execution-specs
+          github_release: tests-benchmark@v0.0.9
 
   client:
     config:

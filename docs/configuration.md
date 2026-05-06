@@ -424,16 +424,16 @@ EEST (Ethereum Execution Spec Tests) fixtures can be loaded from GitHub releases
 ```yaml
 tests:
   source:
-    eest_fixtures:
-      github_repo: ethereum/execution-spec-tests
-      github_release: benchmark@v0.0.7
+      eest_fixtures:
+        github_repo: ethereum/execution-specs
+        github_release: tests-benchmark@v0.0.9
       fixtures_subdir: fixtures/blockchain_tests_engine_x
 ```
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `github_repo` | string | Yes | - | GitHub repository (e.g., `ethereum/execution-spec-tests`) |
-| `github_release` | string | Yes* | - | Release tag (e.g., `benchmark@v0.0.7`) |
+| `github_repo` | string | Yes | - | GitHub repository (e.g., `ethereum/execution-specs`) |
+| `github_release` | string | Yes* | - | Release tag (e.g., `test-benchmark@v0.0.9`) |
 | `fixtures_subdir` | string | No | `fixtures/blockchain_tests_engine_x` | Subdirectory within the fixtures tarball to search |
 | `fixtures_url` | string | No | Auto-generated | Override URL for fixtures tarball |
 | `genesis_url` | string | No | Auto-generated | Override URL for genesis tarball |
@@ -543,8 +543,8 @@ runner:
       filter: "bn128"  # Only run tests matching "bn128"
       source:
         eest_fixtures:
-          github_repo: ethereum/execution-spec-tests
-          github_release: benchmark@v0.0.7
+          github_repo: ethereum/execution-specs
+          github_release: tests-benchmark@v0.0.9
 ```
 
 #### Test Filter
@@ -1415,8 +1415,8 @@ runner:
       filter: "bn128"  # Optional: filter tests by name
       source:
         eest_fixtures:
-          github_repo: ethereum/execution-spec-tests
-          github_release: benchmark@v0.0.7
+          github_repo: ethereum/execution-specs
+          github_release: tests-benchmark@v0.0.9
 
   client:
     config:
