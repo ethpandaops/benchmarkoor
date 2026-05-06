@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Check, Copy, GitCompareArrows, X } from 'lucide-react'
+import { GitCompareArrows, X } from 'lucide-react'
 import clsx from 'clsx'
 import type { RunResult } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
@@ -147,9 +147,8 @@ export function TestDetailModal({
             <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
               {testOrder !== undefined ? `Test #${testOrder}` : 'Test Detail'}
             </h3>
-            <div className="mt-0.5 flex items-start gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-              <TestName name={testName} showRawBelow />
-              <CopyButton text={testName} />
+            <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              <TestName name={testName} showRawBelow showCopy />
             </div>
           </div>
           <button onClick={onClose} className="shrink-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
@@ -375,22 +374,3 @@ function StatCell({ label, value, title }: { label: string; value?: string; titl
   )
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation()
-        navigator.clipboard.writeText(text)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      }}
-      className="shrink-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-      title="Copy test name"
-    >
-      {copied ? <Check className="size-3.5 text-green-500" /> : <Copy className="size-3.5" />}
-    </button>
-  )
-}

@@ -944,10 +944,8 @@ export function TestHeatmap({
             <div className="flex flex-col gap-6">
               <div className="flex flex-col gap-2">
                 <div>
-                  <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Test Name</div>
-                  <div className="flex items-start gap-2 text-sm/6 text-gray-900 dark:text-gray-100">
-                    <TestName name={selectedTest} showRawBelow className="min-w-0" />
-                    <CopyButton text={selectedTest} />
+                  <div className="text-sm/6 text-gray-900 dark:text-gray-100">
+                    <TestName name={selectedTest} showRawBelow showCopy className="min-w-0" />
                   </div>
                 </div>
                 {entry.dir && (

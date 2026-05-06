@@ -107,7 +107,7 @@ export function TestName({ name, variant = 'full', showCopy = false, showRawBelo
         <span className="truncate text-sm/5 font-medium text-gray-900 dark:text-gray-100">
           {parsed.fn}
         </span>
-        {showCopy && <CopyButton value={name} />}
+        {showCopy && !showRawBelow && <CopyButton value={name} />}
       </span>
       {hasChips && (
         <span className="inline-flex flex-wrap items-baseline gap-1">
@@ -133,7 +133,13 @@ export function TestName({ name, variant = 'full', showCopy = false, showRawBelo
         </span>
       )}
       {showRawBelow && (
-        <code className="break-all font-mono text-[11px]/4 text-gray-400 dark:text-gray-500">{name}</code>
+        <span className="mt-3 flex flex-col gap-0.5">
+          <span className="text-[10px]/4 font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">Test name:</span>
+          <span className="flex items-start gap-1.5">
+            <code className="min-w-0 break-all font-mono text-[11px]/4 text-gray-400 dark:text-gray-500">{name}</code>
+            {showCopy && <CopyButton value={name} />}
+          </span>
+        </span>
       )}
     </span>
   )
