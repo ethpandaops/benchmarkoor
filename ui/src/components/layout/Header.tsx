@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Link, useMatchRoute, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X, FileText, Search, TextCursorInput } from 'lucide-react'
+import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X, FileText, Search, Tags, Code2, Check, Settings } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
-import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
+import { useNameDisplayMode, type NameDisplayMode } from '@/hooks/useNameDisplayMode'
 
 function NavLink({ to, children, onClick }: { to: string; children: React.ReactNode; onClick?: () => void }) {
   const matchRoute = useMatchRoute()
@@ -25,50 +25,107 @@ function NavLink({ to, children, onClick }: { to: string; children: React.ReactN
   )
 }
 
-function NameModeSwitcher() {
-  const { mode, toggle } = useNameDisplayMode()
-  const decomposed = mode === 'decomposed'
+type Theme = 'light' | 'dark'
+
+const NAME_MODE_OPTIONS: { value: NameDisplayMode; label: string; icon: typeof Tags }[] = [
+  { value: 'decomposed', label: 'Decomposed', icon: Tags },
+  { value: 'raw', label: 'Raw', icon: Code2 },
+]
+
+const THEME_OPTIONS: { value: Theme; label: string; icon: typeof Sun }[] = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+]
+
+function MenuOption<T extends string>({ active, onClick, icon: Icon, label }: {
+  active: boolean
+  onClick: () => void
+  icon: typeof Tags
+  label: string
+  value: T
+}) {
   return (
     <button
-      onClick={toggle}
+      onClick={onClick}
       className={clsx(
-        'flex items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs/5 font-medium transition-colors',
-        decomposed
-          ? 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
-          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200',
+        'flex w-full items-center gap-2 px-3 py-2 text-left text-sm',
+        active
+          ? 'bg-gray-50 text-gray-900 dark:bg-gray-700/50 dark:text-gray-100'
+          : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/50',
       )}
-      title={decomposed ? 'Showing decomposed test names — click for raw' : 'Showing raw test names — click for decomposed'}
     >
-      <TextCursorInput className="size-4" />
-      <span className="hidden sm:inline">{decomposed ? 'decomposed' : 'raw'}</span>
+      <Icon className="size-3.5 shrink-0" />
+      <span className="flex-1">{label}</span>
+      {active && <Check className="size-3.5 text-blue-500" />}
     </button>
   )
 }
 
-function ThemeSwitcher() {
-  const [isDark, setIsDark] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return document.documentElement.classList.contains('dark')
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-3 pb-1 pt-0.5 text-[10px]/4 font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+      {children}
+    </div>
+  )
+}
+
+function SettingsMenu() {
+  const { mode: nameMode, setMode: setNameMode } = useNameDisplayMode()
+  const [open, setOpen] = useState(false)
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (typeof window === 'undefined') return 'light'
+    return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
   })
 
   useEffect(() => {
-    if (isDark) {
+    if (theme === 'dark') {
       document.documentElement.classList.add('dark')
-      localStorage.setItem('theme', 'dark')
     } else {
       document.documentElement.classList.remove('dark')
-      localStorage.setItem('theme', 'light')
     }
-  }, [isDark])
+    localStorage.setItem('theme', theme)
+  }, [theme])
 
   return (
-    <button
-      onClick={() => setIsDark(!isDark)}
-      className="rounded-sm p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
-      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-    >
-      {isDark ? <Sun className="size-5" /> : <Moon className="size-5" />}
-    </button>
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="rounded-sm p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+        title="Settings"
+      >
+        <Settings className="size-5" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-50 mt-1 w-44 rounded-sm border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+            <SectionHeader>Test names</SectionHeader>
+            {NAME_MODE_OPTIONS.map((opt) => (
+              <MenuOption
+                key={opt.value}
+                value={opt.value}
+                label={opt.label}
+                icon={opt.icon}
+                active={nameMode === opt.value}
+                onClick={() => { setNameMode(opt.value); setOpen(false) }}
+              />
+            ))}
+            <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
+            <SectionHeader>Theme</SectionHeader>
+            {THEME_OPTIONS.map((opt) => (
+              <MenuOption
+                key={opt.value}
+                value={opt.value}
+                label={opt.label}
+                icon={opt.icon}
+                active={theme === opt.value}
+                onClick={() => { setThemeState(opt.value); setOpen(false) }}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -273,8 +330,7 @@ export function Header() {
         </nav>
         <div className="ml-auto hidden items-center gap-2 md:flex">
           <AuthControls />
-          <NameModeSwitcher />
-          <ThemeSwitcher />
+          <SettingsMenu />
         </div>
 
         {/* Mobile hamburger */}
@@ -297,8 +353,7 @@ export function Header() {
           <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
             <AuthControls onNavigate={closeMobile} variant="mobile" />
             <div className="mt-2 flex items-center justify-end gap-2">
-              <NameModeSwitcher />
-              <ThemeSwitcher />
+              <SettingsMenu />
             </div>
           </div>
         </div>
