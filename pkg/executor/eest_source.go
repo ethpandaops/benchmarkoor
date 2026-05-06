@@ -858,43 +858,50 @@ func (s *EESTSource) GetGenesisGroups() []*GenesisGroup {
 // GetGenesisPathForGroup returns the genesis file path for a specific
 // genesis hash and client type.
 func (s *EESTSource) GetGenesisPathForGroup(genesisHash, clientType string) string {
-	clientDir, filename := s.resolveClientGenesis(clientType)
+	clientDirs, filename := s.resolveClientGenesis(clientType)
 
-	genesisPath := filepath.Join(
-		s.genesisDir, "genesis", genesisHash, clientDir, filename,
-	)
-
-	if _, err := os.Stat(genesisPath); err == nil {
-		return genesisPath
+	tried := make([]string, 0, len(clientDirs))
+	for _, clientDir := range clientDirs {
+		genesisPath := filepath.Join(
+			s.genesisDir, "genesis", genesisHash, clientDir, filename,
+		)
+		if _, err := os.Stat(genesisPath); err == nil {
+			return genesisPath
+		}
+		tried = append(tried, genesisPath)
 	}
 
 	s.log.WithFields(logrus.Fields{
 		"genesis_hash": genesisHash,
 		"client":       clientType,
-		"path":         genesisPath,
+		"tried":        tried,
 	}).Warn("Genesis file not found for group")
 
 	return ""
 }
 
-// resolveClientGenesis maps a client type to its genesis directory and filename.
-func (s *EESTSource) resolveClientGenesis(clientType string) (string, string) {
+// resolveClientGenesis maps a client type to its candidate genesis
+// directories (in priority order) and filename. Newer EEST releases
+// suffix the dir with `_default` (e.g. `go-ethereum_default`); older
+// releases use the bare client name. We try the new layout first and
+// fall back to the old one so both work.
+func (s *EESTSource) resolveClientGenesis(clientType string) ([]string, string) {
 	switch clientType {
 	case "geth", "erigon", "reth", "nimbus", "ethrex":
-		return "go-ethereum", "genesis.json"
+		return []string{"go-ethereum_default", "go-ethereum"}, "genesis.json"
 	case "nethermind":
-		return "nethermind", "chainspec.json"
+		return []string{"nethermind_default", "nethermind"}, "chainspec.json"
 	case "besu":
-		return "besu", "genesis.json"
+		return []string{"besu_default", "besu"}, "genesis.json"
 	default:
-		return "go-ethereum", "genesis.json"
+		return []string{"go-ethereum_default", "go-ethereum"}, "genesis.json"
 	}
 }
 
 // GetGenesisPath returns the genesis file path for a client type.
 // Maps client types to their genesis directories in the EEST release.
 func (s *EESTSource) GetGenesisPath(clientType string) string {
-	clientDir, filename := s.resolveClientGenesis(clientType)
+	clientDirs, filename := s.resolveClientGenesis(clientType)
 
 	// Genesis files are in genesis/genesis/<hash>/<client>/<filename>
 	// Find the hash subdirectory (there should typically be one).
@@ -909,7 +916,10 @@ func (s *EESTSource) GetGenesisPath(clientType string) string {
 
 	// Find the first directory (the hash directory).
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if !entry.IsDir() {
+			continue
+		}
+		for _, clientDir := range clientDirs {
 			genesisPath := filepath.Join(
 				genesisBaseDir, entry.Name(), clientDir, filename,
 			)
