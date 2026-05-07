@@ -736,6 +736,15 @@ export function RunDetailPage() {
 
       {result && (
         <>
+          <div className="sticky top-0 z-30 -mx-4 border-b border-gray-200 bg-white/95 px-4 py-2 backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95">
+            <FilterInput
+              placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
+              title={TEST_FILTER_HINT}
+              value={q}
+              onValueChange={handleSearchChange}
+              className="w-full rounded-xs border border-gray-300 bg-white px-3 py-1.5 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+            />
+          </div>
           <FacetPanel
             testNames={Object.keys(result.tests)}
             query={q}
@@ -786,13 +795,6 @@ export function RunDetailPage() {
                     </button>
                   )}
                 </div>
-                <FilterInput
-                  placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
-                  title={TEST_FILTER_HINT}
-                  value={q}
-                  onValueChange={handleSearchChange}
-                  className="w-72 rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
-                />
               </div>
             </div>
             <div className="p-4">
@@ -872,7 +874,7 @@ export function RunDetailPage() {
                 }]}
                 onTestClick={(testIndex) => handleTestModalChange(mergedSuiteTests[testIndex - 1]?.name)}
                 searchQuery={q}
-                onSearchChange={handleSearchChange}
+                hideSearchInput
                 fullscreen={ohFs}
                 onFullscreenChange={handleOpcodeHeatmapFullscreenChange}
               />
@@ -880,7 +882,7 @@ export function RunDetailPage() {
           )}
 
           {blockLogs && Object.keys(blockLogs).length > 0 && (
-            <BlockLogsDashboard blockLogs={blockLogs} runId={runId} suiteTests={suite?.tests} onTestClick={handleTestModalChange} searchQuery={q} onSearchChange={handleSearchChange} fullscreen={blFs} onFullscreenChange={handleBlockLogsFullscreenChange} />
+            <BlockLogsDashboard blockLogs={blockLogs} runId={runId} suiteTests={suite?.tests} onTestClick={handleTestModalChange} searchQuery={q} fullscreen={blFs} onFullscreenChange={handleBlockLogsFullscreenChange} />
           )}
 
           <ResourceUsageCharts

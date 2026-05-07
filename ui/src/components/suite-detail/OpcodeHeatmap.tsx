@@ -25,6 +25,8 @@ interface OpcodeHeatmapProps {
   extraColumns?: ExtraColumn[]
   searchQuery?: string
   onSearchChange?: (query: string) => void
+  /** When true, hide the internal search input (use the page-level one). */
+  hideSearchInput?: boolean
   fullscreen?: boolean
   onFullscreenChange?: (fullscreen: boolean) => void
 }
@@ -737,7 +739,7 @@ function HeatmapCanvas({ filteredTests, columns, maxPerColumn, isDark, maxHeight
   )
 }
 
-export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQuery, onSearchChange, fullscreen: externalFullscreen, onFullscreenChange }: OpcodeHeatmapProps) {
+export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQuery, onSearchChange, hideSearchInput = false, fullscreen: externalFullscreen, onFullscreenChange }: OpcodeHeatmapProps) {
   const [internalSearch, setInternalSearch] = useState('')
   const search = searchQuery ?? internalSearch
   const setSearch = onSearchChange ?? setInternalSearch
@@ -942,14 +944,16 @@ export function OpcodeHeatmap({ tests, onTestClick, extraColumns = [], searchQue
           </span>
         </h3>
         <div className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="Filter… or e.g. opcode:ORIGIN"
-            title={TEST_FILTER_HINT}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
-          />
+          {!hideSearchInput && (
+            <input
+              type="text"
+              placeholder="Filter… or e.g. opcode:ORIGIN"
+              title={TEST_FILTER_HINT}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+            />
+          )}
           {expanded && (
             <button
               onClick={() => setGroupStack(!groupStack)}

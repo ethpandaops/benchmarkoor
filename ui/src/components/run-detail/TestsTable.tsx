@@ -6,7 +6,7 @@ import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
 import { TestName } from '@/components/shared/TestName'
-import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
+import { testNameMatches, toggleSearchTerm } from '@/utils/eestNameFilter'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 
 export type TestSortColumn = 'order' | 'name' | 'genesis' | 'time' | 'mgas' | 'passed' | 'failed'
@@ -236,12 +236,6 @@ export function TestsTable({
   const totalPages = Math.ceil(sortedTests.length / pageSize)
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
-  const handleSearchInput = (value: string) => {
-    if (onSearchChange) {
-      onSearchChange(value)
-    }
-  }
-
   const handlePageSizeChange = (newSize: number) => {
     if (onPageSizeChange) {
       onPageSizeChange(newSize)
@@ -307,14 +301,6 @@ export function TestsTable({
               ))}
             </select>
           )}
-          <input
-            type="text"
-            placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
-            title={TEST_FILTER_HINT}
-            value={searchQuery}
-            onChange={(e) => handleSearchInput(e.target.value)}
-            className="w-72 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm/6 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-          />
         </div>
       </div>
 

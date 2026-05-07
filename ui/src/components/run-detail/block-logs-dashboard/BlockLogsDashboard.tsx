@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { TabPanel } from '@headlessui/react'
 import { Blocks, CircleHelp, X, Maximize2 } from 'lucide-react'
 import type { BlockLogs, SuiteTest } from '@/api/types'
-import { FilterInput } from '@/components/shared/FilterInput'
 import { useDashboardState } from './hooks/useDashboardState'
 import { useProcessedData } from './hooks/useProcessedData'
 import { DashboardFilters } from './components/DashboardFilters'
@@ -18,7 +17,6 @@ interface BlockLogsDashboardProps {
   suiteTests?: SuiteTest[]
   onTestClick?: (testName: string) => void
   searchQuery?: string
-  onSearchChange?: (query: string) => void
   fullscreen?: boolean
   onFullscreenChange?: (fullscreen: boolean) => void
 }
@@ -63,7 +61,7 @@ function useFullscreen(
   return { fullscreen, setFullscreen }
 }
 
-export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, searchQuery = '', onSearchChange, fullscreen: externalFullscreen, onFullscreenChange }: BlockLogsDashboardProps) {
+export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, searchQuery = '', fullscreen: externalFullscreen, onFullscreenChange }: BlockLogsDashboardProps) {
   const isDark = useDarkMode()
   const { fullscreen, setFullscreen } = useFullscreen(externalFullscreen, onFullscreenChange)
   const { state, updateState } = useDashboardState(runId)
@@ -102,14 +100,6 @@ export function BlockLogsDashboard({ blockLogs, runId, suiteTests, onTestClick, 
         </span>
       </div>
       <div className="flex items-center gap-2">
-        {onSearchChange && (
-          <FilterInput
-            placeholder="Filter tests..."
-            value={searchQuery}
-            onValueChange={onSearchChange}
-            className="rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
-          />
-        )}
         <button
           onClick={() => setFullscreen(!fullscreen)}
           className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
