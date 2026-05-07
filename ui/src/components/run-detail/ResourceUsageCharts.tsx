@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { Cpu } from 'lucide-react'
-import type { TestEntry, ResourceTotals } from '@/api/types'
+import type { TestEntry, ResourceTotals, SuiteTest } from '@/api/types'
 import { formatBytes } from '@/utils/format'
+import { testNameMatches } from '@/utils/eestNameFilter'
+import { getAggregatedStats, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 
 // Aggregated resource data from all steps of a test entry
 interface AggregatedResourceData {
@@ -82,13 +84,26 @@ function useDarkMode() {
 
 interface ResourceUsageChartsProps {
   tests: Record<string, TestEntry>
+  /**
+   * Optional suite tests in canonical run order. When provided, charts use
+   * the suite-based Test # (matching the heatmap and tests table) instead
+   * of a fresh per-chart sequence.
+   */
+  suiteTests?: SuiteTest[]
+  /** Optional: only chart tests whose name matches this query. */
+  searchQuery?: string
+  /** Optional: only chart tests matching this status. */
+  statusFilter?: 'all' | 'passed' | 'failed'
   onTestClick?: (testName: string) => void
   resourceCollectionMethod?: string
   cpuCores?: number
 }
 
 interface ResourceDataPoint {
+  /** 1-based local position on the X axis. */
   testIndex: number
+  /** Canonical Test # (matches the heatmap and tests table); shown in tooltips. */
+  testNumber: number
   testName: string
   cpuUsec: number
   cpuPercent: number
@@ -211,7 +226,7 @@ function ChartSection({ title, option, onZoom, onPointClick, highlightedTestRef 
   )
 }
 
-export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMethod, cpuCores }: ResourceUsageChartsProps) {
+export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilter = 'all', onTestClick, resourceCollectionMethod, cpuCores }: ResourceUsageChartsProps) {
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const highlightedTestRef = useRef<string | null>(null)
@@ -235,8 +250,32 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
       totalWriteOps: 0,
     }
 
-    // Sort tests by their directory order (numeric prefix)
-    const sortedTests = Object.entries(tests).sort(([, a], [, b]) => {
+    // Suite-based execution order so the chart's Test # matches the
+    // heatmap and tests table. Falls back to dir-prefix order when no
+    // suite info is available.
+    const suiteOrder = suiteTests
+      ? new Map(suiteTests.map((t, i) => [t.name, i + 1]))
+      : null
+
+    // Apply the page-level search + status filter so charts reflect what
+    // the user is currently looking at on the heatmap and table.
+    const filteredEntries = Object.entries(tests).filter(([name, entry]) => {
+      if (searchQuery && !testNameMatches(name, searchQuery)) return false
+      if (statusFilter !== 'all') {
+        const s = getAggregatedStats(entry, ALL_STEP_TYPES)
+        if (!s) return false
+        if (statusFilter === 'passed' && s.fail !== 0) return false
+        if (statusFilter === 'failed' && s.fail === 0) return false
+      }
+      return true
+    })
+
+    const sortedTests = filteredEntries.sort(([nameA, a], [nameB, b]) => {
+      if (suiteOrder) {
+        const oa = suiteOrder.get(nameA) ?? Infinity
+        const ob = suiteOrder.get(nameB) ?? Infinity
+        return oa - ob
+      }
       const aNum = parseInt(a.dir, 10) || 0
       const bNum = parseInt(b.dir, 10) || 0
       return aNum - bNum
@@ -246,6 +285,8 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
     let cpuPercentCount = 0
 
     sortedTests.forEach(([testName, test], index) => {
+      const testIndex = index + 1
+      const testNumber = suiteOrder?.get(testName) ?? testIndex
       const agg = getAggregatedResourceData(test)
       if (agg) {
         hasData = true
@@ -270,7 +311,8 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
         }
 
         points.push({
-          testIndex: index + 1,
+          testIndex,
+          testNumber,
           testName,
           cpuUsec,
           cpuPercent,
@@ -304,7 +346,7 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
     }
 
     return { dataPoints: points, hasResourceData: hasData, hasMemoryMBData: hasMemoryMB, summaryStats: stats }
-  }, [tests])
+  }, [tests, suiteTests, searchQuery, statusFilter])
 
    
   const chartOptions = useMemo(() => {
@@ -402,14 +444,14 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
       textStyle: { color: textColor },
       extraCssText: 'max-width: 300px; white-space: normal;',
       formatter: (
-        params: Array<{ seriesName: string; color: string; value: [number, number, string] }>,
+        params: Array<{ seriesName: string; color: string; value: [number, number, string, number] }>,
       ) => {
         if (!params.length) return ''
         const testName = params[0].value[2]
-        const testIndex = params[0].value[0]
+        const testNumber = params[0].value[3]
         // Track the highlighted test for click handling
         highlightedTestRef.current = testName
-        let content = `<strong>Test #${testIndex}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
+        let content = `<strong>Test #${testNumber}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
         params.forEach((p) => {
           const value = p.value[1]
           const formatted = formatter(value)
@@ -429,13 +471,13 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
       textStyle: { color: textColor },
       extraCssText: 'max-width: 300px; white-space: normal;',
       formatter: (
-        params: Array<{ seriesName: string; color: string; value: [number, number, string] }>,
+        params: Array<{ seriesName: string; color: string; value: [number, number, string, number] }>,
       ) => {
         if (!params.length) return ''
         const testName = params[0].value[2]
-        const testIndex = params[0].value[0]
+        const testNumber = params[0].value[3]
         highlightedTestRef.current = testName
-        let content = `<strong>Test #${testIndex}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
+        let content = `<strong>Test #${testNumber}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
         params.forEach((p) => {
           const value = p.value[1]
           const formatted = formatter(value)
@@ -455,14 +497,14 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
       textStyle: { color: textColor },
       extraCssText: 'max-width: 300px; white-space: normal;',
       formatter: (
-        params: Array<{ seriesName: string; color: string; value: [number, number, string]; seriesIndex: number }>,
+        params: Array<{ seriesName: string; color: string; value: [number, number, string, number]; seriesIndex: number }>,
       ) => {
         if (!params.length) return ''
         const testName = params[0].value[2]
-        const testIndex = params[0].value[0]
+        const testNumber = params[0].value[3]
         // Track the highlighted test for click handling
         highlightedTestRef.current = testName
-        let content = `<strong>Test #${testIndex}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
+        let content = `<strong>Test #${testNumber}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
         params.forEach((p) => {
           const value = p.value[1]
           const formatted = formatter(value)
@@ -525,7 +567,7 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
         {
           name: 'CPU Usage %',
           ...lineSeriesConfig,
-          data: dataPoints.map((d) => [d.testIndex, d.cpuPercent, d.testName]),
+          data: dataPoints.map((d) => [d.testIndex, d.cpuPercent, d.testName, d.testNumber]),
           itemStyle: { color: '#f59e0b' },
           areaStyle: { opacity: 0.1, color: '#f59e0b' },
           markLine: cpuPercentMarkLine,
@@ -542,7 +584,7 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
         {
           name: 'Memory Usage',
           ...lineSeriesConfig,
-          data: dataPoints.map((d) => [d.testIndex, d.memoryMB, d.testName]),
+          data: dataPoints.map((d) => [d.testIndex, d.memoryMB, d.testName, d.testNumber]),
           itemStyle: { color: '#10b981' },
           areaStyle: { opacity: 0.1, color: '#10b981' },
         },
@@ -558,7 +600,7 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
         {
           name: 'CPU Time',
           ...lineSeriesConfig,
-          data: dataPoints.map((d) => [d.testIndex, d.cpuUsec, d.testName]),
+          data: dataPoints.map((d) => [d.testIndex, d.cpuUsec, d.testName, d.testNumber]),
           itemStyle: { color: '#8b5cf6' },
           areaStyle: { opacity: 0.1, color: '#8b5cf6' },
         },
@@ -577,7 +619,7 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
         {
           name: 'Memory Delta',
           ...lineSeriesConfig,
-          data: dataPoints.map((d) => [d.testIndex, d.memoryDelta, d.testName]),
+          data: dataPoints.map((d) => [d.testIndex, d.memoryDelta, d.testName, d.testNumber]),
           itemStyle: { color: '#22c55e' },
           areaStyle: { opacity: 0.1, color: '#22c55e' },
         },
@@ -602,14 +644,14 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
         {
           name: 'Disk Read',
           ...lineSeriesConfig,
-          data: dataPoints.map((d) => [d.testIndex, d.diskRead, d.testName]),
+          data: dataPoints.map((d) => [d.testIndex, d.diskRead, d.testName, d.testNumber]),
           itemStyle: { color: '#3b82f6' },
           areaStyle: { opacity: 0.1, color: '#3b82f6' },
         },
         {
           name: 'Disk Write',
           ...lineSeriesConfig,
-          data: dataPoints.map((d) => [d.testIndex, d.diskWrite, d.testName]),
+          data: dataPoints.map((d) => [d.testIndex, d.diskWrite, d.testName, d.testNumber]),
           itemStyle: { color: '#f97316' },
           areaStyle: { opacity: 0.1, color: '#f97316' },
         },
@@ -634,14 +676,14 @@ export function ResourceUsageCharts({ tests, onTestClick, resourceCollectionMeth
         {
           name: 'Read Ops',
           ...lineSeriesConfig,
-          data: dataPoints.map((d) => [d.testIndex, d.diskReadOps, d.testName]),
+          data: dataPoints.map((d) => [d.testIndex, d.diskReadOps, d.testName, d.testNumber]),
           itemStyle: { color: '#06b6d4' },
           areaStyle: { opacity: 0.1, color: '#06b6d4' },
         },
         {
           name: 'Write Ops',
           ...lineSeriesConfig,
-          data: dataPoints.map((d) => [d.testIndex, d.diskWriteOps, d.testName]),
+          data: dataPoints.map((d) => [d.testIndex, d.diskWriteOps, d.testName, d.testNumber]),
           itemStyle: { color: '#ec4899' },
           areaStyle: { opacity: 0.1, color: '#ec4899' },
         },

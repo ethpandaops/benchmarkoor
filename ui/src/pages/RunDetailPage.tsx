@@ -842,6 +842,9 @@ export function RunDetailPage() {
 
           <ResourceUsageCharts
             tests={result.tests}
+            suiteTests={mergedSuiteTests ?? suite?.tests}
+            searchQuery={q}
+            statusFilter={status}
             onTestClick={handleTestModalChange}
             resourceCollectionMethod={config.system_resource_collection_method}
             cpuCores={config.instance.resource_limits?.cpuset_cpus

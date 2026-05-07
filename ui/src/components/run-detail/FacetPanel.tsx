@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Filter, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Filter, X } from 'lucide-react'
 import { parseEESTName } from '@/utils/eestName'
 import {
   queryWithoutDimension,
@@ -77,8 +77,13 @@ function compareValues(a: string, b: string): number {
   return a.localeCompare(b)
 }
 
+// Dimensions visible by default — the rest hide behind "Show more facets".
+// Anything with an active filter is also forced into the preview so users
+// can always see and clear what's pinned.
+const PREVIEW_KEYS = new Set(['file', 'benchmark'])
+
 export function FacetPanel({ testNames, query, onToggle }: FacetPanelProps) {
-  const [expanded, setExpanded] = useState(false)
+  const [showAll, setShowAll] = useState(false)
 
   const data = useMemo(() => {
     // Parse every test once.
@@ -154,66 +159,79 @@ export function FacetPanel({ testNames, query, onToggle }: FacetPanelProps) {
     [query],
   )
 
+  // Force any dimension with an active filter into the preview so users
+  // can always see and clear what's pinned, even if it lives in a
+  // normally-hidden section.
+  const previewDims = data.filter(({ def, values }) => PREVIEW_KEYS.has(def.key) || values.some((v) => v.active))
+  const hiddenDims = data.filter((d) => !previewDims.includes(d))
+  const visibleDims = showAll ? data : previewDims
+
+  const renderDim = ({ def, values }: typeof data[number]) => (
+    <div key={def.key} className="flex flex-col gap-1">
+      <div className="text-[10px]/4 font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+        {def.label}
+        <span className="ml-1 lowercase text-gray-300 dark:text-gray-600">({values.length})</span>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {values.map(({ value, count, active }) => {
+          const term = `${def.emitKey}=${value}`
+          const dimmed = !active && count === 0
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onToggle(term)}
+              title={active ? `Click to remove ${term}` : `Click to filter by ${term}`}
+              className={clsx(
+                'inline-flex items-center gap-1 rounded-xs px-1.5 py-0 font-mono text-[11px]/5 ring-1 ring-inset transition-colors',
+                active
+                  ? 'bg-blue-500 text-white ring-blue-500'
+                  : dimmed
+                    ? 'bg-gray-50 text-gray-400 ring-gray-200 dark:bg-gray-800 dark:text-gray-600 dark:ring-gray-700'
+                    : 'bg-gray-100 text-gray-700 ring-gray-200 hover:bg-blue-100 hover:text-blue-700 hover:ring-blue-300 dark:bg-gray-700 dark:text-gray-200 dark:ring-gray-600 dark:hover:bg-blue-950/60 dark:hover:text-blue-300 dark:hover:ring-blue-700',
+              )}
+            >
+              <span>{value}</span>
+              <span className={clsx('font-mono text-[10px]/4', active ? 'text-blue-100' : 'text-gray-400 dark:text-gray-500')}>
+                {count}
+              </span>
+              {active && <X className="size-3" />}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+
   return (
     <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-      >
-        <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', expanded && 'rotate-90')} />
+      <div className="flex items-center gap-2 border-b border-gray-200 px-3 py-2 text-sm/6 font-medium text-gray-900 dark:border-gray-700 dark:text-gray-100">
         <Filter className="size-4 text-gray-400 dark:text-gray-500" />
         Filter facets
         <span className="text-xs/5 text-gray-500 dark:text-gray-400">
           ({data.length} dimension{data.length === 1 ? '' : 's'}
           {totalActive > 0 && `, ${totalActive} active`})
         </span>
-      </button>
-      {expanded && (
-        <div className="flex flex-col gap-3 border-t border-gray-200 p-3 dark:border-gray-700">
-          {data.length === 0 && (
-            <div className="text-xs/5 text-gray-500 dark:text-gray-400">
-              No EEST-formatted test names in this run.
-            </div>
-          )}
-          {data.map(({ def, values }) => (
-            <div key={def.key} className="flex flex-col gap-1">
-              <div className="text-[10px]/4 font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                {def.label}
-                <span className="ml-1 lowercase text-gray-300 dark:text-gray-600">({values.length})</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {values.map(({ value, count, active }) => {
-                  const term = `${def.emitKey}=${value}`
-                  const dimmed = !active && count === 0
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => onToggle(term)}
-                      title={active ? `Click to remove ${term}` : `Click to filter by ${term}`}
-                      className={clsx(
-                        'inline-flex items-center gap-1 rounded-xs px-1.5 py-0 font-mono text-[11px]/5 ring-1 ring-inset transition-colors',
-                        active
-                          ? 'bg-blue-500 text-white ring-blue-500'
-                          : dimmed
-                            ? 'bg-gray-50 text-gray-400 ring-gray-200 dark:bg-gray-800 dark:text-gray-600 dark:ring-gray-700'
-                            : 'bg-gray-100 text-gray-700 ring-gray-200 hover:bg-blue-100 hover:text-blue-700 hover:ring-blue-300 dark:bg-gray-700 dark:text-gray-200 dark:ring-gray-600 dark:hover:bg-blue-950/60 dark:hover:text-blue-300 dark:hover:ring-blue-700',
-                      )}
-                    >
-                      <span>{value}</span>
-                      <span className={clsx('font-mono text-[10px]/4', active ? 'text-blue-100' : 'text-gray-400 dark:text-gray-500')}>
-                        {count}
-                      </span>
-                      {active && <X className="size-3" />}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      </div>
+      <div className="flex flex-col gap-3 p-3">
+        {data.length === 0 && (
+          <div className="text-xs/5 text-gray-500 dark:text-gray-400">
+            No EEST-formatted test names in this run.
+          </div>
+        )}
+        {visibleDims.map(renderDim)}
+        {hiddenDims.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowAll(!showAll)}
+            className="flex w-fit items-center gap-1 rounded-xs px-1.5 py-1 text-xs/5 font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100"
+          >
+            {showAll
+              ? <><ChevronUp className="size-3.5" /> Show fewer facets</>
+              : <><ChevronDown className="size-3.5" /> Show more facets ({hiddenDims.length})</>}
+          </button>
+        )}
+      </div>
     </div>
   )
 }
