@@ -24,7 +24,8 @@ import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { StatusAlert } from '@/components/shared/StatusBadge'
 import { FilterInput } from '@/components/shared/FilterInput'
-import { TEST_FILTER_HINT } from '@/utils/eestNameFilter'
+import { FacetPanel } from '@/components/run-detail/FacetPanel'
+import { TEST_FILTER_HINT, toggleSearchTerm } from '@/utils/eestNameFilter'
 import { formatTimestamp, formatDurationSeconds } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
 import { useIndex, useLiveRuns } from '@/api/hooks/useIndex'
@@ -733,6 +734,11 @@ export function RunDetailPage() {
 
       {result && (
         <>
+          <FacetPanel
+            testNames={Object.keys(result.tests)}
+            query={q}
+            onToggle={(term) => handleSearchChange(toggleSearchTerm(q, term))}
+          />
           <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">

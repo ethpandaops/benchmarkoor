@@ -95,6 +95,25 @@ export function splitQuery(query: string): string[] {
   return query.trim().split(/\s+/).filter(Boolean)
 }
 
+/**
+ * Returns the canonical dimension key targeted by a single term, or null if
+ * the term is free-text. Used to drop dimension-targeted terms when
+ * computing contextual facet counts (so a filter on opcode doesn't shrink
+ * the OPCODE facet to a single chip).
+ */
+export function queryTermDimension(term: string): string | null {
+  const structured = parseStructuredTerm(term)
+  if (!structured) return null
+  return FIELD_ALIASES[structured.key] ?? structured.key
+}
+
+/** Remove every term targeting `canonicalDim` from the query. */
+export function queryWithoutDimension(query: string, canonicalDim: string): string {
+  return splitQuery(query)
+    .filter((t) => queryTermDimension(t) !== canonicalDim)
+    .join(' ')
+}
+
 /** Returns true if the query already contains the given term (case-insensitive). */
 export function searchQueryContains(query: string, term: string): boolean {
   const target = term.toLowerCase()
