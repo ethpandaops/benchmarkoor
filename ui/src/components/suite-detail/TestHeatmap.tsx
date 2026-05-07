@@ -999,7 +999,7 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
         >
           <div className="flex max-w-md flex-col gap-1">
             <div className="font-medium">{tooltip.client}</div>
-            <div className="break-all font-mono text-gray-500 dark:text-gray-400">{tooltip.testName}</div>
+            <TestName name={tooltip.testName} />
             <div>{formatMGas(tooltip.run.mgas)}</div>
             <div className="text-gray-400 dark:text-gray-500">{formatTimestamp(tooltip.run.runStart)}</div>
             <div className="mt-1 text-gray-400 dark:text-gray-500">Click for details</div>
