@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import clsx from 'clsx'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
@@ -225,21 +225,33 @@ export function ComparePage() {
   const setDiffFilter = useCallback((val: 'all' | 'faster' | 'slower') => {
     updateSearch({ diffFilter: val === 'all' ? undefined : val })
   }, [updateSearch])
+  // Filter changes fan out into many synchronous re-renders (charts, table,
+  // facet panel, dimension insights). Wrapping the URL update in
+  // `startTransition` marks the resulting work as interruptible so chip
+  // clicks and keystrokes feel instant even when the downstream work takes
+  // hundreds of ms.
+  const [, startFilterTransition] = useTransition()
   const setTestFilter = useCallback((query: string) => {
-    updateSearch({ filter: query || undefined })
+    startFilterTransition(() => {
+      updateSearch({ filter: query || undefined })
+    })
   }, [updateSearch])
   const setTestFilterRegex = useCallback((enabled: boolean) => {
-    updateSearch({ filterRegex: enabled ? '1' : undefined })
+    startFilterTransition(() => {
+      updateSearch({ filterRegex: enabled ? '1' : undefined })
+    })
   }, [updateSearch])
 
   const setGasBuckets = useCallback(
     (buckets: Set<number>) => {
-      if (buckets.size === 0) {
-        updateSearch({ gasBuckets: undefined })
-      } else {
-        const sorted = [...buckets].sort((a, b) => a - b)
-        updateSearch({ gasBuckets: sorted.map((v) => String(v / 1_000_000)).join(',') })
-      }
+      startFilterTransition(() => {
+        if (buckets.size === 0) {
+          updateSearch({ gasBuckets: undefined })
+        } else {
+          const sorted = [...buckets].sort((a, b) => a - b)
+          updateSearch({ gasBuckets: sorted.map((v) => String(v / 1_000_000)).join(',') })
+        }
+      })
     },
     [updateSearch],
   )

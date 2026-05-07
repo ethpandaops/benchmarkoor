@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
@@ -83,6 +83,19 @@ export function CompareGroupsPage() {
       })
     },
     [navigate, search],
+  )
+
+  // Filter changes fan out into many synchronous re-renders (charts, table,
+  // facet panel, dimension insights, with N runs each). Wrapping the URL
+  // update in `startTransition` marks the resulting work as interruptible
+  // so chip clicks and keystrokes feel instant even when the downstream
+  // work takes hundreds of ms.
+  const [, startFilterTransition] = useTransition()
+  const updateFilterSearch = useCallback(
+    (patch: Record<string, string | undefined>) => {
+      startFilterTransition(() => updateSearch(patch))
+    },
+    [updateSearch],
   )
 
   const setSuiteHash = useCallback(
@@ -477,14 +490,14 @@ export function CompareGroupsPage() {
                     ? 'Regex against the raw test name.'
                     : TEST_FILTER_HINT}
                   value={testFilter}
-                  onChange={(e) => updateSearch({ filter: e.target.value || undefined })}
+                  onChange={(e) => updateFilterSearch({ filter: e.target.value || undefined })}
                   className={clsx(
                     'w-36 rounded-xs border bg-white px-2 py-0.5 text-xs/5 placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
                     'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
                   )}
                 />
                 <button
-                  onClick={() => updateSearch({ filterRegex: testFilterRegex ? undefined : '1' })}
+                  onClick={() => updateFilterSearch({ filterRegex: testFilterRegex ? undefined : '1' })}
                   title={testFilterRegex ? 'Regex mode' : 'Text mode'}
                   className={clsx(
                     'rounded-xs px-1 py-0.5 font-mono text-xs/5 transition-colors',
@@ -501,7 +514,7 @@ export function CompareGroupsPage() {
                   <span>Gas:</span>
                   <div className="flex flex-wrap gap-1">
                     <button
-                      onClick={() => updateSearch({ gasBuckets: undefined })}
+                      onClick={() => updateFilterSearch({ gasBuckets: undefined })}
                       className={clsx(
                         'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
                         selectedGasBuckets.size === 0
@@ -520,7 +533,7 @@ export function CompareGroupsPage() {
                             const next = new Set(selectedGasBuckets)
                             if (isSelected) next.delete(bucket); else next.add(bucket)
                             const sorted = [...next].sort((a, b) => a - b)
-                            updateSearch({ gasBuckets: sorted.length > 0 ? sorted.map((v) => String(v / 1_000_000)).join(',') : undefined })
+                            updateFilterSearch({ gasBuckets: sorted.length > 0 ? sorted.map((v) => String(v / 1_000_000)).join(',') : undefined })
                           }}
                           className={clsx(
                             'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
@@ -606,7 +619,7 @@ export function CompareGroupsPage() {
                 placeholder={testFilterRegex ? 'Regex pattern...' : 'Filter… or e.g. opcode:ORIGIN'}
                 title={testFilterRegex ? 'Regex against the raw test name.' : TEST_FILTER_HINT}
                 value={testFilter}
-                onChange={(e) => updateSearch({ filter: e.target.value || undefined })}
+                onChange={(e) => updateFilterSearch({ filter: e.target.value || undefined })}
                 className={clsx(
                   'w-36 rounded-xs border bg-white px-2 py-0.5 text-xs/5 placeholder-gray-400 focus:outline-hidden focus:ring-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
                   testFilterRegex && testFilter && (() => { try { new RegExp(testFilter); return false } catch { return true } })()
@@ -615,7 +628,7 @@ export function CompareGroupsPage() {
                 )}
               />
               <button
-                onClick={() => updateSearch({ filterRegex: testFilterRegex ? undefined : '1' })}
+                onClick={() => updateFilterSearch({ filterRegex: testFilterRegex ? undefined : '1' })}
                 title={testFilterRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
                 className={clsx(
                   'rounded-xs px-1.5 py-0.5 font-mono text-xs/5 transition-colors',
@@ -632,7 +645,7 @@ export function CompareGroupsPage() {
                 <span>Gas:</span>
                 <div className="flex flex-wrap gap-1">
                   <button
-                    onClick={() => updateSearch({ gasBuckets: undefined })}
+                    onClick={() => updateFilterSearch({ gasBuckets: undefined })}
                     className={clsx(
                       'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
                       selectedGasBuckets.size === 0
@@ -651,7 +664,7 @@ export function CompareGroupsPage() {
                           const next = new Set(selectedGasBuckets)
                           if (isSelected) next.delete(bucket); else next.add(bucket)
                           const sorted = [...next].sort((a, b) => a - b)
-                          updateSearch({ gasBuckets: sorted.length > 0 ? sorted.map((v) => String(v / 1_000_000)).join(',') : undefined })
+                          updateFilterSearch({ gasBuckets: sorted.length > 0 ? sorted.map((v) => String(v / 1_000_000)).join(',') : undefined })
                         }}
                         className={clsx(
                           'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
@@ -672,7 +685,7 @@ export function CompareGroupsPage() {
           <FacetPanel
             testNames={[...testGasMap.keys()]}
             query={testFilter}
-            onToggle={(term) => updateSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
+            onToggle={(term) => updateFilterSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
           />
 
           <MetricsComparison
@@ -705,7 +718,7 @@ export function CompareGroupsPage() {
               onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
               labelMode="instance-id"
               diffFilter={search.diffFilter === 'faster' || search.diffFilter === 'slower' ? search.diffFilter : 'all'}
-              onDiffFilterChange={(val) => updateSearch({ diffFilter: val === 'all' ? undefined : val })}
+              onDiffFilterChange={(val) => updateFilterSearch({ diffFilter: val === 'all' ? undefined : val })}
               testNameFilter={testNameFilter}
               zoomRange={sharedZoom ? chartZoom : undefined}
               onZoomChange={sharedZoom ? setChartZoom : undefined}
@@ -744,7 +757,7 @@ export function CompareGroupsPage() {
             labelMode="instance-id"
             testNameFilter={testNameFilter}
             query={testFilter}
-            onToggle={(term) => updateSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
+            onToggle={(term) => updateFilterSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
             onTestClick={setSelectedTest}
           />
 
@@ -782,7 +795,7 @@ export function CompareGroupsPage() {
           stepFilter={stepFilter}
           sampleSize={sampleSize}
           searchQuery={testFilter}
-          onChipFilterToggle={(term) => updateSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
+          onChipFilterToggle={(term) => updateFilterSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
           onClose={() => setSelectedTest(null)}
         />
       )}

@@ -305,12 +305,15 @@ export function DimensionInsights({
             // next drill-down — surface it in the preview alongside File and
             // Gas without requiring "Show more dimensions".
             const hasFileFilter = activeTerms.some((t) => queryTermDimension(t) === 'file')
-            const previewDims = dimensions.filter(({ def, values }) =>
+            // With only 1–2 dimensions total, collapsing adds no value —
+            // just show everything and skip the toggle.
+            const skipPreview = dimensions.length <= 2
+            const previewDims = skipPreview ? dimensions : dimensions.filter(({ def, values }) =>
               BARS_PREVIEW_KEYS.has(def.key) ||
               (hasFileFilter && def.key === 'fn') ||
               values.some((v) => searchQueryContains(query, `${def.emitKey}=${v.value}`)),
             )
-            const hiddenDims = dimensions.filter((d) => !previewDims.includes(d))
+            const hiddenDims = skipPreview ? [] : dimensions.filter((d) => !previewDims.includes(d))
             const visibleDims = showAllBars ? dimensions : previewDims
 
             const renderDim = ({ def, values }: DimensionAgg) => {
