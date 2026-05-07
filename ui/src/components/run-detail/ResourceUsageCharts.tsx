@@ -4,6 +4,8 @@ import { Cpu } from 'lucide-react'
 import type { TestEntry, ResourceTotals, SuiteTest } from '@/api/types'
 import { formatBytes } from '@/utils/format'
 import { testNameMatches } from '@/utils/eestNameFilter'
+import { formatTestNameLong } from '@/utils/eestName'
+import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 import { getAggregatedStats, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 
 // Aggregated resource data from all steps of a test entry
@@ -228,6 +230,7 @@ function ChartSection({ title, option, onZoom, onPointClick, highlightedTestRef 
 
 export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilter = 'all', onTestClick, resourceCollectionMethod, cpuCores }: ResourceUsageChartsProps) {
   const isDark = useDarkMode()
+  const { mode: nameMode } = useNameDisplayMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const highlightedTestRef = useRef<string | null>(null)
 
@@ -451,7 +454,7 @@ export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilt
         const testNumber = params[0].value[3]
         // Track the highlighted test for click handling
         highlightedTestRef.current = testName
-        let content = `<strong>Test #${testNumber}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
+        let content = `<strong>Test #${testNumber}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${formatTestNameLong(testName, nameMode)}</span><br/>`
         params.forEach((p) => {
           const value = p.value[1]
           const formatted = formatter(value)
@@ -477,7 +480,7 @@ export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilt
         const testName = params[0].value[2]
         const testNumber = params[0].value[3]
         highlightedTestRef.current = testName
-        let content = `<strong>Test #${testNumber}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
+        let content = `<strong>Test #${testNumber}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${formatTestNameLong(testName, nameMode)}</span><br/>`
         params.forEach((p) => {
           const value = p.value[1]
           const formatted = formatter(value)
@@ -504,7 +507,7 @@ export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilt
         const testNumber = params[0].value[3]
         // Track the highlighted test for click handling
         highlightedTestRef.current = testName
-        let content = `<strong>Test #${testNumber}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${testName}</span><br/>`
+        let content = `<strong>Test #${testNumber}</strong><br/><span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${formatTestNameLong(testName, nameMode)}</span><br/>`
         params.forEach((p) => {
           const value = p.value[1]
           const formatted = formatter(value)
@@ -691,7 +694,7 @@ export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilt
     }
 
     return { cpuPercentOption, memoryMBOption, cpuOption, memoryOption, diskBytesOption, diskOpsOption }
-  }, [dataPoints, isDark, summaryStats, zoomRange, cpuCores])
+  }, [dataPoints, isDark, summaryStats, zoomRange, cpuCores, nameMode])
 
   if (!hasResourceData) {
     return null

@@ -137,3 +137,23 @@ export function formatTestName(name: string, mode: 'raw' | 'decomposed'): string
   if (mode === 'raw') return name
   return parseEESTName(name).short
 }
+
+/**
+ * Same intent as `formatTestName`, but includes every decomposed field
+ * (file, fn, gas, opcode, fork, params, labels) — for chart tooltips and
+ * other contexts where we have room to show everything.
+ */
+export function formatTestNameLong(name: string, mode: 'raw' | 'decomposed'): string {
+  if (mode === 'raw') return name
+  const p = parseEESTName(name)
+  if (!p.isEEST) return name
+  const parts: string[] = []
+  if (p.file) parts.push(p.file)
+  if (p.fn) parts.push(p.fn)
+  if (p.benchmark) parts.push(p.benchmark)
+  if (p.opcode) parts.push(p.opcode)
+  if (p.fork) parts.push(`fork:${p.fork}`)
+  for (const { key, value } of p.params) parts.push(`${key}:${value}`)
+  for (const label of p.labels) parts.push(label)
+  return parts.length > 0 ? parts.join(' · ') : name
+}

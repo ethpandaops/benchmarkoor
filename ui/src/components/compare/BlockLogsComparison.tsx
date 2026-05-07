@@ -3,6 +3,8 @@ import ReactECharts from 'echarts-for-react'
 import { Blocks } from 'lucide-react'
 import type { BlockLogs, SuiteTest } from '@/api/types'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { formatTestNameLong } from '@/utils/eestName'
+import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 
 function useDarkMode() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
@@ -123,6 +125,7 @@ interface BlockLogsComparisonProps {
 }
 
 export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, suiteTests, labelMode, testNameFilter }: BlockLogsComparisonProps) {
+  const { mode: nameMode } = useNameDisplayMode()
   const isDark = useDarkMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
   const prevZoomRef = useRef(zoomRange)
@@ -249,7 +252,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
         const testName = visible[0].value[2]
         const testOrder = visible[0].value[3]
         let content = `<strong>Test #${testOrder}</strong>`
-        if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
+        if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${formatTestNameLong(testName, nameMode)}</span>`
         content += '<br/>'
         visible.forEach((p) => {
           const value = p.value[1] as number
@@ -301,7 +304,7 @@ export function BlockLogsComparison({ runs, blockLogsPerRun, blockLogsLoading, s
       storageCacheHitRate: buildChart('storageCacheHitRate', (v) => `${v.toFixed(0)}%`, (v) => `${v.toFixed(1)}%`),
       codeCacheHitRate: buildChart('codeCacheHitRate', (v) => `${v.toFixed(0)}%`, (v) => `${v.toFixed(1)}%`),
     }
-  }, [pointsPerRun, runs, runsWithData, isDark, zoomRange, unifiedTests, labelMode, suiteTests])
+  }, [pointsPerRun, runs, runsWithData, isDark, zoomRange, unifiedTests, labelMode, suiteTests, nameMode])
 
   if (blockLogsLoading) {
     return (

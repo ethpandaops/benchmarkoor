@@ -5,6 +5,8 @@ import type { RunResult, SuiteTest } from '@/api/types'
 import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import type { ZoomRange } from './MGasComparisonChart'
 import { useChartAreaClick } from './useChartAreaClick'
+import { formatTestNameLong } from '@/utils/eestName'
+import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 
 interface CVComparisonChartProps {
   runs: CompareRun[]
@@ -68,6 +70,7 @@ function buildCVData(
 }
 
 export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line', varianceByRunIndex, onTestClick }: CVComparisonChartProps) {
+  const { mode: nameMode } = useNameDisplayMode()
   const isDark = useDarkMode()
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
@@ -140,7 +143,7 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
           const testName = params[0].value[2]
           highlightedTestRef.current = testName
           let content = `<strong>Test #${testOrder}</strong>`
-          if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
+          if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${formatTestNameLong(testName, nameMode)}</span>`
           content += '<br/>'
           params.forEach((p) => {
             const value = p.value[1]
@@ -255,7 +258,7 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
         }
       }),
     }
-  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, threshold, onTestClick, highlightedTestRef])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, threshold, onTestClick, highlightedTestRef, nameMode])
 
   if (pointsPerRun.every((p) => p.length === 0)) return null
 

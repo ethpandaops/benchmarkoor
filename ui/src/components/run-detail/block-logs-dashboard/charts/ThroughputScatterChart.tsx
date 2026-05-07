@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { ProcessedTestData, TestCategory } from '../types'
 import { ALL_CATEGORIES, CATEGORY_COLORS } from '../utils/colors'
+import { formatTestNameLong } from '@/utils/eestName'
+import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 
 interface ThroughputScatterChartProps {
   data: ProcessedTestData[]
@@ -25,6 +27,7 @@ function formatGas(gas: number): string {
 }
 
 export function ThroughputScatterChart({ data, isDark, useLogScale, onTestClick, activeCategories }: ThroughputScatterChartProps) {
+  const { mode: nameMode } = useNameDisplayMode()
   const categoriesToShow = activeCategories ?? ALL_CATEGORIES
   const textColor = isDark ? '#e5e7eb' : '#374151'
   const subTextColor = isDark ? '#9ca3af' : '#6b7280'
@@ -77,7 +80,7 @@ export function ThroughputScatterChart({ data, isDark, useLogScale, onTestClick,
           const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
           return `
             <strong>Test ${testLabel}</strong><br/>
-            <span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${item.testName}</span><br/>
+            <span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${formatTestNameLong(item.testName, nameMode)}</span><br/>
             Throughput: ${item.throughput.toFixed(2)} MGas/s<br/>
             Execution: ${item.executionMs.toFixed(2)}ms<br/>
             Gas Used: ${formatGas(item.gasUsed)}<br/>
@@ -142,7 +145,7 @@ export function ThroughputScatterChart({ data, isDark, useLogScale, onTestClick,
       ],
       series: seriesData,
     }
-  }, [data, isDark, useLogScale, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder, categoriesToShow])
+  }, [data, isDark, useLogScale, textColor, subTextColor, gridColor, tooltipBg, tooltipBorder, categoriesToShow, nameMode])
 
   const onEvents = useMemo(() => {
     if (!onTestClick) return undefined

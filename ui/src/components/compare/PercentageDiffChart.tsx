@@ -6,6 +6,8 @@ import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import type { ZoomRange } from './MGasComparisonChart'
 import { useChartAreaClick } from './useChartAreaClick'
+import { formatTestNameLong } from '@/utils/eestName'
+import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 
 interface PercentageDiffChartProps {
   runs: CompareRun[]
@@ -116,6 +118,7 @@ function buildDiffData(
 }
 
 export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx, onBaselineChange, labelMode, diffFilter, onDiffFilterChange, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line', onTestClick }: PercentageDiffChartProps) {
+  const { mode: nameMode } = useNameDisplayMode()
   const isDark = useDarkMode()
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
@@ -193,7 +196,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           const baseImg = `<img src="/img/clients/${baseClient}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />`
 
           let content = `<strong>Test #${testOrder}</strong>`
-          if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
+          if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${formatTestNameLong(testName, nameMode)}</span>`
           content += `<br/>${baseImg}<span style="font-size: 11px;">Baseline ${baseSlot.label}: ${baseValue.toFixed(2)} MGas/s</span><br/>`
 
           params.forEach((p) => {
@@ -323,7 +326,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
         }),
       ],
     }
-  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode, diffFilter, chartType, onTestClick, highlightedTestRef])
+  }, [diffData, runs, otherRunIndices, baselineIdx, isDark, zoomRange, labelMode, diffFilter, chartType, onTestClick, highlightedTestRef, nameMode])
 
   if (runs.every((r) => r.result === null)) return null
 

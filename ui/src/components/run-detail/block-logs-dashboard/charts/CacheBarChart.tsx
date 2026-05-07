@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { ProcessedTestData } from '../types'
 import { CATEGORY_COLORS, CACHE_COLORS } from '../utils/colors'
+import { formatTestNameLong } from '@/utils/eestName'
+import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 
 type SortMode = 'order' | 'hitRate' | 'total'
 type CacheType = 'account' | 'storage' | 'code'
@@ -51,6 +53,7 @@ export function CacheBarChart({
   onTestClick,
 }: CacheBarChartProps) {
   const [sortMode, setSortMode] = useState<SortMode>('hitRate')
+  const { mode: nameMode } = useNameDisplayMode()
 
   const textColor = isDark ? '#e5e7eb' : '#374151'
   const subTextColor = isDark ? '#9ca3af' : '#6b7280'
@@ -93,7 +96,7 @@ export function CacheBarChart({
           const total = cache.hits + cache.misses
           return `
             <strong>Test ${testLabel}</strong><br/>
-            <span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${item.testName}</span><br/>
+            <span style="font-size: 11px; color: ${isDark ? '#9ca3af' : '#6b7280'}; word-break: break-all; display: block;">${formatTestNameLong(item.testName, nameMode)}</span><br/>
             Hit Rate: ${cache.hitRate.toFixed(1)}%<br/>
             Hits: ${cache.hits.toLocaleString()}<br/>
             Misses: ${cache.misses.toLocaleString()}<br/>
@@ -246,6 +249,7 @@ export function CacheBarChart({
     tooltipBg,
     tooltipBorder,
     sortMode,
+    nameMode,
   ])
 
   const onEvents = useMemo(() => {

@@ -6,6 +6,8 @@ import { formatBytes } from '@/utils/format'
 import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import type { ZoomRange } from './MGasComparisonChart'
 import { useChartAreaClick } from './useChartAreaClick'
+import { formatTestNameLong } from '@/utils/eestName'
+import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 
 interface AggregatedResourceData {
   totals: ResourceTotals
@@ -194,6 +196,7 @@ function ChartSection({ title, option, onZoom, onTestClick, highlightedTestRef }
 }
 
 export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suiteTests, zoomRange: externalZoom, onZoomChange, chartType = 'line', onTestClick }: ResourceComparisonChartsProps) {
+  const { mode: nameMode } = useNameDisplayMode()
   const isDark = useDarkMode()
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
@@ -325,7 +328,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
         const testOrder = params[0].value[3]
         highlightedTestRef.current = testName
         let content = `<strong>Test #${testOrder}</strong>`
-        if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${testName}</span>`
+        if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${formatTestNameLong(testName, nameMode)}</span>`
         content += '<br/>'
         params.forEach((p) => {
           const value = p.value[1]
@@ -417,7 +420,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
     }
 
     return { cpuPercentOption, memoryMBOption, cpuTimeOption, memoryDeltaOption, diskReadBytesOption, diskWriteBytesOption, diskReadOpsOption, diskWriteOpsOption }
-  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, onTestClick, highlightedTestRef])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, onTestClick, highlightedTestRef, nameMode])
 
   if (!hasData) return null
 
