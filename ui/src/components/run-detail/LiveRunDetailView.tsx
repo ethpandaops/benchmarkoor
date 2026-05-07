@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Flame, Loader } from 'lucide-react'
+import { DEFAULT_THRESHOLD, MAX_THRESHOLD, MIN_THRESHOLD } from '@/utils/perfThreshold'
 import type { LiveRun, LiveTestStats, TestEntry, AggregatedStats } from '@/api/types'
 import { ClientStat } from '@/components/shared/ClientStat'
 import { JDenticon } from '@/components/shared/JDenticon'
@@ -291,27 +292,56 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
           runner ships in every snapshot. Renders as soon as we have
           either suite info (un-processed tiles) or completed tests. */}
       {showHeatmap && (
-        <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-          <div className="mb-4 flex items-center justify-between">
+        <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
+          <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
             <h3 className="flex items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
               <Flame className="size-4 text-gray-400 dark:text-gray-500" />
               Performance Heatmap
             </h3>
+            <div className="ml-auto flex items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
+              <span>Slow threshold:</span>
+              <input
+                type="range"
+                min={MIN_THRESHOLD}
+                max={MAX_THRESHOLD}
+                value={heatmapThreshold ?? DEFAULT_THRESHOLD}
+                onChange={(e) => setHeatmapThreshold(Number(e.target.value))}
+                className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+              />
+              <input
+                type="number"
+                min={MIN_THRESHOLD}
+                max={MAX_THRESHOLD}
+                value={heatmapThreshold ?? DEFAULT_THRESHOLD}
+                onChange={(e) => setHeatmapThreshold(Number(e.target.value))}
+                className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              />
+              <span>MGas/s</span>
+              {(heatmapThreshold ?? DEFAULT_THRESHOLD) !== DEFAULT_THRESHOLD && (
+                <button
+                  onClick={() => setHeatmapThreshold(DEFAULT_THRESHOLD)}
+                  className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
-          <TestHeatmap
-            tests={heatmapTests}
-            suiteTests={suite?.tests}
-            runId={run.run_id}
-            suiteHash={run.suite_hash}
-            stepFilter={DEFAULT_INDEX_STEP_FILTER}
-            sortMode={heatmapSort}
-            groupMode={heatmapGroup}
-            threshold={heatmapThreshold}
-            inProgressTestKey={inProgressKey}
-            onSortModeChange={setHeatmapSort}
-            onGroupModeChange={setHeatmapGroup}
-            onThresholdChange={setHeatmapThreshold}
-          />
+          <div className="p-4">
+            <TestHeatmap
+              tests={heatmapTests}
+              suiteTests={suite?.tests}
+              runId={run.run_id}
+              suiteHash={run.suite_hash}
+              stepFilter={DEFAULT_INDEX_STEP_FILTER}
+              sortMode={heatmapSort}
+              groupMode={heatmapGroup}
+              threshold={heatmapThreshold}
+              inProgressTestKey={inProgressKey}
+              onSortModeChange={setHeatmapSort}
+              onGroupModeChange={setHeatmapGroup}
+            />
+          </div>
         </div>
       )}
     </div>

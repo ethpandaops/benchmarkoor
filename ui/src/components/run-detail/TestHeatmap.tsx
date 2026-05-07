@@ -17,6 +17,7 @@ import { formatDuration, formatBytes } from '@/utils/format'
 import { EESTInfoContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { OpcodeDiffPanel, type OpcodeDiffRow } from './OpcodeDiffPanel'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
+import { DEFAULT_THRESHOLD, THRESHOLD_COLORS, getColorByThreshold } from '@/utils/perfThreshold'
 
 // Aggregate stats from selected steps of a test entry
 function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
@@ -128,25 +129,12 @@ interface TestHeatmapProps {
   onSelectedTestChange?: (testName: string | undefined) => void
   onSortModeChange?: (mode: SortMode) => void
   onGroupModeChange?: (mode: GroupMode) => void
-  onThresholdChange?: (threshold: number) => void
   onSearchChange?: (query: string) => void
   activeStepTab?: 'test' | 'setup' | 'cleanup'
   onActiveStepTabChange?: (tab: 'test' | 'setup' | 'cleanup') => void
   expandedExecRows?: Set<number>
   onExpandedExecRowsChange?: (rows: Set<number>) => void
 }
-
-const COLORS = [
-  '#22c55e', // green - best (highest MGas/s)
-  '#84cc16', // lime
-  '#eab308', // yellow
-  '#f97316', // orange
-  '#ef4444', // red - worst (lowest MGas/s)
-]
-
-const MIN_THRESHOLD = 10
-const MAX_THRESHOLD = 1000
-const DEFAULT_THRESHOLD = 60
 
 function calculateMGasPerSec(gasUsedTotal: number, gasUsedTimeTotal: number): number | undefined {
   if (gasUsedTimeTotal <= 0 || gasUsedTotal <= 0) return undefined
@@ -171,17 +159,6 @@ function CopyButton({ text }: { text: string }) {
       {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
     </button>
   )
-}
-
-function getColorByThreshold(value: number, threshold: number): string {
-  // Scale: 0 = threshold (yellow), >threshold = green, <threshold = red
-  // Range: 0 to 2*threshold maps to full color scale
-  const ratio = value / threshold
-  if (ratio >= 2) return COLORS[0] // Very fast - green
-  if (ratio >= 1.5) return COLORS[1] // Fast - lime
-  if (ratio >= 1) return COLORS[2] // At threshold - yellow
-  if (ratio >= 0.5) return COLORS[3] // Slow - orange
-  return COLORS[4] // Very slow - red
 }
 
 interface TestData {
@@ -380,7 +357,6 @@ export function TestHeatmap({
   onSearchChange,
   onSortModeChange,
   onGroupModeChange,
-  onThresholdChange,
   activeStepTab: activeStepTabProp,
   onActiveStepTabChange,
   expandedExecRows,
@@ -412,12 +388,6 @@ export function TestHeatmap({
 
   const handleGroupModeChange = (mode: GroupMode) => {
     onGroupModeChange?.(mode)
-  }
-
-  const handleThresholdChange = (value: number) => {
-    if (value >= MIN_THRESHOLD && value <= MAX_THRESHOLD) {
-      onThresholdChange?.(value)
-    }
   }
 
   const executionOrder = useMemo(() => {
@@ -750,34 +720,6 @@ export function TestHeatmap({
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Slow threshold:</span>
-            <input
-              type="range"
-              min={MIN_THRESHOLD}
-              max={MAX_THRESHOLD}
-              value={threshold}
-              onChange={(e) => handleThresholdChange(Number(e.target.value))}
-              className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
-            />
-            <input
-              type="number"
-              min={MIN_THRESHOLD}
-              max={MAX_THRESHOLD}
-              value={threshold}
-              onChange={(e) => handleThresholdChange(Number(e.target.value))}
-              className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-            />
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">MGas/s</span>
-            {threshold !== DEFAULT_THRESHOLD && (
-              <button
-                onClick={() => handleThresholdChange(DEFAULT_THRESHOLD)}
-                className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-              >
-                Reset
-              </button>
-            )}
-          </div>
         </div>
         <div className="text-xs/5 text-gray-500 dark:text-gray-400">
           {(() => {
@@ -892,7 +834,7 @@ export function TestHeatmap({
         <span className="flex items-center gap-1">
           <span>&gt;{threshold * 2}</span>
           <span className="flex gap-0.5">
-            {COLORS.map((color, i) => (
+            {THRESHOLD_COLORS.map((color, i) => (
               <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
             ))}
           </span>
@@ -908,7 +850,7 @@ export function TestHeatmap({
           Not processed
         </span>
         <span>
-          <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-red-500" style={{ backgroundColor: COLORS[2] }} />
+          <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-red-500" style={{ backgroundColor: THRESHOLD_COLORS[2] }} />
           Has failures
         </span>
       </div>

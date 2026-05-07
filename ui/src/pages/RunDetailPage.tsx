@@ -27,6 +27,7 @@ import { FilterInput } from '@/components/shared/FilterInput'
 import { FacetPanel } from '@/components/shared/FacetPanel'
 import { DimensionInsights } from '@/components/run-detail/DimensionInsights'
 import { TEST_FILTER_HINT, toggleSearchTerm } from '@/utils/eestNameFilter'
+import { DEFAULT_THRESHOLD, MAX_THRESHOLD, MIN_THRESHOLD } from '@/utils/perfThreshold'
 import { formatTimestamp, formatDurationSeconds } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
 import { useIndex, useLiveRuns } from '@/api/hooks/useIndex'
@@ -747,21 +748,54 @@ export function RunDetailPage() {
             statusFilter={status}
             query={q}
             onToggle={(term) => handleSearchChange(toggleSearchTerm(q, term))}
+            threshold={heatmapThreshold}
+            onThresholdChange={handleHeatmapThresholdChange}
           />
-          <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
-            <div className="mb-4 flex items-center justify-between">
+          <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
+            <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
               <h3 className="flex items-center gap-2 text-sm/6 font-medium text-gray-900 dark:text-gray-100">
                 <Flame className="size-4 text-gray-400 dark:text-gray-500" />
                 Performance Heatmap
               </h3>
-              <FilterInput
-                placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
-                title={TEST_FILTER_HINT}
-                value={q}
-                onValueChange={handleSearchChange}
-                className="w-72 rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
-              />
+              <div className="ml-auto flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
+                  <span>Slow threshold:</span>
+                  <input
+                    type="range"
+                    min={MIN_THRESHOLD}
+                    max={MAX_THRESHOLD}
+                    value={heatmapThreshold ?? DEFAULT_THRESHOLD}
+                    onChange={(e) => handleHeatmapThresholdChange(Number(e.target.value))}
+                    className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+                  />
+                  <input
+                    type="number"
+                    min={MIN_THRESHOLD}
+                    max={MAX_THRESHOLD}
+                    value={heatmapThreshold ?? DEFAULT_THRESHOLD}
+                    onChange={(e) => handleHeatmapThresholdChange(Number(e.target.value))}
+                    className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                  />
+                  <span>MGas/s</span>
+                  {(heatmapThreshold ?? DEFAULT_THRESHOLD) !== DEFAULT_THRESHOLD && (
+                    <button
+                      onClick={() => handleHeatmapThresholdChange(DEFAULT_THRESHOLD)}
+                      className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+                <FilterInput
+                  placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
+                  title={TEST_FILTER_HINT}
+                  value={q}
+                  onValueChange={handleSearchChange}
+                  className="w-72 rounded-xs border border-gray-300 bg-white px-3 py-1 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+                />
+              </div>
             </div>
+            <div className="p-4">
             <TestHeatmap
               tests={result.tests}
               suiteTests={mergedSuiteTests ?? suite?.tests}
@@ -779,13 +813,13 @@ export function RunDetailPage() {
               onSortModeChange={handleHeatmapSortChange}
               groupMode={heatmapGroup}
               onGroupModeChange={handleHeatmapGroupChange}
-              onThresholdChange={handleHeatmapThresholdChange}
               onSearchChange={handleSearchChange}
               activeStepTab={activeStepTab}
               onActiveStepTabChange={handleStepTabChange}
               expandedExecRows={expandedExecRows}
               onExpandedExecRowsChange={handleExpandedExecRowsChange}
             />
+            </div>
           </div>
 
           {mergedSuiteTests && mergedSuiteTests.length > 0 && (

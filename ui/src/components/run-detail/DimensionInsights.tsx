@@ -6,6 +6,7 @@ import { parseEESTName } from '@/utils/eestName'
 import { searchQueryContains, splitQuery, testNameMatches } from '@/utils/eestNameFilter'
 import { type StepTypeOption, ALL_STEP_TYPES, getAggregatedStats } from '@/pages/RunDetailPage'
 import { percentile } from './block-logs-dashboard/utils/statistics'
+import { DEFAULT_THRESHOLD, MAX_THRESHOLD, MIN_THRESHOLD, getColorByThreshold } from '@/utils/perfThreshold'
 
 interface DimensionInsightsProps {
   tests: Record<string, TestEntry>
@@ -16,6 +17,10 @@ interface DimensionInsightsProps {
   onToggle: (term: string) => void
   /** Current search query, used to highlight bars whose value is pinned. */
   query: string
+  /** Slow-threshold MGas/s (shared with the Performance Heatmap). */
+  threshold?: number
+  /** Update the shared slow threshold. */
+  onThresholdChange?: (threshold: number) => void
 }
 
 type DimensionDef = { key: string; label: string; emitKey: string }
@@ -74,6 +79,8 @@ export function DimensionInsights({
   statusFilter = 'all',
   onToggle,
   query,
+  threshold = DEFAULT_THRESHOLD,
+  onThresholdChange,
 }: DimensionInsightsProps) {
   const [view, setView] = useState<'bars' | 'table'>('bars')
   const [barsDir, setBarsDir] = useState<'desc' | 'asc'>('asc')
@@ -196,6 +203,37 @@ export function DimensionInsights({
           ({dimensions.length} dimension{dimensions.length === 1 ? '' : 's'}
           {activeTerms.length > 0 && `, ${activeTerms.length} filter${activeTerms.length === 1 ? '' : 's'}`})
         </span>
+        {onThresholdChange && (
+          <div className="ml-auto flex items-center gap-2 text-xs/5 font-normal text-gray-500 dark:text-gray-400">
+            <span>Slow threshold:</span>
+            <input
+              type="range"
+              min={MIN_THRESHOLD}
+              max={MAX_THRESHOLD}
+              value={threshold}
+              onChange={(e) => onThresholdChange(Number(e.target.value))}
+              className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+            />
+            <input
+              type="number"
+              min={MIN_THRESHOLD}
+              max={MAX_THRESHOLD}
+              value={threshold}
+              onChange={(e) => onThresholdChange(Number(e.target.value))}
+              className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+            />
+            <span>MGas/s</span>
+            {threshold !== DEFAULT_THRESHOLD && (
+              <button
+                type="button"
+                onClick={() => onThresholdChange(DEFAULT_THRESHOLD)}
+                className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <div className="flex flex-col gap-3 p-3">
           <div className="flex flex-wrap items-center gap-1.5 text-xs/5">
@@ -317,11 +355,13 @@ export function DimensionInsights({
                           </span>
                           <span className="relative h-3 w-full rounded-xs bg-gray-100 dark:bg-gray-700">
                             <span
-                              className={clsx(
-                                'absolute inset-y-0 left-0 rounded-xs',
-                                active ? 'bg-blue-500' : 'bg-gray-400/70 dark:bg-gray-500/70',
-                              )}
-                              style={{ width: `${widthPct}%` }}
+                              className="absolute inset-y-0 left-0 rounded-xs"
+                              style={{
+                                width: `${widthPct}%`,
+                                backgroundColor: getColorByThreshold(v.mean, threshold),
+                                outline: active ? '1.5px solid #3b82f6' : 'none',
+                                outlineOffset: '0px',
+                              }}
                             />
                           </span>
                           <span className="flex shrink-0 items-baseline gap-1.5 font-mono tabular-nums text-gray-600 dark:text-gray-300">
