@@ -785,6 +785,7 @@ export function RunDetailPage() {
             statusFilter={status}
             query={q}
             onToggle={(term) => handleSearchChange(toggleSearchTerm(q, term))}
+            onTestClick={handleTestModalChange}
             threshold={heatmapThreshold}
           />
           <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">

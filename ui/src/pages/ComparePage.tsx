@@ -11,6 +11,7 @@ import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { FilterInput } from '@/components/shared/FilterInput'
+import { FacetPanel } from '@/components/shared/FacetPanel'
 import { CompareHeader } from '@/components/compare/CompareHeader'
 import { StickyRunBar } from '@/components/compare/StickyRunBar'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
@@ -448,6 +449,12 @@ export function ComparePage() {
           updateSearch({ runs: reordered.join(',') })
         }} />
       </div>
+
+      <FacetPanel
+        testNames={[...testGasMap.keys()]}
+        query={testFilter}
+        onToggle={(term) => setTestFilter(toggleSearchTerm(testFilter, term))}
+      />
 
       <MetricsComparison runs={runs} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} testNameFilter={testNameFilter} />
 

@@ -19,6 +19,12 @@ interface DimensionInsightsProps {
   query: string
   /** Slow-threshold MGas/s (shared with the Performance Heatmap). */
   threshold?: number
+  /**
+   * Open the test detail modal for a specific test. When provided and the
+   * user clicks a not-yet-active value with only one matching test, the
+   * modal opens for that test instead of adding a redundant filter.
+   */
+  onTestClick?: (testName: string) => void
 }
 
 type DimensionDef = { key: string; label: string; emitKey: string }
@@ -47,6 +53,8 @@ interface ValueAgg {
   p50: number
   p95: number
   p99: number
+  /** When count === 1, the single test's name. Used for "click to open". */
+  singleTestName?: string
 }
 
 interface DimensionAgg {
@@ -78,6 +86,7 @@ export function DimensionInsights({
   onToggle,
   query,
   threshold = DEFAULT_THRESHOLD,
+  onTestClick,
 }: DimensionInsightsProps) {
   const [view, setView] = useState<'bars' | 'table'>('bars')
   const [barsDir, setBarsDir] = useState<'desc' | 'asc'>('asc')
@@ -103,29 +112,36 @@ export function DimensionInsights({
       samples.push({ name, mgas })
     }
 
-    // 2. Bucket samples by (dimension, value).
-    const byDim = new Map<string, Map<string, number[]>>()
-    const bump = (dim: string, value: string | undefined, mgas: number) => {
+    // 2. Bucket samples by (dimension, value), keeping both the mgas array
+    //    and the source test names so a 1-test bucket can deep-link to the
+    //    test detail modal on click.
+    type Bucket = { mgas: number[]; names: string[] }
+    const byDim = new Map<string, Map<string, Bucket>>()
+    const bump = (dim: string, value: string | undefined, name: string, mgas: number) => {
       if (!value) return
       let inner = byDim.get(dim)
       if (!inner) {
         inner = new Map()
         byDim.set(dim, inner)
       }
-      const arr = inner.get(value) ?? []
-      arr.push(mgas)
-      inner.set(value, arr)
+      let bucket = inner.get(value)
+      if (!bucket) {
+        bucket = { mgas: [], names: [] }
+        inner.set(value, bucket)
+      }
+      bucket.mgas.push(mgas)
+      bucket.names.push(name)
     }
     for (const s of samples) {
       const p = parseEESTName(s.name)
       if (!p.isEEST) continue
-      bump('file', p.file, s.mgas)
-      bump('fn', p.fn, s.mgas)
-      bump('benchmark', p.benchmark, s.mgas)
-      bump('opcode', p.opcode, s.mgas)
-      bump('fork', p.fork, s.mgas)
-      for (const { key, value } of p.params) bump(key, value, s.mgas)
-      for (const label of p.labels) bump('label', label, s.mgas)
+      bump('file', p.file, s.name, s.mgas)
+      bump('fn', p.fn, s.name, s.mgas)
+      bump('benchmark', p.benchmark, s.name, s.mgas)
+      bump('opcode', p.opcode, s.name, s.mgas)
+      bump('fork', p.fork, s.name, s.mgas)
+      for (const { key, value } of p.params) bump(key, value, s.name, s.mgas)
+      for (const label of p.labels) bump('label', label, s.name, s.mgas)
     }
 
     // 3. Order dimensions: canonical primary + discovered params (alpha) + trailing.
@@ -148,8 +164,8 @@ export function DimensionInsights({
       if (inner.size < 2) continue
 
       const values: ValueAgg[] = []
-      for (const [value, arr] of inner) {
-        const sorted = [...arr].sort((a, b) => a - b)
+      for (const [value, bucket] of inner) {
+        const sorted = [...bucket.mgas].sort((a, b) => a - b)
         const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length
         values.push({
           value,
@@ -158,6 +174,7 @@ export function DimensionInsights({
           p50: percentile(sorted, 50),
           p95: percentile(sorted, 95),
           p99: percentile(sorted, 99),
+          singleTestName: bucket.names.length === 1 ? bucket.names[0] : undefined,
         })
       }
       result.push({ def, values })
@@ -314,8 +331,23 @@ export function DimensionInsights({
                         <button
                           key={v.value}
                           type="button"
-                          onClick={() => onToggle(term)}
-                          title={`${def.label}: ${v.value} — mean ${v.mean.toFixed(1)} MGas/s, ${v.count} test${v.count === 1 ? '' : 's'}`}
+                          onClick={() => {
+                            // If this value matches a single test (and the
+                            // chip isn't already active), short-circuit and
+                            // open that test's detail modal instead of
+                            // adding a redundant filter that yields the
+                            // same single test.
+                            if (!active && v.singleTestName && onTestClick) {
+                              onTestClick(v.singleTestName)
+                            } else {
+                              onToggle(term)
+                            }
+                          }}
+                          title={
+                            !active && v.singleTestName
+                              ? `${def.label}: ${v.value} — open the only matching test (${v.mean.toFixed(1)} MGas/s)`
+                              : `${def.label}: ${v.value} — mean ${v.mean.toFixed(1)} MGas/s, ${v.count} test${v.count === 1 ? '' : 's'}`
+                          }
                           className={clsx(
                             'group grid cursor-pointer grid-cols-[minmax(7rem,12rem)_1fr_auto] items-center gap-2 rounded-xs px-1 py-0.5 text-left text-xs/5 transition-colors',
                             active ? 'bg-blue-50 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
@@ -385,12 +417,22 @@ export function DimensionInsights({
                     return (
                       <tr
                         key={v.value}
-                        onClick={() => onToggle(term)}
+                        onClick={() => {
+                          if (!active && v.singleTestName && onTestClick) {
+                            onTestClick(v.singleTestName)
+                          } else {
+                            onToggle(term)
+                          }
+                        }}
                         className={clsx(
                           'cursor-pointer transition-colors',
                           active ? 'bg-blue-50 dark:bg-blue-950/40' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
                         )}
-                        title={active ? `Click to remove ${term}` : `Click to filter by ${term}`}
+                        title={
+                          !active && v.singleTestName
+                            ? `Open the only matching test`
+                            : active ? `Click to remove ${term}` : `Click to filter by ${term}`
+                        }
                       >
                         <td className="px-2 py-1 font-mono text-gray-700 dark:text-gray-200">{v.value}</td>
                         <td className="px-2 py-1 text-right font-mono tabular-nums text-gray-500 dark:text-gray-400">{v.count}</td>
