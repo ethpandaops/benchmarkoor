@@ -12,6 +12,7 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { FilterInput } from '@/components/shared/FilterInput'
 import { FacetPanel } from '@/components/shared/FacetPanel'
+import { CompareDimensionInsights } from '@/components/compare/CompareDimensionInsights'
 import { CompareHeader } from '@/components/compare/CompareHeader'
 import { StickyRunBar } from '@/components/compare/StickyRunBar'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
@@ -469,6 +470,16 @@ export function ComparePage() {
       <BlockLogsComparison runs={runs} blockLogsPerRun={blockLogsPerRun} blockLogsLoading={blockLogsLoading} suiteTests={suite?.tests} labelMode={labelMode} testNameFilter={testNameFilter} />
 
       {allResults && <ResourceComparisonCharts runs={runs} labelMode={labelMode} testNameFilter={testNameFilter} suiteTests={suite?.tests} zoomRange={sharedZoom ? chartZoom : undefined} onZoomChange={sharedZoom ? setChartZoom : undefined} chartType={chartType} />}
+
+      <CompareDimensionInsights
+        runs={runs}
+        stepFilter={stepFilter}
+        baselineIdx={baselineIdx}
+        labelMode={labelMode}
+        testNameFilter={testNameFilter}
+        query={testFilter}
+        onToggle={(term) => setTestFilter(toggleSearchTerm(testFilter, term))}
+      />
 
       {allResults && (
         <TestComparisonTable runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} blockLogsPerRun={blockLogsPerRun} labelMode={labelMode} tableBaseline={tableBaseline} onTableBaselineChange={setTableBaseline} sortBy={tableSortBy} sortDir={tableSortDir} onSortChange={setTableSort} testNameFilter={testNameFilter} searchQuery={testFilter} onChipFilterToggle={(term) => setTestFilter(toggleSearchTerm(testFilter, term))} />
