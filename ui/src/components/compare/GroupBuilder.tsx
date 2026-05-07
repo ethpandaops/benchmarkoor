@@ -2,10 +2,12 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { Plus, Trash2 } from 'lucide-react'
 import { JDenticon } from '@/components/shared/JDenticon'
+import { Spinner } from '@/components/shared/Spinner'
 import { type IndexEntry, getIndexAggregatedStats } from '@/api/types'
 import { formatTimestamp } from '@/utils/date'
 import { formatDuration } from '@/utils/format'
 import type { GroupDef } from './groupUtils'
+import { RUN_SLOTS } from './constants'
 
 // ── Props ────────────────────────────────────────────────────────
 
@@ -25,6 +27,8 @@ interface GroupBuilderProps {
   groupRunCounts: number[]
   /** Matched index entries per group (sorted newest-first, full list before sample-size truncation). */
   groupMatchedRuns: IndexEntry[][]
+  /** Per-group loading flag — true while this group's config or any of its result queries are in-flight. */
+  groupLoadingFlags: boolean[]
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -44,6 +48,7 @@ export function GroupBuilder({
   onAggModeChange,
   groupRunCounts,
   groupMatchedRuns,
+  groupLoadingFlags,
 }: GroupBuilderProps) {
   const addGroup = () => {
     const nextClient = availableClients.find((c) => !groups.some((g) => g.client === c)) ?? availableClients[0] ?? ''
@@ -138,6 +143,7 @@ export function GroupBuilder({
               runCount={groupRunCounts[idx] ?? 0}
               sampleSize={sampleSize}
               matchedRuns={groupMatchedRuns[idx] ?? []}
+              loading={groupLoadingFlags[idx] ?? false}
               onClientChange={(client) => updateGroup(idx, { client, metadata: {} })}
               onAddMetadata={(key, val) => addMetadata(idx, key, val)}
               onRemoveMetadata={(key) => removeMetadata(idx, key)}
@@ -145,7 +151,7 @@ export function GroupBuilder({
               canRemove={groups.length > 1}
             />
           ))}
-          {availableClients.length > 0 && groups.length < 5 && (
+          {availableClients.length > 0 && groups.length < RUN_SLOTS.length && (
             <button
               onClick={addGroup}
               className="flex items-center gap-1.5 self-start rounded-xs border border-dashed border-gray-300 px-3 py-1.5 text-sm/6 text-gray-600 hover:border-gray-400 hover:text-gray-800 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-200"
@@ -170,6 +176,7 @@ function GroupCard({
   runCount,
   sampleSize,
   matchedRuns,
+  loading,
   onClientChange,
   onAddMetadata,
   onRemoveMetadata,
@@ -183,6 +190,7 @@ function GroupCard({
   runCount: number
   sampleSize: number
   matchedRuns: IndexEntry[]
+  loading: boolean
   onClientChange: (client: string) => void
   onAddMetadata: (key: string, value: string) => void
   onRemoveMetadata: (key: string) => void
@@ -222,8 +230,16 @@ function GroupCard({
           />
         )}
 
+        {loading && (
+          <span className="ml-auto inline-flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">
+            <Spinner size="sm" />
+            Loading…
+          </span>
+        )}
+
         <span className={clsx(
-          'ml-auto rounded-xs px-2 py-0.5 text-xs/5 font-medium',
+          'rounded-xs px-2 py-0.5 text-xs/5 font-medium',
+          !loading && 'ml-auto',
           runCount >= sampleSize
             ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
             : runCount > 0

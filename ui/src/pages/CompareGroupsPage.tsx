@@ -161,6 +161,28 @@ export function CompareGroupsPage() {
 
   const isLoading = configQueries.some((q) => q.isLoading) || resultQueries.some((q) => q.isLoading)
 
+  // Per-group loading flag: true when this group's config or any of its
+  // result queries are still in-flight. Used to show spinners on the
+  // individual group cards.
+  const groupLoadingFlags = useMemo(() => {
+    const flags: boolean[] = []
+    let resultOffset = 0
+    for (let gi = 0; gi < groups.length; gi++) {
+      const runIds = groupRuns[gi] ?? []
+      const configLoading = configQueries[gi]?.isLoading ?? false
+      let resultsLoading = false
+      for (let ri = 0; ri < runIds.length; ri++) {
+        if (resultQueries[resultOffset + ri]?.isLoading) {
+          resultsLoading = true
+          break
+        }
+      }
+      resultOffset += runIds.length
+      flags.push(configLoading || resultsLoading)
+    }
+    return flags
+  }, [groups, groupRuns, configQueries, resultQueries])
+
   // ─── Compute averages and build synthetic CompareRun[] ─────────
   const { syntheticRuns, varianceMap } = useMemo(() => {
     if (groups.length === 0 || isLoading) return { syntheticRuns: [] as CompareRun[], varianceMap: new Map() }
@@ -410,6 +432,7 @@ export function CompareGroupsPage() {
         onAggModeChange={setAggMode}
         groupRunCounts={groupRuns.map((ids) => ids.length)}
         groupMatchedRuns={groupMatchedEntries}
+        groupLoadingFlags={groupLoadingFlags}
       />
       </div>
 
