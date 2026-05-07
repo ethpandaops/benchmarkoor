@@ -25,6 +25,7 @@ import { JDenticon } from '@/components/shared/JDenticon'
 import { StatusAlert } from '@/components/shared/StatusBadge'
 import { FilterInput } from '@/components/shared/FilterInput'
 import { FacetPanel } from '@/components/shared/FacetPanel'
+import { DimensionInsights } from '@/components/run-detail/DimensionInsights'
 import { TEST_FILTER_HINT, toggleSearchTerm } from '@/utils/eestNameFilter'
 import { formatTimestamp, formatDurationSeconds } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
@@ -736,6 +737,14 @@ export function RunDetailPage() {
         <>
           <FacetPanel
             testNames={Object.keys(result.tests)}
+            query={q}
+            onToggle={(term) => handleSearchChange(toggleSearchTerm(q, term))}
+          />
+          <DimensionInsights
+            tests={result.tests}
+            stepFilter={stepFilter}
+            searchQuery={q}
+            statusFilter={status}
             query={q}
             onToggle={(term) => handleSearchChange(toggleSearchTerm(q, term))}
           />
