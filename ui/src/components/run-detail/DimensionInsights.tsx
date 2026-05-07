@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { BarChart3, ChevronRight, ChevronDown, ChevronUp, Table2 } from 'lucide-react'
+import { BarChart3, ChevronDown, ChevronUp, Table2, X } from 'lucide-react'
 import type { TestEntry } from '@/api/types'
 import { parseEESTName } from '@/utils/eestName'
-import { searchQueryContains, testNameMatches } from '@/utils/eestNameFilter'
+import { searchQueryContains, splitQuery, testNameMatches } from '@/utils/eestNameFilter'
 import { type StepTypeOption, ALL_STEP_TYPES, getAggregatedStats } from '@/pages/RunDetailPage'
 import { percentile } from './block-logs-dashboard/utils/statistics'
 
@@ -31,6 +31,11 @@ const PRIMARY_DIMENSIONS: DimensionDef[] = [
 const TRAILING_DIMENSIONS: DimensionDef[] = [
   { key: 'label', label: 'Label', emitKey: 'label' },
 ]
+
+// Dimensions visible by default in the Bars view. Anything with an active
+// filter is also forced into the preview so users always see the dim
+// they're filtering by.
+const BARS_PREVIEW_KEYS = new Set(['file', 'benchmark'])
 
 interface ValueAgg {
   value: string
@@ -70,8 +75,9 @@ export function DimensionInsights({
   onToggle,
   query,
 }: DimensionInsightsProps) {
-  const [expanded, setExpanded] = useState(false)
   const [view, setView] = useState<'bars' | 'table'>('bars')
+  const [barsDir, setBarsDir] = useState<'desc' | 'asc'>('asc')
+  const [showAllBars, setShowAllBars] = useState(false)
   const [groupByKey, setGroupByKey] = useState<string | null>(null)
   const [tableSort, setTableSort] = useState<{ col: SortColumn; dir: 'asc' | 'desc' }>({ col: 'mean', dir: 'desc' })
 
@@ -177,40 +183,74 @@ export function DimensionInsights({
     })
   }
 
+  // The page filter terms feeding this breakdown. Free-text terms (no `:`
+  // or `=`) are kept too — they also affect what's counted.
+  const activeTerms = splitQuery(query)
+
   return (
     <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-      >
-        <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', expanded && 'rotate-90')} />
+      <div className="flex items-center gap-2 border-b border-gray-200 px-3 py-2 text-sm/6 font-medium text-gray-900 dark:border-gray-700 dark:text-gray-100">
         <BarChart3 className="size-4 text-gray-400 dark:text-gray-500" />
         Dimension breakdown
         <span className="text-xs/5 text-gray-500 dark:text-gray-400">
-          ({dimensions.length} dimension{dimensions.length === 1 ? '' : 's'})
+          ({dimensions.length} dimension{dimensions.length === 1 ? '' : 's'}
+          {activeTerms.length > 0 && `, ${activeTerms.length} filter${activeTerms.length === 1 ? '' : 's'}`})
         </span>
-      </button>
-      {expanded && (
-        <div className="flex flex-col gap-3 border-t border-gray-200 p-3 dark:border-gray-700">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
-              {(['bars', 'table'] as const).map((v) => (
+      </div>
+      <div className="flex flex-col gap-3 p-3">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs/5">
+            <span className="text-[10px]/4 font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              Filters
+            </span>
+            {activeTerms.length === 0 ? (
+              <span className="text-gray-500 dark:text-gray-400">none — showing all tests</span>
+            ) : (
+              activeTerms.map((term) => (
                 <button
-                  key={v}
+                  key={term}
                   type="button"
-                  onClick={() => setView(v)}
-                  className={clsx(
-                    'flex items-center gap-1.5 rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                    view === v
-                      ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                      : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-                  )}
+                  onClick={() => onToggle(term)}
+                  title={`Click to remove ${term}`}
+                  className="inline-flex items-center gap-1 rounded-xs bg-blue-500 px-1.5 py-0 font-mono text-[11px]/5 text-white ring-1 ring-inset ring-blue-500 hover:bg-blue-600"
                 >
-                  {v === 'bars' ? <BarChart3 className="size-3.5" /> : <Table2 className="size-3.5" />}
-                  {v === 'bars' ? 'Bars' : 'Table'}
+                  <span>{term}</span>
+                  <X className="size-3" />
                 </button>
-              ))}
+              ))
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
+                {(['bars', 'table'] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setView(v)}
+                    className={clsx(
+                      'flex items-center gap-1.5 rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                      view === v
+                        ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                    )}
+                  >
+                    {v === 'bars' ? <BarChart3 className="size-3.5" /> : <Table2 className="size-3.5" />}
+                    {v === 'bars' ? 'Bars' : 'Table'}
+                  </button>
+                ))}
+              </div>
+              {view === 'bars' && (
+                <button
+                  type="button"
+                  onClick={() => setBarsDir(barsDir === 'desc' ? 'asc' : 'desc')}
+                  title={barsDir === 'desc' ? 'Click to sort slowest first' : 'Click to sort fastest first'}
+                  className="flex items-center gap-1 rounded-xs border border-gray-300 bg-white px-2 py-1 text-xs/5 font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-gray-100"
+                >
+                  {barsDir === 'desc'
+                    ? <><ChevronDown className="size-3.5" /> Fastest first</>
+                    : <><ChevronUp className="size-3.5" /> Slowest first</>}
+                </button>
+              )}
             </div>
             {view === 'table' && tableDim && (
               <div className="flex items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
@@ -236,54 +276,83 @@ export function DimensionInsights({
             </div>
           )}
 
-          {view === 'bars' && dimensions.map(({ def, values }) => {
-            const max = Math.max(...values.map((v) => v.mean))
-            const sorted = [...values].sort((a, b) => b.mean - a.mean)
-            return (
-              <div key={def.key} className="flex flex-col gap-1">
-                <div className="text-[10px]/4 font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                  {def.label}
-                  <span className="ml-1 lowercase text-gray-300 dark:text-gray-600">({sorted.length})</span>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  {sorted.map((v) => {
-                    const term = `${def.emitKey}=${v.value}`
-                    const active = searchQueryContains(query, term)
-                    const widthPct = max > 0 ? (v.mean / max) * 100 : 0
-                    return (
-                      <button
-                        key={v.value}
-                        type="button"
-                        onClick={() => onToggle(term)}
-                        title={`${def.label}: ${v.value} — mean ${v.mean.toFixed(1)} MGas/s, ${v.count} test${v.count === 1 ? '' : 's'}`}
-                        className={clsx(
-                          'group grid grid-cols-[minmax(7rem,12rem)_1fr_auto] items-center gap-2 rounded-xs px-1 py-0.5 text-left text-xs/5 transition-colors',
-                          active ? 'bg-blue-50 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
-                        )}
-                      >
-                        <span className={clsx('truncate font-mono', active ? '' : 'text-gray-700 dark:text-gray-200')}>
-                          {v.value}
-                        </span>
-                        <span className="relative h-3 w-full rounded-xs bg-gray-100 dark:bg-gray-700">
-                          <span
-                            className={clsx(
-                              'absolute inset-y-0 left-0 rounded-xs',
-                              active ? 'bg-blue-500' : 'bg-gray-400/70 dark:bg-gray-500/70',
-                            )}
-                            style={{ width: `${widthPct}%` }}
-                          />
-                        </span>
-                        <span className="flex shrink-0 items-baseline gap-1.5 font-mono tabular-nums text-gray-600 dark:text-gray-300">
-                          <span>{v.mean.toFixed(1)}</span>
-                          <span className="text-[10px]/4 text-gray-400 dark:text-gray-500">×{v.count}</span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
+          {view === 'bars' && (() => {
+            // Force any dimension with an active filter into the preview so
+            // users always see the dim they're filtering by.
+            const previewDims = dimensions.filter(({ def, values }) =>
+              BARS_PREVIEW_KEYS.has(def.key) ||
+              values.some((v) => searchQueryContains(query, `${def.emitKey}=${v.value}`)),
             )
-          })}
+            const hiddenDims = dimensions.filter((d) => !previewDims.includes(d))
+            const visibleDims = showAllBars ? dimensions : previewDims
+
+            const renderDim = ({ def, values }: DimensionAgg) => {
+              const max = Math.max(...values.map((v) => v.mean))
+              const sign = barsDir === 'desc' ? -1 : 1
+              const sorted = [...values].sort((a, b) => sign * (a.mean - b.mean))
+              return (
+                <div key={def.key} className="flex flex-col gap-1">
+                  <div className="text-[10px]/4 font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                    {def.label}
+                    <span className="ml-1 lowercase text-gray-300 dark:text-gray-600">({sorted.length})</span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    {sorted.map((v) => {
+                      const term = `${def.emitKey}=${v.value}`
+                      const active = searchQueryContains(query, term)
+                      const widthPct = max > 0 ? (v.mean / max) * 100 : 0
+                      return (
+                        <button
+                          key={v.value}
+                          type="button"
+                          onClick={() => onToggle(term)}
+                          title={`${def.label}: ${v.value} — mean ${v.mean.toFixed(1)} MGas/s, ${v.count} test${v.count === 1 ? '' : 's'}`}
+                          className={clsx(
+                            'group grid grid-cols-[minmax(7rem,12rem)_1fr_auto] items-center gap-2 rounded-xs px-1 py-0.5 text-left text-xs/5 transition-colors',
+                            active ? 'bg-blue-50 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                          )}
+                        >
+                          <span className={clsx('truncate font-mono', active ? '' : 'text-gray-700 dark:text-gray-200')}>
+                            {v.value}
+                          </span>
+                          <span className="relative h-3 w-full rounded-xs bg-gray-100 dark:bg-gray-700">
+                            <span
+                              className={clsx(
+                                'absolute inset-y-0 left-0 rounded-xs',
+                                active ? 'bg-blue-500' : 'bg-gray-400/70 dark:bg-gray-500/70',
+                              )}
+                              style={{ width: `${widthPct}%` }}
+                            />
+                          </span>
+                          <span className="flex shrink-0 items-baseline gap-1.5 font-mono tabular-nums text-gray-600 dark:text-gray-300">
+                            <span>{v.mean.toFixed(1)}</span>
+                            <span className="text-[10px]/4 text-gray-400 dark:text-gray-500">×{v.count}</span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            }
+
+            return (
+              <>
+                {visibleDims.map(renderDim)}
+                {hiddenDims.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllBars(!showAllBars)}
+                    className="flex w-fit items-center gap-1 rounded-xs px-1.5 py-1 text-xs/5 font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100"
+                  >
+                    {showAllBars
+                      ? <><ChevronUp className="size-3.5" /> Show fewer dimensions</>
+                      : <><ChevronDown className="size-3.5" /> Show more dimensions ({hiddenDims.length})</>}
+                  </button>
+                )}
+              </>
+            )
+          })()}
 
           {view === 'table' && tableDim && (
             <div className="overflow-x-auto">
@@ -326,7 +395,6 @@ export function DimensionInsights({
             </div>
           )}
         </div>
-      )}
     </div>
   )
 }
