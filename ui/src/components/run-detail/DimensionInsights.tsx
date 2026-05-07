@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { BarChart3, ChevronDown, ChevronUp, Table2, X } from 'lucide-react'
 import type { TestEntry } from '@/api/types'
 import { parseEESTName } from '@/utils/eestName'
-import { searchQueryContains, splitQuery, testNameMatches } from '@/utils/eestNameFilter'
+import { queryTermDimension, searchQueryContains, splitQuery, testNameMatches } from '@/utils/eestNameFilter'
 import { type StepTypeOption, ALL_STEP_TYPES, getAggregatedStats } from '@/pages/RunDetailPage'
 import { percentile } from './block-logs-dashboard/utils/statistics'
 import { DEFAULT_THRESHOLD, getColorByThreshold } from '@/utils/perfThreshold'
@@ -215,7 +215,7 @@ export function DimensionInsights({
                   type="button"
                   onClick={() => onToggle(term)}
                   title={`Click to remove ${term}`}
-                  className="inline-flex items-center gap-1 rounded-xs bg-blue-500 px-1.5 py-0 font-mono text-[11px]/5 text-white ring-1 ring-inset ring-blue-500 hover:bg-blue-600"
+                  className="inline-flex cursor-pointer items-center gap-1 rounded-xs bg-blue-500 px-1.5 py-0 font-mono text-[11px]/5 text-white ring-1 ring-inset ring-blue-500 hover:bg-blue-600"
                 >
                   <span>{term}</span>
                   <X className="size-3" />
@@ -232,7 +232,7 @@ export function DimensionInsights({
                     type="button"
                     onClick={() => setView(v)}
                     className={clsx(
-                      'flex items-center gap-1.5 rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                      'flex cursor-pointer items-center gap-1.5 rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
                       view === v
                         ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
                         : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
@@ -248,7 +248,7 @@ export function DimensionInsights({
                   type="button"
                   onClick={() => setBarsDir(barsDir === 'desc' ? 'asc' : 'desc')}
                   title={barsDir === 'desc' ? 'Click to sort slowest first' : 'Click to sort fastest first'}
-                  className="flex items-center gap-1 rounded-xs border border-gray-300 bg-white px-2 py-1 text-xs/5 font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-gray-100"
+                  className="flex cursor-pointer items-center gap-1 rounded-xs border border-gray-300 bg-white px-2 py-1 text-xs/5 font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-gray-100"
                 >
                   {barsDir === 'desc'
                     ? <><ChevronDown className="size-3.5" /> Fastest first</>
@@ -283,8 +283,13 @@ export function DimensionInsights({
           {view === 'bars' && (() => {
             // Force any dimension with an active filter into the preview so
             // users always see the dim they're filtering by.
+            // Once a File filter is active, Test (fn) becomes the natural
+            // next drill-down — surface it in the preview alongside File and
+            // Gas without requiring "Show more dimensions".
+            const hasFileFilter = activeTerms.some((t) => queryTermDimension(t) === 'file')
             const previewDims = dimensions.filter(({ def, values }) =>
               BARS_PREVIEW_KEYS.has(def.key) ||
+              (hasFileFilter && def.key === 'fn') ||
               values.some((v) => searchQueryContains(query, `${def.emitKey}=${v.value}`)),
             )
             const hiddenDims = dimensions.filter((d) => !previewDims.includes(d))
@@ -312,7 +317,7 @@ export function DimensionInsights({
                           onClick={() => onToggle(term)}
                           title={`${def.label}: ${v.value} — mean ${v.mean.toFixed(1)} MGas/s, ${v.count} test${v.count === 1 ? '' : 's'}`}
                           className={clsx(
-                            'group grid grid-cols-[minmax(7rem,12rem)_1fr_auto] items-center gap-2 rounded-xs px-1 py-0.5 text-left text-xs/5 transition-colors',
+                            'group grid cursor-pointer grid-cols-[minmax(7rem,12rem)_1fr_auto] items-center gap-2 rounded-xs px-1 py-0.5 text-left text-xs/5 transition-colors',
                             active ? 'bg-blue-50 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
                           )}
                         >
@@ -349,7 +354,7 @@ export function DimensionInsights({
                   <button
                     type="button"
                     onClick={() => setShowAllBars(!showAllBars)}
-                    className="flex w-fit items-center gap-1 rounded-xs px-1.5 py-1 text-xs/5 font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100"
+                    className="flex w-fit cursor-pointer items-center gap-1 rounded-xs px-1.5 py-1 text-xs/5 font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100"
                   >
                     {showAllBars
                       ? <><ChevronUp className="size-3.5" /> Show fewer dimensions</>

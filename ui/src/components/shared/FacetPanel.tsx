@@ -183,7 +183,7 @@ export function FacetPanel({ testNames, query, onToggle }: FacetPanelProps) {
               onClick={() => onToggle(term)}
               title={active ? `Click to remove ${term}` : `Click to filter by ${term}`}
               className={clsx(
-                'inline-flex items-center gap-1 rounded-xs px-1.5 py-0 font-mono text-[11px]/5 ring-1 ring-inset transition-colors',
+                'inline-flex cursor-pointer items-center gap-1 rounded-xs px-1.5 py-0 font-mono text-[11px]/5 ring-1 ring-inset transition-colors',
                 active
                   ? 'bg-blue-500 text-white ring-blue-500'
                   : dimmed
@@ -224,7 +224,7 @@ export function FacetPanel({ testNames, query, onToggle }: FacetPanelProps) {
           <button
             type="button"
             onClick={() => setShowAll(!showAll)}
-            className="flex w-fit items-center gap-1 rounded-xs px-1.5 py-1 text-xs/5 font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100"
+            className="flex w-fit cursor-pointer items-center gap-1 rounded-xs px-1.5 py-1 text-xs/5 font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100"
           >
             {showAll
               ? <><ChevronUp className="size-3.5" /> Show fewer facets</>
