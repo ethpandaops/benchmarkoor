@@ -213,9 +213,20 @@ export function RunDetailPage() {
   // Compute clientRuns and recentRuns before early returns to satisfy hooks rules.
   const clientRuns = useMemo(() => {
     if (!index || !config) return []
-    return index.entries.filter(
-      (r) => r.suite_hash === config.suite_hash && r.instance.client === config.instance.client,
-    )
+    const myLabels = config.metadata?.labels ?? {}
+    const myLabelKeys = Object.keys(myLabels)
+    return index.entries.filter((r) => {
+      if (r.suite_hash !== config.suite_hash) return false
+      if (r.instance.client !== config.instance.client) return false
+      // Same labels: same set of keys, same values for each key.
+      const otherLabels = r.metadata ?? {}
+      const otherKeys = Object.keys(otherLabels)
+      if (otherKeys.length !== myLabelKeys.length) return false
+      for (const k of myLabelKeys) {
+        if (otherLabels[k] !== myLabels[k]) return false
+      }
+      return true
+    })
   }, [index, config])
 
   const recentRuns = useMemo(() => {

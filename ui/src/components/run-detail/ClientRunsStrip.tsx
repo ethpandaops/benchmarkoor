@@ -42,8 +42,14 @@ const MAX_RUNS = 34
 interface TooltipData {
   run: IndexEntry
   x: number
-  y: number
+  top: number
+  bottom: number
 }
+
+// Estimated tooltip height; used to decide whether to flip below the button
+// when there isn't enough room above. Slightly overestimated so we err on the
+// side of flipping rather than clipping.
+const TOOLTIP_HEIGHT_ESTIMATE = 220
 
 interface ClientRunsStripProps {
   runs: IndexEntry[]
@@ -106,7 +112,7 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
                 }}
                 onMouseEnter={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect()
-                  setTooltip({ run, x: rect.left + rect.width / 2, y: rect.top })
+                  setTooltip({ run, x: rect.left + rect.width / 2, top: rect.top, bottom: rect.bottom })
                 }}
                 onMouseLeave={() => setTooltip(null)}
                 className={clsx(
@@ -154,13 +160,19 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
         const stats = getIndexAggregatedStats(tooltip.run, stepFilter)
         const completed = isRunCompleted(tooltip.run)
         const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
+        const labelEntries = Object.entries(tooltip.run.metadata ?? {})
+        const placeBelow = tooltip.top < TOOLTIP_HEIGHT_ESTIMATE
+        const positionStyle = placeBelow
+          ? { left: tooltip.x, top: tooltip.bottom + 8, transform: 'translate(-50%, 0)' }
+          : { left: tooltip.x, top: tooltip.top - 8, transform: 'translate(-50%, -100%)' }
         return (
           <div
             className="pointer-events-none fixed z-50 rounded-sm bg-white px-3 py-2 text-xs/5 shadow-lg ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:ring-0"
-            style={{ left: tooltip.x, top: tooltip.y - 8, transform: 'translate(-50%, -100%)' }}
+            style={positionStyle}
           >
             <div className="flex flex-col gap-1">
               <div className="font-medium">{tooltip.run.instance.client}</div>
+              <div className="font-mono text-[11px] text-gray-500 dark:text-gray-400">{tooltip.run.run_id}</div>
               <div>{formatTimestamp(tooltip.run.timestamp)}</div>
               {!completed && (
                 <div className="font-medium text-red-600 dark:text-red-400">
@@ -182,6 +194,15 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
                   ({tooltip.run.tests.tests_total} total)
                 </span>
               </div>
+              {labelEntries.length > 0 && (
+                <div className="mt-1 flex flex-col gap-0.5 border-t border-gray-200 pt-1 dark:border-gray-700">
+                  {labelEntries.map(([k, v]) => (
+                    <div key={k} className="text-[11px] text-gray-500 dark:text-gray-400">
+                      <span className="font-medium">{k}:</span> {v}
+                    </div>
+                  ))}
+                </div>
+              )}
               {selectable ? (
                 <div className="text-gray-400 dark:text-gray-500">Click to select</div>
               ) : tooltip.run.run_id !== currentRunId ? (
