@@ -589,8 +589,23 @@ export function TestHeatmap({
       }))
   }, [sortedData, groupMode])
 
+  // Distribution / above-threshold / below-threshold counts respect the
+  // page-level status + search filter so the histogram reflects what the
+  // user is actually looking at on the heatmap.
+  const filteredTestData = useMemo(() => {
+    return testData.filter((t) => {
+      if (statusFilter !== 'all') {
+        if (t.notProcessed) return false
+        if (statusFilter === 'passed' && t.hasFail) return false
+        if (statusFilter === 'failed' && !t.hasFail) return false
+      }
+      if (searchQuery && !testNameMatches(t.testKey, searchQuery)) return false
+      return true
+    })
+  }, [testData, statusFilter, searchQuery])
+
   const histogramData = useMemo(() => {
-    const testsWithData = testData.filter((t) => !t.noData)
+    const testsWithData = filteredTestData.filter((t) => !t.noData)
     if (testsWithData.length === 0) return []
 
     // Create bins based on threshold: 0, 0.25x, 0.5x, 0.75x, 1x, 1.25x, 1.5x, 1.75x, 2x, 2.5x, 3x+
@@ -626,7 +641,7 @@ export function TestHeatmap({
         color: getColorByThreshold(midpoint, threshold),
       }
     })
-  }, [testData, threshold])
+  }, [filteredTestData, threshold])
 
   const handleMouseEnter = (test: TestData, event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -822,7 +837,7 @@ export function TestHeatmap({
         <div className="flex items-end gap-1">
           <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
             <span className="text-xs/5 font-medium text-red-600 dark:text-red-400">
-              {testData.filter((t) => !t.noData && t.mgasPerSec < threshold).length}
+              {filteredTestData.filter((t) => !t.noData && t.mgasPerSec < threshold).length}
             </span>
             <span className="text-xs/5 text-gray-400 dark:text-gray-500">slow</span>
           </div>
@@ -848,7 +863,7 @@ export function TestHeatmap({
           </div>
           <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
             <span className="text-xs/5 font-medium text-green-600 dark:text-green-400">
-              {testData.filter((t) => !t.noData && t.mgasPerSec >= threshold).length}
+              {filteredTestData.filter((t) => !t.noData && t.mgasPerSec >= threshold).length}
             </span>
             <span className="text-xs/5 text-gray-400 dark:text-gray-500">fast</span>
           </div>
