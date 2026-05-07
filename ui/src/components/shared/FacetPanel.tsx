@@ -3,10 +3,10 @@ import clsx from 'clsx'
 import { ChevronDown, ChevronUp, Filter, X } from 'lucide-react'
 import { parseEESTName } from '@/utils/eestName'
 import {
+  compileQuery,
   queryWithoutDimension,
   searchQueryContains,
   splitQuery,
-  testNameMatches,
 } from '@/utils/eestNameFilter'
 
 interface FacetPanelProps {
@@ -112,10 +112,11 @@ export function FacetPanel({ testNames, query, onToggle }: FacetPanelProps) {
       // dimension, so picking another opcode value doesn't show 0 counts
       // everywhere just because a sibling opcode is selected.
       const contextQuery = queryWithoutDimension(query, def.key)
+      const matchesContext = contextQuery ? compileQuery(contextQuery) : null
       const counts = new Map<string, number>()
 
       for (const p of parsed) {
-        if (contextQuery && !testNameMatches(p.name, contextQuery)) continue
+        if (matchesContext && !matchesContext(p.name)) continue
         const vs = p.dims.get(def.key)
         if (!vs) continue
         for (const v of vs) counts.set(v, (counts.get(v) ?? 0) + 1)

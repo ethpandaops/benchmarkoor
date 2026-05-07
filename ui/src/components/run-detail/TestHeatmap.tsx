@@ -6,7 +6,7 @@ import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated, StepResu
 import { fetchHead } from '@/api/client'
 import { Modal } from '@/components/shared/Modal'
 import { TestName } from '@/components/shared/TestName'
-import { testNameMatches, toggleSearchTerm } from '@/utils/eestNameFilter'
+import { compileQuery, testNameMatches, toggleSearchTerm } from '@/utils/eestNameFilter'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
@@ -563,13 +563,14 @@ export function TestHeatmap({
   // page-level status + search filter so the histogram reflects what the
   // user is actually looking at on the heatmap.
   const filteredTestData = useMemo(() => {
+    const matchesQuery = searchQuery ? compileQuery(searchQuery) : null
     return testData.filter((t) => {
       if (statusFilter !== 'all') {
         if (t.notProcessed) return false
         if (statusFilter === 'passed' && t.hasFail) return false
         if (statusFilter === 'failed' && !t.hasFail) return false
       }
-      if (searchQuery && !testNameMatches(t.testKey, searchQuery)) return false
+      if (matchesQuery && !matchesQuery(t.testKey)) return false
       return true
     })
   }, [testData, statusFilter, searchQuery])

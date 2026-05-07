@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { BarChart3, ChevronDown, ChevronUp, Table2, X } from 'lucide-react'
 import type { TestEntry } from '@/api/types'
 import { parseEESTName } from '@/utils/eestName'
-import { queryTermDimension, searchQueryContains, splitQuery, testNameMatches } from '@/utils/eestNameFilter'
+import { compileQuery, queryTermDimension, searchQueryContains, splitQuery } from '@/utils/eestNameFilter'
 import { type StepTypeOption, ALL_STEP_TYPES, getAggregatedStats } from '@/pages/RunDetailPage'
 import { percentile } from './block-logs-dashboard/utils/statistics'
 import { DEFAULT_THRESHOLD, getColorByThreshold } from '@/utils/perfThreshold'
@@ -96,9 +96,10 @@ export function DimensionInsights({
 
   const dimensions = useMemo<DimensionAgg[]>(() => {
     // 1. Compute mgas per test, applying the same filter as the heatmap.
+    const matchesQuery = searchQuery ? compileQuery(searchQuery) : null
     const samples: { name: string; mgas: number }[] = []
     for (const [name, entry] of Object.entries(tests)) {
-      if (searchQuery && !testNameMatches(name, searchQuery)) continue
+      if (matchesQuery && !matchesQuery(name)) continue
       const stats = getAggregatedStats(entry, stepFilter)
       if (!stats) continue
       if (statusFilter !== 'all') {

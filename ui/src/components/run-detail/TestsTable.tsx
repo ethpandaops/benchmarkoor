@@ -6,7 +6,7 @@ import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { Pagination } from '@/components/shared/Pagination'
 import { TestName } from '@/components/shared/TestName'
-import { testNameMatches, toggleSearchTerm } from '@/utils/eestNameFilter'
+import { compileQuery, toggleSearchTerm } from '@/utils/eestNameFilter'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
 
 export type TestSortColumn = 'order' | 'name' | 'genesis' | 'time' | 'mgas' | 'passed' | 'failed'
@@ -178,7 +178,8 @@ export function TestsTable({
     let filtered = Object.entries(tests)
 
     if (searchQuery) {
-      filtered = filtered.filter(([name]) => testNameMatches(name, searchQuery))
+      const match = compileQuery(searchQuery)
+      filtered = filtered.filter(([name]) => match(name))
     }
 
     // Genesis filter

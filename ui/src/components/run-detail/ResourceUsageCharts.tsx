@@ -3,7 +3,7 @@ import ReactECharts from 'echarts-for-react'
 import { Cpu } from 'lucide-react'
 import type { TestEntry, ResourceTotals, SuiteTest } from '@/api/types'
 import { formatBytes } from '@/utils/format'
-import { testNameMatches } from '@/utils/eestNameFilter'
+import { compileQuery } from '@/utils/eestNameFilter'
 import { formatTestNameLong } from '@/utils/eestName'
 import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 import { getAggregatedStats, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
@@ -262,8 +262,9 @@ export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilt
 
     // Apply the page-level search + status filter so charts reflect what
     // the user is currently looking at on the heatmap and table.
+    const matchesQuery = searchQuery ? compileQuery(searchQuery) : null
     const filteredEntries = Object.entries(tests).filter(([name, entry]) => {
-      if (searchQuery && !testNameMatches(name, searchQuery)) return false
+      if (matchesQuery && !matchesQuery(name)) return false
       if (statusFilter !== 'all') {
         const s = getAggregatedStats(entry, ALL_STEP_TYPES)
         if (!s) return false

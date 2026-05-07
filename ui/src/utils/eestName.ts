@@ -61,7 +61,22 @@ const IGNORE_TOKENS = new Set([
   'gas',
 ])
 
+// parseEESTName is called from multiple memos (FacetPanel, DimensionInsights,
+// TestHeatmap, …) and indirectly from testNameMatches. With ~7000 tests and
+// several dimensions, that adds up to >100k regex+split runs per filter
+// change. Cache by raw name — names are stable per session, the result is
+// pure, and total cardinality is bounded by the run/suite size.
+const parseCache = new Map<string, EESTNameParts>()
+
 export function parseEESTName(raw: string): EESTNameParts {
+  const cached = parseCache.get(raw)
+  if (cached) return cached
+  const result = parseEESTNameUncached(raw)
+  parseCache.set(raw, result)
+  return result
+}
+
+function parseEESTNameUncached(raw: string): EESTNameParts {
   const m = FILE_FN_RE.exec(raw)
   if (!m) {
     return { raw, isEEST: false, params: [], labels: [], short: raw }

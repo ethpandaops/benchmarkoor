@@ -70,24 +70,45 @@ function parseStructuredTerm(term: string): StructuredTerm | null {
  * `fn`/`function`, `path`, `label`. Any other key hits the parsed params.
  *
  * Multiple terms are combined with AND. Whitespace separates terms.
+ *
+ * Hot-loop callers (FacetPanel, DimensionInsights, etc.) should use
+ * `compileQuery(query)` to amortise the per-call tokenization cost across
+ * thousands of test names.
  */
 export function testNameMatches(name: string, query: string): boolean {
+  return compileQuery(query)(name)
+}
+
+/**
+ * Pre-parse a query into a predicate. Saves the per-name tokenization
+ * + structured-term parsing when checking a query against many tests in
+ * a tight loop.
+ */
+export function compileQuery(query: string): (name: string) => boolean {
   const trimmed = query.trim()
-  if (!trimmed) return true
+  if (!trimmed) return () => true
 
-  const lowerName = name.toLowerCase()
-  let parsed: EESTNameParts | null = null
-  const ensureParsed = (): EESTNameParts => parsed ?? (parsed = parseEESTName(name))
-
+  const freeText: string[] = []
+  const structured: StructuredTerm[] = []
   for (const term of trimmed.split(/\s+/)) {
-    const structured = parseStructuredTerm(term)
-    if (structured) {
-      if (!matchesField(ensureParsed(), structured)) return false
-    } else {
-      if (!lowerName.includes(term.toLowerCase())) return false
-    }
+    const s = parseStructuredTerm(term)
+    if (s) structured.push(s)
+    else freeText.push(term.toLowerCase())
   }
-  return true
+
+  return (name: string) => {
+    if (freeText.length > 0) {
+      const lower = name.toLowerCase()
+      for (const t of freeText) if (!lower.includes(t)) return false
+    }
+    if (structured.length > 0) {
+      const parsed = parseEESTName(name)
+      for (const term of structured) {
+        if (!matchesField(parsed, term)) return false
+      }
+    }
+    return true
+  }
 }
 
 /** Split a query string into whitespace-separated terms. */
