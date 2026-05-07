@@ -7,7 +7,9 @@ import { Pagination } from '@/components/shared/Pagination'
 import { Spinner } from '@/components/shared/Spinner'
 import { Badge } from '@/components/shared/Badge'
 import { Modal } from '@/components/shared/Modal'
+import { TestName } from '@/components/shared/TestName'
 import { getOpcodeCategory, getCategoryColor } from '@/utils/opcodeCategories'
+import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 
 export type OpcodeSortMode = 'name' | 'count'
 
@@ -255,11 +257,9 @@ function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between">
-          <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Name</span>
-          <CopyButton text={test.name} label="name" />
+        <div className="text-sm/6 text-gray-900 dark:text-gray-100">
+          <TestName name={test.name} showRawBelow showCopy />
         </div>
-        <div className="break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">{test.name}</div>
       </div>
       <EESTInfoContent test={test} opcodeSort={opcodeSort} onOpcodeSortChange={onOpcodeSortChange} />
       {steps.map(({ key, label, file }) => (
@@ -311,10 +311,7 @@ export function TestFilesList({
         })
     : (tests ?? [])
         .map((test, index) => ({ test, originalIndex: index + 1 }))
-        .filter(({ test }) => {
-          const searchLower = search.toLowerCase()
-          return test.name.toLowerCase().includes(searchLower)
-        })
+        .filter(({ test }) => testNameMatches(test.name, search))
 
   const totalPages = Math.ceil(filteredItems.length / pageSize)
   const paginatedItems = filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -454,7 +451,8 @@ export function TestFilesList({
             type="text"
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search by test name..."
+            placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
+            title={TEST_FILTER_HINT}
             className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-4 text-sm/6 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
         </div>
@@ -490,8 +488,12 @@ export function TestFilesList({
                 <td className="px-2 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
                   {originalIndex}
                 </td>
-                <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-900 dark:text-gray-100" title={test.name}>
-                  {test.name}
+                <td className="max-w-md px-4 py-2">
+                  <TestName
+                    name={test.name}
+                    onChipClick={onSearchChange ? (term) => onSearchChange(toggleSearchTerm(search, term) || undefined) : undefined}
+                    activeQuery={search}
+                  />
                 </td>
                 {hasGenesis && (
                   <td className="truncate px-4 py-2 font-mono text-xs/5 text-gray-500 dark:text-gray-400" title={test.genesis}>

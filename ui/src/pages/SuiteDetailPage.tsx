@@ -15,6 +15,8 @@ import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/
 import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
+import { FacetPanel } from '@/components/shared/FacetPanel'
+import { toggleSearchTerm } from '@/utils/eestNameFilter'
 import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
@@ -50,7 +52,17 @@ function serializeStepFilter(steps: IndexStepType[]): string | undefined {
   return steps.join(',')
 }
 
-function OpcodeHeatmapSection({ tests, onTestClick }: { tests: SuiteTest[]; onTestClick?: (testIndex: number) => void }) {
+function OpcodeHeatmapSection({
+  tests,
+  onTestClick,
+  searchQuery,
+  onSearchChange,
+}: {
+  tests: SuiteTest[]
+  onTestClick?: (testIndex: number) => void
+  searchQuery?: string
+  onSearchChange?: (q: string) => void
+}) {
   const [expanded, setExpanded] = useState(true)
   return (
     <>
@@ -64,7 +76,7 @@ function OpcodeHeatmapSection({ tests, onTestClick }: { tests: SuiteTest[]; onTe
       </button>
       {expanded && (
         <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-          <OpcodeHeatmap tests={tests} onTestClick={onTestClick} />
+          <OpcodeHeatmap tests={tests} onTestClick={onTestClick} searchQuery={searchQuery} onSearchChange={onSearchChange} />
         </div>
       )}
     </>
@@ -680,7 +692,10 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, filesPage: 1, q: query || undefined, chartMode, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy },
+      // Use the prev-state form so we don't accidentally drop heatmap-only
+      // params (hn, hr, hFs, hStat, hCs, hTh, hRpc, hPs, etc.) when the
+      // search query is updated from anywhere on the page.
+      search: ((prev: Record<string, unknown>) => ({ ...prev, filesPage: 1, q: query || undefined })) as never,
     })
   }
 
@@ -723,14 +738,6 @@ export function SuiteDetailPage() {
       to: '/suites/$suiteHash',
       params: { suiteHash },
       search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor: mode, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy },
-    })
-  }
-
-  const handleHeatmapSearchChange = (query: string | undefined) => {
-    navigate({
-      to: '/suites/$suiteHash',
-      params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), hq: query || undefined, hn, hr, hFs, hStat, hCs, hTh, hRpc, hPs, groupBy },
     })
   }
 
@@ -1390,6 +1397,11 @@ export function SuiteDetailPage() {
             )}
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
+            <FacetPanel
+              testNames={(suite.tests ?? []).map((t) => t.name)}
+              query={q ?? ''}
+              onToggle={(term) => handleSearchChange(toggleSearchTerm(q ?? '', term) || undefined)}
+            />
             {(suiteStatsLoading || (suiteStats && Object.keys(suiteStats).length > 0)) && (
               suiteStatsLoading ? (
                 <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
@@ -1399,12 +1411,17 @@ export function SuiteDetailPage() {
                   </div>
                 </div>
               ) : (
-                <TestHeatmap stats={suiteStats!} testFiles={suite.tests ?? []} isDark={isDark} isLoading={suiteStatsLoading} suiteHash={suiteHash} suiteName={suite.metadata?.labels?.name} stepFilter={stepFilter} searchQuery={hq} onSearchChange={handleHeatmapSearchChange} showTestName={hn === '1'} onShowTestNameChange={handleHeatmapShowNameChange} showClientStat={hCs === '1'} onShowClientStatChange={handleHeatmapClientStatChange} useRegex={hr === '1'} onUseRegexChange={handleHeatmapRegexChange} fullscreen={hFs === '1'} onFullscreenChange={handleHeatmapFullscreenChange} histogramStat={(hStat as 'avgMgas' | 'minMgas' | 'p99Mgas') || undefined} onHistogramStatChange={handleHeatmapStatChange} threshold={hTh ? Number(hTh) : undefined} onThresholdChange={handleHeatmapThresholdChange} runsPerClient={hRpc ? Number(hRpc) : undefined} onRunsPerClientChange={handleHeatmapRunsPerClientChange} pageSize={hPs ? Number(hPs) : undefined} onPageSizeChange={handleHeatmapPageSizeChange} />
+                <TestHeatmap stats={suiteStats!} testFiles={suite.tests ?? []} isDark={isDark} isLoading={suiteStatsLoading} suiteHash={suiteHash} suiteName={suite.metadata?.labels?.name} stepFilter={stepFilter} searchQuery={q} onSearchChange={handleSearchChange} showTestName={hn === '1'} onShowTestNameChange={handleHeatmapShowNameChange} showClientStat={hCs === '1'} onShowClientStatChange={handleHeatmapClientStatChange} useRegex={hr === '1'} onUseRegexChange={handleHeatmapRegexChange} fullscreen={hFs === '1'} onFullscreenChange={handleHeatmapFullscreenChange} histogramStat={(hStat as 'avgMgas' | 'minMgas' | 'p99Mgas') || undefined} onHistogramStatChange={handleHeatmapStatChange} threshold={hTh ? Number(hTh) : undefined} onThresholdChange={handleHeatmapThresholdChange} runsPerClient={hRpc ? Number(hRpc) : undefined} onRunsPerClientChange={handleHeatmapRunsPerClientChange} pageSize={hPs ? Number(hPs) : undefined} onPageSizeChange={handleHeatmapPageSizeChange} />
               )
             )}
             {suite.tests?.some((t) => { const oc = t.opcode_count ?? t.eest?.info?.opcode_count; return oc && Object.keys(oc).length > 0 }) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                <OpcodeHeatmapSection tests={suite.tests ?? []} onTestClick={handleDetailChange} />
+                <OpcodeHeatmapSection
+                  tests={suite.tests ?? []}
+                  onTestClick={handleDetailChange}
+                  searchQuery={q}
+                  onSearchChange={(value) => handleSearchChange(value || undefined)}
+                />
               </div>
             )}
             <TestFilesList
