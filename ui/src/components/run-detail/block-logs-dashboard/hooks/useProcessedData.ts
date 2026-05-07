@@ -3,6 +3,7 @@ import type { BlockLogs } from '@/api/types'
 import type { ProcessedTestData, DashboardState, DashboardStats } from '../types'
 import { parseCategory } from '../utils/categoryParser'
 import { percentile, removeOutliers, countOutliers, normalizeValue, emptyCategoryBreakdown } from '../utils/statistics'
+import { testNameMatches } from '@/utils/eestNameFilter'
 
 export function useProcessedData(
   blockLogs: BlockLogs | null | undefined,
@@ -65,10 +66,10 @@ export function useProcessedData(
       data = data.filter((d) => state.categories.includes(d.category))
     }
 
-    // Apply search filter
+    // Apply search filter (supports the same key:value / key=value syntax
+    // used elsewhere on the run-detail page).
     if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      data = data.filter((d) => d.testName.toLowerCase().includes(query))
+      data = data.filter((d) => testNameMatches(d.testName, searchQuery))
     }
 
     // Apply throughput range filter
