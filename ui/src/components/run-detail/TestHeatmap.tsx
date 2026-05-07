@@ -355,7 +355,7 @@ function HeatmapCell({
 
 function TooltipFilename({ name }: { name: string }) {
   return (
-    <div className="w-64 max-w-[80vw]">
+    <div className="w-96 max-w-[80vw]">
       <TestName name={name} />
     </div>
   )
@@ -645,9 +645,21 @@ export function TestHeatmap({
 
   const handleMouseEnter = (test: TestData, event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect()
+    // Clamp the tooltip x so it stays within the viewport even when hovering
+    // tiles at the left or right edge. The tooltip is `w-96 max-w-[80vw]` and
+    // is rendered with `translate(-50%, -100%)`, so the center must sit at
+    // least halfWidth + margin from each edge.
+    const tooltipWidth = Math.min(384, window.innerWidth * 0.8)
+    const halfWidth = tooltipWidth / 2
+    const margin = 8
+    const desired = rect.left + rect.width / 2
+    const clampedX = Math.max(
+      halfWidth + margin,
+      Math.min(window.innerWidth - halfWidth - margin, desired),
+    )
     setTooltip({
       test,
-      x: rect.left + rect.width / 2,
+      x: clampedX,
       y: rect.top,
     })
   }
