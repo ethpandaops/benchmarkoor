@@ -33,6 +33,12 @@ func EestToPrysmPayload(version int, ep *ExecutionPayload) (PrysmPayloadMarshale
 		return toPrysmDeneb(ep)
 	case 4:
 		return toPrysmElectra(ep)
+	case 5, 6:
+		// Both V5 and V6 map to Gloas for BAL-bearing payloads. The exact
+		// engine API version that ships with BAL on mainnet may end up being
+		// only one of these — until then, accept both and let runtime
+		// behaviour confirm.
+		return toPrysmGloas(ep)
 	default:
 		return nil, fmt.Errorf("unsupported newPayload version: %d", version)
 	}
@@ -233,6 +239,43 @@ func toPrysmDeneb(ep *ExecutionPayload) (*enginev1.ExecutionPayloadDeneb, error)
 		Withdrawals:   withdrawals,
 		BlobGasUsed:   blobGasUsed,
 		ExcessBlobGas: excessBlobGas,
+	}, nil
+}
+
+func toPrysmGloas(ep *ExecutionPayload) (*enginev1.ExecutionPayloadGloas, error) {
+	deneb, err := toPrysmDeneb(ep)
+	if err != nil {
+		return nil, err
+	}
+	bal, err := decodeBytes(ep.BlockAccessList, "blockAccessList")
+	if err != nil {
+		return nil, err
+	}
+	// NOTE: eest.ExecutionPayload carries a SlotNumber field that was
+	// anticipated for Gloas, but Prysm's ExecutionPayloadGloas (as of
+	// v6.0.5-rc.1) does NOT include a SlotNumber/Slot field — only
+	// BlockAccessList was added beyond Deneb. We intentionally omit
+	// SlotNumber from the struct literal here; if Prysm adds it in a
+	// future release, add it back with the appropriate field name.
+	return &enginev1.ExecutionPayloadGloas{
+		ParentHash:      deneb.ParentHash,
+		FeeRecipient:    deneb.FeeRecipient,
+		StateRoot:       deneb.StateRoot,
+		ReceiptsRoot:    deneb.ReceiptsRoot,
+		LogsBloom:       deneb.LogsBloom,
+		PrevRandao:      deneb.PrevRandao,
+		BlockNumber:     deneb.BlockNumber,
+		GasLimit:        deneb.GasLimit,
+		GasUsed:         deneb.GasUsed,
+		Timestamp:       deneb.Timestamp,
+		ExtraData:       deneb.ExtraData,
+		BaseFeePerGas:   deneb.BaseFeePerGas,
+		BlockHash:       deneb.BlockHash,
+		Transactions:    deneb.Transactions,
+		Withdrawals:     deneb.Withdrawals,
+		BlobGasUsed:     deneb.BlobGasUsed,
+		ExcessBlobGas:   deneb.ExcessBlobGas,
+		BlockAccessList: bal,
 	}, nil
 }
 
