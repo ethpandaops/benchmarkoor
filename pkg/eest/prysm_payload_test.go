@@ -186,3 +186,53 @@ func TestEestToPrysmPayload_V1_Bellatrix(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, len(b), 100)
 }
+
+func TestEestToPrysmPayload_UnknownVersion(t *testing.T) {
+	_, err := EestToPrysmPayload(99, &ExecutionPayload{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported newPayload version")
+}
+
+func TestEestToPrysmPayload_MalformedHex(t *testing.T) {
+	ep := &ExecutionPayload{
+		ParentHash:    "not-a-hex",
+		FeeRecipient:  "0x2222222222222222222222222222222222222222",
+		StateRoot:     "0x3333333333333333333333333333333333333333333333333333333333333333",
+		ReceiptsRoot:  "0x4444444444444444444444444444444444444444444444444444444444444444",
+		LogsBloom:     "0x" + repeatHex("00", 256),
+		PrevRandao:    "0x5555555555555555555555555555555555555555555555555555555555555555",
+		BlockNumber:   "0x10",
+		GasLimit:      "0x1000000",
+		GasUsed:       "0x800000",
+		Timestamp:     "0x65000000",
+		ExtraData:     "0x",
+		BaseFeePerGas: "0x7",
+		BlockHash:     "0x6666666666666666666666666666666666666666666666666666666666666666",
+		Transactions:  []string{},
+	}
+	_, err := EestToPrysmPayload(1, ep)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parentHash")
+}
+
+func TestEestToPrysmPayload_WrongLengthHash(t *testing.T) {
+	ep := &ExecutionPayload{
+		ParentHash:    "0xdead", // only 2 bytes, not 32
+		FeeRecipient:  "0x2222222222222222222222222222222222222222",
+		StateRoot:     "0x3333333333333333333333333333333333333333333333333333333333333333",
+		ReceiptsRoot:  "0x4444444444444444444444444444444444444444444444444444444444444444",
+		LogsBloom:     "0x" + repeatHex("00", 256),
+		PrevRandao:    "0x5555555555555555555555555555555555555555555555555555555555555555",
+		BlockNumber:   "0x10",
+		GasLimit:      "0x1000000",
+		GasUsed:       "0x800000",
+		Timestamp:     "0x65000000",
+		ExtraData:     "0x",
+		BaseFeePerGas: "0x7",
+		BlockHash:     "0x6666666666666666666666666666666666666666666666666666666666666666",
+		Transactions:  []string{},
+	}
+	_, err := EestToPrysmPayload(1, ep)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected 32 bytes")
+}
