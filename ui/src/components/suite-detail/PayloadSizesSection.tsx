@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, BarChart3 } from 'lucide-react'
+import ReactECharts from 'echarts-for-react'
 import type { SuiteTest } from '@/api/types'
 import { compileQuery, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { formatBytes } from '@/utils/format'
@@ -107,8 +108,67 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
             </span>
           </div>
 
-          <div className="mb-4 h-64 rounded-sm border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-gray-700">
-            Chart placeholder (Task 17 will fill this in)
+          <div className="mb-4">
+            <ReactECharts
+              option={{
+                grid: { left: 220, right: 24, top: 32, bottom: 60, containLabel: false },
+                tooltip: {
+                  trigger: 'axis',
+                  axisPointer: { type: 'shadow' },
+                  formatter: (params: Array<{ seriesName: string; data: number; name: string }>) => {
+                    const name = params[0]?.name ?? ''
+                    const lines = params.map((p) => `${p.seriesName}: ${formatBytes(p.data)}`)
+                    return `<b>${name}</b><br/>${lines.join('<br/>')}`
+                  },
+                },
+                legend: {
+                  top: 0,
+                  data: ['Non-BAL', 'BAL', 'Snappy'],
+                },
+                xAxis: {
+                  type: 'value',
+                  axisLabel: { formatter: (v: number) => formatBytes(v) },
+                },
+                yAxis: {
+                  type: 'category',
+                  data: sorted.map((r) => r.name),
+                  inverse: true,
+                  axisLabel: {
+                    width: 200,
+                    overflow: 'truncate',
+                    fontSize: 11,
+                  },
+                },
+                dataZoom: [
+                  { type: 'slider', yAxisIndex: 0, start: 0, end: Math.min(100, (30 / Math.max(1, sorted.length)) * 100), width: 14, right: 4 },
+                  { type: 'inside', yAxisIndex: 0, start: 0, end: Math.min(100, (30 / Math.max(1, sorted.length)) * 100) },
+                ],
+                series: [
+                  {
+                    name: 'Non-BAL',
+                    type: 'bar',
+                    stack: 'uncompressed',
+                    itemStyle: { color: '#3b82f6' },
+                    data: sorted.map((r) => Math.max(0, r.uncompressed - r.bal)),
+                  },
+                  {
+                    name: 'BAL',
+                    type: 'bar',
+                    stack: 'uncompressed',
+                    itemStyle: { color: '#f59e0b' },
+                    data: sorted.map((r) => r.bal),
+                  },
+                  {
+                    name: 'Snappy',
+                    type: 'bar',
+                    itemStyle: { color: '#10b981' },
+                    data: sorted.map((r) => r.snappy),
+                  },
+                ],
+              }}
+              style={{ height: Math.max(280, Math.min(800, sorted.length * 22 + 80)) }}
+              notMerge
+            />
           </div>
 
           <div className="rounded-sm border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-gray-700">
