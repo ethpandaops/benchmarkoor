@@ -18,6 +18,7 @@ import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/Te
 import { FacetPanel } from '@/components/shared/FacetPanel'
 import { toggleSearchTerm } from '@/utils/eestNameFilter'
 import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
+import { PayloadSizesSection } from '@/components/suite-detail/PayloadSizesSection'
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
@@ -1422,6 +1423,11 @@ export function SuiteDetailPage() {
                   searchQuery={q}
                   onSearchChange={(value) => handleSearchChange(value || undefined)}
                 />
+              </div>
+            )}
+            {suite.tests?.some((t) => t.payload_size_bytes || t.payload_size_bytes_snappy || t.bal_size_bytes) && (
+              <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                <PayloadSizesSection tests={suite.tests ?? []} />
               </div>
             )}
             <TestFilesList
