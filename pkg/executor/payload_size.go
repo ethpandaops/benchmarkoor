@@ -1,11 +1,14 @@
 package executor
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"strings"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/eest"
+	"github.com/golang/snappy"
+	"github.com/sirupsen/logrus"
 )
 
 // NewPayloadLine represents one engine_newPayloadVN line found in a test step.
@@ -55,4 +58,64 @@ func parseNewPayloadLine(line string) (int, *eest.ExecutionPayload, bool) {
 		return 0, nil, false
 	}
 	return version, &ep, true
+}
+
+// PayloadSizes aggregates the per-test byte counts the UI surfaces.
+type PayloadSizes struct {
+	PayloadBytes uint64 // SSZ-encoded executionPayload (BAL inline)
+	SnappyBytes  uint64 // snappy compression of the SSZ bytes
+	BALBytes     uint64 // hex-decoded BlockAccessList content
+}
+
+// ComputePayloadSizes parses each engine_newPayloadV* line in the test step,
+// SSZ-encodes the executionPayload using Prysm's fork-specific struct, snappy-
+// compresses the result, and decodes the inline BlockAccessList. It returns
+// the sum of those three quantities across all newPayload lines in the step.
+//
+// Single-line errors (unknown fork, malformed hex) are logged with the test
+// name and do not abort the computation. The function never returns an error;
+// a fully-failing test step yields zero values for all three fields.
+func ComputePayloadSizes(log logrus.FieldLogger, testName string, lines []string) PayloadSizes {
+	var out PayloadSizes
+	for _, np := range ExtractNewPayloadLines(lines) {
+		marshaler, err := eest.EestToPrysmPayload(np.Version, np.Payload)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"test":    testName,
+				"version": np.Version,
+			}).WithError(err).Warn("Failed to convert payload to Prysm struct, skipping line")
+			continue
+		}
+		ssz, err := marshaler.MarshalSSZ()
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"test":    testName,
+				"version": np.Version,
+			}).WithError(err).Warn("Failed to SSZ-encode payload, skipping line")
+			continue
+		}
+		out.PayloadBytes += uint64(len(ssz))
+		snap := snappy.Encode(nil, ssz)
+		out.SnappyBytes += uint64(len(snap))
+		out.BALBytes += balByteLen(log, testName, np.Payload.BlockAccessList)
+	}
+	return out
+}
+
+// balByteLen returns the byte length of a hex-encoded BlockAccessList. An
+// empty or absent value returns 0; malformed hex logs a warning and returns 0.
+func balByteLen(log logrus.FieldLogger, testName, balHex string) uint64 {
+	if balHex == "" {
+		return 0
+	}
+	if len(balHex) < 2 || balHex[:2] != "0x" {
+		log.WithField("test", testName).Warn("BlockAccessList missing 0x prefix, treating as 0 bytes")
+		return 0
+	}
+	raw, err := hex.DecodeString(balHex[2:])
+	if err != nil {
+		log.WithField("test", testName).WithError(err).Warn("Failed to hex-decode BlockAccessList, treating as 0 bytes")
+		return 0
+	}
+	return uint64(len(raw))
 }
