@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, BarChart3 } from 'lucide-react'
+import { ChevronRight, BarChart3, ArrowDown, ArrowUp } from 'lucide-react'
 import ReactECharts from 'echarts-for-react'
 import type { SuiteTest } from '@/api/types'
 import { compileQuery, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { formatBytes } from '@/utils/format'
+import { Pagination } from '@/components/shared/Pagination'
 
 export type PayloadSortColumn = 'name' | 'uncompressed' | 'bal' | 'snappy' | 'pct_bal' | 'ratio'
 export type PayloadSortDirection = 'asc' | 'desc'
@@ -42,9 +43,8 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
   const [query, setQuery] = useState('')
   const [sortBy, setSortBy] = useState<PayloadSortColumn>('uncompressed')
   const [sortDir, setSortDir] = useState<PayloadSortDirection>('desc')
-  // setSortBy / setSortDir wired in Task 18
-  void setSortBy
-  void setSortDir
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
   const rows = useMemo(() => {
     const all: PayloadRow[] = []
@@ -79,6 +79,37 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
   if (rows.length === 0) return null
 
   const maxUncompressed = Math.max(...rows.map((r) => r.uncompressed))
+
+  const pageStart = (page - 1) * pageSize
+  const pageEnd = pageStart + pageSize
+  const visible = sorted.slice(pageStart, pageEnd)
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+
+  function header(label: string, col: PayloadSortColumn, rightAlign = false) {
+    const active = sortBy === col
+    const Icon = active ? (sortDir === 'desc' ? ArrowDown : ArrowUp) : null
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          if (sortBy === col) {
+            setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+          } else {
+            setSortBy(col)
+            setSortDir('desc')
+          }
+          setPage(1)
+        }}
+        className={clsx(
+          'flex items-center gap-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400',
+          rightAlign && 'ml-auto',
+        )}
+      >
+        {label}
+        {Icon ? <Icon className="size-3" /> : null}
+      </button>
+    )
+  }
 
   return (
     <>
@@ -171,8 +202,52 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
             />
           </div>
 
-          <div className="rounded-sm border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-gray-700">
-            Table placeholder (Task 18 will fill this in) — {sorted.length} rows
+          <div className="overflow-x-auto rounded-sm border border-gray-200 dark:border-gray-700">
+            <table className="min-w-full">
+              <thead className="bg-gray-50/50 dark:bg-gray-800/30">
+                <tr>
+                  <th className="px-3 py-2 text-left">{header('Test', 'name')}</th>
+                  <th className="px-3 py-2 text-right">{header('Uncompressed', 'uncompressed', true)}</th>
+                  <th className="px-3 py-2 text-right">{header('BAL', 'bal', true)}</th>
+                  <th className="px-3 py-2 text-right">{header('Snappy', 'snappy', true)}</th>
+                  <th className="px-3 py-2 text-right">{header('% BAL', 'pct_bal', true)}</th>
+                  <th className="px-3 py-2 text-right">{header('Ratio', 'ratio', true)}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((r) => (
+                  <tr key={r.name} className="border-t border-gray-200 dark:border-gray-700">
+                    <td className="px-3 py-1.5 font-mono text-xs/5 text-gray-900 dark:text-gray-100">{r.name}</td>
+                    <td className="px-3 py-1.5 text-right text-sm/6 text-gray-700 dark:text-gray-300">{formatBytes(r.uncompressed)}</td>
+                    <td className="px-3 py-1.5 text-right text-sm/6 text-gray-700 dark:text-gray-300">{formatBytes(r.bal)}</td>
+                    <td className="px-3 py-1.5 text-right text-sm/6 text-gray-700 dark:text-gray-300">{formatBytes(r.snappy)}</td>
+                    <td className="px-3 py-1.5 text-right text-sm/6 text-gray-700 dark:text-gray-300">{r.pctBal.toFixed(1)}%</td>
+                    <td className="px-3 py-1.5 text-right text-sm/6 text-gray-700 dark:text-gray-300">{(r.ratio * 100).toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 flex items-center justify-end gap-3">
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(parseInt(e.target.value, 10))
+                setPage(1)
+              }}
+              className="rounded-sm border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+            >
+              {[20, 50, 100].map((s) => (
+                <option key={s} value={s}>
+                  {s} / page
+                </option>
+              ))}
+            </select>
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+            />
           </div>
         </div>
       )}
