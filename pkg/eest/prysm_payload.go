@@ -27,6 +27,8 @@ func EestToPrysmPayload(version int, ep *ExecutionPayload) (PrysmPayloadMarshale
 	switch version {
 	case 1:
 		return toPrysmBellatrix(ep)
+	case 2:
+		return toPrysmCapella(ep)
 	case 3:
 		return toPrysmDeneb(ep)
 	default:
@@ -107,6 +109,34 @@ func toPrysmBellatrix(ep *ExecutionPayload) (*enginev1.ExecutionPayload, error) 
 		BaseFeePerGas: baseFee,
 		BlockHash:     blockHash,
 		Transactions:  transactions,
+	}, nil
+}
+
+func toPrysmCapella(ep *ExecutionPayload) (*enginev1.ExecutionPayloadCapella, error) {
+	bell, err := toPrysmBellatrix(ep)
+	if err != nil {
+		return nil, err
+	}
+	withdrawals, err := convertWithdrawals(ep.Withdrawals)
+	if err != nil {
+		return nil, err
+	}
+	return &enginev1.ExecutionPayloadCapella{
+		ParentHash:    bell.ParentHash,
+		FeeRecipient:  bell.FeeRecipient,
+		StateRoot:     bell.StateRoot,
+		ReceiptsRoot:  bell.ReceiptsRoot,
+		LogsBloom:     bell.LogsBloom,
+		PrevRandao:    bell.PrevRandao,
+		BlockNumber:   bell.BlockNumber,
+		GasLimit:      bell.GasLimit,
+		GasUsed:       bell.GasUsed,
+		Timestamp:     bell.Timestamp,
+		ExtraData:     bell.ExtraData,
+		BaseFeePerGas: bell.BaseFeePerGas,
+		BlockHash:     bell.BlockHash,
+		Transactions:  bell.Transactions,
+		Withdrawals:   withdrawals,
 	}, nil
 }
 
