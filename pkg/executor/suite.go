@@ -266,6 +266,15 @@ func CreateSuiteOutput(
 				// Merge opcode data from prepared tests into existing entries.
 				mergeOpcodeData(existing.Tests, prepared)
 
+				MergePayloadSizes(log, existing.Tests, func(testName string) []string {
+					testReqPath := filepath.Join(suiteDir, testName, "test.request")
+					data, err := os.ReadFile(testReqPath)
+					if err != nil {
+						return nil
+					}
+					return splitNonEmptyLines(string(data))
+				})
+
 				info.Tests = existing.Tests
 			}
 		}
