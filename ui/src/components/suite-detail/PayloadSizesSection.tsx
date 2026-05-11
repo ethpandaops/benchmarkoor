@@ -114,7 +114,9 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
   return (
     <>
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
       >
         <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', expanded && 'rotate-90')} />
@@ -211,7 +213,7 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
                   <th className="px-3 py-2 text-right">{header('BAL', 'bal', true)}</th>
                   <th className="px-3 py-2 text-right">{header('Snappy', 'snappy', true)}</th>
                   <th className="px-3 py-2 text-right">{header('% BAL', 'pct_bal', true)}</th>
-                  <th className="px-3 py-2 text-right">{header('Ratio', 'ratio', true)}</th>
+                  <th className="px-3 py-2 text-right" title="Snappy-compressed size as a percentage of uncompressed">{header('Snappy %', 'ratio', true)}</th>
                 </tr>
               </thead>
               <tbody>
