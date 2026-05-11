@@ -558,3 +558,22 @@ client:
     - id: placeholder
       client: geth
 ```
+
+## SuiteTest
+
+### Engine payload sizes
+
+Each `SuiteTest` entry includes three suite-level payload-size fields, computed
+once per suite and identical across clients:
+
+- `payload_size_bytes` — SSZ-encoded executionPayload length (with the inline
+  `BlockAccessList` included as one field of the payload), summed across all
+  `engine_newPayload*` calls in the test step.
+- `payload_size_bytes_snappy` — snappy compression of those same SSZ bytes
+  (matches consensus-layer gossip transport).
+- `bal_size_bytes` — uncompressed byte length of the `BlockAccessList` field
+  (already SSZ-serialized in the source fixture as a hex string).
+
+Fields are omitted from the JSON when zero, so consumers should treat
+"missing" and "0" equivalently. Tests with no `engine_newPayload*` lines, or
+whose payload version is unsupported, leave all three fields at zero.
