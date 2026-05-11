@@ -25,11 +25,89 @@ type PrysmPayloadMarshaler interface {
 // 5/6 (Gloas, BAL-bearing). See plan tasks for each fork.
 func EestToPrysmPayload(version int, ep *ExecutionPayload) (PrysmPayloadMarshaler, error) {
 	switch version {
+	case 1:
+		return toPrysmBellatrix(ep)
 	case 3:
 		return toPrysmDeneb(ep)
 	default:
 		return nil, fmt.Errorf("unsupported newPayload version: %d", version)
 	}
+}
+
+func toPrysmBellatrix(ep *ExecutionPayload) (*enginev1.ExecutionPayload, error) {
+	parentHash, err := decodeHash32(ep.ParentHash, "parentHash")
+	if err != nil {
+		return nil, err
+	}
+	feeRecipient, err := decodeHash20(ep.FeeRecipient, "feeRecipient")
+	if err != nil {
+		return nil, err
+	}
+	stateRoot, err := decodeHash32(ep.StateRoot, "stateRoot")
+	if err != nil {
+		return nil, err
+	}
+	receiptsRoot, err := decodeHash32(ep.ReceiptsRoot, "receiptsRoot")
+	if err != nil {
+		return nil, err
+	}
+	logsBloom, err := decodeBytesN(ep.LogsBloom, 256, "logsBloom")
+	if err != nil {
+		return nil, err
+	}
+	prevRandao, err := decodeHash32(ep.PrevRandao, "prevRandao")
+	if err != nil {
+		return nil, err
+	}
+	blockNumber, err := decodeUint64(ep.BlockNumber, "blockNumber")
+	if err != nil {
+		return nil, err
+	}
+	gasLimit, err := decodeUint64(ep.GasLimit, "gasLimit")
+	if err != nil {
+		return nil, err
+	}
+	gasUsed, err := decodeUint64(ep.GasUsed, "gasUsed")
+	if err != nil {
+		return nil, err
+	}
+	timestamp, err := decodeUint64(ep.Timestamp, "timestamp")
+	if err != nil {
+		return nil, err
+	}
+	extraData, err := decodeBytes(ep.ExtraData, "extraData")
+	if err != nil {
+		return nil, err
+	}
+	baseFee, err := decodeUint256LE(ep.BaseFeePerGas, "baseFeePerGas")
+	if err != nil {
+		return nil, err
+	}
+	blockHash, err := decodeHash32(ep.BlockHash, "blockHash")
+	if err != nil {
+		return nil, err
+	}
+	transactions, err := decodeHexList(ep.Transactions, "transactions")
+	if err != nil {
+		return nil, err
+	}
+
+	return &enginev1.ExecutionPayload{
+		ParentHash:    parentHash,
+		FeeRecipient:  feeRecipient,
+		StateRoot:     stateRoot,
+		ReceiptsRoot:  receiptsRoot,
+		LogsBloom:     logsBloom,
+		PrevRandao:    prevRandao,
+		BlockNumber:   blockNumber,
+		GasLimit:      gasLimit,
+		GasUsed:       gasUsed,
+		Timestamp:     timestamp,
+		ExtraData:     extraData,
+		BaseFeePerGas: baseFee,
+		BlockHash:     blockHash,
+		Transactions:  transactions,
+	}, nil
 }
 
 func toPrysmDeneb(ep *ExecutionPayload) (*enginev1.ExecutionPayloadDeneb, error) {
