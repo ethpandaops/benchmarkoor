@@ -27,6 +27,8 @@ func TestExtractNewPayloadLines_IgnoresMalformed(t *testing.T) {
 		`{"jsonrpc":"2.0","method":"engine_newPayloadV3","params":[{}],"id":1}`,
 		`not even json`,
 		`{"jsonrpc":"2.0","method":"engine_forkchoiceUpdatedV3","params":[],"id":2}`,
+		`{"jsonrpc":"2.0","method":"engine_newPayloadVabc","params":[{}],"id":3}`,
+		`{"jsonrpc":"2.0","method":"engine_newPayloadV0","params":[{}],"id":4}`,
 	}
 	got := ExtractNewPayloadLines(lines)
 	assert.Len(t, got, 1)
@@ -116,6 +118,7 @@ func TestComputePayloadSizes_BAL(t *testing.T) {
 		BlockAccessList: balHex,
 	}
 	epJSON, _ := json.Marshal(ep)
+	// Use V6 specifically — BAL was introduced in Gloas (V5/V6 in our converter).
 	line := fmt.Sprintf(`{"jsonrpc":"2.0","method":"engine_newPayloadV6","params":[%s],"id":1}`, epJSON)
 	sizes := ComputePayloadSizes(log, "test_x", []string{line})
 	assert.Equal(t, uint64(1024), sizes.BALBytes)
@@ -163,4 +166,32 @@ func TestMergePayloadSizes_SkipsAlreadyPopulated(t *testing.T) {
 	MergePayloadSizes(log, existing, lineProvider)
 	assert.False(t, called, "should not invoke provider for already-populated entries")
 	assert.Equal(t, uint64(999), existing[0].PayloadSizeBytes)
+}
+
+func TestComputePayloadSizes_UnknownVersion(t *testing.T) {
+	// Build a valid V99 engine_newPayload line that will fail dispatcher version check.
+	ep := eest.ExecutionPayload{
+		ParentHash:    "0x" + hexN("11", 32),
+		FeeRecipient:  "0x" + hexN("22", 20),
+		StateRoot:     "0x" + hexN("33", 32),
+		ReceiptsRoot:  "0x" + hexN("44", 32),
+		LogsBloom:     "0x" + hexN("00", 256),
+		PrevRandao:    "0x" + hexN("55", 32),
+		BlockNumber:   "0x10",
+		GasLimit:      "0x1000000",
+		GasUsed:       "0x800000",
+		Timestamp:     "0x65000000",
+		ExtraData:     "0x",
+		BaseFeePerGas: "0x7",
+		BlockHash:     "0x" + hexN("66", 32),
+		Transactions:  []string{},
+	}
+	epJSON, _ := json.Marshal(ep)
+	line := fmt.Sprintf(`{"jsonrpc":"2.0","method":"engine_newPayloadV99","params":[%s],"id":1}`, epJSON)
+	log := logrus.New()
+	sizes := ComputePayloadSizes(log, "test_x", []string{line})
+	// All three fields should be zero — the version is rejected by EestToPrysmPayload.
+	assert.Equal(t, uint64(0), sizes.PayloadBytes)
+	assert.Equal(t, uint64(0), sizes.SnappyBytes)
+	assert.Equal(t, uint64(0), sizes.BALBytes)
 }
