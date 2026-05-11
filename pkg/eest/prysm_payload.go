@@ -31,6 +31,8 @@ func EestToPrysmPayload(version int, ep *ExecutionPayload) (PrysmPayloadMarshale
 		return toPrysmCapella(ep)
 	case 3:
 		return toPrysmDeneb(ep)
+	case 4:
+		return toPrysmElectra(ep)
 	default:
 		return nil, fmt.Errorf("unsupported newPayload version: %d", version)
 	}
@@ -232,6 +234,17 @@ func toPrysmDeneb(ep *ExecutionPayload) (*enginev1.ExecutionPayloadDeneb, error)
 		BlobGasUsed:   blobGasUsed,
 		ExcessBlobGas: excessBlobGas,
 	}, nil
+}
+
+func toPrysmElectra(ep *ExecutionPayload) (PrysmPayloadMarshaler, error) {
+	// V4's executionPayload is structurally identical to Deneb's.
+	// Electra-specific data (deposit/withdrawal/consolidation requests)
+	// travels as a SEPARATE engine API param (executionRequests),
+	// not inside the payload struct.
+	//
+	// Prysm does not export a distinct ExecutionPayloadElectra type —
+	// it reuses ExecutionPayloadDeneb for the payload portion.
+	return toPrysmDeneb(ep)
 }
 
 // --- Helpers below ---

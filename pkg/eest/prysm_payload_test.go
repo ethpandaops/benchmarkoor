@@ -80,6 +80,33 @@ func TestEestToPrysmPayload_V2_Capella(t *testing.T) {
 	assert.Greater(t, len(b), 100)
 }
 
+func TestEestToPrysmPayload_V4_Electra(t *testing.T) {
+	ep := &ExecutionPayload{
+		ParentHash:    "0x1111111111111111111111111111111111111111111111111111111111111111",
+		FeeRecipient:  "0x2222222222222222222222222222222222222222",
+		StateRoot:     "0x3333333333333333333333333333333333333333333333333333333333333333",
+		ReceiptsRoot:  "0x4444444444444444444444444444444444444444444444444444444444444444",
+		LogsBloom:     "0x" + repeatHex("00", 256),
+		PrevRandao:    "0x5555555555555555555555555555555555555555555555555555555555555555",
+		BlockNumber:   "0x10",
+		GasLimit:      "0x1000000",
+		GasUsed:       "0x800000",
+		Timestamp:     "0x65000000",
+		ExtraData:     "0x",
+		BaseFeePerGas: "0x7",
+		BlockHash:     "0x6666666666666666666666666666666666666666666666666666666666666666",
+		Transactions:  []string{"0xdead"},
+		Withdrawals:   []*Withdrawal{},
+		BlobGasUsed:   "0x20000",
+		ExcessBlobGas: "0x40000",
+	}
+	m, err := EestToPrysmPayload(4, ep)
+	require.NoError(t, err)
+	b, err := m.MarshalSSZ()
+	require.NoError(t, err)
+	assert.Greater(t, len(b), 100)
+}
+
 func TestEestToPrysmPayload_V1_Bellatrix(t *testing.T) {
 	ep := &ExecutionPayload{
 		ParentHash:    "0x1111111111111111111111111111111111111111111111111111111111111111",
