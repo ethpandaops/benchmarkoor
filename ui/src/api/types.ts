@@ -461,6 +461,9 @@ export interface SuiteTest {
   cleanup?: SuiteFile
   eest?: SuiteTestEEST
   opcode_count?: Record<string, number>
+  payload_size_bytes?: number
+  payload_size_bytes_snappy?: number
+  bal_size_bytes?: number
 }
 
 export interface SourceInfo {
