@@ -132,8 +132,35 @@ func TestEestToPrysmPayload_Gloas_EmptyBAL(t *testing.T) {
 	}
 	m, err := EestToPrysmPayload(6, ep)
 	require.NoError(t, err)
-	_, err = m.MarshalSSZ()
+	b, err := m.MarshalSSZ()
 	require.NoError(t, err)
+	assert.Greater(t, len(b), 500, "expected non-trivial encoded size for empty-BAL Gloas payload")
+}
+
+func TestEestToPrysmPayload_Gloas_V5(t *testing.T) {
+	// Smoke test ensuring version 5 dispatches to Gloas (same as version 6).
+	ep := &ExecutionPayload{
+		ParentHash:    "0x1111111111111111111111111111111111111111111111111111111111111111",
+		FeeRecipient:  "0x2222222222222222222222222222222222222222",
+		StateRoot:     "0x3333333333333333333333333333333333333333333333333333333333333333",
+		ReceiptsRoot:  "0x4444444444444444444444444444444444444444444444444444444444444444",
+		LogsBloom:     "0x" + repeatHex("00", 256),
+		PrevRandao:    "0x5555555555555555555555555555555555555555555555555555555555555555",
+		BlockNumber:   "0x10",
+		GasLimit:      "0x1000000",
+		GasUsed:       "0x800000",
+		Timestamp:     "0x65000000",
+		ExtraData:     "0x",
+		BaseFeePerGas: "0x7",
+		BlockHash:     "0x6666666666666666666666666666666666666666666666666666666666666666",
+		Transactions:  []string{},
+		Withdrawals:   []*Withdrawal{},
+	}
+	m, err := EestToPrysmPayload(5, ep)
+	require.NoError(t, err)
+	b, err := m.MarshalSSZ()
+	require.NoError(t, err)
+	assert.Greater(t, len(b), 500)
 }
 
 func TestEestToPrysmPayload_V4_Electra(t *testing.T) {
