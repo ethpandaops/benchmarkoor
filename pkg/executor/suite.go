@@ -83,6 +83,11 @@ type SuiteTest struct {
 	Cleanup     *SuiteFile     `json:"cleanup,omitempty"`
 	EEST        *SuiteTestEEST `json:"eest,omitempty"`
 	OpcodeCount map[string]int `json:"opcode_count,omitempty"`
+
+	// Engine payload sizes — computed once per suite. Same across clients.
+	PayloadSizeBytes       uint64 `json:"payload_size_bytes,omitempty"`
+	PayloadSizeBytesSnappy uint64 `json:"payload_size_bytes_snappy,omitempty"`
+	BALSizeBytes           uint64 `json:"bal_size_bytes,omitempty"`
 }
 
 // ComputeSuiteHash computes a hash of all test file contents.

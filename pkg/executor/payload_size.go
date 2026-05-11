@@ -119,3 +119,26 @@ func balByteLen(log logrus.FieldLogger, testName, balHex string) uint64 {
 	}
 	return uint64(len(raw))
 }
+
+// MergePayloadSizes populates the three payload-size fields on tests that
+// currently have all-zero values. The lineProvider callback returns the
+// test-step lines for a given test name (used so callers can fetch from
+// disk or from memory as appropriate).
+//
+// Tests with any non-zero size field are left alone (idempotent re-run).
+func MergePayloadSizes(log logrus.FieldLogger, tests []SuiteTest, lineProvider func(name string) []string) {
+	for i := range tests {
+		t := &tests[i]
+		if t.PayloadSizeBytes != 0 || t.PayloadSizeBytesSnappy != 0 || t.BALSizeBytes != 0 {
+			continue
+		}
+		lines := lineProvider(t.Name)
+		if len(lines) == 0 {
+			continue
+		}
+		sizes := ComputePayloadSizes(log, t.Name, lines)
+		t.PayloadSizeBytes = sizes.PayloadBytes
+		t.PayloadSizeBytesSnappy = sizes.SnappyBytes
+		t.BALSizeBytes = sizes.BALBytes
+	}
+}

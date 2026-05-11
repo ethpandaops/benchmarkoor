@@ -130,3 +130,37 @@ func TestComputePayloadSizes_SumsAcrossMultiple(t *testing.T) {
 	assert.Equal(t, single.PayloadBytes*2, double.PayloadBytes)
 	assert.Equal(t, single.SnappyBytes*2, double.SnappyBytes)
 }
+
+func TestMergePayloadSizes_FillsMissing(t *testing.T) {
+	existing := []SuiteTest{
+		{Name: "test_a"},
+		{Name: "test_b"},
+	}
+	lineProvider := func(name string) []string {
+		switch name {
+		case "test_a":
+			return []string{minimalDenebRequest(t)}
+		default:
+			return nil
+		}
+	}
+	log := logrus.New()
+	MergePayloadSizes(log, existing, lineProvider)
+	assert.Greater(t, existing[0].PayloadSizeBytes, uint64(0))
+	assert.Equal(t, uint64(0), existing[1].PayloadSizeBytes)
+}
+
+func TestMergePayloadSizes_SkipsAlreadyPopulated(t *testing.T) {
+	existing := []SuiteTest{
+		{Name: "test_a", PayloadSizeBytes: 999, PayloadSizeBytesSnappy: 100, BALSizeBytes: 50},
+	}
+	called := false
+	lineProvider := func(name string) []string {
+		called = true
+		return []string{minimalDenebRequest(t)}
+	}
+	log := logrus.New()
+	MergePayloadSizes(log, existing, lineProvider)
+	assert.False(t, called, "should not invoke provider for already-populated entries")
+	assert.Equal(t, uint64(999), existing[0].PayloadSizeBytes)
+}
