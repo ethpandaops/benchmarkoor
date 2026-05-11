@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	enginev1 "github.com/OffchainLabs/prysm/v6/proto/engine/v1"
 	primitives "github.com/OffchainLabs/prysm/v6/consensus-types/primitives"
+	enginev1 "github.com/OffchainLabs/prysm/v6/proto/engine/v1"
 )
 
 // PrysmPayloadMarshaler is the minimum interface we need from Prysm's
@@ -121,6 +121,9 @@ func toPrysmCapella(ep *ExecutionPayload) (*enginev1.ExecutionPayloadCapella, er
 	if err != nil {
 		return nil, err
 	}
+	// Keep this field list in sync with toPrysmBellatrix — any field
+	// added to ExecutionPayloadCapella shared with Bellatrix must be
+	// copied through here.
 	return &enginev1.ExecutionPayloadCapella{
 		ParentHash:    bell.ParentHash,
 		FeeRecipient:  bell.FeeRecipient,
@@ -293,6 +296,9 @@ func decodeUint64(s, field string) (uint64, error) {
 // decodeUint256LE expects a 0x-prefixed hex integer and returns it as a
 // little-endian 32-byte slice (SSZ uint256 wire format).
 func decodeUint256LE(s, field string) ([]byte, error) {
+	if s == "" {
+		return make([]byte, 32), nil
+	}
 	if !strings.HasPrefix(s, "0x") {
 		return nil, fmt.Errorf("%s: missing 0x prefix", field)
 	}
