@@ -234,8 +234,11 @@ func CreateSuiteOutput(
 			}
 
 			if test.Test != nil {
-				// Compute payload sizes from the test step's lines.
-				lines := stepLinesForTest(test.Test)
+				// stepLinesForTest reads from the SOURCE step (Provider in-memory for
+				// EEST, or the source file path for file-backed sources) — not from
+				// the just-copied <suiteDir>/<test>/test.request. Both contain the
+				// same bytes; reading the source avoids depending on the copy order.
+				lines := stepLinesForTest(log, test.Test)
 				sizes := ComputePayloadSizes(
 					log.WithField("component", "suite-payload-sizes"),
 					test.Name,
@@ -270,6 +273,7 @@ func CreateSuiteOutput(
 					testReqPath := filepath.Join(suiteDir, testName, "test.request")
 					data, err := os.ReadFile(testReqPath)
 					if err != nil {
+						log.WithError(err).WithField("path", testReqPath).Warn("Failed to read test.request for payload-size merge")
 						return nil
 					}
 					return splitNonEmptyLines(string(data))

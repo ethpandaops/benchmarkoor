@@ -123,8 +123,9 @@ func balByteLen(log logrus.FieldLogger, testName, balHex string) uint64 {
 
 // stepLinesForTest returns the JSON-RPC lines of a test step. For provider-
 // backed steps it uses Provider.Lines(); for file-backed steps it reads the
-// file from disk and splits on newlines.
-func stepLinesForTest(step *StepFile) []string {
+// file from disk and splits on newlines. A read failure on a file-backed step
+// is logged and returns an empty slice (zero payload-size fields).
+func stepLinesForTest(log logrus.FieldLogger, step *StepFile) []string {
 	if step == nil {
 		return nil
 	}
@@ -136,6 +137,7 @@ func stepLinesForTest(step *StepFile) []string {
 	}
 	data, err := os.ReadFile(step.Path)
 	if err != nil {
+		log.WithError(err).WithField("path", step.Path).Warn("Failed to read step file for payload-size computation")
 		return nil
 	}
 	return splitNonEmptyLines(string(data))
