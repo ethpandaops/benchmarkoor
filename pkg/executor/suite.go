@@ -13,6 +13,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/eest"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
+	"github.com/sirupsen/logrus"
 )
 
 // SuiteInfo contains information about a test suite.
@@ -149,6 +150,7 @@ func getStepContent(step *StepFile) ([]byte, error) {
 
 // CreateSuiteOutput creates the suite directory structure with copied files and summary.
 func CreateSuiteOutput(
+	log logrus.FieldLogger,
 	resultsDir, hash string,
 	info *SuiteInfo,
 	prepared *PreparedSource,
@@ -229,6 +231,19 @@ func CreateSuiteOutput(
 				}
 
 				suiteTest.Cleanup = suiteFile
+			}
+
+			if test.Test != nil {
+				// Compute payload sizes from the test step's lines.
+				lines := stepLinesForTest(test.Test)
+				sizes := ComputePayloadSizes(
+					log.WithField("component", "suite-payload-sizes"),
+					test.Name,
+					lines,
+				)
+				suiteTest.PayloadSizeBytes = sizes.PayloadBytes
+				suiteTest.PayloadSizeBytesSnappy = sizes.SnappyBytes
+				suiteTest.BALSizeBytes = sizes.BALBytes
 			}
 
 			info.Tests = append(info.Tests, suiteTest)

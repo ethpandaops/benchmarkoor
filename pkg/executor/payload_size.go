@@ -3,6 +3,7 @@ package executor
 import (
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"strconv"
 	"strings"
 
@@ -118,6 +119,38 @@ func balByteLen(log logrus.FieldLogger, testName, balHex string) uint64 {
 		return 0
 	}
 	return uint64(len(raw))
+}
+
+// stepLinesForTest returns the JSON-RPC lines of a test step. For provider-
+// backed steps it uses Provider.Lines(); for file-backed steps it reads the
+// file from disk and splits on newlines.
+func stepLinesForTest(step *StepFile) []string {
+	if step == nil {
+		return nil
+	}
+	if step.Provider != nil {
+		return step.Provider.Lines()
+	}
+	if step.Path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(step.Path)
+	if err != nil {
+		return nil
+	}
+	return splitNonEmptyLines(string(data))
+}
+
+func splitNonEmptyLines(s string) []string {
+	raw := strings.Split(s, "\n")
+	out := make([]string, 0, len(raw))
+	for _, line := range raw {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // MergePayloadSizes populates the three payload-size fields on tests that

@@ -257,7 +257,7 @@ func (e *executor) createSuiteOutput() error {
 	}
 
 	// Create suite output directory.
-	if err := CreateSuiteOutput(e.cfg.ResultsDir, hash, suiteInfo, e.prepared, e.cfg.ResultsOwner); err != nil {
+	if err := CreateSuiteOutput(e.log, e.cfg.ResultsDir, hash, suiteInfo, e.prepared, e.cfg.ResultsOwner); err != nil {
 		return fmt.Errorf("creating suite output: %w", err)
 	}
 
