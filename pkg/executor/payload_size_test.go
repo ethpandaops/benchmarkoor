@@ -8,6 +8,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/eest"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractNewPayloadLines(t *testing.T) {
@@ -75,27 +76,38 @@ func hexN(pair string, n int) string {
 	return string(out)
 }
 
-func TestComputePayloadSizes_SingleNewPayload(t *testing.T) {
+func TestComputePayloadSizeBuckets_SingleNewPayload(t *testing.T) {
 	log := logrus.New()
 	lines := []string{minimalDenebRequest(t)}
-	sizes := ComputePayloadSizes(log, "test_x", lines)
-	assert.Greater(t, sizes.PayloadBytes, uint64(100))
-	assert.Greater(t, sizes.SnappyBytes, uint64(0))
-	assert.LessOrEqual(t, sizes.SnappyBytes, sizes.PayloadBytes)
-	assert.Equal(t, uint64(0), sizes.BALBytes) // Deneb has no BAL
+	sizes := ComputePayloadSizeBuckets(log, "test_x", lines)
+	require.Len(t, sizes.SSZFull, 1)
+	require.Len(t, sizes.SSZFullSnappy, 1)
+	require.Len(t, sizes.SSZBAL, 1)
+	require.Len(t, sizes.JSONFull, 1)
+	require.Len(t, sizes.JSONBAL, 1)
+	assert.Greater(t, sizes.SSZFull[0], uint64(100))
+	assert.Greater(t, sizes.SSZFullSnappy[0], uint64(0))
+	assert.LessOrEqual(t, sizes.SSZFullSnappy[0], sizes.SSZFull[0])
+	assert.Equal(t, uint64(0), sizes.SSZBAL[0])  // Deneb has no BAL
+	assert.Equal(t, uint64(0), sizes.JSONBAL[0]) // Deneb has no BAL
+	// JSON is verbose vs SSZ — same payload should be strictly larger in JSON.
+	assert.Greater(t, sizes.JSONFull[0], sizes.SSZFull[0])
 }
 
-func TestComputePayloadSizes_NoNewPayloadLines(t *testing.T) {
+func TestComputePayloadSizeBuckets_NoNewPayloadLines(t *testing.T) {
 	log := logrus.New()
-	sizes := ComputePayloadSizes(log, "test_x", []string{
+	sizes := ComputePayloadSizeBuckets(log, "test_x", []string{
 		`{"jsonrpc":"2.0","method":"engine_forkchoiceUpdatedV3","params":[],"id":1}`,
 	})
-	assert.Equal(t, uint64(0), sizes.PayloadBytes)
-	assert.Equal(t, uint64(0), sizes.SnappyBytes)
-	assert.Equal(t, uint64(0), sizes.BALBytes)
+	assert.Empty(t, sizes.SSZFull)
+	assert.Empty(t, sizes.SSZFullSnappy)
+	assert.Empty(t, sizes.SSZBAL)
+	assert.Empty(t, sizes.JSONFull)
+	assert.Empty(t, sizes.JSONBAL)
+	assert.False(t, sizes.HasData())
 }
 
-func TestComputePayloadSizes_BAL(t *testing.T) {
+func TestComputePayloadSizeBuckets_BAL(t *testing.T) {
 	log := logrus.New()
 	balContent := hexN("ab", 1024) // 1024 bytes when decoded
 	balHex := "0x" + balContent
@@ -120,18 +132,28 @@ func TestComputePayloadSizes_BAL(t *testing.T) {
 	epJSON, _ := json.Marshal(ep)
 	// Use V6 specifically — BAL was introduced in Gloas (V5/V6 in our converter).
 	line := fmt.Sprintf(`{"jsonrpc":"2.0","method":"engine_newPayloadV6","params":[%s],"id":1}`, epJSON)
-	sizes := ComputePayloadSizes(log, "test_x", []string{line})
-	assert.Equal(t, uint64(1024), sizes.BALBytes)
-	assert.Greater(t, sizes.PayloadBytes, uint64(1024))
+	sizes := ComputePayloadSizeBuckets(log, "test_x", []string{line})
+	require.Len(t, sizes.SSZBAL, 1)
+	require.Len(t, sizes.SSZFull, 1)
+	require.Len(t, sizes.JSONBAL, 1)
+	assert.Equal(t, uint64(1024), sizes.SSZBAL[0])
+	assert.Greater(t, sizes.SSZFull[0], uint64(1024))
+	// JSONBAL = hex chars: 2 per byte + "0x" prefix = 2*1024 + 2 = 2050.
+	assert.Equal(t, uint64(2050), sizes.JSONBAL[0])
 }
 
-func TestComputePayloadSizes_SumsAcrossMultiple(t *testing.T) {
+func TestComputePayloadSizeBuckets_OneEntryPerNewPayload(t *testing.T) {
 	log := logrus.New()
 	line := minimalDenebRequest(t)
-	single := ComputePayloadSizes(log, "test_x", []string{line})
-	double := ComputePayloadSizes(log, "test_x", []string{line, line})
-	assert.Equal(t, single.PayloadBytes*2, double.PayloadBytes)
-	assert.Equal(t, single.SnappyBytes*2, double.SnappyBytes)
+	single := ComputePayloadSizeBuckets(log, "test_x", []string{line})
+	double := ComputePayloadSizeBuckets(log, "test_x", []string{line, line})
+	require.Len(t, single.SSZFull, 1)
+	require.Len(t, double.SSZFull, 2)
+	// Identical input lines produce identical per-block values.
+	assert.Equal(t, single.SSZFull[0], double.SSZFull[0])
+	assert.Equal(t, single.SSZFull[0], double.SSZFull[1])
+	assert.Equal(t, single.SSZFullSnappy[0], double.SSZFullSnappy[0])
+	assert.Equal(t, single.SSZFullSnappy[0], double.SSZFullSnappy[1])
 }
 
 func TestMergePayloadSizes_FillsMissing(t *testing.T) {
@@ -139,7 +161,10 @@ func TestMergePayloadSizes_FillsMissing(t *testing.T) {
 		{Name: "test_a"},
 		{Name: "test_b"},
 	}
-	lineProvider := func(name string) []string {
+	lineProvider := func(name string, step StepKind) []string {
+		if step != StepKindTest {
+			return nil
+		}
 		switch name {
 		case "test_a":
 			return []string{minimalDenebRequest(t)}
@@ -149,26 +174,53 @@ func TestMergePayloadSizes_FillsMissing(t *testing.T) {
 	}
 	log := logrus.New()
 	MergePayloadSizes(log, existing, lineProvider)
-	assert.Greater(t, existing[0].PayloadSizeBytes, uint64(0))
-	assert.Equal(t, uint64(0), existing[1].PayloadSizeBytes)
+	require.NotNil(t, existing[0].PayloadSizes)
+	require.NotNil(t, existing[0].PayloadSizes.Test)
+	assert.Greater(t, existing[0].PayloadSizes.Test.SSZFull[0], uint64(0))
+	assert.Nil(t, existing[1].PayloadSizes)
 }
 
 func TestMergePayloadSizes_SkipsAlreadyPopulated(t *testing.T) {
+	preExisting := &PayloadSizes{
+		Test: &PayloadSizeBuckets{SSZFull: []uint64{999}, SSZFullSnappy: []uint64{100}, SSZBAL: []uint64{50}},
+	}
 	existing := []SuiteTest{
-		{Name: "test_a", PayloadSizeBytes: 999, PayloadSizeBytesSnappy: 100, BALSizeBytes: 50},
+		{Name: "test_a", PayloadSizes: preExisting},
 	}
 	called := false
-	lineProvider := func(name string) []string {
+	lineProvider := func(name string, step StepKind) []string {
 		called = true
 		return []string{minimalDenebRequest(t)}
 	}
 	log := logrus.New()
 	MergePayloadSizes(log, existing, lineProvider)
 	assert.False(t, called, "should not invoke provider for already-populated entries")
-	assert.Equal(t, uint64(999), existing[0].PayloadSizeBytes)
+	assert.Equal(t, uint64(999), existing[0].PayloadSizes.Test.SSZFull[0])
 }
 
-func TestComputePayloadSizes_UnknownVersion(t *testing.T) {
+func TestMergePayloadSizes_PerStep(t *testing.T) {
+	existing := []SuiteTest{{Name: "test_a"}}
+	lineProvider := func(name string, step StepKind) []string {
+		switch step {
+		case StepKindSetup:
+			return []string{minimalDenebRequest(t)}
+		case StepKindTest:
+			return []string{minimalDenebRequest(t), minimalDenebRequest(t)}
+		default:
+			return nil
+		}
+	}
+	log := logrus.New()
+	MergePayloadSizes(log, existing, lineProvider)
+	require.NotNil(t, existing[0].PayloadSizes)
+	require.NotNil(t, existing[0].PayloadSizes.Setup)
+	require.NotNil(t, existing[0].PayloadSizes.Test)
+	assert.Nil(t, existing[0].PayloadSizes.Cleanup)
+	assert.Len(t, existing[0].PayloadSizes.Setup.SSZFull, 1)
+	assert.Len(t, existing[0].PayloadSizes.Test.SSZFull, 2)
+}
+
+func TestComputePayloadSizeBuckets_UnknownVersion(t *testing.T) {
 	// Build a valid V99 engine_newPayload line that will fail dispatcher version check.
 	ep := eest.ExecutionPayload{
 		ParentHash:    "0x" + hexN("11", 32),
@@ -189,9 +241,12 @@ func TestComputePayloadSizes_UnknownVersion(t *testing.T) {
 	epJSON, _ := json.Marshal(ep)
 	line := fmt.Sprintf(`{"jsonrpc":"2.0","method":"engine_newPayloadV99","params":[%s],"id":1}`, epJSON)
 	log := logrus.New()
-	sizes := ComputePayloadSizes(log, "test_x", []string{line})
-	// All three fields should be zero — the version is rejected by EestToPrysmPayload.
-	assert.Equal(t, uint64(0), sizes.PayloadBytes)
-	assert.Equal(t, uint64(0), sizes.SnappyBytes)
-	assert.Equal(t, uint64(0), sizes.BALBytes)
+	sizes := ComputePayloadSizeBuckets(log, "test_x", []string{line})
+	// All three slices should be empty — the version is rejected by EestToPrysmPayload,
+	// so no per-block entries are appended.
+	assert.Empty(t, sizes.SSZFull)
+	assert.Empty(t, sizes.SSZFullSnappy)
+	assert.Empty(t, sizes.SSZBAL)
+	assert.Empty(t, sizes.JSONFull)
+	assert.Empty(t, sizes.JSONBAL)
 }

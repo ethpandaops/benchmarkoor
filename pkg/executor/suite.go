@@ -85,10 +85,11 @@ type SuiteTest struct {
 	EEST        *SuiteTestEEST `json:"eest,omitempty"`
 	OpcodeCount map[string]int `json:"opcode_count,omitempty"`
 
-	// Engine payload sizes — computed once per suite. Same across clients.
-	PayloadSizeBytes       uint64 `json:"payload_size_bytes,omitempty"`
-	PayloadSizeBytesSnappy uint64 `json:"payload_size_bytes_snappy,omitempty"`
-	BALSizeBytes           uint64 `json:"bal_size_bytes,omitempty"`
+	// Engine payload sizes per step — computed once per suite, same across
+	// clients. Each populated step exposes per-newPayload byte counts as
+	// {raw, bal, snappy} arrays (one element per engine_newPayload* line in
+	// step order). Steps with no newPayload activity are omitted.
+	PayloadSizes *PayloadSizes `json:"payload_sizes,omitempty"`
 }
 
 // ComputeSuiteHash computes a hash of all test file contents.
@@ -233,20 +234,46 @@ func CreateSuiteOutput(
 				suiteTest.Cleanup = suiteFile
 			}
 
-			if test.Test != nil {
-				// stepLinesForTest reads from the SOURCE step (Provider in-memory for
-				// EEST, or the source file path for file-backed sources) — not from
-				// the just-copied <suiteDir>/<test>/test.request. Both contain the
-				// same bytes; reading the source avoids depending on the copy order.
-				lines := stepLinesForTest(log, test.Test)
-				sizes := ComputePayloadSizes(
-					log.WithField("component", "suite-payload-sizes"),
-					test.Name,
-					lines,
-				)
-				suiteTest.PayloadSizeBytes = sizes.PayloadBytes
-				suiteTest.PayloadSizeBytesSnappy = sizes.SnappyBytes
-				suiteTest.BALSizeBytes = sizes.BALBytes
+			// Compute per-newPayload payload sizes for each step that has any.
+			// stepLinesForTest reads from the SOURCE step (Provider in-memory
+			// for EEST, or the source file path for file-backed sources) —
+			// not from the just-copied <suiteDir>/<test>/<step>.request. Both
+			// contain the same bytes; reading the source avoids depending on
+			// the copy order.
+			psLog := log.WithField("component", "suite-payload-sizes")
+			steps := []struct {
+				kind StepKind
+				file *StepFile
+			}{
+				{StepKindSetup, test.Setup},
+				{StepKindTest, test.Test},
+				{StepKindCleanup, test.Cleanup},
+			}
+			var ps PayloadSizes
+			anyData := false
+			for _, s := range steps {
+				if s.file == nil {
+					continue
+				}
+				lines := stepLinesForTest(psLog, s.file)
+				buckets := ComputePayloadSizeBuckets(psLog, test.Name, lines)
+				if !buckets.HasData() {
+					continue
+				}
+				b := buckets
+				switch s.kind {
+				case StepKindSetup:
+					ps.Setup = &b
+				case StepKindTest:
+					ps.Test = &b
+				case StepKindCleanup:
+					ps.Cleanup = &b
+				}
+				anyData = true
+			}
+			if anyData {
+				p := ps
+				suiteTest.PayloadSizes = &p
 			}
 
 			info.Tests = append(info.Tests, suiteTest)
@@ -269,11 +296,15 @@ func CreateSuiteOutput(
 				// Merge opcode data from prepared tests into existing entries.
 				mergeOpcodeData(existing.Tests, prepared)
 
-				MergePayloadSizes(log, existing.Tests, func(testName string) []string {
-					testReqPath := filepath.Join(suiteDir, testName, "test.request")
-					data, err := os.ReadFile(testReqPath)
+				MergePayloadSizes(log, existing.Tests, func(testName string, step StepKind) []string {
+					reqPath := filepath.Join(suiteDir, testName, string(step)+".request")
+					data, err := os.ReadFile(reqPath)
 					if err != nil {
-						log.WithError(err).WithField("path", testReqPath).Warn("Failed to read test.request for payload-size merge")
+						// Missing files are normal — most tests don't have setup/cleanup.
+						// Only warn for the test step where absence is genuinely unexpected.
+						if step == StepKindTest && !os.IsNotExist(err) {
+							log.WithError(err).WithField("path", reqPath).Warn("Failed to read test.request for payload-size merge")
+						}
 						return nil
 					}
 					return splitNonEmptyLines(string(data))

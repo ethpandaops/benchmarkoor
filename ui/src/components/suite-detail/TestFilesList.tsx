@@ -10,6 +10,7 @@ import { Modal } from '@/components/shared/Modal'
 import { TestName } from '@/components/shared/TestName'
 import { getOpcodeCategory, getCategoryColor } from '@/utils/opcodeCategories'
 import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
+import { formatBytes } from '@/utils/format'
 
 export type OpcodeSortMode = 'name' | 'count'
 
@@ -241,6 +242,119 @@ export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test
   )
 }
 
+// Payload-size panel for the test-details modal. Renders one table per
+// populated step (setup/test/cleanup), with one row per engine_newPayload
+// in that step plus a totals row. The three columns are the SSZ raw,
+// BAL, and snappy byte counts, each shown alongside its % of the SSZ
+// raw size for BAL/snappy rows.
+function PayloadSizesContent({ test }: { test: SuiteTest }) {
+  const ps = test.payload_sizes
+  if (!ps) return null
+  const steps: { label: string; buckets: NonNullable<typeof ps.test> }[] = []
+  if (ps.setup) steps.push({ label: 'Setup', buckets: ps.setup })
+  if (ps.test) steps.push({ label: 'Test', buckets: ps.test })
+  if (ps.cleanup) steps.push({ label: 'Cleanup', buckets: ps.cleanup })
+  if (steps.length === 0) return null
+
+  const pctCell = (numerator: number, denom: number) => {
+    if (denom <= 0) return null
+    return (
+      <span className="ml-1 text-xs/5 text-gray-500 dark:text-gray-400">
+        ({((numerator / denom) * 100).toFixed(1)}%)
+      </span>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Badge variant="default">Payload Sizes</Badge>
+        <span className="text-xs/5 text-gray-500 dark:text-gray-400">per engine_newPayload</span>
+      </div>
+      <div className="flex flex-col gap-4">
+        {steps.map(({ label, buckets }) => {
+          const n = Math.max(
+            buckets.ssz_full.length,
+            buckets.ssz_bal.length,
+            buckets.ssz_full_snappy.length,
+            buckets.json_full.length,
+            buckets.json_bal.length,
+          )
+          const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
+          const sszFullTotal = sum(buckets.ssz_full)
+          const sszBalTotal = sum(buckets.ssz_bal)
+          const sszSnappyTotal = sum(buckets.ssz_full_snappy)
+          const jsonFullTotal = sum(buckets.json_full)
+          const jsonBalTotal = sum(buckets.json_bal)
+          return (
+            <div key={label} className="overflow-x-auto rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+              <div className="border-b border-gray-200 px-4 py-2 text-sm/6 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
+                {label} step
+                <span className="ml-2 text-xs/5 font-normal text-gray-500 dark:text-gray-400">
+                  {n} newPayload{n === 1 ? '' : 's'}
+                </span>
+              </div>
+              <table className="min-w-full">
+                <thead className="bg-gray-50/50 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">
+                  <tr>
+                    <th className="w-12 px-3 py-2">#</th>
+                    <th className="px-3 py-2 text-right" title="Full SSZ-encoded ExecutionPayload (BAL inline)">SSZ</th>
+                    <th className="px-3 py-2 text-right" title="SSZ-encoded BlockAccessList, decoded from the wire hex">SSZ BAL</th>
+                    <th className="px-3 py-2 text-right" title="snappy(SSZ)">SSZ Snappy</th>
+                    <th className="border-l border-gray-200 px-3 py-2 text-right dark:border-gray-700" title="Canonical JSON of the same ExecutionPayload">JSON</th>
+                    <th className="px-3 py-2 text-right" title="BAL hex string length as it appears in JSON (no quotes)">JSON BAL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: n }).map((_, i) => {
+                    const sszFull = buckets.ssz_full[i] ?? 0
+                    const sszBal = buckets.ssz_bal[i] ?? 0
+                    const sszSnap = buckets.ssz_full_snappy[i] ?? 0
+                    const jsonFull = buckets.json_full[i] ?? 0
+                    const jsonBal = buckets.json_bal[i] ?? 0
+                    return (
+                      <tr key={i} className="border-t border-gray-200 dark:border-gray-700">
+                        <td className="px-3 py-1.5 font-mono text-xs/5 text-gray-500 dark:text-gray-400">#{i + 1}</td>
+                        <td className="px-3 py-1.5 text-right font-mono text-sm/6 text-gray-900 dark:text-gray-100">{formatBytes(sszFull)}</td>
+                        <td className="px-3 py-1.5 text-right font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                          {formatBytes(sszBal)}{pctCell(sszBal, sszFull)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                          {formatBytes(sszSnap)}{pctCell(sszSnap, sszFull)}
+                        </td>
+                        <td className="border-l border-gray-200 px-3 py-1.5 text-right font-mono text-sm/6 text-gray-900 dark:border-gray-700 dark:text-gray-100">{formatBytes(jsonFull)}</td>
+                        <td className="px-3 py-1.5 text-right font-mono text-sm/6 text-gray-900 dark:text-gray-100">
+                          {formatBytes(jsonBal)}{pctCell(jsonBal, jsonFull)}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {n > 1 && (
+                    <tr className="border-t-2 border-gray-300 bg-gray-50/50 dark:border-gray-600 dark:bg-gray-800/50">
+                      <td className="px-3 py-1.5 text-xs/5 font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-sm/6 font-semibold text-gray-900 dark:text-gray-100">{formatBytes(sszFullTotal)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-sm/6 font-semibold text-gray-900 dark:text-gray-100">
+                        {formatBytes(sszBalTotal)}{pctCell(sszBalTotal, sszFullTotal)}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono text-sm/6 font-semibold text-gray-900 dark:text-gray-100">
+                        {formatBytes(sszSnappyTotal)}{pctCell(sszSnappyTotal, sszFullTotal)}
+                      </td>
+                      <td className="border-l border-gray-200 px-3 py-1.5 text-right font-mono text-sm/6 font-semibold text-gray-900 dark:border-gray-700 dark:text-gray-100">{formatBytes(jsonFullTotal)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-sm/6 font-semibold text-gray-900 dark:text-gray-100">
+                        {formatBytes(jsonBalTotal)}{pctCell(jsonBalTotal, jsonFullTotal)}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // Component for displaying test steps content (for tests with setup/test/cleanup)
 function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: { suiteHash: string; test: SuiteTest; opcodeSort: OpcodeSortMode; onOpcodeSortChange: (sort: OpcodeSortMode) => void }) {
   const steps = [
@@ -249,7 +363,11 @@ function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: {
     { key: 'cleanup', label: 'Cleanup step', file: test.cleanup },
   ].filter((s) => s.file) as { key: string; label: string; file: SuiteFile }[]
 
-  const hasInfo = !!test.eest?.info || (test.opcode_count && Object.keys(test.opcode_count).length > 0)
+  const hasPayloadSizes = !!test.payload_sizes
+  const hasInfo =
+    !!test.eest?.info ||
+    (test.opcode_count && Object.keys(test.opcode_count).length > 0) ||
+    hasPayloadSizes
   if (steps.length === 0 && !hasInfo) {
     return <div className="p-4 text-sm/6 text-gray-500">No step files available</div>
   }
@@ -262,6 +380,7 @@ function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: {
         </div>
       </div>
       <EESTInfoContent test={test} opcodeSort={opcodeSort} onOpcodeSortChange={onOpcodeSortChange} />
+      <PayloadSizesContent test={test} />
       {steps.map(({ key, label, file }) => (
         <div key={key} className="flex flex-col gap-2">
           <div className="flex items-center gap-2">

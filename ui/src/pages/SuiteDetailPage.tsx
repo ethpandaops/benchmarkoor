@@ -1425,7 +1425,7 @@ export function SuiteDetailPage() {
                 />
               </div>
             )}
-            {suite.tests?.some((t) => t.payload_size_bytes || t.payload_size_bytes_snappy || t.bal_size_bytes) && (
+            {suite.tests?.some((t) => !!t.payload_sizes) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
                 <PayloadSizesSection tests={suite.tests ?? []} />
               </div>

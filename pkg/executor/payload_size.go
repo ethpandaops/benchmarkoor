@@ -61,24 +61,97 @@ func parseNewPayloadLine(line string) (int, *eest.ExecutionPayload, bool) {
 	return version, &ep, true
 }
 
-// PayloadSizes aggregates the per-test byte counts the UI surfaces.
-type PayloadSizes struct {
-	PayloadBytes uint64 // SSZ-encoded executionPayload (BAL inline)
-	SnappyBytes  uint64 // snappy compression of the SSZ bytes
-	BALBytes     uint64 // hex-decoded BlockAccessList content
+// PayloadSizeBuckets carries per-engine_newPayload byte counts for a single
+// step. Each slice has one element per engine_newPayload* line in step
+// order, so multi-block steps can be inspected block-by-block.
+//
+// Field semantics (suffix = what the bytes are):
+//   - SSZFull: full SSZ-encoded ExecutionPayload (BlockAccessList inline
+//     for Gloas+). Uncompressed.
+//   - SSZBAL: just the SSZ-encoded BlockAccessList sub-field, decoded from
+//     the hex on the wire (a subset of SSZFull). 0 for pre-Gloas payloads.
+//   - SSZFullSnappy: snappy(SSZFull) — same SSZ bytes after compression.
+//   - JSONFull: canonical JSON encoding of the same ExecutionPayload
+//     (json.Marshal output, no envelope, no whitespace).
+//   - JSONBAL: byte length of the BAL's hex string as it appears in JSON
+//     (e.g. "0xabc..." — chars only, not counting the surrounding JSON
+//     quotes). 0 for pre-Gloas payloads.
+//
+// JSON shape (one of the nested objects under "payload_sizes"):
+//
+//	{
+//	  "ssz_full": [...], "ssz_bal": [...], "ssz_full_snappy": [...],
+//	  "json_full": [...], "json_bal": [...]
+//	}
+type PayloadSizeBuckets struct {
+	SSZFull       []uint64 `json:"ssz_full"`
+	SSZBAL        []uint64 `json:"ssz_bal"`
+	SSZFullSnappy []uint64 `json:"ssz_full_snappy"`
+	JSONFull      []uint64 `json:"json_full"`
+	JSONBAL       []uint64 `json:"json_bal"`
 }
 
-// ComputePayloadSizes parses each engine_newPayloadV* line in the test step,
+// HasData returns true if any of the slices contain a non-zero entry.
+func (b *PayloadSizeBuckets) HasData() bool {
+	if b == nil {
+		return false
+	}
+	for _, slice := range [][]uint64{b.SSZFull, b.SSZBAL, b.SSZFullSnappy, b.JSONFull, b.JSONBAL} {
+		for _, v := range slice {
+			if v > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// PayloadSizes is the per-test container persisted under "payload_sizes" in
+// summary.json. Each step that actually contains engine_newPayload* lines
+// gets a populated nested object; steps with no newPayload activity are
+// omitted entirely.
+//
+// JSON shape:
+//
+//	"payload_sizes": {
+//	  "test":    {"raw": [...], "bal": [...], "snappy": [...]},
+//	  "setup":   {"raw": [...], "bal": [...], "snappy": [...]},
+//	  "cleanup": {"raw": [...], "bal": [...], "snappy": [...]}
+//	}
+type PayloadSizes struct {
+	Test    *PayloadSizeBuckets `json:"test,omitempty"`
+	Setup   *PayloadSizeBuckets `json:"setup,omitempty"`
+	Cleanup *PayloadSizeBuckets `json:"cleanup,omitempty"`
+}
+
+// HasData returns true if any nested bucket carries non-zero data.
+func (p *PayloadSizes) HasData() bool {
+	if p == nil {
+		return false
+	}
+	return p.Test.HasData() || p.Setup.HasData() || p.Cleanup.HasData()
+}
+
+// ComputePayloadSizeBuckets parses each engine_newPayloadV* line in a step,
 // SSZ-encodes the executionPayload using Prysm's fork-specific struct, snappy-
 // compresses the result, and decodes the inline BlockAccessList. It returns
-// the sum of those three quantities across all newPayload lines in the step.
+// per-newPayload byte counts (one element per engine_newPayloadV* line, in
+// step order) so multi-block steps can be inspected block-by-block.
 //
-// Single-line errors (unknown fork, malformed hex) are logged with the test
-// name and do not abort the computation. The function never returns an error;
-// a fully-failing test step yields zero values for all three fields.
-func ComputePayloadSizes(log logrus.FieldLogger, testName string, lines []string) PayloadSizes {
-	var out PayloadSizes
-	for _, np := range ExtractNewPayloadLines(lines) {
+// Lines that fail to convert/encode are logged with the test name and
+// **skipped** (no entry is appended for that block) — the function never
+// returns an error. A step with no recognizable newPayload lines yields
+// three empty slices.
+func ComputePayloadSizeBuckets(log logrus.FieldLogger, testName string, lines []string) PayloadSizeBuckets {
+	nps := ExtractNewPayloadLines(lines)
+	out := PayloadSizeBuckets{
+		SSZFull:       make([]uint64, 0, len(nps)),
+		SSZBAL:        make([]uint64, 0, len(nps)),
+		SSZFullSnappy: make([]uint64, 0, len(nps)),
+		JSONFull:      make([]uint64, 0, len(nps)),
+		JSONBAL:       make([]uint64, 0, len(nps)),
+	}
+	for _, np := range nps {
 		marshaler, err := eest.EestToPrysmPayload(np.Version, np.Payload)
 		if err != nil {
 			log.WithFields(logrus.Fields{
@@ -95,10 +168,22 @@ func ComputePayloadSizes(log logrus.FieldLogger, testName string, lines []string
 			}).WithError(err).Warn("Failed to SSZ-encode payload, skipping line")
 			continue
 		}
-		out.PayloadBytes += uint64(len(ssz))
+		jsonBytes, err := json.Marshal(np.Payload)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"test":    testName,
+				"version": np.Version,
+			}).WithError(err).Warn("Failed to JSON-encode payload, skipping line")
+			continue
+		}
 		snap := snappy.Encode(nil, ssz)
-		out.SnappyBytes += uint64(len(snap))
-		out.BALBytes += balByteLen(log, testName, np.Payload.BlockAccessList)
+		out.SSZFull = append(out.SSZFull, uint64(len(ssz)))
+		out.SSZFullSnappy = append(out.SSZFullSnappy, uint64(len(snap)))
+		out.SSZBAL = append(out.SSZBAL, balByteLen(log, testName, np.Payload.BlockAccessList))
+		out.JSONFull = append(out.JSONFull, uint64(len(jsonBytes)))
+		// JSONBAL is the hex string's length as it appears in the JSON
+		// value (e.g. "0xab..." — chars only, not the surrounding quotes).
+		out.JSONBAL = append(out.JSONBAL, uint64(len(np.Payload.BlockAccessList)))
 	}
 	return out
 }
@@ -155,25 +240,59 @@ func splitNonEmptyLines(s string) []string {
 	return out
 }
 
-// MergePayloadSizes populates the three payload-size fields on tests that
-// currently have all-zero values. The lineProvider callback returns the
-// test-step lines for a given test name (used so callers can fetch from
-// disk or from memory as appropriate).
+// StepKind names a step inside a test for the per-step line provider.
+type StepKind string
+
+const (
+	StepKindSetup   StepKind = "setup"
+	StepKindTest    StepKind = "test"
+	StepKindCleanup StepKind = "cleanup"
+)
+
+// MergePayloadSizes attaches a PayloadSizes container to tests that don't
+// already carry one. The lineProvider callback returns the JSON-RPC lines
+// for a given (test, step) pair — callers can fetch from disk or from
+// memory as appropriate. Returning nil/empty for a step skips that step.
 //
-// Tests with any non-zero size field are left alone (idempotent re-run).
-func MergePayloadSizes(log logrus.FieldLogger, tests []SuiteTest, lineProvider func(name string) []string) {
+// Tests that already carry any payload-size data are left alone
+// (idempotent re-run).
+func MergePayloadSizes(
+	log logrus.FieldLogger,
+	tests []SuiteTest,
+	lineProvider func(testName string, step StepKind) []string,
+) {
 	for i := range tests {
 		t := &tests[i]
-		if t.PayloadSizeBytes != 0 || t.PayloadSizeBytesSnappy != 0 || t.BALSizeBytes != 0 {
+		if t.PayloadSizes.HasData() {
 			continue
 		}
-		lines := lineProvider(t.Name)
-		if len(lines) == 0 {
-			continue
+		var (
+			merged  PayloadSizes
+			anyData bool
+		)
+		for _, step := range []StepKind{StepKindSetup, StepKindTest, StepKindCleanup} {
+			lines := lineProvider(t.Name, step)
+			if len(lines) == 0 {
+				continue
+			}
+			buckets := ComputePayloadSizeBuckets(log, t.Name, lines)
+			if !buckets.HasData() {
+				continue
+			}
+			b := buckets
+			switch step {
+			case StepKindSetup:
+				merged.Setup = &b
+			case StepKindTest:
+				merged.Test = &b
+			case StepKindCleanup:
+				merged.Cleanup = &b
+			}
+			anyData = true
 		}
-		sizes := ComputePayloadSizes(log, t.Name, lines)
-		t.PayloadSizeBytes = sizes.PayloadBytes
-		t.PayloadSizeBytesSnappy = sizes.SnappyBytes
-		t.BALSizeBytes = sizes.BALBytes
+		if anyData {
+			m := merged
+			t.PayloadSizes = &m
+		}
 	}
 }

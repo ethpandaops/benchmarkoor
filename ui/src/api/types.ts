@@ -461,9 +461,41 @@ export interface SuiteTest {
   cleanup?: SuiteFile
   eest?: SuiteTestEEST
   opcode_count?: Record<string, number>
-  payload_size_bytes?: number
-  payload_size_bytes_snappy?: number
-  bal_size_bytes?: number
+  /**
+   * Per-newPayload byte counts for each step that contains
+   * engine_newPayload* calls. Steps with no payload activity are omitted.
+   * Within each step, the three arrays are aligned by index — `raw[i]`,
+   * `bal[i]`, `snappy[i]` describe the i-th newPayload in step order.
+   */
+  payload_sizes?: PayloadSizes
+}
+
+/**
+ * Per-engine_newPayload byte counts for a single step. All arrays are
+ * aligned by index — entry `i` describes the i-th newPayload in step
+ * order.
+ *
+ * - `ssz_full`: full SSZ-encoded ExecutionPayload (BAL inline for Gloas+).
+ * - `ssz_bal`: just the SSZ-encoded BlockAccessList sub-field (a subset
+ *   of `ssz_full`). Zero for pre-Gloas payloads.
+ * - `ssz_full_snappy`: snappy(ssz_full).
+ * - `json_full`: canonical JSON encoding of the same ExecutionPayload
+ *   (no envelope, no whitespace).
+ * - `json_bal`: byte length of the BAL hex string as it appears in JSON
+ *   (chars only, not the surrounding quotes). Zero for pre-Gloas payloads.
+ */
+export interface PayloadSizeBuckets {
+  ssz_full: number[]
+  ssz_bal: number[]
+  ssz_full_snappy: number[]
+  json_full: number[]
+  json_bal: number[]
+}
+
+export interface PayloadSizes {
+  setup?: PayloadSizeBuckets
+  test?: PayloadSizeBuckets
+  cleanup?: PayloadSizeBuckets
 }
 
 export interface SourceInfo {

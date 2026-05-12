@@ -23,10 +23,23 @@ interface PayloadRow {
   ratio: number
 }
 
+function sumArray(xs: number[] | undefined): number {
+  if (!xs) return 0
+  let total = 0
+  for (const v of xs) total += v
+  return total
+}
+
+// The page-level overview rolls up the per-newPayload arrays from the
+// `test` step into a single number per metric per test, matching what
+// the section used to show before per-block detail was added. Per-block
+// breakdowns live on the test-details modal instead.
 function toRow(t: SuiteTest): PayloadRow | null {
-  const u = t.payload_size_bytes ?? 0
-  const b = t.bal_size_bytes ?? 0
-  const s = t.payload_size_bytes_snappy ?? 0
+  const testStep = t.payload_sizes?.test
+  if (!testStep) return null
+  const u = sumArray(testStep.ssz_full)
+  const b = sumArray(testStep.ssz_bal)
+  const s = sumArray(testStep.ssz_full_snappy)
   if (u === 0 && b === 0 && s === 0) return null
   return {
     name: t.name,

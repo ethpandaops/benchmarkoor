@@ -53,9 +53,14 @@ func TestCreateSuiteOutput_WritesPayloadSizes(t *testing.T) {
 	var parsed SuiteInfo
 	require.NoError(t, json.Unmarshal(data, &parsed))
 	require.Len(t, parsed.Tests, 1)
-	assert.Greater(t, parsed.Tests[0].PayloadSizeBytes, uint64(100))
-	assert.Greater(t, parsed.Tests[0].PayloadSizeBytesSnappy, uint64(0))
-	assert.LessOrEqual(t, parsed.Tests[0].PayloadSizeBytesSnappy, parsed.Tests[0].PayloadSizeBytes)
+	require.NotNil(t, parsed.Tests[0].PayloadSizes)
+	require.NotNil(t, parsed.Tests[0].PayloadSizes.Test)
+	tps := parsed.Tests[0].PayloadSizes.Test
+	require.Len(t, tps.SSZFull, 1)
+	require.Len(t, tps.SSZFullSnappy, 1)
+	assert.Greater(t, tps.SSZFull[0], uint64(100))
+	assert.Greater(t, tps.SSZFullSnappy[0], uint64(0))
+	assert.LessOrEqual(t, tps.SSZFullSnappy[0], tps.SSZFull[0])
 }
 
 func TestSuiteInfo_BackwardCompat_LoadsOldSummary(t *testing.T) {
@@ -68,7 +73,7 @@ func TestSuiteInfo_BackwardCompat_LoadsOldSummary(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(old), &parsed))
 	require.Len(t, parsed.Tests, 1)
 	assert.Equal(t, "test_old", parsed.Tests[0].Name)
-	assert.Equal(t, uint64(0), parsed.Tests[0].PayloadSizeBytes)
+	assert.Nil(t, parsed.Tests[0].PayloadSizes)
 }
 
 func TestCreateSuiteOutput_MergesPayloadSizesOnSecondRun(t *testing.T) {
@@ -91,16 +96,14 @@ func TestCreateSuiteOutput_MergesPayloadSizesOnSecondRun(t *testing.T) {
 	info1 := &SuiteInfo{Hash: "cafef00d"}
 	require.NoError(t, CreateSuiteOutput(log, tmp, "cafef00d", info1, prepared, nil))
 
-	// Simulate a legacy summary: rewrite the file with the payload-size fields zeroed.
+	// Simulate a legacy summary: rewrite the file with payload_sizes cleared.
 	summaryPath := filepath.Join(tmp, "suites", "cafef00d", "summary.json")
 	data, err := os.ReadFile(summaryPath)
 	require.NoError(t, err)
 	var legacy SuiteInfo
 	require.NoError(t, json.Unmarshal(data, &legacy))
 	for i := range legacy.Tests {
-		legacy.Tests[i].PayloadSizeBytes = 0
-		legacy.Tests[i].PayloadSizeBytesSnappy = 0
-		legacy.Tests[i].BALSizeBytes = 0
+		legacy.Tests[i].PayloadSizes = nil
 	}
 	zeroed, err := json.Marshal(legacy)
 	require.NoError(t, err)
@@ -115,5 +118,8 @@ func TestCreateSuiteOutput_MergesPayloadSizesOnSecondRun(t *testing.T) {
 	var parsed SuiteInfo
 	require.NoError(t, json.Unmarshal(final, &parsed))
 	require.Len(t, parsed.Tests, 1)
-	assert.Greater(t, parsed.Tests[0].PayloadSizeBytes, uint64(100), "merge path should backfill sizes")
+	require.NotNil(t, parsed.Tests[0].PayloadSizes)
+	require.NotNil(t, parsed.Tests[0].PayloadSizes.Test)
+	require.Len(t, parsed.Tests[0].PayloadSizes.Test.SSZFull, 1)
+	assert.Greater(t, parsed.Tests[0].PayloadSizes.Test.SSZFull[0], uint64(100), "merge path should backfill sizes")
 }
