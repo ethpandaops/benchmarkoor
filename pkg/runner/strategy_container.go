@@ -780,6 +780,7 @@ func (r *runner) runTestsWithContainerStrategy(
 			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
 			OpcodeExtraction:              r.cfg.FullConfig.GetOpcodeExtraction(params.Instance),
 			PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(params.Instance),
+			WarmupTestPayload:             r.cfg.FullConfig.GetWarmupTestPayload(params.Instance),
 		}
 
 		result, err := r.executor.ExecuteTests(ctx, execOpts)

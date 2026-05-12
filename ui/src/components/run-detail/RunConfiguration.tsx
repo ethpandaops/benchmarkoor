@@ -332,6 +332,45 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
                 </div>
               )}
 
+              {instance.warmup_test_payload?.enabled && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+                    Warmup Test Payload
+                  </dt>
+                  <dd className="mt-1 overflow-x-auto rounded-sm bg-gray-100 p-2 dark:bg-gray-900">
+                    <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">enabled: </span>
+                        true
+                      </div>
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">method: </span>
+                        {instance.warmup_test_payload.method || 'invalid-stateroot'}
+                      </div>
+                      {instance.warmup_test_payload.fork && (
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">fork: </span>
+                          {instance.warmup_test_payload.fork}
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">count: </span>
+                        {instance.warmup_test_payload.count && instance.warmup_test_payload.count > 0
+                          ? instance.warmup_test_payload.count
+                          : 1}
+                      </div>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Inserts a warmup phase between setup and test that sends modified
+                      engine_newPayload calls (stateRoot replaced, blockHash recomputed) to
+                      warm client caches before the real test runs. Each newPayload is sent
+                      <code className="mx-1 rounded bg-gray-200 px-1 dark:bg-gray-800">count</code>
+                      times with a different stateRoot per iteration.
+                    </p>
+                  </dd>
+                </div>
+              )}
+
               {instance.opcode_extraction?.enabled && (
                 <div>
                   <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">

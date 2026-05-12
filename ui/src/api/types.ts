@@ -265,6 +265,13 @@ export interface CheckpointRestoreStrategyOptions {
   restart_container?: boolean
 }
 
+export interface WarmupTestPayloadConfig {
+  enabled: boolean
+  fork?: string
+  count?: number
+  method?: string
+}
+
 export interface OpcodeExtractionConfig {
   enabled: boolean
   timeout?: string
@@ -277,6 +284,7 @@ export interface OpcodeExtractionConfig {
  * (per-tx counts are summed and the opcode names are uppercased).
  */
 export type RunTestOpcodes = Record<string, Array<Record<string, number>>>
+
 
 export interface InstanceConfig {
   id: string
@@ -304,6 +312,7 @@ export interface InstanceConfig {
   post_test_rpc_calls?: PostTestRPCCallConfig[]
   post_test_sleep_duration?: string
   checkpoint_restore_strategy_options?: CheckpointRestoreStrategyOptions
+  warmup_test_payload?: WarmupTestPayloadConfig
   opcode_extraction?: OpcodeExtractionConfig
 }
 

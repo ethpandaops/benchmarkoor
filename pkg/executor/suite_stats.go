@@ -36,6 +36,7 @@ type RunDuration struct {
 // RunDurationStepsStats contains per-step gas and time data.
 type RunDurationStepsStats struct {
 	Setup   *RunDurationStepStats `json:"setup,omitempty"`
+	Warmup  *RunDurationStepStats `json:"warmup,omitempty"`
 	Test    *RunDurationStepStats `json:"test,omitempty"`
 	Cleanup *RunDurationStepStats `json:"cleanup,omitempty"`
 }
@@ -175,6 +176,19 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 			}
 			totalGasUsed += agg.GasUsedTotal
 			totalGasUsedTime += agg.GasUsedTimeTotal
+		}
+
+		// Warmup is a cache-priming phase; record its stats but do not
+		// fold them into the per-test totals so test gas/time stays
+		// comparable across runs with and without warmup enabled.
+		if testEntry.Steps.Warmup != nil && testEntry.Steps.Warmup.Aggregated != nil {
+			agg := testEntry.Steps.Warmup.Aggregated
+			stepsStats.Warmup = &RunDurationStepStats{
+				GasUsed:        agg.GasUsedTotal,
+				Time:           agg.GasUsedTimeTotal,
+				RPCCallsCount:  agg.TotalMsgs,
+				ResourceTotals: agg.ResourceTotals,
+			}
 		}
 
 		if testEntry.Steps.Test != nil && testEntry.Steps.Test.Aggregated != nil {

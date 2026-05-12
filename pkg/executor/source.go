@@ -21,6 +21,7 @@ type StepType string
 
 const (
 	StepTypeSetup   StepType = "setup"
+	StepTypeWarmup  StepType = "warmup"
 	StepTypeTest    StepType = "test"
 	StepTypeCleanup StepType = "cleanup"
 	StepTypePreRun  StepType = "pre_run"

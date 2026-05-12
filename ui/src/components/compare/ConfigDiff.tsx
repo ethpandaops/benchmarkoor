@@ -40,6 +40,7 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
       inst.image !== first.image
       || inst.client !== first.client
       || inst.rollback_strategy !== first.rollback_strategy
+      || JSON.stringify(inst.warmup_test_payload) !== JSON.stringify(first.warmup_test_payload)
       || JSON.stringify(inst.retry_new_payloads_syncing_state) !== JSON.stringify(first.retry_new_payloads_syncing_state)
       || JSON.stringify(inst.retry_new_payloads_failed_state) !== JSON.stringify(first.retry_new_payloads_failed_state)
       || JSON.stringify(inst.command) !== JSON.stringify(first.command)
@@ -110,6 +111,20 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
               )}
               {instances.some((i) => i.rollback_strategy) && (
                 <DiffRow label="Rollback Strategy" values={instances.map((i) => i.rollback_strategy ?? 'none')} />
+              )}
+              {instances.some((i) => i.warmup_test_payload) && (
+                <DiffRow
+                  label="Warmup Test Payload"
+                  values={instances.map((i) => {
+                    const w = i.warmup_test_payload
+                    if (!w || !w.enabled) return 'disabled'
+                    const count = w.count && w.count > 0 ? w.count : 1
+                    const method = w.method || 'invalid-stateroot'
+                    const parts = [`method=${method}`, `count=${count}`]
+                    if (w.fork) parts.splice(1, 0, w.fork)
+                    return `enabled (${parts.join(', ')})`
+                  })}
+                />
               )}
               {instances.some((i) => i.retry_new_payloads_syncing_state) && (
                 <DiffRow

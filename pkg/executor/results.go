@@ -165,6 +165,7 @@ type StepResult struct {
 // StepsResult contains results for all steps of a test.
 type StepsResult struct {
 	Setup   *StepResult `json:"setup,omitempty"`
+	Warmup  *StepResult `json:"warmup,omitempty"`
 	Test    *StepResult `json:"test,omitempty"`
 	Cleanup *StepResult `json:"cleanup,omitempty"`
 }
@@ -672,6 +673,8 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 		switch filename {
 		case string(StepTypeSetup):
 			stepType = StepTypeSetup
+		case string(StepTypeWarmup):
+			stepType = StepTypeWarmup
 		case string(StepTypeTest):
 			stepType = StepTypeTest
 		case string(StepTypeCleanup):
@@ -714,6 +717,8 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 		switch stepType {
 		case StepTypeSetup:
 			entry.Steps.Setup = stepResult
+		case StepTypeWarmup:
+			entry.Steps.Warmup = stepResult
 		case StepTypeTest:
 			entry.Steps.Test = stepResult
 		case StepTypeCleanup:

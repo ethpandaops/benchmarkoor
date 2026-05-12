@@ -516,6 +516,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
 			OpcodeExtraction:              r.cfg.FullConfig.GetOpcodeExtraction(params.Instance),
 			PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(params.Instance),
+			WarmupTestPayload:             r.cfg.FullConfig.GetWarmupTestPayload(params.Instance),
 		}
 
 		result, execErr := r.executor.ExecuteTests(ctx, execOpts)

@@ -689,6 +689,7 @@ runner:
 | `post_test_rpc_calls` | []object | - | Arbitrary RPC calls to execute after each test step (see [Post-Test RPC Calls](#post-test-rpc-calls)) |
 | `post_test_sleep_duration` | string | - | Sleep duration after each test, e.g. `200ms`, `1s` (see below) |
 | `bootstrap_fcu` | bool/object | - | Send an `engine_forkchoiceUpdatedV3` after RPC is ready to confirm the client is fully synced (see [Bootstrap FCU](#bootstrap-fcu)) |
+| `warmup_test_payload` | object | - | Insert a warmup phase between setup and test that sends modified `engine_newPayload*` calls (stateRoot replaced, blockHash recomputed) to warm caches (see [Warmup Test Payload](#warmup-test-payload)) |
 | `opcode_extraction` | object | - | Extract per-test opcode counts via `debug_traceBlockByNumber` after each test step (see [Opcode Extraction](#opcode-extraction)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
@@ -979,6 +980,41 @@ When using the `container-recreate` rollback strategy, the bootstrap FCU is sent
 - When starting from pre-populated data directories where the client needs time to validate state before processing Engine API requests
 - When you observe test failures due to the client returning errors or SYNCING responses on the first Engine API calls
 
+##### Warmup Test Payload
+
+The `warmup_test_payload` option inserts a warmup phase between the setup and test steps. The exact transformation is selected by `method`:
+
+- `invalid-stateroot` (default): rewrites each `engine_newPayload*` call's `stateRoot` to a deterministic per-iteration placeholder and recomputes `blockHash`. The client typically rejects on state-root mismatch.
+- `invalid-gasused`: keeps `stateRoot`, subtracts `(1+i)` from `gasUsed` for iteration `i` (so iteration 0 = original-1, iteration 1 = original-2, …), and recomputes `blockHash`. The client typically rejects once it notices the gas mismatch.
+
+Both methods do real header validation + tx decoding + execution work before the rejection, which is where the cache-warming value comes from.
+
+```yaml
+runner:
+  client:
+    config:
+      warmup_test_payload:
+        enabled: true
+        method: invalid-stateroot   # default; only supported value today
+        fork: osaka
+        count: 3
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | bool | Yes | `false` | Enable the warmup phase |
+| `method` | string | No | `invalid-stateroot` | Warmup strategy: `invalid-stateroot` (rewrites stateRoot + recomputes blockHash) or `invalid-gasused` (subtracts `1+i` from gasUsed + recomputes blockHash) |
+| `fork` | string | Yes | - | Fork used to compute the warmup `blockHash`. Only `osaka` is currently supported |
+| `count` | int | No | `1` | How many times each `engine_newPayload*` line is sent. Each iteration produces a distinct payload (per-iteration stateRoot for `invalid-stateroot` derived as `keccak256(salt ‖ uint64BE(i))`, or `original-(1+i)` gasUsed for `invalid-gasused`) so the client treats the calls as distinct. Must be `>= 1` when enabled. Non-newPayload lines are sent once regardless. For `invalid-gasused`, count must not exceed the smallest original `gasUsed` in the step or the warmup fails with an underflow error |
+
+`warmup_test_payload` can be set globally under `runner.client.config` and/or per-instance under `runner.instances[]`. Instance-level config (when non-nil) fully replaces the global default.
+
+Warmup steps reuse the test step's lines as the source. Non-`engine_newPayload*` lines pass through unchanged. Warmup results are written to `<test>/warmup.{response,result-details.json,result-aggregated.json}` alongside the existing setup/test/cleanup outputs.
+
+**When to use:**
+- When you want to measure the client's "hot" performance and the existing setup phase doesn't fully populate caches
+- When investigating cold-start regressions by comparing warmup-on vs warmup-off runs
+
 ##### Opcode Extraction
 
 The `opcode_extraction` option captures per-test opcode counts as a side effect of running tests. After each test step, the runner walks the test's `engine_newPayload*` calls and runs `debug_traceBlockByNumber` against each block with a JS opcode-counting tracer. Per-tx counts are summed (and uppercased) into one map per newPayload, then appended to a per-test array. At the end of the run all the data lands in a single `test-opcodes.json` at the run results dir, in the same shape that `runner.benchmark.tests.opcode_source` expects.
@@ -1049,6 +1085,7 @@ runner:
 | `overlayfs` | Linux overlayfs for near-instant setup | Root access |
 | `fuse-overlayfs` | FUSE-based overlayfs | `fuse-overlayfs` package; `user_allow_other` in `/etc/fuse.conf` if Docker runs as root. **Warning:** ~3x slower than native overlayfs |
 | `zfs` | ZFS snapshots and clones for copy-on-write setup | Source directory on ZFS filesystem; root access or ZFS delegations configured |
+| `direct` | Bind-mount `source_dir` as-is, no copy/snapshot/clone. Container writes persist after the run. **Not suitable for normal benchmarking** — intended for inspection or resume workflows (e.g. pointing at a ZFS clone left behind by `--debug.stop-after-prerun`) | None |
 
 ###### ZFS Setup
 
@@ -1125,6 +1162,7 @@ runner:
 | `post_test_rpc_calls` | []object | No | From `runner.client.config` | Instance-specific post-test RPC calls (replaces global) |
 | `post_test_sleep_duration` | string | No | From `runner.client.config` | Instance-specific post-test sleep duration |
 | `bootstrap_fcu` | bool/object | No | From `runner.client.config` | Instance-specific bootstrap FCU setting |
+| `warmup_test_payload` | object | No | From `runner.client.config` | Instance-specific warmup test payload setting (replaces global) |
 | `opcode_extraction` | object | No | From `runner.client.config` | Instance-specific opcode extraction setting (replaces global) |
 
 ## Resource Limits

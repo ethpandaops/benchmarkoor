@@ -26,6 +26,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
 	"github.com/ethpandaops/benchmarkoor/pkg/stats"
+	"github.com/ethpandaops/benchmarkoor/pkg/warmup"
 	"github.com/sirupsen/logrus"
 )
 
@@ -116,6 +117,7 @@ type ExecuteOptions struct {
 	FailFast                      bool                                  // If true, return an error from runStepLines on the first failed RPC call.
 	PreRunStepSleep               time.Duration                         // Sleep between each RPC call within pre-run step files (0 = disabled).
 	SkipUntilBlockNumber          uint64                                // Skip pre-run RPC lines until the first engine_newPayload with blockNumber > this. 0 = no skipping.
+	WarmupTestPayload             *config.WarmupTestPayloadConfig       // When enabled, run a warmup phase between setup and test that sends modified test newPayload calls (stateRoot replaced, blockHash recomputed) to warm caches.
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -587,7 +589,37 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			}
 		}
 
-		// Drop caches between setup and test.
+		// Run warmup step if enabled. Warmup payloads are derived from
+		// the test step's engine_newPayload* calls with stateRoot replaced
+		// and blockHash recomputed; this populates EL caches before the
+		// real test runs. The client is expected to reject the payloads
+		// (state-root mismatch), but only after performing the work that
+		// warms its caches.
+		if opts.WarmupTestPayload != nil && opts.WarmupTestPayload.Enabled && test.Test != nil {
+			log.Info("Running warmup step")
+
+			warmupResult := NewTestResult(test.Name)
+
+			if err := e.runWarmupStep(ctx, opts, test.Test, warmupResult); err != nil {
+				log.WithError(err).Error("Warmup step failed")
+
+				// Check if the failure was due to context cancellation.
+				if ctx.Err() != nil {
+					interrupted = true
+					interruptReason = "context cancelled during warmup step"
+
+					goto writeResults
+				}
+				// Continue to the test step even if warmup itself failed —
+				// warmup is best-effort, the real measurement is the test.
+			} else {
+				if err := WriteStepResults(opts.ResultsDir, test.Name, StepTypeWarmup, warmupResult, e.cfg.ResultsOwner); err != nil {
+					log.WithError(err).Warn("Failed to write warmup results")
+				}
+			}
+		}
+
+		// Drop caches between setup/warmup and test.
 		if dropBetweenSteps && test.Setup != nil && test.Test != nil {
 			if err := e.dropMemoryCaches(dropCachesPath); err != nil {
 				e.log.WithError(err).Warn("Failed to drop memory caches before test step")
@@ -797,6 +829,84 @@ writeResults:
 	}
 
 	return result, nil
+}
+
+// runWarmupStep generates warmup payloads from the given test step's
+// engine_newPayload* lines (transformed per the configured method) and
+// runs them via runStepLines so the client populates caches before the
+// real test runs.
+func (e *executor) runWarmupStep(
+	ctx context.Context,
+	opts *ExecuteOptions,
+	testStep *StepFile,
+	result *TestResult,
+) error {
+	cfg := opts.WarmupTestPayload
+	method := cfg.EffectiveMethod()
+
+	switch method {
+	case config.WarmupMethodInvalidStateRoot, config.WarmupMethodInvalidGasUsed:
+	default:
+		return fmt.Errorf("unsupported warmup method %q", method)
+	}
+
+	gen, err := warmup.NewGenerator(
+		warmup.Fork(cfg.Fork),
+		warmup.Method(method),
+		cfg.EffectiveCount(),
+	)
+	if err != nil {
+		return fmt.Errorf("creating warmup generator: %w", err)
+	}
+
+	lines, err := readStepLines(testStep)
+	if err != nil {
+		return fmt.Errorf("reading test step for warmup: %w", err)
+	}
+
+	transformed, err := gen.TransformLines(lines)
+	if err != nil {
+		return fmt.Errorf("transforming warmup payloads: %w", err)
+	}
+
+	return e.runStepLines(ctx, opts, testStep.Name, transformed, result, false, 0)
+}
+
+// readStepLines returns the JSON-RPC lines from a step (file or provider).
+func readStepLines(step *StepFile) ([]string, error) {
+	if step.Provider != nil {
+		return step.Provider.Lines(), nil
+	}
+
+	file, err := os.Open(step.Path)
+	if err != nil {
+		return nil, fmt.Errorf("opening step file: %w", err)
+	}
+
+	defer func() { _ = file.Close() }()
+
+	reader := bufio.NewReader(file)
+
+	var lines []string
+
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			if trimmed := strings.TrimSpace(line); trimmed != "" {
+				lines = append(lines, trimmed)
+			}
+		}
+
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+
+			return nil, fmt.Errorf("reading step file: %w", err)
+		}
+	}
+
+	return lines, nil
 }
 
 // runStepFile executes a single step file or provider.

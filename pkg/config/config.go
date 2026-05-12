@@ -520,6 +520,59 @@ type BootstrapFCUConfig struct {
 	HeadBlockHash string `yaml:"head_block_hash" mapstructure:"head_block_hash" json:"head_block_hash,omitempty"`
 }
 
+// Supported warmup methods. Both rewrite a single header field on each
+// engine_newPayload* call and recompute blockHash; the client typically
+// rejects the resulting payload but warms its caches first.
+//
+//   - WarmupMethodInvalidStateRoot replaces stateRoot with a
+//     deterministically-derived placeholder.
+//   - WarmupMethodInvalidGasUsed subtracts (1+i) from gasUsed for
+//     iteration i (so iteration 0 = original-1, iteration 1 = original-2,
+//     and so on). stateRoot is left untouched.
+const (
+	WarmupMethodInvalidStateRoot = "invalid-stateroot"
+	WarmupMethodInvalidGasUsed   = "invalid-gasused"
+)
+
+// WarmupTestPayloadConfig configures the warmup phase that runs between
+// setup and test steps. The behavior is determined by Method.
+//
+// Count controls how many times each engine_newPayload* line is sent.
+// Each iteration produces a distinct payload (per-iteration stateRoot for
+// "invalid-stateroot", or original-(1+i) gasUsed for "invalid-gasused")
+// so the client treats the calls as distinct. Default is 1; must be >= 1
+// when enabled. Non-newPayload lines (e.g. forkchoiceUpdated) are sent
+// once regardless of Count.
+//
+// Method selects the warmup strategy: "invalid-stateroot" (default) or
+// "invalid-gasused".
+type WarmupTestPayloadConfig struct {
+	Enabled bool   `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
+	Fork    string `yaml:"fork" mapstructure:"fork" json:"fork,omitempty"`
+	Count   int    `yaml:"count,omitempty" mapstructure:"count" json:"count,omitempty"`
+	Method  string `yaml:"method,omitempty" mapstructure:"method" json:"method,omitempty"`
+}
+
+// EffectiveCount returns the number of warmup iterations per newPayload
+// line. Treats unset/zero as 1.
+func (c *WarmupTestPayloadConfig) EffectiveCount() int {
+	if c == nil || c.Count <= 0 {
+		return 1
+	}
+
+	return c.Count
+}
+
+// EffectiveMethod returns the warmup method, defaulting to
+// WarmupMethodInvalidStateRoot when unset.
+func (c *WarmupTestPayloadConfig) EffectiveMethod() string {
+	if c == nil || c.Method == "" {
+		return WarmupMethodInvalidStateRoot
+	}
+
+	return c.Method
+}
+
 // DefaultOpcodeExtractionTimeout is the per-block trace timeout applied
 // when opcode_extraction.timeout is unset. debug_traceBlockByNumber on
 // fat blocks can run for many seconds; 2 minutes covers most cases
@@ -777,6 +830,7 @@ type ClientDefaults struct {
 	PostTestSleepDuration            string                            `yaml:"post_test_sleep_duration,omitempty" mapstructure:"post_test_sleep_duration"`
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
+	WarmupTestPayload                *WarmupTestPayloadConfig          `yaml:"warmup_test_payload,omitempty" mapstructure:"warmup_test_payload"`
 	OpcodeExtraction                 *OpcodeExtractionConfig           `yaml:"opcode_extraction,omitempty" mapstructure:"opcode_extraction"`
 	Metadata                         MetadataConfig                    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 }
@@ -805,6 +859,7 @@ type ClientInstance struct {
 	PostTestSleepDuration            string                            `yaml:"post_test_sleep_duration,omitempty" mapstructure:"post_test_sleep_duration"`
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
+	WarmupTestPayload                *WarmupTestPayloadConfig          `yaml:"warmup_test_payload,omitempty" mapstructure:"warmup_test_payload"`
 	OpcodeExtraction                 *OpcodeExtractionConfig           `yaml:"opcode_extraction,omitempty" mapstructure:"opcode_extraction"`
 	Metadata                         MetadataConfig                    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 }
@@ -1250,6 +1305,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 
 	// Validate bootstrap_fcu settings.
 	if err := c.validateBootstrapFCU(); err != nil {
+		return err
+	}
+
+	// Validate warmup_test_payload settings.
+	if err := c.validateWarmupTestPayload(); err != nil {
 		return err
 	}
 
@@ -1723,6 +1783,17 @@ func (c *Config) GetCheckpointRestoreStrategyOptions(
 	}
 
 	return c.Runner.Client.Config.CheckpointRestoreStrategyOptions
+}
+
+// GetWarmupTestPayload returns the warmup_test_payload config for an instance.
+// Instance-level config (when non-nil) fully replaces the global default.
+// Returns nil if not configured at either level.
+func (c *Config) GetWarmupTestPayload(instance *ClientInstance) *WarmupTestPayloadConfig {
+	if instance.WarmupTestPayload != nil {
+		return instance.WarmupTestPayload
+	}
+
+	return c.Runner.Client.Config.WarmupTestPayload
 }
 
 // GetCheckpointTmpfsThreshold returns the tmpfs_threshold for an instance.
@@ -2220,6 +2291,47 @@ func (c *Config) validateBootstrapFCU() error {
 						" 32-byte hex string, got %q", instance.ID, cfg.HeadBlockHash,
 				)
 			}
+		}
+	}
+
+	return nil
+}
+
+// validateWarmupTestPayload validates warmup_test_payload settings.
+// Currently only "osaka" is a supported fork and "invalid-stateroot" the
+// only supported method. Count must be >= 1 when set; an unset (zero)
+// Count is treated as the default 1. An unset Method defaults to
+// "invalid-stateroot".
+func (c *Config) validateWarmupTestPayload() error {
+	for _, instance := range c.Runner.Instances {
+		cfg := c.GetWarmupTestPayload(&instance)
+		if cfg == nil || !cfg.Enabled {
+			continue
+		}
+
+		if cfg.Fork != "osaka" {
+			return fmt.Errorf(
+				"instance %q: warmup_test_payload.fork must be \"osaka\" (got %q)",
+				instance.ID, cfg.Fork,
+			)
+		}
+
+		if cfg.Count < 0 {
+			return fmt.Errorf(
+				"instance %q: warmup_test_payload.count must be >= 1 when enabled (got %d)",
+				instance.ID, cfg.Count,
+			)
+		}
+
+		// Empty method is allowed (defaults to invalid-stateroot via
+		// EffectiveMethod). A non-empty method must be one we recognize.
+		if cfg.Method != "" &&
+			cfg.Method != WarmupMethodInvalidStateRoot &&
+			cfg.Method != WarmupMethodInvalidGasUsed {
+			return fmt.Errorf(
+				"instance %q: warmup_test_payload.method must be %q or %q (got %q)",
+				instance.ID, WarmupMethodInvalidStateRoot, WarmupMethodInvalidGasUsed, cfg.Method,
+			)
 		}
 	}
 

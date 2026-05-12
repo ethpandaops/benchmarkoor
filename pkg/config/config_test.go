@@ -2674,6 +2674,195 @@ func TestValidateRunTimeout(t *testing.T) {
 	}
 }
 
+func TestGetWarmupTestPayload(t *testing.T) {
+	tests := []struct {
+		name     string
+		global   *WarmupTestPayloadConfig
+		instance *WarmupTestPayloadConfig
+		expected *WarmupTestPayloadConfig
+	}{
+		{
+			name:     "both nil returns nil",
+			global:   nil,
+			instance: nil,
+			expected: nil,
+		},
+		{
+			name:     "global set, instance nil inherits",
+			global:   &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka"},
+			instance: nil,
+			expected: &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka"},
+		},
+		{
+			name:     "instance overrides global",
+			global:   &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka"},
+			instance: &WarmupTestPayloadConfig{Enabled: false},
+			expected: &WarmupTestPayloadConfig{Enabled: false},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							WarmupTestPayload: tt.global,
+						},
+					},
+				},
+			}
+			instance := &ClientInstance{
+				WarmupTestPayload: tt.instance,
+			}
+			result := cfg.GetWarmupTestPayload(instance)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestValidateWarmupTestPayload(t *testing.T) {
+	tests := []struct {
+		name      string
+		global    *WarmupTestPayloadConfig
+		instance  *WarmupTestPayloadConfig
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "disabled is always valid",
+			global:  &WarmupTestPayloadConfig{Enabled: false, Fork: "prague"},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with osaka",
+			global:  &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka"},
+			wantErr: false,
+		},
+		{
+			name:      "enabled with empty fork",
+			global:    &WarmupTestPayloadConfig{Enabled: true, Fork: ""},
+			wantErr:   true,
+			errSubstr: `warmup_test_payload.fork must be "osaka"`,
+		},
+		{
+			name:      "enabled with unsupported fork",
+			global:    &WarmupTestPayloadConfig{Enabled: true, Fork: "prague"},
+			wantErr:   true,
+			errSubstr: `warmup_test_payload.fork must be "osaka"`,
+		},
+		{
+			name:      "instance enabled with bad fork overrides valid global",
+			global:    &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka"},
+			instance:  &WarmupTestPayloadConfig{Enabled: true, Fork: "shanghai"},
+			wantErr:   true,
+			errSubstr: `warmup_test_payload.fork must be "osaka"`,
+		},
+		{
+			name:    "enabled with explicit count is valid",
+			global:  &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka", Count: 3},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with zero count defaults to 1 (valid)",
+			global:  &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka", Count: 0},
+			wantErr: false,
+		},
+		{
+			name:      "enabled with negative count is invalid",
+			global:    &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka", Count: -1},
+			wantErr:   true,
+			errSubstr: "warmup_test_payload.count must be >= 1",
+		},
+		{
+			name:    "enabled with explicit invalid-stateroot method is valid",
+			global:  &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka", Method: "invalid-stateroot"},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with explicit invalid-gasused method is valid",
+			global:  &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka", Method: "invalid-gasused"},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with empty method defaults (valid)",
+			global:  &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka", Method: ""},
+			wantErr: false,
+		},
+		{
+			name:      "enabled with unknown method is invalid",
+			global:    &WarmupTestPayloadConfig{Enabled: true, Fork: "osaka", Method: "rewrite-everything"},
+			wantErr:   true,
+			errSubstr: `warmup_test_payload.method must be "invalid-stateroot" or "invalid-gasused"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							WarmupTestPayload: tt.global,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:                "test",
+							Client:            "geth",
+							WarmupTestPayload: tt.instance,
+						},
+					},
+				},
+			}
+			err := cfg.validateWarmupTestPayload()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestWarmupTestPayloadConfig_EffectiveCount(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *WarmupTestPayloadConfig
+		expected int
+	}{
+		{name: "nil returns 1", cfg: nil, expected: 1},
+		{name: "zero returns 1", cfg: &WarmupTestPayloadConfig{Count: 0}, expected: 1},
+		{name: "negative returns 1", cfg: &WarmupTestPayloadConfig{Count: -5}, expected: 1},
+		{name: "positive returns value", cfg: &WarmupTestPayloadConfig{Count: 3}, expected: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.cfg.EffectiveCount())
+		})
+	}
+}
+
+func TestWarmupTestPayloadConfig_EffectiveMethod(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *WarmupTestPayloadConfig
+		expected string
+	}{
+		{name: "nil returns invalid-stateroot", cfg: nil, expected: "invalid-stateroot"},
+		{name: "empty returns invalid-stateroot", cfg: &WarmupTestPayloadConfig{Method: ""}, expected: "invalid-stateroot"},
+		{name: "explicit returns the value", cfg: &WarmupTestPayloadConfig{Method: "invalid-stateroot"}, expected: "invalid-stateroot"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.cfg.EffectiveMethod())
+		})
+	}
+}
+
 func TestGetRetryNewPayloadsFailedState(t *testing.T) {
 	tests := []struct {
 		name     string
