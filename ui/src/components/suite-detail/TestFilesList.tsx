@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react'
-import { Copy, Check, Search } from 'lucide-react'
+import clsx from 'clsx'
+import { Copy, Check, Search, ArrowDown, ArrowUp } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import type { SuiteFile, SuiteTest } from '@/api/types'
 import { fetchText } from '@/api/client'
@@ -13,6 +14,61 @@ import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/ees
 import { formatBytes } from '@/utils/format'
 
 export type OpcodeSortMode = 'name' | 'count'
+
+import type { PayloadSort, PayloadSortCol } from './payloadSort'
+
+// Per-test totals + ratios for payload-sizes sort + display. null fields
+// mean "no payload_sizes.test data for this test"; the sort comparator
+// pushes those rows to the bottom regardless of direction.
+interface PayloadTotals {
+  sszFull: number | null
+  sszBal: number | null
+  sszSnappy: number | null
+  sszBalPct: number | null
+  sszSnappyPct: number | null
+  jsonFull: number | null
+  jsonBal: number | null
+  jsonBalPct: number | null
+}
+
+const EMPTY_PAYLOAD_TOTALS: PayloadTotals = {
+  sszFull: null,
+  sszBal: null,
+  sszSnappy: null,
+  sszBalPct: null,
+  sszSnappyPct: null,
+  jsonFull: null,
+  jsonBal: null,
+  jsonBalPct: null,
+}
+
+function payloadTotals(test: SuiteTest): PayloadTotals {
+  const t = test.payload_sizes?.test
+  if (!t) return EMPTY_PAYLOAD_TOTALS
+  const sum = (xs: number[] | undefined) => xs ? xs.reduce((a, b) => a + b, 0) : 0
+  const sszFull = sum(t.ssz_full)
+  const sszBal = sum(t.ssz_bal)
+  const sszSnappy = sum(t.ssz_full_snappy)
+  const jsonFull = sum(t.json_full)
+  const jsonBal = sum(t.json_bal)
+  return {
+    sszFull,
+    sszBal,
+    sszSnappy,
+    sszBalPct: sszFull > 0 ? (sszBal / sszFull) * 100 : null,
+    sszSnappyPct: sszFull > 0 ? (sszSnappy / sszFull) * 100 : null,
+    jsonFull,
+    jsonBal,
+    jsonBalPct: jsonFull > 0 ? (jsonBal / jsonFull) * 100 : null,
+  }
+}
+
+function compareNullsLast(a: number | null, b: number | null, dir: 'asc' | 'desc'): number {
+  if (a === null && b === null) return 0
+  if (a === null) return 1
+  if (b === null) return -1
+  return dir === 'asc' ? a - b : b - a
+}
 
 interface TestFilesListProps {
   // For pre_run_steps - simple file list
@@ -29,6 +85,10 @@ interface TestFilesListProps {
   onDetailChange?: (index: number | undefined) => void
   opcodeSort?: OpcodeSortMode
   onOpcodeSortChange?: (sort: OpcodeSortMode) => void
+  testView?: 'general' | 'payload-sizes' | 'payload-sizes-json'
+  onTestViewChange?: (mode: 'general' | 'payload-sizes' | 'payload-sizes-json') => void
+  payloadSort?: PayloadSort | null
+  onPayloadSortChange?: (sort: PayloadSort | null) => void
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
@@ -406,8 +466,37 @@ export function TestFilesList({
   onDetailChange,
   opcodeSort = 'name',
   onOpcodeSortChange,
+  testView,
+  onTestViewChange,
+  payloadSort: payloadSortProp,
+  onPayloadSortChange,
 }: TestFilesListProps) {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  // Switches which columns the tests table renders. "general" shows the
+  // step badges; "payload-sizes" hides Steps and shows the three SSZ totals.
+  // URL-driven via the parent (defaults to "general"), with a fallback to
+  // local state when no callback is provided so this component can be used
+  // standalone.
+  const [localViewMode, setLocalViewMode] = useState<'general' | 'payload-sizes' | 'payload-sizes-json'>('general')
+  const viewMode = testView ?? localViewMode
+  const setViewMode = (mode: 'general' | 'payload-sizes' | 'payload-sizes-json') => {
+    if (onTestViewChange) onTestViewChange(mode)
+    else setLocalViewMode(mode)
+  }
+  // Payload-sizes table sort. URL-driven via the parent; falls back to
+  // local state so the component still works standalone. null = original
+  // index order (no sort active).
+  const [localPayloadSort, setLocalPayloadSort] = useState<PayloadSort | null>(null)
+  const payloadSort = payloadSortProp !== undefined ? payloadSortProp : localPayloadSort
+  const setPayloadSort = (next: PayloadSort | null) => {
+    if (onPayloadSortChange) onPayloadSortChange(next)
+    else setLocalPayloadSort(next)
+  }
+  const togglePayloadSort = (col: PayloadSortCol) => {
+    if (!payloadSort || payloadSort.col !== col) setPayloadSort({ col, dir: 'desc' })
+    else if (payloadSort.dir === 'desc') setPayloadSort({ col, dir: 'asc' })
+    else setPayloadSort(null)
+  }
   const currentPage = controlledPage ?? 1
   const search = searchQuery ?? ''
 
@@ -418,6 +507,7 @@ export function TestFilesList({
   // For pre_run_steps, use files; for tests, use tests
   const isPreRunSteps = type === 'pre_run_steps'
   const hasGenesis = !isPreRunSteps && (tests ?? []).some((t) => !!t.genesis)
+  const hasPayloadSizes = !isPreRunSteps && (tests ?? []).some((t) => !!t.payload_sizes?.test)
   const itemCount = isPreRunSteps ? (files?.length ?? 0) : (tests?.length ?? 0)
 
   // Filter and index items
@@ -432,8 +522,36 @@ export function TestFilesList({
         .map((test, index) => ({ test, originalIndex: index + 1 }))
         .filter(({ test }) => testNameMatches(test.name, search))
 
-  const totalPages = Math.ceil(filteredItems.length / pageSize)
-  const paginatedItems = filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  // Apply payload-sizes sort only when in that view and a sort is active.
+  // Tests without payload data are pushed to the bottom regardless of dir.
+  const sortedItems = (!isPreRunSteps && viewMode !== 'general' && payloadSort)
+    ? [...(filteredItems as { test: SuiteTest; originalIndex: number }[])].sort((a, b) => {
+        const ps = payloadSort
+        if (ps.col === 'index') {
+          return compareNullsLast(a.originalIndex, b.originalIndex, ps.dir)
+        }
+        const ta = payloadTotals(a.test)
+        const tb = payloadTotals(b.test)
+        const pick = (t: PayloadTotals): number | null => {
+          switch (ps.col) {
+            case 'ssz_full': return t.sszFull
+            case 'ssz_bal': return t.sszBal
+            case 'ssz_bal_pct': return t.sszBalPct
+            case 'ssz_snappy': return t.sszSnappy
+            case 'ssz_snappy_pct': return t.sszSnappyPct
+            case 'json_full': return t.jsonFull
+            case 'json_bal': return t.jsonBal
+            case 'json_bal_pct': return t.jsonBalPct
+            // 'index' is handled by the early return above; this is unreachable.
+            default: return null
+          }
+        }
+        return compareNullsLast(pick(ta), pick(tb), ps.dir)
+      })
+    : filteredItems
+
+  const totalPages = Math.ceil(sortedItems.length / pageSize)
+  const paginatedItems = sortedItems.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const setCurrentPage = (page: number) => {
     if (onPageChange) {
@@ -575,6 +693,29 @@ export function TestFilesList({
             className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-4 text-sm/6 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
         </div>
+        {hasPayloadSizes && (
+          <div className="flex shrink-0 items-center gap-1 rounded-sm border border-gray-300 bg-white p-0.5 text-xs/5 dark:border-gray-600 dark:bg-gray-800">
+            {([
+              { value: 'general', label: 'General' },
+              { value: 'payload-sizes', label: 'Payload sizes (SSZ)' },
+              { value: 'payload-sizes-json', label: 'Payload sizes (JSON)' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setViewMode(opt.value)}
+                className={clsx(
+                  'rounded-xs px-2 py-1 font-medium transition-colors',
+                  viewMode === opt.value
+                    ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                    : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700',
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {filteredItems.length > 0 && paginationControls}
       <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
@@ -582,7 +723,24 @@ export function TestFilesList({
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
               <th className="w-16 px-2 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                #
+                {viewMode !== 'general' && hasPayloadSizes ? (() => {
+                  const active = payloadSort?.col === 'index'
+                  const Icon = active ? (payloadSort.dir === 'desc' ? ArrowDown : ArrowUp) : null
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => togglePayloadSort('index')}
+                      className={clsx(
+                        'inline-flex w-full cursor-pointer items-center justify-end gap-1 hover:text-gray-700 dark:hover:text-gray-200',
+                        active && 'text-gray-700 dark:text-gray-200',
+                      )}
+                      title="Original position in the suite"
+                    >
+                      #
+                      {Icon ? <Icon className="size-3" /> : null}
+                    </button>
+                  )
+                })() : '#'}
               </th>
               <th className="px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Test Name
@@ -592,9 +750,55 @@ export function TestFilesList({
                   Genesis
                 </th>
               )}
-              <th className="w-48 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Steps
-              </th>
+              {viewMode === 'general' && (
+                <th className="w-48 px-4 py-3 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Steps
+                </th>
+              )}
+              {viewMode !== 'general' && hasPayloadSizes && (() => {
+                const sortHeader = (col: PayloadSortCol, label: string, tooltip: string) => {
+                  const active = payloadSort?.col === col
+                  const Icon = active ? (payloadSort.dir === 'desc' ? ArrowDown : ArrowUp) : null
+                  return (
+                    <th
+                      key={col}
+                      className="w-24 px-3 py-3 text-right text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
+                      title={tooltip}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => togglePayloadSort(col)}
+                        className={clsx(
+                          'inline-flex w-full cursor-pointer items-center justify-end gap-1 hover:text-gray-700 dark:hover:text-gray-200',
+                          active && 'text-gray-700 dark:text-gray-200',
+                        )}
+                      >
+                        {label}
+                        {Icon ? <Icon className="size-3" /> : null}
+                      </button>
+                    </th>
+                  )
+                }
+                if (viewMode === 'payload-sizes') {
+                  return (
+                    <>
+                      {sortHeader('ssz_full', 'SSZ', 'Full SSZ-encoded ExecutionPayload (BAL inline) — sum across all newPayloads in the test step')}
+                      {sortHeader('ssz_bal', 'SSZ BAL', 'SSZ-encoded BlockAccessList — sum across all newPayloads in the test step')}
+                      {sortHeader('ssz_bal_pct', 'BAL %', 'SSZ BAL as percentage of SSZ Full')}
+                      {sortHeader('ssz_snappy', 'SSZ Snappy', 'snappy(SSZ) — sum across all newPayloads in the test step')}
+                      {sortHeader('ssz_snappy_pct', 'Snappy %', 'SSZ Snappy as percentage of SSZ Full')}
+                    </>
+                  )
+                }
+                // payload-sizes-json
+                return (
+                  <>
+                    {sortHeader('json_full', 'JSON', 'Canonical JSON-encoded ExecutionPayload — sum across all newPayloads in the test step')}
+                    {sortHeader('json_bal', 'JSON BAL', 'BAL hex string as it appears in JSON (no quotes) — sum across all newPayloads in the test step')}
+                    {sortHeader('json_bal_pct', 'BAL %', 'JSON BAL as percentage of JSON Full')}
+                  </>
+                )
+              })()}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -619,13 +823,48 @@ export function TestFilesList({
                     {test.genesis ?? '—'}
                   </td>
                 )}
-                <td className="px-4 py-2">
-                  <div className="flex gap-1">
-                    {test.setup && <Badge variant="default">Setup</Badge>}
-                    {test.test && <Badge variant="default">Test</Badge>}
-                    {test.cleanup && <Badge variant="default">Cleanup</Badge>}
-                  </div>
-                </td>
+                {viewMode === 'general' && (
+                  <td className="px-4 py-2">
+                    <div className="flex gap-1">
+                      {test.setup && <Badge variant="default">Setup</Badge>}
+                      {test.test && <Badge variant="default">Test</Badge>}
+                      {test.cleanup && <Badge variant="default">Cleanup</Badge>}
+                    </div>
+                  </td>
+                )}
+                {viewMode !== 'general' && hasPayloadSizes && (() => {
+                  const totals = payloadTotals(test)
+                  const placeholder = <span className="text-gray-300 dark:text-gray-600">—</span>
+                  const bytesCell = (key: string, value: number | null) => (
+                    <td key={key} className="px-3 py-2 text-right font-mono text-xs/5 text-gray-700 dark:text-gray-300">
+                      {value === null ? placeholder : formatBytes(value)}
+                    </td>
+                  )
+                  const pctCell = (key: string, value: number | null) => (
+                    <td key={key} className="px-3 py-2 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400">
+                      {value === null ? placeholder : `${value.toFixed(1)}%`}
+                    </td>
+                  )
+                  if (viewMode === 'payload-sizes') {
+                    return (
+                      <>
+                        {bytesCell('ssz_full', totals.sszFull)}
+                        {bytesCell('ssz_bal', totals.sszBal)}
+                        {pctCell('ssz_bal_pct', totals.sszBalPct)}
+                        {bytesCell('ssz_snappy', totals.sszSnappy)}
+                        {pctCell('ssz_snappy_pct', totals.sszSnappyPct)}
+                      </>
+                    )
+                  }
+                  // payload-sizes-json
+                  return (
+                    <>
+                      {bytesCell('json_full', totals.jsonFull)}
+                      {bytesCell('json_bal', totals.jsonBal)}
+                      {pctCell('json_bal_pct', totals.jsonBalPct)}
+                    </>
+                  )
+                })()}
               </tr>
             ))}
           </tbody>

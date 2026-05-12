@@ -1,14 +1,10 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, BarChart3, ArrowDown, ArrowUp } from 'lucide-react'
+import { ChevronRight, BarChart3 } from 'lucide-react'
 import ReactECharts from 'echarts-for-react'
 import type { SuiteTest } from '@/api/types'
 import { compileQuery, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { formatBytes } from '@/utils/format'
-import { Pagination } from '@/components/shared/Pagination'
-
-export type PayloadSortColumn = 'name' | 'uncompressed' | 'bal' | 'snappy' | 'pct_bal' | 'ratio'
-export type PayloadSortDirection = 'asc' | 'desc'
 
 interface PayloadSizesSectionProps {
   tests: SuiteTest[]
@@ -19,8 +15,6 @@ interface PayloadRow {
   uncompressed: number
   bal: number
   snappy: number
-  pctBal: number
-  ratio: number
 }
 
 function sumArray(xs: number[] | undefined): number {
@@ -30,10 +24,11 @@ function sumArray(xs: number[] | undefined): number {
   return total
 }
 
-// The page-level overview rolls up the per-newPayload arrays from the
-// `test` step into a single number per metric per test, matching what
-// the section used to show before per-block detail was added. Per-block
-// breakdowns live on the test-details modal instead.
+// Page-level overview: rolls up the per-newPayload arrays from the
+// `test` step into a single number per metric per test. Per-block and
+// per-step breakdowns (plus the per-test totals as table columns) live
+// on the test-details modal and the main tests table — this section is
+// just the at-a-glance bar-chart visualization.
 function toRow(t: SuiteTest): PayloadRow | null {
   const testStep = t.payload_sizes?.test
   if (!testStep) return null
@@ -41,23 +36,12 @@ function toRow(t: SuiteTest): PayloadRow | null {
   const b = sumArray(testStep.ssz_bal)
   const s = sumArray(testStep.ssz_full_snappy)
   if (u === 0 && b === 0 && s === 0) return null
-  return {
-    name: t.name,
-    uncompressed: u,
-    bal: b,
-    snappy: s,
-    pctBal: u > 0 ? (b / u) * 100 : 0,
-    ratio: u > 0 ? s / u : 0,
-  }
+  return { name: t.name, uncompressed: u, bal: b, snappy: s }
 }
 
 export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
   const [expanded, setExpanded] = useState(false)
   const [query, setQuery] = useState('')
-  const [sortBy, setSortBy] = useState<PayloadSortColumn>('uncompressed')
-  const [sortDir, setSortDir] = useState<PayloadSortDirection>('desc')
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
 
   const rows = useMemo(() => {
     const all: PayloadRow[] = []
@@ -74,55 +58,16 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
     return rows.filter((r) => compiled(r.name))
   }, [rows, compiled, query])
 
-  const sorted = useMemo(() => {
-    const sortFns: Record<PayloadSortColumn, (a: PayloadRow, b: PayloadRow) => number> = {
-      name: (a, b) => a.name.localeCompare(b.name),
-      uncompressed: (a, b) => a.uncompressed - b.uncompressed,
-      bal: (a, b) => a.bal - b.bal,
-      snappy: (a, b) => a.snappy - b.snappy,
-      pct_bal: (a, b) => a.pctBal - b.pctBal,
-      ratio: (a, b) => a.ratio - b.ratio,
-    }
-    const cmp = sortFns[sortBy]
-    const out = [...filtered].sort(cmp)
-    if (sortDir === 'desc') out.reverse()
-    return out
-  }, [filtered, sortBy, sortDir])
+  // Stable sort for the chart so the visual order is meaningful — show
+  // the largest payloads at the top.
+  const sorted = useMemo(
+    () => [...filtered].sort((a, b) => b.uncompressed - a.uncompressed),
+    [filtered],
+  )
 
   if (rows.length === 0) return null
 
   const maxUncompressed = Math.max(...rows.map((r) => r.uncompressed))
-
-  const pageStart = (page - 1) * pageSize
-  const pageEnd = pageStart + pageSize
-  const visible = sorted.slice(pageStart, pageEnd)
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
-
-  function header(label: string, col: PayloadSortColumn, rightAlign = false) {
-    const active = sortBy === col
-    const Icon = active ? (sortDir === 'desc' ? ArrowDown : ArrowUp) : null
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          if (sortBy === col) {
-            setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
-          } else {
-            setSortBy(col)
-            setSortDir('desc')
-          }
-          setPage(1)
-        }}
-        className={clsx(
-          'flex items-center gap-1 text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400',
-          rightAlign && 'ml-auto',
-        )}
-      >
-        {label}
-        {Icon ? <Icon className="size-3" /> : null}
-      </button>
-    )
-  }
 
   return (
     <>
@@ -154,116 +99,66 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
             </span>
           </div>
 
-          <div className="mb-4">
-            <ReactECharts
-              option={{
-                grid: { left: 220, right: 24, top: 32, bottom: 60, containLabel: false },
-                tooltip: {
-                  trigger: 'axis',
-                  axisPointer: { type: 'shadow' },
-                  formatter: (params: Array<{ seriesName: string; data: number; name: string }>) => {
-                    const name = params[0]?.name ?? ''
-                    const lines = params.map((p) => `${p.seriesName}: ${formatBytes(p.data)}`)
-                    return `<b>${name}</b><br/>${lines.join('<br/>')}`
-                  },
+          <ReactECharts
+            option={{
+              grid: { left: 220, right: 24, top: 32, bottom: 60, containLabel: false },
+              tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'shadow' },
+                formatter: (params: Array<{ seriesName: string; data: number; name: string }>) => {
+                  const name = params[0]?.name ?? ''
+                  const lines = params.map((p) => `${p.seriesName}: ${formatBytes(p.data)}`)
+                  return `<b>${name}</b><br/>${lines.join('<br/>')}`
                 },
-                legend: {
-                  top: 0,
-                  data: ['Non-BAL', 'BAL', 'Snappy'],
+              },
+              legend: {
+                top: 0,
+                data: ['Non-BAL', 'BAL', 'Snappy'],
+              },
+              xAxis: {
+                type: 'value',
+                axisLabel: { formatter: (v: number) => formatBytes(v) },
+              },
+              yAxis: {
+                type: 'category',
+                data: sorted.map((r) => r.name),
+                inverse: true,
+                axisLabel: {
+                  width: 200,
+                  overflow: 'truncate',
+                  fontSize: 11,
                 },
-                xAxis: {
-                  type: 'value',
-                  axisLabel: { formatter: (v: number) => formatBytes(v) },
+              },
+              dataZoom: [
+                { type: 'slider', yAxisIndex: 0, start: 0, end: Math.min(100, (30 / Math.max(1, sorted.length)) * 100), width: 14, right: 4 },
+                { type: 'inside', yAxisIndex: 0, start: 0, end: Math.min(100, (30 / Math.max(1, sorted.length)) * 100) },
+              ],
+              series: [
+                {
+                  name: 'Non-BAL',
+                  type: 'bar',
+                  stack: 'uncompressed',
+                  itemStyle: { color: '#3b82f6' },
+                  data: sorted.map((r) => Math.max(0, r.uncompressed - r.bal)),
                 },
-                yAxis: {
-                  type: 'category',
-                  data: sorted.map((r) => r.name),
-                  inverse: true,
-                  axisLabel: {
-                    width: 200,
-                    overflow: 'truncate',
-                    fontSize: 11,
-                  },
+                {
+                  name: 'BAL',
+                  type: 'bar',
+                  stack: 'uncompressed',
+                  itemStyle: { color: '#f59e0b' },
+                  data: sorted.map((r) => r.bal),
                 },
-                dataZoom: [
-                  { type: 'slider', yAxisIndex: 0, start: 0, end: Math.min(100, (30 / Math.max(1, sorted.length)) * 100), width: 14, right: 4 },
-                  { type: 'inside', yAxisIndex: 0, start: 0, end: Math.min(100, (30 / Math.max(1, sorted.length)) * 100) },
-                ],
-                series: [
-                  {
-                    name: 'Non-BAL',
-                    type: 'bar',
-                    stack: 'uncompressed',
-                    itemStyle: { color: '#3b82f6' },
-                    data: sorted.map((r) => Math.max(0, r.uncompressed - r.bal)),
-                  },
-                  {
-                    name: 'BAL',
-                    type: 'bar',
-                    stack: 'uncompressed',
-                    itemStyle: { color: '#f59e0b' },
-                    data: sorted.map((r) => r.bal),
-                  },
-                  {
-                    name: 'Snappy',
-                    type: 'bar',
-                    itemStyle: { color: '#10b981' },
-                    data: sorted.map((r) => r.snappy),
-                  },
-                ],
-              }}
-              style={{ height: Math.max(280, Math.min(800, sorted.length * 22 + 80)) }}
-              notMerge
-            />
-          </div>
-
-          <div className="overflow-x-auto rounded-sm border border-gray-200 dark:border-gray-700">
-            <table className="min-w-full">
-              <thead className="bg-gray-50/50 dark:bg-gray-800/30">
-                <tr>
-                  <th className="px-3 py-2 text-left">{header('Test', 'name')}</th>
-                  <th className="px-3 py-2 text-right">{header('Uncompressed', 'uncompressed', true)}</th>
-                  <th className="px-3 py-2 text-right">{header('BAL', 'bal', true)}</th>
-                  <th className="px-3 py-2 text-right">{header('Snappy', 'snappy', true)}</th>
-                  <th className="px-3 py-2 text-right">{header('% BAL', 'pct_bal', true)}</th>
-                  <th className="px-3 py-2 text-right" title="Snappy-compressed size as a percentage of uncompressed">{header('Snappy %', 'ratio', true)}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((r) => (
-                  <tr key={r.name} className="border-t border-gray-200 dark:border-gray-700">
-                    <td className="px-3 py-1.5 font-mono text-xs/5 text-gray-900 dark:text-gray-100">{r.name}</td>
-                    <td className="px-3 py-1.5 text-right text-sm/6 text-gray-700 dark:text-gray-300">{formatBytes(r.uncompressed)}</td>
-                    <td className="px-3 py-1.5 text-right text-sm/6 text-gray-700 dark:text-gray-300">{formatBytes(r.bal)}</td>
-                    <td className="px-3 py-1.5 text-right text-sm/6 text-gray-700 dark:text-gray-300">{formatBytes(r.snappy)}</td>
-                    <td className="px-3 py-1.5 text-right text-sm/6 text-gray-700 dark:text-gray-300">{r.pctBal.toFixed(1)}%</td>
-                    <td className="px-3 py-1.5 text-right text-sm/6 text-gray-700 dark:text-gray-300">{(r.ratio * 100).toFixed(1)}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-3 flex items-center justify-end gap-3">
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(parseInt(e.target.value, 10))
-                setPage(1)
-              }}
-              className="rounded-sm border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
-            >
-              {[20, 50, 100].map((s) => (
-                <option key={s} value={s}>
-                  {s} / page
-                </option>
-              ))}
-            </select>
-            <Pagination
-              currentPage={page}
-              totalPages={totalPages}
-              onPageChange={setPage}
-            />
-          </div>
+                {
+                  name: 'Snappy',
+                  type: 'bar',
+                  itemStyle: { color: '#10b981' },
+                  data: sorted.map((r) => r.snappy),
+                },
+              ],
+            }}
+            style={{ height: Math.max(280, Math.min(800, sorted.length * 22 + 80)) }}
+            notMerge
+          />
         </div>
       )}
     </>
