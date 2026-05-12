@@ -1,16 +1,51 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, BarChart3 } from 'lucide-react'
+import { BarChart3 } from 'lucide-react'
 import ReactECharts from 'echarts-for-react'
 import type { SuiteTest } from '@/api/types'
 import { compileQuery, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
+import { formatTestNameLong } from '@/utils/eestName'
+import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 import { formatBytes } from '@/utils/format'
+
+// Reactive dark-mode detector — mirrors the run-detail charts so the
+// chart's tooltip theming flips with the rest of the page.
+function useDarkMode() {
+  const [isDark, setIsDark] = useState(() =>
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark'),
+  )
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'))
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+  return isDark
+}
+
+// ECharts inserts the tooltip string as HTML, so anything we pulled from
+// a raw test name needs to be escaped before it lands in the markup.
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => {
+    switch (c) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      default: return '&#39;'
+    }
+  })
+}
+
+type ChartOrder = 'index' | 'size'
 
 interface PayloadSizesSectionProps {
   tests: SuiteTest[]
 }
 
 interface PayloadRow {
+  index: number // 1-based position in the suite, matches the # column in the tests table.
   name: string
   uncompressed: number
   bal: number
@@ -29,24 +64,26 @@ function sumArray(xs: number[] | undefined): number {
 // per-step breakdowns (plus the per-test totals as table columns) live
 // on the test-details modal and the main tests table — this section is
 // just the at-a-glance bar-chart visualization.
-function toRow(t: SuiteTest): PayloadRow | null {
+function toRow(t: SuiteTest, index: number): PayloadRow | null {
   const testStep = t.payload_sizes?.test
   if (!testStep) return null
   const u = sumArray(testStep.ssz_full)
   const b = sumArray(testStep.ssz_bal)
   const s = sumArray(testStep.ssz_full_snappy)
   if (u === 0 && b === 0 && s === 0) return null
-  return { name: t.name, uncompressed: u, bal: b, snappy: s }
+  return { index, name: t.name, uncompressed: u, bal: b, snappy: s }
 }
 
 export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
-  const [expanded, setExpanded] = useState(false)
   const [query, setQuery] = useState('')
+  const [order, setOrder] = useState<ChartOrder>('index')
+  const isDark = useDarkMode()
+  const { mode: nameMode } = useNameDisplayMode()
 
   const rows = useMemo(() => {
     const all: PayloadRow[] = []
-    for (const t of tests) {
-      const row = toRow(t)
+    for (let i = 0; i < tests.length; i++) {
+      const row = toRow(tests[i], i + 1)
       if (row) all.push(row)
     }
     return all
@@ -58,80 +95,142 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
     return rows.filter((r) => compiled(r.name))
   }, [rows, compiled, query])
 
-  // Stable sort for the chart so the visual order is meaningful — show
-  // the largest payloads at the top.
-  const sorted = useMemo(
-    () => [...filtered].sort((a, b) => b.uncompressed - a.uncompressed),
-    [filtered],
+  // Optional size-descending sort. `index` mode keeps the original
+  // suite order, which makes the X axis monotonic (#1, #2, #3, …) and
+  // useful for scanning patterns across the suite. `size` mode shows
+  // the heaviest payloads first.
+  const ordered = useMemo(
+    () => order === 'size' ? [...filtered].sort((a, b) => b.uncompressed - a.uncompressed) : filtered,
+    [filtered, order],
   )
 
   if (rows.length === 0) return null
 
   const maxUncompressed = Math.max(...rows.map((r) => r.uncompressed))
+  // Looking up names by category lets the tooltip stay meaningful even
+  // when the chart is sorted by size and the X axis is no longer monotonic.
+  const categories = ordered.map((r) => String(r.index))
+  const indexToName = new Map(ordered.map((r) => [String(r.index), r.name]))
+
+  // 200 bars is the visual sweet spot — beyond that, the dataZoom slider
+  // is the only way to read them. Cap the initial window proportionally.
+  const initialZoomEnd = Math.min(100, (200 / Math.max(1, ordered.length)) * 100)
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-      >
-        <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', expanded && 'rotate-90')} />
+      <div className="flex w-full items-center gap-2 border-b border-gray-200 px-4 py-3 text-sm/6 font-medium text-gray-900 dark:border-gray-700 dark:text-gray-100">
         <BarChart3 className="size-4 text-gray-400 dark:text-gray-500" />
         Payload Sizes
         <span className="text-xs/5 text-gray-500 dark:text-gray-400">
           · {rows.length} tests · max {formatBytes(maxUncompressed)}
         </span>
-      </button>
-      {expanded && (
-        <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-          <div className="mb-3 flex items-center gap-2">
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={TEST_FILTER_HINT}
-              className="flex-1 rounded-sm border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
-            />
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              {sorted.length} matching
-            </span>
+      </div>
+      <div className="p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={TEST_FILTER_HINT}
+            className="flex-1 rounded-sm border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
+          />
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {filtered.length} matching
+          </span>
+          <div className="flex shrink-0 items-center gap-1 rounded-sm border border-gray-300 bg-white p-0.5 text-xs/5 dark:border-gray-600 dark:bg-gray-800">
+            <span className="px-1 text-gray-500 dark:text-gray-400">Order:</span>
+            {([
+              { value: 'index', label: 'Test #' },
+              { value: 'size', label: 'Size' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setOrder(opt.value)}
+                className={clsx(
+                  'rounded-xs px-2 py-1 font-medium transition-colors',
+                  order === opt.value
+                    ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                    : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700',
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
+        </div>
 
-          <ReactECharts
-            option={{
-              grid: { left: 220, right: 24, top: 32, bottom: 60, containLabel: false },
+        <ReactECharts
+          option={(() => {
+            // Theme-aware colors matching the resource-usage charts on the
+            // run-detail page — grey-on-grey was unreadable in dark mode.
+            const textColor = isDark ? '#ffffff' : '#374151'
+            const mutedTextColor = isDark ? '#9ca3af' : '#6b7280'
+            const axisLineColor = isDark ? '#4b5563' : '#d1d5db'
+            const splitLineColor = isDark ? '#374151' : '#e5e7eb'
+            return {
+              backgroundColor: 'transparent',
+              textStyle: { color: textColor },
+              grid: { left: 70, right: 24, top: 32, bottom: 60, containLabel: false },
               tooltip: {
                 trigger: 'axis',
                 axisPointer: { type: 'shadow' },
-                formatter: (params: Array<{ seriesName: string; data: number; name: string }>) => {
-                  const name = params[0]?.name ?? ''
-                  const lines = params.map((p) => `${p.seriesName}: ${formatBytes(p.data)}`)
-                  return `<b>${name}</b><br/>${lines.join('<br/>')}`
+                backgroundColor: isDark ? '#1f2937' : '#ffffff',
+                borderColor: isDark ? '#374151' : '#e5e7eb',
+                textStyle: { color: textColor },
+                // `confine` keeps the popover inside the chart container; the
+                // CSS clamps width and lets the decomposed line wrap.
+                confine: true,
+                extraCssText: 'max-width: 300px; white-space: normal;',
+                formatter: (params: Array<{ seriesName: string; color: string; data: number; name: string }>) => {
+                  if (!params.length) return ''
+                  const idx = params[0].name ?? ''
+                  const rawName = indexToName.get(idx) ?? ''
+                  const decomposedSafe = escapeHtml(formatTestNameLong(rawName, nameMode))
+                  let content = `<strong>Test #${escapeHtml(idx)}</strong>`
+                  content += `<br/><span style="font-size:11px;color:${mutedTextColor};word-break:break-all;display:block;">${decomposedSafe}</span><br/>`
+                  for (const p of params) {
+                    content += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;"></span>${escapeHtml(p.seriesName)}: ${formatBytes(p.data)}<br/>`
+                  }
+                  return content
                 },
               },
               legend: {
                 top: 0,
                 data: ['Non-BAL', 'BAL', 'Snappy'],
+                textStyle: { color: textColor },
               },
               xAxis: {
-                type: 'value',
-                axisLabel: { formatter: (v: number) => formatBytes(v) },
+                type: 'category',
+                data: categories,
+                axisLabel: {
+                  color: textColor,
+                  fontSize: 10,
+                  formatter: (v: string) => `#${v}`,
+                },
+                axisLine: { lineStyle: { color: axisLineColor } },
+                axisTick: { lineStyle: { color: axisLineColor } },
               },
               yAxis: {
-                type: 'category',
-                data: sorted.map((r) => r.name),
-                inverse: true,
-                axisLabel: {
-                  width: 200,
-                  overflow: 'truncate',
-                  fontSize: 11,
-                },
+                type: 'value',
+                axisLabel: { color: textColor, formatter: (v: number) => formatBytes(v) },
+                axisLine: { show: true, lineStyle: { color: axisLineColor } },
+                splitLine: { lineStyle: { color: splitLineColor } },
               },
               dataZoom: [
-                { type: 'slider', yAxisIndex: 0, start: 0, end: Math.min(100, (30 / Math.max(1, sorted.length)) * 100), width: 14, right: 4 },
-                { type: 'inside', yAxisIndex: 0, start: 0, end: Math.min(100, (30 / Math.max(1, sorted.length)) * 100) },
+                {
+                  type: 'slider',
+                  xAxisIndex: 0,
+                  start: 0,
+                  end: initialZoomEnd,
+                  height: 14,
+                  bottom: 8,
+                  borderColor: axisLineColor,
+                  fillerColor: isDark ? 'rgba(139, 92, 246, 0.3)' : 'rgba(139, 92, 246, 0.1)',
+                  backgroundColor: isDark ? '#374151' : '#f3f4f6',
+                  textStyle: { color: textColor },
+                },
+                { type: 'inside', xAxisIndex: 0, start: 0, end: initialZoomEnd },
               ],
               series: [
                 {
@@ -139,28 +238,28 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
                   type: 'bar',
                   stack: 'uncompressed',
                   itemStyle: { color: '#3b82f6' },
-                  data: sorted.map((r) => Math.max(0, r.uncompressed - r.bal)),
+                  data: ordered.map((r) => Math.max(0, r.uncompressed - r.bal)),
                 },
                 {
                   name: 'BAL',
                   type: 'bar',
                   stack: 'uncompressed',
                   itemStyle: { color: '#f59e0b' },
-                  data: sorted.map((r) => r.bal),
+                  data: ordered.map((r) => r.bal),
                 },
                 {
                   name: 'Snappy',
                   type: 'bar',
                   itemStyle: { color: '#10b981' },
-                  data: sorted.map((r) => r.snappy),
+                  data: ordered.map((r) => r.snappy),
                 },
               ],
-            }}
-            style={{ height: Math.max(280, Math.min(800, sorted.length * 22 + 80)) }}
-            notMerge
-          />
-        </div>
-      )}
+            }
+          })()}
+          style={{ height: 360 }}
+          notMerge
+        />
+      </div>
     </>
   )
 }
