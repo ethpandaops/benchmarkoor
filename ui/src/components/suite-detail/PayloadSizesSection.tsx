@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { BarChart3 } from 'lucide-react'
 import ReactECharts from 'echarts-for-react'
 import type { SuiteTest } from '@/api/types'
-import { compileQuery, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
+import { compileQuery } from '@/utils/eestNameFilter'
 import { formatTestNameLong } from '@/utils/eestName'
 import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 import { formatBytes } from '@/utils/format'
@@ -44,6 +44,12 @@ interface PayloadSizesSectionProps {
   tests: SuiteTest[]
   /** Called when a bar is clicked, with the 1-based test index (matches the `#` column in the tests table). */
   onTestClick?: (index: number) => void
+  /**
+   * External search query that filters which tests appear in the chart.
+   * Controlled by the parent so the same query also drives the tests
+   * table and other sections on the suite-details page.
+   */
+  searchQuery?: string
 }
 
 interface PayloadRow {
@@ -76,8 +82,7 @@ function toRow(t: SuiteTest, index: number): PayloadRow | null {
   return { index, name: t.name, uncompressed: u, bal: b, snappy: s }
 }
 
-export function PayloadSizesSection({ tests, onTestClick }: PayloadSizesSectionProps) {
-  const [query, setQuery] = useState('')
+export function PayloadSizesSection({ tests, onTestClick, searchQuery = '' }: PayloadSizesSectionProps) {
   const [order, setOrder] = useState<ChartOrder>('index')
   const isDark = useDarkMode()
   const { mode: nameMode } = useNameDisplayMode()
@@ -92,11 +97,11 @@ export function PayloadSizesSection({ tests, onTestClick }: PayloadSizesSectionP
     return all
   }, [tests])
 
-  const compiled = useMemo(() => compileQuery(query), [query])
+  const compiled = useMemo(() => compileQuery(searchQuery), [searchQuery])
   const filtered = useMemo(() => {
-    if (!query.trim()) return rows
+    if (!searchQuery.trim()) return rows
     return rows.filter((r) => compiled(r.name))
-  }, [rows, compiled, query])
+  }, [rows, compiled, searchQuery])
 
   // Optional size-descending sort. `index` mode keeps the original
   // suite order, which makes the X axis monotonic (#1, #2, #3, …) and
@@ -160,17 +165,12 @@ export function PayloadSizesSection({ tests, onTestClick }: PayloadSizesSectionP
         </span>
       </div>
       <div className="p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={TEST_FILTER_HINT}
-            className="flex-1 rounded-sm border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
-          />
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            {filtered.length} matching
-          </span>
+        <div className="mb-3 flex items-center justify-end gap-2">
+          {searchQuery.trim() && (
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {filtered.length} of {rows.length} matching
+            </span>
+          )}
           <div className="flex shrink-0 items-center gap-1 rounded-sm border border-gray-300 bg-white p-0.5 text-xs/5 dark:border-gray-600 dark:bg-gray-800">
             <span className="px-1 text-gray-500 dark:text-gray-400">Order:</span>
             {([

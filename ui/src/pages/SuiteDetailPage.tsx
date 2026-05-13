@@ -17,7 +17,8 @@ import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { isPayloadSortCol, type PayloadSort } from '@/components/suite-detail/payloadSort'
 import { FacetPanel } from '@/components/shared/FacetPanel'
-import { toggleSearchTerm } from '@/utils/eestNameFilter'
+import { FilterInput } from '@/components/shared/FilterInput'
+import { toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { PayloadSizesSection } from '@/components/suite-detail/PayloadSizesSection'
 import { RunsTable } from '@/components/runs/RunsTable'
@@ -78,7 +79,7 @@ function OpcodeHeatmapSection({
       </button>
       {expanded && (
         <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-          <OpcodeHeatmap tests={tests} onTestClick={onTestClick} searchQuery={searchQuery} onSearchChange={onSearchChange} />
+          <OpcodeHeatmap tests={tests} onTestClick={onTestClick} searchQuery={searchQuery} onSearchChange={onSearchChange} hideSearchInput />
         </div>
       )}
     </>
@@ -1430,6 +1431,21 @@ export function SuiteDetailPage() {
             )}
           </TabPanel>
           <TabPanel className="flex flex-col gap-4">
+            {/* Global search for the Tests tab. Sticky to the viewport on
+                scroll so the user can refine the filter without scrolling
+                back to the top. Drives every downstream section
+                (FacetPanel, TestHeatmap, OpcodeHeatmap, PayloadSizes, the
+                tests table) via the shared ?q= search param. Mirrors the
+                pattern used on the run-detail page. */}
+            <div className="sticky top-0 z-30 -mx-4 flex flex-wrap items-center gap-3 border-b border-gray-200 bg-white/95 px-4 py-2 backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95">
+              <FilterInput
+                placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
+                title={TEST_FILTER_HINT}
+                value={q ?? ''}
+                onValueChange={(v) => handleSearchChange(v || undefined)}
+                className="min-w-0 flex-1 rounded-xs border border-gray-300 bg-white px-3 py-1.5 text-sm/6 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+              />
+            </div>
             <FacetPanel
               testNames={(suite.tests ?? []).map((t) => t.name)}
               query={q ?? ''}
@@ -1459,7 +1475,7 @@ export function SuiteDetailPage() {
             )}
             {suite.tests?.some((t) => !!t.payload_sizes) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                <PayloadSizesSection tests={suite.tests ?? []} onTestClick={handleDetailChange} />
+                <PayloadSizesSection tests={suite.tests ?? []} onTestClick={handleDetailChange} searchQuery={q ?? ''} />
               </div>
             )}
             <TestFilesList
@@ -1478,6 +1494,7 @@ export function SuiteDetailPage() {
               onTestViewChange={handleTestViewChange}
               payloadSort={payloadSort}
               onPayloadSortChange={handlePayloadSortChange}
+              hideSearchInput
             />
           </TabPanel>
           {hasPreRunSteps && (

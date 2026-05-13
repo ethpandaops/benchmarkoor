@@ -89,6 +89,8 @@ interface TestFilesListProps {
   onTestViewChange?: (mode: 'general' | 'payload-sizes' | 'payload-sizes-json') => void
   payloadSort?: PayloadSort | null
   onPayloadSortChange?: (sort: PayloadSort | null) => void
+  /** Hide the in-table search input (the caller drives the search via the global ?q= bar). */
+  hideSearchInput?: boolean
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
@@ -470,6 +472,7 @@ export function TestFilesList({
   onTestViewChange,
   payloadSort: payloadSortProp,
   onPayloadSortChange,
+  hideSearchInput = false,
 }: TestFilesListProps) {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   // Switches which columns the tests table renders. "general" shows the
@@ -682,17 +685,19 @@ export function TestFilesList({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-4">
-        <div className="relative flex-1">
-          <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
-            title={TEST_FILTER_HINT}
-            className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-4 text-sm/6 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
-          />
-        </div>
+        {!hideSearchInput && (
+          <div className="relative flex-1">
+            <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search… or e.g. opcode:ORIGIN gas:90M"
+              title={TEST_FILTER_HINT}
+              className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-4 text-sm/6 text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+            />
+          </div>
+        )}
         {hasPayloadSizes && (
           <div className="flex shrink-0 items-center gap-1 rounded-sm border border-gray-300 bg-white p-0.5 text-xs/5 dark:border-gray-600 dark:bg-gray-800">
             {([

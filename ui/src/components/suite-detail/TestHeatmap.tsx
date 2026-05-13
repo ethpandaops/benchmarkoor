@@ -8,7 +8,7 @@ import { JDenticon } from '@/components/shared/JDenticon'
 import { Pagination } from '@/components/shared/Pagination'
 import { Spinner } from '@/components/shared/Spinner'
 import { TestName } from '@/components/shared/TestName'
-import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
+import { testNameMatches, toggleSearchTerm } from '@/utils/eestNameFilter'
 import { formatTimestamp } from '@/utils/date'
 
 const DEFAULT_PAGE_SIZE = 20
@@ -248,7 +248,7 @@ interface TestHeatmapProps {
 type SortDirection = 'asc' | 'desc'
 type SortField = 'testNumber' | (typeof STAT_COLUMNS)[number]
 
-export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, suiteName, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange, useRegex: useRegexProp, onUseRegexChange, fullscreen: fullscreenProp, onFullscreenChange, showClientStat: showClientStatProp, onShowClientStatChange, histogramStat: histogramStatProp, onHistogramStatChange, threshold: thresholdProp, onThresholdChange, runsPerClient: runsPerClientProp, onRunsPerClientChange, pageSize: pageSizeProp, onPageSizeChange }: TestHeatmapProps) {
+export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, suiteName, stepFilter = ALL_INDEX_STEP_TYPES, searchQuery, onSearchChange, showTestName: showTestNameProp, onShowTestNameChange, useRegex: useRegexProp, fullscreen: fullscreenProp, onFullscreenChange, showClientStat: showClientStatProp, onShowClientStatChange, histogramStat: histogramStatProp, onHistogramStatChange, threshold: thresholdProp, onThresholdChange, runsPerClient: runsPerClientProp, onRunsPerClientChange, pageSize: pageSizeProp, onPageSizeChange }: TestHeatmapProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [internalPageSize, setInternalPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -269,9 +269,8 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
   const showClientStat = showClientStatProp ?? false
   const setShowClientStat = onShowClientStatChange ?? (() => {})
   const showTestName = showTestNameProp ?? false
-  const [internalUseRegex, setInternalUseRegex] = useState(false)
+  const [internalUseRegex] = useState(false)
   const useRegex = useRegexProp ?? internalUseRegex
-  const setUseRegex = onUseRegexChange ?? setInternalUseRegex
   const [internalFullscreen, setInternalFullscreen] = useState(false)
   const fullscreen = fullscreenProp ?? internalFullscreen
   const setFullscreen = onFullscreenChange ?? setInternalFullscreen
@@ -480,11 +479,6 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
     }
   }
 
-  const handleSearchChange = (value: string) => {
-    setCurrentPage(1)
-    onSearchChange?.(value || undefined)
-  }
-
   const handleMouseEnter = (test: ProcessedTest, client: string, run: RunData, event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect()
     setTooltip({
@@ -523,31 +517,9 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          placeholder={useRegex ? 'Regex...' : 'Filter or e.g. opcode:ORIGIN'}
-          title={useRegex ? 'Regex against the raw test name.' : TEST_FILTER_HINT}
-          className={clsx(
-            'w-28 rounded-xs border bg-white px-2 py-1 text-sm placeholder-gray-400 focus:outline-hidden focus:ring-1 sm:w-auto sm:px-3 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-500',
-            useRegex && search && (() => { try { new RegExp(search); return false } catch { return true } })()
-              ? 'border-red-400 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
-              : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600',
-          )}
-        />
-        <button
-          onClick={() => setUseRegex(!useRegex)}
-          title={useRegex ? 'Regex mode (click to switch to text)' : 'Text mode (click to switch to regex)'}
-          className={clsx(
-            'rounded-xs px-1.5 py-1 font-mono text-sm transition-colors',
-            useRegex
-              ? 'bg-blue-500 text-white'
-              : 'border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600',
-          )}
-        >
-          .*
-        </button>
+        {/* Inline search input removed — the suite-details page now drives
+            this component via the global ?q= search bar at the top of
+            the Tests tab. Keeping the fullscreen button. */}
         <button
           onClick={() => setFullscreen(!fullscreen)}
           className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
