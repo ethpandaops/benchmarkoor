@@ -1459,7 +1459,7 @@ export function SuiteDetailPage() {
             )}
             {suite.tests?.some((t) => !!t.payload_sizes) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                <PayloadSizesSection tests={suite.tests ?? []} />
+                <PayloadSizesSection tests={suite.tests ?? []} onTestClick={handleDetailChange} />
               </div>
             )}
             <TestFilesList

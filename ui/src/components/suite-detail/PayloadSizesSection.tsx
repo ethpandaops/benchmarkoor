@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { BarChart3 } from 'lucide-react'
 import ReactECharts from 'echarts-for-react'
@@ -42,6 +42,8 @@ type ChartOrder = 'index' | 'size'
 
 interface PayloadSizesSectionProps {
   tests: SuiteTest[]
+  /** Called when a bar is clicked, with the 1-based test index (matches the `#` column in the tests table). */
+  onTestClick?: (index: number) => void
 }
 
 interface PayloadRow {
@@ -74,11 +76,12 @@ function toRow(t: SuiteTest, index: number): PayloadRow | null {
   return { index, name: t.name, uncompressed: u, bal: b, snappy: s }
 }
 
-export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
+export function PayloadSizesSection({ tests, onTestClick }: PayloadSizesSectionProps) {
   const [query, setQuery] = useState('')
   const [order, setOrder] = useState<ChartOrder>('index')
   const isDark = useDarkMode()
   const { mode: nameMode } = useNameDisplayMode()
+  const chartRef = useRef<ReactECharts | null>(null)
 
   const rows = useMemo(() => {
     const all: PayloadRow[] = []
@@ -104,13 +107,44 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
     [filtered, order],
   )
 
+  // Looking up names by category lets the tooltip stay meaningful even
+  // when the chart is sorted by size and the X axis is no longer monotonic.
+  const categories = useMemo(() => ordered.map((r) => String(r.index)), [ordered])
+  const indexToName = useMemo(
+    () => new Map(ordered.map((r) => [String(r.index), r.name])),
+    [ordered],
+  )
+
+  // Click-anywhere-in-a-column → open the test modal. The default ECharts
+  // `click` event only fires when the cursor actually hits a bar, leaving
+  // dead zones above short bars and in the gaps between stacks. Hooking
+  // the underlying Zrender canvas and converting the click's pixel back
+  // to an X-axis category gives us the column the user "meant" wherever
+  // they click inside the plot area.
+  useEffect(() => {
+    if (!onTestClick) return
+    const inst = chartRef.current?.getEchartsInstance()
+    if (!inst) return
+    const zr = inst.getZr()
+    const handler = (event: { offsetX: number; offsetY: number }) => {
+      const pixel: [number, number] = [event.offsetX, event.offsetY]
+      // Only fire when the click is over the grid (plot area), not the
+      // axis labels, legend, or data-zoom slider.
+      if (!inst.containPixel('grid', pixel)) return
+      const raw = inst.convertFromPixel({ xAxisIndex: 0 }, event.offsetX) as number
+      if (typeof raw !== 'number' || !Number.isFinite(raw)) return
+      const i = Math.round(raw)
+      if (i < 0 || i >= categories.length) return
+      const idx = parseInt(categories[i], 10)
+      if (Number.isFinite(idx) && idx > 0) onTestClick(idx)
+    }
+    zr.on('click', handler)
+    return () => zr.off('click', handler)
+  }, [onTestClick, categories])
+
   if (rows.length === 0) return null
 
   const maxUncompressed = Math.max(...rows.map((r) => r.uncompressed))
-  // Looking up names by category lets the tooltip stay meaningful even
-  // when the chart is sorted by size and the X axis is no longer monotonic.
-  const categories = ordered.map((r) => String(r.index))
-  const indexToName = new Map(ordered.map((r) => [String(r.index), r.name]))
 
   // 200 bars is the visual sweet spot — beyond that, the dataZoom slider
   // is the only way to read them. Cap the initial window proportionally.
@@ -161,6 +195,7 @@ export function PayloadSizesSection({ tests }: PayloadSizesSectionProps) {
         </div>
 
         <ReactECharts
+          ref={chartRef}
           option={(() => {
             // Theme-aware colors matching the resource-usage charts on the
             // run-detail page — grey-on-grey was unreadable in dark mode.
