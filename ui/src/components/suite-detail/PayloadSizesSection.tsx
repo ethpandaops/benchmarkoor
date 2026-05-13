@@ -206,7 +206,10 @@ export function PayloadSizesSection({ tests, onTestClick, searchQuery = '' }: Pa
             return {
               backgroundColor: 'transparent',
               textStyle: { color: textColor },
-              grid: { left: 70, right: 24, top: 32, bottom: 60, containLabel: false },
+              // Bottom strip stacks: X-axis labels → slider → legend.
+              // 75px of grid.bottom = ~25px for labels + ~10px gap +
+              // 14px slider + 8px gap + 18px legend.
+              grid: { left: 70, right: 24, top: 16, bottom: 75, containLabel: false },
               tooltip: {
                 trigger: 'axis',
                 axisPointer: { type: 'shadow' },
@@ -231,7 +234,7 @@ export function PayloadSizesSection({ tests, onTestClick, searchQuery = '' }: Pa
                 },
               },
               legend: {
-                top: 0,
+                bottom: 0,
                 data: ['Non-BAL', 'BAL', 'Snappy'],
                 textStyle: { color: textColor },
               },
@@ -259,7 +262,7 @@ export function PayloadSizesSection({ tests, onTestClick, searchQuery = '' }: Pa
                   start: 0,
                   end: initialZoomEnd,
                   height: 14,
-                  bottom: 8,
+                  bottom: 30,
                   borderColor: axisLineColor,
                   fillerColor: isDark ? 'rgba(139, 92, 246, 0.3)' : 'rgba(139, 92, 246, 0.1)',
                   backgroundColor: isDark ? '#374151' : '#f3f4f6',
@@ -291,7 +294,7 @@ export function PayloadSizesSection({ tests, onTestClick, searchQuery = '' }: Pa
               ],
             }
           })()}
-          style={{ height: 360 }}
+          style={{ height: 400 }}
           notMerge
         />
       </div>
