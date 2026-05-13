@@ -151,9 +151,9 @@ export function PayloadSizesSection({ tests, onTestClick, searchQuery = '' }: Pa
 
   const maxUncompressed = Math.max(...rows.map((r) => r.uncompressed))
 
-  // 200 bars is the visual sweet spot — beyond that, the dataZoom slider
-  // is the only way to read them. Cap the initial window proportionally.
-  const initialZoomEnd = Math.min(100, (200 / Math.max(1, ordered.length)) * 100)
+  // Show the full range by default; the user can drag the dataZoom slider
+  // to narrow in on a slice if they want.
+  const initialZoomEnd = 100
 
   return (
     <>
