@@ -50,6 +50,12 @@ interface PayloadSizesSectionProps {
    * table and other sections on the suite-details page.
    */
   searchQuery?: string
+  /**
+   * Bar ordering. Falls back to local state when no callback is provided
+   * so the component still works standalone.
+   */
+  order?: ChartOrder
+  onOrderChange?: (order: ChartOrder) => void
 }
 
 interface PayloadRow {
@@ -82,8 +88,19 @@ function toRow(t: SuiteTest, index: number): PayloadRow | null {
   return { index, name: t.name, uncompressed: u, bal: b, snappy: s }
 }
 
-export function PayloadSizesSection({ tests, onTestClick, searchQuery = '' }: PayloadSizesSectionProps) {
-  const [order, setOrder] = useState<ChartOrder>('index')
+export function PayloadSizesSection({
+  tests,
+  onTestClick,
+  searchQuery = '',
+  order: orderProp,
+  onOrderChange,
+}: PayloadSizesSectionProps) {
+  const [localOrder, setLocalOrder] = useState<ChartOrder>('index')
+  const order = orderProp ?? localOrder
+  const setOrder = (next: ChartOrder) => {
+    if (onOrderChange) onOrderChange(next)
+    else setLocalOrder(next)
+  }
   const isDark = useDarkMode()
   const { mode: nameMode } = useNameDisplayMode()
   const chartRef = useRef<ReactECharts | null>(null)

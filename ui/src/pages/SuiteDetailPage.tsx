@@ -297,12 +297,16 @@ export function SuiteDetailPage() {
     testView?: 'general' | 'payload-sizes' | 'payload-sizes-json'
     psort?: string
     psortDir?: 'asc' | 'desc'
+    psOrder?: 'index' | 'size'
   }
   const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite', hq, hn, hr, hFs, hStat, hCs, hTh, hRpc, hPs, groupBy, testView } = search
   // Parse the payload-sizes sort from the URL. Defaults to no sort (null).
   const payloadSort: PayloadSort | null = search.psort && isPayloadSortCol(search.psort)
     ? { col: search.psort, dir: search.psortDir === 'asc' ? 'asc' : 'desc' }
     : null
+  // Payload-sizes chart bar order. 'index' is the default; only the
+  // non-default value lives in the URL to keep things clean.
+  const psOrder: 'index' | 'size' = search.psOrder === 'size' ? 'size' : 'index'
   const chartPassingOnly = search.chartPassingOnly !== 'false'
   const stepFilter = parseStepFilter(search.steps)
   const labelFilters = parseLabelFilters(search.labels)
@@ -694,7 +698,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, filesPage: page, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy, testView, psort: search.psort, psortDir: search.psortDir },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage: page, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy, testView, psort: search.psort, psortDir: search.psortDir, psOrder: search.psOrder },
     })
   }
 
@@ -713,7 +717,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail: index, opcodeSort, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy, testView, psort: search.psort, psortDir: search.psortDir },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail: index, opcodeSort, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy, testView, psort: search.psort, psortDir: search.psortDir, psOrder: search.psOrder },
     })
   }
 
@@ -721,7 +725,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort: sort === 'name' ? undefined : sort, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy, testView, psort: search.psort, psortDir: search.psortDir },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort: sort === 'name' ? undefined : sort, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy, testView, psort: search.psort, psortDir: search.psortDir, psOrder: search.psOrder },
     })
   }
 
@@ -730,7 +734,21 @@ export function SuiteDetailPage() {
       to: '/suites/$suiteHash',
       params: { suiteHash },
       // 'general' is the default; drop it from the URL to keep it clean.
-      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy, testView: mode === 'general' ? undefined : mode, psort: search.psort, psortDir: search.psortDir },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy, testView: mode === 'general' ? undefined : mode, psort: search.psort, psortDir: search.psortDir, psOrder: search.psOrder },
+    })
+  }
+
+  const handlePsOrderChange = (next: 'index' | 'size') => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      // 'index' is the default; drop it from the URL.
+      search: {
+        tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort, q,
+        steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters),
+        groupBy, testView, psort: search.psort, psortDir: search.psortDir,
+        psOrder: next === 'index' ? undefined : next,
+      },
     })
   }
 
@@ -745,6 +763,7 @@ export function SuiteDetailPage() {
         groupBy, testView,
         psort: next ? next.col : undefined,
         psortDir: next && next.dir === 'asc' ? 'asc' : undefined,
+        psOrder: search.psOrder,
       },
     })
   }
@@ -1475,7 +1494,13 @@ export function SuiteDetailPage() {
             )}
             {suite.tests?.some((t) => !!t.payload_sizes) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                <PayloadSizesSection tests={suite.tests ?? []} onTestClick={handleDetailChange} searchQuery={q ?? ''} />
+                <PayloadSizesSection
+                  tests={suite.tests ?? []}
+                  onTestClick={handleDetailChange}
+                  searchQuery={q ?? ''}
+                  order={psOrder}
+                  onOrderChange={handlePsOrderChange}
+                />
               </div>
             )}
             <TestFilesList
