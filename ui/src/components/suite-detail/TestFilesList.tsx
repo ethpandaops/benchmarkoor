@@ -174,8 +174,14 @@ function FileContent({
     )
   }
 
+  // `min-w-0` on every flex-column ancestor that contains the <pre>:
+  // Chrome's default `min-width: auto` on flex items lets the pre's
+  // very-long-line intrinsic width inflate the column, which makes
+  // `overflow-auto` on the pre a no-op (no scrollbar appears and the
+  // content sits past the right edge of the modal). Firefox handles
+  // this more gracefully but the fix is portable.
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4">
       {!hidePath && (
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between">
@@ -187,7 +193,7 @@ function FileContent({
           <div className="break-all font-mono text-sm/6 text-gray-700 dark:text-gray-300">{file.og_path}</div>
         </div>
       )}
-      <div className="flex flex-col gap-1">
+      <div className="flex min-w-0 flex-col gap-1">
         <div className="flex items-center justify-between">
           <span className="text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
             Content
@@ -205,11 +211,9 @@ function FileContent({
             Copy
           </button>
         </div>
-        <div className="overflow-x-auto">
-          <pre className="max-h-96 overflow-y-auto rounded-sm bg-gray-900 p-4 font-mono text-xs/5 text-gray-100">
-            {data}
-          </pre>
-        </div>
+        <pre className="max-h-[60vh] overflow-auto rounded-sm bg-gray-900 p-4 font-mono text-xs/5 text-gray-100">
+          {data}
+        </pre>
       </div>
     </div>
   )
@@ -435,7 +439,7 @@ function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <div className="flex flex-col gap-1">
         <div className="text-sm/6 text-gray-900 dark:text-gray-100">
           <TestName name={test.name} showRawBelow showCopy />
@@ -444,7 +448,7 @@ function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: {
       <EESTInfoContent test={test} opcodeSort={opcodeSort} onOpcodeSortChange={onOpcodeSortChange} />
       <PayloadSizesContent test={test} />
       {steps.map(({ key, label, file }) => (
-        <div key={key} className="flex flex-col gap-2">
+        <div key={key} className="flex min-w-0 flex-col gap-2">
           <div className="flex items-center gap-2">
             <Badge variant="default">{label}</Badge>
           </div>

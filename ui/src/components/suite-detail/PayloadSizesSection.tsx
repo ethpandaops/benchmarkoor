@@ -39,6 +39,7 @@ function escapeHtml(s: string): string {
 }
 
 type ChartOrder = 'index' | 'size'
+type ChartEncoding = 'ssz' | 'json'
 
 interface PayloadSizesSectionProps {
   tests: SuiteTest[]
@@ -56,14 +57,24 @@ interface PayloadSizesSectionProps {
    */
   order?: ChartOrder
   onOrderChange?: (order: ChartOrder) => void
+  /**
+   * SSZ vs JSON view. Falls back to local state when no callback is
+   * provided so the component still works standalone.
+   */
+  encoding?: ChartEncoding
+  onEncodingChange?: (encoding: ChartEncoding) => void
 }
 
 interface PayloadRow {
   index: number // 1-based position in the suite, matches the # column in the tests table.
   name: string
-  uncompressed: number
-  bal: number
-  snappy: number
+  // SSZ-encoded sizes
+  sszFull: number
+  sszBal: number
+  sszSnappy: number
+  // JSON-encoded sizes
+  jsonFull: number
+  jsonBal: number
 }
 
 function sumArray(xs: number[] | undefined): number {
@@ -81,11 +92,13 @@ function sumArray(xs: number[] | undefined): number {
 function toRow(t: SuiteTest, index: number): PayloadRow | null {
   const testStep = t.payload_sizes?.test
   if (!testStep) return null
-  const u = sumArray(testStep.ssz_full)
-  const b = sumArray(testStep.ssz_bal)
-  const s = sumArray(testStep.ssz_full_snappy)
-  if (u === 0 && b === 0 && s === 0) return null
-  return { index, name: t.name, uncompressed: u, bal: b, snappy: s }
+  const sszFull = sumArray(testStep.ssz_full)
+  const sszBal = sumArray(testStep.ssz_bal)
+  const sszSnappy = sumArray(testStep.ssz_full_snappy)
+  const jsonFull = sumArray(testStep.json_full)
+  const jsonBal = sumArray(testStep.json_bal)
+  if (sszFull === 0 && sszBal === 0 && sszSnappy === 0 && jsonFull === 0 && jsonBal === 0) return null
+  return { index, name: t.name, sszFull, sszBal, sszSnappy, jsonFull, jsonBal }
 }
 
 export function PayloadSizesSection({
@@ -94,12 +107,20 @@ export function PayloadSizesSection({
   searchQuery = '',
   order: orderProp,
   onOrderChange,
+  encoding: encodingProp,
+  onEncodingChange,
 }: PayloadSizesSectionProps) {
   const [localOrder, setLocalOrder] = useState<ChartOrder>('index')
   const order = orderProp ?? localOrder
   const setOrder = (next: ChartOrder) => {
     if (onOrderChange) onOrderChange(next)
     else setLocalOrder(next)
+  }
+  const [localEncoding, setLocalEncoding] = useState<ChartEncoding>('ssz')
+  const encoding = encodingProp ?? localEncoding
+  const setEncoding = (next: ChartEncoding) => {
+    if (onEncodingChange) onEncodingChange(next)
+    else setLocalEncoding(next)
   }
   const isDark = useDarkMode()
   const { mode: nameMode } = useNameDisplayMode()
@@ -120,13 +141,18 @@ export function PayloadSizesSection({
     return rows.filter((r) => compiled(r.name))
   }, [rows, compiled, searchQuery])
 
+  // Pick the "full" field that matches the active encoding — this is
+  // what the size sort and the max-payload header annotation use.
+  const fullOf = (r: PayloadRow) => encoding === 'json' ? r.jsonFull : r.sszFull
+
   // Optional size-descending sort. `index` mode keeps the original
   // suite order, which makes the X axis monotonic (#1, #2, #3, …) and
   // useful for scanning patterns across the suite. `size` mode shows
   // the heaviest payloads first.
   const ordered = useMemo(
-    () => order === 'size' ? [...filtered].sort((a, b) => b.uncompressed - a.uncompressed) : filtered,
-    [filtered, order],
+    () => order === 'size' ? [...filtered].sort((a, b) => fullOf(b) - fullOf(a)) : filtered,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filtered, order, encoding],
   )
 
   // Looking up names by category lets the tooltip stay meaningful even
@@ -166,7 +192,7 @@ export function PayloadSizesSection({
 
   if (rows.length === 0) return null
 
-  const maxUncompressed = Math.max(...rows.map((r) => r.uncompressed))
+  const maxUncompressed = Math.max(...rows.map(fullOf))
 
   // Show the full range by default; the user can drag the dataZoom slider
   // to narrow in on a slice if they want.
@@ -188,6 +214,27 @@ export function PayloadSizesSection({
               {filtered.length} of {rows.length} matching
             </span>
           )}
+          <div className="flex shrink-0 items-center gap-1 rounded-sm border border-gray-300 bg-white p-0.5 text-xs/5 dark:border-gray-600 dark:bg-gray-800">
+            <span className="px-1 text-gray-500 dark:text-gray-400">Encoding:</span>
+            {([
+              { value: 'ssz', label: 'SSZ' },
+              { value: 'json', label: 'JSON' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setEncoding(opt.value)}
+                className={clsx(
+                  'cursor-pointer rounded-xs px-2 py-1 font-medium transition-colors',
+                  encoding === opt.value
+                    ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                    : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700',
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <div className="flex shrink-0 items-center gap-1 rounded-sm border border-gray-300 bg-white p-0.5 text-xs/5 dark:border-gray-600 dark:bg-gray-800">
             <span className="px-1 text-gray-500 dark:text-gray-400">Order:</span>
             {([
@@ -252,7 +299,7 @@ export function PayloadSizesSection({
               },
               legend: {
                 bottom: 0,
-                data: ['Non-BAL', 'BAL', 'Snappy'],
+                data: encoding === 'ssz' ? ['Non-BAL', 'BAL', 'Snappy'] : ['Non-BAL', 'BAL'],
                 textStyle: { color: textColor },
               },
               xAxis: {
@@ -287,28 +334,49 @@ export function PayloadSizesSection({
                 },
                 { type: 'inside', xAxisIndex: 0, start: 0, end: initialZoomEnd },
               ],
-              series: [
-                {
-                  name: 'Non-BAL',
-                  type: 'bar',
-                  stack: 'uncompressed',
-                  itemStyle: { color: '#3b82f6' },
-                  data: ordered.map((r) => Math.max(0, r.uncompressed - r.bal)),
-                },
-                {
-                  name: 'BAL',
-                  type: 'bar',
-                  stack: 'uncompressed',
-                  itemStyle: { color: '#f59e0b' },
-                  data: ordered.map((r) => r.bal),
-                },
-                {
-                  name: 'Snappy',
-                  type: 'bar',
-                  itemStyle: { color: '#10b981' },
-                  data: ordered.map((r) => r.snappy),
-                },
-              ],
+              // Series adapt to the active encoding. SSZ keeps the
+              // original blue/amber/emerald (Non-BAL + BAL stacked, plus
+              // Snappy as a separate bar). JSON has no compressed
+              // variant; only Non-BAL + BAL stacked.
+              series: encoding === 'ssz'
+                ? [
+                    {
+                      name: 'Non-BAL',
+                      type: 'bar',
+                      stack: 'uncompressed',
+                      itemStyle: { color: '#3b82f6' },
+                      data: ordered.map((r) => Math.max(0, r.sszFull - r.sszBal)),
+                    },
+                    {
+                      name: 'BAL',
+                      type: 'bar',
+                      stack: 'uncompressed',
+                      itemStyle: { color: '#f59e0b' },
+                      data: ordered.map((r) => r.sszBal),
+                    },
+                    {
+                      name: 'Snappy',
+                      type: 'bar',
+                      itemStyle: { color: '#10b981' },
+                      data: ordered.map((r) => r.sszSnappy),
+                    },
+                  ]
+                : [
+                    {
+                      name: 'Non-BAL',
+                      type: 'bar',
+                      stack: 'uncompressed',
+                      itemStyle: { color: '#3b82f6' },
+                      data: ordered.map((r) => Math.max(0, r.jsonFull - r.jsonBal)),
+                    },
+                    {
+                      name: 'BAL',
+                      type: 'bar',
+                      stack: 'uncompressed',
+                      itemStyle: { color: '#f59e0b' },
+                      data: ordered.map((r) => r.jsonBal),
+                    },
+                  ],
             }
           })()}
           style={{ height: 400 }}
