@@ -182,7 +182,7 @@ export function PayloadSizesSection({ tests, onTestClick, searchQuery = '' }: Pa
                 type="button"
                 onClick={() => setOrder(opt.value)}
                 className={clsx(
-                  'rounded-xs px-2 py-1 font-medium transition-colors',
+                  'cursor-pointer rounded-xs px-2 py-1 font-medium transition-colors',
                   order === opt.value
                     ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
                     : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700',
