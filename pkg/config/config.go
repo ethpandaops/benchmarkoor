@@ -1,9 +1,11 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
+	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/mitchellh/mapstructure"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/spf13/viper"
@@ -735,6 +738,18 @@ func (d *DataDirConfig) Validate(prefix string) error {
 		return fmt.Errorf("%s: source_dir is required", prefix)
 	}
 
+	validMethods := map[string]bool{"": true, "copy": true, "overlayfs": true, "fuse-overlayfs": true, "zfs": true, "direct": true, "schelk": true}
+	if !validMethods[d.Method] {
+		return fmt.Errorf("%s: invalid method %q, must be: copy, overlayfs, fuse-overlayfs, zfs, direct, schelk", prefix, d.Method)
+	}
+
+	// For method=schelk, source_dir lives under a schelk-managed mount
+	// that may not be mounted yet at config load time. validateDataDirMethods
+	// performs the mount and re-checks existence afterwards.
+	if d.Method == "schelk" {
+		return nil
+	}
+
 	info, err := os.Stat(d.SourceDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -746,11 +761,6 @@ func (d *DataDirConfig) Validate(prefix string) error {
 
 	if !info.IsDir() {
 		return fmt.Errorf("%s: source_dir %q is not a directory", prefix, d.SourceDir)
-	}
-
-	validMethods := map[string]bool{"": true, "copy": true, "overlayfs": true, "fuse-overlayfs": true, "zfs": true, "direct": true}
-	if !validMethods[d.Method] {
-		return fmt.Errorf("%s: invalid method %q, must be: copy, overlayfs, fuse-overlayfs, zfs, direct", prefix, d.Method)
 	}
 
 	return nil
@@ -1205,6 +1215,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 
 	// Validate rollback_strategy settings.
 	if err := c.validateRollbackStrategy(opt); err != nil {
+		return err
+	}
+
+	// Validate per-method datadir requirements (binary availability, etc.).
+	if err := c.validateDataDirMethods(opt); err != nil {
 		return err
 	}
 
@@ -1939,6 +1954,109 @@ func (c *Config) validateRollbackStrategy(opt ValidateOpts) error {
 					instance.ID, opts.TmpfsMaxSize, err,
 				)
 			}
+		}
+	}
+
+	return nil
+}
+
+// validateDataDirMethods runs per-method preflight for active instances.
+// For method=schelk: verifies the binary is on PATH, ensures the schelk
+// scratch volume is mounted (calling `schelk mount` if not), and then
+// verifies each instance's source_dir exists under the schelk mount
+// point. This shifts the existence check out of DataDirConfig.Validate
+// for schelk since the path only materialises after mount.
+func (c *Config) validateDataDirMethods(opt ValidateOpts) error {
+	type schelkInstance struct {
+		id, sourceDir string
+	}
+
+	var schelkInstances []schelkInstance
+
+	for _, instance := range c.Runner.Instances {
+		if !opt.isInstanceActive(instance.ID) {
+			continue
+		}
+
+		dd := c.resolveDataDir(&instance)
+		if dd != nil && dd.Method == "schelk" {
+			schelkInstances = append(schelkInstances, schelkInstance{
+				id:        instance.ID,
+				sourceDir: dd.SourceDir,
+			})
+		}
+	}
+
+	if len(schelkInstances) == 0 {
+		return nil
+	}
+
+	bin := datadir.SchelkBinary()
+
+	if _, err := exec.LookPath(bin); err != nil {
+		return fmt.Errorf(
+			"datadir.method \"schelk\" requires the `%s` binary on PATH "+
+				"(override with %s): %w",
+			bin, datadir.SchelkBinaryEnv, err,
+		)
+	}
+
+	state, err := datadir.ReadSchelkState(datadir.SchelkStatePath())
+	if err != nil {
+		return fmt.Errorf("datadir.method \"schelk\": %w", err)
+	}
+
+	if state.MountPoint == "" {
+		return fmt.Errorf("datadir.method \"schelk\": schelk state has no mount_point — run `schelk init-new` or `schelk init-from` first")
+	}
+
+	mountedActual, err := datadir.IsMountedAt(state.MountPoint)
+	if err != nil {
+		return fmt.Errorf("datadir.method \"schelk\": checking mount status: %w", err)
+	}
+
+	switch {
+	case state.IsMounted && !mountedActual:
+		// schelk state says mounted but the kernel disagrees — typically
+		// a crash or interrupted recover left dm-era and state out of sync.
+		// schelk mount will refuse ("Volume is already mounted") and only
+		// `schelk full-recover` can re-establish a consistent baseline.
+		return fmt.Errorf(
+			"datadir.method \"schelk\": state at %q says is_mounted=true but %q is not in /proc/mounts "+
+				"(inconsistent, likely from a prior crash) — run `%s full-recover` to reset, then retry",
+			datadir.SchelkStatePath(), state.MountPoint, bin,
+		)
+	case !state.IsMounted && !mountedActual:
+		// Use datadir.RunSchelk so a SIGTERM during validation does not
+		// kill the in-flight `schelk mount` mid-operation.
+		output, runErr := datadir.RunSchelk(context.Background(), nil, "mount", "-y")
+		if runErr != nil {
+			return fmt.Errorf(
+				"datadir.method \"schelk\": `%s mount` failed: %w (output: %s)",
+				bin, runErr, strings.TrimSpace(string(output)),
+			)
+		}
+	}
+	// state.IsMounted && mountedActual: nothing to do — Prepare will run
+	//   schelk restore to re-establish baseline at run start.
+	// !state.IsMounted && mountedActual: unusual but harmless; let Prepare
+	//   handle it via restore.
+
+	for _, si := range schelkInstances {
+		info, statErr := os.Stat(si.sourceDir)
+		if statErr != nil {
+			if os.IsNotExist(statErr) {
+				return fmt.Errorf(
+					"instance %q datadir: source_dir %q does not exist under schelk mount %q",
+					si.id, si.sourceDir, state.MountPoint,
+				)
+			}
+
+			return fmt.Errorf("instance %q datadir: checking source_dir: %w", si.id, statErr)
+		}
+
+		if !info.IsDir() {
+			return fmt.Errorf("instance %q datadir: source_dir %q is not a directory", si.id, si.sourceDir)
 		}
 	}
 

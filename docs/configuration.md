@@ -1049,6 +1049,8 @@ runner:
 | `overlayfs` | Linux overlayfs for near-instant setup | Root access |
 | `fuse-overlayfs` | FUSE-based overlayfs | `fuse-overlayfs` package; `user_allow_other` in `/etc/fuse.conf` if Docker runs as root. **Warning:** ~3x slower than native overlayfs |
 | `zfs` | ZFS snapshots and clones for copy-on-write setup | Source directory on ZFS filesystem; root access or ZFS delegations configured |
+| `direct` | Bind-mount `source_dir` directly into the container with no copy/snapshot. **Changes persist after the run.** Intended for inspection / resume workflows, not normal benchmarking | None |
+| `schelk` | Use a [schelk](https://github.com/tempoxyz/schelk)-managed scratch volume restored from a virgin baseline between iterations | `schelk` binary on PATH (or `BENCHMARKOOR_SCHELK_BIN`); schelk initialised via `schelk init-new` / `init-from`; root access |
 
 ###### ZFS Setup
 
@@ -1058,6 +1060,48 @@ zfs allow -u <user> clone,create,destroy,mount,snapshot <dataset>
 ```
 
 The dataset is auto-detected from the source directory mount point.
+
+###### Schelk Setup
+
+[schelk](https://github.com/tempoxyz/schelk) keeps a pristine virgin block device and a scratch block device, using `dm-era` on a ramdisk to track which blocks changed during a run so the scratch can be surgically restored from virgin between iterations. It pairs well with `rollback_strategy: container-recreate`, which gives schelk a clean baseline at the start of every test.
+
+Before configuring benchmarkoor, initialise schelk on the host (see [schelk's SKILL.md](https://github.com/tempoxyz/schelk/blob/master/docs/SKILL.md)):
+
+```bash
+sudo schelk init-from \
+  --virgin /dev/<virgin>  --scratch /dev/<scratch> \
+  --ramdisk /dev/ram0 --mount-point /schelk --fstype ext4
+```
+
+Then point `source_dir` at the path inside the schelk mount that holds your client's datadir:
+
+```yaml
+runner:
+  client:
+    config:
+      rollback_strategy: container-recreate
+  instances:
+    - id: reth-schelk
+      client: reth
+      datadir:
+        method: schelk
+        source_dir: /schelk/eth/reth   # subpath under the schelk mount
+```
+
+What benchmarkoor does at runtime:
+- **Config validation** verifies `schelk` is on PATH, reads `/var/lib/schelk/state.json` to learn the mount point, and runs `schelk mount` if the scratch isn't currently mounted. If state says mounted but `/proc/mounts` disagrees (a crash artefact), benchmarkoor surfaces a clear error pointing at `schelk full-recover`.
+- **Per container lifecycle**, `Prepare` runs `schelk restore` (recover + mount) so each iteration starts from the virgin baseline. `Cleanup` runs `schelk recover` to unmount and restore baseline.
+- **Graceful shutdown**: schelk commands run in their own process group, so a SIGTERM to benchmarkoor does not propagate to schelk. An in-flight schelk command is given up to 60 seconds to finish before being killed, so a recover mid-flight is not interrupted.
+
+Notes:
+- `rollback_strategy: container-checkpoint-restore` is **not** compatible with `method: schelk` (it requires `method: zfs`).
+- All operational schelk commands require root.
+- `source_dir` must be the schelk mount point or a subdirectory of it.
+
+| Environment Variable | Description |
+|----------------------|-------------|
+| `BENCHMARKOOR_SCHELK_BIN` | Override the schelk executable path. Useful when running under `sudo` with a sanitised PATH that does not include `~/.cargo/bin`. Accepts a bare name (resolved via PATH) or an absolute/relative path. Default: `schelk` |
+| `SCHELK_STATE` | Override the schelk state-file path. Honoured by both schelk itself and benchmarkoor's preflight. Default: `/var/lib/schelk/state.json` |
 
 ###### Default Container Directories
 

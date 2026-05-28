@@ -485,6 +485,21 @@ runner:
     #     #                    Requires: root access OR ZFS delegations configured:
     #     #                      zfs allow -u <user> clone,create,destroy,mount,snapshot <dataset>
     #     #                    The dataset is auto-detected from the source_dir mount point.
+    #     #   direct         - bind-mount source_dir directly into the container with no copy or snapshot.
+    #     #                    Changes persist after the run. Intended for inspection / resume workflows,
+    #     #                    not normal benchmarking.
+    #     #   schelk         - use a schelk-managed scratch volume (https://github.com/tempoxyz/schelk)
+    #     #                    restored from a virgin baseline between iterations via dm-era.
+    #     #                    Requires: `schelk` binary on PATH (override with BENCHMARKOOR_SCHELK_BIN)
+    #     #                    Requires: schelk already initialised via `schelk init-new` / `init-from`
+    #     #                    Requires: root access
+    #     #                    `source_dir` must be the schelk mount point or a subdirectory of it.
+    #     #                    Pairs naturally with rollback_strategy: container-recreate so each
+    #     #                    iteration starts from a clean baseline. Not compatible with
+    #     #                    rollback_strategy: container-checkpoint-restore (that requires ZFS).
+    #     #                    Optional env var BENCHMARKOOR_SCHELK_BIN overrides the binary path
+    #     #                    (useful under sudo with a sanitised PATH); SCHELK_STATE overrides the
+    #     #                    schelk state-file path (default /var/lib/schelk/state.json).
     #     method: copy
     #   reth:
     #     source_dir: ./data/snapshots/reth
@@ -495,6 +510,10 @@ runner:
     #   #   source_dir: /tank/benchmarkoor/nethermind-snapshot  # Must be on ZFS
     #   #   container_dir: /nethermind/data
     #   #   method: zfs  # near-instant via ZFS clones
+    #   # Example: schelk-backed data directory
+    #   # reth:
+    #   #   source_dir: /schelk/eth/reth  # Must be under the schelk mount point
+    #   #   method: schelk
 
   instances:
     - id: geth-latest

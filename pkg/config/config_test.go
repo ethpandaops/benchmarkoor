@@ -3,6 +3,7 @@ package config
 import (
 	"archive/tar"
 	"compress/gzip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -2029,6 +2030,31 @@ func TestValidateRollbackStrategy_CheckpointRestore(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "checkpoint-restore rejects schelk datadir",
+			cfg: Config{
+				Runner: RunnerConfig{
+					ContainerRuntime: "podman",
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							RollbackStrategy: RollbackStrategyCheckpointRestore,
+						},
+					},
+					Instances: []ClientInstance{
+						{
+							ID:     "test",
+							Client: "geth",
+							DataDir: &DataDirConfig{
+								SourceDir: validDir,
+								Method:    "schelk",
+							},
+						},
+					},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "with datadir requires datadir.method: \"zfs\"",
+		},
 	}
 
 	for _, tt := range tests {
@@ -2260,6 +2286,209 @@ func TestValidate_WithValidateOpts(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestValidateDataDirMethods_SchelkBinary(t *testing.T) {
+	validDir := t.TempDir()
+
+	mkCfg := func(method, sourceDir string) Config {
+		return Config{
+			Runner: RunnerConfig{
+				Instances: []ClientInstance{
+					{
+						ID:     "test",
+						Client: "geth",
+						DataDir: &DataDirConfig{
+							SourceDir: sourceDir,
+							Method:    method,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	// stageSchelkState writes a fake schelk state file with the given mount
+	// point and is_mounted flag, then points SCHELK_STATE at it. For
+	// "happy path" tests, pass mountPoint="/" and isMounted=true so the
+	// /proc/mounts check matches state without running `schelk mount`.
+	stageSchelkState := func(t *testing.T, mountPoint string, isMounted bool) {
+		t.Helper()
+
+		dir := t.TempDir()
+		statePath := filepath.Join(dir, "state.json")
+		body := fmt.Sprintf(`{"mount_point":%q,"is_mounted":%t}`, mountPoint, isMounted)
+		require.NoError(t, os.WriteFile(statePath, []byte(body), 0o600))
+		t.Setenv("SCHELK_STATE", statePath)
+	}
+
+	// stageSchelkBin installs a no-op `schelk` shim on PATH so the binary
+	// preflight passes and any `schelk mount` invocation succeeds without
+	// touching the kernel.
+	stageSchelkBin := func(t *testing.T, name string) string {
+		t.Helper()
+
+		binDir := t.TempDir()
+		fake := filepath.Join(binDir, name)
+		require.NoError(t, os.WriteFile(fake, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+		t.Setenv("PATH", binDir)
+
+		return fake
+	}
+
+	t.Run("non-schelk methods don't probe PATH", func(t *testing.T) {
+		// Hide PATH so any LookPath call would fail; copy must still validate.
+		t.Setenv("PATH", "")
+
+		cfg := mkCfg("copy", validDir)
+		require.NoError(t, cfg.validateDataDirMethods(ValidateOpts{}))
+	})
+
+	t.Run("schelk method requires `schelk` on PATH", func(t *testing.T) {
+		t.Setenv("PATH", "")
+
+		cfg := mkCfg("schelk", validDir)
+		err := cfg.validateDataDirMethods(ValidateOpts{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires the `schelk` binary on PATH")
+	})
+
+	t.Run("inactive instance with schelk is skipped", func(t *testing.T) {
+		t.Setenv("PATH", "")
+
+		cfg := mkCfg("schelk", validDir)
+		opts := ValidateOpts{ActiveInstanceIDs: map[string]struct{}{"other": {}}}
+		require.NoError(t, cfg.validateDataDirMethods(opts))
+	})
+
+	t.Run("schelk method passes when binary and state are present", func(t *testing.T) {
+		stageSchelkBin(t, "schelk")
+		stageSchelkState(t, "/", true)
+
+		cfg := mkCfg("schelk", validDir)
+		require.NoError(t, cfg.validateDataDirMethods(ValidateOpts{}))
+	})
+
+	t.Run("missing schelk state file is reported clearly", func(t *testing.T) {
+		stageSchelkBin(t, "schelk")
+		// Point SCHELK_STATE at a path that doesn't exist.
+		t.Setenv("SCHELK_STATE", filepath.Join(t.TempDir(), "missing.json"))
+
+		cfg := mkCfg("schelk", validDir)
+		err := cfg.validateDataDirMethods(ValidateOpts{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "schelk state file")
+		assert.Contains(t, err.Error(), "init-new")
+	})
+
+	t.Run("source_dir under mount that doesn't exist fails clearly", func(t *testing.T) {
+		stageSchelkBin(t, "schelk")
+		stageSchelkState(t, "/", true)
+
+		cfg := mkCfg("schelk", "/this/path/should/not/exist/in/tests")
+		err := cfg.validateDataDirMethods(ValidateOpts{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not exist under schelk mount")
+	})
+
+	t.Run("BENCHMARKOOR_SCHELK_BIN overrides the binary name", func(t *testing.T) {
+		stageSchelkBin(t, "schelk-custom")
+		t.Setenv("BENCHMARKOOR_SCHELK_BIN", "schelk-custom")
+		stageSchelkState(t, "/", true)
+
+		cfg := mkCfg("schelk", validDir)
+		require.NoError(t, cfg.validateDataDirMethods(ValidateOpts{}))
+	})
+
+	t.Run("BENCHMARKOOR_SCHELK_BIN absolute path bypasses PATH lookup", func(t *testing.T) {
+		fake := stageSchelkBin(t, "schelk-abs")
+		t.Setenv("PATH", "")
+		t.Setenv("BENCHMARKOOR_SCHELK_BIN", fake)
+		stageSchelkState(t, "/", true)
+
+		cfg := mkCfg("schelk", validDir)
+		require.NoError(t, cfg.validateDataDirMethods(ValidateOpts{}))
+	})
+
+	t.Run("BENCHMARKOOR_SCHELK_BIN error message names the override", func(t *testing.T) {
+		t.Setenv("PATH", "")
+		t.Setenv("BENCHMARKOOR_SCHELK_BIN", "missing-schelk-binary")
+
+		cfg := mkCfg("schelk", validDir)
+		err := cfg.validateDataDirMethods(ValidateOpts{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing-schelk-binary")
+		assert.Contains(t, err.Error(), "BENCHMARKOOR_SCHELK_BIN")
+	})
+
+	t.Run("state inconsistency points user at full-recover", func(t *testing.T) {
+		stageSchelkBin(t, "schelk")
+		// State says mounted at a path that isn't in /proc/mounts.
+		stageSchelkState(t, filepath.Join(t.TempDir(), "fake-mount-point"), true)
+
+		cfg := mkCfg("schelk", validDir)
+		err := cfg.validateDataDirMethods(ValidateOpts{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "inconsistent")
+		assert.Contains(t, err.Error(), "full-recover")
+	})
+
+	t.Run("not-mounted state triggers schelk mount call", func(t *testing.T) {
+		// Use a shim that records the args it was called with so we can
+		// confirm we called `schelk mount -y` exactly once.
+		binDir := t.TempDir()
+		logFile := filepath.Join(binDir, "calls.log")
+		fake := filepath.Join(binDir, "schelk")
+		script := fmt.Sprintf("#!/bin/sh\necho \"$@\" >> %q\nexit 0\n", logFile)
+		require.NoError(t, os.WriteFile(fake, []byte(script), 0o755))
+		t.Setenv("PATH", binDir)
+
+		// State says unmounted at a path that isn't in /proc/mounts.
+		stageSchelkState(t, filepath.Join(t.TempDir(), "not-mounted-anywhere"), false)
+
+		cfg := mkCfg("schelk", validDir)
+		require.NoError(t, cfg.validateDataDirMethods(ValidateOpts{}))
+
+		logged, err := os.ReadFile(logFile)
+		require.NoError(t, err)
+		assert.Equal(t, "mount -y\n", string(logged))
+	})
+}
+
+func TestDataDirConfig_Validate_Methods(t *testing.T) {
+	validDir := t.TempDir()
+
+	tests := []struct {
+		name      string
+		method    string
+		wantErr   bool
+		errSubstr string
+	}{
+		{name: "empty defaults ok", method: "", wantErr: false},
+		{name: "copy", method: "copy", wantErr: false},
+		{name: "overlayfs", method: "overlayfs", wantErr: false},
+		{name: "fuse-overlayfs", method: "fuse-overlayfs", wantErr: false},
+		{name: "zfs", method: "zfs", wantErr: false},
+		{name: "direct", method: "direct", wantErr: false},
+		{name: "schelk", method: "schelk", wantErr: false},
+		{name: "unknown rejected", method: "bogus", wantErr: true, errSubstr: "invalid method"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dd := &DataDirConfig{SourceDir: validDir, Method: tt.method}
+			err := dd.Validate("dd")
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+
+				return
+			}
+
+			require.NoError(t, err)
 		})
 	}
 }
