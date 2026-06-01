@@ -28,6 +28,9 @@ func (s *ethrexSpec) DefaultCommand() []string {
 		// "Public" JSON-RPC API
 		"--http.addr=0.0.0.0",
 		"--http.port=8545",
+		// Match geth's exposed namespaces; ethrex defaults to eth,net,web3
+		// only, so debug_/admin_ calls would otherwise be unavailable.
+		"--http.api=eth,net,web3,debug,admin",
 		// Engine API. authrpc.addr defaults to 127.0.0.1, must override
 		// so the runner can reach it from outside the container.
 		"--authrpc.addr=0.0.0.0",
