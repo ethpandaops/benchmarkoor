@@ -21,6 +21,7 @@ import { FilterInput } from '@/components/shared/FilterInput'
 import { toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { PayloadSizesSection } from '@/components/suite-detail/PayloadSizesSection'
+import { TxCountsSection } from '@/components/suite-detail/TxCountsSection'
 import { RunsTable } from '@/components/runs/RunsTable'
 import { sortIndexEntries, type SortColumn, type SortDirection } from '@/components/runs/sortEntries'
 import { RunFilters, type TestStatusFilter } from '@/components/runs/RunFilters'
@@ -1492,6 +1493,15 @@ export function SuiteDetailPage() {
                   onOrderChange={handlePsOrderChange}
                   encoding={psEncoding}
                   onEncodingChange={handlePsEncodingChange}
+                />
+              </div>
+            )}
+            {suite.tests?.some((t) => !!t.tx_counts?.test?.length) && (
+              <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                <TxCountsSection
+                  tests={suite.tests ?? []}
+                  onTestClick={handleDetailChange}
+                  searchQuery={q ?? ''}
                 />
               </div>
             )}

@@ -69,6 +69,12 @@ interface ExecutionsListProps {
   stepType: StepType
   expandedRows?: Set<number>
   onExpandedRowsChange?: (rows: Set<number>) => void
+  /**
+   * Per-newPayload transaction counts for the active step (typically
+   * suiteTest.tx_counts[stepType]). Indexed by newPayload order, not by
+   * row position — non-newPayload methods consume no slot.
+   */
+  txCounts?: number[]
 }
 
 function parseMethod(request: string): string {
@@ -117,6 +123,8 @@ interface ExecutionRowProps {
   status?: number // 0=success, 1=fail
   mgasPerSec?: number
   gasUsed?: number
+  /** Transaction count for this row when the method is engine_newPayloadV*. */
+  txCount?: number
   /** File viewer link for the response file at this line. */
   responseViewerUrl?: string
   /** File viewer link for the request file at this line. */
@@ -144,7 +152,7 @@ function StatusIndicator({ status }: { status?: number }) {
 
 const MAX_LAZY_LINE_SIZE = 1_000_000 // 1MB — lazy-load lines up to this size
 
-function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, responseViewerUrl, requestViewerUrl, expanded: expandedProp, onExpandedChange }: ExecutionRowProps & { expanded?: boolean; onExpandedChange?: (index: number, expanded: boolean) => void }) {
+function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, txCount, responseViewerUrl, requestViewerUrl, expanded: expandedProp, onExpandedChange }: ExecutionRowProps & { expanded?: boolean; onExpandedChange?: (index: number, expanded: boolean) => void }) {
   const [expandedLocal, setExpandedLocal] = useState(false)
   const expanded = expandedProp ?? expandedLocal
   const setExpanded = (v: boolean) => {
@@ -200,6 +208,14 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
           {method ?? (requestSize === undefined
             ? <span className="inline-block size-3 animate-spin rounded-full border border-gray-300 border-t-gray-600" />
             : '-')}
+          {txCount !== undefined && (
+            <span
+              className="ml-2 inline-block rounded-xs bg-violet-100 px-1.5 py-0.5 font-sans text-xs/5 font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+              title={`${txCount.toLocaleString()} transaction${txCount === 1 ? '' : 's'} in this engine_newPayload`}
+            >
+              {txCount.toLocaleString()} tx{txCount === 1 ? '' : 's'}
+            </span>
+          )}
         </span>
         <span className="w-44 shrink-0 text-right text-sm/6 font-medium text-blue-600 dark:text-blue-400">
           {mgasPerSec !== undefined ? (
@@ -323,7 +339,7 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
 
 const EXECUTIONS_PAGE_SIZE = 100
 
-export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedRows, onExpandedRowsChange }: ExecutionsListProps) {
+export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedRows, onExpandedRowsChange, txCounts }: ExecutionsListProps) {
   const { data: requests, isLoading: requestsLoading, error: requestsError } = useTestRequests(suiteHash, testName, stepType)
   const { data: responses, error: responsesError } = useTestResponses(runId, testName, stepType)
   const { data: resultDetails, isLoading: detailsLoading, error: detailsError } = useTestResultDetails(runId, testName, stepType)
@@ -380,6 +396,29 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedR
   const startIdx = (page - 1) * EXECUTIONS_PAGE_SIZE
   const endIdx = Math.min(startIdx + EXECUTIONS_PAGE_SIZE, executionCount)
 
+  // Map row index → tx count. tx_counts is indexed by newPayload order,
+  // not row position, so we walk all rows up to endIdx once to assign
+  // each newPayload row its slot. Returns a Map keyed by absolute row
+  // index (not page-relative).
+  const txCountByRow = (() => {
+    if (!txCounts || txCounts.length === 0) return new Map<number, number>()
+    const out = new Map<number, number>()
+    let nextNp = 0
+    const rowMethod = (i: number): string | undefined => {
+      const req = safeRequests?.[i]
+      if (req) return parseMethod(req)
+      return requestSummaries?.[i]?.head.match(/"method"\s*:\s*"([^"]+)"/)?.[1]
+    }
+    for (let i = 0; i < executionCount; i++) {
+      const m = rowMethod(i)
+      if (m && m.startsWith('engine_newPayloadV')) {
+        if (nextNp < txCounts.length) out.set(i, txCounts[nextNp])
+        nextNp++
+      }
+    }
+    return out
+  })()
+
   return (
     <div className="mt-4 max-w-full overflow-hidden">
       <div className="mb-2 flex items-center justify-between">
@@ -416,6 +455,7 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedR
               status={safeDetails?.status[index]}
               mgasPerSec={safeDetails?.mgas_s[String(index)]}
               gasUsed={safeDetails?.gas_used[String(index)]}
+              txCount={txCountByRow.get(index)}
               responseViewerUrl={!safeResponses?.[index] && responseSummaries?.[index] && responseSummaries[index].size > 1_000_000
                 ? `/runs/${runId}/fileviewer?file=${encodeURIComponent(`${testName}/${stepType}.response`)}&lines=${index + 1}`
                 : undefined}

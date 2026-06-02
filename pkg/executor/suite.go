@@ -90,6 +90,11 @@ type SuiteTest struct {
 	// {raw, bal, snappy} arrays (one element per engine_newPayload* line in
 	// step order). Steps with no newPayload activity are omitted.
 	PayloadSizes *PayloadSizes `json:"payload_sizes,omitempty"`
+
+	// Engine newPayload transaction counts per step — one element per
+	// engine_newPayload* line in step order, equal to len(payload.transactions).
+	// Steps with no newPayload activity are omitted.
+	TxCounts *TxCounts `json:"tx_counts,omitempty"`
 }
 
 // ComputeSuiteHash computes a hash of all test file contents.
@@ -250,30 +255,46 @@ func CreateSuiteOutput(
 				{StepKindCleanup, test.Cleanup},
 			}
 			var ps PayloadSizes
+			var tc TxCounts
 			anyData := false
+			anyTxData := false
 			for _, s := range steps {
 				if s.file == nil {
 					continue
 				}
 				lines := stepLinesForTest(psLog, s.file)
 				buckets := ComputePayloadSizeBuckets(psLog, test.Name, lines)
-				if !buckets.HasData() {
-					continue
+				if buckets.HasData() {
+					b := buckets
+					switch s.kind {
+					case StepKindSetup:
+						ps.Setup = &b
+					case StepKindTest:
+						ps.Test = &b
+					case StepKindCleanup:
+						ps.Cleanup = &b
+					}
+					anyData = true
 				}
-				b := buckets
-				switch s.kind {
-				case StepKindSetup:
-					ps.Setup = &b
-				case StepKindTest:
-					ps.Test = &b
-				case StepKindCleanup:
-					ps.Cleanup = &b
+				if counts := ComputeTxCountsForStep(lines); len(counts) > 0 {
+					switch s.kind {
+					case StepKindSetup:
+						tc.Setup = counts
+					case StepKindTest:
+						tc.Test = counts
+					case StepKindCleanup:
+						tc.Cleanup = counts
+					}
+					anyTxData = true
 				}
-				anyData = true
 			}
 			if anyData {
 				p := ps
 				suiteTest.PayloadSizes = &p
+			}
+			if anyTxData {
+				t := tc
+				suiteTest.TxCounts = &t
 			}
 
 			info.Tests = append(info.Tests, suiteTest)
@@ -296,7 +317,7 @@ func CreateSuiteOutput(
 				// Merge opcode data from prepared tests into existing entries.
 				mergeOpcodeData(existing.Tests, prepared)
 
-				MergePayloadSizes(log, existing.Tests, func(testName string, step StepKind) []string {
+				lineProvider := func(testName string, step StepKind) []string {
 					reqPath := filepath.Join(suiteDir, testName, string(step)+".request")
 					data, err := os.ReadFile(reqPath)
 					if err != nil {
@@ -308,7 +329,10 @@ func CreateSuiteOutput(
 						return nil
 					}
 					return splitNonEmptyLines(string(data))
-				})
+				}
+
+				MergePayloadSizes(log, existing.Tests, lineProvider)
+				MergeTxCounts(log, existing.Tests, lineProvider)
 
 				info.Tests = existing.Tests
 			}

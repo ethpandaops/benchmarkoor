@@ -421,6 +421,65 @@ function PayloadSizesContent({ test }: { test: SuiteTest }) {
   )
 }
 
+// Per-step transaction-count breakdown for the test-details modal.
+// One table row per engine_newPayload in each populated step, plus a
+// totals row when there's more than one block.
+function TxCountsContent({ test }: { test: SuiteTest }) {
+  const tc = test.tx_counts
+  if (!tc) return null
+  const steps: { label: string; counts: number[] }[] = []
+  if (tc.setup?.length) steps.push({ label: 'Setup', counts: tc.setup })
+  if (tc.test?.length) steps.push({ label: 'Test', counts: tc.test })
+  if (tc.cleanup?.length) steps.push({ label: 'Cleanup', counts: tc.cleanup })
+  if (steps.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Badge variant="default">Transaction Counts</Badge>
+        <span className="text-xs/5 text-gray-500 dark:text-gray-400">per engine_newPayload</span>
+      </div>
+      <div className="flex flex-col gap-4">
+        {steps.map(({ label, counts }) => {
+          const total = counts.reduce((a, b) => a + b, 0)
+          return (
+            <div key={label} className="overflow-x-auto rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+              <div className="border-b border-gray-200 px-4 py-2 text-sm/6 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
+                {label} step
+                <span className="ml-2 text-xs/5 font-normal text-gray-500 dark:text-gray-400">
+                  {counts.length} newPayload{counts.length === 1 ? '' : 's'} · {total.toLocaleString()} tx{total === 1 ? '' : 's'} total
+                </span>
+              </div>
+              <table className="min-w-full">
+                <thead className="bg-gray-50/50 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">
+                  <tr>
+                    <th className="w-12 px-3 py-2">#</th>
+                    <th className="px-3 py-2 text-right">Transactions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {counts.map((n, i) => (
+                    <tr key={i} className="border-t border-gray-200 dark:border-gray-700">
+                      <td className="px-3 py-1.5 font-mono text-xs/5 text-gray-500 dark:text-gray-400">#{i + 1}</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-sm/6 text-gray-900 dark:text-gray-100">{n.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                  {counts.length > 1 && (
+                    <tr className="border-t-2 border-gray-300 bg-gray-50/50 dark:border-gray-600 dark:bg-gray-800/50">
+                      <td className="px-3 py-1.5 text-xs/5 font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Total</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-sm/6 font-semibold text-gray-900 dark:text-gray-100">{total.toLocaleString()}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // Component for displaying test steps content (for tests with setup/test/cleanup)
 function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: { suiteHash: string; test: SuiteTest; opcodeSort: OpcodeSortMode; onOpcodeSortChange: (sort: OpcodeSortMode) => void }) {
   const steps = [
@@ -430,10 +489,12 @@ function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: {
   ].filter((s) => s.file) as { key: string; label: string; file: SuiteFile }[]
 
   const hasPayloadSizes = !!test.payload_sizes
+  const hasTxCounts = !!(test.tx_counts?.setup?.length || test.tx_counts?.test?.length || test.tx_counts?.cleanup?.length)
   const hasInfo =
     !!test.eest?.info ||
     (test.opcode_count && Object.keys(test.opcode_count).length > 0) ||
-    hasPayloadSizes
+    hasPayloadSizes ||
+    hasTxCounts
   if (steps.length === 0 && !hasInfo) {
     return <div className="p-4 text-sm/6 text-gray-500">No step files available</div>
   }
@@ -447,6 +508,7 @@ function TestStepsContent({ suiteHash, test, opcodeSort, onOpcodeSortChange }: {
       </div>
       <EESTInfoContent test={test} opcodeSort={opcodeSort} onOpcodeSortChange={onOpcodeSortChange} />
       <PayloadSizesContent test={test} />
+      <TxCountsContent test={test} />
       {steps.map(({ key, label, file }) => (
         <div key={key} className="flex min-w-0 flex-col gap-2">
           <div className="flex items-center gap-2">

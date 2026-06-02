@@ -980,6 +980,7 @@ export function TestHeatmap({
                 ].filter(s => s.step)
 
                 const activeStep = steps.find(s => s.key === activeStepTab) ?? steps[0]
+                const matchingSuiteTest = suiteTests?.find((t) => t.name === selectedTest)
 
                 return (
                   <div className="flex flex-col gap-4">
@@ -1034,6 +1035,7 @@ export function TestHeatmap({
                           stepType={activeStep.key}
                           expandedRows={expandedExecRows}
                           onExpandedRowsChange={onExpandedExecRowsChange}
+                          txCounts={matchingSuiteTest?.tx_counts?.[activeStep.key]}
                         />
                       </div>
                     )}

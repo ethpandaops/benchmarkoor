@@ -468,6 +468,12 @@ export interface SuiteTest {
    * `bal[i]`, `snappy[i]` describe the i-th newPayload in step order.
    */
   payload_sizes?: PayloadSizes
+  /**
+   * Per-newPayload transaction counts (len of payload.transactions) for
+   * each step that contains engine_newPayload* calls. Steps with no
+   * newPayload activity are omitted.
+   */
+  tx_counts?: TxCounts
 }
 
 /**
@@ -496,6 +502,17 @@ export interface PayloadSizes {
   setup?: PayloadSizeBuckets
   test?: PayloadSizeBuckets
   cleanup?: PayloadSizeBuckets
+}
+
+/**
+ * Per-newPayload transaction counts for a single test, broken down by
+ * step. Each array has one element per engine_newPayload* line in step
+ * order, holding the transaction count for that block.
+ */
+export interface TxCounts {
+  setup?: number[]
+  test?: number[]
+  cleanup?: number[]
 }
 
 export interface SourceInfo {
