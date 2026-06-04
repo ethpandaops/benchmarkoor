@@ -1110,7 +1110,7 @@ The [`ethpandaops/benchmarkoor` action](../action.yaml) extracts the benchmarkoo
 What the runner needs:
 
 - The [ethPandaOps schelk ansible role](https://github.com/ethpandaops/github-actions-runners/tree/master/ansible/roles/schelk) installed: schelk binary at `/usr/local/bin/schelk`, `era_invalidate` built, `dm_era` and `brd` kernel modules loaded, and `schelk init-new` (or `init-from`) already run so `/var/lib/schelk/state.json` exists.
-- The `schelk` binary on the runner user's PATH. If it lives somewhere else, point benchmarkoor at it via the action's `docker-env` input (e.g. `docker-env: BENCHMARKOOR_SCHELK_BIN=/opt/schelk/bin/schelk`).
+- The `schelk` binary on the runner user's PATH. If it lives somewhere else, set `BENCHMARKOOR_SCHELK_BIN` on the action step (standard `env:` block — composite-action steps inherit the caller's env).
 
 A minimal CI invocation:
 
