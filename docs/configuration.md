@@ -1105,16 +1105,14 @@ Notes:
 
 ###### Schelk in CI / GitHub Action
 
-When benchmarkoor runs inside the Docker container started by the [`ethpandaops/benchmarkoor` action](../action.yaml), `datadir.method: schelk` is plumbed through automatically:
+The [`ethpandaops/benchmarkoor` action](../action.yaml) extracts the benchmarkoor binary from the configured Docker image and runs it directly on the runner host — there is no docker-in-docker / mount-namespace plumbing involved. As long as the runner has schelk initialised, `method: schelk` works without any action-specific glue.
 
-1. The action scans the merged run-configs for `datadir.method: schelk`. When found, it:
-   - Verifies `/var/lib/schelk/state.json` exists on the host (initialise schelk first via the [ethPandaOps ansible role](https://github.com/ethpandaops/github-actions-runners/tree/master/ansible/roles/schelk) — installs schelk + `era_invalidate` + loads `dm_era` / `brd`, and optionally runs `schelk init-new`).
-   - Bind-mounts `/var/lib/schelk` into the container so benchmarkoor can read `state.json` and detect mount state.
-   - Sets `BENCHMARKOOR_SCHELK_BIN=/usr/local/bin/schelk-host` — a wrapper baked into the image that runs the host's `schelk` via `nsenter -t 1 -m`, so all dm-era / mount operations happen in the host's mount namespace.
-2. The `/schelk` mount point itself is bind-mounted via the existing datadir-source-dir auto-detection (`source_dir: /schelk/...` resolves to `/schelk` via `findmnt`).
-3. The container already runs with `--privileged --pid=host`, which is what `nsenter` needs to hop into the host's namespace.
+What the runner needs:
 
-You don't need to change the action invocation — the existing `run-config`/`run-config-urls` inputs work as-is. A minimal CI config:
+- The [ethPandaOps schelk ansible role](https://github.com/ethpandaops/github-actions-runners/tree/master/ansible/roles/schelk) installed: schelk binary at `/usr/local/bin/schelk`, `era_invalidate` built, `dm_era` and `brd` kernel modules loaded, and `schelk init-new` (or `init-from`) already run so `/var/lib/schelk/state.json` exists.
+- The `schelk` binary on the runner user's PATH. If it lives somewhere else, point benchmarkoor at it via the action's `docker-env` input (e.g. `docker-env: BENCHMARKOOR_SCHELK_BIN=/opt/schelk/bin/schelk`).
+
+A minimal CI invocation:
 
 ```yaml
 - uses: ethpandaops/benchmarkoor@<sha>
