@@ -153,6 +153,7 @@ runs:
 
         # Extract unique filesystem mount points from datadir source_dir values
         DATADIR_MOUNT_POINTS=""
+        USES_SCHELK=false
         CONFIG_FILES=()
         for cfg in "${{ runner.temp }}"/benchmarkoor-config-url-*.yaml; do
           [ -f "$cfg" ] && CONFIG_FILES+=("$cfg")
@@ -171,6 +172,17 @@ runs:
             )' "$cfg" 2>/dev/null | grep -v '^null$' || true)
             if [ -n "$DIRS" ]; then
               ALL_SOURCE_DIRS="${ALL_SOURCE_DIRS}${DIRS}"$'\n'
+            fi
+
+            # Detect whether any datadir uses the schelk method so we can
+            # bind-mount the schelk state file and switch BENCHMARKOOR_SCHELK_BIN
+            # to the in-container nsenter wrapper.
+            SCHELK_METHODS=$(yq '(
+              .runner.client.datadirs[].method,
+              .runner.instances[].datadir.method
+            )' "$cfg" 2>/dev/null | grep -Fx 'schelk' || true)
+            if [ -n "$SCHELK_METHODS" ]; then
+              USES_SCHELK=true
             fi
           done
 
@@ -196,6 +208,27 @@ runs:
         if [ -n "$DATADIR_MOUNT_POINTS" ]; then
           echo "Detected datadir filesystem mount points for rshared propagation:"
           echo "$DATADIR_MOUNT_POINTS"
+        fi
+
+        SCHELK_MOUNT_POINT=""
+        if [ "$USES_SCHELK" = "true" ]; then
+          echo "Detected datadir.method: schelk — will plumb schelk state + nsenter wrapper into the container."
+          if [ ! -f /var/lib/schelk/state.json ]; then
+            echo "ERROR: datadir.method: schelk requires /var/lib/schelk/state.json on the host." >&2
+            echo "       Initialise schelk first (e.g. via the ethPandaOps ansible role)." >&2
+            exit 1
+          fi
+          # Read the schelk mount point from state.json so we bind-mount it
+          # with rshared regardless of whether the scratch is currently
+          # mounted (findmnt-based source_dir auto-detection misses an
+          # empty mount point). The mount goes in even when the directory
+          # is empty so subsequent `schelk mount` calls (via nsenter) propagate.
+          SCHELK_MOUNT_POINT=$(yq -r '.mount_point // ""' /var/lib/schelk/state.json 2>/dev/null || true)
+          if [ -z "$SCHELK_MOUNT_POINT" ]; then
+            echo "ERROR: /var/lib/schelk/state.json has no mount_point field." >&2
+            exit 1
+          fi
+          echo "Schelk mount point: $SCHELK_MOUNT_POINT"
         fi
 
         # Build docker run command
@@ -233,6 +266,23 @@ runs:
             [ -z "$mp" ] && continue
             DOCKER_CMD="$DOCKER_CMD --mount type=bind,source=${mp},target=${mp},bind-propagation=rshared"
           done <<< "$DATADIR_MOUNT_POINTS"
+        fi
+
+        # Schelk: mount the state directory so benchmarkoor can read
+        # state.json from inside the container, and rshared-mount the
+        # schelk mount point itself so mounts created on the host (via
+        # nsenter) propagate into the container's view. Point benchmarkoor
+        # at the nsenter wrapper baked into the image. schelk operations
+        # (dm-era, mount/umount) run on the host via nsenter.
+        if [ "$USES_SCHELK" = "true" ]; then
+          DOCKER_CMD="$DOCKER_CMD -v /var/lib/schelk:/var/lib/schelk"
+          # Skip if the source_dir scan already covered this mount point
+          # (i.e. /schelk was actually mounted at action-eval time and
+          # findmnt resolved source_dir → SCHELK_MOUNT_POINT).
+          if ! echo "$DATADIR_MOUNT_POINTS" | grep -Fxq "$SCHELK_MOUNT_POINT"; then
+            DOCKER_CMD="$DOCKER_CMD --mount type=bind,source=${SCHELK_MOUNT_POINT},target=${SCHELK_MOUNT_POINT},bind-propagation=rshared"
+          fi
+          DOCKER_CMD="$DOCKER_CMD -e BENCHMARKOOR_SCHELK_BIN=/usr/local/bin/schelk-host"
         fi
 
         DOCKER_CMD="$DOCKER_CMD ${IMAGE}"

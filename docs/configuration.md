@@ -1103,6 +1103,35 @@ Notes:
 | `BENCHMARKOOR_SCHELK_BIN` | Override the schelk executable path. Useful when running under `sudo` with a sanitised PATH that does not include `~/.cargo/bin`. Accepts a bare name (resolved via PATH) or an absolute/relative path. Default: `schelk` |
 | `SCHELK_STATE` | Override the schelk state-file path. Honoured by both schelk itself and benchmarkoor's preflight. Default: `/var/lib/schelk/state.json` |
 
+###### Schelk in CI / GitHub Action
+
+When benchmarkoor runs inside the Docker container started by the [`ethpandaops/benchmarkoor` action](../action.yaml), `datadir.method: schelk` is plumbed through automatically:
+
+1. The action scans the merged run-configs for `datadir.method: schelk`. When found, it:
+   - Verifies `/var/lib/schelk/state.json` exists on the host (initialise schelk first via the [ethPandaOps ansible role](https://github.com/ethpandaops/github-actions-runners/tree/master/ansible/roles/schelk) — installs schelk + `era_invalidate` + loads `dm_era` / `brd`, and optionally runs `schelk init-new`).
+   - Bind-mounts `/var/lib/schelk` into the container so benchmarkoor can read `state.json` and detect mount state.
+   - Sets `BENCHMARKOOR_SCHELK_BIN=/usr/local/bin/schelk-host` — a wrapper baked into the image that runs the host's `schelk` via `nsenter -t 1 -m`, so all dm-era / mount operations happen in the host's mount namespace.
+2. The `/schelk` mount point itself is bind-mounted via the existing datadir-source-dir auto-detection (`source_dir: /schelk/...` resolves to `/schelk` via `findmnt`).
+3. The container already runs with `--privileged --pid=host`, which is what `nsenter` needs to hop into the host's namespace.
+
+You don't need to change the action invocation — the existing `run-config`/`run-config-urls` inputs work as-is. A minimal CI config:
+
+```yaml
+- uses: ethpandaops/benchmarkoor@<sha>
+  with:
+    run-config: |
+      runner:
+        client:
+          config:
+            rollback_strategy: container-recreate
+        instances:
+          - id: reth-schelk
+            client: reth
+            datadir:
+              method: schelk
+              source_dir: /schelk/eth/reth
+```
+
 ###### Default Container Directories
 
 When `container_dir` is not specified, the client's default data directory is used:
