@@ -1103,33 +1103,6 @@ Notes:
 | `BENCHMARKOOR_SCHELK_BIN` | Override the schelk executable path. Useful when running under `sudo` with a sanitised PATH that does not include `~/.cargo/bin`. Accepts a bare name (resolved via PATH) or an absolute/relative path. Default: `schelk` |
 | `SCHELK_STATE` | Override the schelk state-file path. Honoured by both schelk itself and benchmarkoor's preflight. Default: `/var/lib/schelk/state.json` |
 
-###### Schelk in CI / GitHub Action
-
-The [`ethpandaops/benchmarkoor` action](../action.yaml) extracts the benchmarkoor binary from the configured Docker image and runs it directly on the runner host — there is no docker-in-docker / mount-namespace plumbing involved. As long as the runner has schelk initialised, `method: schelk` works without any action-specific glue.
-
-What the runner needs:
-
-- The [ethPandaOps schelk ansible role](https://github.com/ethpandaops/github-actions-runners/tree/master/ansible/roles/schelk) installed: schelk binary at `/usr/local/bin/schelk`, `era_invalidate` built, `dm_era` and `brd` kernel modules loaded, and `schelk init-new` (or `init-from`) already run so `/var/lib/schelk/state.json` exists.
-- The `schelk` binary on the runner user's PATH. If it lives somewhere else, set `BENCHMARKOOR_SCHELK_BIN` on the action step (standard `env:` block — composite-action steps inherit the caller's env).
-
-A minimal CI invocation:
-
-```yaml
-- uses: ethpandaops/benchmarkoor@<sha>
-  with:
-    run-config: |
-      runner:
-        client:
-          config:
-            rollback_strategy: container-recreate
-        instances:
-          - id: reth-schelk
-            client: reth
-            datadir:
-              method: schelk
-              source_dir: /schelk/eth/reth
-```
-
 ###### Default Container Directories
 
 When `container_dir` is not specified, the client's default data directory is used:
