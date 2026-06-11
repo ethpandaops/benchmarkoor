@@ -18,18 +18,52 @@ import (
 // it in the header. benchmarkoor's collector can only associate a log with a
 // test when block.hash is present, so a hash-less build parses but never
 // matches.
-//
-// Note: ethrex follows this header with separate "|- validate/exec/merkle/store"
-// lines. Those are distinct log lines, so the collector (which matches one
-// payload per line) cannot fold them into this payload; only the header fields
-// are captured.
 var ethrexLogPattern = regexp.MustCompile(
 	`\[METRIC\] BLOCK (\d+)(?:\s+(0x[0-9a-fA-F]+))? \| ` +
 		`([0-9.]+) Ggas/s \| ([0-9.]+) ms \| (\d+) txs \| ([0-9.]+) Mgas \((\d+)%\)`,
 )
 
+// ethrexPhasePattern matches the per-phase breakdown lines that follow the
+// header, e.g. (after ANSI stripping):
+//
+//	|- exec:      450.00 ms  (80%) << BOTTLENECK
+//	|- merkle:     12.34 ms  (20%)  [concurrent: 1.2 ms, drain: 12.3 ms, ...]
+//	|- store:       0.82 ms  ( 4%)
+//
+// validate and warmer lines share the shape but have no destination column, so
+// only exec/merkle/store are mapped.
+var ethrexPhasePattern = regexp.MustCompile(
+	`\|-\s*(exec|merkle|store):\s*([0-9.]+)\s*ms`,
+)
+
 // ethrexParser parses metrics from ethrex block execution throughput logs.
-type ethrexParser struct{}
+//
+// ethrex prints one header line followed by separate phase lines per block, so
+// the parser is stateful: it buffers the header and folds in the phase timings,
+// emitting one complete payload. Because benchmarkoor registers a block hash
+// *before* the engine_newPayload RPC, the first payload emitted for a hash is
+// the one stored — so it must already be complete. It is emitted on the `store`
+// line (the last mapped phase); a block that never reaches `store` (e.g. a
+// header-only build) is flushed when the next header arrives.
+type ethrexParser struct {
+	pending *ethrexBlock
+}
+
+type ethrexBlock struct {
+	number      int64
+	hash        string
+	gasUsedMgas float64
+	txCount     int64
+	totalMs     float64
+	mgasPerSec  float64
+	execMs      float64
+	merkleMs    float64
+	storeMs     float64
+	haveExec    bool
+	haveMerkle  bool
+	haveStore   bool
+	emitted     bool
+}
 
 // NewEthrexParser creates a new ethrex log parser.
 func NewEthrexParser() Parser {
@@ -39,36 +73,87 @@ func NewEthrexParser() Parser {
 // Ensure interface compliance.
 var _ Parser = (*ethrexParser)(nil)
 
-// ParseLine extracts metrics from an ethrex per-block metric header and returns
-// them as a nested JSON structure matching the shape used by the other client
-// parsers ({ "block": { "hash": ... }, ... }).
+// ParseLine extracts metrics from ethrex per-block metric logs and returns them
+// as a nested JSON structure matching the shape used by the other client
+// parsers ({ "block": {...}, "timing": {...}, "throughput": {...} }).
 func (p *ethrexParser) ParseLine(line string) (json.RawMessage, bool) {
 	// Strip ANSI escape codes — ethrex colorizes stdout logs when on a TTY.
 	line = ansiPattern.ReplaceAllString(line, "")
 
-	matches := ethrexLogPattern.FindStringSubmatch(line)
-	if matches == nil {
+	if m := ethrexLogPattern.FindStringSubmatch(line); m != nil {
+		// New block header. Flush the previous block if it never reached its
+		// `store` line (header-only build, or a missing phase) so it isn't lost.
+		var flushed json.RawMessage
+		var flush bool
+		if p.pending != nil && !p.pending.emitted {
+			flushed, flush = p.pending.payload()
+		}
+		p.pending = &ethrexBlock{
+			number:      parseInt(m[1]),
+			hash:        m[2],
+			mgasPerSec:  parseFloat(m[3]) * 1000.0, // Ggas/s -> Mgas/s
+			totalMs:     parseFloat(m[4]),
+			txCount:     parseInt(m[5]),
+			gasUsedMgas: parseFloat(m[6]),
+		}
+		if flush {
+			return flushed, true
+		}
+
 		return nil, false
 	}
 
-	block := map[string]any{
-		"number":        parseInt(matches[1]),
-		"gas_used_mgas": parseFloat(matches[6]),
-		"gas_used_pct":  parseInt(matches[7]),
-		"tx_count":      parseInt(matches[5]),
+	if p.pending != nil {
+		if m := ethrexPhasePattern.FindStringSubmatch(line); m != nil {
+			ms := parseFloat(m[2])
+			switch m[1] {
+			case "exec":
+				p.pending.execMs, p.pending.haveExec = ms, true
+			case "merkle":
+				p.pending.merkleMs, p.pending.haveMerkle = ms, true
+			case "store":
+				p.pending.storeMs, p.pending.haveStore = ms, true
+				// `store` is the last mapped phase: the record is complete.
+				p.pending.emitted = true
+
+				return p.pending.payload()
+			}
+		}
 	}
-	// matches[2] (hash) is only present on builds that log it; the collector
-	// needs block.hash to associate the log with a test.
-	if matches[2] != "" {
-		block["hash"] = matches[2]
+
+	return nil, false
+}
+
+// payload renders the buffered block as the nested JSON the indexer expects.
+func (b *ethrexBlock) payload() (json.RawMessage, bool) {
+	block := map[string]any{
+		"number":   b.number,
+		"gas_used": int64(b.gasUsedMgas*1e6 + 0.5), // header only carries Mgas
+		"tx_count": b.txCount,
+	}
+	// hash is only present on builds that log it; the collector needs it to
+	// associate the log with a test.
+	if b.hash != "" {
+		block["hash"] = b.hash
+	}
+
+	timing := map[string]any{"total_ms": b.totalMs}
+	if b.haveExec {
+		timing["execution_ms"] = b.execMs
+	}
+	if b.haveMerkle {
+		timing["state_hash_ms"] = b.merkleMs // ethrex "merkle" == state hashing
+	}
+	if b.haveStore {
+		timing["commit_ms"] = b.storeMs // ethrex "store" == commit
 	}
 
 	result := map[string]any{
 		"level":      "info",
 		"msg":        "Block execution throughput",
 		"block":      block,
-		"timing":     map[string]any{"total_ms": parseFloat(matches[4])},
-		"throughput": map[string]any{"ggas_per_sec": parseFloat(matches[3])},
+		"timing":     timing,
+		"throughput": map[string]any{"mgas_per_sec": b.mgasPerSec},
 	}
 
 	data, err := json.Marshal(result)
