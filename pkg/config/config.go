@@ -322,13 +322,14 @@ func (e *EESTPayloadsConfig) ResolveFillCommand() []string {
 // field is also present on EESTPayloadTarget; a non-nil/non-empty value
 // on the target wins over the corresponding default. See ResolveTarget.
 type EESTPayloadDefaults struct {
-	FillerImage        string   `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
-	Fork               string   `yaml:"fork,omitempty" mapstructure:"fork"`
-	GasBenchmarkValues string   `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
-	DataDirMethod      string   `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
-	MaxGasPerTest      *uint64  `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
-	RPCSeedKey         string   `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
-	FillerExtraArgs    []string `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+	FillerImage        string     `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
+	Fork               string     `yaml:"fork,omitempty" mapstructure:"fork"`
+	GasBenchmarkValues []int      `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
+	FixedOpcodeCount   *[]float64 `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
+	DataDirMethod      string     `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
+	MaxGasPerTest      *uint64    `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
+	RPCSeedKey         string     `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	FillerExtraArgs    []string   `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
 }
 
 // EESTPayloadTarget is one fixture-generation run. Identity/locator fields
@@ -348,13 +349,14 @@ type EESTPayloadTarget struct {
 	Force  bool     `yaml:"force,omitempty" mapstructure:"force"`
 
 	// Hoistable fields (mirror EESTPayloadDefaults).
-	FillerImage        string   `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
-	Fork               string   `yaml:"fork,omitempty" mapstructure:"fork"`
-	GasBenchmarkValues string   `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
-	DataDirMethod      string   `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
-	MaxGasPerTest      *uint64  `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
-	RPCSeedKey         string   `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
-	FillerExtraArgs    []string `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+	FillerImage        string     `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
+	Fork               string     `yaml:"fork,omitempty" mapstructure:"fork"`
+	GasBenchmarkValues []int      `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
+	FixedOpcodeCount   *[]float64 `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
+	DataDirMethod      string     `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
+	MaxGasPerTest      *uint64    `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
+	RPCSeedKey         string     `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	FillerExtraArgs    []string   `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
 }
 
 // ResolveTarget returns a copy of the i-th target with any unset hoistable
@@ -378,8 +380,12 @@ func (e *EESTPayloadsConfig) ResolveTarget(i int) EESTPayloadTarget {
 		t.Fork = g.Fork
 	}
 
-	if t.GasBenchmarkValues == "" {
+	if len(t.GasBenchmarkValues) == 0 {
 		t.GasBenchmarkValues = g.GasBenchmarkValues
+	}
+
+	if t.FixedOpcodeCount == nil {
+		t.FixedOpcodeCount = g.FixedOpcodeCount
 	}
 
 	if t.DataDirMethod == "" {
@@ -1980,6 +1986,17 @@ func (c *Config) validateEESTPayloads() error {
 		if err := validateGasBenchmarkValues(t.GasBenchmarkValues, prefix); err != nil {
 			return err
 		}
+
+		if err := validateFixedOpcodeCount(t.FixedOpcodeCount, prefix); err != nil {
+			return err
+		}
+
+		if len(t.GasBenchmarkValues) > 0 && t.FixedOpcodeCount != nil {
+			return fmt.Errorf(
+				"%s: gas_benchmark_values and fixed_opcode_count are mutually exclusive "+
+					"(fill-stateful rejects both)", prefix,
+			)
+		}
 	}
 
 	return nil
@@ -2025,22 +2042,33 @@ func validateEESTPayloadPaths(t *EESTPayloadTarget, prefix string, seenOutputs m
 	return nil
 }
 
-// validateGasBenchmarkValues checks a comma-separated list of positive
-// integers (millions of gas), e.g. "10,30". Empty is allowed.
-func validateGasBenchmarkValues(values, prefix string) error {
-	if values == "" {
+// validateGasBenchmarkValues checks a list of positive integers (millions of
+// gas), e.g. [10, 30]. An empty list is allowed.
+func validateGasBenchmarkValues(values []int, prefix string) error {
+	for _, v := range values {
+		if v < 1 {
+			return fmt.Errorf(
+				"%s.gas_benchmark_values: %d is not a positive integer (millions of gas)", prefix, v,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateFixedOpcodeCount checks a list of positive numbers (thousands of
+// opcodes), e.g. [0.5, 1, 2]. A nil pointer (unset) is allowed, as is a
+// non-nil empty list (passes the bare --fixed-opcode-count flag, which uses
+// the fill image's .fixed_opcode_counts.json default).
+func validateFixedOpcodeCount(values *[]float64, prefix string) error {
+	if values == nil {
 		return nil
 	}
 
-	for _, v := range strings.Split(values, ",") {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			return fmt.Errorf("%s.gas_benchmark_values: empty value in %q", prefix, values)
-		}
-
-		if _, err := strconv.ParseUint(v, 10, 64); err != nil {
+	for _, v := range *values {
+		if v <= 0 {
 			return fmt.Errorf(
-				"%s.gas_benchmark_values: %q is not a comma-separated list of integers", prefix, values,
+				"%s.fixed_opcode_count: %v is not a positive number (thousands of opcodes)", prefix, v,
 			)
 		}
 	}

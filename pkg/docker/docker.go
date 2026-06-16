@@ -106,6 +106,7 @@ type ContainerSpec struct {
 	ResourceLimits *ResourceLimits
 	CapAdd         []string // Additional Linux capabilities (e.g., "SYS_PTRACE" for CRIU).
 	SecurityOpt    []string // Security options (e.g., "seccomp=unconfined").
+	User           string   // Container user (e.g., "1000:1000"); defaults to "root" when empty.
 }
 
 // Mount defines a volume mount.
@@ -247,9 +248,17 @@ func (m *manager) CreateContainer(ctx context.Context, spec *ContainerSpec) (str
 		})
 	}
 
+	// Containers run as root unless the spec requests a specific user (e.g. the
+	// state-actor builder runs as the invoking host user so its output datadir
+	// is owned by that user rather than root).
+	user := spec.User
+	if user == "" {
+		user = "root"
+	}
+
 	containerCfg := &container.Config{
 		Image:      spec.Image,
-		User:       "root",
+		User:       user,
 		Env:        env,
 		Labels:     spec.Labels,
 		Entrypoint: spec.Entrypoint,

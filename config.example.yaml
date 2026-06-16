@@ -283,7 +283,11 @@ runner:
 #     config:                         # shared per-target defaults; targets override when set
 #       filler_image: ethpandaops/geth:master
 #       fork: Osaka
-#       gas_benchmark_values: "10,30" # millions of gas to parametrise against
+#       gas_benchmark_values: [10, 30] # millions of gas to parametrise against
+#       # fixed_opcode_count parametrises by opcode count (thousands) instead of gas;
+#       # mutually exclusive with gas_benchmark_values. [] passes the flag bare, which
+#       # uses the fill image's .fixed_opcode_counts.json default.
+#       # fixed_opcode_count: [0.5, 1, 2]
 #       datadir_method: copy          # copy | overlayfs | fuse-overlayfs | zfs | direct | schelk
 #     targets:
 #       - name: compute-geth

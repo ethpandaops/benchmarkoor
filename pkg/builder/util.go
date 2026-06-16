@@ -43,6 +43,15 @@ func prepareOutputDir(dir string, force bool) error {
 	return nil
 }
 
+// currentUserSpec returns the invoking process's user as a docker "uid:gid"
+// string. Builder containers run as this user so the datadirs and fixtures
+// they write are owned by the host user instead of root — avoiding
+// permission-denied failures when a later non-root step (e.g. the datadir
+// copy) reads that output.
+func currentUserSpec() string {
+	return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+}
+
 // randSuffix returns a 6-hex-character random string used to keep
 // concurrent build container names unique.
 func randSuffix() (string, error) {

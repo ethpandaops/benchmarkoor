@@ -3828,12 +3828,45 @@ func TestValidateEESTPayloads(t *testing.T) {
 			name: "invalid gas_benchmark_values",
 			ep: func() *EESTPayloadsConfig {
 				tgt := base(dirA)
-				tgt.GasBenchmarkValues = "10,abc"
+				tgt.GasBenchmarkValues = []int{10, 0}
 
 				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
 			}(),
 			wantErr:   true,
 			errSubstr: "gas_benchmark_values",
+		},
+		{
+			name: "invalid fixed_opcode_count",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.FixedOpcodeCount = &[]float64{0.5, -1}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "fixed_opcode_count",
+		},
+		{
+			name: "gas_benchmark_values and fixed_opcode_count are mutually exclusive",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.GasBenchmarkValues = []int{10}
+				tgt.FixedOpcodeCount = &[]float64{0.5}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "mutually exclusive",
+		},
+		{
+			name: "fixed_opcode_count bare (empty list) is valid",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.FixedOpcodeCount = &[]float64{}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr: false,
 		},
 	}
 
@@ -3857,7 +3890,7 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 		Config: &EESTPayloadDefaults{
 			FillerImage:        "ethpandaops/geth:master",
 			Fork:               "Osaka",
-			GasBenchmarkValues: "10,30",
+			GasBenchmarkValues: []int{10, 30},
 			DataDirMethod:      "zfs",
 			MaxGasPerTest:      u64Cfg(45000000),
 			RPCSeedKey:         "0xseed",
@@ -3868,14 +3901,14 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 			{Name: "inherit", FillerClient: "geth", SourceDir: "/s", OutputDir: "/o"},
 			// Overrides fork and gas values.
 			{Name: "override", FillerClient: "geth", SourceDir: "/s2", OutputDir: "/o2",
-				Fork: "Prague", GasBenchmarkValues: "60"},
+				Fork: "Prague", GasBenchmarkValues: []int{60}},
 		},
 	}
 
 	inherit := ep.ResolveTarget(0)
 	assert.Equal(t, "ethpandaops/geth:master", inherit.FillerImage)
 	assert.Equal(t, "Osaka", inherit.Fork)
-	assert.Equal(t, "10,30", inherit.GasBenchmarkValues)
+	assert.Equal(t, []int{10, 30}, inherit.GasBenchmarkValues)
 	assert.Equal(t, "zfs", inherit.DataDirMethod)
 	require.NotNil(t, inherit.MaxGasPerTest)
 	assert.Equal(t, uint64(45000000), *inherit.MaxGasPerTest)
@@ -3883,7 +3916,7 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 
 	override := ep.ResolveTarget(1)
 	assert.Equal(t, "Prague", override.Fork, "per-target fork wins")
-	assert.Equal(t, "60", override.GasBenchmarkValues, "per-target gas values win")
+	assert.Equal(t, []int{60}, override.GasBenchmarkValues, "per-target gas values win")
 	assert.Equal(t, "ethpandaops/geth:master", override.FillerImage, "still inherits unset fields")
 }
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
@@ -299,7 +300,11 @@ func (b *EESTPayloadsBuilder) startFiller(
 		Mounts:      mounts,
 		NetworkName: eestBuildNetwork,
 		SecurityOpt: []string{"seccomp=unconfined"},
-		Labels:      b.labels(t),
+		// Run as the invoking host user so the state the filler writes into the
+		// copied datadir is owned by that user and can be cleaned up afterwards
+		// (the copy is made by the host user, not root).
+		User:   currentUserSpec(),
+		Labels: b.labels(t),
 	}
 
 	log.WithField("argv", cmd).Info("Starting filler client")
@@ -382,7 +387,27 @@ func (b *EESTPayloadsBuilder) runFill(
 		Command:     args,
 		Mounts:      mounts,
 		NetworkName: eestBuildNetwork,
-		Labels:      b.labels(t),
+		// Run as the invoking host user so the fixtures written to /out are
+		// owned by that user rather than root. The default fill image is
+		// uv/pytest based with a root-owned /eest checkout and venv, so
+		// redirect every writable path it touches to /tmp (world-writable) and
+		// skip the runtime venv re-sync (the venv is already built into the
+		// image) so it runs cleanly as a non-root UID.
+		User: currentUserSpec(),
+		Env: map[string]string{
+			"HOME":           "/tmp",
+			"UV_CACHE_DIR":   "/tmp/uv-cache",
+			"UV_NO_SYNC":     "1",
+			"PYTEST_ADDOPTS": "-o cache_dir=/tmp/.pytest_cache",
+			// fill-stateful reads its commit hash from the root-owned /eest git
+			// checkout; as a non-root user git refuses with "dubious ownership".
+			// Inject safe.directory=* via git's env-based config so it trusts the
+			// repo regardless of ownership (* avoids hardcoding the repo path).
+			"GIT_CONFIG_COUNT":   "1",
+			"GIT_CONFIG_KEY_0":   "safe.directory",
+			"GIT_CONFIG_VALUE_0": "*",
+		},
+		Labels: b.labels(t),
 	}
 
 	tail := newTailBuffer(64 * 1024)
@@ -471,8 +496,31 @@ func buildFillArgs(
 		"--output="+fillOutputPath,
 	)
 
-	if t.GasBenchmarkValues != "" {
-		args = append(args, "--gas-benchmark-values="+t.GasBenchmarkValues)
+	if len(t.GasBenchmarkValues) > 0 {
+		vals := make([]string, len(t.GasBenchmarkValues))
+		for i, v := range t.GasBenchmarkValues {
+			vals[i] = strconv.Itoa(v)
+		}
+
+		// fill-stateful's --gas-benchmark-values takes one comma-separated
+		// argument, e.g. "10,30" for 10M and 30M gas.
+		args = append(args, "--gas-benchmark-values="+strings.Join(vals, ","))
+	}
+
+	// --fixed-opcode-count is mutually exclusive with --gas-benchmark-values
+	// (config validation enforces this). A non-nil but empty list passes the
+	// flag bare, which makes fill-stateful use its .fixed_opcode_counts.json.
+	if t.FixedOpcodeCount != nil {
+		if counts := *t.FixedOpcodeCount; len(counts) > 0 {
+			vals := make([]string, len(counts))
+			for i, v := range counts {
+				vals[i] = strconv.FormatFloat(v, 'g', -1, 64)
+			}
+
+			args = append(args, "--fixed-opcode-count="+strings.Join(vals, ","))
+		} else {
+			args = append(args, "--fixed-opcode-count")
+		}
 	}
 
 	if t.MaxGasPerTest != nil {

@@ -150,6 +150,9 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 		Image:   image,
 		Command: args,
 		Mounts:  mounts,
+		// Run as the invoking host user so the output datadir is owned by that
+		// user (not root) and is readable when a later step copies it.
+		User: currentUserSpec(),
 		Labels: map[string]string{
 			"benchmarkoor.managed-by": "benchmarkoor",
 			"benchmarkoor.builder":    StateActorBuilderName,

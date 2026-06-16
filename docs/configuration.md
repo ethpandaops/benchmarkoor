@@ -1575,7 +1575,8 @@ builder:
     config:                              # shared per-target defaults; targets override when set
       filler_image: ethpandaops/geth:master
       fork: Osaka
-      gas_benchmark_values: "10,30"      # millions of gas to parametrise against
+      gas_benchmark_values: [10, 30]     # millions of gas to parametrise against
+      # fixed_opcode_count: [0.5, 1, 2]  # thousands of opcodes; mutually exclusive with gas_benchmark_values
       datadir_method: copy               # copy | overlayfs | fuse-overlayfs | zfs | direct | schelk
     targets:
       - name: compute-geth
@@ -1606,7 +1607,8 @@ Every field below is also available per-target; a non-nil/non-empty value on a t
 |---|---|---|---|
 | `filler_image` | string | – | Docker image for the filler client (e.g. `ethpandaops/geth:master`). |
 | `fork` | string | – | Fork to fill against, e.g. `Osaka` (passed to `fill-stateful --fork`). |
-| `gas_benchmark_values` | string | – | Comma-separated gas budgets in millions, e.g. `10,30` (`--gas-benchmark-values`). |
+| `gas_benchmark_values` | int[] | – | Gas budgets in millions, e.g. `[10, 30]`; joined into `--gas-benchmark-values`. Mutually exclusive with `fixed_opcode_count`. |
+| `fixed_opcode_count` | float[] | – | Opcode counts in thousands, e.g. `[0.5, 1, 2]`; joined into `--fixed-opcode-count`. An empty list (`[]`) passes the flag bare, using the fill image's `.fixed_opcode_counts.json` default. Mutually exclusive with `gas_benchmark_values`. |
 | `datadir_method` | string | `copy` | How the filler's writable copy of `source_dir` is prepared: `copy`, `overlayfs`, `fuse-overlayfs`, `zfs`, `direct`, `schelk`. Use `zfs`/`overlayfs` to avoid a full copy of a large snapshot. |
 | `max_gas_per_test` | uint64 | – | Overrides the fork's transaction gas-limit cap (`--max-gas-per-test`). |
 | `rpc_seed_key` | string | – | Pin the seed EOA for reproducible fills (`--rpc-seed-key`); otherwise one is generated and funded via CL withdrawal. |
@@ -1627,7 +1629,7 @@ Identity/locator fields are target-only; the rest mirror `config` and are resolv
 | `filter` | string | – | Optional pytest `-k` expression. |
 | `address_stubs_file` | string | – | **Absolute** host path to a `--address-stubs` JSON map, required by stub-dependent tests (e.g. bloatnet opcode tests). |
 | `force` | bool | `false` | Per-target override of `--force`: wipe `output_dir` before filling. |
-| `filler_image`, `fork`, `gas_benchmark_values`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `filler_extra_args` | — | from `config` | See the `config` table above. `fork` and `filler_image` are required after resolution. |
+| `filler_image`, `fork`, `gas_benchmark_values`, `fixed_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `filler_extra_args` | — | from `config` | See the `config` table above. `fork` and `filler_image` are required after resolution. |
 
 ### Replaying generated fixtures
 
