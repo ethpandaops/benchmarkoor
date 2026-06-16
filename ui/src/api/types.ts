@@ -547,7 +547,7 @@ export interface SourceInfo {
     }
   }
   eest?: {
-    github_repo: string
+    github_repo?: string
     github_release?: string
     fixtures_url?: string
     genesis_url?: string
@@ -556,6 +556,10 @@ export interface SourceInfo {
     genesis_artifact_name?: string
     fixtures_artifact_run_id?: string
     genesis_artifact_run_id?: string
+    local_fixtures_dir?: string
+    local_genesis_dir?: string
+    local_fixtures_tarball?: string
+    local_genesis_tarball?: string
   }
 }
 
