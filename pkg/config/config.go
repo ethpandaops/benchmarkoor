@@ -67,9 +67,213 @@ const (
 
 // Config is the root configuration for benchmarkoor.
 type Config struct {
-	Global GlobalConfig `yaml:"global" mapstructure:"global"`
-	Runner RunnerConfig `yaml:"runner" mapstructure:"runner"`
-	API    *APIConfig   `yaml:"api,omitempty" mapstructure:"api"`
+	Global  GlobalConfig   `yaml:"global" mapstructure:"global"`
+	Runner  RunnerConfig   `yaml:"runner" mapstructure:"runner"`
+	API     *APIConfig     `yaml:"api,omitempty" mapstructure:"api"`
+	Builder *BuilderConfig `yaml:"builder,omitempty" mapstructure:"builder"`
+}
+
+// BuilderConfig is the top-level builder block. Today it only houses
+// state-actor; future builders (e.g. geth-import, snap-sync) plug in
+// alongside.
+type BuilderConfig struct {
+	StateActor *StateActorConfig `yaml:"state_actor,omitempty" mapstructure:"state_actor"`
+}
+
+// StateActorConfig configures how the state-actor binary is invoked via
+// docker/podman to materialise pre-populated client datadirs. See
+// https://github.com/ethereum/state-actor.
+//
+// The spec source (one of Spec/SpecFile) is shared across every target.
+// Spec carries inline YAML content; SpecFile is a host path. They are
+// mutually exclusive at the top level. Spec and target_size are
+// complementary — when both are set state-actor uses the spec and
+// treats target_size as a headroom budget for any further auto-fill.
+//
+// Config holds the per-target build parameters that can be hoisted up
+// to avoid repeating them. Any field set on a target overrides the
+// corresponding field in Config.
+type StateActorConfig struct {
+	ContainerRuntime string                    `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
+	Images           map[string]string         `yaml:"images,omitempty" mapstructure:"images"`
+	PullPolicy       string                    `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
+	Spec             string                    `yaml:"spec,omitempty" mapstructure:"spec"`
+	SpecFile         string                    `yaml:"spec_file,omitempty" mapstructure:"spec_file"`
+	Config           *StateActorClientDefaults `yaml:"config,omitempty" mapstructure:"config"`
+	Targets          []StateActorTarget        `yaml:"targets,omitempty" mapstructure:"targets"`
+}
+
+// StateActorClientDefaults are the per-target build parameters that may
+// be hoisted to the top level under `builder.state_actor.config`. Every
+// field is also present on StateActorTarget; a non-nil/non-empty value
+// on the target wins over the corresponding default.
+//
+// Pointer-typed fields (and pointer-typed bools) are required so that
+// "explicitly false / zero" is distinguishable from "unset" — without
+// this, a target could not opt out of a global archive=true.
+type StateActorClientDefaults struct {
+	TargetSize string  `yaml:"target_size,omitempty" mapstructure:"target_size"`
+	Seed       *int64  `yaml:"seed,omitempty" mapstructure:"seed"`
+	Fork       string  `yaml:"fork,omitempty" mapstructure:"fork"`
+	ChainID    *int64  `yaml:"chain_id,omitempty" mapstructure:"chain_id"`
+	GasLimit   *uint64 `yaml:"gas_limit,omitempty" mapstructure:"gas_limit"`
+	Timestamp  *uint64 `yaml:"timestamp,omitempty" mapstructure:"timestamp"`
+	ExtraData  string  `yaml:"extra_data,omitempty" mapstructure:"extra_data"`
+	Archive    *bool   `yaml:"archive,omitempty" mapstructure:"archive"`
+	BinaryTrie *bool   `yaml:"binary_trie,omitempty" mapstructure:"binary_trie"`
+	GroupDepth *int    `yaml:"group_depth,omitempty" mapstructure:"group_depth"`
+}
+
+// StateActorTarget is one materialised datadir. The shared per-target
+// build parameters mirror StateActorClientDefaults — see ResolveTarget
+// for the merge semantics. Name/Client/OutputDir/TargetSize are
+// intentionally not hoistable: they identify the target.
+type StateActorTarget struct {
+	Name       string  `yaml:"name,omitempty" mapstructure:"name"`
+	Client     string  `yaml:"client" mapstructure:"client"`
+	OutputDir  string  `yaml:"output_dir" mapstructure:"output_dir"`
+	TargetSize string  `yaml:"target_size,omitempty" mapstructure:"target_size"`
+	Force      bool    `yaml:"force,omitempty" mapstructure:"force"`
+	Seed       *int64  `yaml:"seed,omitempty" mapstructure:"seed"`
+	Fork       string  `yaml:"fork,omitempty" mapstructure:"fork"`
+	ChainID    *int64  `yaml:"chain_id,omitempty" mapstructure:"chain_id"`
+	GasLimit   *uint64 `yaml:"gas_limit,omitempty" mapstructure:"gas_limit"`
+	Timestamp  *uint64 `yaml:"timestamp,omitempty" mapstructure:"timestamp"`
+	ExtraData  string  `yaml:"extra_data,omitempty" mapstructure:"extra_data"`
+	Archive    *bool   `yaml:"archive,omitempty" mapstructure:"archive"`
+	BinaryTrie *bool   `yaml:"binary_trie,omitempty" mapstructure:"binary_trie"`
+	GroupDepth *int    `yaml:"group_depth,omitempty" mapstructure:"group_depth"`
+}
+
+// ResolveTarget returns a copy of the i-th target with any unset fields
+// filled in from StateActorConfig.Config. Identifier fields (Name,
+// Client, OutputDir, TargetSize) and spec sources are not touched —
+// those live exclusively on the target or the parent StateActorConfig.
+//
+// Resolution rule per field: per-target value wins when set (non-nil
+// for pointer types, non-empty for strings); otherwise the value from
+// Config is used. When Config is nil, the target is returned unchanged.
+func (s *StateActorConfig) ResolveTarget(i int) StateActorTarget {
+	t := s.Targets[i]
+	if s.Config == nil {
+		return t
+	}
+
+	g := s.Config
+
+	if t.TargetSize == "" {
+		t.TargetSize = g.TargetSize
+	}
+
+	if t.Seed == nil {
+		t.Seed = g.Seed
+	}
+
+	if t.Fork == "" {
+		t.Fork = g.Fork
+	}
+
+	if t.ChainID == nil {
+		t.ChainID = g.ChainID
+	}
+
+	if t.GasLimit == nil {
+		t.GasLimit = g.GasLimit
+	}
+
+	if t.Timestamp == nil {
+		t.Timestamp = g.Timestamp
+	}
+
+	if t.ExtraData == "" {
+		t.ExtraData = g.ExtraData
+	}
+
+	if t.Archive == nil {
+		t.Archive = g.Archive
+	}
+
+	if t.BinaryTrie == nil {
+		t.BinaryTrie = g.BinaryTrie
+	}
+
+	if t.GroupDepth == nil {
+		t.GroupDepth = g.GroupDepth
+	}
+
+	return t
+}
+
+// StateActorSpecKind classifies how the top-level spec source is provided.
+type StateActorSpecKind int
+
+const (
+	// StateActorSpecNone means no spec source is configured.
+	StateActorSpecNone StateActorSpecKind = iota
+	// StateActorSpecInline means the top-level Spec field carries the YAML body.
+	StateActorSpecInline
+	// StateActorSpecFile means the top-level SpecFile field holds a host path.
+	StateActorSpecFile
+)
+
+// ResolveSpec returns the configured spec source. Spec (inline) wins over
+// SpecFile when both are set, but validateBuilder rejects that case so
+// in practice only one is non-empty at call time.
+func (s *StateActorConfig) ResolveSpec() (StateActorSpecKind, string) {
+	if s == nil {
+		return StateActorSpecNone, ""
+	}
+
+	if s.Spec != "" {
+		return StateActorSpecInline, s.Spec
+	}
+
+	if s.SpecFile != "" {
+		return StateActorSpecFile, s.SpecFile
+	}
+
+	return StateActorSpecNone, ""
+}
+
+// EffectiveName returns the target's user-facing name. Defaults to
+// Client when Name was not set, matching the `--target` filter behaviour
+// in the build command.
+func (t *StateActorTarget) EffectiveName() string {
+	if t.Name != "" {
+		return t.Name
+	}
+
+	return t.Client
+}
+
+// ImageFor returns the docker image configured for the given client.
+// Empty string means no image is configured — validation enforces that
+// every target's client has an entry in Images.
+func (s *StateActorConfig) ImageFor(client string) string {
+	if s == nil {
+		return ""
+	}
+
+	return s.Images[client]
+}
+
+// stateActorSupportedClients lists the clients state-actor itself can
+// materialise datadirs for. Erigon and Nimbus are intentionally absent
+// (state-actor does not implement writers for them).
+var stateActorSupportedClients = map[string]struct{}{
+	"geth":       {},
+	"reth":       {},
+	"besu":       {},
+	"nethermind": {},
+}
+
+// stateActorValidPullPolicies mirrors the pull-policy vocabulary used by
+// the runner side (pkg/docker, pkg/podman).
+var stateActorValidPullPolicies = map[string]bool{
+	"":               true,
+	"always":         true,
+	"if-not-present": true,
+	"never":          true,
 }
 
 // RunnerConfig contains all run-specific configuration settings.
@@ -975,6 +1179,9 @@ func bindEnvKeys(v *viper.Viper) {
 		"api.storage.s3.secret_access_key",
 		"api.storage.s3.force_path_style",
 		"api.storage.s3.presigned_urls.expiry",
+		// Builder settings
+		"builder.state_actor.container_runtime",
+		"builder.state_actor.pull_policy",
 	}
 
 	for _, key := range keys {
@@ -1094,6 +1301,26 @@ func (c *Config) applyDefaults() {
 			// If empty, the runner will use the client's spec.DataDir() at runtime.
 		}
 	}
+
+	// Apply builder.state_actor defaults. ContainerRuntime is intentionally
+	// left empty so GetStateActorContainerRuntime can fall back to the
+	// runner's runtime at call time.
+	if c.Builder != nil && c.Builder.StateActor != nil {
+		if c.Builder.StateActor.PullPolicy == "" {
+			c.Builder.StateActor.PullPolicy = DefaultPullPolicy
+		}
+	}
+}
+
+// GetStateActorContainerRuntime returns the container runtime to use for
+// state-actor builds. Falls back to the runner's runtime when the builder
+// block does not override it.
+func (c *Config) GetStateActorContainerRuntime() string {
+	if c.Builder != nil && c.Builder.StateActor != nil && c.Builder.StateActor.ContainerRuntime != "" {
+		return c.Builder.StateActor.ContainerRuntime
+	}
+
+	return c.GetContainerRuntime()
 }
 
 // ValidateOpts controls optional validation behavior.
@@ -1293,6 +1520,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		return err
 	}
 
+	// Validate builder.state_actor settings.
+	if err := c.validateBuilder(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1314,6 +1546,156 @@ func (c *Config) validateTestFilter() error {
 
 	if _, err := regexp.Compile(expr); err != nil {
 		return fmt.Errorf("runner.benchmark.tests.filter: invalid regex %q: %w", expr, err)
+	}
+
+	return nil
+}
+
+// ValidateBuilder runs the validation rules relevant to `benchmarkoor build`:
+// the runner's container_runtime (the builder falls back to it when its
+// own container_runtime is unset) plus the builder.state_actor block
+// itself. It deliberately skips the runner-side rules (instances,
+// resource_limits, test source, rollback strategies, ...) which are
+// required only for `benchmarkoor run`.
+func (c *Config) ValidateBuilder() error {
+	if err := c.validateContainerRuntime(); err != nil {
+		return err
+	}
+
+	return c.validateBuilder()
+}
+
+// validateBuilder enforces the builder.state_actor rules: supported
+// clients, single-source-of-truth target_size XOR spec, archive/binary-trie
+// applicability, group_depth range, image resolvability, and uniqueness of
+// target names and output_dirs.
+func (c *Config) validateBuilder() error {
+	if c.Builder == nil || c.Builder.StateActor == nil {
+		return nil
+	}
+
+	sa := c.Builder.StateActor
+
+	if !validContainerRuntimes[sa.ContainerRuntime] {
+		return fmt.Errorf(
+			"builder.state_actor.container_runtime: invalid value %q "+
+				"(must be \"docker\" or \"podman\")", sa.ContainerRuntime,
+		)
+	}
+
+	if !stateActorValidPullPolicies[sa.PullPolicy] {
+		return fmt.Errorf(
+			"builder.state_actor.pull_policy: invalid value %q "+
+				"(must be \"always\", \"if-not-present\", or \"never\")",
+			sa.PullPolicy,
+		)
+	}
+
+	if sa.Spec != "" && sa.SpecFile != "" {
+		return fmt.Errorf(
+			"builder.state_actor: spec (inline YAML) and spec_file (host path) are mutually exclusive",
+		)
+	}
+
+	// spec and target_size are complementary, not mutually exclusive:
+	// when both are set state-actor uses the spec and treats target_size
+	// as a headroom budget for the auto-fill that follows.
+	specKind, _ := sa.ResolveSpec()
+
+	seenOutputs := make(map[string]int, len(sa.Targets))
+	seenNames := make(map[string]int, len(sa.Targets))
+
+	for i := range sa.Targets {
+		// Resolve the target so applicability rules (archive/binary_trie/
+		// group_depth) check the effective value — a global default in
+		// builder.state_actor.config combined with the per-target value.
+		t := sa.ResolveTarget(i)
+		prefix := fmt.Sprintf("builder.state_actor.targets[%d]", i)
+
+		if _, ok := stateActorSupportedClients[t.Client]; !ok {
+			return fmt.Errorf(
+				"%s.client: %q is not supported by state-actor "+
+					"(must be geth, reth, besu, or nethermind)",
+				prefix, t.Client,
+			)
+		}
+
+		name := t.EffectiveName()
+		if prev, dup := seenNames[name]; dup {
+			return fmt.Errorf(
+				"%s: name %q duplicates targets[%d] (set an explicit name to disambiguate)",
+				prefix, name, prev,
+			)
+		}
+
+		seenNames[name] = i
+
+		if t.OutputDir == "" {
+			return fmt.Errorf("%s.output_dir is required", prefix)
+		}
+
+		if !filepath.IsAbs(t.OutputDir) {
+			return fmt.Errorf(
+				"%s.output_dir must be an absolute path, got %q",
+				prefix, t.OutputDir,
+			)
+		}
+
+		if prev, dup := seenOutputs[t.OutputDir]; dup {
+			return fmt.Errorf(
+				"%s.output_dir %q duplicates targets[%d].output_dir",
+				prefix, t.OutputDir, prev,
+			)
+		}
+
+		seenOutputs[t.OutputDir] = i
+
+		if t.TargetSize == "" && specKind == StateActorSpecNone {
+			return fmt.Errorf(
+				"%s: no source resolved — set target_size on the target, set "+
+					"builder.state_actor.config.target_size, or set a top-level "+
+					"builder.state_actor.spec / spec_file",
+				prefix,
+			)
+		}
+
+		if t.TargetSize != "" {
+			if _, err := ParseByteSize(t.TargetSize); err != nil {
+				return fmt.Errorf("%s.target_size: %w", prefix, err)
+			}
+		}
+
+		archive := t.Archive != nil && *t.Archive
+		binaryTrie := t.BinaryTrie != nil && *t.BinaryTrie
+
+		if archive && t.Client != "geth" && t.Client != "reth" {
+			return fmt.Errorf("%s.archive: only supported for geth and reth", prefix)
+		}
+
+		if binaryTrie && t.Client != "geth" {
+			return fmt.Errorf("%s.binary_trie: only supported for geth", prefix)
+		}
+
+		if t.GroupDepth != nil {
+			if !binaryTrie {
+				return fmt.Errorf("%s.group_depth: requires binary_trie=true", prefix)
+			}
+
+			if *t.GroupDepth < 1 || *t.GroupDepth > 8 {
+				return fmt.Errorf(
+					"%s.group_depth: must be in range 1..8, got %d",
+					prefix, *t.GroupDepth,
+				)
+			}
+		}
+
+		if sa.ImageFor(t.Client) == "" {
+			return fmt.Errorf(
+				"%s: no image configured for client %q "+
+					"(set builder.state_actor.images.%s)",
+				prefix, t.Client, t.Client,
+			)
+		}
 	}
 
 	return nil

@@ -3178,3 +3178,490 @@ func TestValidateOpcodeExtraction(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateBuilder_PublicScope(t *testing.T) {
+	// `benchmarkoor build` invokes Config.ValidateBuilder(), which must
+	// not require any runner-side configuration (instances, test sources,
+	// rollback strategies, ...) — it covers only the runner's
+	// container_runtime and the builder.state_actor block.
+	dir := t.TempDir()
+
+	cfg := &Config{
+		Builder: &BuilderConfig{
+			StateActor: &StateActorConfig{
+				Images:  map[string]string{"geth": "geth:img"},
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: dir, TargetSize: "5GB"}},
+			},
+		},
+	}
+
+	require.NoError(t, cfg.ValidateBuilder())
+	require.Error(t, cfg.Validate(), "Validate() still requires runner.instances")
+}
+
+func TestValidateBuilder_PublicRejectsBadRuntime(t *testing.T) {
+	cfg := &Config{
+		Runner: RunnerConfig{ContainerRuntime: "lima"},
+		Builder: &BuilderConfig{
+			StateActor: &StateActorConfig{
+				Images:  map[string]string{"geth": "geth:img"},
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: t.TempDir(), TargetSize: "5GB"}},
+			},
+		},
+	}
+
+	err := cfg.ValidateBuilder()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "container_runtime")
+}
+
+func TestValidateBuilder(t *testing.T) {
+	t.Helper()
+
+	// Use real absolute paths so the IsAbs check passes for rows where
+	// the rule under test isn't about output_dir validity.
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	intPtr := func(v int) *int { return &v }
+	int64Ptr := func(v int64) *int64 { return &v }
+	boolPtr := func(v bool) *bool { return &v }
+
+	// allImages covers every supported client so rows that don't care
+	// about image resolution don't have to spell it out.
+	allImages := map[string]string{
+		"geth":       "ghcr.io/ethereum/state-actor:latest",
+		"reth":       "ghcr.io/ethereum/state-actor-reth:latest",
+		"besu":       "ghcr.io/ethereum/state-actor-besu:latest",
+		"nethermind": "ghcr.io/ethereum/state-actor-nethermind:latest",
+	}
+
+	// mkCfg builds a Config with just the builder block populated so the
+	// builder validation runs in isolation. The wider Validate() expects
+	// runner.instances etc., so we call validateBuilder() directly here.
+	mkCfg := func(sa *StateActorConfig) *Config {
+		return &Config{Builder: &BuilderConfig{StateActor: sa}}
+	}
+
+	tests := []struct {
+		name      string
+		sa        *StateActorConfig
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "nil builder is fine",
+			sa:   nil,
+		},
+		{
+			name: "no targets is fine",
+			sa: &StateActorConfig{
+				Images: allImages,
+			},
+		},
+		{
+			name: "invalid container_runtime",
+			sa: &StateActorConfig{
+				ContainerRuntime: "lima",
+				Images:           allImages,
+				Targets:          []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "container_runtime",
+		},
+		{
+			name: "invalid pull_policy",
+			sa: &StateActorConfig{
+				PullPolicy: "sometimes",
+				Images:     allImages,
+				Targets:    []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "pull_policy",
+		},
+		{
+			name: "pull_policy if-not-present ok",
+			sa: &StateActorConfig{
+				PullPolicy: "if-not-present",
+				Images:     allImages,
+				Targets:    []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+		},
+		{
+			name: "unsupported client erigon",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "erigon", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "erigon",
+		},
+		{
+			name: "unsupported client nimbus",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "nimbus", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "nimbus",
+		},
+		{
+			name: "missing output_dir",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "geth", TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "output_dir is required",
+		},
+		{
+			name: "relative output_dir",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: "./relative", TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "must be an absolute path",
+		},
+		{
+			name: "duplicate output_dir",
+			sa: &StateActorConfig{
+				Images: allImages,
+				Targets: []StateActorTarget{
+					{Client: "geth", OutputDir: dirA, TargetSize: "5GB"},
+					{Name: "reth-x", Client: "reth", OutputDir: dirA, TargetSize: "5GB"},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "duplicates targets[0].output_dir",
+		},
+		{
+			name: "duplicate target name",
+			sa: &StateActorConfig{
+				Images: allImages,
+				Targets: []StateActorTarget{
+					{Client: "geth", OutputDir: dirA, TargetSize: "5GB"},
+					{Client: "geth", OutputDir: dirB, TargetSize: "10GB"},
+				},
+			},
+			wantErr:   true,
+			errSubstr: "duplicates targets[0]",
+		},
+		{
+			name: "duplicate names allowed when disambiguated",
+			sa: &StateActorConfig{
+				Images: allImages,
+				Targets: []StateActorTarget{
+					{Name: "geth-5g", Client: "geth", OutputDir: dirA, TargetSize: "5GB"},
+					{Name: "geth-50g", Client: "geth", OutputDir: dirB, TargetSize: "50GB"},
+				},
+			},
+		},
+		{
+			name: "missing size and no top-level spec",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: dirA}},
+			},
+			wantErr:   true,
+			errSubstr: "no source resolved",
+		},
+		{
+			name: "global config.target_size lets targets omit size",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Config:  &StateActorClientDefaults{TargetSize: "5GB"},
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: dirA}},
+			},
+		},
+		{
+			name: "per-target target_size overrides global config.target_size",
+			sa: &StateActorConfig{
+				Images: allImages,
+				Config: &StateActorClientDefaults{TargetSize: "5GB"},
+				Targets: []StateActorTarget{{
+					Client: "geth", OutputDir: dirA, TargetSize: "50GB",
+				}},
+			},
+		},
+		{
+			name: "global config.target_size rejects invalid format",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Config:  &StateActorClientDefaults{TargetSize: "5GG"},
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: dirA}},
+			},
+			wantErr:   true,
+			errSubstr: "target_size",
+		},
+		{
+			name: "global config.target_size and spec_file can coexist (target_size = headroom budget)",
+			sa: &StateActorConfig{
+				Images:   allImages,
+				SpecFile: "/etc/spec.yaml",
+				Config:   &StateActorClientDefaults{TargetSize: "5GB"},
+				Targets:  []StateActorTarget{{Client: "geth", OutputDir: dirA}},
+			},
+		},
+		{
+			name: "per-target target_size + top-level spec_file can coexist",
+			sa: &StateActorConfig{
+				Images:   allImages,
+				SpecFile: "/etc/spec.yaml",
+				Targets:  []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+		},
+		{
+			name: "top-level spec and spec_file both set",
+			sa: &StateActorConfig{
+				Images:   allImages,
+				Spec:     "genesis: {}\n",
+				SpecFile: "/etc/spec.yaml",
+				Targets:  []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "mutually exclusive",
+		},
+		{
+			name: "top-level spec_file lets targets omit target_size",
+			sa: &StateActorConfig{
+				Images:   allImages,
+				SpecFile: "/etc/spec.yaml",
+				Targets:  []StateActorTarget{{Client: "geth", OutputDir: dirA}},
+			},
+		},
+		{
+			name: "top-level inline spec lets targets omit target_size",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Spec:    "genesis:\n  chain_id: 1337\n",
+				Targets: []StateActorTarget{{Client: "reth", OutputDir: dirA}},
+			},
+		},
+		{
+			name: "mixed: one target has target_size, other inherits top-level spec",
+			sa: &StateActorConfig{
+				Images: allImages,
+				Spec:   "genesis: {}\n",
+				Targets: []StateActorTarget{
+					{Name: "geth-5g", Client: "geth", OutputDir: dirA, TargetSize: "5GB"},
+					{Name: "reth-inherit", Client: "reth", OutputDir: dirB},
+				},
+			},
+		},
+		{
+			name: "invalid target_size",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GG"}},
+			},
+			wantErr:   true,
+			errSubstr: "target_size",
+		},
+		{
+			name: "archive on besu rejected",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "besu", OutputDir: dirA, TargetSize: "5GB", Archive: boolPtr(true)}},
+			},
+			wantErr:   true,
+			errSubstr: "archive",
+		},
+		{
+			name: "archive on reth ok",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "reth", OutputDir: dirA, TargetSize: "5GB", Archive: boolPtr(true)}},
+			},
+		},
+		{
+			name: "binary_trie on reth rejected",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "reth", OutputDir: dirA, TargetSize: "5GB", BinaryTrie: boolPtr(true)}},
+			},
+			wantErr:   true,
+			errSubstr: "binary_trie",
+		},
+		{
+			name: "binary_trie on geth ok",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GB", BinaryTrie: boolPtr(true), GroupDepth: intPtr(4)}},
+			},
+		},
+		{
+			name: "group_depth without binary_trie rejected",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GB", GroupDepth: intPtr(4)}},
+			},
+			wantErr:   true,
+			errSubstr: "binary_trie=true",
+		},
+		{
+			name: "group_depth out of range low",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GB", BinaryTrie: boolPtr(true), GroupDepth: intPtr(0)}},
+			},
+			wantErr:   true,
+			errSubstr: "1..8",
+		},
+		{
+			name: "group_depth out of range high",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GB", BinaryTrie: boolPtr(true), GroupDepth: intPtr(9)}},
+			},
+			wantErr:   true,
+			errSubstr: "1..8",
+		},
+		{
+			name: "no image configured for target's client",
+			sa: &StateActorConfig{
+				Images:  map[string]string{"geth": "geth:img"},
+				Targets: []StateActorTarget{{Client: "reth", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "no image configured",
+		},
+		{
+			name: "per-client image resolves",
+			sa: &StateActorConfig{
+				Images:  map[string]string{"besu": "besu:img"},
+				Targets: []StateActorTarget{{Client: "besu", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+		},
+		{
+			name: "spec_file passthrough ok (file existence deferred)",
+			sa: &StateActorConfig{
+				Images:   allImages,
+				SpecFile: "/nonexistent/spec.yaml",
+				Targets:  []StateActorTarget{{Client: "reth", OutputDir: dirA}},
+			},
+		},
+		{
+			name: "full pointer values pass",
+			sa: &StateActorConfig{
+				Images: allImages,
+				Targets: []StateActorTarget{{
+					Client: "geth", OutputDir: dirA, TargetSize: "5GB",
+					Seed: int64Ptr(42), Fork: "prague", ChainID: int64Ptr(1337),
+				}},
+			},
+		},
+		{
+			name: "global archive applies to besu target via resolution",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Config:  &StateActorClientDefaults{Archive: boolPtr(true)},
+				Targets: []StateActorTarget{{Client: "besu", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "archive",
+		},
+		{
+			name: "target archive=false overrides global archive=true on besu",
+			sa: &StateActorConfig{
+				Images: allImages,
+				Config: &StateActorClientDefaults{Archive: boolPtr(true)},
+				Targets: []StateActorTarget{{
+					Client: "besu", OutputDir: dirA, TargetSize: "5GB",
+					Archive: boolPtr(false),
+				}},
+			},
+		},
+		{
+			name: "global binary_trie rejected on reth",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Config:  &StateActorClientDefaults{BinaryTrie: boolPtr(true)},
+				Targets: []StateActorTarget{{Client: "reth", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "binary_trie",
+		},
+		{
+			name: "global group_depth requires effective binary_trie",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Config:  &StateActorClientDefaults{GroupDepth: intPtr(4)},
+				Targets: []StateActorTarget{{Client: "geth", OutputDir: dirA, TargetSize: "5GB"}},
+			},
+			wantErr:   true,
+			errSubstr: "binary_trie=true",
+		},
+		{
+			name: "global binary_trie + group_depth on geth ok",
+			sa: &StateActorConfig{
+				Images: allImages,
+				Config: &StateActorClientDefaults{BinaryTrie: boolPtr(true), GroupDepth: intPtr(4)},
+				Targets: []StateActorTarget{{
+					Client: "geth", OutputDir: dirA, TargetSize: "5GB",
+				}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := mkCfg(tt.sa).validateBuilder()
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestStateActorImageFor(t *testing.T) {
+	sa := &StateActorConfig{
+		Images: map[string]string{
+			"geth": "geth-image:1",
+			"reth": "reth-image:2",
+		},
+	}
+
+	assert.Equal(t, "geth-image:1", sa.ImageFor("geth"))
+	assert.Equal(t, "reth-image:2", sa.ImageFor("reth"))
+	assert.Empty(t, sa.ImageFor("besu"))
+
+	empty := &StateActorConfig{}
+	assert.Empty(t, empty.ImageFor("geth"))
+}
+
+func TestStateActorTargetEffectiveName(t *testing.T) {
+	withName := &StateActorTarget{Name: "geth-5g", Client: "geth"}
+	assert.Equal(t, "geth-5g", withName.EffectiveName())
+
+	noName := &StateActorTarget{Client: "geth"}
+	assert.Equal(t, "geth", noName.EffectiveName())
+}
+
+func TestGetStateActorContainerRuntime(t *testing.T) {
+	t.Run("builder override wins", func(t *testing.T) {
+		cfg := &Config{
+			Runner:  RunnerConfig{ContainerRuntime: "docker"},
+			Builder: &BuilderConfig{StateActor: &StateActorConfig{ContainerRuntime: "podman"}},
+		}
+		assert.Equal(t, "podman", cfg.GetStateActorContainerRuntime())
+	})
+
+	t.Run("falls back to runner runtime", func(t *testing.T) {
+		cfg := &Config{
+			Runner:  RunnerConfig{ContainerRuntime: "podman"},
+			Builder: &BuilderConfig{StateActor: &StateActorConfig{}},
+		}
+		assert.Equal(t, "podman", cfg.GetStateActorContainerRuntime())
+	})
+
+	t.Run("no builder block defaults to runner runtime", func(t *testing.T) {
+		cfg := &Config{Runner: RunnerConfig{ContainerRuntime: "docker"}}
+		assert.Equal(t, "docker", cfg.GetStateActorContainerRuntime())
+	})
+}

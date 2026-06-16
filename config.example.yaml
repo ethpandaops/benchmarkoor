@@ -221,6 +221,52 @@ runner:
     #   #   archive: https://github.com/NethermindEth/gas-benchmarks/actions/runs/24460911828/artifacts/6456466898
     #   #   file: opcodes_tracing.json
 
+# Optional: Pre-populated client datadirs via state-actor.
+# Build with: benchmarkoor build --config config.yaml
+# Targets are decoupled from runner.instances; produced datadirs are
+# consumed by `run` through the normal datadir.method providers.
+# See https://github.com/ethereum/state-actor for spec authoring.
+# builder:
+#   state_actor:
+#     # Per-client docker images. Every active target's client needs an entry —
+#     # state-actor needs a different cgo build per EL.
+#     images:
+#       geth: ghcr.io/ethereum/state-actor:latest
+#       reth: ghcr.io/ethereum/state-actor-reth:latest
+#       besu: ghcr.io/ethereum/state-actor-besu:latest
+#       nethermind: ghcr.io/ethereum/state-actor-nethermind:latest
+#     # pull_policy: always         # always | if-not-present | never
+#     # container_runtime: docker   # defaults to runner.container_runtime, then docker
+#     # Top-level spec source — shared across every target that doesn't set its own
+#     # target_size. Pick at most one of spec (inline YAML) or spec_file (host path).
+#     # spec: |
+#     #   genesis:
+#     #     chain_id: 1337
+#     # spec_file: /etc/benchmarkoor/state-spec.yaml
+#     # Shared per-target defaults. Anything set here is used by every target
+#     # unless that target sets the same field, in which case the target wins.
+#     # config:
+#     #   target_size: 5GB    # complements top-level spec/spec_file (headroom budget)
+#     #   seed: 1
+#     #   fork: prague
+#     #   chain_id: 1337
+#     #   gas_limit: 30000000
+#     targets:
+#       - client: geth              # geth | reth | besu | nethermind
+#         output_dir: /srv/state/geth-5g
+#         target_size: 5GB          # complements any top-level spec; required if no spec is configured
+#         # force: true             # wipe output_dir before building (per-target override of the CLI --force)
+#         # seed: 42                # overrides config.seed
+#         # fork: osaka             # overrides config.fork
+#         # chain_id: 1337
+#         # gas_limit: 30000000
+#         # archive: false          # geth + reth only; set false to opt out of config.archive=true
+#         # binary_trie: false      # geth only; pair with optional group_depth (1..8)
+#       - name: reth-inherit        # optional, defaults to `client`; used by --target
+#         client: reth
+#         output_dir: /srv/state/reth-spec
+#         # inherits the top-level spec/spec_file and every field from `config`
+
 # Optional: API server for authentication and user management.
 # When configured, the UI can integrate with the API for login, admin, and role-based access.
 # Start with: benchmarkoor api --config config.yaml

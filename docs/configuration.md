@@ -21,6 +21,7 @@ This document describes all configuration options for benchmarkoor. The [config.
   - [Client Instances](#client-instances)
 - [Resource Limits](#resource-limits)
 - [Post-Test RPC Calls](#post-test-rpc-calls)
+- [Builder](#builder)
 - [API Server](api.md)
 - [Examples](#examples)
 
@@ -1377,6 +1378,176 @@ runner:
           dump:
             enabled: true
             filename: trace_by_hash
+```
+
+## Builder
+
+The `builder` section configures tools that pre-populate client datadirs on disk. Today the only builder is `state-actor` (https://github.com/ethereum/state-actor), which writes per-client genesis state directly in each EL's native on-disk format — geth Pebble, reth MDBX, besu/nethermind RocksDB — bypassing the client's normal genesis-replay path.
+
+Builds are **decoupled from `benchmarkoor run`**: invoke `benchmarkoor build` to materialise datadirs, then run benchmarks against them via the regular `datadir.method: copy|zfs|schelk|…` providers. A missing datadir at `run` time is an error — it is never auto-built.
+
+### `builder.state_actor` options
+
+```yaml
+builder:
+  state_actor:
+    # Per-client images. State-actor needs cgo to write reth/besu/nethermind
+    # datadirs, so each client has its own image. Every active target's
+    # client must have an entry here.
+    images:
+      geth: ghcr.io/ethereum/state-actor:latest
+      reth: ghcr.io/ethereum/state-actor-reth:latest
+      besu: ghcr.io/ethereum/state-actor-besu:latest
+      nethermind: ghcr.io/ethereum/state-actor-nethermind:latest
+    pull_policy: always                           # always | if-not-present | never (default: always)
+    container_runtime: docker                     # docker | podman (default: inherits runner.container_runtime, then docker)
+    # spec source — top-level, shared across every target.
+    # Pick at most one of:
+    #   spec: |       # inline YAML; benchmarkoor writes it to a temp file before invoking state-actor
+    #     ...
+    #   spec_file: /etc/benchmarkoor/state-spec.yaml   # absolute host path
+    config:                                       # shared per-target defaults; targets override when set
+      seed: 1
+      fork: prague
+      chain_id: 1337
+    targets:
+      - name: geth-5g                             # optional, defaults to `client`; used by --target filter
+        client: geth
+        output_dir: /srv/state/geth-5g
+        target_size: 5GB
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `images` | map[string]string | – | Per-client docker images for state-actor. Every active target's client must have an entry; state-actor needs a different cgo build per client (reth → MDBX, besu → RocksDB JNI, nethermind → .NET RocksDB). |
+| `pull_policy` | string | `always` | One of `always`, `if-not-present`, `never`. |
+| `container_runtime` | string | runner's runtime, then `docker` | Container runtime for the build container. |
+| `spec` | string (YAML) | – | Inline state spec body (see [state-actor SPEC.md](https://github.com/ethereum/state-actor/blob/main/docs/SPEC.md)). Materialised to a temp file at build time. Mutually exclusive with `spec_file`. |
+| `spec_file` | string | – | Absolute host path to a state spec YAML. Bind-mounted read-only into the build container. Mutually exclusive with `spec`. |
+| `config` | object | – | Shared defaults for the per-target build parameters. See below. |
+| `targets` | []object | – | Required when invoking `benchmarkoor build`. See below. |
+
+The top-level `spec`/`spec_file` applies to every target. A target without its own `target_size` runs with just the spec; a target with both flags runs with both (state-actor uses the spec and treats `target_size` as a headroom budget for any further auto-fill). A target with neither `target_size` nor any spec source is a validation error.
+
+### `builder.state_actor.config` options
+
+Every field is also available per-target; a non-nil/non-empty value on a target overrides the corresponding default from `config`. Use this block to avoid repeating the same `seed`, `fork`, `chain_id`, etc. across every target.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `target_size` | string | – | Default size budget for every target (e.g. `5GB`). Targets without their own `target_size` inherit this value. Complements `spec`/`spec_file` — state-actor uses both at once, treating `target_size` as a headroom budget on top of the spec. |
+| `seed` | int64 | – | RNG seed for auto-fill. `0` = wall-clock (non-reproducible). |
+| `fork` | string | – | Hard fork at genesis, e.g. `prague`, `osaka`. |
+| `chain_id` | int64 | – | Genesis chain ID. |
+| `gas_limit` | uint64 | – | Genesis gas limit. |
+| `timestamp` | uint64 | – | Unix seconds at genesis. |
+| `extra_data` | string | – | Hex `extraData` for the genesis block. |
+| `archive` | bool | – | Archive-mode metadata. Effective value must be limited to geth/reth, regardless of where it was set. |
+| `binary_trie` | bool | – | EIP-7864 binary trie. Effective value must be limited to geth. |
+| `group_depth` | int (1..8) | – | Binary-trie serialisation unit. Requires effective `binary_trie=true`. |
+
+Applicability validation runs on the **effective** target (config defaults + per-target overrides), so `archive: true` set globally is rejected if any active target is besu/nethermind. To opt a target out of a global `archive: true`, set `archive: false` on that target.
+
+### `builder.state_actor.targets[]` options
+
+The fields below mirror `builder.state_actor.config`; any field set here overrides the corresponding default from `config`. Identifier fields (`name`, `client`, `output_dir`, `target_size`) are target-only.
+
+| Option | Type | Default | Applies to | Description |
+|---|---|---|---|---|
+| `name` | string | `client` | all | Human-readable name. Used by `--target` to filter. Must be unique across targets; defaults to the `client` field when omitted. |
+| `client` | string | – | all | One of `geth`, `reth`, `besu`, `nethermind`. State-actor does not support `erigon` or `nimbus`. |
+| `output_dir` | string | – | all | Absolute host path. If the directory already contains entries, that target is **skipped** (no error) — pass `--force` (CLI) or set `force: true` here to wipe and rebuild. For geth, state-actor writes into `<output_dir>/geth/chaindata`. |
+| `target_size` | string | from `config` | all | Advisory size budget for auto-generated state, e.g. `5GB`, `500MB` (base-1024). Required for the target when no spec is configured; when a spec is configured (top-level or default), `target_size` is optional and acts as a headroom budget that state-actor fills past the spec's projected cost. |
+| `force` | bool | `false` | all | Per-target override of the CLI `--force` flag: wipes `output_dir` before building so state-actor sees a clean directory. Useful when most targets should skip-if-built but specific ones should always rebuild. |
+| `seed` | int64 | from `config`, then `1` (state-actor) | all | RNG seed for auto-fill. `0` = wall-clock (non-reproducible). |
+| `fork` | string | from `config`, then latest supported by state-actor | all | Hard fork at genesis, e.g. `prague`, `osaka`. Run `state-actor --list-forks` for the current list. |
+| `chain_id` | int64 | from `config`, then `1337` (state-actor) | all | Genesis chain ID. |
+| `gas_limit` | uint64 | from `config`, then `30000000` (state-actor) | all | Genesis gas limit. |
+| `timestamp` | uint64 | from `config`, then `0` (state-actor) | all | Unix seconds at genesis. |
+| `extra_data` | string | from `config`, then `""` | all | Hex `extraData` for the genesis block. |
+| `archive` | bool | from `config`, then `false` | geth, reth | Archive-mode metadata. Set `false` to opt out of a global `archive: true`. Rejected (after resolution) for besu/nethermind. |
+| `binary_trie` | bool | from `config`, then `false` | geth | EIP-7864 binary trie. Set `false` to opt out of a global default. Rejected (after resolution) for non-geth. |
+| `group_depth` | int | from `config`, then `8` (state-actor) | geth + binary_trie | Binary-trie serialisation unit. Range 1..8. Requires effective `binary_trie=true`. |
+
+State-actor itself only writes the genesis block; subsequent blocks come from running a client against the produced datadir. See [state-actor RUNBOOK.md](https://github.com/ethereum/state-actor/blob/main/docs/RUNBOOK.md) for the per-client boot recipes (e.g. geth needs `--db.engine=pebble`; reth needs `--debug.skip-genesis-validation`; besu needs `--data-storage-format=BONSAI`).
+
+### Running
+
+```bash
+# Build every target declared under builder.state_actor.targets
+benchmarkoor build --config build.yaml
+
+# Build only specific targets (by name)
+benchmarkoor build --config build.yaml --target geth-5g --target reth-spec
+
+# Overwrite existing output_dir contents
+benchmarkoor build --config build.yaml --force
+```
+
+The command exits non-zero if any target fails; successful targets are still left in place on partial failure. A final summary lists each target with `OK ` (built), `SKIP` (output_dir already populated), or `ERR ` (failed). `--force` wipes each target's `output_dir` before building, bypassing the skip behaviour.
+
+### Examples
+
+Minimal — one geth datadir sized at 5 GB:
+
+```yaml
+builder:
+  state_actor:
+    images:
+      geth: ghcr.io/ethereum/state-actor:latest
+    targets:
+      - client: geth
+        output_dir: /srv/state/geth-5g
+        target_size: 5GB
+```
+
+Full — three clients sharing a top-level spec file and global defaults; geth opts out via `target_size`, reth opts out of the global archive setting:
+
+```yaml
+builder:
+  state_actor:
+    images:
+      geth: ghcr.io/ethereum/state-actor:latest
+      reth: ghcr.io/ethereum/state-actor-reth:latest
+      besu: ghcr.io/ethereum/state-actor-besu:latest
+    pull_policy: if-not-present
+    spec_file: /etc/benchmarkoor/state-spec.yaml
+    config:
+      # Applies to every target that doesn't override it.
+      seed: 42
+      fork: prague
+      chain_id: 1337
+      archive: true       # geth + reth inherit this; besu sets archive: false below
+    targets:
+      - name: geth-archive
+        client: geth
+        output_dir: /srv/state/geth-archive
+        # target_size + top-level spec: spec drives the build, target_size sets the headroom budget
+        target_size: 5GB
+        binary_trie: true
+        group_depth: 4
+      - client: reth
+        output_dir: /srv/state/reth-spec
+      - client: besu
+        output_dir: /srv/state/besu-spec
+        archive: false    # overrides config.archive=true (besu doesn't support archive)
+```
+
+Inline spec — write the YAML directly in the config:
+
+```yaml
+builder:
+  state_actor:
+    images:
+      geth: ghcr.io/ethereum/state-actor:latest
+    spec: |
+      genesis:
+        chain_id: 1337
+        gas_limit: 30000000
+      # … rest of the state spec
+    targets:
+      - client: geth
+        output_dir: /srv/state/geth-spec
 ```
 
 ## API Server
