@@ -266,6 +266,36 @@ runner:
 #         client: reth
 #         output_dir: /srv/state/reth-spec
 #         # inherits the top-level spec/spec_file and every field from `config`
+#
+#   # Optional: generate stateful EEST benchmark fixtures with fill-stateful.
+#   # Boots a filler client on a copy of a snapshot datadir (e.g. a state_actor
+#   # output_dir above), records engine-API payloads, and writes fixtures that
+#   # `run` consumes via tests.source.eest_fixtures. Runs after state_actor.
+#   # Only geth supports fill-stateful's testing_buildBlockV1 today. Build the
+#   # fill image from the repo's Dockerfile.eest-filler (execution-specs #2637):
+#   #   docker build -f Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
+#   eest_payloads:
+#     fill_image: ghcr.io/your-org/eest-fill-stateful:latest
+#     # pull_policy: always           # always | if-not-present | never
+#     # container_runtime: docker     # defaults to runner.container_runtime, then docker
+#     # jwt: <hex>                    # Engine API secret shared with the filler (default: built-in)
+#     # fill_command: [uv, run, fill-stateful]   # argv prefix inside fill_image (default)
+#     config:                         # shared per-target defaults; targets override when set
+#       filler_image: ethpandaops/geth:master
+#       fork: Osaka
+#       gas_benchmark_values: "10,30" # millions of gas to parametrise against
+#       datadir_method: copy          # copy | overlayfs | fuse-overlayfs | zfs | direct | schelk
+#     targets:
+#       - name: compute-geth
+#         filler_client: geth         # only geth is supported today
+#         source_dir: /srv/state/geth-5g            # PRISTINE snapshot (never mutated)
+#         genesis_file: /srv/state/geth-5g/genesis.json   # chain config for the filler boot
+#         output_dir: /srv/fixtures/compute
+#         tests:
+#           - tests/benchmark/compute # pytest paths inside the fill image
+#         # filter: bn128             # optional pytest -k expression
+#         # force: true               # wipe output_dir before filling
+#         # address_stubs_file: /etc/benchmarkoor/stubs.json  # for stub-dependent tests
 
 # Optional: API server for authentication and user management.
 # When configured, the UI can integrate with the API for login, admin, and role-based access.

@@ -1382,9 +1382,12 @@ runner:
 
 ## Builder
 
-The `builder` section configures tools that pre-populate client datadirs on disk. Today the only builder is `state-actor` (https://github.com/ethereum/state-actor), which writes per-client genesis state directly in each EL's native on-disk format — geth Pebble, reth MDBX, besu/nethermind RocksDB — bypassing the client's normal genesis-replay path.
+The `builder` section configures tools that pre-populate benchmark inputs on disk. There are two builders:
 
-Builds are **decoupled from `benchmarkoor run`**: invoke `benchmarkoor build` to materialise datadirs, then run benchmarks against them via the regular `datadir.method: copy|zfs|schelk|…` providers. A missing datadir at `run` time is an error — it is never auto-built.
+- **`state_actor`** (https://github.com/ethereum/state-actor) writes per-client genesis state directly in each EL's native on-disk format — geth Pebble, reth MDBX, besu/nethermind RocksDB — bypassing the client's normal genesis-replay path.
+- **`eest_payloads`** generates stateful EEST benchmark fixtures by running [`fill-stateful`](https://github.com/ethereum/execution-specs/pull/2637) against a filler client booted on a pre-populated snapshot (typically one produced by `state_actor`). The fixtures are replayed by `benchmarkoor run`.
+
+Builds are **decoupled from `benchmarkoor run`**: invoke `benchmarkoor build` to materialise the artifacts, then run benchmarks against them via the regular `datadir.method: copy|zfs|schelk|…` providers and test-source config. A missing datadir at `run` time is an error — it is never auto-built. When both builders are configured, they run in declaration order (`state_actor` before `eest_payloads`) so a fixture build can consume a datadir produced earlier in the same `benchmarkoor build` invocation.
 
 ### `builder.state_actor` options
 
@@ -1549,6 +1552,105 @@ builder:
       - client: geth
         output_dir: /srv/state/geth-spec
 ```
+
+### `builder.eest_payloads` options
+
+`eest_payloads` generates **stateful** EEST benchmark fixtures: it boots a filler EL client on a *writable copy* of a pre-populated snapshot datadir, runs `fill-stateful` against the live client (recording engine-API payloads anchored to the snapshot's head block), and writes the fixtures to each target's `output_dir`. `fill-stateful` itself does not manage datadirs — benchmarkoor boots the filler and snapshots it.
+
+> **Filler client:** only `geth` implements the `testing_buildBlockV1` API that `fill-stateful` drives, so `filler_client` must be `geth` today; `ethpandaops/geth:master` is the production-ready image.
+>
+> **Fill image:** there is no published `fill-stateful` image yet (the command lands in execution-specs [#2637](https://github.com/ethereum/execution-specs/pull/2637)). Build one from the repo's `Dockerfile.eest-filler` (it bundles `uv` + execution-specs) and point `fill_image` at it:
+> ```bash
+> docker build -f Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
+> ```
+
+```yaml
+builder:
+  eest_payloads:
+    fill_image: ghcr.io/your-org/eest-fill-stateful:latest   # image carrying `uv run fill-stateful`
+    pull_policy: always                  # always | if-not-present | never (default: always)
+    container_runtime: docker            # docker | podman (default: inherits runner.container_runtime, then docker)
+    # jwt: <hex>                         # Engine API secret, shared with the filler (default: benchmarkoor's DefaultJWT)
+    # fill_command: [uv, run, fill-stateful]   # argv prefix inside fill_image (this is the default)
+    config:                              # shared per-target defaults; targets override when set
+      filler_image: ethpandaops/geth:master
+      fork: Osaka
+      gas_benchmark_values: "10,30"      # millions of gas to parametrise against
+      datadir_method: copy               # copy | overlayfs | fuse-overlayfs | zfs | direct | schelk
+    targets:
+      - name: compute-geth
+        filler_client: geth
+        source_dir: /srv/state/geth-archive     # PRISTINE snapshot (never mutated; a writable copy is filled)
+        genesis_file: /srv/state/geth-archive/genesis.json   # chain config for the filler boot
+        output_dir: /srv/fixtures/compute
+        tests:
+          - tests/benchmark/compute              # pytest paths inside the fill image
+        filter: bn128                            # optional pytest -k expression
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `fill_image` | string | – | **Required.** Container image carrying the `fill-stateful` command (`uv` + execution-specs). |
+| `pull_policy` | string | `always` | One of `always`, `if-not-present`, `never`. Applies to both the fill image and the filler image. |
+| `container_runtime` | string | runner's runtime, then `docker` | Container runtime for the filler + fill containers. |
+| `jwt` | string | benchmarkoor's `DefaultJWT` | Engine API JWT secret; shared between the filler client and `fill-stateful`. |
+| `fill_command` | []string | `[uv, run, fill-stateful]` | argv prefix invoked inside `fill_image` before the `fill-stateful` flags. Override if your image exposes the command differently. |
+| `config` | object | – | Shared defaults for the per-target parameters. See below. |
+| `targets` | []object | – | Required when invoking `benchmarkoor build`. See below. |
+
+### `builder.eest_payloads.config` options
+
+Every field below is also available per-target; a non-nil/non-empty value on a target overrides the default. Use this block to avoid repeating `fork`, `gas_benchmark_values`, etc.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `filler_image` | string | – | Docker image for the filler client (e.g. `ethpandaops/geth:master`). |
+| `fork` | string | – | Fork to fill against, e.g. `Osaka` (passed to `fill-stateful --fork`). |
+| `gas_benchmark_values` | string | – | Comma-separated gas budgets in millions, e.g. `10,30` (`--gas-benchmark-values`). |
+| `datadir_method` | string | `copy` | How the filler's writable copy of `source_dir` is prepared: `copy`, `overlayfs`, `fuse-overlayfs`, `zfs`, `direct`, `schelk`. Use `zfs`/`overlayfs` to avoid a full copy of a large snapshot. |
+| `max_gas_per_test` | uint64 | – | Overrides the fork's transaction gas-limit cap (`--max-gas-per-test`). |
+| `rpc_seed_key` | string | – | Pin the seed EOA for reproducible fills (`--rpc-seed-key`); otherwise one is generated and funded via CL withdrawal. |
+| `filler_extra_args` | []string | – | Extra argv appended to the filler client command. |
+
+### `builder.eest_payloads.targets[]` options
+
+Identity/locator fields are target-only; the rest mirror `config` and are resolved with per-target precedence.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `name` | string | `filler_client` | Used by `--target` to filter. Must be unique across targets. |
+| `filler_client` | string | – | Client booted as the filler. Must be `geth` (only client supporting `testing_buildBlockV1`). |
+| `source_dir` | string | – | **Absolute** host path to the pristine snapshot datadir (e.g. a `state_actor` `output_dir`). Never mutated — a writable copy is filled. Existence is checked at build time. |
+| `genesis_file` | string | – | **Absolute** host path to the genesis/chain-config the filler boots with (`--override.genesis`). Must match the chain config used to produce `source_dir`. |
+| `output_dir` | string | – | **Absolute** host path for the generated fixtures. Skipped if already populated unless `--force` / `force: true`. Written under `<output_dir>/blockchain_tests_stateful_engine/`. |
+| `tests` | []string | – | **Required.** pytest paths inside the fill image, e.g. `tests/benchmark/compute`. |
+| `filter` | string | – | Optional pytest `-k` expression. |
+| `address_stubs_file` | string | – | **Absolute** host path to a `--address-stubs` JSON map, required by stub-dependent tests (e.g. bloatnet opcode tests). |
+| `force` | bool | `false` | Per-target override of `--force`: wipe `output_dir` before filling. |
+| `filler_image`, `fork`, `gas_benchmark_values`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `filler_extra_args` | — | from `config` | See the `config` table above. `fork` and `filler_image` are required after resolution. |
+
+### Replaying generated fixtures
+
+Point `benchmarkoor run` at the **pristine** snapshot (never the copy the filler mutated) and at the fixture output:
+
+```yaml
+runner:
+  client:
+    datadirs:
+      geth:
+        source_dir: /srv/state/geth-archive       # the pristine snapshot
+        method: zfs                                # or copy/overlayfs/…
+  benchmark:
+    tests:
+      source:
+        eest_fixtures:
+          local_fixtures_dir: /srv/fixtures/compute
+          fixtures_subdir: blockchain_tests_stateful_engine
+```
+
+> Stateful replay needs the new fixture format support — see benchmarkoor [#182](https://github.com/ethpandaops/benchmarkoor/pull/182).
+
+As a sanity check, each fixture's recorded `benchmarkGasUsed` should match benchmarkoor's measured `gas_used_total` for that test.
 
 ## API Server
 

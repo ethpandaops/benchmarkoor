@@ -452,14 +452,13 @@ func TestSourceConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "eest_fixtures local dir missing local_genesis_dir",
+			name: "eest_fixtures local dir without local_genesis_dir (stateful)",
 			source: SourceConfig{
 				EESTFixtures: &EESTFixturesSource{
 					LocalFixturesDir: tmpDir,
 				},
 			},
-			wantErr:   true,
-			errSubstr: "local_genesis_dir is required",
+			wantErr: false,
 		},
 		{
 			name: "eest_fixtures local dir missing local_fixtures_dir",
@@ -3665,3 +3664,261 @@ func TestGetStateActorContainerRuntime(t *testing.T) {
 		assert.Equal(t, "docker", cfg.GetStateActorContainerRuntime())
 	})
 }
+
+func TestValidateEESTPayloads(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+
+	// mkCfg builds a Config with only the eest_payloads builder block so the
+	// builder validation runs in isolation.
+	mkCfg := func(ep *EESTPayloadsConfig) *Config {
+		return &Config{Builder: &BuilderConfig{EESTPayloads: ep}}
+	}
+
+	// base returns a minimal valid target rooted at dir.
+	base := func(dir string) EESTPayloadTarget {
+		return EESTPayloadTarget{
+			FillerClient: "geth",
+			FillerImage:  "ethpandaops/geth:master",
+			SourceDir:    "/snap",
+			OutputDir:    dir,
+			Fork:         "Osaka",
+			Tests:        []string{"tests/benchmark/compute"},
+		}
+	}
+
+	tests := []struct {
+		name      string
+		ep        *EESTPayloadsConfig
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "nil builder is fine",
+			ep:   nil,
+		},
+		{
+			name: "valid minimal",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				Targets:   []EESTPayloadTarget{base(dirA)},
+			},
+		},
+		{
+			name: "missing fill_image",
+			ep: &EESTPayloadsConfig{
+				Targets: []EESTPayloadTarget{base(dirA)},
+			},
+			wantErr:   true,
+			errSubstr: "fill_image",
+		},
+		{
+			name: "invalid container_runtime",
+			ep: &EESTPayloadsConfig{
+				ContainerRuntime: "lima",
+				FillImage:        "fill:latest",
+				Targets:          []EESTPayloadTarget{base(dirA)},
+			},
+			wantErr:   true,
+			errSubstr: "container_runtime",
+		},
+		{
+			name: "unsupported filler client",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.FillerClient = "reth"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "testing_buildBlockV1",
+		},
+		{
+			name: "missing tests",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.Tests = nil
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "tests is required",
+		},
+		{
+			name: "missing fork",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.Fork = ""
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "fork is required",
+		},
+		{
+			name: "fork hoisted from config defaults",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.Fork = ""
+
+				return &EESTPayloadsConfig{
+					FillImage: "fill:latest",
+					Config:    &EESTPayloadDefaults{Fork: "Osaka"},
+					Targets:   []EESTPayloadTarget{tgt},
+				}
+			}(),
+		},
+		{
+			name: "relative source_dir",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.SourceDir = "relative/path"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "source_dir must be an absolute path",
+		},
+		{
+			name: "relative output_dir",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base("relative/out")
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "output_dir must be an absolute path",
+		},
+		{
+			name: "duplicate output_dir",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				Targets: []EESTPayloadTarget{
+					func() EESTPayloadTarget { t := base(dirA); t.Name = "a"; return t }(),
+					func() EESTPayloadTarget { t := base(dirA); t.Name = "b"; return t }(),
+				},
+			},
+			wantErr:   true,
+			errSubstr: "duplicates",
+		},
+		{
+			name: "duplicate name",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				Targets: []EESTPayloadTarget{
+					func() EESTPayloadTarget { t := base(dirA); t.Name = "dup"; return t }(),
+					func() EESTPayloadTarget { t := base(dirB); t.Name = "dup"; return t }(),
+				},
+			},
+			wantErr:   true,
+			errSubstr: "duplicates",
+		},
+		{
+			name: "invalid datadir_method",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.DataDirMethod = "btrfs"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "datadir_method",
+		},
+		{
+			name: "invalid gas_benchmark_values",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.GasBenchmarkValues = "10,abc"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "gas_benchmark_values",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := mkCfg(tt.ep).validateBuilder()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestEESTPayloadsResolveTarget(t *testing.T) {
+	ep := &EESTPayloadsConfig{
+		Config: &EESTPayloadDefaults{
+			FillerImage:        "ethpandaops/geth:master",
+			Fork:               "Osaka",
+			GasBenchmarkValues: "10,30",
+			DataDirMethod:      "zfs",
+			MaxGasPerTest:      u64Cfg(45000000),
+			RPCSeedKey:         "0xseed",
+			FillerExtraArgs:    []string{"--verbosity=3"},
+		},
+		Targets: []EESTPayloadTarget{
+			// Inherits everything from config.
+			{Name: "inherit", FillerClient: "geth", SourceDir: "/s", OutputDir: "/o"},
+			// Overrides fork and gas values.
+			{Name: "override", FillerClient: "geth", SourceDir: "/s2", OutputDir: "/o2",
+				Fork: "Prague", GasBenchmarkValues: "60"},
+		},
+	}
+
+	inherit := ep.ResolveTarget(0)
+	assert.Equal(t, "ethpandaops/geth:master", inherit.FillerImage)
+	assert.Equal(t, "Osaka", inherit.Fork)
+	assert.Equal(t, "10,30", inherit.GasBenchmarkValues)
+	assert.Equal(t, "zfs", inherit.DataDirMethod)
+	require.NotNil(t, inherit.MaxGasPerTest)
+	assert.Equal(t, uint64(45000000), *inherit.MaxGasPerTest)
+	assert.Equal(t, []string{"--verbosity=3"}, inherit.FillerExtraArgs)
+
+	override := ep.ResolveTarget(1)
+	assert.Equal(t, "Prague", override.Fork, "per-target fork wins")
+	assert.Equal(t, "60", override.GasBenchmarkValues, "per-target gas values win")
+	assert.Equal(t, "ethpandaops/geth:master", override.FillerImage, "still inherits unset fields")
+}
+
+func TestEESTPayloadsEffectiveName(t *testing.T) {
+	withName := EESTPayloadTarget{Name: "compute", FillerClient: "geth"}
+	assert.Equal(t, "compute", withName.EffectiveName())
+
+	noName := EESTPayloadTarget{FillerClient: "geth"}
+	assert.Equal(t, "geth", noName.EffectiveName())
+}
+
+func TestEESTPayloadsResolveFillCommand(t *testing.T) {
+	def := (&EESTPayloadsConfig{}).ResolveFillCommand()
+	assert.Equal(t, []string{"uv", "run", "fill-stateful"}, def)
+
+	custom := (&EESTPayloadsConfig{FillCommand: []string{"fill-stateful"}}).ResolveFillCommand()
+	assert.Equal(t, []string{"fill-stateful"}, custom)
+}
+
+func TestGetEESTPayloadsContainerRuntime(t *testing.T) {
+	t.Run("builder override wins", func(t *testing.T) {
+		cfg := &Config{
+			Runner:  RunnerConfig{ContainerRuntime: "docker"},
+			Builder: &BuilderConfig{EESTPayloads: &EESTPayloadsConfig{ContainerRuntime: "podman"}},
+		}
+		assert.Equal(t, "podman", cfg.GetEESTPayloadsContainerRuntime())
+	})
+
+	t.Run("falls back to runner runtime", func(t *testing.T) {
+		cfg := &Config{
+			Runner:  RunnerConfig{ContainerRuntime: "podman"},
+			Builder: &BuilderConfig{EESTPayloads: &EESTPayloadsConfig{}},
+		}
+		assert.Equal(t, "podman", cfg.GetEESTPayloadsContainerRuntime())
+	})
+}
+
+func u64Cfg(v uint64) *uint64 { return &v }

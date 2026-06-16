@@ -1,0 +1,63 @@
+# Dockerfile.eest-filler
+#
+# Builds the image referenced by `builder.eest_payloads.fill_image`: it carries
+# the EEST `fill-stateful` command (execution-specs PR #2637) plus `uv`.
+#
+# fill-stateful drives a *live* EL client over testing_buildBlockV1, so — unlike
+# the t8n-based `fill` — it needs NO evmone/eels transition-tool binary. The
+# image is just `uv` + the execution-specs checkout.
+#
+# Build:
+#   docker build -f Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
+#   # (podman build works identically)
+#
+# Then point your config at it:
+#   builder:
+#     eest_payloads:
+#       fill_image: ghcr.io/your-org/eest-fill-stateful:latest
+#
+# benchmarkoor invokes it as: `uv run fill-stateful <flags> <test paths>`
+# (the default builder.eest_payloads.fill_command), with the test paths resolved
+# relative to the execution-specs checkout (WORKDIR below).
+
+# --- Source selection -------------------------------------------------------
+# fill-stateful is merged upstream on the forks/amsterdam branch. Override the
+# ref to pin a specific tag/commit, e.g. --build-arg EEST_REF=<tag>.
+ARG EEST_REPO=https://github.com/ethereum/execution-specs.git
+ARG EEST_REF=forks/amsterdam
+ARG PYTHON_VERSION=3.12
+
+FROM python:${PYTHON_VERSION}-slim-bookworm
+
+# uv: copy the static binary from the official image (recommended pattern).
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# Build deps: git to fetch the source; build-essential/headers for any EEST
+# dependencies without prebuilt wheels.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git \
+        ca-certificates \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG EEST_REPO
+ARG EEST_REF
+
+WORKDIR /eest
+
+# Clone and check out the requested ref (branch, tag, or commit SHA). `uv run
+# fill-stateful` and the relative test paths (e.g. tests/benchmark/stateful)
+# both resolve against this directory.
+RUN git clone "${EEST_REPO}" . \
+    && git checkout "${EEST_REF}"
+
+# Pre-create the virtualenv at build time so runs don't sync on every invocation.
+ENV UV_NO_PROGRESS=1
+RUN uv sync
+
+# Record the exact source revision for traceability.
+RUN git rev-parse HEAD > /eest/.fill-stateful-rev
+
+# Standalone default; benchmarkoor overrides this with the full fill-stateful argv.
+CMD ["uv", "run", "fill-stateful", "--help"]

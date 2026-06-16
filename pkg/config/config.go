@@ -73,11 +73,13 @@ type Config struct {
 	Builder *BuilderConfig `yaml:"builder,omitempty" mapstructure:"builder"`
 }
 
-// BuilderConfig is the top-level builder block. Today it only houses
-// state-actor; future builders (e.g. geth-import, snap-sync) plug in
-// alongside.
+// BuilderConfig is the top-level builder block. It houses state-actor
+// (materialises pre-populated datadirs) and eest_payloads (generates
+// stateful EEST benchmark fixtures against such a datadir). Future
+// builders plug in alongside.
 type BuilderConfig struct {
-	StateActor *StateActorConfig `yaml:"state_actor,omitempty" mapstructure:"state_actor"`
+	StateActor   *StateActorConfig   `yaml:"state_actor,omitempty" mapstructure:"state_actor"`
+	EESTPayloads *EESTPayloadsConfig `yaml:"eest_payloads,omitempty" mapstructure:"eest_payloads"`
 }
 
 // StateActorConfig configures how the state-actor binary is invoked via
@@ -274,6 +276,147 @@ var stateActorValidPullPolicies = map[string]bool{
 	"always":         true,
 	"if-not-present": true,
 	"never":          true,
+}
+
+// EESTPayloadsConfig configures generation of stateful EEST benchmark
+// fixtures via the `fill-stateful` command (execution-specs). See
+// https://github.com/ethereum/execution-specs/pull/2637.
+//
+// Unlike state-actor, this builder is an orchestrator: per target it
+// boots a filler EL client on a copy of a pre-populated snapshot datadir
+// (e.g. produced by builder.state_actor), runs fill-stateful against the
+// live client, and writes the resulting fixtures to the target's
+// output_dir. The fixtures are later replayed by `benchmarkoor run`.
+//
+// FillImage is the container image carrying the `fill-stateful` command
+// (uv + execution-specs). Config holds per-target defaults that can be
+// hoisted to avoid repetition; any field set on a target wins.
+type EESTPayloadsConfig struct {
+	ContainerRuntime string `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
+	FillImage        string `yaml:"fill_image,omitempty" mapstructure:"fill_image"`
+	PullPolicy       string `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
+	JWT              string `yaml:"jwt,omitempty" mapstructure:"jwt"`
+	// FillCommand is the argv prefix invoked inside FillImage before the
+	// fill-stateful flags. Defaults to ["uv", "run", "fill-stateful"].
+	FillCommand []string             `yaml:"fill_command,omitempty" mapstructure:"fill_command"`
+	Config      *EESTPayloadDefaults `yaml:"config,omitempty" mapstructure:"config"`
+	Targets     []EESTPayloadTarget  `yaml:"targets,omitempty" mapstructure:"targets"`
+}
+
+// DefaultFillCommand is the argv prefix used to invoke fill-stateful inside
+// the fill image when EESTPayloadsConfig.FillCommand is unset.
+var DefaultFillCommand = []string{"uv", "run", "fill-stateful"}
+
+// ResolveFillCommand returns the configured fill-stateful argv prefix, or
+// DefaultFillCommand when unset.
+func (e *EESTPayloadsConfig) ResolveFillCommand() []string {
+	if len(e.FillCommand) > 0 {
+		return e.FillCommand
+	}
+
+	return DefaultFillCommand
+}
+
+// EESTPayloadDefaults are the per-target build parameters that may be
+// hoisted to the top level under `builder.eest_payloads.config`. Every
+// field is also present on EESTPayloadTarget; a non-nil/non-empty value
+// on the target wins over the corresponding default. See ResolveTarget.
+type EESTPayloadDefaults struct {
+	FillerImage        string   `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
+	Fork               string   `yaml:"fork,omitempty" mapstructure:"fork"`
+	GasBenchmarkValues string   `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
+	DataDirMethod      string   `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
+	MaxGasPerTest      *uint64  `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
+	RPCSeedKey         string   `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	FillerExtraArgs    []string `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+}
+
+// EESTPayloadTarget is one fixture-generation run. Identity/locator fields
+// (Name, FillerClient, SourceDir, OutputDir, GenesisFile, Tests, Filter,
+// AddressStubsFile) live exclusively on the target; the remaining fields
+// mirror EESTPayloadDefaults and are resolved via ResolveTarget.
+type EESTPayloadTarget struct {
+	Name             string `yaml:"name,omitempty" mapstructure:"name"`
+	FillerClient     string `yaml:"filler_client" mapstructure:"filler_client"`
+	SourceDir        string `yaml:"source_dir" mapstructure:"source_dir"`
+	OutputDir        string `yaml:"output_dir" mapstructure:"output_dir"`
+	GenesisFile      string `yaml:"genesis_file,omitempty" mapstructure:"genesis_file"`
+	AddressStubsFile string `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
+	// Tests are pytest paths inside the fill image, e.g. tests/benchmark/compute.
+	Tests  []string `yaml:"tests,omitempty" mapstructure:"tests"`
+	Filter string   `yaml:"filter,omitempty" mapstructure:"filter"`
+	Force  bool     `yaml:"force,omitempty" mapstructure:"force"`
+
+	// Hoistable fields (mirror EESTPayloadDefaults).
+	FillerImage        string   `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
+	Fork               string   `yaml:"fork,omitempty" mapstructure:"fork"`
+	GasBenchmarkValues string   `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
+	DataDirMethod      string   `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
+	MaxGasPerTest      *uint64  `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
+	RPCSeedKey         string   `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	FillerExtraArgs    []string `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+}
+
+// ResolveTarget returns a copy of the i-th target with any unset hoistable
+// fields filled in from EESTPayloadsConfig.Config. Identity/locator fields
+// are never touched. Per-target value wins when set (non-nil for pointer
+// types, non-empty for strings/slices); otherwise the value from Config is
+// used. When Config is nil, the target is returned unchanged.
+func (e *EESTPayloadsConfig) ResolveTarget(i int) EESTPayloadTarget {
+	t := e.Targets[i]
+	if e.Config == nil {
+		return t
+	}
+
+	g := e.Config
+
+	if t.FillerImage == "" {
+		t.FillerImage = g.FillerImage
+	}
+
+	if t.Fork == "" {
+		t.Fork = g.Fork
+	}
+
+	if t.GasBenchmarkValues == "" {
+		t.GasBenchmarkValues = g.GasBenchmarkValues
+	}
+
+	if t.DataDirMethod == "" {
+		t.DataDirMethod = g.DataDirMethod
+	}
+
+	if t.MaxGasPerTest == nil {
+		t.MaxGasPerTest = g.MaxGasPerTest
+	}
+
+	if t.RPCSeedKey == "" {
+		t.RPCSeedKey = g.RPCSeedKey
+	}
+
+	if len(t.FillerExtraArgs) == 0 {
+		t.FillerExtraArgs = g.FillerExtraArgs
+	}
+
+	return t
+}
+
+// EffectiveName returns the target's user-facing name, defaulting to the
+// filler client when Name was not set — matching the `--target` filter
+// behaviour in the build command.
+func (t *EESTPayloadTarget) EffectiveName() string {
+	if t.Name != "" {
+		return t.Name
+	}
+
+	return t.FillerClient
+}
+
+// eestFillerSupportedClients lists the clients that can act as the
+// fill-stateful filler. Only geth implements testing_buildBlockV1 today
+// (ethpandaops/geth:master is the production-ready filler image).
+var eestFillerSupportedClients = map[string]struct{}{
+	"geth": {},
 }
 
 // RunnerConfig contains all run-specific configuration settings.
@@ -551,19 +694,20 @@ func (e *EESTFixturesSource) validate() error {
 	// Validate local dir mode.
 	if hasLocalDir {
 		if e.LocalFixturesDir == "" {
-			return fmt.Errorf("eest_fixtures: local_fixtures_dir is required when local_genesis_dir is set")
-		}
-
-		if e.LocalGenesisDir == "" {
-			return fmt.Errorf("eest_fixtures: local_genesis_dir is required when local_fixtures_dir is set")
+			return fmt.Errorf("eest_fixtures: local_fixtures_dir is required for local directory mode")
 		}
 
 		if err := validateDirExists(e.LocalFixturesDir, "eest_fixtures.local_fixtures_dir"); err != nil {
 			return err
 		}
 
-		if err := validateDirExists(e.LocalGenesisDir, "eest_fixtures.local_genesis_dir"); err != nil {
-			return err
+		// local_genesis_dir is optional: stateful-engine fixtures boot from a
+		// pre-populated snapshot datadir (configured via runner.client.datadirs)
+		// and carry no genesis. Validate it only when provided.
+		if e.LocalGenesisDir != "" {
+			if err := validateDirExists(e.LocalGenesisDir, "eest_fixtures.local_genesis_dir"); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1182,6 +1326,8 @@ func bindEnvKeys(v *viper.Viper) {
 		// Builder settings
 		"builder.state_actor.container_runtime",
 		"builder.state_actor.pull_policy",
+		"builder.eest_payloads.container_runtime",
+		"builder.eest_payloads.pull_policy",
 	}
 
 	for _, key := range keys {
@@ -1310,6 +1456,19 @@ func (c *Config) applyDefaults() {
 			c.Builder.StateActor.PullPolicy = DefaultPullPolicy
 		}
 	}
+
+	// Apply builder.eest_payloads defaults. ContainerRuntime is left empty
+	// so GetEESTPayloadsContainerRuntime can fall back at call time; JWT
+	// defaults to DefaultJWT so the filler client and fill-stateful share it.
+	if c.Builder != nil && c.Builder.EESTPayloads != nil {
+		if c.Builder.EESTPayloads.PullPolicy == "" {
+			c.Builder.EESTPayloads.PullPolicy = DefaultPullPolicy
+		}
+
+		if c.Builder.EESTPayloads.JWT == "" {
+			c.Builder.EESTPayloads.JWT = DefaultJWT
+		}
+	}
 }
 
 // GetStateActorContainerRuntime returns the container runtime to use for
@@ -1318,6 +1477,17 @@ func (c *Config) applyDefaults() {
 func (c *Config) GetStateActorContainerRuntime() string {
 	if c.Builder != nil && c.Builder.StateActor != nil && c.Builder.StateActor.ContainerRuntime != "" {
 		return c.Builder.StateActor.ContainerRuntime
+	}
+
+	return c.GetContainerRuntime()
+}
+
+// GetEESTPayloadsContainerRuntime returns the container runtime to use for
+// eest_payloads builds. Falls back to the runner's runtime when the builder
+// block does not override it.
+func (c *Config) GetEESTPayloadsContainerRuntime() string {
+	if c.Builder != nil && c.Builder.EESTPayloads != nil && c.Builder.EESTPayloads.ContainerRuntime != "" {
+		return c.Builder.EESTPayloads.ContainerRuntime
 	}
 
 	return c.GetContainerRuntime()
@@ -1565,11 +1735,24 @@ func (c *Config) ValidateBuilder() error {
 	return c.validateBuilder()
 }
 
-// validateBuilder enforces the builder.state_actor rules: supported
+// validateBuilder validates each configured builder block.
+func (c *Config) validateBuilder() error {
+	if c.Builder == nil {
+		return nil
+	}
+
+	if err := c.validateStateActor(); err != nil {
+		return err
+	}
+
+	return c.validateEESTPayloads()
+}
+
+// validateStateActor enforces the builder.state_actor rules: supported
 // clients, single-source-of-truth target_size XOR spec, archive/binary-trie
 // applicability, group_depth range, image resolvability, and uniqueness of
 // target names and output_dirs.
-func (c *Config) validateBuilder() error {
+func (c *Config) validateStateActor() error {
 	if c.Builder == nil || c.Builder.StateActor == nil {
 		return nil
 	}
@@ -1699,6 +1882,182 @@ func (c *Config) validateBuilder() error {
 	}
 
 	return nil
+}
+
+// validateEESTPayloads enforces the builder.eest_payloads rules: a
+// configured fill_image, supported filler clients, required locator fields
+// (source_dir/output_dir/tests/fork), valid datadir method and
+// gas-benchmark values, absolute paths, and uniqueness of target names and
+// output_dirs. Existence of source_dir/genesis_file/address_stubs_file is
+// checked at build time, not here — a state-actor target earlier in the
+// same config may still need to produce them.
+func (c *Config) validateEESTPayloads() error {
+	if c.Builder == nil || c.Builder.EESTPayloads == nil {
+		return nil
+	}
+
+	ep := c.Builder.EESTPayloads
+
+	if !validContainerRuntimes[ep.ContainerRuntime] {
+		return fmt.Errorf(
+			"builder.eest_payloads.container_runtime: invalid value %q "+
+				"(must be \"docker\" or \"podman\")", ep.ContainerRuntime,
+		)
+	}
+
+	if !stateActorValidPullPolicies[ep.PullPolicy] {
+		return fmt.Errorf(
+			"builder.eest_payloads.pull_policy: invalid value %q "+
+				"(must be \"always\", \"if-not-present\", or \"never\")",
+			ep.PullPolicy,
+		)
+	}
+
+	if ep.FillImage == "" {
+		return fmt.Errorf(
+			"builder.eest_payloads.fill_image is required " +
+				"(the container image carrying the fill-stateful command)",
+		)
+	}
+
+	seenOutputs := make(map[string]int, len(ep.Targets))
+	seenNames := make(map[string]int, len(ep.Targets))
+
+	for i := range ep.Targets {
+		t := ep.ResolveTarget(i)
+		prefix := fmt.Sprintf("builder.eest_payloads.targets[%d]", i)
+
+		if _, ok := eestFillerSupportedClients[t.FillerClient]; !ok {
+			return fmt.Errorf(
+				"%s.filler_client: %q cannot act as the fill-stateful filler "+
+					"(only geth implements testing_buildBlockV1 today)",
+				prefix, t.FillerClient,
+			)
+		}
+
+		name := t.EffectiveName()
+		if prev, dup := seenNames[name]; dup {
+			return fmt.Errorf(
+				"%s: name %q duplicates targets[%d] (set an explicit name to disambiguate)",
+				prefix, name, prev,
+			)
+		}
+
+		seenNames[name] = i
+
+		if err := validateEESTPayloadPaths(&t, prefix, seenOutputs, i); err != nil {
+			return err
+		}
+
+		if len(t.Tests) == 0 {
+			return fmt.Errorf(
+				"%s.tests is required (at least one pytest path, e.g. tests/benchmark/compute)",
+				prefix,
+			)
+		}
+
+		if t.Fork == "" {
+			return fmt.Errorf(
+				"%s.fork is required (set it on the target or builder.eest_payloads.config.fork)",
+				prefix,
+			)
+		}
+
+		if t.FillerImage == "" {
+			return fmt.Errorf(
+				"%s.filler_image is required (e.g. ethpandaops/geth:master)", prefix,
+			)
+		}
+
+		if !validDataDirMethods[t.DataDirMethod] {
+			return fmt.Errorf(
+				"%s.datadir_method: invalid value %q "+
+					"(must be copy, overlayfs, fuse-overlayfs, zfs, direct, or schelk)",
+				prefix, t.DataDirMethod,
+			)
+		}
+
+		if err := validateGasBenchmarkValues(t.GasBenchmarkValues, prefix); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateEESTPayloadPaths checks output_dir / genesis_file /
+// address_stubs_file are absolute and output_dir is unique.
+func validateEESTPayloadPaths(t *EESTPayloadTarget, prefix string, seenOutputs map[string]int, i int) error {
+	if t.SourceDir == "" {
+		return fmt.Errorf("%s.source_dir is required", prefix)
+	}
+
+	if !filepath.IsAbs(t.SourceDir) {
+		return fmt.Errorf("%s.source_dir must be an absolute path, got %q", prefix, t.SourceDir)
+	}
+
+	if t.OutputDir == "" {
+		return fmt.Errorf("%s.output_dir is required", prefix)
+	}
+
+	if !filepath.IsAbs(t.OutputDir) {
+		return fmt.Errorf("%s.output_dir must be an absolute path, got %q", prefix, t.OutputDir)
+	}
+
+	if prev, dup := seenOutputs[t.OutputDir]; dup {
+		return fmt.Errorf(
+			"%s.output_dir %q duplicates targets[%d].output_dir", prefix, t.OutputDir, prev,
+		)
+	}
+
+	seenOutputs[t.OutputDir] = i
+
+	if t.GenesisFile != "" && !filepath.IsAbs(t.GenesisFile) {
+		return fmt.Errorf("%s.genesis_file must be an absolute path, got %q", prefix, t.GenesisFile)
+	}
+
+	if t.AddressStubsFile != "" && !filepath.IsAbs(t.AddressStubsFile) {
+		return fmt.Errorf(
+			"%s.address_stubs_file must be an absolute path, got %q", prefix, t.AddressStubsFile,
+		)
+	}
+
+	return nil
+}
+
+// validateGasBenchmarkValues checks a comma-separated list of positive
+// integers (millions of gas), e.g. "10,30". Empty is allowed.
+func validateGasBenchmarkValues(values, prefix string) error {
+	if values == "" {
+		return nil
+	}
+
+	for _, v := range strings.Split(values, ",") {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return fmt.Errorf("%s.gas_benchmark_values: empty value in %q", prefix, values)
+		}
+
+		if _, err := strconv.ParseUint(v, 10, 64); err != nil {
+			return fmt.Errorf(
+				"%s.gas_benchmark_values: %q is not a comma-separated list of integers", prefix, values,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validDataDirMethods mirrors the datadir.method vocabulary accepted by
+// pkg/datadir.NewProvider and DataDirConfig validation.
+var validDataDirMethods = map[string]bool{
+	"":               true, // unset → copy
+	"copy":           true,
+	"overlayfs":      true,
+	"fuse-overlayfs": true,
+	"zfs":            true,
+	"direct":         true,
+	"schelk":         true,
 }
 
 // validateLiveReporting checks the runner.live_reporting config when enabled.

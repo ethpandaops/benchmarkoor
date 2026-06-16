@@ -24,12 +24,18 @@ var (
 
 var buildCmd = &cobra.Command{
 	Use:   "build",
-	Short: "Build client datadirs declared in builder.state_actor.targets",
-	Long: `Materialise each datadir declared under builder.state_actor.targets
-by invoking state-actor (https://github.com/ethereum/state-actor) via the
-configured container runtime. Builds are decoupled from "benchmarkoor run":
-this command produces datadirs on disk that subsequent runs consume via
-their normal datadir.* providers.`,
+	Short: "Build datadirs and fixtures declared under the builder.* config blocks",
+	Long: `Run each configured builder:
+
+  - builder.state_actor   materialises pre-populated client datadirs by invoking
+                          state-actor (https://github.com/ethereum/state-actor).
+  - builder.eest_payloads generates stateful EEST benchmark fixtures by running
+                          fill-stateful against a filler client booted on a snapshot.
+
+Builds are decoupled from "benchmarkoor run": this command produces artifacts on
+disk that subsequent runs consume via their normal datadir.* / test source providers.
+Builders run in declaration order (state_actor before eest_payloads) so a fixture
+build can consume a datadir produced earlier in the same invocation.`,
 	RunE: runBuild,
 }
 
@@ -55,18 +61,29 @@ func runBuild(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("validating config: %w", err)
 	}
 
-	if cfg.Builder == nil || cfg.Builder.StateActor == nil || len(cfg.Builder.StateActor.Targets) == 0 {
-		return fmt.Errorf("builder.state_actor.targets is empty or unset; nothing to build")
-	}
-
-	targets, err := selectTargets(cfg.Builder.StateActor.Targets, buildTargetFilter)
-	if err != nil {
-		return err
+	if cfg.Builder == nil ||
+		(cfg.Builder.StateActor == nil && cfg.Builder.EESTPayloads == nil) {
+		return fmt.Errorf("no builders configured; nothing to build")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	installSignalHandler(cancel)
+
+	builders, stop, err := buildBuilders(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	defer stop()
+
+	return runBuilders(ctx, builders)
+}
+
+// installSignalHandler cancels the context on the first SIGINT/SIGTERM and
+// force-exits on the second.
+func installSignalHandler(cancel context.CancelFunc) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -78,45 +95,102 @@ func runBuild(_ *cobra.Command, _ []string) error {
 		sig = <-sigCh
 		log.WithField("signal", sig).Fatal("Received second signal, forcing exit")
 	}()
+}
 
-	runtime := cfg.GetStateActorContainerRuntime()
+// buildBuilders constructs every configured builder, creating and starting a
+// container manager per distinct runtime. The returned stop func stops all
+// managers and must be deferred by the caller.
+func buildBuilders(ctx context.Context, cfg *config.Config) ([]builder.Builder, func(), error) {
+	managers := make(map[string]docker.ContainerManager, 2)
 
-	var mgr docker.ContainerManager
+	stop := func() {
+		for _, mgr := range managers {
+			if err := mgr.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop container manager")
+			}
+		}
+	}
 
+	getManager := func(runtime string) (docker.ContainerManager, error) {
+		if mgr, ok := managers[runtime]; ok {
+			return mgr, nil
+		}
+
+		mgr, err := newContainerManager(runtime)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := mgr.Start(ctx); err != nil {
+			return nil, fmt.Errorf("starting %s container manager: %w", runtime, err)
+		}
+
+		managers[runtime] = mgr
+
+		return mgr, nil
+	}
+
+	var builders []builder.Builder
+
+	if cfg.Builder.StateActor != nil {
+		runtime := cfg.GetStateActorContainerRuntime()
+
+		mgr, err := getManager(runtime)
+		if err != nil {
+			stop()
+
+			return nil, nil, err
+		}
+
+		builders = append(builders, builder.NewStateActorBuilder(log, cfg.Builder.StateActor, runtime, mgr))
+	}
+
+	if cfg.Builder.EESTPayloads != nil {
+		runtime := cfg.GetEESTPayloadsContainerRuntime()
+
+		mgr, err := getManager(runtime)
+		if err != nil {
+			stop()
+
+			return nil, nil, err
+		}
+
+		builders = append(builders, builder.NewEESTPayloadsBuilder(log, cfg.Builder.EESTPayloads, runtime, mgr))
+	}
+
+	return builders, stop, nil
+}
+
+// newContainerManager creates a container manager for the given runtime.
+func newContainerManager(runtime string) (docker.ContainerManager, error) {
 	switch runtime {
 	case "podman":
-		mgr, err = podman.NewManager(log)
+		return podman.NewManager(log)
 	default:
-		mgr, err = docker.NewManager(log)
+		return docker.NewManager(log)
 	}
+}
 
+// buildResult captures the outcome of a single target build.
+type buildResult struct {
+	name      string
+	client    string
+	outputDir string
+	skipped   bool
+	err       error
+}
+
+// runBuilders selects and builds the requested targets across all builders,
+// preserving declaration order, then prints a summary.
+func runBuilders(ctx context.Context, builders []builder.Builder) error {
+	targets, err := selectTargets(builders, buildTargetFilter)
 	if err != nil {
-		return fmt.Errorf("creating container manager: %w", err)
+		return err
 	}
 
-	if err := mgr.Start(ctx); err != nil {
-		return fmt.Errorf("starting container manager: %w", err)
-	}
+	results := make([]buildResult, 0, len(targets))
 
-	defer func() {
-		if err := mgr.Stop(); err != nil {
-			log.WithError(err).Warn("Failed to stop container manager")
-		}
-	}()
-
-	b := builder.NewStateActorBuilder(log, cfg.Builder.StateActor, runtime, mgr)
-
-	type result struct {
-		name      string
-		client    string
-		outputDir string
-		skipped   bool
-		err       error
-	}
-
-	results := make([]result, 0, len(targets))
-
-	for _, t := range targets {
+	for _, sel := range targets {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -124,27 +198,31 @@ func runBuild(_ *cobra.Command, _ []string) error {
 		}
 
 		log.WithFields(logrus.Fields{
-			"target":     t.EffectiveName(),
-			"client":     t.Client,
-			"output_dir": t.OutputDir,
+			"target":     sel.info.Name,
+			"client":     sel.info.Client,
+			"output_dir": sel.info.OutputDir,
 		}).Info("Building target")
 
-		skipped, buildErr := b.Build(ctx, t.EffectiveName(), builder.BuildOptions{Force: buildForce})
+		skipped, buildErr := sel.builder.Build(ctx, sel.info.Name, builder.BuildOptions{Force: buildForce})
 
-		results = append(results, result{
-			name:      t.EffectiveName(),
-			client:    t.Client,
-			outputDir: t.OutputDir,
+		results = append(results, buildResult{
+			name:      sel.info.Name,
+			client:    sel.info.Client,
+			outputDir: sel.info.OutputDir,
 			skipped:   skipped,
 			err:       buildErr,
 		})
 
 		if buildErr != nil {
-			log.WithError(buildErr).WithField("target", t.EffectiveName()).Error("Build failed")
+			log.WithError(buildErr).WithField("target", sel.info.Name).Error("Build failed")
 		}
 	}
 
-	// Summary.
+	return summarise(results)
+}
+
+// summarise logs the per-target outcome and returns an error if any failed.
+func summarise(results []buildResult) error {
 	var failed []string
 
 	log.Info("Build summary:")
@@ -155,6 +233,7 @@ func runBuild(_ *cobra.Command, _ []string) error {
 		switch {
 		case r.err != nil:
 			status = "ERR "
+
 			failed = append(failed, r.name)
 		case r.skipped:
 			status = "SKIP"
@@ -170,37 +249,42 @@ func runBuild(_ *cobra.Command, _ []string) error {
 	}
 
 	if len(failed) > 0 {
-		return fmt.Errorf("%d target(s) failed: %s",
-			len(failed), strings.Join(failed, ", "))
+		return fmt.Errorf("%d target(s) failed: %s", len(failed), strings.Join(failed, ", "))
 	}
 
 	return nil
 }
 
-// selectTargets filters `all` by the names in `filter`, preserving the
-// order targets were declared in. An empty filter returns all targets.
-// Unmatched filter values produce an error so typos surface immediately.
-func selectTargets(all []config.StateActorTarget, filter []string) ([]config.StateActorTarget, error) {
-	if len(filter) == 0 {
-		return all, nil
-	}
+// selectedTarget pairs a target with the builder that owns it.
+type selectedTarget struct {
+	builder builder.Builder
+	info    builder.TargetInfo
+}
 
+// selectTargets flattens all builders' targets in declaration order and
+// filters them by the names in filter. An empty filter returns every target.
+// Unmatched filter values produce an error so typos surface immediately.
+func selectTargets(builders []builder.Builder, filter []string) ([]selectedTarget, error) {
 	wanted := make(map[string]bool, len(filter))
+
 	for _, f := range filter {
-		f = strings.TrimSpace(f)
-		if f != "" {
+		if f = strings.TrimSpace(f); f != "" {
 			wanted[f] = true
 		}
 	}
 
-	out := make([]config.StateActorTarget, 0, len(all))
+	var out []selectedTarget
+
 	matched := make(map[string]bool, len(wanted))
 
-	for _, t := range all {
-		name := t.EffectiveName()
-		if wanted[name] {
-			out = append(out, t)
-			matched[name] = true
+	for _, b := range builders {
+		for _, info := range b.Targets() {
+			if len(wanted) > 0 && !wanted[info.Name] {
+				continue
+			}
+
+			out = append(out, selectedTarget{builder: b, info: info})
+			matched[info.Name] = true
 		}
 	}
 

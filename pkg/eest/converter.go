@@ -63,6 +63,73 @@ func ConvertFixture(name string, fixture *Fixture) (*ConvertedTest, error) {
 	return result, nil
 }
 
+// ConvertStatefulFixture converts a stateful-engine fixture to JSON-RPC calls.
+// Replay boots from a snapshot datadir rather than a genesis, so the setup
+// phase is the shared pre_run payloads (snapshot → start block, preRun may be
+// nil) followed by the fixture's own setupEngineNewPayloads (start block →
+// per-test pre-state). The fixture's engineNewPayloads (the benchmark block)
+// become the measured test step. Each payload still emits an
+// engine_newPayload + engine_forkchoiceUpdated pair, so the chain head
+// advances naturally and no separate forkchoice injection is needed.
+func ConvertStatefulFixture(name string, fixture *Fixture, preRun *StatefulPreRun) (*ConvertedTest, error) {
+	if fixture == nil {
+		return nil, fmt.Errorf("fixture is nil")
+	}
+
+	if len(fixture.EngineNewPayloads) == 0 {
+		return nil, fmt.Errorf("fixture has no benchmark payloads")
+	}
+
+	// Setup = shared pre_run payloads, then the fixture's own setup payloads.
+	setupPayloads := make([]*EngineNewPayload, 0,
+		len(fixture.SetupEngineNewPayloads)+preRunPayloadCount(preRun))
+
+	if preRun != nil {
+		setupPayloads = append(setupPayloads, preRun.EngineNewPayloads...)
+	}
+
+	setupPayloads = append(setupPayloads, fixture.SetupEngineNewPayloads...)
+
+	result := &ConvertedTest{
+		Name:         name,
+		SetupLines:   make([]string, 0, len(setupPayloads)*2),
+		TestLines:    make([]string, 0, len(fixture.EngineNewPayloads)*2),
+		GenesisHash:  fixture.SnapshotBlockHash,
+		PayloadCount: len(setupPayloads) + len(fixture.EngineNewPayloads),
+	}
+
+	for i, payload := range setupPayloads {
+		lines, err := convertPayload(payload, i+1)
+		if err != nil {
+			return nil, fmt.Errorf("converting setup payload %d: %w", i, err)
+		}
+
+		result.SetupLines = append(result.SetupLines, lines...)
+	}
+
+	for i, payload := range fixture.EngineNewPayloads {
+		lines, err := convertPayload(payload, len(setupPayloads)+i+1)
+		if err != nil {
+			return nil, fmt.Errorf("converting benchmark payload %d: %w", i, err)
+		}
+
+		result.TestLines = append(result.TestLines, lines...)
+		result.FinalHash = payload.ExecutionPayload.BlockHash
+	}
+
+	return result, nil
+}
+
+// preRunPayloadCount returns the number of pre_run payloads, tolerating a nil
+// pre_run (capacity hint only).
+func preRunPayloadCount(preRun *StatefulPreRun) int {
+	if preRun == nil {
+		return 0
+	}
+
+	return len(preRun.EngineNewPayloads)
+}
+
 // convertPayload generates JSON-RPC lines for a single payload.
 func convertPayload(payload *EngineNewPayload, id int) ([]string, error) {
 	if payload.ExecutionPayload == nil {
