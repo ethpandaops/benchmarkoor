@@ -23,6 +23,14 @@ func (s *besuSpec) DefaultCommand() []string {
 		// Data directory - should always point to /data
 		"--data-path=/data",
 		"--data-storage-format=BONSAI",
+		// Trust the genesis state hash stored in the datadir instead of
+		// recomputing it from the chainspec alloc. Required to boot a
+		// state-actor snapshot: state-actor writes synthetic state (and the
+		// genesis state root) directly into RocksDB and emits an empty
+		// chainspec alloc, so the default recompute path would otherwise fail
+		// with "Supplied genesis block does not match chain data stored". Has
+		// no effect on a normal genesis-initialised datadir.
+		"--genesis-state-hash-cache-enabled=true",
 		// Peering / Syncing / TXPool
 		"--p2p-enabled=false",
 		"--sync-mode=FULL",

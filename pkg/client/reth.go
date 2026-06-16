@@ -38,6 +38,13 @@ func (s *rethSpec) DefaultCommand() []string {
 		"--authrpc.addr=0.0.0.0",
 		"--authrpc.port=8551",
 		"--engine.disable-precompile-cache",
+		// Trust the genesis stored in the datadir instead of recomputing it from
+		// the chainspec alloc. Required to boot a state-actor snapshot: state-actor
+		// direct-writes synthetic state (and the genesis) into reth's DB and emits a
+		// chainspec whose alloc can't reproduce it, so reth would otherwise abort with
+		// "genesis hash in the storage does not match the specified chainspec".
+		// (Besu's equivalent is --genesis-state-hash-cache-enabled.)
+		"--debug.skip-genesis-validation",
 		// Others
 		"--full",
 	}
