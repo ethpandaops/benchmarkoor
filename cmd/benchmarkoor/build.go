@@ -48,6 +48,10 @@ func init() {
 }
 
 func runBuild(_ *cobra.Command, _ []string) error {
+	// Match the `benchmarkoor run` log format (🔵 prefix); container output is
+	// streamed in the same 🟣 client-log style for a consistent look.
+	log.SetFormatter(&consistentFormatter{prefix: "🔵"})
+
 	if len(cfgFiles) == 0 {
 		return fmt.Errorf("config file is required (use --config)")
 	}
@@ -173,6 +177,7 @@ func newContainerManager(runtime string) (docker.ContainerManager, error) {
 
 // buildResult captures the outcome of a single target build.
 type buildResult struct {
+	builder   string
 	name      string
 	client    string
 	outputDir string
@@ -206,6 +211,7 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 		skipped, buildErr := sel.builder.Build(ctx, sel.info.Name, builder.BuildOptions{Force: buildForce})
 
 		results = append(results, buildResult{
+			builder:   sel.builder.Name(),
 			name:      sel.info.Name,
 			client:    sel.info.Client,
 			outputDir: sel.info.OutputDir,
@@ -221,31 +227,50 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 	return summarise(results)
 }
 
-// summarise logs the per-target outcome and returns an error if any failed.
+// summarise logs the per-target outcome grouped under each builder and returns
+// an error if any target failed. Builders are emitted in first-seen
+// (declaration) order so state_actor appears before eest_payloads.
 func summarise(results []buildResult) error {
 	var failed []string
 
-	log.Info("Build summary:")
+	var order []string
+
+	byBuilder := make(map[string][]buildResult, 2)
 
 	for _, r := range results {
-		var status string
-
-		switch {
-		case r.err != nil:
-			status = "ERR "
-
-			failed = append(failed, r.name)
-		case r.skipped:
-			status = "SKIP"
-		default:
-			status = "OK  "
+		if _, seen := byBuilder[r.builder]; !seen {
+			order = append(order, r.builder)
 		}
 
-		log.WithFields(logrus.Fields{
-			"target":     r.name,
-			"client":     r.client,
-			"output_dir": r.outputDir,
-		}).Infof("  %s %s", status, r.name)
+		byBuilder[r.builder] = append(byBuilder[r.builder], r)
+
+		if r.err != nil {
+			failed = append(failed, r.name)
+		}
+	}
+
+	for _, b := range order {
+		log.Infof("Build summary [%s]:", b)
+
+		for _, r := range byBuilder[b] {
+			var status string
+
+			switch {
+			case r.err != nil:
+				status = "ERR "
+			case r.skipped:
+				status = "SKIP"
+			default:
+				status = "OK  "
+			}
+
+			log.WithFields(logrus.Fields{
+				"builder":    r.builder,
+				"target":     r.name,
+				"client":     r.client,
+				"output_dir": r.outputDir,
+			}).Infof("  %s %s", status, r.name)
+		}
 	}
 
 	if len(failed) > 0 {

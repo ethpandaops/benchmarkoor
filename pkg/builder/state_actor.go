@@ -86,12 +86,10 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 		return false, fmt.Errorf("no image configured for client %q", target.Client)
 	}
 
-	log := b.log.WithFields(logrus.Fields{
-		"target":     target.EffectiveName(),
-		"client":     target.Client,
-		"output_dir": target.OutputDir,
-		"image":      image,
-	})
+	// Keep only the target on the per-line logger; client/output_dir are already
+	// in build.go's "Building target" header and image is logged on the
+	// "Running state-actor" line, so they don't repeat on every streamed line.
+	log := b.log.WithField("target", target.EffectiveName())
 
 	// The CLI `--force` flag and per-target `force: true` both bypass the
 	// skip-on-populated check, wipe the existing output_dir, and forward
@@ -166,10 +164,10 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 	// exit yields a useful error without spamming the whole log.
 	tail := newTailBuffer(64 * 1024)
 
-	stdout := io.MultiWriter(logWriter(log, logrus.InfoLevel), tail)
-	stderr := io.MultiWriter(logWriter(log, logrus.InfoLevel), tail)
+	stdout := io.MultiWriter(containerStream("BULD", "state-actor"), tail)
+	stderr := io.MultiWriter(containerStream("BULD", "state-actor"), tail)
 
-	log.WithField("argv", args).Info("Running state-actor")
+	log.WithFields(logrus.Fields{"image": image, "argv": args}).Info("Running state-actor")
 
 	if err := b.mgr.RunInitContainer(ctx, spec, stdout, stderr); err != nil {
 		return false, fmt.Errorf("running state-actor: %w (output tail: %s)",

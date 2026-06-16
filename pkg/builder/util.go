@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 )
 
 // isPopulated reports whether dir exists and contains at least one
@@ -64,21 +65,30 @@ func randSuffix() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// logWriter returns an io.Writer that forwards each line written to it to
-// the supplied logger at the given level. Used to stream container
-// stdout/stderr without writing the bytes directly to the global
-// stdout/stderr.
-func logWriter(log logrus.FieldLogger, level logrus.Level) io.Writer {
-	return &lineLogger{log: log, level: level}
+// containerStream returns an io.Writer that prefixes each line of streamed
+// container output with "🟣 $TS $label | $name | " and writes it directly to
+// stdout. This matches the client-log format `benchmarkoor run` uses (see
+// pkg/runner clientLogPrefix) so build output looks consistent and carries a
+// clear leading tag identifying the source. label is a short tag (e.g. "CLIE"
+// for an EL client, "BULD" for a build-tool container).
+func containerStream(label, name string) io.Writer {
+	return &containerStreamWriter{label: label, name: name, w: os.Stdout}
 }
 
-type lineLogger struct {
-	log   logrus.FieldLogger
-	level logrus.Level
+// ansiReset clears any ANSI color/style left set by a streamed line. Tools like
+// pytest emit a bold/color sequence (e.g. the test-session header) without a
+// trailing reset, which would otherwise bleed into the next line — including our
+// prefix — making everything after it bold.
+const ansiReset = "\x1b[0m"
+
+type containerStreamWriter struct {
+	label string
+	name  string
+	w     io.Writer
 	buf   bytes.Buffer
 }
 
-func (w *lineLogger) Write(p []byte) (int, error) {
+func (w *containerStreamWriter) Write(p []byte) (int, error) {
 	w.buf.Write(p)
 
 	for {
@@ -88,17 +98,11 @@ func (w *lineLogger) Write(p []byte) (int, error) {
 		}
 
 		line := w.buf.Next(i + 1)
-		msg := string(bytes.TrimRight(line, "\r\n"))
+		ts := time.Now().UTC().Format(config.LogTimestampFormat)
+		msg := bytes.TrimRight(line, "\r\n")
 
-		switch w.level {
-		case logrus.ErrorLevel:
-			w.log.Error(msg)
-		case logrus.WarnLevel:
-			w.log.Warn(msg)
-		case logrus.DebugLevel:
-			w.log.Debug(msg)
-		default:
-			w.log.Info(msg)
+		if _, err := fmt.Fprintf(w.w, "🟣 %s %s | %s | %s%s\n", ts, w.label, w.name, msg, ansiReset); err != nil {
+			return len(p), err
 		}
 	}
 

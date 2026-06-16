@@ -31,7 +31,7 @@ func TestBuildFillArgs(t *testing.T) {
 				Tests:        []string{"tests/benchmark/compute"},
 			},
 			wantContain: []string{
-				"uv", "run", "fill-stateful",
+				"uv", "run", "fill-stateful", "-v",
 				"--rpc-endpoint=http://10.0.0.5:8545",
 				"--engine-endpoint=http://10.0.0.5:8551",
 				"--engine-jwt-secret-file=" + fillJWTPath,

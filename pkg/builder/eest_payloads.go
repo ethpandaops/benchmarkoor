@@ -102,13 +102,10 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 	resolved := b.cfg.ResolveTarget(idx)
 	target := &resolved
 
-	log := b.log.WithFields(logrus.Fields{
-		"target":        target.EffectiveName(),
-		"filler_client": target.FillerClient,
-		"source_dir":    target.SourceDir,
-		"output_dir":    target.OutputDir,
-		"fork":          target.Fork,
-	})
+	// Keep only the target on the per-line logger; source_dir/output_dir/fork
+	// are reference details logged once below rather than suffixed onto every
+	// orchestration and streamed-client log line.
+	log := b.log.WithField("target", target.EffectiveName())
 
 	force := opts.Force || target.Force
 
@@ -177,6 +174,14 @@ func (b *EESTPayloadsBuilder) checkInputs(t *config.EESTPayloadTarget) error {
 // run performs the orchestration: temp JWT, network, datadir copy, filler
 // boot, fill-stateful, and teardown.
 func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *config.EESTPayloadTarget) error {
+	// Record the build details once; the per-line logger carries only target.
+	log.WithFields(logrus.Fields{
+		"filler_client": t.FillerClient,
+		"source_dir":    t.SourceDir,
+		"output_dir":    t.OutputDir,
+		"fork":          t.Fork,
+	}).Info("Generating EEST payloads")
+
 	spec, err := b.registry.Get(client.ClientType(t.FillerClient))
 	if err != nil {
 		return fmt.Errorf("resolving filler client %q: %w", t.FillerClient, err)
@@ -321,7 +326,9 @@ func (b *EESTPayloadsBuilder) startFiller(
 	}
 
 	go func() {
-		w := logWriter(log.WithField("filler", t.FillerClient), logrus.InfoLevel)
+		// Stream filler-client output in the same "🟣 … CLIE | <client> |"
+		// format `benchmarkoor run` uses for client logs.
+		w := containerStream("CLIE", t.FillerClient)
 		if streamErr := b.mgr.StreamLogs(streamCtx, id, w, w); streamErr != nil {
 			log.WithError(streamErr).Debug("Filler log streaming stopped")
 		}
@@ -411,7 +418,7 @@ func (b *EESTPayloadsBuilder) runFill(
 	}
 
 	tail := newTailBuffer(64 * 1024)
-	out := io.MultiWriter(logWriter(log, logrus.InfoLevel), tail)
+	out := io.MultiWriter(containerStream("BULD", "fill-stateful"), tail)
 
 	log.WithField("argv", args).Info("Running fill-stateful")
 
@@ -488,6 +495,10 @@ func buildFillArgs(
 	// wipes it) before we get here, so fill-stateful just mkdirs into it.
 	args := append([]string{}, prefix...)
 	args = append(args,
+		// -v makes the underlying pytest print each test node id and its
+		// outcome as it is built, so the fill progress is visible instead of
+		// bare progress dots.
+		"-v",
 		fmt.Sprintf("--rpc-endpoint=http://%s:%d", fillerIP, spec.RPCPort()),
 		fmt.Sprintf("--engine-endpoint=http://%s:%d", fillerIP, spec.EnginePort()),
 		"--engine-jwt-secret-file="+fillJWTPath,
