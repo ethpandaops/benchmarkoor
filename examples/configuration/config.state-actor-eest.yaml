@@ -1,0 +1,117 @@
+# Building data directories and EEST payloads
+# ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.yaml --force
+#
+# Running benchmark using geth:
+# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.yaml --limit-instance-id=geth
+#
+global:
+  log_level: info
+
+builder:
+  ## Stage 1: Building datadirs using state-actor
+  state_actor:
+    images:
+      geth: ghcr.io/ethereum/state-actor:main
+      reth: ghcr.io/ethereum/state-actor-reth:main
+      besu: ghcr.io/ethereum/state-actor-besu:main
+      nethermind: ghcr.io/ethereum/state-actor-nethermind:main
+    pull_policy: always
+    config:
+      seed: 1234
+      fork: osaka
+      chain: 1337
+      gas_limit: 300000000 # 300M
+      target_size: 256MB
+      #target_size: 20GB
+    spec: |
+      entities:
+        - kind: eoa
+          name: bloated-eoa-2g
+          balance: "1000000000000000000"
+          nonce: 0
+          code: "0xef01003333333333333333333333333333333333333333"
+          approximate_size_bytes: 2_000_000_000
+    targets:
+      - client: geth
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+      - client: reth
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth
+      - client: nethermind
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+      - client: besu
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+
+  ## Stage 2: Building EEST stateful fixtures
+  eest_payloads:
+    fill_image: skylenet/eest-uv:latest # can also be built locally from Dockerfile.eest-filler
+    pull_policy: if-not-present
+    eest_repo: https://github.com/ethereum/execution-specs.git
+    eest_ref: forks/amsterdam
+    config:
+      filler_image: ethpandaops/geth:master
+      fork: osaka
+      gas_benchmark_values: [10]  # Millions of gas to parametrise against
+      datadir_method: copy        # 1GB snapshot; copy is fine (For bigger dirs we should use zfs/overlayfs/schelk)
+    targets:
+      - name: payload-generator-geth
+        filler_client: geth
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}
+        tests:
+          - tests/benchmark/compute   # pytest paths inside the fill image
+        filter: bn128 # Quick subset for fast end-to-end iteration: only the bn128 compute tests.
+
+## Stage 3: Run benchmarks using the state-actor datadirs and the eest payloads
+runner:
+  client_logs_to_stdout: true
+  cleanup_on_start: false
+  benchmark:
+    results_dir: ./results
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      source:
+        eest_fixtures:
+          local_fixtures_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}
+          fixtures_subdir: blockchain_tests_stateful_engine
+  client:
+    config:
+      genesis:
+        nethermind: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+        #geth: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
+        reth:  ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth/chainspec.json
+        besu: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
+
+    datadirs:
+      geth:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        method: copy
+      reth:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth
+        method: copy
+      nethermind:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+        method: copy
+      besu:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+        method: copy
+
+  instances:
+    - id: geth
+      client: geth
+      image: ethpandaops/geth:master
+    - id: reth
+      client: reth
+      #image: ghcr.io/paradigmxyz/reth:latest
+      image: ghcr.io/paradigmxyz/reth:nightly@sha256:e528857e5e9ebc2c6cb99f28436e70ded38ca905629f00afc98d186e27d206e0
+    - id: nethermind
+      client: nethermind
+      extra_args:
+        - --Sync.NetworkingEnabled=false
+        - --Sync.PivotNumber=0
+        - --Sync.SynchronizationEnabled=false
+      #image: ethpandaops/nethermind:master
+      image: nethermind/nethermind:1.37.0
+    - id: besu
+      client: besu
+      image: hyperledger/besu:latest
