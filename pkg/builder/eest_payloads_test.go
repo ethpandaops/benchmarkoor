@@ -157,7 +157,7 @@ func TestEESTPayloadsBuilder_Targets(t *testing.T) {
 		},
 	}
 
-	b := NewEESTPayloadsBuilder(noopLogger(), cfg, "docker", &fakeMgr{})
+	b := NewEESTPayloadsBuilder(noopLogger(), cfg, "docker", &fakeMgr{}, t.TempDir())
 
 	got := b.Targets()
 	require.Len(t, got, 2)
@@ -171,7 +171,7 @@ func TestEESTPayloadsBuilder_BuildUnknownTarget(t *testing.T) {
 		Targets:   []config.EESTPayloadTarget{{FillerClient: "geth", OutputDir: "/srv/g"}},
 	}
 
-	b := NewEESTPayloadsBuilder(noopLogger(), cfg, "docker", &fakeMgr{})
+	b := NewEESTPayloadsBuilder(noopLogger(), cfg, "docker", &fakeMgr{}, t.TempDir())
 
 	_, err := b.Build(context.Background(), "nope", BuildOptions{})
 	require.Error(t, err)
@@ -192,7 +192,7 @@ func TestEESTPayloadsBuilder_BuildSkipsPopulatedDir(t *testing.T) {
 		}},
 	}
 
-	b := NewEESTPayloadsBuilder(noopLogger(), cfg, "docker", &fakeMgr{})
+	b := NewEESTPayloadsBuilder(noopLogger(), cfg, "docker", &fakeMgr{}, t.TempDir())
 
 	skipped, err := b.Build(context.Background(), "compute", BuildOptions{})
 	require.NoError(t, err)

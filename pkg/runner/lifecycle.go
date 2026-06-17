@@ -201,7 +201,7 @@ func (r *runner) runContainerLifecycle(
 
 	// Create temp files for genesis and JWT.
 	tempDir, err := os.MkdirTemp(
-		r.cfg.TmpCacheDir, "benchmarkoor-"+instance.ID+"-",
+		r.cfg.CacheDir, "benchmarkoor-"+instance.ID+"-",
 	)
 	if err != nil {
 		return fmt.Errorf("creating temp directory: %w", err)

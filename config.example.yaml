@@ -6,6 +6,11 @@
 
 global:
   log_level: ${LOG_LEVEL:-info}
+  # Optional directory configurations shared by the build and run commands.
+  # directories:
+  #   # On-disk cache: executor git/archive clones (run) and the EEST repo clone
+  #   # (build). Defaults to ~/.cache/benchmarkoor.
+  #   cachedir: ${TMP_DIR:-/tmp}/benchmarkoor-cache
 
 runner:
   # Container runtime: "docker" (default) or "podman".
@@ -24,8 +29,7 @@ runner:
   # directories:
   #   # Directory for temporary datadir copies (defaults to system temp).
   #   tmp_datadir: ${TMP_DIR:-/tmp}/benchmarkoor
-  #   # Directory for executor cache - git clones, etc (defaults to ~/.cache/benchmarkoor).
-  #   tmp_cachedir: ${TMP_DIR:-/tmp}/benchmarkoor-cache
+  #   # (The shared cache dir lives under global.directories.cachedir.)
   # Optional: Override path to drop_caches file (default: /proc/sys/vm/drop_caches).
   # Useful when running in containers where the file is mounted at a different path.
   # drop_caches_path: /proc/sys/vm/drop_caches

@@ -159,7 +159,15 @@ func buildBuilders(ctx context.Context, cfg *config.Config) ([]builder.Builder, 
 			return nil, nil, err
 		}
 
-		builders = append(builders, builder.NewEESTPayloadsBuilder(log, cfg.Builder.EESTPayloads, runtime, mgr))
+		cacheDir, err := cfg.ResolveCacheDir()
+		if err != nil {
+			stop()
+
+			return nil, nil, err
+		}
+
+		builders = append(builders,
+			builder.NewEESTPayloadsBuilder(log, cfg.Builder.EESTPayloads, runtime, mgr, cacheDir))
 	}
 
 	return builders, stop, nil

@@ -59,18 +59,17 @@ type EESTPayloadsBuilder struct {
 	repoCache string
 }
 
-// eestRepoCacheDir is where EEST repo clones are cached between builds (so a
-// recurring build of the same ref doesn't re-clone). Persists across runs.
-var eestRepoCacheDir = filepath.Join(os.TempDir(), "benchmarkoor-eest-repos")
-
 // NewEESTPayloadsBuilder constructs a builder bound to a specific container
-// manager. The caller is expected to have Start()'d the manager and to
-// Stop() it after the last Build() call.
+// manager. cacheDir is the shared on-disk cache (global.directories.cachedir);
+// EEST repo clones are cached under <cacheDir>/eest-repos so recurring builds
+// of the same ref don't re-clone. The caller is expected to have Start()'d the
+// manager and to Stop() it after the last Build() call.
 func NewEESTPayloadsBuilder(
 	log logrus.FieldLogger,
 	cfg *config.EESTPayloadsConfig,
 	runtime string,
 	mgr docker.ContainerManager,
+	cacheDir string,
 ) *EESTPayloadsBuilder {
 	return &EESTPayloadsBuilder{
 		log:       log.WithField("component", "builder.eest_payloads"),
@@ -78,7 +77,7 @@ func NewEESTPayloadsBuilder(
 		runtime:   runtime,
 		mgr:       mgr,
 		registry:  client.NewRegistry(),
-		repoCache: eestRepoCacheDir,
+		repoCache: filepath.Join(cacheDir, "eest-repos"),
 	}
 }
 

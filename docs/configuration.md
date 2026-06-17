@@ -83,6 +83,8 @@ The `global` section contains application-wide settings.
 ```yaml
 global:
   log_level: info
+  directories:
+    cachedir: ~/.cache/benchmarkoor
 ```
 
 ### Options
@@ -90,6 +92,7 @@ global:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `log_level` | string | `info` | Logging level: `debug`, `info`, `warn`, `error` |
+| `directories.cachedir` | string | `~/.cache/benchmarkoor` | On-disk cache shared by both commands: executor git/archive clones (`run`) and the EEST repo clone (`build`). |
 
 ## Runner Settings
 
@@ -104,7 +107,6 @@ runner:
   run_timeout: 4h
   directories:
     tmp_datadir: /tmp/benchmarkoor
-    tmp_cachedir: /tmp/benchmarkoor-cache
   drop_caches_path: /proc/sys/vm/drop_caches
   cpu_sysfs_path: /sys/devices/system/cpu
 ```
@@ -118,8 +120,7 @@ runner:
 | `container_network` | string | `benchmarkoor` | Container network name |
 | `cleanup_on_start` | bool | `false` | Remove leftover containers/networks on startup |
 | `run_timeout` | string | - | Global timeout for the entire run covering all instances, setup, and teardown. Uses Go duration format (e.g., `4h`, `30m`). See [Runner Run Timeout](#runner-run-timeout) |
-| `directories.tmp_datadir` | string | system temp | Directory for temporary datadir copies |
-| `directories.tmp_cachedir` | string | `~/.cache/benchmarkoor` | Directory for executor cache (git clones, etc.) |
+| `directories.tmp_datadir` | string | system temp | Directory for temporary datadir copies. (The shared cache dir is `global.directories.cachedir`.) |
 | `drop_caches_path` | string | `/proc/sys/vm/drop_caches` | Path to Linux drop_caches file (for containerized environments) |
 | `cpu_sysfs_path` | string | `/sys/devices/system/cpu` | Base path for CPU sysfs files (for containerized environments where `/sys` is read-only and the host path is bind-mounted elsewhere, e.g., `/host_sys_cpu`) |
 | `metadata.labels` | map[string]string | - | Arbitrary key-value labels attached to the run (see [Metadata Labels](#metadata-labels)) |
@@ -1572,6 +1573,8 @@ builder:
     container_runtime: docker            # docker | podman (default: inherits runner.container_runtime, then docker)
     # jwt: <hex>                         # Engine API secret, shared with the filler (default: benchmarkoor's DefaultJWT)
     # fill_command: [uv, run, fill-stateful]   # argv prefix inside fill_image (this is the default)
+    # eest_repo: https://github.com/ethereum/execution-specs.git   # cloned + mounted at /eest (default)
+    # eest_ref: forks/amsterdam          # branch, tag, or commit to check out (default: forks/amsterdam)
     config:                              # shared per-target defaults; targets override when set
       filler_image: ethpandaops/geth:master
       fork: Osaka

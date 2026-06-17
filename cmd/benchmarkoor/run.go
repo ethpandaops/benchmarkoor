@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -93,10 +92,15 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if dir := cfg.Runner.Directories.TmpCacheDir; dir != "" {
-		if err := fsutil.MkdirAll(dir, 0755, resultsOwner); err != nil {
-			return fmt.Errorf("creating tmp_cachedir %q: %w", dir, err)
-		}
+	// Resolve the shared cache dir (global.directories.cachedir, default
+	// ~/.cache/benchmarkoor) and ensure it exists.
+	cacheDir, err := cfg.ResolveCacheDir()
+	if err != nil {
+		return err
+	}
+
+	if err := fsutil.MkdirAll(cacheDir, 0755, resultsOwner); err != nil {
+		return fmt.Errorf("creating cachedir %q: %w", cacheDir, err)
 	}
 
 	// Use consistent log format when client logs go to stdout.
@@ -108,7 +112,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	// instance's benchmarkoor.log, capturing logs from before RunInstance.
 	// Created after the formatter is set so the buffered output matches the
 	// per-instance log format.
-	preRunLogBuffer, err := runner.NewBufferHook(log.Formatter, cfg.Runner.Directories.TmpCacheDir)
+	preRunLogBuffer, err := runner.NewBufferHook(log.Formatter, cacheDir)
 	if err != nil {
 		return fmt.Errorf("creating pre-run log buffer: %w", err)
 	}
@@ -231,16 +235,6 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		var exec executor.Executor
 
 		if cfg.Runner.Benchmark.Tests.Source.IsConfigured() {
-			cacheDir := cfg.Runner.Directories.TmpCacheDir
-			if cacheDir == "" {
-				var err error
-
-				cacheDir, err = getExecutorCacheDir()
-				if err != nil {
-					return fmt.Errorf("getting cache directory: %w", err)
-				}
-			}
-
 			// Pass suite metadata to executor only when labels are present.
 			var suiteMetadata *config.MetadataConfig
 			if len(cfg.Runner.Benchmark.Tests.Metadata.Labels) > 0 {
@@ -276,15 +270,6 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		// Create CPU frequency manager if CPU frequency settings are configured.
 		var cpufreqMgr cpufreq.Manager
 		if needsCPUFreqManager(cfg) {
-			cacheDir := cfg.Runner.Directories.TmpCacheDir
-			if cacheDir == "" {
-				var err error
-				cacheDir, err = getExecutorCacheDir()
-				if err != nil {
-					return fmt.Errorf("getting cache directory: %w", err)
-				}
-			}
-
 			cpufreqMgr = cpufreq.NewManager(log, cacheDir, cfg.GetCPUSysfsPath())
 			if err := cpufreqMgr.Start(ctx); err != nil {
 				return fmt.Errorf("starting cpufreq manager: %w", err)
@@ -328,7 +313,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			GenesisURLs:        cfg.Runner.Client.Config.Genesis,
 			DataDirs:           cfg.Runner.Client.DataDirs,
 			TmpDataDir:         cfg.Runner.Directories.TmpDataDir,
-			TmpCacheDir:        cfg.Runner.Directories.TmpCacheDir,
+			CacheDir:           cacheDir,
 			TestFilter:         cfg.Runner.Benchmark.Tests.Filter,
 			FullConfig:         cfg,
 			StopAfterPrerun:    stopAfterPrerun,
@@ -389,16 +374,6 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// getExecutorCacheDir returns the cache directory for the executor.
-func getExecutorCacheDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("getting home directory: %w", err)
-	}
-
-	return filepath.Join(homeDir, ".cache", "benchmarkoor"), nil
 }
 
 // needsCPUFreqManager returns true if any instance has CPU frequency settings configured.

@@ -588,17 +588,39 @@ type MetadataConfig struct {
 
 // GlobalConfig contains global application settings.
 type GlobalConfig struct {
-	LogLevel string `yaml:"log_level" mapstructure:"log_level"`
+	LogLevel    string                  `yaml:"log_level" mapstructure:"log_level"`
+	Directories GlobalDirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
 }
 
-// DirectoriesConfig contains directory path configurations.
+// GlobalDirectoriesConfig contains directory paths shared across the build and
+// run commands.
+type GlobalDirectoriesConfig struct {
+	// CacheDir is the on-disk cache shared by both commands: executor git/archive
+	// clones (run) and the EEST repo clone (build). If empty, defaults to
+	// ~/.cache/benchmarkoor.
+	CacheDir string `yaml:"cachedir,omitempty" mapstructure:"cachedir"`
+}
+
+// DirectoriesConfig contains runner-specific directory path configurations.
 type DirectoriesConfig struct {
 	// TmpDataDir is the directory for temporary datadir copies.
 	// If empty, uses the system default temp directory.
 	TmpDataDir string `yaml:"tmp_datadir,omitempty" mapstructure:"tmp_datadir"`
-	// TmpCacheDir is the directory for executor cache (git clones, etc).
-	// If empty, uses ~/.cache/benchmarkoor.
-	TmpCacheDir string `yaml:"tmp_cachedir,omitempty" mapstructure:"tmp_cachedir"`
+}
+
+// ResolveCacheDir returns the configured global cache directory, defaulting to
+// ~/.cache/benchmarkoor when unset.
+func (c *Config) ResolveCacheDir() (string, error) {
+	if c.Global.Directories.CacheDir != "" {
+		return c.Global.Directories.CacheDir, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("getting home directory for cache dir: %w", err)
+	}
+
+	return filepath.Join(home, ".cache", "benchmarkoor"), nil
 }
 
 // BenchmarkConfig contains benchmark-specific settings.
@@ -1300,6 +1322,7 @@ func bindEnvKeys(v *viper.Viper) {
 	keys := []string{
 		// Global settings
 		"global.log_level",
+		"global.directories.cachedir",
 		// Runner settings
 		"runner.container_runtime",
 		"runner.client_logs_to_stdout",

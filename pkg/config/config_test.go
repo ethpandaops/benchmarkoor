@@ -106,12 +106,12 @@ runner:
 			},
 		},
 		{
-			name: "nested field override - directories.tmp_cachedir",
+			name: "nested field override - global.directories.cachedir",
 			envVars: map[string]string{
-				"BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_CACHEDIR": "/cache/custom",
+				"BENCHMARKOOR_GLOBAL_DIRECTORIES_CACHEDIR": "/cache/custom",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "/cache/custom", cfg.Runner.Directories.TmpCacheDir)
+				assert.Equal(t, "/cache/custom", cfg.Global.Directories.CacheDir)
 			},
 		},
 		{
