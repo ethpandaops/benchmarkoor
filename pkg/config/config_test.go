@@ -3713,6 +3713,22 @@ func TestValidateEESTPayloads(t *testing.T) {
 			errSubstr: "fill_image",
 		},
 		{
+			name: "eest_repo without eest_ref is valid (ref defaults)",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				EESTRepo:  "https://github.com/ethereum/execution-specs.git",
+				Targets:   []EESTPayloadTarget{base(dirA)},
+			},
+		},
+		{
+			name: "eest_ref alone is valid (repo defaults)",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				EESTRef:   "v1.2.3",
+				Targets:   []EESTPayloadTarget{base(dirA)},
+			},
+		},
+		{
 			name: "invalid container_runtime",
 			ep: &EESTPayloadsConfig{
 				ContainerRuntime: "lima",

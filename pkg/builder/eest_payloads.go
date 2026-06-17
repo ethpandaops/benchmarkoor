@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/ethpandaops/benchmarkoor/pkg/gitrepo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,6 +38,9 @@ const (
 	fillJWTPath    = "/jwt/jwtsecret"
 	fillOutputPath = "/out"
 	fillStubsPath  = "/stubs.json"
+	// fillRepoPath is the fill image's WORKDIR (the execution-specs checkout);
+	// a config-selected EEST repo clone is mounted here when configured.
+	fillRepoPath = "/eest"
 
 	// minerGasLimit is the huge gas limit the filler geth is started with so
 	// benchmark blocks of any size can be built (mirrors the fill-stateful docs).
@@ -46,12 +51,17 @@ const (
 // it boots a filler EL client on a writable copy of a pre-populated snapshot
 // datadir, runs fill-stateful against the live client, then tears it down.
 type EESTPayloadsBuilder struct {
-	log      logrus.FieldLogger
-	cfg      *config.EESTPayloadsConfig
-	runtime  string
-	mgr      docker.ContainerManager
-	registry client.Registry
+	log       logrus.FieldLogger
+	cfg       *config.EESTPayloadsConfig
+	runtime   string
+	mgr       docker.ContainerManager
+	registry  client.Registry
+	repoCache string
 }
+
+// eestRepoCacheDir is where EEST repo clones are cached between builds (so a
+// recurring build of the same ref doesn't re-clone). Persists across runs.
+var eestRepoCacheDir = filepath.Join(os.TempDir(), "benchmarkoor-eest-repos")
 
 // NewEESTPayloadsBuilder constructs a builder bound to a specific container
 // manager. The caller is expected to have Start()'d the manager and to
@@ -63,11 +73,12 @@ func NewEESTPayloadsBuilder(
 	mgr docker.ContainerManager,
 ) *EESTPayloadsBuilder {
 	return &EESTPayloadsBuilder{
-		log:      log.WithField("component", "builder.eest_payloads"),
-		cfg:      cfg,
-		runtime:  runtime,
-		mgr:      mgr,
-		registry: client.NewRegistry(),
+		log:       log.WithField("component", "builder.eest_payloads"),
+		cfg:       cfg,
+		runtime:   runtime,
+		mgr:       mgr,
+		registry:  client.NewRegistry(),
+		repoCache: eestRepoCacheDir,
 	}
 }
 
@@ -182,6 +193,22 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 		"fork":          t.Fork,
 	}).Info("Generating EEST payloads")
 
+	// Clone the EEST repo at the configured ref into the cache and mount it into
+	// the fill container at /eest. The fill image carries only the uv/python
+	// toolchain (no repo), so this is always done; the EEST version is
+	// config-driven (eest_repo / eest_ref).
+	repo, ref := b.cfg.ResolveEESTRepo(), b.cfg.ResolveEESTRef()
+
+	eestRepoPath, err := gitrepo.CloneOrUpdate(ctx, log, repo, ref, b.repoCache)
+	if err != nil {
+		return fmt.Errorf("cloning EEST repo %s@%s: %w", repo, ref, err)
+	}
+
+	sha, _ := gitrepo.HeadSHA(ctx, eestRepoPath)
+	log.WithFields(logrus.Fields{
+		"repo": repo, "ref": ref, "commit": sha, "path": eestRepoPath,
+	}).Info("Using cloned EEST repo for fill")
+
 	spec, err := b.registry.Get(client.ClientType(t.FillerClient))
 	if err != nil {
 		return fmt.Errorf("resolving filler client %q: %w", t.FillerClient, err)
@@ -251,7 +278,7 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 		"snapshot_block": snapshotHash,
 	}).Info("Filler client ready; running fill-stateful")
 
-	return b.runFill(ctx, log, t, fillerIP, spec, jwtPath, snapshotHash)
+	return b.runFill(ctx, log, t, fillerIP, spec, jwtPath, snapshotHash, eestRepoPath)
 }
 
 // startFiller boots the filler EL client and returns its container ID and IP.
@@ -364,7 +391,7 @@ func (b *EESTPayloadsBuilder) runFill(
 	t *config.EESTPayloadTarget,
 	fillerIP string,
 	spec client.Spec,
-	jwtPath, snapshotHash string,
+	jwtPath, snapshotHash, eestRepoPath string,
 ) error {
 	if err := b.mgr.PullImage(ctx, b.cfg.FillImage, b.cfg.PullPolicy); err != nil {
 		return fmt.Errorf("pulling fill image %q: %w", b.cfg.FillImage, err)
@@ -383,6 +410,27 @@ func (b *EESTPayloadsBuilder) runFill(
 		})
 	}
 
+	// Run as the invoking host user so fixtures written to /out are owned by
+	// that user. The uv/pytest fill image keeps writable state under /tmp.
+	env := map[string]string{
+		"HOME":           "/tmp",
+		"UV_CACHE_DIR":   "/tmp/uv-cache",
+		"PYTEST_ADDOPTS": "-o cache_dir=/tmp/.pytest_cache",
+		// fill-stateful reads its commit hash from the /eest git checkout; as a
+		// non-root user git can refuse with "dubious ownership". Inject
+		// safe.directory=* via git's env-based config so it trusts the repo.
+		"GIT_CONFIG_COUNT":   "1",
+		"GIT_CONFIG_KEY_0":   "safe.directory",
+		"GIT_CONFIG_VALUE_0": "*",
+	}
+
+	// Mount the host-cloned, user-owned EEST checkout at /eest. uv builds the
+	// venv into this writable dir on first use (cached across runs), so we do
+	// NOT skip the sync — the toolchain image carries no prebuilt venv.
+	mounts = append(mounts, docker.Mount{
+		Source: eestRepoPath, Target: fillRepoPath, Type: "bind",
+	})
+
 	suffix, err := randSuffix()
 	if err != nil {
 		return fmt.Errorf("generating container name suffix: %w", err)
@@ -394,27 +442,9 @@ func (b *EESTPayloadsBuilder) runFill(
 		Command:     args,
 		Mounts:      mounts,
 		NetworkName: eestBuildNetwork,
-		// Run as the invoking host user so the fixtures written to /out are
-		// owned by that user rather than root. The default fill image is
-		// uv/pytest based with a root-owned /eest checkout and venv, so
-		// redirect every writable path it touches to /tmp (world-writable) and
-		// skip the runtime venv re-sync (the venv is already built into the
-		// image) so it runs cleanly as a non-root UID.
-		User: currentUserSpec(),
-		Env: map[string]string{
-			"HOME":           "/tmp",
-			"UV_CACHE_DIR":   "/tmp/uv-cache",
-			"UV_NO_SYNC":     "1",
-			"PYTEST_ADDOPTS": "-o cache_dir=/tmp/.pytest_cache",
-			// fill-stateful reads its commit hash from the root-owned /eest git
-			// checkout; as a non-root user git refuses with "dubious ownership".
-			// Inject safe.directory=* via git's env-based config so it trusts the
-			// repo regardless of ownership (* avoids hardcoding the repo path).
-			"GIT_CONFIG_COUNT":   "1",
-			"GIT_CONFIG_KEY_0":   "safe.directory",
-			"GIT_CONFIG_VALUE_0": "*",
-		},
-		Labels: b.labels(t),
+		User:        currentUserSpec(),
+		Env:         env,
+		Labels:      b.labels(t),
 	}
 
 	tail := newTailBuffer(64 * 1024)

@@ -298,9 +298,46 @@ type EESTPayloadsConfig struct {
 	JWT              string `yaml:"jwt,omitempty" mapstructure:"jwt"`
 	// FillCommand is the argv prefix invoked inside FillImage before the
 	// fill-stateful flags. Defaults to ["uv", "run", "fill-stateful"].
-	FillCommand []string             `yaml:"fill_command,omitempty" mapstructure:"fill_command"`
-	Config      *EESTPayloadDefaults `yaml:"config,omitempty" mapstructure:"config"`
-	Targets     []EESTPayloadTarget  `yaml:"targets,omitempty" mapstructure:"targets"`
+	FillCommand []string `yaml:"fill_command,omitempty" mapstructure:"fill_command"`
+	// EESTRepo / EESTRef select the execution-specs checkout used for filling.
+	// benchmarkoor always clones the repo at this ref into an on-disk cache at
+	// build time and mounts it into the fill container at /eest (the fill image
+	// carries only the uv/python toolchain, not the repo). This lets the EEST
+	// version live in config and change without rebuilding the image. Both
+	// default when unset: EESTRepo to the execution-specs URL, EESTRef to
+	// DefaultEESTRef.
+	EESTRepo string               `yaml:"eest_repo,omitempty" mapstructure:"eest_repo"`
+	EESTRef  string               `yaml:"eest_ref,omitempty" mapstructure:"eest_ref"`
+	Config   *EESTPayloadDefaults `yaml:"config,omitempty" mapstructure:"config"`
+	Targets  []EESTPayloadTarget  `yaml:"targets,omitempty" mapstructure:"targets"`
+}
+
+const (
+	// DefaultEESTRepo is the execution-specs repository cloned for fill-stateful
+	// when builder.eest_payloads.eest_repo is unset.
+	DefaultEESTRepo = "https://github.com/ethereum/execution-specs.git"
+	// DefaultEESTRef is the execution-specs ref cloned for fill-stateful when
+	// builder.eest_payloads.eest_ref is unset (where fill-stateful currently lives).
+	DefaultEESTRef = "forks/amsterdam"
+)
+
+// ResolveEESTRepo returns the configured EEST repo URL, defaulting to
+// DefaultEESTRepo.
+func (e *EESTPayloadsConfig) ResolveEESTRepo() string {
+	if e.EESTRepo != "" {
+		return e.EESTRepo
+	}
+
+	return DefaultEESTRepo
+}
+
+// ResolveEESTRef returns the configured EEST ref, defaulting to DefaultEESTRef.
+func (e *EESTPayloadsConfig) ResolveEESTRef() string {
+	if e.EESTRef != "" {
+		return e.EESTRef
+	}
+
+	return DefaultEESTRef
 }
 
 // DefaultFillCommand is the argv prefix used to invoke fill-stateful inside

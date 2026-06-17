@@ -280,6 +280,11 @@ runner:
 #     # container_runtime: docker     # defaults to runner.container_runtime, then docker
 #     # jwt: <hex>                    # Engine API secret shared with the filler (default: built-in)
 #     # fill_command: [uv, run, fill-stateful]   # argv prefix inside fill_image (default)
+#     # EEST checkout cloned at build time and mounted into the fill container at
+#     # /eest (fill_image is just the uv/python toolchain). Cached on disk; re-cloned
+#     # only when the ref changes. Both default as shown.
+#     # eest_repo: https://github.com/ethereum/execution-specs.git
+#     # eest_ref: forks/amsterdam     # branch, tag, or commit to check out
 #     config:                         # shared per-target defaults; targets override when set
 #       filler_image: ethpandaops/geth:master
 #       fork: Osaka

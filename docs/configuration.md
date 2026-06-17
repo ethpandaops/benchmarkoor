@@ -1596,6 +1596,8 @@ builder:
 | `container_runtime` | string | runner's runtime, then `docker` | Container runtime for the filler + fill containers. |
 | `jwt` | string | benchmarkoor's `DefaultJWT` | Engine API JWT secret; shared between the filler client and `fill-stateful`. |
 | `fill_command` | []string | `[uv, run, fill-stateful]` | argv prefix invoked inside `fill_image` before the `fill-stateful` flags. Override if your image exposes the command differently. |
+| `eest_repo` | string | `https://github.com/ethereum/execution-specs.git` | execution-specs repo cloned for filling. |
+| `eest_ref` | string | `forks/amsterdam` | Branch, tag, or commit of `eest_repo`. benchmarkoor always clones the repo at this ref into an on-disk cache at build time and mounts the checkout into the fill container at `/eest` (the `fill_image` carries only the uv/python toolchain, not the repo), so the EEST version is config-driven and changeable without rebuilding the image. The clone is cached and re-fetched only when the ref changes; `uv` builds the venv into the mounted checkout on first use (cached across runs). |
 | `config` | object | – | Shared defaults for the per-target parameters. See below. |
 | `targets` | []object | – | Required when invoking `benchmarkoor build`. See below. |
 
