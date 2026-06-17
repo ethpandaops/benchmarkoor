@@ -29,14 +29,26 @@ FROM python:${PYTHON_VERSION}-slim-bookworm
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 # Runtime deps: git (fill-stateful reads its commit hash from the checkout, and
-# uv resolves git deps); build-essential/headers for any EEST dependency without
-# a prebuilt wheel; ca-certificates for HTTPS to PyPI.
+# uv resolves git deps); ca-certificates for HTTPS to PyPI; build-essential plus
+# clang/libclang-dev/pkg-config for EEST dependencies without a prebuilt wheel.
+# In particular `ethereum-execution[optimized]` pulls in rust-pyspec-glue, whose
+# native mdbx-sys crate has no arm64 wheel and is compiled from source: its build
+# script runs bindgen, which dlopens libclang. Cargo itself is bootstrapped by uv
+# at build time, so only the clang toolchain has to be present in the image.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
         ca-certificates \
         build-essential \
+        clang \
+        libclang-dev \
+        pkg-config \
     && rm -rf /var/lib/apt/lists/*
+
+# Point bindgen/clang-sys straight at the bookworm-default LLVM 14 libclang so it
+# never falls back to its "couldn't find any valid shared libraries" failure. The
+# base image is pinned to bookworm (above), so the LLVM major version is stable.
+ENV LIBCLANG_PATH=/usr/lib/llvm-14/lib
 
 ENV UV_NO_PROGRESS=1
 
