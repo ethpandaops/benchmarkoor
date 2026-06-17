@@ -7,10 +7,25 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 )
+
+// mountTempDir returns the system temp dir with symlinks resolved. It is the
+// base for host files bind-mounted into builder containers. On macOS $TMPDIR is
+// /var/folders/… where /var is a symlink to /private/var; Docker Desktop shares
+// /private but not the /var alias, so bind-mounting a file at the unresolved
+// path silently fails to appear in the container ("no such file or directory").
+// Resolving to /private/var/… makes the mount work; on Linux it's a no-op.
+func mountTempDir() string {
+	if resolved, err := filepath.EvalSymlinks(os.TempDir()); err == nil {
+		return resolved
+	}
+
+	return os.TempDir()
+}
 
 // isPopulated reports whether dir exists and contains at least one
 // entry. A missing dir returns (false, nil).

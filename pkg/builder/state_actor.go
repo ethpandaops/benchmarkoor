@@ -238,7 +238,7 @@ func (b *StateActorBuilder) resolveSpecPath() (string, func(), error) {
 
 		return abs, nil, nil
 	case config.StateActorSpecInline:
-		f, err := os.CreateTemp("", "benchmarkoor-state-actor-spec-*.yaml")
+		f, err := os.CreateTemp(mountTempDir(), "benchmarkoor-state-actor-spec-*.yaml")
 		if err != nil {
 			return "", nil, fmt.Errorf("creating temp spec file: %w", err)
 		}

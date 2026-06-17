@@ -234,7 +234,7 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 	prepared, err := provider.Prepare(ctx, &datadir.ProviderConfig{
 		SourceDir:  t.SourceDir,
 		InstanceID: "eest-fill-" + t.EffectiveName(),
-		TmpDir:     os.TempDir(),
+		TmpDir:     mountTempDir(),
 	})
 	if err != nil {
 		return fmt.Errorf("preparing datadir copy: %w", err)
@@ -587,7 +587,7 @@ func buildFillArgs(
 // writeTempJWT writes the JWT secret to a temp file readable by the
 // container UID (0644) and returns its path plus a cleanup callback.
 func writeTempJWT(secret string) (string, func(), error) {
-	f, err := os.CreateTemp("", "benchmarkoor-eest-jwt-*")
+	f, err := os.CreateTemp(mountTempDir(), "benchmarkoor-eest-jwt-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("creating temp jwt file: %w", err)
 	}
@@ -632,7 +632,7 @@ func writeTempConfigFiles(files map[string]string) ([]docker.Mount, func(), erro
 	}
 
 	for target, content := range files {
-		f, err := os.CreateTemp("", "benchmarkoor-eest-config-*")
+		f, err := os.CreateTemp(mountTempDir(), "benchmarkoor-eest-config-*")
 		if err != nil {
 			cleanup()
 
