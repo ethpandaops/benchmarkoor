@@ -280,6 +280,10 @@ runner:
 #   #   docker build -f Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
 #   eest_payloads:
 #     fill_image: ghcr.io/your-org/eest-fill-stateful:latest
+#     # Instead of a pre-built fill_image, point at a Dockerfile and benchmarkoor
+#     # builds it (with the container runtime) at build time, tagging it fill_image
+#     # if set or a default local tag. One of fill_image / fill_dockerfile is required.
+#     # fill_dockerfile: Dockerfile.eest-filler
 #     # pull_policy: always           # always | if-not-present | never
 #     # container_runtime: docker     # defaults to runner.container_runtime, then docker
 #     # jwt: <hex>                    # Engine API secret shared with the filler (default: built-in)

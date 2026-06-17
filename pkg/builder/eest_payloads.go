@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
@@ -57,6 +59,13 @@ type EESTPayloadsBuilder struct {
 	mgr       docker.ContainerManager
 	registry  client.Registry
 	repoCache string
+
+	// fillImage is resolved once per builder: built from fill_dockerfile or the
+	// configured fill_image. Guarded by fillImageOnce so a multi-target build
+	// only builds the image a single time.
+	fillImageOnce sync.Once
+	fillImage     string
+	fillImageErr  error
 }
 
 // NewEESTPayloadsBuilder constructs a builder bound to a specific container
@@ -404,6 +413,57 @@ func (b *EESTPayloadsBuilder) stopFiller(log logrus.FieldLogger, id string) {
 }
 
 // runFill runs the fill-stateful container against the live filler client.
+// ensureFillImage returns the fill image reference, building it from
+// fill_dockerfile (once, regardless of target count) when configured, otherwise
+// pulling the configured fill_image.
+func (b *EESTPayloadsBuilder) ensureFillImage(ctx context.Context, log logrus.FieldLogger) (string, error) {
+	if !b.cfg.BuildsFillImage() {
+		if err := b.mgr.PullImage(ctx, b.cfg.FillImage, b.cfg.PullPolicy); err != nil {
+			return "", fmt.Errorf("pulling fill image %q: %w", b.cfg.FillImage, err)
+		}
+
+		return b.cfg.FillImage, nil
+	}
+
+	b.fillImageOnce.Do(func() {
+		tag := b.cfg.ResolveFillImageTag()
+		if err := b.buildFillImage(ctx, log, b.cfg.FillDockerfile, tag); err != nil {
+			b.fillImageErr = err
+
+			return
+		}
+
+		b.fillImage = tag
+	})
+
+	return b.fillImage, b.fillImageErr
+}
+
+// buildFillImage builds the fill image from dockerfile, tagging it tag, by
+// shelling out to the configured container runtime's `build`. The build
+// context is the Dockerfile's directory.
+func (b *EESTPayloadsBuilder) buildFillImage(ctx context.Context, log logrus.FieldLogger, dockerfile, tag string) error {
+	contextDir := filepath.Dir(dockerfile)
+
+	log.WithFields(logrus.Fields{
+		"dockerfile": dockerfile,
+		"tag":        tag,
+		"runtime":    b.runtime,
+	}).Info("Building fill image")
+
+	cmd := exec.CommandContext(ctx, b.runtime, "build", "-f", dockerfile, "-t", tag, contextDir)
+
+	w := containerStream("BULD", "fill-image-build")
+	cmd.Stdout = w
+	cmd.Stderr = w
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("building fill image from %q: %w", dockerfile, err)
+	}
+
+	return nil
+}
+
 func (b *EESTPayloadsBuilder) runFill(
 	ctx context.Context,
 	log logrus.FieldLogger,
@@ -412,8 +472,9 @@ func (b *EESTPayloadsBuilder) runFill(
 	spec client.Spec,
 	jwtPath, snapshotHash, eestRepoPath string,
 ) error {
-	if err := b.mgr.PullImage(ctx, b.cfg.FillImage, b.cfg.PullPolicy); err != nil {
-		return fmt.Errorf("pulling fill image %q: %w", b.cfg.FillImage, err)
+	fillImage, err := b.ensureFillImage(ctx, log)
+	if err != nil {
+		return err
 	}
 
 	args := buildFillArgs(b.cfg.ResolveFillCommand(), t, fillerIP, spec, snapshotHash)
@@ -457,7 +518,7 @@ func (b *EESTPayloadsBuilder) runFill(
 
 	containerSpec := &docker.ContainerSpec{
 		Name:        fmt.Sprintf("benchmarkoor-build-eest-fill-%s-%s", t.FillerClient, suffix),
-		Image:       b.cfg.FillImage,
+		Image:       fillImage,
 		Command:     args,
 		Mounts:      mounts,
 		NetworkName: eestBuildNetwork,

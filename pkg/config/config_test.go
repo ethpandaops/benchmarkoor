@@ -3687,6 +3687,11 @@ func TestValidateEESTPayloads(t *testing.T) {
 		}
 	}
 
+	dockerfile := filepath.Join(dirA, "Dockerfile.eest-filler")
+	if err := os.WriteFile(dockerfile, []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	tests := []struct {
 		name      string
 		ep        *EESTPayloadsConfig
@@ -3705,12 +3710,28 @@ func TestValidateEESTPayloads(t *testing.T) {
 			},
 		},
 		{
-			name: "missing fill_image",
+			name: "neither fill_image nor fill_dockerfile",
 			ep: &EESTPayloadsConfig{
 				Targets: []EESTPayloadTarget{base(dirA)},
 			},
 			wantErr:   true,
 			errSubstr: "fill_image",
+		},
+		{
+			name: "fill_dockerfile only is valid",
+			ep: &EESTPayloadsConfig{
+				FillDockerfile: dockerfile,
+				Targets:        []EESTPayloadTarget{base(dirA)},
+			},
+		},
+		{
+			name: "fill_dockerfile not found",
+			ep: &EESTPayloadsConfig{
+				FillDockerfile: filepath.Join(dirB, "missing", "Dockerfile"),
+				Targets:        []EESTPayloadTarget{base(dirA)},
+			},
+			wantErr:   true,
+			errSubstr: "fill_dockerfile",
 		},
 		{
 			name: "eest_repo without eest_ref is valid (ref defaults)",

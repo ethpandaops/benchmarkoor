@@ -294,8 +294,14 @@ var stateActorValidPullPolicies = map[string]bool{
 type EESTPayloadsConfig struct {
 	ContainerRuntime string `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
 	FillImage        string `yaml:"fill_image,omitempty" mapstructure:"fill_image"`
-	PullPolicy       string `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
-	JWT              string `yaml:"jwt,omitempty" mapstructure:"jwt"`
+	// FillDockerfile, when set, makes benchmarkoor build the fill image from the
+	// given Dockerfile at build time (using the container runtime), instead of
+	// pulling a pre-built image. The built image is tagged FillImage when set,
+	// otherwise DefaultFillImageTag. Mutually informative with FillImage: at
+	// least one of the two must be provided.
+	FillDockerfile string `yaml:"fill_dockerfile,omitempty" mapstructure:"fill_dockerfile"`
+	PullPolicy     string `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
+	JWT            string `yaml:"jwt,omitempty" mapstructure:"jwt"`
 	// FillCommand is the argv prefix invoked inside FillImage before the
 	// fill-stateful flags. Defaults to ["uv", "run", "fill-stateful"].
 	FillCommand []string `yaml:"fill_command,omitempty" mapstructure:"fill_command"`
@@ -319,7 +325,26 @@ const (
 	// DefaultEESTRef is the execution-specs ref cloned for fill-stateful when
 	// builder.eest_payloads.eest_ref is unset (where fill-stateful currently lives).
 	DefaultEESTRef = "forks/amsterdam"
+	// DefaultFillImageTag is the tag applied to a fill image built from
+	// fill_dockerfile when no explicit fill_image tag is given.
+	DefaultFillImageTag = "benchmarkoor-eest-fill:local"
 )
+
+// BuildsFillImage reports whether benchmarkoor should build the fill image from
+// FillDockerfile (rather than pulling a pre-built FillImage).
+func (e *EESTPayloadsConfig) BuildsFillImage() bool {
+	return e.FillDockerfile != ""
+}
+
+// ResolveFillImageTag returns the image reference for the fill container: the
+// configured FillImage, or DefaultFillImageTag when only a Dockerfile is set.
+func (e *EESTPayloadsConfig) ResolveFillImageTag() string {
+	if e.FillImage != "" {
+		return e.FillImage
+	}
+
+	return DefaultFillImageTag
+}
 
 // ResolveEESTRepo returns the configured EEST repo URL, defaulting to
 // DefaultEESTRepo.
@@ -1979,11 +2004,19 @@ func (c *Config) validateEESTPayloads() error {
 		)
 	}
 
-	if ep.FillImage == "" {
+	if ep.FillImage == "" && ep.FillDockerfile == "" {
 		return fmt.Errorf(
-			"builder.eest_payloads.fill_image is required " +
-				"(the container image carrying the fill-stateful command)",
+			"builder.eest_payloads: one of fill_image (a pre-built image) or " +
+				"fill_dockerfile (built by benchmarkoor) is required",
 		)
+	}
+
+	// Reject a missing Dockerfile at config time so typos surface early.
+	// Relative paths are resolved against the working directory.
+	if ep.FillDockerfile != "" {
+		if _, err := os.Stat(ep.FillDockerfile); err != nil {
+			return fmt.Errorf("builder.eest_payloads.fill_dockerfile: %w", err)
+		}
 	}
 
 	seenOutputs := make(map[string]int, len(ep.Targets))

@@ -1569,6 +1569,7 @@ builder:
 builder:
   eest_payloads:
     fill_image: ghcr.io/your-org/eest-fill-stateful:latest   # image carrying `uv run fill-stateful`
+    # fill_dockerfile: Dockerfile.eest-filler   # build the fill image instead of pulling one
     pull_policy: always                  # always | if-not-present | never (default: always)
     container_runtime: docker            # docker | podman (default: inherits runner.container_runtime, then docker)
     # jwt: <hex>                         # Engine API secret, shared with the filler (default: benchmarkoor's DefaultJWT)
@@ -1594,8 +1595,9 @@ builder:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `fill_image` | string | – | **Required.** Container image carrying the `fill-stateful` command (`uv` + execution-specs). |
-| `pull_policy` | string | `always` | One of `always`, `if-not-present`, `never`. Applies to both the fill image and the filler image. |
+| `fill_image` | string | – | Pre-built container image carrying the uv/python toolchain that runs `fill-stateful`. Required unless `fill_dockerfile` is set. |
+| `fill_dockerfile` | string | – | Path to a Dockerfile (e.g. `Dockerfile.eest-filler`) that benchmarkoor builds with the container runtime at build time, instead of pulling a pre-built image. Tagged `fill_image` when set, else `benchmarkoor-eest-fill:local`. Requires the runtime's `build` CLI (docker/podman) on the host. One of `fill_image` / `fill_dockerfile` is required. |
+| `pull_policy` | string | `always` | One of `always`, `if-not-present`, `never`. Applies to both the fill image and the filler image (ignored for a locally built `fill_dockerfile`). |
 | `container_runtime` | string | runner's runtime, then `docker` | Container runtime for the filler + fill containers. |
 | `jwt` | string | benchmarkoor's `DefaultJWT` | Engine API JWT secret; shared between the filler client and `fill-stateful`. |
 | `fill_command` | []string | `[uv, run, fill-stateful]` | argv prefix invoked inside `fill_image` before the `fill-stateful` flags. Override if your image exposes the command differently. |
