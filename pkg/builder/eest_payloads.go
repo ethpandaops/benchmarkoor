@@ -250,11 +250,17 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 	streamCtx, streamCancel := context.WithCancel(ctx)
 	defer streamCancel()
 
-	fillerID, fillerIP, err := b.startFiller(ctx, streamCtx, log, t, spec, prepared.MountPath, jwtPath)
+	fillerID, fillerIP, configCleanup, err := b.startFiller(ctx, streamCtx, log, t, spec, prepared.MountPath, jwtPath)
 	if err != nil {
 		return err
 	}
 
+	// Order (defers run LIFO): stop the container first, then remove the temp
+	// config file it bind-mounted. The host file must outlive the container —
+	// removing it earlier makes /tmp/config.toml vanish inside the container
+	// (Docker Desktop syncs the bind mount by path), which geth reports as
+	// "open /tmp/config.toml: no such file or directory".
+	defer configCleanup()
 	defer b.stopFiller(log, fillerID)
 
 	log.Info("Waiting for filler client RPC to become ready")
@@ -281,15 +287,31 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 }
 
 // startFiller boots the filler EL client and returns its container ID and IP.
+//
+// On success it returns a cleanup func that removes the temp config file; the
+// caller must defer it for the lifetime of the container (the bind-mounted host
+// file has to outlive geth's startup read of /tmp/config.toml). On error the
+// cleanup is run here and a no-op is returned.
 func (b *EESTPayloadsBuilder) startFiller(
 	ctx, streamCtx context.Context,
 	log logrus.FieldLogger,
 	t *config.EESTPayloadTarget,
 	spec client.Spec,
 	dataMount, jwtPath string,
-) (string, string, error) {
-	if err := b.mgr.PullImage(ctx, t.FillerImage, b.cfg.PullPolicy); err != nil {
-		return "", "", fmt.Errorf("pulling filler image %q: %w", t.FillerImage, err)
+) (id string, ip string, cleanup func(), err error) {
+	configCleanup := func() {}
+
+	// Until the container is successfully handed off to the caller, any error
+	// return must remove the temp config file itself — the caller only defers
+	// the cleanup once startFiller succeeds.
+	defer func() {
+		if err != nil {
+			configCleanup()
+		}
+	}()
+
+	if err = b.mgr.PullImage(ctx, t.FillerImage, b.cfg.PullPolicy); err != nil {
+		return "", "", nil, fmt.Errorf("pulling filler image %q: %w", t.FillerImage, err)
 	}
 
 	mounts := []docker.Mount{
@@ -297,19 +319,17 @@ func (b *EESTPayloadsBuilder) startFiller(
 		{Source: jwtPath, Target: spec.JWTPath(), Type: "bind", ReadOnly: true},
 	}
 
-	configCleanup := func() {}
-
 	if files := spec.DefaultConfigFiles(); len(files) > 0 {
-		configMounts, cleanup, err := writeTempConfigFiles(files)
-		if err != nil {
-			return "", "", err
+		configMounts, cfgCleanup, cfgErr := writeTempConfigFiles(files)
+		if cfgErr != nil {
+			err = cfgErr
+
+			return "", "", nil, cfgErr
 		}
 
 		mounts = append(mounts, configMounts...)
-		configCleanup = cleanup
+		configCleanup = cfgCleanup
 	}
-
-	defer configCleanup()
 
 	if t.GenesisFile != "" {
 		mounts = append(mounts, docker.Mount{
@@ -319,7 +339,7 @@ func (b *EESTPayloadsBuilder) startFiller(
 
 	suffix, err := randSuffix()
 	if err != nil {
-		return "", "", fmt.Errorf("generating container name suffix: %w", err)
+		return "", "", nil, fmt.Errorf("generating container name suffix: %w", err)
 	}
 
 	cmd := fillerGethCommand(t, spec)
@@ -340,15 +360,15 @@ func (b *EESTPayloadsBuilder) startFiller(
 
 	log.WithField("argv", cmd).Info("Starting filler client")
 
-	id, err := b.mgr.CreateContainer(ctx, containerSpec)
+	id, err = b.mgr.CreateContainer(ctx, containerSpec)
 	if err != nil {
-		return "", "", fmt.Errorf("creating filler container: %w", err)
+		return "", "", nil, fmt.Errorf("creating filler container: %w", err)
 	}
 
-	if err := b.mgr.StartContainer(ctx, id); err != nil {
+	if err = b.mgr.StartContainer(ctx, id); err != nil {
 		_ = b.mgr.RemoveContainer(context.Background(), id)
 
-		return "", "", fmt.Errorf("starting filler container: %w", err)
+		return "", "", nil, fmt.Errorf("starting filler container: %w", err)
 	}
 
 	go func() {
@@ -360,14 +380,14 @@ func (b *EESTPayloadsBuilder) startFiller(
 		}
 	}()
 
-	ip, err := b.mgr.GetContainerIP(ctx, id, eestBuildNetwork)
+	ip, err = b.mgr.GetContainerIP(ctx, id, eestBuildNetwork)
 	if err != nil {
 		_ = b.mgr.RemoveContainer(context.Background(), id)
 
-		return "", "", fmt.Errorf("getting filler container IP: %w", err)
+		return "", "", nil, fmt.Errorf("getting filler container IP: %w", err)
 	}
 
-	return id, ip, nil
+	return id, ip, configCleanup, nil
 }
 
 // stopFiller stops and removes the filler container. It uses a background
