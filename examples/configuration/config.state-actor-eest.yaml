@@ -117,10 +117,15 @@ runner:
     - id: nethermind
       client: nethermind
       extra_args:
-        - --Sync.NetworkingEnabled=false
-        - --Sync.PivotNumber=0
-        - --Sync.SynchronizationEnabled=false
-      #image: ethpandaops/nethermind:master
+        # benchmarkoor mounts the datadir at /data and the nethermind client
+        # passes --datadir=/data, but nethermind's BaseDbPath then defaults to
+        # /data/nethermind_db/<network>/ — so it reads a fresh EMPTY state db and
+        # ignores the state-actor snapshot written directly under /data/{state,
+        # blocks,headers,blockInfos}. It then builds genesis from the empty-alloc
+        # chainspec, so HasStateForBlock(genesis) is false and every replayed
+        # newPayload answers SYNCING. Pointing BaseDbPath at /data makes nethermind
+        # read the snapshot directly (it then logs "Detected HalfPath key scheme").
+        - --Init.BaseDbPath=/data
       image: nethermind/nethermind:1.37.0
     - id: besu
       client: besu
