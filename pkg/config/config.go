@@ -267,6 +267,7 @@ var stateActorSupportedClients = map[string]struct{}{
 	"reth":       {},
 	"besu":       {},
 	"nethermind": {},
+	"ethrex":     {},
 }
 
 // stateActorValidPullPolicies mirrors the pull-policy vocabulary used by
@@ -1889,7 +1890,7 @@ func (c *Config) validateStateActor() error {
 		if _, ok := stateActorSupportedClients[t.Client]; !ok {
 			return fmt.Errorf(
 				"%s.client: %q is not supported by state-actor "+
-					"(must be geth, reth, besu, or nethermind)",
+					"(must be geth, reth, besu, nethermind, or ethrex)",
 				prefix, t.Client,
 			)
 		}

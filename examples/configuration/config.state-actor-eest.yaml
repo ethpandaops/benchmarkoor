@@ -15,6 +15,7 @@ builder:
       reth: ghcr.io/ethereum/state-actor-reth:main
       besu: ghcr.io/ethereum/state-actor-besu:main
       nethermind: ghcr.io/ethereum/state-actor-nethermind:main
+      ethrex: ghcr.io/ethereum/state-actor-ethrex:main
     pull_policy: always
     config:
       seed: 1234
@@ -40,6 +41,8 @@ builder:
         output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
       - client: besu
         output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+      - client: ethrex
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex
 
   ## Stage 2: Building EEST stateful fixtures
   eest_payloads:
@@ -91,6 +94,7 @@ runner:
         #geth: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
         reth:  ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth/chainspec.json
         besu: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
+        ethrex: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex/ethrex-genesis.json
 
     datadirs:
       geth:
@@ -104,6 +108,9 @@ runner:
         method: copy
       besu:
         source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+        method: copy
+      ethrex:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex
         method: copy
 
   instances:
@@ -126,9 +133,17 @@ runner:
         # newPayload answers SYNCING. Pointing BaseDbPath at /data makes nethermind
         # read the snapshot directly (it then logs "Detected HalfPath key scheme").
         - --Init.BaseDbPath=/data
-      image: nethermind/nethermind:1.37.0
     - id: besu
       client: besu
       # Pinned: besu 26.6.1 regressed — it won't accept the bootstrap FCU on a
       # snapshot (stays in PoS initial-sync → SYNCING). 26.6.0 works (36/36).
       image: hyperledger/besu:26.6.0
+    - id: ethrex
+      client: ethrex
+      # ethrex >= v16.0.0 is required: it's the first release with
+      # --skip-genesis-validation (lambdaclass/ethrex#6783), needed because the
+      # state-actor snapshot commits a synthetic state root that the emitted
+      # ethrex-genesis.json (empty alloc) can't reproduce.
+      image: ghcr.io/lambdaclass/ethrex:latest
+      extra_args:
+        - --skip-genesis-validation

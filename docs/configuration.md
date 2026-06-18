@@ -1459,7 +1459,7 @@ The fields below mirror `builder.state_actor.config`; any field set here overrid
 | Option | Type | Default | Applies to | Description |
 |---|---|---|---|---|
 | `name` | string | `client` | all | Human-readable name. Used by `--target` to filter. Must be unique across targets; defaults to the `client` field when omitted. |
-| `client` | string | – | all | One of `geth`, `reth`, `besu`, `nethermind`. State-actor does not support `erigon` or `nimbus`. |
+| `client` | string | – | all | One of `geth`, `reth`, `besu`, `nethermind`, `ethrex`. State-actor does not support `erigon` or `nimbus`. |
 | `output_dir` | string | – | all | Absolute host path. If the directory already contains entries, that target is **skipped** (no error) — pass `--force` (CLI) or set `force: true` here to wipe and rebuild. For geth, state-actor writes into `<output_dir>/geth/chaindata`. |
 | `target_size` | string | from `config` | all | Advisory size budget for auto-generated state, e.g. `5GB`, `500MB` (base-1024). Required for the target when no spec is configured; when a spec is configured (top-level or default), `target_size` is optional and acts as a headroom budget that state-actor fills past the spec's projected cost. |
 | `force` | bool | `false` | all | Per-target override of the CLI `--force` flag: wipes `output_dir` before building so state-actor sees a clean directory. Useful when most targets should skip-if-built but specific ones should always rebuild. |
@@ -1473,7 +1473,7 @@ The fields below mirror `builder.state_actor.config`; any field set here overrid
 | `binary_trie` | bool | from `config`, then `false` | geth | EIP-7864 binary trie. Set `false` to opt out of a global default. Rejected (after resolution) for non-geth. |
 | `group_depth` | int | from `config`, then `8` (state-actor) | geth + binary_trie | Binary-trie serialisation unit. Range 1..8. Requires effective `binary_trie=true`. |
 
-State-actor itself only writes the genesis block; subsequent blocks come from running a client against the produced datadir. See [state-actor RUNBOOK.md](https://github.com/ethereum/state-actor/blob/main/docs/RUNBOOK.md) for the per-client boot recipes (e.g. geth needs `--db.engine=pebble`; reth needs `--debug.skip-genesis-validation`; besu needs `--data-storage-format=BONSAI`).
+State-actor itself only writes the genesis block; subsequent blocks come from running a client against the produced datadir. See [state-actor RUNBOOK.md](https://github.com/ethereum/state-actor/blob/main/docs/RUNBOOK.md) for the per-client boot recipes (e.g. geth needs `--db.engine=pebble`; reth needs `--debug.skip-genesis-validation`; besu needs `--data-storage-format=BONSAI`; ethrex needs `--skip-genesis-validation` and ≥ v16.0.0).
 
 ### Running
 
