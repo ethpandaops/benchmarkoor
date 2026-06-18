@@ -78,6 +78,14 @@ runner:
           fixtures_subdir: blockchain_tests_stateful_engine
   client:
     config:
+      # Booting from a snapshot datadir leaves the Engine API forkchoice head
+      # un-established, so clients answer SYNCING to every newPayload. A bootstrap
+      # FCU to the snapshot head makes them canonical and ready to validate the
+      # replayed payloads (required for besu/reth/nethermind; geth is fine without).
+      bootstrap_fcu:
+        enabled: true
+        max_retries: 10
+        backoff: 1s
       genesis:
         nethermind: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
         #geth: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
@@ -116,4 +124,6 @@ runner:
       image: nethermind/nethermind:1.37.0
     - id: besu
       client: besu
-      image: hyperledger/besu:latest
+      # Pinned: besu 26.6.1 regressed — it won't accept the bootstrap FCU on a
+      # snapshot (stays in PoS initial-sync → SYNCING). 26.6.0 works (36/36).
+      image: hyperledger/besu:26.6.0
