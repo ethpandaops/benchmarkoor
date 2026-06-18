@@ -135,9 +135,13 @@ runner:
         - --Init.BaseDbPath=/data
     - id: besu
       client: besu
-      # Pinned: besu 26.6.1 regressed — it won't accept the bootstrap FCU on a
-      # snapshot (stays in PoS initial-sync → SYNCING). 26.6.0 works (36/36).
-      image: hyperledger/besu:26.6.0
+      # besu needs --p2p-enabled=true to accept the bootstrap FCU on a snapshot:
+      # its synchronizer must run to register the post-merge head as in-sync,
+      # otherwise besu answers SYNCING. --max-peers=0 + --discovery-enabled=false
+      # (the client defaults) keep it isolated — no real peers.
+      image: hyperledger/besu:26.6.1
+      extra_args:
+        - --p2p-enabled=true
     - id: ethrex
       client: ethrex
       # ethrex >= v16.0.0 is required: it's the first release with
