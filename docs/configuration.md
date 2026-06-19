@@ -945,6 +945,8 @@ When both `retry_new_payloads_syncing_state` and `retry_new_payloads_failed_stat
 
 Some clients (e.g., Erigon) may still be performing internal initialization or syncing after their RPC endpoint becomes available. The `bootstrap_fcu` option sends an `engine_forkchoiceUpdatedV3` call in a retry loop after RPC is ready, using the latest block hash from `eth_getBlockByNumber("latest")`. The client accepting the FCU with `VALID` status confirms it has finished syncing and is ready for test execution.
 
+> **Besu** accepts the bootstrap FCU on an isolated snapshot node only with `--p2p-enabled=true`: its synchronizer must run to register the post-merge head as in-sync, otherwise besu answers `SYNCING` to every FCU. Set `extra_args: [--p2p-enabled=true]` on the besu instance (`--max-peers=0` + `--discovery-enabled=false` keep it isolated, with zero real peers).
+
 **Shorthand** (uses defaults: `max_retries: 30`, `backoff: 1s`):
 
 ```yaml

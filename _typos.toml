@@ -4,3 +4,4 @@ extend-exclude = ["go.mod"]
 [default.extend-words]
 PANC = "PANC"
 ERRO = "ERRO"
+BULD = "BULD"
