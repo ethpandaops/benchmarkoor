@@ -81,13 +81,23 @@ func randSuffix() (string, error) {
 }
 
 // containerStream returns an io.Writer that prefixes each line of streamed
-// container output with "🟣 $TS $label | $name | " and writes it directly to
-// stdout. This matches the client-log format `benchmarkoor run` uses (see
-// pkg/runner clientLogPrefix) so build output looks consistent and carries a
-// clear leading tag identifying the source. label is a short tag (e.g. "CLIE"
-// for an EL client, "BULD" for a build-tool container).
+// container output with "$emoji $TS $label | $name | " and writes it directly
+// to stdout. EL-client output ("CLIE") uses 🟣 to match the client-log format
+// `benchmarkoor run` uses (see pkg/runner clientLogPrefix); build-tool
+// containers ("BULD", e.g. state-actor / fill-stateful) use 🟠 so they are easy
+// to distinguish from the filler client streaming alongside them.
 func containerStream(label, name string) io.Writer {
-	return &containerStreamWriter{label: label, name: name, w: os.Stdout}
+	return &containerStreamWriter{emoji: streamEmoji(label), label: label, name: name, w: os.Stdout}
+}
+
+// streamEmoji picks the leading emoji for a streamed-container line based on its
+// label. Build-tool output gets 🟠; everything else (EL clients) keeps 🟣.
+func streamEmoji(label string) string {
+	if label == "BULD" {
+		return "🟠"
+	}
+
+	return "🟣"
 }
 
 // ansiReset clears any ANSI color/style left set by a streamed line. Tools like
@@ -97,6 +107,7 @@ func containerStream(label, name string) io.Writer {
 const ansiReset = "\x1b[0m"
 
 type containerStreamWriter struct {
+	emoji string
 	label string
 	name  string
 	w     io.Writer
@@ -116,7 +127,7 @@ func (w *containerStreamWriter) Write(p []byte) (int, error) {
 		ts := time.Now().UTC().Format(config.LogTimestampFormat)
 		msg := bytes.TrimRight(line, "\r\n")
 
-		if _, err := fmt.Fprintf(w.w, "🟣 %s %s | %s | %s%s\n", ts, w.label, w.name, msg, ansiReset); err != nil {
+		if _, err := fmt.Fprintf(w.w, "%s %s %s | %s | %s%s\n", w.emoji, ts, w.label, w.name, msg, ansiReset); err != nil {
 			return len(p), err
 		}
 	}
