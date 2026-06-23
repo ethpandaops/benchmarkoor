@@ -397,16 +397,25 @@ type EESTPayloadDefaults struct {
 }
 
 // EESTPayloadTarget is one fixture-generation run. Identity/locator fields
-// (Name, FillerClient, SourceDir, OutputDir, GenesisFile, Tests, Filter,
-// AddressStubsFile) live exclusively on the target; the remaining fields
-// mirror EESTPayloadDefaults and are resolved via ResolveTarget.
+// (Name, FillerClient, SourceDir, OutputDir, GenesisFile,
+// ForkActivationGenesis, Tests, Filter, AddressStubsFile) live exclusively on
+// the target; the remaining fields mirror EESTPayloadDefaults and are resolved
+// via ResolveTarget.
 type EESTPayloadTarget struct {
-	Name             string `yaml:"name,omitempty" mapstructure:"name"`
-	FillerClient     string `yaml:"filler_client" mapstructure:"filler_client"`
-	SourceDir        string `yaml:"source_dir" mapstructure:"source_dir"`
-	OutputDir        string `yaml:"output_dir" mapstructure:"output_dir"`
-	GenesisFile      string `yaml:"genesis_file,omitempty" mapstructure:"genesis_file"`
-	AddressStubsFile string `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
+	Name         string `yaml:"name,omitempty" mapstructure:"name"`
+	FillerClient string `yaml:"filler_client" mapstructure:"filler_client"`
+	SourceDir    string `yaml:"source_dir" mapstructure:"source_dir"`
+	OutputDir    string `yaml:"output_dir" mapstructure:"output_dir"`
+	GenesisFile  string `yaml:"genesis_file,omitempty" mapstructure:"genesis_file"`
+	// ForkActivationGenesis, when set, is a base genesis JSON (typically the
+	// state-actor snapshot's geth-genesis.json, generated at the prior fork)
+	// from which the builder derives the filler's genesis: it schedules Fork's
+	// activation at the base genesis block's timestamp + 1 (e.g. amsterdamTime)
+	// and boots the filler with --override.genesis. This fills a fork that
+	// activates one block after the snapshot. Mutually exclusive with
+	// GenesisFile; requires Fork.
+	ForkActivationGenesis string `yaml:"fork_activation_genesis,omitempty" mapstructure:"fork_activation_genesis"`
+	AddressStubsFile      string `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
 	// Tests are pytest paths inside the fill image, e.g. tests/benchmark/compute.
 	Tests  []string `yaml:"tests,omitempty" mapstructure:"tests"`
 	Filter string   `yaml:"filter,omitempty" mapstructure:"filter"`
@@ -2142,6 +2151,25 @@ func validateEESTPayloadPaths(t *EESTPayloadTarget, prefix string, seenOutputs m
 
 	if t.GenesisFile != "" && !filepath.IsAbs(t.GenesisFile) {
 		return fmt.Errorf("%s.genesis_file must be an absolute path, got %q", prefix, t.GenesisFile)
+	}
+
+	if t.ForkActivationGenesis != "" {
+		if t.GenesisFile != "" {
+			return fmt.Errorf(
+				"%s: genesis_file and fork_activation_genesis are mutually exclusive", prefix,
+			)
+		}
+
+		if !filepath.IsAbs(t.ForkActivationGenesis) {
+			return fmt.Errorf(
+				"%s.fork_activation_genesis must be an absolute path, got %q",
+				prefix, t.ForkActivationGenesis,
+			)
+		}
+
+		if t.Fork == "" {
+			return fmt.Errorf("%s.fork is required when fork_activation_genesis is set", prefix)
+		}
 	}
 
 	if t.AddressStubsFile != "" && !filepath.IsAbs(t.AddressStubsFile) {

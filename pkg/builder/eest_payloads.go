@@ -188,6 +188,12 @@ func (b *EESTPayloadsBuilder) checkInputs(t *config.EESTPayloadTarget) error {
 		}
 	}
 
+	if t.ForkActivationGenesis != "" {
+		if _, err := os.Stat(t.ForkActivationGenesis); err != nil {
+			return fmt.Errorf("fork_activation_genesis: %w", err)
+		}
+	}
+
 	if t.AddressStubsFile != "" {
 		if _, err := os.Stat(t.AddressStubsFile); err != nil {
 			return fmt.Errorf("address_stubs_file: %w", err)
@@ -261,6 +267,23 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 			log.WithError(cleanupErr).Warn("Failed to clean up datadir copy")
 		}
 	}()
+
+	// When fork_activation_genesis is set, boot the filler with a
+	// --override.<fork>=<snapshot block timestamp + 1> flag so the target fork
+	// activates on the first block it builds (block N+1). See
+	// forkOverrideActivationFlag for why --override.genesis can't be used.
+	if t.ForkActivationGenesis != "" {
+		flag, err := forkOverrideActivationFlag(t.ForkActivationGenesis, t.Fork)
+		if err != nil {
+			return fmt.Errorf("scheduling %s activation: %w", t.Fork, err)
+		}
+
+		t.FillerExtraArgs = append(t.FillerExtraArgs, flag)
+
+		log.WithFields(logrus.Fields{
+			"base_genesis": t.ForkActivationGenesis, "fork": t.Fork, "flag": flag,
+		}).Info("Scheduling fork activation on filler")
+	}
 
 	// Stream the filler's logs for the lifetime of this build.
 	streamCtx, streamCancel := context.WithCancel(ctx)
