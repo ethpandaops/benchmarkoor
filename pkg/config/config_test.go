@@ -3232,6 +3232,8 @@ func TestValidateBuilder(t *testing.T) {
 		"reth":       "ghcr.io/ethereum/state-actor-reth:latest",
 		"besu":       "ghcr.io/ethereum/state-actor-besu:latest",
 		"nethermind": "ghcr.io/ethereum/state-actor-nethermind:latest",
+		"ethrex":     "ghcr.io/ethereum/state-actor-ethrex:latest",
+		"erigon":     "ghcr.io/ethereum/state-actor-erigon:latest",
 	}
 
 	// mkCfg builds a Config with just the builder block populated so the
@@ -3286,13 +3288,11 @@ func TestValidateBuilder(t *testing.T) {
 			},
 		},
 		{
-			name: "unsupported client erigon",
+			name: "supported client erigon",
 			sa: &StateActorConfig{
 				Images:  allImages,
 				Targets: []StateActorTarget{{Client: "erigon", OutputDir: dirA, TargetSize: "5GB"}},
 			},
-			wantErr:   true,
-			errSubstr: "erigon",
 		},
 		{
 			name: "unsupported client nimbus",

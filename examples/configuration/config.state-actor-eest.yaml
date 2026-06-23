@@ -16,6 +16,7 @@ builder:
       besu: ghcr.io/ethereum/state-actor-besu:main
       nethermind: ghcr.io/ethereum/state-actor-nethermind:main
       ethrex: ghcr.io/ethereum/state-actor-ethrex:main
+      erigon: ghcr.io/ethereum/state-actor-erigon:main
     pull_policy: always
     config:
       seed: 1234
@@ -43,6 +44,8 @@ builder:
         output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
       - client: ethrex
         output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex
+      - client: erigon
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon
 
   ## Stage 2: Building EEST stateful fixtures
   eest_payloads:
@@ -95,6 +98,11 @@ runner:
         reth:  ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth/chainspec.json
         besu: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
         ethrex: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex/ethrex-genesis.json
+        # erigon consumes a geth-format genesis via its init container. Filename
+        # follows the per-client state-actor convention (geth-genesis.json,
+        # ethrex-genesis.json); confirm/adjust once state-actor publishes the
+        # erigon image.
+        erigon: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon/erigon-genesis.json
 
     datadirs:
       geth:
@@ -111,6 +119,9 @@ runner:
         method: copy
       ethrex:
         source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex
+        method: copy
+      erigon:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon
         method: copy
 
   instances:
@@ -151,3 +162,11 @@ runner:
       image: ghcr.io/lambdaclass/ethrex:latest
       extra_args:
         - --skip-genesis-validation
+    - id: erigon
+      client: erigon
+      # NOTE: untested end-to-end — state-actor does not publish an erigon image
+      # yet, so the stage-1 datadir can't be produced. erigon boots a snapshot via
+      # an init container (`erigon init --datadir=/data /tmp/genesis.json`); like
+      # besu/nethermind this may need snapshot-boot tuning (extra_args / a
+      # bootstrap FCU) once a real datadir exists to test against.
+      image: erigontech/erigon:latest

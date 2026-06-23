@@ -260,14 +260,15 @@ func (s *StateActorConfig) ImageFor(client string) string {
 }
 
 // stateActorSupportedClients lists the clients state-actor itself can
-// materialise datadirs for. Erigon and Nimbus are intentionally absent
-// (state-actor does not implement writers for them).
+// materialise datadirs for. Nimbus is intentionally absent (state-actor
+// does not implement a writer for it).
 var stateActorSupportedClients = map[string]struct{}{
 	"geth":       {},
 	"reth":       {},
 	"besu":       {},
 	"nethermind": {},
 	"ethrex":     {},
+	"erigon":     {},
 }
 
 // stateActorValidPullPolicies mirrors the pull-policy vocabulary used by
@@ -1890,7 +1891,7 @@ func (c *Config) validateStateActor() error {
 		if _, ok := stateActorSupportedClients[t.Client]; !ok {
 			return fmt.Errorf(
 				"%s.client: %q is not supported by state-actor "+
-					"(must be geth, reth, besu, nethermind, or ethrex)",
+					"(must be geth, reth, besu, nethermind, ethrex, or erigon)",
 				prefix, t.Client,
 			)
 		}
