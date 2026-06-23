@@ -34,6 +34,21 @@ builder:
       #target_size: 20GB
     spec: |
       entities:
+        # Predeploy the Arachnid deterministic-deployment proxy at the canonical
+        # 0x4e59…956c. EEST's fill bootstrap deploys it via a keyless tx with a
+        # fixed 100k gas limit, which amsterdam's state-expansion gas (EIP-7928/
+        # 8037, ~324k for this proxy) exceeds — so it must be predeployed. EEST
+        # detects the existing bytecode and skips the keyless deploy.
+        #
+        # MUST come before bloated-eoa-2g: state-actor truncates spec entities
+        # once the cumulative projected size exceeds target_size, and the 2 GB
+        # entity below would otherwise drop everything after it (incl. this).
+        - kind: contract
+          template: create2_factory
+          name: deterministic-deployment-proxy
+          # Explicit canonical address: with a name set, the address would
+          # otherwise be name-derived instead of the Arachnid default.
+          address: 0x4e59b44847b379578588920cA78FbF26c0B4956C
         - kind: eoa
           name: bloated-eoa-2g
           balance: "1000000000000000000"
