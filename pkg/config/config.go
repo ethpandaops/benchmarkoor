@@ -482,11 +482,27 @@ func (t *EESTPayloadTarget) EffectiveName() string {
 	return t.FillerClient
 }
 
-// eestFillerSupportedClients lists the clients that can act as the
-// fill-stateful filler. Only geth implements testing_buildBlockV1 today
-// (ethpandaops/geth:master is the production-ready filler image).
+// eestFillerSupportedClients lists the clients benchmarkoor knows how to boot as
+// the fill-stateful filler (see fillerCommand in pkg/builder). fill-stateful
+// forces use_testing_build_block=True, so a filler MUST implement the
+// testing_buildBlockV1 RPC and debug_setHead (the per-test chain rewind).
+//
+// Status as of this writing:
+//   - geth: fully works (ethpandaops/geth implements both).
+//   - besu: plumbed but blocked upstream — testing_buildBlockV1 (TESTING
+//     namespace, besu-eth/besu#9838) + debug_setHead both respond, but
+//     besu's self-built block fails its own engine_newPayloadV4 with a
+//     World-State-Root mismatch. Kept as scaffolding.
+//   - nethermind: plumbed but blocked upstream — testing_buildBlockV1 works
+//     (Testing module, special image) but debug_setHead is unimplemented and
+//     its receipt trips EEST's strict model. Kept as scaffolding.
+//
+// besu/nethermind stay listed so configs can experiment with them once the
+// upstream gaps close; their example targets are commented out.
 var eestFillerSupportedClients = map[string]struct{}{
-	"geth": {},
+	"geth":       {},
+	"besu":       {},
+	"nethermind": {},
 }
 
 // RunnerConfig contains all run-specific configuration settings.
@@ -2031,7 +2047,7 @@ func (c *Config) validateEESTPayloads() error {
 		if _, ok := eestFillerSupportedClients[t.FillerClient]; !ok {
 			return fmt.Errorf(
 				"%s.filler_client: %q cannot act as the fill-stateful filler "+
-					"(only geth implements testing_buildBlockV1 today)",
+					"(supported: geth, besu, nethermind)",
 				prefix, t.FillerClient,
 			)
 		}

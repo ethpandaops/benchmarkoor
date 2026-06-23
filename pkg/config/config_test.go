@@ -3768,7 +3768,25 @@ func TestValidateEESTPayloads(t *testing.T) {
 				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
 			}(),
 			wantErr:   true,
-			errSubstr: "testing_buildBlockV1",
+			errSubstr: "cannot act as the fill-stateful filler",
+		},
+		{
+			name: "besu filler client is supported",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.FillerClient = "besu"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+		},
+		{
+			name: "nethermind filler client is supported",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.FillerClient = "nethermind"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
 		},
 		{
 			name: "missing tests",

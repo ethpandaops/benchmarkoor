@@ -148,6 +148,47 @@ func TestFillerGethCommand(t *testing.T) {
 	})
 }
 
+func TestFillerCommand_Besu(t *testing.T) {
+	spec := client.NewBesuSpec()
+
+	cmd := fillerCommand(&config.EESTPayloadTarget{
+		FillerClient:    "besu",
+		GenesisFile:     "/host/besu-chainspec.json",
+		FillerExtraArgs: []string{"--logging=DEBUG"},
+	}, spec)
+
+	assert.Contains(t, cmd, "--data-path=/data")
+	// TESTING exposes testing_buildBlockV1 (required by fill-stateful).
+	assert.Contains(t, cmd, "--rpc-http-api=ETH,NET,WEB3,TXPOOL,DEBUG,ADMIN,MINER,TESTING")
+	assert.Contains(t, cmd, "--engine-jwt-secret=/tmp/jwtsecret")
+	assert.Contains(t, cmd, "--engine-rpc-port=8551")
+	assert.Contains(t, cmd, "--rpc-http-port=8545")
+	// besu boots a snapshot only when its synchronizer can register the head.
+	assert.Contains(t, cmd, "--p2p-enabled=true")
+	// besu reads chainId from the genesis file, so it must be passed.
+	assert.Contains(t, cmd, "--genesis-file=/tmp/genesis.json")
+	assert.Equal(t, "--logging=DEBUG", cmd[len(cmd)-1], "extra args are appended last")
+}
+
+func TestFillerCommand_Nethermind(t *testing.T) {
+	spec := client.NewNethermindSpec()
+
+	cmd := fillerCommand(&config.EESTPayloadTarget{
+		FillerClient: "nethermind",
+		GenesisFile:  "/host/parity-chainspec.json",
+	}, spec)
+
+	assert.Contains(t, cmd, "--datadir=/data")
+	// Point BaseDbPath at the datadir so nethermind reads the state-actor snapshot.
+	assert.Contains(t, cmd, "--Init.BaseDbPath=/data")
+	// Testing module exposes testing_buildBlockV1 (required by fill-stateful).
+	assert.Contains(t, cmd, "--JsonRpc.EnabledModules=Eth,Net,Web3,Admin,Debug,Trace,TxPool,Subscribe,Testing")
+	assert.Contains(t, cmd, "--JsonRpc.JwtSecretFile=/tmp/jwtsecret")
+	assert.Contains(t, cmd, "--JsonRpc.EnginePort=8551")
+	assert.Contains(t, cmd, "--JsonRpc.Port=8545")
+	assert.Contains(t, cmd, "--Init.ChainSpecPath=/tmp/genesis.json")
+}
+
 func TestEESTPayloadsBuilder_Targets(t *testing.T) {
 	cfg := &config.EESTPayloadsConfig{
 		FillImage: "fill:latest",

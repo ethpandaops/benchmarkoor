@@ -47,6 +47,13 @@ const (
 	// minerGasLimit is the huge gas limit the filler geth is started with so
 	// benchmark blocks of any size can be built (mirrors the fill-stateful docs).
 	minerGasLimit = "1000000000000"
+
+	// besuDefaultPriorityFeeWei pins fill-stateful's session tip for the besu
+	// filler. besu's eth_maxPriorityFeePerGas returns 0 on a freshly-booted
+	// snapshot (no fee history), which fill-stateful rejects with "requires the
+	// backend to carry non-zero session fees". geth suggests a non-zero tip on
+	// its own, so this is only needed for besu. 1 gwei.
+	besuDefaultPriorityFeeWei = "1000000000"
 )
 
 // EESTPayloadsBuilder generates stateful EEST benchmark fixtures. Per target
@@ -351,7 +358,7 @@ func (b *EESTPayloadsBuilder) startFiller(
 		return "", "", nil, fmt.Errorf("generating container name suffix: %w", err)
 	}
 
-	cmd := fillerGethCommand(t, spec)
+	cmd := fillerCommand(t, spec)
 
 	containerSpec := &docker.ContainerSpec{
 		Name:        fmt.Sprintf("benchmarkoor-build-eest-filler-%s-%s", t.FillerClient, suffix),
@@ -552,11 +559,28 @@ func (b *EESTPayloadsBuilder) labels(t *config.EESTPayloadTarget) map[string]str
 	}
 }
 
-// fillerGethCommand builds the geth argv for the filler client. Only geth is
-// supported today (validated in config), so the namespaces and flags are
-// geth-specific: the http API exposes the testing/engine/miner namespaces
-// fill-stateful needs, archive gcmode keeps full state, and peering is
-// disabled. spec supplies the in-container paths and ports.
+// fillerCommand builds the filler EL client's argv, dispatching on the
+// configured filler_client. fill-stateful drives whichever client over the
+// standard Engine API flow (eth_sendRawTransaction + engine_forkchoiceUpdated /
+// getPayload / newPayload), so every client just needs HTTP RPC (with txpool),
+// the Engine API (JWT), peering disabled, and the snapshot-boot workarounds the
+// runner uses for the same client. config validation guarantees the client is
+// one of the cases below.
+func fillerCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
+	switch t.FillerClient {
+	case "besu":
+		return fillerBesuCommand(t, spec)
+	case "nethermind":
+		return fillerNethermindCommand(t, spec)
+	default:
+		return fillerGethCommand(t, spec)
+	}
+}
+
+// fillerGethCommand builds the geth argv for the filler client: the http API
+// exposes the eth/net/web3/txpool/engine namespaces fill-stateful needs, archive
+// gcmode keeps full state, and peering is disabled. spec supplies the
+// in-container paths and ports.
 func fillerGethCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
 	args := []string{
 		"--config=/tmp/config.toml",
@@ -580,6 +604,92 @@ func fillerGethCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
 		"--authrpc.port=" + strconv.Itoa(spec.EnginePort()),
 		"--authrpc.vhosts=*",
 		"--miner.gaslimit=" + minerGasLimit,
+	}
+
+	if t.GenesisFile != "" {
+		args = append(args, spec.GenesisFlag()+spec.GenesisPath())
+	}
+
+	return append(args, t.FillerExtraArgs...)
+}
+
+// fillerBesuCommand builds the besu argv for the filler client. fill-stateful
+// drives every filler over testing_buildBlockV1, which besu exposes behind the
+// TESTING JSON-RPC namespace (added in besu-eth/besu#9838, in besu >= 26.6;
+// without TESTING in --rpc-http-api besu answers -32604 "Method not enabled").
+// Mirrors the runner besu command (pkg/client/besu.go) otherwise: the ETH/TXPOOL
+// namespaces back eth_sendRawTransaction, DEBUG backs the per-test debug_setHead
+// rewind, and --p2p-enabled=true lets besu's synchronizer register the snapshot
+// head as in-sync — without it besu answers SYNCING to the fill tool's initial
+// forkchoice_updated (--max-peers=0 + --discovery-enabled=false keep it
+// isolated). The genesis file is required: besu reads chainId from
+// --genesis-file at boot, not from the datadir.
+func fillerBesuCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
+	args := []string{
+		"--data-path=" + spec.DataDir(),
+		"--data-storage-format=BONSAI",
+		// Trust the genesis state hash baked into the state-actor snapshot
+		// instead of recomputing it from the empty chainspec alloc.
+		"--genesis-state-hash-cache-enabled=true",
+		"--sync-mode=FULL",
+		"--p2p-enabled=true",
+		"--max-peers=0",
+		"--discovery-enabled=false",
+		"--rpc-http-enabled=true",
+		"--rpc-http-host=0.0.0.0",
+		"--rpc-http-port=" + strconv.Itoa(spec.RPCPort()),
+		// TESTING exposes testing_buildBlockV1 (fill-stateful's block builder).
+		"--rpc-http-api=ETH,NET,WEB3,TXPOOL,DEBUG,ADMIN,MINER,TESTING",
+		"--rpc-http-cors-origins=*",
+		"--host-allowlist=*",
+		"--Xhttp-timeout-seconds=660",
+		"--engine-rpc-enabled=true",
+		"--engine-jwt-secret=" + spec.JWTPath(),
+		"--engine-rpc-port=" + strconv.Itoa(spec.EnginePort()),
+		"--engine-host-allowlist=*",
+		"--target-gas-limit=" + minerGasLimit,
+	}
+
+	if t.GenesisFile != "" {
+		args = append(args, spec.GenesisFlag()+spec.GenesisPath())
+	}
+
+	return append(args, t.FillerExtraArgs...)
+}
+
+// fillerNethermindCommand builds the nethermind argv for the filler client.
+// fill-stateful drives every filler over testing_buildBlockV1, so the HTTP RPC
+// must expose the Testing module (without it nethermind answers -32604 "Method
+// not enabled"); this needs a nethermind build that ships testing_buildBlockV1
+// (e.g. nethermindeth/nethermind:testing_build_block_with_opcode_tracing — set
+// as the target's filler_image). Module list, target gas limit and BaseDbPath
+// mirror NethermindEth/gas-benchmarks' stateful generator. --Init.BaseDbPath
+// points at the datadir so nethermind reads the state-actor snapshot written
+// there (its BaseDbPath otherwise defaults to a nested per-network dir holding
+// an empty state db). The genesis file is required: nethermind reads the chain
+// config from --Init.ChainSpecPath.
+func fillerNethermindCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
+	args := []string{
+		"--datadir=" + spec.DataDir(),
+		"--Init.BaseDbPath=" + spec.DataDir(),
+		"--config=none",
+		"--Network.DiscoveryPort=0",
+		"--Network.MaxActivePeers=0",
+		"--Init.DiscoveryEnabled=false",
+		"--Sync.MaxAttemptsToUpdatePivot=0",
+		"--Network.ExternalIp=127.0.0.1",
+		"--JsonRpc.Enabled=true",
+		"--JsonRpc.Host=0.0.0.0",
+		"--JsonRpc.Port=" + strconv.Itoa(spec.RPCPort()),
+		// Testing exposes testing_buildBlockV1 (fill-stateful's block builder).
+		"--JsonRpc.EnabledModules=Eth,Net,Web3,Admin,Debug,Trace,TxPool,Subscribe,Testing",
+		"--JsonRpc.EngineEnabledModules=Net,Eth,Subscribe,Web3,Testing,Engine",
+		"--JsonRpc.Timeout=600000",
+		"--JsonRpc.JwtSecretFile=" + spec.JWTPath(),
+		"--JsonRpc.EngineHost=0.0.0.0",
+		"--JsonRpc.EnginePort=" + strconv.Itoa(spec.EnginePort()),
+		"--Merge.TerminalTotalDifficulty=0",
+		"--Blocks.TargetBlockGasLimit=" + minerGasLimit,
 	}
 
 	if t.GenesisFile != "" {
@@ -650,6 +760,13 @@ func buildFillArgs(
 
 	if t.RPCSeedKey != "" {
 		args = append(args, "--rpc-seed-key="+t.RPCSeedKey)
+	}
+
+	// besu suggests a zero priority fee on a freshly-booted snapshot; pin a
+	// non-zero tip so fill-stateful's session-fee check passes (see
+	// besuDefaultPriorityFeeWei). geth derives a non-zero tip itself.
+	if t.FillerClient == "besu" {
+		args = append(args, "--default-max-priority-fee-per-gas="+besuDefaultPriorityFeeWei)
 	}
 
 	if t.AddressStubsFile != "" {

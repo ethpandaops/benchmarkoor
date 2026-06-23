@@ -56,18 +56,51 @@ builder:
     eest_repo: https://github.com/ethereum/execution-specs.git
     eest_ref: forks/amsterdam
     config:
-      filler_image: ethpandaops/geth:master
+      # filler_image is set per-target below so each target can fill with a
+      # different client. Shared knobs stay here and are hoisted into every target.
       fork: osaka
       gas_benchmark_values: [10]  # Millions of gas to parametrise against
       datadir_method: copy        # 1GB snapshot; copy is fine (For bigger dirs we should use zfs/overlayfs/schelk)
+    # fill-stateful forces testing_buildBlockV1 + debug_setHead, so a filler must
+    # implement both. geth (ethpandaops/geth) does. besu/nethermind are plumbed
+    # in benchmarkoor (see fillerCommand in pkg/builder) but blocked upstream, so
+    # their targets are commented out below — uncomment to experiment once the
+    # upstream gaps close.
     targets:
       - name: payload-generator-geth
         filler_client: geth
+        filler_image: ethpandaops/geth:master
         source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
         output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}
         tests:
           - tests/benchmark/compute   # pytest paths inside the fill image
         filter: bn128 # Quick subset for fast end-to-end iteration: only the bn128 compute tests.
+      # besu: testing_buildBlockV1 (TESTING namespace, besu-eth/besu#9838),
+      # debug_setHead and the session-fee pin all work, but besu's self-built
+      # block fails its own engine_newPayloadV4 with a World-State-Root mismatch
+      # (upstream besu bug in testing_buildBlockV1). Re-enable when fixed.
+      # - name: payload-generator-besu
+      #   filler_client: besu
+      #   filler_image: hyperledger/besu:26.6.1   # >= 26.6 ships testing_buildBlockV1
+      #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+      #   genesis_file: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
+      #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-besu
+      #   tests:
+      #     - tests/benchmark/compute
+      #   filter: bn128
+      # nethermind: testing_buildBlockV1 works (Testing module in the special
+      # nethermindeth/nethermind:testing_build_block_with_opcode_tracing image),
+      # but debug_setHead is unimplemented (the per-test rewind aborts the run)
+      # and its receipt trips EEST's strict model. Re-enable when fixed.
+      # - name: payload-generator-nethermind
+      #   filler_client: nethermind
+      #   filler_image: nethermindeth/nethermind:testing_build_block_with_opcode_tracing
+      #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+      #   genesis_file: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+      #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-nethermind
+      #   tests:
+      #     - tests/benchmark/compute
+      #   filter: bn128
 
 ## Stage 3: Run benchmarks using the state-actor datadirs and the eest payloads
 runner:
