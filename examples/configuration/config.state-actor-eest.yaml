@@ -102,7 +102,8 @@ runner:
         # follows the per-client state-actor convention (geth-genesis.json,
         # ethrex-genesis.json); confirm/adjust once state-actor publishes the
         # erigon image.
-        erigon: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon/erigon-genesis.json
+        erigon: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon/chainspec.json
+        #erigon: /tmp/benchmarkoor/state-actor/geth/geth-genesis.json
 
     datadirs:
       geth:
@@ -164,9 +165,12 @@ runner:
         - --skip-genesis-validation
     - id: erigon
       client: erigon
-      # NOTE: untested end-to-end — state-actor does not publish an erigon image
-      # yet, so the stage-1 datadir can't be produced. erigon boots a snapshot via
-      # an init container (`erigon init --datadir=/data /tmp/genesis.json`); like
-      # besu/nethermind this may need snapshot-boot tuning (extra_args / a
-      # bootstrap FCU) once a real datadir exists to test against.
-      image: erigontech/erigon:latest
+      # MUST match the erigon that state-actor pins for the snapshot
+      # (Dockerfile.erigon builds erigon at the bal-devnet-7 commit and notes the
+      # daemon must use that exact binary). state-actor's `erigon init` encodes the
+      # MDBX chain config the bal-devnet-7 way (e.g. chainId as a JSON string);
+      # stable erigon (erigontech/erigon:latest, 3.4.x) panics reading it back with
+      # "cannot unmarshal \"1337\" into a *big.Int". ethpandaops/erigon:bal-devnet-7
+      # reads it correctly and supports the amsterdam/BAL (EIP-7928) fork these
+      # benchmarks target.
+      image: ethpandaops/erigon:bal-devnet-7
