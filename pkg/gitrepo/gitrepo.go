@@ -48,6 +48,10 @@ func CloneOrUpdate(ctx context.Context, log logrus.FieldLogger, repo, version, c
 			return "", fmt.Errorf("cloning repository: %w", err)
 		}
 
+		if err := initSubmodules(ctx, localPath); err != nil {
+			return "", err
+		}
+
 		return localPath, nil
 	}
 
@@ -56,6 +60,10 @@ func CloneOrUpdate(ctx context.Context, log logrus.FieldLogger, repo, version, c
 	if looksLikeCommitHash(version) {
 		if sha, err := HeadSHA(ctx, localPath); err == nil && strings.HasPrefix(sha, version) {
 			log.Info("Cached repository already at requested version")
+
+			if err := initSubmodules(ctx, localPath); err != nil {
+				return "", err
+			}
 
 			return localPath, nil
 		}
@@ -69,6 +77,10 @@ func CloneOrUpdate(ctx context.Context, log logrus.FieldLogger, repo, version, c
 
 	if err := gitRun(ctx, "git", "-C", localPath, "checkout", "FETCH_HEAD"); err != nil {
 		return "", fmt.Errorf("checking out version: %w", err)
+	}
+
+	if err := initSubmodules(ctx, localPath); err != nil {
+		return "", err
 	}
 
 	return localPath, nil
@@ -101,6 +113,19 @@ func cloneByCommitHash(ctx context.Context, repo, version, localPath string) err
 
 	if err := gitRun(ctx, "git", "-C", localPath, "checkout", "FETCH_HEAD"); err != nil {
 		return fmt.Errorf("checking out commit %s: %w", version, err)
+	}
+
+	return nil
+}
+
+// initSubmodules fetches any git submodules declared by the checkout. It is a
+// no-op for repos without submodules, so it is safe to call after every
+// clone/checkout (some EEST test suites vendor fixtures as submodules and fail
+// at fill time with "run git submodule update" if they are absent).
+func initSubmodules(ctx context.Context, localPath string) error {
+	if err := gitRun(ctx, "git", "-C", localPath,
+		"submodule", "update", "--init", "--recursive"); err != nil {
+		return fmt.Errorf("updating submodules: %w", err)
 	}
 
 	return nil
