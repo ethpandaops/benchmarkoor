@@ -166,9 +166,15 @@ func CreateSuiteOutput(
 
 	suiteExists := false
 
-	// Check if suite already exists.
-	if _, err := os.Stat(suiteDir); err == nil {
-		suiteExists = true
+	// Treat the suite as already built only when a complete summary.json with
+	// tests is present. A bare or partial directory — e.g. left behind by a run
+	// that aborted mid-creation — must be rebuilt; otherwise info.Tests stays
+	// nil and summary.json gets (re)written with "tests": null.
+	if data, err := os.ReadFile(filepath.Join(suiteDir, "summary.json")); err == nil {
+		var existing SuiteInfo
+		if json.Unmarshal(data, &existing) == nil && len(existing.Tests) > 0 {
+			suiteExists = true
+		}
 	}
 
 	if !suiteExists {
