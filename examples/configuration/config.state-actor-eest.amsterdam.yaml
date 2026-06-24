@@ -48,10 +48,6 @@ builder:
         # fixed 100k gas limit, which amsterdam's state-expansion gas (EIP-7928/
         # 8037, ~324k for this proxy) exceeds — so it must be predeployed. EEST
         # detects the existing bytecode and skips the keyless deploy.
-        #
-        # MUST come before bloated-eoa-2g: state-actor truncates spec entities
-        # once the cumulative projected size exceeds target_size, and the 2 GB
-        # entity below would otherwise drop everything after it (incl. this).
         - kind: contract
           template: create2_factory
           name: deterministic-deployment-proxy
@@ -63,18 +59,11 @@ builder:
         # withdrawal funding block, so start_block == the snapshot block, whose
         # persistent state debug_setHead can always rewind to between tests.
         # Balance must be >= SEED_FUNDING_WEI (1e27); 1e28 gives headroom.
-        # Also before bloated-eoa-2g so it survives target_size truncation.
         - kind: eoa
           name: fill-stateful-seed
           address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
           balance: "10000000000000000000000000000"
           nonce: 0
-        - kind: eoa
-          name: bloated-eoa-2g
-          balance: "1000000000000000000"
-          nonce: 0
-          code: "0xef01003333333333333333333333333333333333333333"
-          approximate_size_bytes: 2_000_000_000
     targets:
       - client: geth
         output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
