@@ -1161,6 +1161,8 @@ runner:
 | `restart` | string | No | - | Container restart policy |
 | `environment` | map | No | - | Additional environment variables |
 | `genesis` | string | No | From `runner.client.config.genesis` | Override genesis file URL |
+| `genesis_fork_override` | map | No | - | Activate forks at given timestamps by patching a geth-format genesis at boot. See [Genesis Fork & EIP Overrides](#genesis-fork--eip-overrides) |
+| `genesis_eip_override` | object | No | - | Activate EIPs at a timestamp by patching a parity/nethermind chainspec at boot. See [Genesis Fork & EIP Overrides](#genesis-fork--eip-overrides) |
 | `datadir` | object | No | From `runner.client.datadirs` | Instance-specific data directory config |
 | `drop_memory_caches` | string | No | From `runner.client.config` | Instance-specific cache drop setting |
 | `rollback_strategy` | string | No | From `runner.client.config` | Instance-specific rollback strategy |
@@ -1174,6 +1176,45 @@ runner:
 | `post_test_sleep_duration` | string | No | From `runner.client.config` | Instance-specific post-test sleep duration |
 | `bootstrap_fcu` | bool/object | No | From `runner.client.config` | Instance-specific bootstrap FCU setting |
 | `opcode_extraction` | object | No | From `runner.client.config` | Instance-specific opcode extraction setting (replaces global) |
+
+#### Genesis Fork & EIP Overrides
+
+These options let an instance activate a fork that is not scheduled in the genesis it boots from — for example, running Amsterdam payloads against an Osaka snapshot. benchmarkoor patches the genesis file in-memory at boot, before mounting it; the source genesis on disk is never modified, and untouched fields (including large integers) round-trip verbatim, so the genesis block hash is unchanged.
+
+Use these only for clients that read their fork schedule from the genesis file. **geth and erigon do not** — they read the fork schedule from the datadir, so a patched genesis is ignored. For those, use the client's own fork-override flag instead (e.g. `--override.amsterdam=<timestamp>` in `extra_args`).
+
+**`genesis_fork_override`** — for geth-format genesis files (besu, reth, ethrex). A map of fork name to activation timestamp. For each entry it sets `config.<fork>Time`, and if the genesis has a `blobSchedule` that lacks the fork, it inherits the schedule of the latest preceding fork (so the new fork carries a blob schedule, as geth-family clients require).
+
+```yaml
+runner:
+  instances:
+    - id: besu
+      client: besu
+      genesis: /path/to/osaka-chainspec.json   # used as-is
+      genesis_fork_override:
+        amsterdam: 1   # sets config.amsterdamTime=1, inherits blobSchedule.amsterdam
+```
+
+**`genesis_eip_override`** — for parity/nethermind-format chainspecs, which schedule forks per-EIP rather than by fork name. It sets `params.eip<N>TransitionTimestamp` for each listed EIP to the given (hex-encoded) timestamp. The EIP list is devnet-specific, so it lives in config.
+
+```yaml
+runner:
+  instances:
+    - id: nethermind
+      client: nethermind
+      genesis: /path/to/osaka-parity-chainspec.json   # used as-is
+      genesis_eip_override:
+        timestamp: 1
+        eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037]
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `genesis_fork_override` | map[string]uint | Fork name → activation timestamp (unix seconds). geth-format genesis only. |
+| `genesis_eip_override.timestamp` | uint | Activation timestamp (unix seconds) applied to every listed EIP. |
+| `genesis_eip_override.eips` | []uint | EIP numbers to activate, e.g. `[7928, 8037]`. parity/nethermind chainspec only. |
+
+Applying an override to the wrong genesis format is an error (a geth-format override needs a top-level `config` object; an EIP override needs a top-level `params` object).
 
 ## Resource Limits
 
