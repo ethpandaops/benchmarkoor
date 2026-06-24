@@ -945,6 +945,19 @@ func (s *SourceConfig) IsConfigured() bool {
 // DefaultContainerDir is the default container mount path for data directories.
 const DefaultContainerDir = "/data"
 
+// GenesisEIPOverride activates a set of EIPs at a given timestamp in a
+// parity/nethermind-format chainspec (which schedules forks per-EIP rather than
+// by fork name). It is the parity-format counterpart of GenesisForkOverride: the
+// devnet-specific EIP list lives in config and benchmarkoor patches the
+// chainspec at boot.
+type GenesisEIPOverride struct {
+	// Timestamp is the activation time (unix seconds) applied to every listed EIP.
+	Timestamp uint64 `yaml:"timestamp" mapstructure:"timestamp"`
+	// EIPs are the EIP numbers to activate, e.g. [7928, 8037]. Each becomes a
+	// params.eip<N>TransitionTimestamp entry.
+	EIPs []uint64 `yaml:"eips" mapstructure:"eips"`
+}
+
 // DataDirConfig configures a pre-populated data directory for a client.
 type DataDirConfig struct {
 	SourceDir    string `yaml:"source_dir" json:"source_dir" mapstructure:"source_dir"`
@@ -1268,6 +1281,8 @@ type ClientInstance struct {
 	Restart                          string                            `yaml:"restart,omitempty" mapstructure:"restart"`
 	Environment                      map[string]string                 `yaml:"environment,omitempty" mapstructure:"environment"`
 	Genesis                          string                            `yaml:"genesis,omitempty" mapstructure:"genesis"`
+	GenesisForkOverride              map[string]uint64                 `yaml:"genesis_fork_override,omitempty" mapstructure:"genesis_fork_override"`
+	GenesisEIPOverride               *GenesisEIPOverride               `yaml:"genesis_eip_override,omitempty" mapstructure:"genesis_eip_override"`
 	DataDir                          *DataDirConfig                    `yaml:"datadir,omitempty" mapstructure:"datadir"`
 	DropMemoryCaches                 string                            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
 	RollbackStrategy                 string                            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`

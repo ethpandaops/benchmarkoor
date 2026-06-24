@@ -187,6 +187,59 @@ func (r *runner) runContainerLifecycle(
 		log.Info("No genesis configured, skipping genesis setup")
 	}
 
+	// Apply per-instance genesis fork-time overrides (the genesis-file
+	// equivalent of geth's --override.<fork> for clients that read forks from
+	// the genesis, e.g. besu/reth/ethrex).
+	if len(instance.GenesisForkOverride) > 0 {
+		if len(genesisContent) == 0 {
+			return fmt.Errorf(
+				"instance %s sets genesis_fork_override but has no genesis file",
+				instance.ID,
+			)
+		}
+
+		patched, overrideErr := applyGenesisForkOverrides(
+			genesisContent, instance.GenesisForkOverride,
+		)
+		if overrideErr != nil {
+			return fmt.Errorf(
+				"applying genesis fork override for %s: %w", instance.ID, overrideErr,
+			)
+		}
+
+		genesisContent = patched
+
+		log.WithField("forks", instance.GenesisForkOverride).
+			Info("Applied genesis fork-time overrides")
+	}
+
+	// Apply per-instance genesis EIP overrides (parity/nethermind-format
+	// chainspecs schedule forks per-EIP rather than by fork name).
+	if instance.GenesisEIPOverride != nil && len(instance.GenesisEIPOverride.EIPs) > 0 {
+		if len(genesisContent) == 0 {
+			return fmt.Errorf(
+				"instance %s sets genesis_eip_override but has no genesis file",
+				instance.ID,
+			)
+		}
+
+		patched, overrideErr := applyGenesisEIPOverrides(
+			genesisContent, instance.GenesisEIPOverride,
+		)
+		if overrideErr != nil {
+			return fmt.Errorf(
+				"applying genesis eip override for %s: %w", instance.ID, overrideErr,
+			)
+		}
+
+		genesisContent = patched
+
+		log.WithFields(logrus.Fields{
+			"eips":      instance.GenesisEIPOverride.EIPs,
+			"timestamp": instance.GenesisEIPOverride.Timestamp,
+		}).Info("Applied genesis EIP-time overrides")
+	}
+
 	// Fail if neither genesis nor datadir is configured.
 	if genesisSource == "" && !useDataDir {
 		return fmt.Errorf(

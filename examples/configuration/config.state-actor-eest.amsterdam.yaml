@@ -8,8 +8,17 @@
 #
 # ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.amsterdam.yaml --force
 #
-# Running benchmark using geth:
+# Running the benchmark (one instance per client):
 # ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.amsterdam.yaml --limit-instance-id=geth
+# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.amsterdam.yaml --limit-instance-id=besu
+#
+# Each client activates amsterdam on the osaka snapshot one of three ways:
+#   - geth, erigon:        CLI fork override (--override.amsterdam=<ts>)
+#   - besu, reth, ethrex:  genesis_fork_override (benchmarkoor sets <fork>Time in
+#                          the geth-format genesis at boot)
+#   - nethermind:          genesis_eip_override (benchmarkoor sets the amsterdam
+#                          EIPs' eip<N>TransitionTimestamp in the parity chainspec)
+# Snapshot block 0's timestamp is 0, so amsterdam is scheduled at ts 1.
 #
 global:
   log_level: info
@@ -191,9 +200,16 @@ runner:
         max_retries: 10
         backoff: 1s
       genesis:
+        # nethermind reads a parity-format chainspec that schedules forks per-EIP,
+        # so amsterdam is activated via the per-instance genesis_eip_override below
+        # (not genesis_fork_override). The osaka chainspec is used as-is.
         nethermind: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
         #geth: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
         reth:  ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth/chainspec.json
+        # besu/reth/ethrex have no --override.amsterdam flag — they read forks
+        # from the genesis. benchmarkoor patches it for them at boot via the
+        # per-instance genesis_fork_override below (sets amsterdamTime + inherits
+        # the amsterdam blobSchedule), so the osaka chainspec is used as-is.
         besu: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
         ethrex: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex/ethrex-genesis.json
         # erigon consumes a geth-format genesis via its init container. Filename
@@ -235,10 +251,30 @@ runner:
         - --override.amsterdam=1
     - id: reth
       client: reth
-      #image: ghcr.io/paradigmxyz/reth:latest
-      image: ghcr.io/paradigmxyz/reth:nightly@sha256:e528857e5e9ebc2c6cb99f28436e70ded38ca905629f00afc98d186e27d206e0
+      # bal-devnet-7 is the reth line with amsterdam/BAL support. reth reads forks
+      # from its chainspec, so patch amsterdam in at boot.
+      image: ethpandaops/reth:bal-devnet-7
+      genesis_fork_override:
+        amsterdam: 1
+      extra_args:
+        # reth-bal-full knobs (mirror benchmarkoor-tests): "full" is the default
+        # BAL mode, so only the slow-block log threshold is set.
+        - --engine.slow-block-threshold=0
+      # Booting from a snapshot, reth can answer the first newPayload before the
+      # forkchoice head is established; retry the non-SYNCING failure briefly.
+      retry_new_payloads_failed_state:
+        enabled: true
+        max_retries: 10
+        backoff: 1s
     - id: nethermind
       client: nethermind
+      image: nethermindeth/nethermind:master
+      # nethermind's parity chainspec schedules forks per-EIP, so activate the
+      # amsterdam-devnet-7 EIP set at snapshot block 0's ts (0) + 1. benchmarkoor
+      # patches params.eip<N>TransitionTimestamp into the chainspec at boot.
+      genesis_eip_override:
+        timestamp: 1
+        eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037]
       extra_args:
         # benchmarkoor mounts the datadir at /data and the nethermind client
         # passes --datadir=/data, but nethermind's BaseDbPath then defaults to
@@ -249,24 +285,46 @@ runner:
         # newPayload answers SYNCING. Pointing BaseDbPath at /data makes nethermind
         # read the snapshot directly (it then logs "Detected HalfPath key scheme").
         - --Init.BaseDbPath=/data
+        # nethermind-bal-full knobs (mirror benchmarkoor-tests).
+        - --Blocks.ParallelExecution=true
+        - --Blocks.ParallelExecutionBatchRead=true
     - id: besu
       client: besu
-      # besu needs --p2p-enabled=true to accept the bootstrap FCU on a snapshot:
-      # its synchronizer must run to register the post-merge head as in-sync,
-      # otherwise besu answers SYNCING. --max-peers=0 + --discovery-enabled=false
-      # (the client defaults) keep it isolated — no real peers.
-      image: hyperledger/besu:26.6.1
+      # bal-devnet-7 is the besu line with amsterdam/BAL (EIP-7928) support.
+      image: ethpandaops/besu:bal-devnet-7
+      # besu reads forks from the genesis, so activate amsterdam at snapshot
+      # block 0's ts (0) + 1 by patching its chainspec at boot.
+      genesis_fork_override:
+        amsterdam: 1
+      environment:
+        BESU_OPTS: "-Xms8g -Xmx8g -XX:+AlwaysPreTouch"
       extra_args:
+        # besu needs --p2p-enabled=true to accept the bootstrap FCU on a snapshot:
+        # its synchronizer must run to register the post-merge head as in-sync,
+        # otherwise besu answers SYNCING. --max-peers=0 + --discovery-enabled=false
+        # (the client defaults) keep it isolated — no real peers.
         - --p2p-enabled=true
+        - --Xplugin-rocksdb-high-spec-enabled=true
+        # BAL "full" mode — mirrors besu-bal-full in ethpandaops/benchmarkoor-tests.
+        - --Xbal-perfect-parallelization-enabled=true
+        - --Xbal-state-root-enabled=true
+        - --Xbal-prefetch-reading-enabled=true
+        - --Xbal-prefetch-batch-size=8
+        - --Xbal-processing-timeout=-1
+        - --Xbal-state-root-timeout=-1
     - id: ethrex
       client: ethrex
-      # ethrex >= v16.0.0 is required: it's the first release with
-      # --skip-genesis-validation (lambdaclass/ethrex#6783), needed because the
-      # state-actor snapshot commits a synthetic state root that the emitted
-      # ethrex-genesis.json (empty alloc) can't reproduce.
-      image: ghcr.io/lambdaclass/ethrex:latest
+      # bal-devnet-7 is the ethrex line with amsterdam/BAL support. ethrex reads
+      # forks from its genesis, so patch amsterdam in at boot.
+      image: ethpandaops/ethrex:bal-devnet-7
+      genesis_fork_override:
+        amsterdam: 1
       extra_args:
+        # --skip-genesis-validation: the state-actor snapshot commits a synthetic
+        # state root the emitted ethrex-genesis.json (empty alloc) can't reproduce.
         - --skip-genesis-validation
+        # ethrex-bal-full knob (mirrors benchmarkoor-tests).
+        - --no-precompile-cache
     - id: erigon
       client: erigon
       # MUST match the erigon that state-actor pins for the snapshot
@@ -278,3 +336,20 @@ runner:
       # reads it correctly and supports the amsterdam/BAL (EIP-7928) fork these
       # benchmarks target.
       image: ethpandaops/erigon:bal-devnet-7
+      extra_args:
+        # erigon supports a geth-style fork override. Snapshot block 0 ts is 0, so
+        # activate amsterdam at ts 1 (the reference devnet uses its real ts).
+        - --override.amsterdam=1
+        # erigon-bal-full knobs (mirror benchmarkoor-tests): keep execution
+        # deterministic/online by disabling background merge/prune/maintenance and
+        # synchronous FCU commit so replayed payloads are validated immediately.
+        - --fcu.background.commit=false
+        - --exec.no-merge=true
+        - --exec.no-prune=true
+        - --exec.no-background-maintenance
+      # erigon is slow to register the snapshot head as in-sync; give the bootstrap
+      # FCU a long runway (mirrors the reference erigon-bal-full).
+      bootstrap_fcu:
+        enabled: true
+        max_retries: 120
+        backoff: 30s
