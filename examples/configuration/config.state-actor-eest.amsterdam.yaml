@@ -328,6 +328,9 @@ runner:
       extra_args:
         # erigon supports a geth-style fork override. Snapshot block 0 ts is 0, so
         # activate amsterdam at ts 1 (the reference devnet uses its real ts).
+        # NB: genesis_fork_override does NOT work for erigon — like geth it reads
+        # the fork schedule from the datadir, not the genesis file, so the flag is
+        # required (a patched genesis is ignored and amsterdam stays inactive).
         - --override.amsterdam=1
         # erigon-bal-full knobs (mirror benchmarkoor-tests): keep execution
         # deterministic/online by disabling background merge/prune/maintenance and
