@@ -1,24 +1,25 @@
-# Building data directories and EEST payloads — AMSTERDAM fill.
+# Building data directories and EEST STATEFUL (EIP-7928 / BAL) payloads — AMSTERDAM fill.
 #
-# state-actor still generates OSAKA snapshot datadirs (stage 1); the eest_payloads
-# stage then fills AMSTERDAM fixtures by booting the filler on the osaka snapshot
-# and scheduling amsterdam to activate at the snapshot block's timestamp + 1 (via
-# fork_activation_genesis → a geth --override.amsterdam=<ts+1> flag). So block 0
-# stays osaka and the first benchmark block (block 1) is amsterdam.
+# state-actor generates OSAKA snapshot datadirs (stage 1); the eest_payloads stage
+# fills AMSTERDAM tests/benchmark/stateful EIP-7928 (BAL) fixtures by booting the geth
+# filler on the osaka snapshot and activating amsterdam at the snapshot block's
+# timestamp + 1 (via fork_activation_genesis → a geth --override.amsterdam=<ts+1> flag).
 #
-# ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.amsterdam.yaml --force
+# These BAL tests are self-contained (each deploys its own contracts via
+# pre.deploy_contract / pre.fund_eoa against the predeployed CREATE2 factory + funded
+# seed), so no extra state-actor entities are needed. The bloatnet stateful tests are
+# NOT built here: test_single_opcode / test_multi_opcode need giant pre-deployed
+# ERC20s/EOAs (50GB..) supplied via --address-stubs, infeasible on this snapshot.
 #
-# Two fixture sets are built: tests/benchmark/compute (target payload-generator-geth,
-# output eest-fixtures-amsterdam) and tests/benchmark/stateful EIP-7928/BAL (target
-# payload-generator-geth-stateful, output eest-fixtures-amsterdam-stateful).
+# Compute fixtures are built by the sibling config:
+#   config.state-actor-eest.simple.amsterdam.compute.yaml
+# Both configs build the same state-actor snapshot — build either one first.
 #
-# Running the COMPUTE benchmark (one instance per client):
-# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.amsterdam.yaml --limit-instance-id=geth
-# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.amsterdam.yaml --limit-instance-id=besu
+# ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.simple.amsterdam.stateful.yaml --force
 #
-# Running the STATEFUL (BAL) benchmark — point the runner at the stateful fixtures:
-# EEST_FIXTURES_DIR=/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful \
-#   ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.amsterdam.yaml --limit-instance-id=geth
+# Running the benchmark (one instance per client):
+# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.simple.amsterdam.stateful.yaml --limit-instance-id=geth
+# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.simple.amsterdam.stateful.yaml --limit-instance-id=besu
 #
 # Each client activates amsterdam on the osaka snapshot one of three ways:
 #   - geth, erigon:        CLI fork override (--override.amsterdam=<ts>)
@@ -86,7 +87,7 @@ builder:
       - client: erigon
         output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon
 
-  ## Stage 2: Building EEST stateful fixtures
+  ## Stage 2: Building EEST stateful (EIP-7928 / BAL) fixtures
   eest_payloads:
     # Build the fill image (uv/python toolchain) from the repo's Dockerfile instead
     # of pulling a pre-built one. Alternatively set fill_image: <pre-built image>.
@@ -95,8 +96,6 @@ builder:
     eest_repo: https://github.com/skylenet/execution-specs.git
     eest_ref: devnets/bal/7-bench-cap-aware-deploy
     config:
-      # filler_image is set per-target below so each target can fill with a
-      # different client. Shared knobs stay here and are hoisted into every target.
       fork: amsterdam            # fill amsterdam fixtures (snapshot stays osaka)
       # Pin the seed key so its account (0x7e5f…bdf, privkey 1) can be pre-funded
       # in the snapshot above — lets fill-stateful skip the withdrawal funding
@@ -104,88 +103,20 @@ builder:
       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
       gas_benchmark_values: [10]  # Millions of gas to parametrise against
       datadir_method: copy        # 1GB snapshot; copy is fine (For bigger dirs we should use zfs/overlayfs/schelk)
-    # fill-stateful forces testing_buildBlockV1 + debug_setHead, so a filler must
-    # implement both. geth (ethpandaops/geth) does. besu/nethermind are plumbed
-    # in benchmarkoor (see fillerCommand in pkg/builder) but blocked upstream, so
-    # their targets are commented out below — uncomment to experiment once the
-    # upstream gaps close.
-    #
     # amsterdam fill: filler_image must be a geth that registers --override.amsterdam
     # (bal-devnet-7 + the amsterdam-override patch). fork_activation_genesis reads
     # the snapshot block's timestamp and the builder boots the filler with
     # --override.amsterdam=<timestamp + 1>.
     targets:
-      - name: payload-generator-geth
+      - name: payload-generator-geth-stateful
         filler_client: geth
         filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
         source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
         # Schedule amsterdam at the osaka snapshot block 0's timestamp + 1.
         fork_activation_genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
-        output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam}
-        tests:
-          - tests/benchmark/compute   # pytest paths inside the fill image
-        # Exclude the currently-failing compute tests so the fill is green. Reasons:
-        #   blockhash: 256-block chain exceeds geth pathdb rewind (per-test reset)
-        #   blobhash:  geth testing_buildBlockV1 panics on blob txs (no sidecar)
-        #   the rest:  amsterdam gas-repricing mismatches / sizing / setup issues
-        # NB: -k is substring-based, so this also drops the passing
-        # test_creates_collisions and test_storage_access_cold_benchmark.
-        filter: >-
-          not test_blockhash
-          and not test_blobhash
-          and not test_create
-          and not test_auth_transaction
-          and not test_unchunkified_bytecode
-          and not test_storage_access_cold
-          and not test_jumpdest_analysis
-          and not test_state_root_computation
-          and not test_contract_creation
-          and not test_contract_calling_many_addresses
-          and not test_selfdestruct_created
-          and not test_selfdestruct_initcode
-          and not test_block_full_data
-          and not test_prefetch_cold_storage
-          and not test_ext_account_query_cold
-      # Stateful EIP-7928 (BAL) benchmarks. Self-contained like the compute tests
-      # (each deploys its own contracts via pre.deploy_contract / pre.fund_eoa
-      # against the predeployed CREATE2 factory + funded seed), so no extra
-      # state-actor entities are needed. The bloatnet stateful tests are NOT built
-      # here: test_single_opcode / test_multi_opcode need giant pre-deployed ERC20s
-      # /EOAs (50GB..) supplied via --address-stubs, infeasible on this snapshot.
-      - name: payload-generator-geth-stateful
-        filler_client: geth
-        filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
-        fork_activation_genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
-        output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam}-stateful
+        output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful}
         tests:
           - tests/benchmark/stateful/eip7928_block_level_access_lists
-      # besu: testing_buildBlockV1 (TESTING namespace, besu-eth/besu#9838),
-      # debug_setHead and the session-fee pin all work, but besu's self-built
-      # block fails its own engine_newPayloadV4 with a World-State-Root mismatch
-      # (upstream besu bug in testing_buildBlockV1). Re-enable when fixed.
-      # - name: payload-generator-besu
-      #   filler_client: besu
-      #   filler_image: hyperledger/besu:26.6.1   # >= 26.6 ships testing_buildBlockV1
-      #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
-      #   genesis_file: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
-      #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-besu
-      #   tests:
-      #     - tests/benchmark/compute
-      #   filter: bn128
-      # nethermind: testing_buildBlockV1 works (Testing module in the special
-      # nethermindeth/nethermind:testing_build_block_with_opcode_tracing image),
-      # but debug_setHead is unimplemented (the per-test rewind aborts the run)
-      # and its receipt trips EEST's strict model. Re-enable when fixed.
-      # - name: payload-generator-nethermind
-      #   filler_client: nethermind
-      #   filler_image: nethermindeth/nethermind:testing_build_block_with_opcode_tracing
-      #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
-      #   genesis_file: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
-      #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-nethermind
-      #   tests:
-      #     - tests/benchmark/compute
-      #   filter: bn128
 
 ## Stage 3: Run benchmarks using the state-actor datadirs and the eest payloads
 runner:
@@ -198,7 +129,7 @@ runner:
     tests:
       source:
         eest_fixtures:
-          local_fixtures_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam}
+          local_fixtures_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful}
           fixtures_subdir: blockchain_tests_stateful_engine
   client:
     config:

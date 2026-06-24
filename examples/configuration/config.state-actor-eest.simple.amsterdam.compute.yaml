@@ -1,0 +1,351 @@
+# Building data directories and EEST COMPUTE payloads — AMSTERDAM fill.
+#
+# state-actor generates OSAKA snapshot datadirs (stage 1); the eest_payloads stage
+# fills AMSTERDAM tests/benchmark/compute fixtures by booting the geth filler on the
+# osaka snapshot and activating amsterdam at the snapshot block's timestamp + 1 (via
+# fork_activation_genesis → a geth --override.amsterdam=<ts+1> flag). So block 0 stays
+# osaka and the first benchmark block (block 1) is amsterdam.
+#
+# Stateful (EIP-7928 / BAL) fixtures are built by the sibling config:
+#   config.state-actor-eest.simple.amsterdam.stateful.yaml
+# Both configs build the same state-actor snapshot — build either one first.
+#
+# ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.simple.amsterdam.compute.yaml --force
+#
+# Running the benchmark (one instance per client):
+# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.simple.amsterdam.compute.yaml --limit-instance-id=geth
+# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.simple.amsterdam.compute.yaml --limit-instance-id=besu
+#
+# Each client activates amsterdam on the osaka snapshot one of three ways:
+#   - geth, erigon:        CLI fork override (--override.amsterdam=<ts>)
+#   - besu, reth, ethrex:  genesis_fork_override (benchmarkoor sets <fork>Time in
+#                          the geth-format genesis at boot)
+#   - nethermind:          genesis_eip_override (benchmarkoor sets the amsterdam
+#                          EIPs' eip<N>TransitionTimestamp in the parity chainspec)
+# Snapshot block 0's timestamp is 0, so amsterdam is scheduled at ts 1.
+#
+global:
+  log_level: info
+
+builder:
+  ## Stage 1: Building datadirs using state-actor
+  state_actor:
+    images:
+      geth: ghcr.io/ethereum/state-actor:main
+      reth: ghcr.io/ethereum/state-actor-reth:main
+      besu: ghcr.io/ethereum/state-actor-besu:main
+      nethermind: ghcr.io/ethereum/state-actor-nethermind:main
+      ethrex: ghcr.io/ethereum/state-actor-ethrex:main
+      erigon: ghcr.io/ethereum/state-actor-erigon:main
+    pull_policy: always
+    config:
+      seed: 1234
+      fork: osaka
+      chain: 1337
+      gas_limit: 300000000 # 300M
+      target_size: 256MB
+      #target_size: 20GB
+    spec: |
+      entities:
+        # Predeploy the Arachnid deterministic-deployment proxy at the canonical
+        # 0x4e59…956c. EEST's fill bootstrap deploys it via a keyless tx with a
+        # fixed 100k gas limit, which amsterdam's state-expansion gas (EIP-7928/
+        # 8037, ~324k for this proxy) exceeds — so it must be predeployed. EEST
+        # detects the existing bytecode and skips the keyless deploy.
+        - kind: contract
+          template: create2_factory
+          name: deterministic-deployment-proxy
+          # Explicit canonical address: with a name set, the address would
+          # otherwise be name-derived instead of the Arachnid default.
+          address: 0x4e59b44847b379578588920cA78FbF26c0B4956C
+        # Pre-fund fill-stateful's seed account (rpc_seed_key=0x..01 → this
+        # address). With the seed already funded, fill-stateful skips the
+        # withdrawal funding block, so start_block == the snapshot block, whose
+        # persistent state debug_setHead can always rewind to between tests.
+        # Balance must be >= SEED_FUNDING_WEI (1e27); 1e28 gives headroom.
+        - kind: eoa
+          name: fill-stateful-seed
+          address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
+          balance: "10000000000000000000000000000"
+          nonce: 0
+    targets:
+      - client: geth
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+      - client: reth
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth
+      - client: nethermind
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+      - client: besu
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+      - client: ethrex
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex
+      - client: erigon
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon
+
+  ## Stage 2: Building EEST compute fixtures
+  eest_payloads:
+    # Build the fill image (uv/python toolchain) from the repo's Dockerfile instead
+    # of pulling a pre-built one. Alternatively set fill_image: <pre-built image>.
+    fill_dockerfile: Dockerfile.eest-filler
+    pull_policy: if-not-present
+    eest_repo: https://github.com/skylenet/execution-specs.git
+    eest_ref: devnets/bal/7-bench-cap-aware-deploy
+    config:
+      # filler_image is set per-target below so each target can fill with a
+      # different client. Shared knobs stay here and are hoisted into every target.
+      fork: amsterdam            # fill amsterdam fixtures (snapshot stays osaka)
+      # Pin the seed key so its account (0x7e5f…bdf, privkey 1) can be pre-funded
+      # in the snapshot above — lets fill-stateful skip the withdrawal funding
+      # block so start_block == the snapshot block (stable per-test rewind).
+      rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+      gas_benchmark_values: [10]  # Millions of gas to parametrise against
+      datadir_method: copy        # 1GB snapshot; copy is fine (For bigger dirs we should use zfs/overlayfs/schelk)
+    # fill-stateful forces testing_buildBlockV1 + debug_setHead, so a filler must
+    # implement both. geth (ethpandaops/geth) does. besu/nethermind are plumbed
+    # in benchmarkoor (see fillerCommand in pkg/builder) but blocked upstream, so
+    # their targets are commented out below — uncomment to experiment once the
+    # upstream gaps close.
+    #
+    # amsterdam fill: filler_image must be a geth that registers --override.amsterdam
+    # (bal-devnet-7 + the amsterdam-override patch). fork_activation_genesis reads
+    # the snapshot block's timestamp and the builder boots the filler with
+    # --override.amsterdam=<timestamp + 1>.
+    targets:
+      - name: payload-generator-geth
+        filler_client: geth
+        filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        # Schedule amsterdam at the osaka snapshot block 0's timestamp + 1.
+        fork_activation_genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
+        output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam}
+        tests:
+          - tests/benchmark/compute   # pytest paths inside the fill image
+        # Exclude the currently-failing compute tests so the fill is green. Reasons:
+        #   blockhash: 256-block chain exceeds geth pathdb rewind (per-test reset)
+        #   blobhash:  geth testing_buildBlockV1 panics on blob txs (no sidecar)
+        #   the rest:  amsterdam gas-repricing mismatches / sizing / setup issues
+        # NB: -k is substring-based, so this also drops the passing
+        # test_creates_collisions and test_storage_access_cold_benchmark.
+        filter: >-
+          not test_blockhash
+          and not test_blobhash
+          and not test_create
+          and not test_auth_transaction
+          and not test_unchunkified_bytecode
+          and not test_storage_access_cold
+          and not test_jumpdest_analysis
+          and not test_state_root_computation
+          and not test_contract_creation
+          and not test_contract_calling_many_addresses
+          and not test_selfdestruct_created
+          and not test_selfdestruct_initcode
+          and not test_block_full_data
+          and not test_prefetch_cold_storage
+          and not test_ext_account_query_cold
+      # besu: testing_buildBlockV1 (TESTING namespace, besu-eth/besu#9838),
+      # debug_setHead and the session-fee pin all work, but besu's self-built
+      # block fails its own engine_newPayloadV4 with a World-State-Root mismatch
+      # (upstream besu bug in testing_buildBlockV1). Re-enable when fixed.
+      # - name: payload-generator-besu
+      #   filler_client: besu
+      #   filler_image: hyperledger/besu:26.6.1   # >= 26.6 ships testing_buildBlockV1
+      #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+      #   genesis_file: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
+      #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-besu
+      #   tests:
+      #     - tests/benchmark/compute
+      #   filter: bn128
+      # nethermind: testing_buildBlockV1 works (Testing module in the special
+      # nethermindeth/nethermind:testing_build_block_with_opcode_tracing image),
+      # but debug_setHead is unimplemented (the per-test rewind aborts the run)
+      # and its receipt trips EEST's strict model. Re-enable when fixed.
+      # - name: payload-generator-nethermind
+      #   filler_client: nethermind
+      #   filler_image: nethermindeth/nethermind:testing_build_block_with_opcode_tracing
+      #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+      #   genesis_file: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+      #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-nethermind
+      #   tests:
+      #     - tests/benchmark/compute
+      #   filter: bn128
+
+## Stage 3: Run benchmarks using the state-actor datadirs and the eest payloads
+runner:
+  client_logs_to_stdout: true
+  cleanup_on_start: false
+  benchmark:
+    results_dir: ./results
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      source:
+        eest_fixtures:
+          local_fixtures_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam}
+          fixtures_subdir: blockchain_tests_stateful_engine
+  client:
+    config:
+      # Booting from a snapshot datadir leaves the Engine API forkchoice head
+      # un-established, so clients answer SYNCING to every newPayload. A bootstrap
+      # FCU to the snapshot head makes them canonical and ready to validate the
+      # replayed payloads (required for besu/reth/nethermind; geth is fine without).
+      bootstrap_fcu:
+        enabled: true
+        max_retries: 10
+        backoff: 1s
+      genesis:
+        # nethermind reads a parity-format chainspec that schedules forks per-EIP,
+        # so amsterdam is activated via the per-instance genesis_eip_override below
+        # (not genesis_fork_override). The osaka chainspec is used as-is.
+        nethermind: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+        #geth: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
+        reth:  ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth/chainspec.json
+        # besu/reth/ethrex have no --override.amsterdam flag — they read forks
+        # from the genesis. benchmarkoor patches it for them at boot via the
+        # per-instance genesis_fork_override below (sets amsterdamTime + inherits
+        # the amsterdam blobSchedule), so the osaka chainspec is used as-is.
+        besu: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
+        ethrex: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex/ethrex-genesis.json
+        # erigon consumes a geth-format genesis via its init container. Filename
+        # follows the per-client state-actor convention (geth-genesis.json,
+        # ethrex-genesis.json); confirm/adjust once state-actor publishes the
+        # erigon image.
+        erigon: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon/chainspec.json
+        #erigon: /tmp/benchmarkoor/state-actor/geth/geth-genesis.json
+
+    datadirs:
+      geth:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        method: copy
+      reth:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth
+        method: copy
+      nethermind:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+        method: copy
+      besu:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+        method: copy
+      ethrex:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex
+        method: copy
+      erigon:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon
+        method: copy
+
+  instances:
+    - id: geth
+      client: geth
+      image: skylenet/geth:bal-devnet-7-amsterdam-override
+      extra_args:
+        # Activate amsterdam at snapshot block 0's timestamp (0) + 1. The snapshot
+        # is osaka and geth boots from the datadir (its genesis is commented out
+        # above), so without this the amsterdam payloads (newPayloadV5) would be
+        # rejected. Needs the amsterdam-override image; a stock geth ignores it.
+        - --override.amsterdam=1
+    - id: reth
+      client: reth
+      # bal-devnet-7 is the reth line with amsterdam/BAL support. reth reads forks
+      # from its chainspec, so patch amsterdam in at boot.
+      image: ethpandaops/reth:bal-devnet-7
+      genesis_fork_override:
+        amsterdam: 1
+      extra_args:
+        # reth-bal-full knobs (mirror benchmarkoor-tests): "full" is the default
+        # BAL mode, so only the slow-block log threshold is set.
+        - --engine.slow-block-threshold=0
+      # Booting from a snapshot, reth can answer the first newPayload before the
+      # forkchoice head is established; retry the non-SYNCING failure briefly.
+      retry_new_payloads_failed_state:
+        enabled: true
+        max_retries: 10
+        backoff: 1s
+    - id: nethermind
+      client: nethermind
+      image: nethermindeth/nethermind:master
+      # nethermind's parity chainspec schedules forks per-EIP, so activate the
+      # amsterdam-devnet-7 EIP set at snapshot block 0's ts (0) + 1. benchmarkoor
+      # patches params.eip<N>TransitionTimestamp into the chainspec at boot.
+      genesis_eip_override:
+        timestamp: 1
+        eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037]
+      extra_args:
+        # benchmarkoor mounts the datadir at /data and the nethermind client
+        # passes --datadir=/data, but nethermind's BaseDbPath then defaults to
+        # /data/nethermind_db/<network>/ — so it reads a fresh EMPTY state db and
+        # ignores the state-actor snapshot written directly under /data/{state,
+        # blocks,headers,blockInfos}. It then builds genesis from the empty-alloc
+        # chainspec, so HasStateForBlock(genesis) is false and every replayed
+        # newPayload answers SYNCING. Pointing BaseDbPath at /data makes nethermind
+        # read the snapshot directly (it then logs "Detected HalfPath key scheme").
+        - --Init.BaseDbPath=/data
+        # nethermind-bal-full knobs (mirror benchmarkoor-tests).
+        - --Blocks.ParallelExecution=true
+        - --Blocks.ParallelExecutionBatchRead=true
+    - id: besu
+      client: besu
+      # bal-devnet-7 is the besu line with amsterdam/BAL (EIP-7928) support.
+      image: ethpandaops/besu:bal-devnet-7
+      # besu reads forks from the genesis, so activate amsterdam at snapshot
+      # block 0's ts (0) + 1 by patching its chainspec at boot.
+      genesis_fork_override:
+        amsterdam: 1
+      environment:
+        BESU_OPTS: "-Xms8g -Xmx8g -XX:+AlwaysPreTouch"
+      extra_args:
+        # besu needs --p2p-enabled=true to accept the bootstrap FCU on a snapshot:
+        # its synchronizer must run to register the post-merge head as in-sync,
+        # otherwise besu answers SYNCING. --max-peers=0 + --discovery-enabled=false
+        # (the client defaults) keep it isolated — no real peers.
+        - --p2p-enabled=true
+        - --Xplugin-rocksdb-high-spec-enabled=true
+        # BAL "full" mode — mirrors besu-bal-full in ethpandaops/benchmarkoor-tests.
+        - --Xbal-perfect-parallelization-enabled=true
+        - --Xbal-state-root-enabled=true
+        - --Xbal-prefetch-reading-enabled=true
+        - --Xbal-prefetch-batch-size=8
+        - --Xbal-processing-timeout=-1
+        - --Xbal-state-root-timeout=-1
+    - id: ethrex
+      client: ethrex
+      # bal-devnet-7 is the ethrex line with amsterdam/BAL support. ethrex reads
+      # forks from its genesis, so patch amsterdam in at boot.
+      image: ethpandaops/ethrex:bal-devnet-7
+      genesis_fork_override:
+        amsterdam: 1
+      extra_args:
+        # --skip-genesis-validation: the state-actor snapshot commits a synthetic
+        # state root the emitted ethrex-genesis.json (empty alloc) can't reproduce.
+        - --skip-genesis-validation
+        # ethrex-bal-full knob (mirrors benchmarkoor-tests).
+        - --no-precompile-cache
+    - id: erigon
+      client: erigon
+      # MUST match the erigon that state-actor pins for the snapshot
+      # (Dockerfile.erigon builds erigon at the bal-devnet-7 commit and notes the
+      # daemon must use that exact binary). state-actor's `erigon init` encodes the
+      # MDBX chain config the bal-devnet-7 way (e.g. chainId as a JSON string);
+      # stable erigon (erigontech/erigon:latest, 3.4.x) panics reading it back with
+      # "cannot unmarshal \"1337\" into a *big.Int". ethpandaops/erigon:bal-devnet-7
+      # reads it correctly and supports the amsterdam/BAL (EIP-7928) fork these
+      # benchmarks target.
+      image: ethpandaops/erigon:bal-devnet-7
+      extra_args:
+        # erigon supports a geth-style fork override. Snapshot block 0 ts is 0, so
+        # activate amsterdam at ts 1 (the reference devnet uses its real ts).
+        # NB: genesis_fork_override does NOT work for erigon — like geth it reads
+        # the fork schedule from the datadir, not the genesis file, so the flag is
+        # required (a patched genesis is ignored and amsterdam stays inactive).
+        - --override.amsterdam=1
+        # erigon-bal-full knobs (mirror benchmarkoor-tests): keep execution
+        # deterministic/online by disabling background merge/prune/maintenance and
+        # synchronous FCU commit so replayed payloads are validated immediately.
+        - --fcu.background.commit=false
+        - --exec.no-merge=true
+        - --exec.no-prune=true
+        - --exec.no-background-maintenance
+      # erigon is slow to register the snapshot head as in-sync; give the bootstrap
+      # FCU a long runway (mirrors the reference erigon-bal-full).
+      bootstrap_fcu:
+        enabled: true
+        max_retries: 120
+        backoff: 30s
