@@ -226,7 +226,13 @@ runner:
   instances:
     - id: geth
       client: geth
-      image: ethpandaops/geth:master
+      image: skylenet/geth:bal-devnet-7-amsterdam-override
+      extra_args:
+        # Activate amsterdam at snapshot block 0's timestamp (0) + 1. The snapshot
+        # is osaka and geth boots from the datadir (its genesis is commented out
+        # above), so without this the amsterdam payloads (newPayloadV5) would be
+        # rejected. Needs the amsterdam-override image; a stock geth ignores it.
+        - --override.amsterdam=1
     - id: reth
       client: reth
       #image: ghcr.io/paradigmxyz/reth:latest
