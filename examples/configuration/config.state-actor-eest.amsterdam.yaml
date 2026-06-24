@@ -8,9 +8,17 @@
 #
 # ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.amsterdam.yaml --force
 #
-# Running the benchmark (one instance per client):
+# Two fixture sets are built: tests/benchmark/compute (target payload-generator-geth,
+# output eest-fixtures-amsterdam) and tests/benchmark/stateful EIP-7928/BAL (target
+# payload-generator-geth-stateful, output eest-fixtures-amsterdam-stateful).
+#
+# Running the COMPUTE benchmark (one instance per client):
 # ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.amsterdam.yaml --limit-instance-id=geth
 # ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.amsterdam.yaml --limit-instance-id=besu
+#
+# Running the STATEFUL (BAL) benchmark — point the runner at the stateful fixtures:
+# EEST_FIXTURES_DIR=/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful \
+#   ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.amsterdam.yaml --limit-instance-id=geth
 #
 # Each client activates amsterdam on the osaka snapshot one of three ways:
 #   - geth, erigon:        CLI fork override (--override.amsterdam=<ts>)
@@ -138,6 +146,20 @@ builder:
           and not test_block_full_data
           and not test_prefetch_cold_storage
           and not test_ext_account_query_cold
+      # Stateful EIP-7928 (BAL) benchmarks. Self-contained like the compute tests
+      # (each deploys its own contracts via pre.deploy_contract / pre.fund_eoa
+      # against the predeployed CREATE2 factory + funded seed), so no extra
+      # state-actor entities are needed. The bloatnet stateful tests are NOT built
+      # here: test_single_opcode / test_multi_opcode need giant pre-deployed ERC20s
+      # /EOAs (50GB..) supplied via --address-stubs, infeasible on this snapshot.
+      - name: payload-generator-geth-stateful
+        filler_client: geth
+        filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        fork_activation_genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
+        output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam}-stateful
+        tests:
+          - tests/benchmark/stateful/eip7928_block_level_access_lists
       # besu: testing_buildBlockV1 (TESTING namespace, besu-eth/besu#9838),
       # debug_setHead and the session-fee pin all work, but besu's self-built
       # block fails its own engine_newPayloadV4 with a World-State-Root mismatch
