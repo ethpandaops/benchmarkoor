@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -12,6 +14,40 @@ import (
 
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 )
+
+// maxResultPathComponent caps each path component of a test result directory
+// below the common 255-byte filename limit, leaving headroom for suffixes like
+// ".request". EEST benchmark node ids — especially the verbose stateful/bloatnet
+// params — can exceed the limit and make MkdirAll fail with "file name too long".
+const maxResultPathComponent = 200
+
+// sanitizeResultPath caps each "/"-separated component of a test result path to
+// maxResultPathComponent bytes. Over-long components are truncated and suffixed
+// with a short content hash so they stay unique and stable; components within
+// the limit are returned unchanged (so existing layouts don't move). Apply it
+// consistently wherever a test name becomes a filesystem path (suite output,
+// step results, post-test dir) so the directories match. The result.json inside
+// still records the full test name, and result aggregation walks the tree, so
+// truncating the directory name is safe.
+func sanitizeResultPath(name string) string {
+	parts := strings.Split(name, "/")
+
+	changed := false
+
+	for i, p := range parts {
+		if len(p) > maxResultPathComponent {
+			sum := sha256.Sum256([]byte(p))
+			parts[i] = p[:maxResultPathComponent-17] + "-" + hex.EncodeToString(sum[:8])
+			changed = true
+		}
+	}
+
+	if !changed {
+		return name
+	}
+
+	return strings.Join(parts, "/")
+}
 
 // MethodStats contains aggregated statistics for a single method (int64 values).
 type MethodStats struct {
@@ -570,7 +606,7 @@ func WriteStepResults(
 	owner *fsutil.OwnerConfig,
 ) error {
 	// Ensure the test directory exists.
-	testDir := filepath.Join(resultDir, testName)
+	testDir := filepath.Join(resultDir, sanitizeResultPath(testName))
 	if err := fsutil.MkdirAll(testDir, 0755, owner); err != nil {
 		return fmt.Errorf("creating test result directory: %w", err)
 	}

@@ -1761,7 +1761,7 @@ func executeSimpleRPC(ctx context.Context, endpoint, payload string) (string, er
 func (e *executor) dumpPostTestResponse(
 	resultsDir, testName, filename, response string,
 ) error {
-	postTestDir := filepath.Join(resultsDir, testName, "post_test_rpc_calls")
+	postTestDir := filepath.Join(resultsDir, sanitizeResultPath(testName), "post_test_rpc_calls")
 	if err := fsutil.MkdirAll(postTestDir, 0755, e.cfg.ResultsOwner); err != nil {
 		return fmt.Errorf("creating post_test_rpc_calls directory: %w", err)
 	}

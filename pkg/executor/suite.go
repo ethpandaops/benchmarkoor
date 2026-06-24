@@ -207,7 +207,7 @@ func CreateSuiteOutput(
 			}
 
 			// Create test directory.
-			testDir := filepath.Join(suiteDir, test.Name)
+			testDir := filepath.Join(suiteDir, sanitizeResultPath(test.Name))
 			if err := fsutil.MkdirAll(testDir, 0755, owner); err != nil {
 				return fmt.Errorf("creating test dir for %s: %w", test.Name, err)
 			}
@@ -318,7 +318,7 @@ func CreateSuiteOutput(
 				mergeOpcodeData(existing.Tests, prepared)
 
 				lineProvider := func(testName string, step StepKind) []string {
-					reqPath := filepath.Join(suiteDir, testName, string(step)+".request")
+					reqPath := filepath.Join(suiteDir, sanitizeResultPath(testName), string(step)+".request")
 					data, err := os.ReadFile(reqPath)
 					if err != nil {
 						// Missing files are normal — most tests don't have setup/cleanup.
