@@ -2,9 +2,9 @@
 #
 # state-actor generates OSAKA snapshot datadirs (stage 1); the eest_payloads stage
 # fills AMSTERDAM tests/benchmark/compute fixtures by booting the geth filler on the
-# osaka snapshot and activating amsterdam at the snapshot block's timestamp + 1 (via
-# fork_activation_genesis → a geth --override.amsterdam=<ts+1> flag). So block 0 stays
-# osaka and the first benchmark block (block 1) is amsterdam.
+# osaka snapshot and activating amsterdam at block 0's timestamp + 1 via geth's
+# --override.amsterdam=1 flag (filler_extra_args). So block 0 stays osaka and the
+# first benchmark block (block 1) is amsterdam.
 #
 # Stateful (EIP-7928 / BAL) fixtures are built by the sibling config:
 #   config.state-actor-eest.simple.amsterdam.stateful.yaml
@@ -107,16 +107,17 @@ builder:
     # upstream gaps close.
     #
     # amsterdam fill: filler_image must be a geth that registers --override.amsterdam
-    # (bal-devnet-7 + the amsterdam-override patch). fork_activation_genesis reads
-    # the snapshot block's timestamp and the builder boots the filler with
-    # --override.amsterdam=<timestamp + 1>.
+    # (bal-devnet-7 + the amsterdam-override patch); the geth target passes
+    # --override.amsterdam=1 via filler_extra_args (snapshot block 0 ts is 0).
     targets:
       - name: payload-generator-geth
         filler_client: geth
         filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
         source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
-        # Schedule amsterdam at the osaka snapshot block 0's timestamp + 1.
-        fork_activation_genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
+        # geth boots from the snapshot datadir; activate amsterdam at block 0's
+        # timestamp (0) + 1 via the override flag — same as the runner geth instance.
+        filler_extra_args:
+          - --override.amsterdam=1
         output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam}
         tests:
           - tests/benchmark/compute   # pytest paths inside the fill image
@@ -150,7 +151,7 @@ builder:
       #   filler_client: besu
       #   filler_image: hyperledger/besu:26.6.1   # >= 26.6 ships testing_buildBlockV1
       #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
-      #   genesis_file: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
+      #   genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
       #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-besu
       #   tests:
       #     - tests/benchmark/compute
@@ -163,7 +164,7 @@ builder:
       #   filler_client: nethermind
       #   filler_image: nethermindeth/nethermind:testing_build_block_with_opcode_tracing
       #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
-      #   genesis_file: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+      #   genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
       #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-nethermind
       #   tests:
       #     - tests/benchmark/compute

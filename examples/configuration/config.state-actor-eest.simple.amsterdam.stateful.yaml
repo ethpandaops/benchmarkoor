@@ -2,8 +2,8 @@
 #
 # state-actor generates OSAKA snapshot datadirs (stage 1); the eest_payloads stage
 # fills AMSTERDAM tests/benchmark/stateful EIP-7928 (BAL) fixtures by booting the geth
-# filler on the osaka snapshot and activating amsterdam at the snapshot block's
-# timestamp + 1 (via fork_activation_genesis → a geth --override.amsterdam=<ts+1> flag).
+# filler on the osaka snapshot and activating amsterdam at block 0's timestamp + 1
+# via geth's --override.amsterdam=1 flag (filler_extra_args).
 #
 # These BAL tests are self-contained (each deploys its own contracts via
 # pre.deploy_contract / pre.fund_eoa against the predeployed CREATE2 factory + funded
@@ -104,16 +104,17 @@ builder:
       gas_benchmark_values: [10]  # Millions of gas to parametrise against
       datadir_method: copy        # 1GB snapshot; copy is fine (For bigger dirs we should use zfs/overlayfs/schelk)
     # amsterdam fill: filler_image must be a geth that registers --override.amsterdam
-    # (bal-devnet-7 + the amsterdam-override patch). fork_activation_genesis reads
-    # the snapshot block's timestamp and the builder boots the filler with
-    # --override.amsterdam=<timestamp + 1>.
+    # (bal-devnet-7 + the amsterdam-override patch); the geth target passes
+    # --override.amsterdam=1 via filler_extra_args (snapshot block 0 ts is 0).
     targets:
       - name: payload-generator-geth-stateful
         filler_client: geth
         filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
         source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
-        # Schedule amsterdam at the osaka snapshot block 0's timestamp + 1.
-        fork_activation_genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
+        # geth boots from the snapshot datadir; activate amsterdam at block 0's
+        # timestamp (0) + 1 via the override flag — same as the runner geth instance.
+        filler_extra_args:
+          - --override.amsterdam=1
         output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful}
         tests:
           - tests/benchmark/stateful/eip7928_block_level_access_lists

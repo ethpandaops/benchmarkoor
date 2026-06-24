@@ -1,11 +1,14 @@
-package runner
+// Package genesis patches client genesis/chainspec JSON to activate forks that
+// the file doesn't already schedule — the file-based equivalent of geth's
+// --override.<fork> flag, for clients that read their fork schedule from the
+// genesis. It is shared by the runner (boot genesis) and the eest_payloads
+// builder (filler boot genesis) so both use the same vocabulary.
+package genesis
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-
-	"github.com/ethpandaops/benchmarkoor/pkg/config"
 )
 
 // blobForkOrder lists the blob-bearing forks in activation order. When a fork
@@ -14,18 +17,18 @@ import (
 // clients reject an active fork that carries no blob schedule.
 var blobForkOrder = []string{"cancun", "prague", "osaka", "amsterdam"}
 
-// applyGenesisForkOverrides patches a geth-format genesis JSON so the given
-// forks activate at the given timestamps. It is the genesis-file equivalent of
-// geth's --override.<fork> flag, for clients that instead read their fork
-// schedule from the genesis (besu, reth, ethrex). For each fork it sets
-// config.<fork>Time and, when a blobSchedule is present but lacks the fork,
-// inherits the latest preceding fork's blob parameters.
+// ApplyForkOverrides patches a geth-format genesis JSON so the given forks
+// activate at the given timestamps (fork name → unix-seconds). It is the
+// genesis-file equivalent of geth's --override.<fork> flag, for clients that
+// read their fork schedule from the genesis (besu, reth, ethrex). For each fork
+// it sets config.<fork>Time and, when a blobSchedule is present but lacks the
+// fork, inherits the latest preceding fork's blob parameters.
 //
 // Only the top-level "config" object is rewritten; every other field round-trips
 // verbatim and existing numbers are preserved exactly (so the genesis block hash
 // is unchanged). It returns an error if the genesis is not geth-format (has no
 // top-level "config" object), since the patch shape is format-specific.
-func applyGenesisForkOverrides(genesis []byte, overrides map[string]uint64) ([]byte, error) {
+func ApplyForkOverrides(genesis []byte, overrides map[string]uint64) ([]byte, error) {
 	if len(overrides) == 0 {
 		return genesis, nil
 	}
@@ -74,17 +77,17 @@ func applyGenesisForkOverrides(genesis []byte, overrides map[string]uint64) ([]b
 	return patched, nil
 }
 
-// applyGenesisEIPOverrides patches a parity/nethermind-format chainspec so the
-// given EIPs activate at the override timestamp. It is the parity-format
-// counterpart of applyGenesisForkOverrides: parity chainspecs schedule forks
-// per-EIP (params.eip<N>TransitionTimestamp) rather than by fork name, so the
+// ApplyEIPOverrides patches a parity/nethermind-format chainspec so the given
+// EIPs activate at timestamp. It is the parity-format counterpart of
+// ApplyForkOverrides: parity chainspecs schedule forks per-EIP
+// (params.eip<N>TransitionTimestamp) rather than by fork name, so the
 // devnet-specific EIP list comes from config.
 //
 // Only the "params" object is rewritten; every other field round-trips verbatim.
 // It returns an error if the genesis is not parity-format (has no top-level
 // "params" object).
-func applyGenesisEIPOverrides(genesis []byte, override *config.GenesisEIPOverride) ([]byte, error) {
-	if override == nil || len(override.EIPs) == 0 {
+func ApplyEIPOverrides(genesis []byte, timestamp uint64, eips []uint64) ([]byte, error) {
+	if len(eips) == 0 {
 		return genesis, nil
 	}
 
@@ -110,8 +113,8 @@ func applyGenesisEIPOverrides(genesis []byte, override *config.GenesisEIPOverrid
 	}
 
 	// Parity transition timestamps are hex-encoded strings (e.g. "0x1").
-	ts := fmt.Sprintf("0x%x", override.Timestamp)
-	for _, eip := range override.EIPs {
+	ts := fmt.Sprintf("0x%x", timestamp)
+	for _, eip := range eips {
 		params[fmt.Sprintf("eip%dTransitionTimestamp", eip)] = ts
 	}
 

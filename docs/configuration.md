@@ -1629,7 +1629,10 @@ builder:
       - name: compute-geth
         filler_client: geth
         source_dir: /srv/state/geth-archive     # PRISTINE snapshot (never mutated; a writable copy is filled)
-        genesis_file: /srv/state/geth-archive/genesis.json   # chain config for the filler boot
+        # geth boots from the datadir; to fill a fork that activates after the
+        # snapshot, pass --override.<fork> here (besu/nethermind use `genesis` +
+        # genesis_fork_override / genesis_eip_override instead):
+        # filler_extra_args: [--override.amsterdam=1]
         output_dir: /srv/fixtures/compute
         tests:
           - tests/benchmark/compute              # pytest paths inside the fill image
@@ -1673,7 +1676,9 @@ Identity/locator fields are target-only; the rest mirror `config` and are resolv
 | `name` | string | `filler_client` | Used by `--target` to filter. Must be unique across targets. |
 | `filler_client` | string | – | Client booted as the filler. Must be `geth` (only client supporting `testing_buildBlockV1`). |
 | `source_dir` | string | – | **Absolute** host path to the pristine snapshot datadir (e.g. a `state_actor` `output_dir`). Never mutated — a writable copy is filled. Existence is checked at build time. |
-| `genesis_file` | string | – | **Absolute** host path to the genesis/chain-config the filler boots with (`--override.genesis`). Must match the chain config used to produce `source_dir`. |
+| `genesis` | string | – | **Absolute** host path to the genesis/chainspec the filler boots with (besu/nethermind read their fork schedule from it; passed via the client's genesis flag). Must match the chain config used to produce `source_dir`. geth/erigon boot from the datadir instead and need no `genesis`. |
+| `genesis_fork_override` | map | – | Patch the geth-format `genesis` at filler boot to activate forks at given timestamps (`{amsterdam: 1}` → `config.amsterdamTime`, inheriting the blob schedule). For besu/reth/ethrex fillers. Same mechanism as the runner. Requires `genesis`. |
+| `genesis_eip_override` | object | – | Patch a parity/nethermind `genesis` at filler boot, setting `params.eip<N>TransitionTimestamp` for each listed EIP. Fields: `timestamp` (uint), `eips` ([]uint). For the nethermind filler. Requires `genesis`; mutually exclusive with `genesis_fork_override`. |
 | `output_dir` | string | – | **Absolute** host path for the generated fixtures. Skipped if already populated unless `--force` / `force: true`. Written under `<output_dir>/blockchain_tests_stateful_engine/`. |
 | `tests` | []string | – | **Required.** pytest paths inside the fill image, e.g. `tests/benchmark/compute`. |
 | `filter` | string | – | Optional pytest `-k` expression. |

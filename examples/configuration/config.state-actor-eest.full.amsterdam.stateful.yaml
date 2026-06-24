@@ -152,7 +152,10 @@ builder:
         filler_client: geth
         filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
         source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
-        fork_activation_genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
+        # geth boots from the snapshot datadir; activate amsterdam at block 0's
+        # timestamp (0) + 1 via the override flag — same as the runner geth instance.
+        filler_extra_args:
+          - --override.amsterdam=1
         output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet}
         # Resolves @pytest.mark.stub_parametrize prefixes against pre-deployed
         # state (e.g. bloated_eoa_10GB → 0x87a6…be04). Copy the committed

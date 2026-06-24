@@ -138,7 +138,7 @@ func TestFillerGethCommand(t *testing.T) {
 	t.Run("with genesis and extra args", func(t *testing.T) {
 		cmd := fillerGethCommand(&config.EESTPayloadTarget{
 			FillerClient:    "geth",
-			GenesisFile:     "/host/genesis.json",
+			Genesis:         "/host/genesis.json",
 			FillerExtraArgs: []string{"--verbosity=5"},
 		}, spec)
 
@@ -153,7 +153,7 @@ func TestFillerCommand_Besu(t *testing.T) {
 
 	cmd := fillerCommand(&config.EESTPayloadTarget{
 		FillerClient:    "besu",
-		GenesisFile:     "/host/besu-chainspec.json",
+		Genesis:         "/host/besu-chainspec.json",
 		FillerExtraArgs: []string{"--logging=DEBUG"},
 	}, spec)
 
@@ -175,7 +175,7 @@ func TestFillerCommand_Nethermind(t *testing.T) {
 
 	cmd := fillerCommand(&config.EESTPayloadTarget{
 		FillerClient: "nethermind",
-		GenesisFile:  "/host/parity-chainspec.json",
+		Genesis:      "/host/parity-chainspec.json",
 	}, spec)
 
 	assert.Contains(t, cmd, "--datadir=/data")

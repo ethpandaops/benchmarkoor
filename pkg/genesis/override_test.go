@@ -1,4 +1,4 @@
-package runner
+package genesis
 
 import (
 	"encoding/json"
@@ -6,25 +6,22 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ethpandaops/benchmarkoor/pkg/config"
 )
 
-func TestApplyGenesisForkOverrides(t *testing.T) {
+func TestApplyForkOverrides(t *testing.T) {
 	t.Run("no overrides returns input unchanged", func(t *testing.T) {
 		in := []byte(`{"config":{"osakaTime":0}}`)
 
-		out, err := applyGenesisForkOverrides(in, nil)
+		out, err := ApplyForkOverrides(in, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, in, out)
 	})
 
 	t.Run("non-geth genesis errors", func(t *testing.T) {
-		// Parity-format chainspec has params, not config.
 		in := []byte(`{"params":{"eip7825TransitionTimestamp":"0x0"}}`)
 
-		_, err := applyGenesisForkOverrides(in, map[string]uint64{"amsterdam": 1})
+		_, err := ApplyForkOverrides(in, map[string]uint64{"amsterdam": 1})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "geth-format")
@@ -42,7 +39,7 @@ func TestApplyGenesisForkOverrides(t *testing.T) {
 			"gasLimit": "0x11e1a300"
 		}`)
 
-		out, err := applyGenesisForkOverrides(in, map[string]uint64{"amsterdam": 1})
+		out, err := ApplyForkOverrides(in, map[string]uint64{"amsterdam": 1})
 		require.NoError(t, err)
 
 		cfg := decodeConfig(t, out)
@@ -56,7 +53,6 @@ func TestApplyGenesisForkOverrides(t *testing.T) {
 		assert.EqualValues(t, 12, amsterdam["max"])
 		assert.EqualValues(t, 9, amsterdam["target"])
 
-		// Untouched top-level fields survive.
 		var top map[string]any
 		require.NoError(t, json.Unmarshal(out, &top))
 		assert.Equal(t, "0x11e1a300", top["gasLimit"])
@@ -69,7 +65,7 @@ func TestApplyGenesisForkOverrides(t *testing.T) {
 			"osaka":{"max":12}
 		}}}`)
 
-		out, err := applyGenesisForkOverrides(in, map[string]uint64{"amsterdam": 1})
+		out, err := ApplyForkOverrides(in, map[string]uint64{"amsterdam": 1})
 		require.NoError(t, err)
 
 		bs := decodeConfig(t, out)["blobSchedule"].(map[string]any)
@@ -83,7 +79,7 @@ func TestApplyGenesisForkOverrides(t *testing.T) {
 			"amsterdam":{"max":99}
 		}}}`)
 
-		out, err := applyGenesisForkOverrides(in, map[string]uint64{"amsterdam": 1})
+		out, err := ApplyForkOverrides(in, map[string]uint64{"amsterdam": 1})
 		require.NoError(t, err)
 
 		bs := decodeConfig(t, out)["blobSchedule"].(map[string]any)
@@ -94,7 +90,7 @@ func TestApplyGenesisForkOverrides(t *testing.T) {
 	t.Run("no blob schedule only sets the time", func(t *testing.T) {
 		in := []byte(`{"config":{"osakaTime":0}}`)
 
-		out, err := applyGenesisForkOverrides(in, map[string]uint64{"amsterdam": 1})
+		out, err := ApplyForkOverrides(in, map[string]uint64{"amsterdam": 1})
 		require.NoError(t, err)
 
 		cfg := decodeConfig(t, out)
@@ -104,10 +100,9 @@ func TestApplyGenesisForkOverrides(t *testing.T) {
 	})
 
 	t.Run("preserves large integers without float corruption", func(t *testing.T) {
-		// A value beyond float64's exact-integer range must round-trip exactly.
 		in := []byte(`{"config":{"terminalTotalDifficulty":115792089237316195423570985008687907853269984665640564039457584007913129639936}}`)
 
-		out, err := applyGenesisForkOverrides(in, map[string]uint64{"amsterdam": 1})
+		out, err := ApplyForkOverrides(in, map[string]uint64{"amsterdam": 1})
 		require.NoError(t, err)
 
 		assert.Contains(t, string(out),
@@ -115,15 +110,11 @@ func TestApplyGenesisForkOverrides(t *testing.T) {
 	})
 }
 
-func TestApplyGenesisEIPOverrides(t *testing.T) {
-	t.Run("nil or empty override returns input unchanged", func(t *testing.T) {
+func TestApplyEIPOverrides(t *testing.T) {
+	t.Run("no eips returns input unchanged", func(t *testing.T) {
 		in := []byte(`{"params":{"eip7825TransitionTimestamp":"0x0"}}`)
 
-		out, err := applyGenesisEIPOverrides(in, nil)
-		require.NoError(t, err)
-		assert.Equal(t, in, out)
-
-		out, err = applyGenesisEIPOverrides(in, &config.GenesisEIPOverride{Timestamp: 1})
+		out, err := ApplyEIPOverrides(in, 1, nil)
 		require.NoError(t, err)
 		assert.Equal(t, in, out)
 	})
@@ -131,9 +122,7 @@ func TestApplyGenesisEIPOverrides(t *testing.T) {
 	t.Run("non-parity genesis errors", func(t *testing.T) {
 		in := []byte(`{"config":{"osakaTime":0}}`)
 
-		_, err := applyGenesisEIPOverrides(in, &config.GenesisEIPOverride{
-			Timestamp: 1, EIPs: []uint64{7928},
-		})
+		_, err := ApplyEIPOverrides(in, 1, []uint64{7928})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "parity")
@@ -142,15 +131,12 @@ func TestApplyGenesisEIPOverrides(t *testing.T) {
 	t.Run("sets eip transition timestamps as hex", func(t *testing.T) {
 		in := []byte(`{"params":{"eip7825TransitionTimestamp":"0x0"},"name":"x"}`)
 
-		out, err := applyGenesisEIPOverrides(in, &config.GenesisEIPOverride{
-			Timestamp: 1, EIPs: []uint64{7928, 8037},
-		})
+		out, err := ApplyEIPOverrides(in, 1, []uint64{7928, 8037})
 		require.NoError(t, err)
 
 		params := decodeParams(t, out)
 		assert.Equal(t, "0x1", params["eip7928TransitionTimestamp"])
 		assert.Equal(t, "0x1", params["eip8037TransitionTimestamp"])
-		// Pre-existing params survive.
 		assert.Equal(t, "0x0", params["eip7825TransitionTimestamp"])
 
 		var top map[string]any
@@ -161,26 +147,12 @@ func TestApplyGenesisEIPOverrides(t *testing.T) {
 	t.Run("encodes larger timestamps as hex", func(t *testing.T) {
 		in := []byte(`{"params":{}}`)
 
-		out, err := applyGenesisEIPOverrides(in, &config.GenesisEIPOverride{
-			Timestamp: 1769856767, EIPs: []uint64{7928},
-		})
+		out, err := ApplyEIPOverrides(in, 1769856767, []uint64{7928})
 		require.NoError(t, err)
 
 		params := decodeParams(t, out)
 		assert.Equal(t, "0x697ddeff", params["eip7928TransitionTimestamp"])
 	})
-}
-
-func decodeParams(t *testing.T, genesis []byte) map[string]any {
-	t.Helper()
-
-	var top map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(genesis, &top))
-
-	var params map[string]any
-	require.NoError(t, json.Unmarshal(top["params"], &params))
-
-	return params
 }
 
 func decodeConfig(t *testing.T, genesis []byte) map[string]any {
@@ -193,4 +165,16 @@ func decodeConfig(t *testing.T, genesis []byte) map[string]any {
 	require.NoError(t, json.Unmarshal(top["config"], &cfg))
 
 	return cfg
+}
+
+func decodeParams(t *testing.T, genesis []byte) map[string]any {
+	t.Helper()
+
+	var top map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(genesis, &top))
+
+	var params map[string]any
+	require.NoError(t, json.Unmarshal(top["params"], &params))
+
+	return params
 }

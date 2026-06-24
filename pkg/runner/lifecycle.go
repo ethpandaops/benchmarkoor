@@ -22,6 +22,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
+	"github.com/ethpandaops/benchmarkoor/pkg/genesis"
 	"github.com/ethpandaops/benchmarkoor/pkg/podman"
 	"github.com/ethpandaops/benchmarkoor/pkg/version"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -198,7 +199,7 @@ func (r *runner) runContainerLifecycle(
 			)
 		}
 
-		patched, overrideErr := applyGenesisForkOverrides(
+		patched, overrideErr := genesis.ApplyForkOverrides(
 			genesisContent, instance.GenesisForkOverride,
 		)
 		if overrideErr != nil {
@@ -223,8 +224,8 @@ func (r *runner) runContainerLifecycle(
 			)
 		}
 
-		patched, overrideErr := applyGenesisEIPOverrides(
-			genesisContent, instance.GenesisEIPOverride,
+		patched, overrideErr := genesis.ApplyEIPOverrides(
+			genesisContent, instance.GenesisEIPOverride.Timestamp, instance.GenesisEIPOverride.EIPs,
 		)
 		if overrideErr != nil {
 			return fmt.Errorf(

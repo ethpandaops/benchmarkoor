@@ -16,6 +16,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/ethpandaops/benchmarkoor/pkg/genesis"
 	"github.com/ethpandaops/benchmarkoor/pkg/gitrepo"
 	"github.com/sirupsen/logrus"
 )
@@ -182,15 +183,9 @@ func (b *EESTPayloadsBuilder) checkInputs(t *config.EESTPayloadTarget) error {
 		return fmt.Errorf("source_dir %q is not a directory", t.SourceDir)
 	}
 
-	if t.GenesisFile != "" {
-		if _, err := os.Stat(t.GenesisFile); err != nil {
-			return fmt.Errorf("genesis_file: %w", err)
-		}
-	}
-
-	if t.ForkActivationGenesis != "" {
-		if _, err := os.Stat(t.ForkActivationGenesis); err != nil {
-			return fmt.Errorf("fork_activation_genesis: %w", err)
+	if t.Genesis != "" {
+		if _, err := os.Stat(t.Genesis); err != nil {
+			return fmt.Errorf("genesis: %w", err)
 		}
 	}
 
@@ -268,21 +263,22 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 		}
 	}()
 
-	// When fork_activation_genesis is set, boot the filler with a
-	// --override.<fork>=<snapshot block timestamp + 1> flag so the target fork
-	// activates on the first block it builds (block N+1). See
-	// forkOverrideActivationFlag for why --override.genesis can't be used.
-	if t.ForkActivationGenesis != "" {
-		flag, err := forkOverrideActivationFlag(t.ForkActivationGenesis, t.Fork)
-		if err != nil {
-			return fmt.Errorf("scheduling %s activation: %w", t.Fork, err)
+	// genesis_fork_override / genesis_eip_override patch the boot genesis before
+	// the filler mounts it, to activate a fork the file doesn't schedule (e.g.
+	// amsterdam on an osaka snapshot) — identical to the runner. Used by fillers
+	// that read forks from the genesis (besu/reth/ethrex/nethermind). geth/erigon
+	// boot from the datadir and instead activate forks via --override.<fork> in
+	// filler_extra_args.
+	if len(t.GenesisForkOverride) > 0 ||
+		(t.GenesisEIPOverride != nil && len(t.GenesisEIPOverride.EIPs) > 0) {
+		patched, cleanup, perr := patchFillerGenesis(log, t)
+		if perr != nil {
+			return perr
 		}
 
-		t.FillerExtraArgs = append(t.FillerExtraArgs, flag)
+		defer cleanup()
 
-		log.WithFields(logrus.Fields{
-			"base_genesis": t.ForkActivationGenesis, "fork": t.Fork, "flag": flag,
-		}).Info("Scheduling fork activation on filler")
+		t.Genesis = patched
 	}
 
 	// Stream the filler's logs for the lifetime of this build.
@@ -370,9 +366,9 @@ func (b *EESTPayloadsBuilder) startFiller(
 		configCleanup = cfgCleanup
 	}
 
-	if t.GenesisFile != "" {
+	if t.Genesis != "" {
 		mounts = append(mounts, docker.Mount{
-			Source: t.GenesisFile, Target: spec.GenesisPath(), Type: "bind", ReadOnly: true,
+			Source: t.Genesis, Target: spec.GenesisPath(), Type: "bind", ReadOnly: true,
 		})
 	}
 
@@ -629,7 +625,7 @@ func fillerGethCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
 		"--miner.gaslimit=" + minerGasLimit,
 	}
 
-	if t.GenesisFile != "" {
+	if t.Genesis != "" {
 		args = append(args, spec.GenesisFlag()+spec.GenesisPath())
 	}
 
@@ -673,7 +669,7 @@ func fillerBesuCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
 		"--target-gas-limit=" + minerGasLimit,
 	}
 
-	if t.GenesisFile != "" {
+	if t.Genesis != "" {
 		args = append(args, spec.GenesisFlag()+spec.GenesisPath())
 	}
 
@@ -715,7 +711,7 @@ func fillerNethermindCommand(t *config.EESTPayloadTarget, spec client.Spec) []st
 		"--Blocks.TargetBlockGasLimit=" + minerGasLimit,
 	}
 
-	if t.GenesisFile != "" {
+	if t.Genesis != "" {
 		args = append(args, spec.GenesisFlag()+spec.GenesisPath())
 	}
 
@@ -803,6 +799,74 @@ func buildFillArgs(
 	}
 
 	return args
+}
+
+// patchFillerGenesis reads the target's boot genesis, applies its
+// genesis_fork_override / genesis_eip_override (mutually exclusive; validated),
+// and writes the result to a temp file the filler container can bind-mount.
+// Returns the temp path and a cleanup callback. It is the builder-side analogue
+// of the runner's per-instance genesis patching.
+func patchFillerGenesis(
+	log logrus.FieldLogger, t *config.EESTPayloadTarget,
+) (string, func(), error) {
+	raw, err := os.ReadFile(t.Genesis)
+	if err != nil {
+		return "", nil, fmt.Errorf("reading genesis %q: %w", t.Genesis, err)
+	}
+
+	var patched []byte
+
+	switch {
+	case len(t.GenesisForkOverride) > 0:
+		patched, err = genesis.ApplyForkOverrides(raw, t.GenesisForkOverride)
+		if err != nil {
+			return "", nil, fmt.Errorf("applying genesis_fork_override: %w", err)
+		}
+
+		log.WithField("forks", t.GenesisForkOverride).
+			Info("Applied genesis fork-time overrides to filler genesis")
+	case t.GenesisEIPOverride != nil:
+		patched, err = genesis.ApplyEIPOverrides(
+			raw, t.GenesisEIPOverride.Timestamp, t.GenesisEIPOverride.EIPs,
+		)
+		if err != nil {
+			return "", nil, fmt.Errorf("applying genesis_eip_override: %w", err)
+		}
+
+		log.WithFields(logrus.Fields{
+			"eips": t.GenesisEIPOverride.EIPs, "timestamp": t.GenesisEIPOverride.Timestamp,
+		}).Info("Applied genesis EIP-time overrides to filler genesis")
+	}
+
+	f, err := os.CreateTemp(mountTempDir(), "benchmarkoor-eest-genesis-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("creating temp genesis file: %w", err)
+	}
+
+	path := f.Name()
+
+	cleanup := func() { _ = os.Remove(path) }
+
+	if _, err := f.Write(patched); err != nil {
+		_ = f.Close()
+		cleanup()
+
+		return "", nil, fmt.Errorf("writing temp genesis file: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		cleanup()
+
+		return "", nil, fmt.Errorf("closing temp genesis file: %w", err)
+	}
+
+	if err := os.Chmod(path, 0o644); err != nil {
+		cleanup()
+
+		return "", nil, fmt.Errorf("chmod temp genesis file: %w", err)
+	}
+
+	return path, cleanup, nil
 }
 
 // writeTempJWT writes the JWT secret to a temp file readable by the

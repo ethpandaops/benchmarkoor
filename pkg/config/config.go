@@ -397,25 +397,29 @@ type EESTPayloadDefaults struct {
 }
 
 // EESTPayloadTarget is one fixture-generation run. Identity/locator fields
-// (Name, FillerClient, SourceDir, OutputDir, GenesisFile,
-// ForkActivationGenesis, Tests, Filter, AddressStubsFile) live exclusively on
-// the target; the remaining fields mirror EESTPayloadDefaults and are resolved
-// via ResolveTarget.
+// (Name, FillerClient, SourceDir, OutputDir, Genesis, GenesisForkOverride,
+// GenesisEIPOverride, Tests, Filter, AddressStubsFile) live exclusively on the
+// target; the remaining fields mirror EESTPayloadDefaults and are resolved via
+// ResolveTarget.
 type EESTPayloadTarget struct {
 	Name         string `yaml:"name,omitempty" mapstructure:"name"`
 	FillerClient string `yaml:"filler_client" mapstructure:"filler_client"`
 	SourceDir    string `yaml:"source_dir" mapstructure:"source_dir"`
 	OutputDir    string `yaml:"output_dir" mapstructure:"output_dir"`
-	GenesisFile  string `yaml:"genesis_file,omitempty" mapstructure:"genesis_file"`
-	// ForkActivationGenesis, when set, is a base genesis JSON (typically the
-	// state-actor snapshot's geth-genesis.json, generated at the prior fork)
-	// from which the builder derives the filler's genesis: it schedules Fork's
-	// activation at the base genesis block's timestamp + 1 (e.g. amsterdamTime)
-	// and boots the filler with --override.genesis. This fills a fork that
-	// activates one block after the snapshot. Mutually exclusive with
-	// GenesisFile; requires Fork.
-	ForkActivationGenesis string `yaml:"fork_activation_genesis,omitempty" mapstructure:"fork_activation_genesis"`
-	AddressStubsFile      string `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
+	// Genesis is the genesis/chainspec the filler boots from (besu/nethermind
+	// read their fork schedule from it). geth/erigon boot from the snapshot
+	// datadir instead and activate forks via --override.<fork> in
+	// FillerExtraArgs, so they need no Genesis. Mirrors runner client `genesis`.
+	Genesis string `yaml:"genesis,omitempty" mapstructure:"genesis"`
+	// GenesisForkOverride / GenesisEIPOverride patch the Genesis at filler boot
+	// to activate a fork the file doesn't schedule (e.g. amsterdam on an osaka
+	// snapshot), identically to the runner. GenesisForkOverride sets
+	// config.<fork>Time in a geth-format genesis (besu/reth/ethrex);
+	// GenesisEIPOverride sets params.eip<N>TransitionTimestamp in a parity
+	// chainspec (nethermind).
+	GenesisForkOverride map[string]uint64   `yaml:"genesis_fork_override,omitempty" mapstructure:"genesis_fork_override"`
+	GenesisEIPOverride  *GenesisEIPOverride `yaml:"genesis_eip_override,omitempty" mapstructure:"genesis_eip_override"`
+	AddressStubsFile    string              `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
 	// Tests are pytest paths inside the fill image, e.g. tests/benchmark/compute.
 	Tests  []string `yaml:"tests,omitempty" mapstructure:"tests"`
 	Filter string   `yaml:"filter,omitempty" mapstructure:"filter"`
@@ -2137,7 +2141,7 @@ func (c *Config) validateEESTPayloads() error {
 	return nil
 }
 
-// validateEESTPayloadPaths checks output_dir / genesis_file /
+// validateEESTPayloadPaths checks output_dir / genesis /
 // address_stubs_file are absolute and output_dir is unique.
 func validateEESTPayloadPaths(t *EESTPayloadTarget, prefix string, seenOutputs map[string]int, i int) error {
 	if t.SourceDir == "" {
@@ -2164,27 +2168,25 @@ func validateEESTPayloadPaths(t *EESTPayloadTarget, prefix string, seenOutputs m
 
 	seenOutputs[t.OutputDir] = i
 
-	if t.GenesisFile != "" && !filepath.IsAbs(t.GenesisFile) {
-		return fmt.Errorf("%s.genesis_file must be an absolute path, got %q", prefix, t.GenesisFile)
+	if t.Genesis != "" && !filepath.IsAbs(t.Genesis) {
+		return fmt.Errorf("%s.genesis must be an absolute path, got %q", prefix, t.Genesis)
 	}
 
-	if t.ForkActivationGenesis != "" {
-		if t.GenesisFile != "" {
-			return fmt.Errorf(
-				"%s: genesis_file and fork_activation_genesis are mutually exclusive", prefix,
-			)
-		}
+	// genesis_fork_override / genesis_eip_override patch the boot genesis, so
+	// they require one. (geth/erigon fillers boot from the datadir and use
+	// --override.<fork> in filler_extra_args instead.)
+	if len(t.GenesisForkOverride) > 0 && t.Genesis == "" {
+		return fmt.Errorf("%s.genesis_fork_override requires genesis", prefix)
+	}
 
-		if !filepath.IsAbs(t.ForkActivationGenesis) {
-			return fmt.Errorf(
-				"%s.fork_activation_genesis must be an absolute path, got %q",
-				prefix, t.ForkActivationGenesis,
-			)
-		}
+	if t.GenesisEIPOverride != nil && len(t.GenesisEIPOverride.EIPs) > 0 && t.Genesis == "" {
+		return fmt.Errorf("%s.genesis_eip_override requires genesis", prefix)
+	}
 
-		if t.Fork == "" {
-			return fmt.Errorf("%s.fork is required when fork_activation_genesis is set", prefix)
-		}
+	if len(t.GenesisForkOverride) > 0 && t.GenesisEIPOverride != nil {
+		return fmt.Errorf(
+			"%s: genesis_fork_override and genesis_eip_override are mutually exclusive", prefix,
+		)
 	}
 
 	if t.AddressStubsFile != "" && !filepath.IsAbs(t.AddressStubsFile) {
