@@ -145,7 +145,12 @@ builder:
     fill_dockerfile: Dockerfile.eest-filler
     pull_policy: if-not-present
     eest_repo: https://github.com/skylenet/execution-specs.git
-    eest_ref: devnets/bal/7-bench-cap-aware-deploy
+    # = devnets/bal/7-bench-cap-aware-deploy + the fill-stateful tooling fixes
+    # that let nethermind drive fill-stateful (debug_resetHead fallback, receipt
+    # `error` strip, and start_block-not-"latest" nonce/rewind reads). Geth
+    # filling is unaffected by them. PR'd to ethereum/execution-specs
+    # devnets/bal/7-bench; move this ref there once it lands.
+    eest_ref: devnets/bal/7-bench-cap-aware-deploy-nm-resetHead
     config:
       fork: amsterdam
       # Hardhat/Anvil dev key #0 → 0xf39Fd6…2266 (the pre-funded seed above).
@@ -189,6 +194,42 @@ builder:
         #     post-amsterdam repricing; we fill against amsterdam).
         # The two param-scoped excludes keep this functions' passing cases (12
         # sstore_variants, 2 multi_contract). Result: 225 filled, 0 failed.
+        filter: >-
+          not erc20
+          and not test_multi_opcode
+          and not test_setup_contracts
+          and not test_deep_branch
+          and not test_extcodesize_bytecode_sizes
+          and not test_sload_bloated_prefetch_miss
+          and not (test_sstore_variants and zero_to_nonzero)
+          and not (test_sload_bloated_multi_contract and existing_slots_True)
+
+      # Cross-client filler: build the SAME fixtures via nethermind instead of
+      # geth. EEST fixtures are client-agnostic, so the runner only needs one
+      # set (geth's, above) — this target exists to prove nethermind can drive
+      # fill-stateful. Validated: fills 225/0 and the fixtures replay clean on
+      # BOTH geth and nethermind (0 InvalidBlockLevelAccessList). It writes to
+      # its own output_dir and is otherwise independent; comment it out to skip
+      # the extra ~3 min fill if you only want the geth fixtures.
+      #
+      # MUST use the master image: it has testing_buildBlockV1 AND correct
+      # EIP-7928 BALs. The older nethermind testing_build_block_with_opcode_
+      # tracing image builds INVALID BALs (rejected by geth and nethermind on
+      # replay). nethermind has no debug_setHead, so the per-test chain rewind
+      # relies on the eest_ref branch's debug_resetHead fallback.
+      - name: payload-generator-nethermind-stateful-full
+        filler_client: nethermind
+        filler_image: nethermindeth/nethermind:master
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+        # nethermind reads a parity chainspec; amsterdam is activated via the
+        # per-instance genesis_eip_override (same EIP set as the runner instance).
+        genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+        genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
+        output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet-nm}
+        address_stubs_file: ${EEST_STUBS_FILE:-/tmp/benchmarkoor/stubs-repricing-amsterdam.json}
+        tests:
+          - tests/benchmark/stateful/bloatnet
+        # Same exclusions as the geth target above (see those comments).
         filter: >-
           not erc20
           and not test_multi_opcode
