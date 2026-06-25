@@ -94,7 +94,11 @@ builder:
     fill_dockerfile: Dockerfile.eest-filler
     pull_policy: if-not-present
     eest_repo: https://github.com/skylenet/execution-specs.git
-    eest_ref: devnets/bal/7-bench-cap-aware-deploy
+    # = devnets/bal/7-bench-cap-aware-deploy + the fill-stateful fixes that let
+    # nethermind fill: the per-test rewind falls back to debug_resetHead
+    # (nethermind has no debug_setHead) and reads nonces at start_block, not
+    # "latest". Geth filling is unaffected by them.
+    eest_ref: devnets/bal/7-bench-cap-aware-deploy-nm-resetHead
     config:
       fork: amsterdam            # fill amsterdam fixtures (snapshot stays osaka)
       # Pin the seed key so its account (0x7e5f…bdf, privkey 1) can be pre-funded
@@ -116,6 +120,26 @@ builder:
         filler_extra_args:
           - --override.amsterdam=1
         output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful}
+        tests:
+          - tests/benchmark/stateful/eip7928_block_level_access_lists
+      # nethermind cross-client filler: builds the same fixtures via nethermind
+      # instead of geth (EEST fixtures are client-agnostic, so the runner only
+      # needs one set — geth's, above; this proves nethermind can fill). Writes
+      # to its own output_dir; comment it out to skip the extra fill.
+      #
+      # MUST use the master image: it has testing_buildBlockV1 AND correct
+      # EIP-7928 BALs. nethermind has no debug_setHead, so the per-test rewind
+      # relies on the eest_ref branch's debug_resetHead fallback. Validated:
+      # 8/8 filled, fixtures replay clean on geth and nethermind.
+      - name: payload-generator-nethermind-stateful
+        filler_client: nethermind
+        filler_image: nethermindeth/nethermind:master
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+        # nethermind reads a parity chainspec; amsterdam is activated via the
+        # per-instance genesis_eip_override (same EIP set as the runner instance).
+        genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+        genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
+        output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful-nm}
         tests:
           - tests/benchmark/stateful/eip7928_block_level_access_lists
 
