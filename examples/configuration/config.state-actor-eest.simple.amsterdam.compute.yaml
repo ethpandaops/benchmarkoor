@@ -163,9 +163,9 @@ builder:
       # runner only needs one set (geth's, above); this proves nethermind can fill.
       # MUST use the master image (testing_buildBlockV1 + correct EIP-7928 BALs);
       # the per-test rewind falls back to debug_resetHead (nethermind has no
-      # debug_setHead). Validated: nethermind passes the same filter as geth
-      # (1032 filled, 4 skipped, 0 failed; the fixtures replay clean on geth and
-      # nethermind).
+      # debug_setHead). Uses the geth filter minus `not test_blockhash` — geth
+      # can't fill that test but nethermind can. Validated: 1037 filled, 4
+      # skipped, 0 failed; fixtures replay clean on nethermind.
       - name: payload-generator-nethermind
         filler_client: nethermind
         filler_image: nethermindeth/nethermind:master
@@ -175,9 +175,11 @@ builder:
         output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-nm}
         tests:
           - tests/benchmark/compute
+        # test_blockhash is kept here but excluded on the geth target: geth's
+        # pathdb can't rebuild on start_block after the test's 256-block chain
+        # (historical state unavailable), so geth corrupts; nethermind fills it.
         filter: >-
-          not test_blockhash
-          and not test_blobhash
+          not test_blobhash
           and not test_create
           and not test_auth_transaction
           and not test_unchunkified_bytecode
