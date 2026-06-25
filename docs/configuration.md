@@ -1681,7 +1681,8 @@ Identity/locator fields are target-only; the rest mirror `config` and are resolv
 | `genesis_eip_override` | object | – | Patch a parity/nethermind `genesis` at filler boot, setting `params.eip<N>TransitionTimestamp` for each listed EIP. Fields: `timestamp` (uint), `eips` ([]uint). For the nethermind filler. Requires `genesis`; mutually exclusive with `genesis_fork_override`. |
 | `output_dir` | string | – | **Absolute** host path for the generated fixtures. Skipped if already populated unless `--force` / `force: true`. Written under `<output_dir>/blockchain_tests_stateful_engine/`. |
 | `tests` | []string | – | **Required.** pytest paths inside the fill image, e.g. `tests/benchmark/compute`. |
-| `filter` | string | – | Optional pytest `-k` expression. |
+| `filter` | string | – | Optional pytest `-k` expression (substring/node-id selection). |
+| `marker` | string | – | Optional pytest `-m` marker expression (orthogonal to `filter`'s `-k`), e.g. `repricing` to select the gas-repricing reference benchmarks, or `not repricing`. |
 | `address_stubs_file` | string | – | **Absolute** host path to a `--address-stubs` JSON map, required by stub-dependent tests (e.g. bloatnet opcode tests). |
 | `force` | bool | `false` | Per-target override of `--force`: wipe `output_dir` before filling. |
 | `filler_image`, `fork`, `gas_benchmark_values`, `fixed_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `filler_extra_args` | — | from `config` | See the `config` table above. `fork` and `filler_image` are required after resolution. |

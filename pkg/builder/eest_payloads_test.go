@@ -115,6 +115,16 @@ func TestBuildFillArgs(t *testing.T) {
 	require.GreaterOrEqual(t, idx, 0, "-k flag must be present")
 	require.Less(t, idx+1, len(got))
 	assert.Equal(t, "expr", got[idx+1])
+	assert.NotContains(t, got, "-m", "-m absent when marker is unset")
+
+	// The -m marker value must immediately follow the -m flag.
+	gotMarker := buildFillArgs(prefix, &config.EESTPayloadTarget{
+		FillerClient: "geth", Fork: "Osaka", Tests: []string{"t"}, Marker: "repricing",
+	}, "1.2.3.4", spec, "0x1")
+	mIdx := slices.Index(gotMarker, "-m")
+	require.GreaterOrEqual(t, mIdx, 0, "-m flag must be present")
+	require.Less(t, mIdx+1, len(gotMarker))
+	assert.Equal(t, "repricing", gotMarker[mIdx+1])
 }
 
 func TestFillerGethCommand(t *testing.T) {

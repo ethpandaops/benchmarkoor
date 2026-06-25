@@ -798,6 +798,10 @@ func buildFillArgs(
 		args = append(args, "-k", t.Filter)
 	}
 
+	if t.Marker != "" {
+		args = append(args, "-m", t.Marker)
+	}
+
 	return args
 }
 

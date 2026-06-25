@@ -398,9 +398,9 @@ type EESTPayloadDefaults struct {
 
 // EESTPayloadTarget is one fixture-generation run. Identity/locator fields
 // (Name, FillerClient, SourceDir, OutputDir, Genesis, GenesisForkOverride,
-// GenesisEIPOverride, Tests, Filter, AddressStubsFile) live exclusively on the
-// target; the remaining fields mirror EESTPayloadDefaults and are resolved via
-// ResolveTarget.
+// GenesisEIPOverride, Tests, Filter, Marker, AddressStubsFile) live exclusively
+// on the target; the remaining fields mirror EESTPayloadDefaults and are
+// resolved via ResolveTarget.
 type EESTPayloadTarget struct {
 	Name         string `yaml:"name,omitempty" mapstructure:"name"`
 	FillerClient string `yaml:"filler_client" mapstructure:"filler_client"`
@@ -421,9 +421,14 @@ type EESTPayloadTarget struct {
 	GenesisEIPOverride  *GenesisEIPOverride `yaml:"genesis_eip_override,omitempty" mapstructure:"genesis_eip_override"`
 	AddressStubsFile    string              `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
 	// Tests are pytest paths inside the fill image, e.g. tests/benchmark/compute.
-	Tests  []string `yaml:"tests,omitempty" mapstructure:"tests"`
-	Filter string   `yaml:"filter,omitempty" mapstructure:"filter"`
-	Force  bool     `yaml:"force,omitempty" mapstructure:"force"`
+	Tests []string `yaml:"tests,omitempty" mapstructure:"tests"`
+	// Filter is a pytest -k expression (substring/node-id selection).
+	Filter string `yaml:"filter,omitempty" mapstructure:"filter"`
+	// Marker is a pytest -m marker expression, orthogonal to Filter's -k. e.g.
+	// "repricing" to select the gas-repricing reference benchmarks, or
+	// "not repricing" to exclude them.
+	Marker string `yaml:"marker,omitempty" mapstructure:"marker"`
+	Force  bool   `yaml:"force,omitempty" mapstructure:"force"`
 
 	// Hoistable fields (mirror EESTPayloadDefaults).
 	FillerImage        string     `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
