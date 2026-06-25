@@ -146,19 +146,53 @@ builder:
           and not test_block_full_data
           and not test_prefetch_cold_storage
           and not test_ext_account_query_cold
-      # besu: testing_buildBlockV1 (TESTING namespace, besu-eth/besu#9838),
-      # debug_setHead and the session-fee pin all work, but besu's self-built
-      # block fails its own engine_newPayloadV4 with a World-State-Root mismatch
-      # (upstream besu bug in testing_buildBlockV1). Re-enable when fixed.
-      # - name: payload-generator-besu
-      #   filler_client: besu
-      #   filler_image: hyperledger/besu:26.6.1   # >= 26.6 ships testing_buildBlockV1
-      #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
-      #   genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
-      #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-besu
-      #   tests:
-      #     - tests/benchmark/compute
-      #   filter: bn128
+      # besu cross-client filler. besu drives the fill over testing_buildBlockV1
+      # (TESTING namespace, besu-eth/besu#9838) just like nethermind. Earlier besu
+      # self-rejected every block on engine_newPayloadV5 with a BAL hash mismatch:
+      # testing_buildBlockV1 credited fees + the EIP-7928 block access list to the
+      # request's suggestedFeeRecipient but wrote the node's configured coinbase
+      # (Address.ZERO) into the header, so re-execution recomputed the BAL under a
+      # different coinbase. Fixed by a one-line change in TestingBuildBlockV1
+      # (miningConfiguration.setCoinbase(suggestedFeeRecipient) before building) —
+      # the filler_image below MUST carry that patch (besu bal-devnet-7 +
+      # TestingBuildBlockV1 coinbase fix). The eest builder auto-pins besu's session
+      # priority fee, so no extra args are needed. Validated against the same filter
+      # as nethermind: 0 BAL mismatches, fixtures replay clean. (besu fills the
+      # BLS12-381 MSM benchmarks too — they only fail at gas_benchmark_values [1],
+      # where the k=128 MSM call's ~1.33M intrinsic calldata gas exceeds the 1M tx
+      # limit; at [10] above they fit.)
+      - name: payload-generator-besu
+        filler_client: besu
+        # besu bal-devnet-7 built with the TestingBuildBlockV1 coinbase fix (see the
+        # comment above). Build+push from a patched besu checkout, or swap for an
+        # upstream image once the fix lands in besu-eth/besu's bal-devnet-7 line.
+        filler_image: skylenet/besu:bal-devnet-7-testing-coinbase-fix
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+        genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
+        # besu reads forks from the geth-format genesis; benchmarkoor patches
+        # amsterdamTime in at boot (snapshot block 0 ts is 0, so amsterdam at ts 1).
+        genesis_fork_override: { amsterdam: 1 }
+        output_dir: ${EEST_FIXTURES_DIR_BESU:-/tmp/benchmarkoor/eest-fixtures-amsterdam-besu}
+        tests:
+          - tests/benchmark/compute
+        # Identical exclusions to nethermind (keeps test_blockhash, which besu also
+        # fills). besu fills the same compute set as nethermind once the BAL coinbase
+        # fix is in the filler_image.
+        filter: >-
+          not test_blobhash
+          and not test_create
+          and not test_auth_transaction
+          and not test_unchunkified_bytecode
+          and not test_storage_access_cold
+          and not test_jumpdest_analysis
+          and not test_state_root_computation
+          and not test_contract_creation
+          and not test_contract_calling_many_addresses
+          and not test_selfdestruct_created
+          and not test_selfdestruct_initcode
+          and not test_block_full_data
+          and not test_prefetch_cold_storage
+          and not test_ext_account_query_cold
       # nethermind cross-client filler. EEST fixtures are client-agnostic, so the
       # runner only needs one set (geth's, above); this proves nethermind can fill.
       # MUST use the master image (testing_buildBlockV1 + correct EIP-7928 BALs);
