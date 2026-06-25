@@ -28,10 +28,10 @@
 # snapshot (state-actor builds one per target), so 6 clients ≈ 460 GB. Uncomment
 # the others once you have the disk.
 #
-# STATUS: the overlayfs pipeline is validated end-to-end on the small eip7928
-# stateful set; this full bloatnet variant is a starting point — the exact
-# test/stub coverage (which bloatnet tests the gist prestate satisfies) still
-# needs iteration in the VM. See the filter note on the geth target.
+# STATUS: validated end-to-end in the OrbStack VM — geth fills 225 bloatnet
+# cases (0 failed) against this prestate, and the geth/nethermind genesis state
+# roots match. The excluded tests (see the filter note on the geth target) need
+# prestate/stub coverage this gist doesn't provide.
 #
 global:
   log_level: info
@@ -41,9 +41,9 @@ builder:
   state_actor:
     images:
       geth: ghcr.io/ethereum/state-actor:main
+      nethermind: ghcr.io/ethereum/state-actor-nethermind:main
       # reth: ghcr.io/ethereum/state-actor-reth:main
       # besu: ghcr.io/ethereum/state-actor-besu:main
-      # nethermind: ghcr.io/ethereum/state-actor-nethermind:main
       # ethrex: ghcr.io/ethereum/state-actor-ethrex:main
       # erigon: ghcr.io/ethereum/state-actor-erigon:main
     pull_policy: always
@@ -52,8 +52,13 @@ builder:
       fork: osaka               # snapshot baseline (amsterdam is forked in at fill/run)
       chain: 1337
       # gist minimum is 85M (an amsterdam max-size code deploy needs gas_limit
-      # >= 67M); 300M leaves room for larger benchmark blocks too.
-      gas_limit: 300000000
+      # >= 67M). 1000M (1 G) gives generous headroom for the benchmark setup
+      # blocks. NB: this does NOT make test_deep_branch fillable — its worst-case
+      # deep-MPT setup needs a single block > 1 G, and EIP-1559 caps the per-block
+      # ramp to +/-1/1024, so the limit can't jump there (verified at 1000M; deep
+      # stays excluded below). All 225 other bloatnet cases fill fine at any of
+      # these values; the funding fixes, not the gas_limit, are what matter.
+      gas_limit: 1000000000
       # Must exceed the prestate size (~77 GB) or state-actor truncates entities.
       target_size: 200GB
     # jochem-brouwer's production-minimum repricing prestate. The big cost is
@@ -98,13 +103,16 @@ builder:
           parameters:
             code_pattern: unique_jumpdest_pre_amsterdam
             salt_count: 150000
-        # Sender pool for test_ether_transfers_onchain_receivers
-        # (EOA(key=SENDER_BASE_KEY + i), 150000 funded).
+        # Sender pool for test_ether_transfers_onchain_receivers, which derives
+        # senders as EOA(key=SENDER_BASE_KEY + i) and assumes them pre-funded.
+        # SENDER_BASE_KEY = keccak256("gas-repricings-private-key") on this EEST
+        # branch (NOT the gist's 0x1111…, which left every sender unfunded); the
+        # first sender is 0x4e5e4cbb…377a. 150000 funded.
         - kind: contract
           name: sender-pool-300m
           template: sequential_pkey_eoas
           parameters:
-            start_pkey: "0x1111111111111111111111111111111111111111111111111111111111111111"
+            start_pkey: "0xe1e1d3457c4e69b29cba0f7e1f92ce080d4db56d221bed913b09b2753bd97c7a"
             count: 150000
             balance: "1000000000000000000"
         # Bittrex CREATE-preimage chain (test_account_access EXISTING_CONTRACT).
@@ -121,10 +129,10 @@ builder:
     targets:
       - client: geth
         output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+      - client: nethermind
+        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
       # - client: reth   # +~77 GB each — enable only with disk to spare
       #   output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth
-      # - client: nethermind
-      #   output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
       # - client: besu
       #   output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
       # - client: ethrex
@@ -142,7 +150,7 @@ builder:
       fork: amsterdam
       # Hardhat/Anvil dev key #0 → 0xf39Fd6…2266 (the pre-funded seed above).
       rpc_seed_key: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-      # The bloatnet prestate has 300M-gas headroom; start lower for faster fills.
+      # The bloatnet prestate has ample gas headroom; start lower for faster fills.
       gas_benchmark_values: [30]
       # COW is mandatory at this size — overlayfs (Linux/OrbStack). On the host
       # this would be `copy` (infeasible). See .hack/orbstack.sh.
@@ -171,25 +179,21 @@ builder:
         #   test_setup_contracts: deploys 120k contracts from scratch in one
         #     fixture (~120k blocks) — a state-builder, not a quick benchmark.
         #   test_deep_branch: deploys worst-case deep MPT contracts at fill time
-        #     whose blocks exceed the 300M genesis gas limit (EIP-1559 caps the
-        #     per-block ramp, so the limit can't jump). Needs a much higher
-        #     genesis gas_limit (bigger snapshot) or prestate-deployed mined
-        #     contracts — see the worst_case_miner submodule.
-        #   test_ether_transfers_onchain_receivers: the EOA(SENDER_BASE_KEY+i)
-        #     sender pool the test expects funded doesn't match what state-actor's
-        #     sequential_pkey_eoas plants (an address resolves to 0 balance).
+        #     in a single block that exceeds the block gas limit (EIP-1559 caps
+        #     the per-block ramp, so the limit can't jump to fit it). Verified
+        #     unfillable even at gas_limit 1000M; needs prestate-deployed mined
+        #     contracts instead — see the worst_case_miner submodule.
         #   test_extcodesize_bytecode_sizes, the zero_to_nonzero sstore variants,
         #     test_sload_bloated_prefetch_miss, and the existing_slots_True
         #     multi_contract cases: amsterdam gas/BAL divergence (these target the
         #     post-amsterdam repricing; we fill against amsterdam).
         # The two param-scoped excludes keep this functions' passing cases (12
-        # sstore_variants, 2 multi_contract). Result: 207 filled, 0 failed.
+        # sstore_variants, 2 multi_contract). Result: 225 filled, 0 failed.
         filter: >-
           not erc20
           and not test_multi_opcode
           and not test_setup_contracts
           and not test_deep_branch
-          and not test_ether_transfers_onchain_receivers
           and not test_extcodesize_bytecode_sizes
           and not test_sload_bloated_prefetch_miss
           and not (test_sstore_variants and zero_to_nonzero)
@@ -214,9 +218,10 @@ runner:
         enabled: true
         max_retries: 10
         backoff: 1s
-      # genesis entries are only needed for the non-geth clients (commented out
-      # below); add them back alongside their instances + datadirs.
-      # nethermind: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+      # nethermind reads a parity-format chainspec; amsterdam is activated via the
+      # per-instance genesis_eip_override below. Other clients (reth/besu/ethrex/
+      # erigon) need their genesis added alongside their instances + datadirs.
+      nethermind: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
       # reth:  ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth/chainspec.json
       # besu: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
       # ethrex: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex/ethrex-genesis.json
@@ -225,8 +230,10 @@ runner:
       geth:
         source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
         method: overlayfs
+      nethermind:
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+        method: overlayfs
       # reth: { source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth, method: overlayfs }
-      # nethermind: { source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind, method: overlayfs }
       # besu: { source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu, method: overlayfs }
       # ethrex: { source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex, method: overlayfs }
       # erigon: { source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon, method: overlayfs }
@@ -245,11 +252,11 @@ runner:
     #   genesis_fork_override: { amsterdam: 1 }
     #   extra_args: [--engine.slow-block-threshold=0]
     #   retry_new_payloads_failed_state: { enabled: true, max_retries: 10, backoff: 1s }
-    # - id: nethermind
-    #   client: nethermind
-    #   image: nethermindeth/nethermind:master
-    #   genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
-    #   extra_args: [--Init.BaseDbPath=/data, --Blocks.ParallelExecution=true, --Blocks.ParallelExecutionBatchRead=true]
+    - id: nethermind
+      client: nethermind
+      image: nethermindeth/nethermind:master
+      genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
+      extra_args: [--Init.BaseDbPath=/data, --Blocks.ParallelExecution=true, --Blocks.ParallelExecutionBatchRead=true]
     # - id: besu
     #   client: besu
     #   image: ethpandaops/besu:bal-devnet-7
