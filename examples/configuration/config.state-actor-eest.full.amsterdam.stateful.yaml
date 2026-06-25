@@ -218,14 +218,16 @@ runner:
         enabled: true
         max_retries: 10
         backoff: 1s
-      # nethermind reads a parity-format chainspec; amsterdam is activated via the
-      # per-instance genesis_eip_override below. Other clients (reth/besu/ethrex/
-      # erigon) need their genesis added alongside their instances + datadirs.
-      nethermind: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
-      # reth:  ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth/chainspec.json
-      # besu: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
-      # ethrex: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex/ethrex-genesis.json
-      # erigon: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon/chainspec.json
+      # Per-client genesis/chainspec the runner boots each instance from. geth
+      # needs none (it boots from the datadir + --override.amsterdam flag), so it
+      # is omitted; nethermind reads a parity-format chainspec and gets amsterdam
+      # via the per-instance genesis_eip_override below.
+      genesis:
+        nethermind: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+        # reth:  ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth/chainspec.json
+        # besu: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
+        # ethrex: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex/ethrex-genesis.json
+        # erigon: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon/chainspec.json
     datadirs:
       geth:
         source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
