@@ -1601,7 +1601,7 @@ builder:
 
 `eest_payloads` generates **stateful** EEST benchmark fixtures: it boots a filler EL client on a *writable copy* of a pre-populated snapshot datadir, runs `fill-stateful` against the live client (recording engine-API payloads anchored to the snapshot's head block), and writes the fixtures to each target's `output_dir`. `fill-stateful` itself does not manage datadirs — benchmarkoor boots the filler and snapshots it.
 
-> **Filler client:** only `geth` implements the `testing_buildBlockV1` API that `fill-stateful` drives, so `filler_client` must be `geth` today; `ethpandaops/geth:master` is the production-ready image.
+> **Filler client:** `geth` (`ethpandaops/geth:master`) is the production-ready filler. `nethermind` (`nethermindeth/nethermind:master`) also works — it implements `testing_buildBlockV1` with correct EIP-7928 block-access-lists, and `fill-stateful`'s per-test rewind falls back to `debug_resetHead` for it (nethermind has no `debug_setHead`). `besu` is plumbed in benchmarkoor but blocked upstream.
 >
 > **Fill image:** there is no published `fill-stateful` image yet (the command lands in execution-specs [#2637](https://github.com/ethereum/execution-specs/pull/2637)). Build one from the repo's `Dockerfile.eest-filler` (it bundles `uv` + execution-specs) and point `fill_image` at it:
 > ```bash
@@ -1674,7 +1674,7 @@ Identity/locator fields are target-only; the rest mirror `config` and are resolv
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `name` | string | `filler_client` | Used by `--target` to filter. Must be unique across targets. |
-| `filler_client` | string | – | Client booted as the filler. Must be `geth` (only client supporting `testing_buildBlockV1`). |
+| `filler_client` | string | – | Client booted as the filler. `geth` or `nethermind` (both implement `testing_buildBlockV1`). |
 | `source_dir` | string | – | **Absolute** host path to the pristine snapshot datadir (e.g. a `state_actor` `output_dir`). Never mutated — a writable copy is filled. Existence is checked at build time. |
 | `genesis` | string | – | **Absolute** host path to the genesis/chainspec the filler boots with (besu/nethermind read their fork schedule from it; passed via the client's genesis flag). Must match the chain config used to produce `source_dir`. geth/erigon boot from the datadir instead and need no `genesis`. |
 | `genesis_fork_override` | map | – | Patch the geth-format `genesis` at filler boot to activate forks at given timestamps (`{amsterdam: 1}` → `config.amsterdamTime`, inheriting the blob schedule). For besu/reth/ethrex fillers. Same mechanism as the runner. Requires `genesis`. |
