@@ -22,9 +22,11 @@
 global:
   log_level: info
   env:
-    # Per-config snapshot dir so configs that build a different state-actor
-    # snapshot don't collide under /tmp. Override by exporting STATE_DIR_PREFIX.
+    # Per-config dirs so configs that build different state-actor snapshots or
+    # EEST fixtures don't collide under /tmp. Override by exporting these. Each
+    # client writes under its own <prefix>/<client> subdir.
     STATE_DIR_PREFIX: /tmp/benchmarkoor/state-actor/simple-amsterdam-stateful
+    EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/simple-amsterdam-stateful
 
 builder:
   ## Stage 1: Building datadirs using state-actor
@@ -114,7 +116,7 @@ builder:
         # timestamp (0) + 1 via the override flag — same as the runner geth instance.
         filler_extra_args:
           - --override.amsterdam=1
-        output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful}
+        output_dir: ${EEST_FIXTURES_DIR}/geth
 
       # Nethermind
       - name: payload-generator-nethermind-stateful
@@ -125,7 +127,7 @@ builder:
         # per-instance genesis_eip_override (same EIP set as the runner instance).
         genesis: ${STATE_DIR_PREFIX}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
-        output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful-nm}
+        output_dir: ${EEST_FIXTURES_DIR}/nethermind
 
       # Besu — cross-client filler. ethpandaops/besu:bal-devnet-7 carries the
       # merged TestingBuildBlockV1 coinbase fix needed to build correct EIP-7928
@@ -138,7 +140,7 @@ builder:
         # amsterdamTime in at boot (snapshot block 0 ts is 0, so amsterdam at ts 1).
         genesis: ${STATE_DIR_PREFIX}/besu/besu-chainspec.json
         genesis_fork_override: { amsterdam: 1 }
-        output_dir: ${EEST_FIXTURES_DIR_BESU:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful-besu}
+        output_dir: ${EEST_FIXTURES_DIR}/besu
 
 ## Stage 3: Run benchmarks using the state-actor datadirs and the eest payloads
 runner:
@@ -151,7 +153,7 @@ runner:
     tests:
       source:
         eest_fixtures:
-          local_fixtures_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful}
+          local_fixtures_dir: ${EEST_FIXTURES_DIR}/geth
           fixtures_subdir: blockchain_tests_stateful_engine
   client:
     config:

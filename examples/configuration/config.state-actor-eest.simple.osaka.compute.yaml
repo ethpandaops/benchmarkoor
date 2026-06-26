@@ -7,9 +7,11 @@
 global:
   log_level: info
   env:
-    # Per-config snapshot dir so configs that build a different state-actor
-    # snapshot don't collide under /tmp. Override by exporting STATE_DIR_PREFIX.
+    # Per-config dirs so configs that build different state-actor snapshots or
+    # EEST fixtures don't collide under /tmp. Override by exporting these. Each
+    # client writes under its own <prefix>/<client> subdir.
     STATE_DIR_PREFIX: /tmp/benchmarkoor/state-actor/simple-osaka-compute
+    EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/simple-osaka-compute
 
 builder:
   ## Stage 1: Building datadirs using state-actor
@@ -77,7 +79,7 @@ builder:
         filler_client: geth
         filler_image: ethpandaops/geth:master
         source_dir: ${STATE_DIR_PREFIX}/geth
-        output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}
+        output_dir: ${EEST_FIXTURES_DIR}/geth
       # besu: testing_buildBlockV1 (TESTING namespace, besu-eth/besu#9838),
       # debug_setHead and the session-fee pin all work, but besu's self-built
       # block fails its own engine_newPayloadV4 with a World-State-Root mismatch
@@ -87,14 +89,14 @@ builder:
       #   filler_image: ethpandaops/besu:main
       #   source_dir: ${STATE_DIR_PREFIX}/besu
       #   genesis: ${STATE_DIR_PREFIX}/besu/besu-chainspec.json
-      #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-besu
+      #   output_dir: ${EEST_FIXTURES_DIR}/besu
       # nethermind cross-client filler — uncomment to also fill via nethermind.
       # - name: payload-generator-nethermind
       #   filler_client: nethermind
       #   filler_image: nethermindeth/nethermind:master
       #   source_dir: ${STATE_DIR_PREFIX}/nethermind
       #   genesis: ${STATE_DIR_PREFIX}/nethermind/parity-chainspec.json
-      #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-nethermind
+      #   output_dir: ${EEST_FIXTURES_DIR}/nethermind
 
 ## Stage 3: Run benchmarks using the state-actor datadirs and the eest payloads
 runner:
@@ -107,7 +109,7 @@ runner:
     tests:
       source:
         eest_fixtures:
-          local_fixtures_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}
+          local_fixtures_dir: ${EEST_FIXTURES_DIR}/geth
           fixtures_subdir: blockchain_tests_stateful_engine
   client:
     config:

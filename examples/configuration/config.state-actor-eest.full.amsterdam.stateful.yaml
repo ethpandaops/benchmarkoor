@@ -33,9 +33,11 @@
 global:
   log_level: info
   env:
-    # Per-config snapshot dir so configs that build a different state-actor
-    # snapshot don't collide under /tmp. Override by exporting STATE_DIR_PREFIX.
+    # Per-config dirs so configs that build different state-actor snapshots or
+    # EEST fixtures don't collide under /tmp. Override by exporting these. Each
+    # client writes under its own <prefix>/<client> subdir.
     STATE_DIR_PREFIX: /tmp/benchmarkoor/state-actor/full-amsterdam-stateful
+    EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/full-amsterdam-stateful
 
 builder:
   ## Stage 1: Building the large repricing datadir using state-actor
@@ -190,7 +192,7 @@ builder:
         # timestamp (0) + 1 via the override flag — same as the runner geth instance.
         filler_extra_args:
           - --override.amsterdam=1
-        output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet}
+        output_dir: ${EEST_FIXTURES_DIR}/geth
 
       # Nethermind
       - name: payload-generator-nethermind-stateful-full
@@ -201,7 +203,7 @@ builder:
         # per-instance genesis_eip_override (same EIP set as the runner instance).
         genesis: ${STATE_DIR_PREFIX}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
-        output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet-nm}
+        output_dir: ${EEST_FIXTURES_DIR}/nethermind
 
 ## Stage 3: Run the bloatnet/repricing benchmarks
 runner:
@@ -214,7 +216,7 @@ runner:
     tests:
       source:
         eest_fixtures:
-          local_fixtures_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet}
+          local_fixtures_dir: ${EEST_FIXTURES_DIR}/geth
           fixtures_subdir: blockchain_tests_stateful_engine
   client:
     config:

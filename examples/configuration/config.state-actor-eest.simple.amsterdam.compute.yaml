@@ -27,9 +27,11 @@
 global:
   log_level: info
   env:
-    # Per-config snapshot dir so configs that build a different state-actor
-    # snapshot don't collide under /tmp. Override by exporting STATE_DIR_PREFIX.
+    # Per-config dirs so configs that build different state-actor snapshots or
+    # EEST fixtures don't collide under /tmp. Override by exporting these. Each
+    # client writes under its own <prefix>/<client> subdir.
     STATE_DIR_PREFIX: /tmp/benchmarkoor/state-actor/simple-amsterdam-compute
+    EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/simple-amsterdam-compute
 
 builder:
   ## Stage 1: Building datadirs using state-actor
@@ -120,7 +122,7 @@ builder:
         # timestamp (0) + 1 via the override flag — same as the runner geth instance.
         filler_extra_args:
           - --override.amsterdam=1
-        output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam}
+        output_dir: ${EEST_FIXTURES_DIR}/geth
         # Exclude the currently-failing compute tests so the fill is green. Reasons:
         #   blockhash: 256-block chain exceeds geth pathdb rewind (per-test reset)
         #   blobhash:  geth testing_buildBlockV1 panics on blob txs (no sidecar)
@@ -155,7 +157,7 @@ builder:
         # besu reads forks from the geth-format genesis; benchmarkoor patches
         # amsterdamTime in at boot (snapshot block 0 ts is 0, so amsterdam at ts 1).
         genesis_fork_override: { amsterdam: 1 }
-        output_dir: ${EEST_FIXTURES_DIR_BESU:-/tmp/benchmarkoor/eest-fixtures-amsterdam-besu}
+        output_dir: ${EEST_FIXTURES_DIR}/besu
         # Identical exclusions to nethermind (keeps test_blockhash, which besu also
         # fills). besu fills the same compute set as nethermind.
         filter: >-
@@ -181,7 +183,7 @@ builder:
         source_dir: ${STATE_DIR_PREFIX}/nethermind
         genesis: ${STATE_DIR_PREFIX}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
-        output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-nm}
+        output_dir: ${EEST_FIXTURES_DIR}/nethermind
         # test_blockhash is kept here but excluded on the geth target: geth's
         # pathdb can't rebuild on start_block after the test's 256-block chain
         # (historical state unavailable), so geth corrupts; nethermind fills it.
@@ -212,7 +214,7 @@ runner:
     tests:
       source:
         eest_fixtures:
-          local_fixtures_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam}
+          local_fixtures_dir: ${EEST_FIXTURES_DIR}/geth
           fixtures_subdir: blockchain_tests_stateful_engine
   client:
     config:
