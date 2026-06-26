@@ -1,8 +1,8 @@
-# Building data directories and EEST payloads
-# ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.yaml --force
+# Building data directories and EEST COMPUTE payloads — OSAKA fill.
+# ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.simple.osaka.compute.yaml --force
 #
 # Running benchmark using geth:
-# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.yaml --limit-instance-id=geth
+# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.simple.osaka.compute.yaml --limit-instance-id=geth
 #
 global:
   log_level: info
