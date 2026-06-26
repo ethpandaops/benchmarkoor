@@ -560,6 +560,16 @@ func (s *EESTSource) downloadAndExtractTarball(ctx context.Context, url, targetD
 	return nil
 }
 
+// statefulPreRunMissing reports whether a stateful fixture's absent pre_run
+// file is worth warning about. It is only a concern when the start block is
+// ahead of the snapshot: then the snapshot→start advance is skipped and the
+// test would replay against the wrong state. When start == snapshot (e.g. a
+// pre-funded seed lets fill-stateful skip the funding block) there are no
+// pre_run blocks to replay, so the absence is expected and silent.
+func statefulPreRunMissing(f *eest.Fixture) bool {
+	return f.StartBlockHash != "" && f.StartBlockHash != f.SnapshotBlockHash
+}
+
 // loadPreRuns reads the shared pre_run files for stateful-engine fixtures from
 // <searchDir>/pre_run/*.json, keyed by start block hash. A missing pre_run
 // directory is not an error (the genesis-based format has none) and yields an
@@ -722,11 +732,12 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 
 			if fixture.IsStateful() {
 				preRun := preRuns[fixture.StartBlockHash]
-				if preRun == nil && fixture.StartBlockHash != "" {
+				if preRun == nil && statefulPreRunMissing(fixture) {
 					s.log.WithFields(logrus.Fields{
-						"file":        path,
-						"fixture":     name,
-						"start_block": fixture.StartBlockHash,
+						"file":           path,
+						"fixture":        name,
+						"start_block":    fixture.StartBlockHash,
+						"snapshot_block": fixture.SnapshotBlockHash,
 					}).Warn("No pre_run file for stateful fixture's start block; " +
 						"replaying setup payloads only")
 				}
