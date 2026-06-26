@@ -24,6 +24,10 @@ type SuiteInfo struct {
 	Metadata    *config.MetadataConfig `json:"metadata,omitempty"`
 	PreRunSteps []SuiteFile            `json:"pre_run_steps,omitempty"`
 	Tests       []SuiteTest            `json:"tests"`
+	// EESTMetadata is true when the suite output contains an .eest-meta
+	// directory copied from the EEST fixtures' .meta (fill provenance). Lets the
+	// UI surface an "EEST Metadata" view without statting the suite directory.
+	EESTMetadata bool `json:"eest_metadata,omitempty"`
 }
 
 // SuiteSource contains source information for the suite.
@@ -183,6 +187,19 @@ func CreateSuiteOutput(
 			return fmt.Errorf("creating suite dir: %w", err)
 		}
 
+		// Attach the source's metadata directory (EEST .meta) as .eest-meta.
+		// Best-effort: the metadata is auxiliary provenance, so a copy failure
+		// must not fail the whole suite.
+		if prepared.MetaDir != "" {
+			metaDst := filepath.Join(suiteDir, ".eest-meta")
+			if err := fsutil.CopyDir(prepared.MetaDir, metaDst, owner); err != nil {
+				log.WithError(err).WithField("src", prepared.MetaDir).
+					Warn("Failed to copy EEST .meta into suite output")
+			} else {
+				log.WithField("dst", metaDst).Debug("Copied EEST .meta into suite output")
+			}
+		}
+
 		// Copy pre-run steps.
 		// Structure: <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
 		for _, f := range prepared.PreRunSteps {
@@ -305,6 +322,13 @@ func CreateSuiteOutput(
 
 			info.Tests = append(info.Tests, suiteTest)
 		}
+	}
+
+	// Reflect whether the suite carries an .eest-meta directory. Derived from
+	// the on-disk dir (not just this run's copy) so it stays correct on re-runs
+	// where the suite already existed and the copy step above was skipped.
+	if fi, err := os.Stat(filepath.Join(suiteDir, ".eest-meta")); err == nil && fi.IsDir() {
+		info.EESTMetadata = true
 	}
 
 	// Always write summary.json — metadata (e.g. labels) can change between

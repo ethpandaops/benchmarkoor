@@ -57,6 +57,10 @@ type PreparedSource struct {
 	BasePath    string
 	PreRunSteps []*StepFile
 	Tests       []*TestWithSteps
+	// MetaDir is the path to an auxiliary metadata directory to attach to each
+	// suite's output (e.g. an EEST fill's .meta dir with fixtures.ini, the fill
+	// report and index). Empty when the source has no such directory.
+	MetaDir string
 }
 
 // Source provides test files from local or git sources.

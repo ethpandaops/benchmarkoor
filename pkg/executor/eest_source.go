@@ -637,6 +637,16 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 		Tests:       make([]*TestWithSteps, 0),
 	}
 
+	// EEST writes a .meta directory (fixtures.ini with the fill command + python/
+	// tool versions, index.json, report_fill.html) at the root of the fixtures
+	// dir. Attach it when present so each suite's output can carry the provenance.
+	metaDir := filepath.Join(s.fixturesDir, ".meta")
+	if fi, err := os.Stat(metaDir); err == nil && fi.IsDir() {
+		result.MetaDir = metaDir
+
+		s.log.WithField("meta_dir", metaDir).Debug("Found EEST .meta directory")
+	}
+
 	s.log.WithField("path", searchDir).Info("Searching for fixtures")
 
 	// Load shared pre_run files (stateful-engine format). Keyed by start block

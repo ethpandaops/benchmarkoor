@@ -97,3 +97,41 @@ func Create(path string, owner *OwnerConfig) (*os.File, error) {
 
 	return f, nil
 }
+
+// CopyDir recursively copies the directory tree rooted at src into dst,
+// creating dst (and any missing parents) and applying owner to every directory
+// and file it writes. Only regular files and directories are copied; symlinks
+// and other special files are skipped. Intended for small auxiliary trees.
+func CopyDir(src, dst string, owner *OwnerConfig) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("reading source dir %q: %w", src, err)
+	}
+
+	if err := MkdirAll(dst, 0755, owner); err != nil {
+		return fmt.Errorf("creating dest dir %q: %w", dst, err)
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		switch {
+		case entry.IsDir():
+			if err := CopyDir(srcPath, dstPath, owner); err != nil {
+				return err
+			}
+		case entry.Type().IsRegular():
+			data, err := os.ReadFile(srcPath)
+			if err != nil {
+				return fmt.Errorf("reading %q: %w", srcPath, err)
+			}
+
+			if err := WriteFile(dstPath, data, 0644, owner); err != nil {
+				return fmt.Errorf("writing %q: %w", dstPath, err)
+			}
+		}
+	}
+
+	return nil
+}
