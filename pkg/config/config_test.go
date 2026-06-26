@@ -47,6 +47,47 @@ builder:
 	assert.Equal(t, "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e", stubs["bloated_EOA_10GB"]["pkey"])
 }
 
+func TestLoad_GlobalAddressStubsHoistAndCasing(t *testing.T) {
+	// address_stubs defined once under config: must keep its key casing and be
+	// hoisted into a target that sets none of its own.
+	configContent := `
+builder:
+  eest_payloads:
+    fill_image: fill:latest
+    config:
+      fork: Amsterdam
+      datadir_method: copy
+      tests:
+        - tests/benchmark/stateful/bloatnet
+      filter: "not erc20"
+      address_stubs:
+        bloated_EOA_10GB:
+          addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
+    targets:
+      - name: geth-stateful
+        filler_client: geth
+        filler_image: ethpandaops/geth:master
+        source_dir: /snap
+        output_dir: /out
+`
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	// Global config block keeps the original stub-name casing.
+	require.Contains(t, cfg.Builder.EESTPayloads.Config.AddressStubs, "bloated_EOA_10GB")
+
+	// And it (plus tests/filter) is hoisted into the bare target.
+	resolved := cfg.Builder.EESTPayloads.ResolveTarget(0)
+	assert.Equal(t, []string{"tests/benchmark/stateful/bloatnet"}, resolved.Tests)
+	assert.Equal(t, "not erc20", resolved.Filter)
+	require.Contains(t, resolved.AddressStubs, "bloated_EOA_10GB")
+	assert.Equal(t, "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04", resolved.AddressStubs["bloated_EOA_10GB"]["addr"])
+}
+
 func TestLoad_EnvVarOverrides(t *testing.T) {
 	// Create a minimal config file for testing.
 	configContent := `
@@ -4018,6 +4059,10 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 		Config: &EESTPayloadDefaults{
 			FillerImage:        "ethpandaops/geth:master",
 			Fork:               "Osaka",
+			Tests:              []string{"tests/benchmark/stateful/bloatnet"},
+			Filter:             "not erc20",
+			Marker:             "not repricing",
+			AddressStubs:       map[string]map[string]string{"bloated_eoa_10GB": {"addr": "0x87a6"}},
 			GasBenchmarkValues: []int{10, 30},
 			DataDirMethod:      "zfs",
 			MaxGasPerTest:      u64Cfg(45000000),
@@ -4036,6 +4081,10 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 	inherit := ep.ResolveTarget(0)
 	assert.Equal(t, "ethpandaops/geth:master", inherit.FillerImage)
 	assert.Equal(t, "Osaka", inherit.Fork)
+	assert.Equal(t, []string{"tests/benchmark/stateful/bloatnet"}, inherit.Tests)
+	assert.Equal(t, "not erc20", inherit.Filter)
+	assert.Equal(t, "not repricing", inherit.Marker)
+	assert.Equal(t, map[string]map[string]string{"bloated_eoa_10GB": {"addr": "0x87a6"}}, inherit.AddressStubs)
 	assert.Equal(t, []int{10, 30}, inherit.GasBenchmarkValues)
 	assert.Equal(t, "zfs", inherit.DataDirMethod)
 	require.NotNil(t, inherit.MaxGasPerTest)
@@ -4046,6 +4095,33 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 	assert.Equal(t, "Prague", override.Fork, "per-target fork wins")
 	assert.Equal(t, []int{60}, override.GasBenchmarkValues, "per-target gas values win")
 	assert.Equal(t, "ethpandaops/geth:master", override.FillerImage, "still inherits unset fields")
+	assert.Equal(t, "not erc20", override.Filter, "inherits filter when unset")
+}
+
+// TestEESTPayloadsResolveTarget_AddressStubsUnit verifies the address-stubs
+// pair is hoisted as a unit: a target setting either form inherits neither,
+// preserving their mutual exclusion.
+func TestEESTPayloadsResolveTarget_AddressStubsUnit(t *testing.T) {
+	ep := &EESTPayloadsConfig{
+		Config: &EESTPayloadDefaults{
+			AddressStubs: map[string]map[string]string{"global": {"addr": "0xglobal"}},
+		},
+		Targets: []EESTPayloadTarget{
+			// Sets only the file form: must NOT inherit the global inline map.
+			{Name: "file-only", FillerClient: "geth", SourceDir: "/s", OutputDir: "/o",
+				AddressStubsFile: "/host/stubs.json"},
+			// Sets neither: inherits the global inline map.
+			{Name: "inherit", FillerClient: "geth", SourceDir: "/s2", OutputDir: "/o2"},
+		},
+	}
+
+	fileOnly := ep.ResolveTarget(0)
+	assert.Equal(t, "/host/stubs.json", fileOnly.AddressStubsFile)
+	assert.Empty(t, fileOnly.AddressStubs, "target with file form must not inherit global inline stubs")
+
+	inherit := ep.ResolveTarget(1)
+	assert.Empty(t, inherit.AddressStubsFile)
+	assert.Equal(t, map[string]map[string]string{"global": {"addr": "0xglobal"}}, inherit.AddressStubs)
 }
 
 func TestEESTPayloadsEffectiveName(t *testing.T) {

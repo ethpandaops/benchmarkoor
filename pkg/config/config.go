@@ -386,21 +386,25 @@ func (e *EESTPayloadsConfig) ResolveFillCommand() []string {
 // field is also present on EESTPayloadTarget; a non-nil/non-empty value
 // on the target wins over the corresponding default. See ResolveTarget.
 type EESTPayloadDefaults struct {
-	FillerImage        string     `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
-	Fork               string     `yaml:"fork,omitempty" mapstructure:"fork"`
-	GasBenchmarkValues []int      `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
-	FixedOpcodeCount   *[]float64 `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
-	DataDirMethod      string     `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
-	MaxGasPerTest      *uint64    `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
-	RPCSeedKey         string     `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
-	FillerExtraArgs    []string   `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+	FillerImage        string                       `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
+	Fork               string                       `yaml:"fork,omitempty" mapstructure:"fork"`
+	Tests              []string                     `yaml:"tests,omitempty" mapstructure:"tests"`
+	Filter             string                       `yaml:"filter,omitempty" mapstructure:"filter"`
+	Marker             string                       `yaml:"marker,omitempty" mapstructure:"marker"`
+	AddressStubsFile   string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
+	AddressStubs       map[string]map[string]string `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
+	GasBenchmarkValues []int                        `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
+	FixedOpcodeCount   *[]float64                   `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
+	DataDirMethod      string                       `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
+	MaxGasPerTest      *uint64                      `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
+	RPCSeedKey         string                       `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	FillerExtraArgs    []string                     `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
 }
 
 // EESTPayloadTarget is one fixture-generation run. Identity/locator fields
 // (Name, FillerClient, SourceDir, OutputDir, Genesis, GenesisForkOverride,
-// GenesisEIPOverride, Tests, Filter, Marker, AddressStubsFile, AddressStubs) live exclusively
-// on the target; the remaining fields mirror EESTPayloadDefaults and are
-// resolved via ResolveTarget.
+// GenesisEIPOverride) live exclusively on the target; the remaining fields
+// mirror EESTPayloadDefaults and are resolved via ResolveTarget.
 type EESTPayloadTarget struct {
 	Name         string `yaml:"name,omitempty" mapstructure:"name"`
 	FillerClient string `yaml:"filler_client" mapstructure:"filler_client"`
@@ -419,13 +423,12 @@ type EESTPayloadTarget struct {
 	// chainspec (nethermind).
 	GenesisForkOverride map[string]uint64   `yaml:"genesis_fork_override,omitempty" mapstructure:"genesis_fork_override"`
 	GenesisEIPOverride  *GenesisEIPOverride `yaml:"genesis_eip_override,omitempty" mapstructure:"genesis_eip_override"`
-	// AddressStubsFile points at a JSON file of named address stubs; AddressStubs
-	// defines the same mapping inline (the builder materializes it to a temp JSON
-	// file). They are mutually exclusive. Each stub maps a symbolic name to an
-	// arbitrary set of string fields (e.g. addr, pkey) that fill-stateful resolves
-	// against the snapshot's pre-deployed state via --address-stubs.
-	AddressStubsFile string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
-	AddressStubs     map[string]map[string]string `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
+	Force               bool                `yaml:"force,omitempty" mapstructure:"force"`
+
+	// Hoistable fields (mirror EESTPayloadDefaults): a non-empty/non-nil value
+	// here wins over the corresponding builder.eest_payloads.config default.
+	FillerImage string `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
+	Fork        string `yaml:"fork,omitempty" mapstructure:"fork"`
 	// Tests are pytest paths inside the fill image, e.g. tests/benchmark/compute.
 	Tests []string `yaml:"tests,omitempty" mapstructure:"tests"`
 	// Filter is a pytest -k expression (substring/node-id selection).
@@ -434,17 +437,20 @@ type EESTPayloadTarget struct {
 	// "repricing" to select the gas-repricing reference benchmarks, or
 	// "not repricing" to exclude them.
 	Marker string `yaml:"marker,omitempty" mapstructure:"marker"`
-	Force  bool   `yaml:"force,omitempty" mapstructure:"force"`
-
-	// Hoistable fields (mirror EESTPayloadDefaults).
-	FillerImage        string     `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
-	Fork               string     `yaml:"fork,omitempty" mapstructure:"fork"`
-	GasBenchmarkValues []int      `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
-	FixedOpcodeCount   *[]float64 `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
-	DataDirMethod      string     `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
-	MaxGasPerTest      *uint64    `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
-	RPCSeedKey         string     `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
-	FillerExtraArgs    []string   `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+	// AddressStubsFile points at a JSON file of named address stubs; AddressStubs
+	// defines the same mapping inline (the builder materializes it to a temp JSON
+	// file). They are mutually exclusive. Each stub maps a symbolic name to an
+	// arbitrary set of string fields (e.g. addr, pkey) that fill-stateful resolves
+	// against the snapshot's pre-deployed state via --address-stubs. When a target
+	// sets neither, both are hoisted as a unit from the config defaults.
+	AddressStubsFile   string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
+	AddressStubs       map[string]map[string]string `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
+	GasBenchmarkValues []int                        `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
+	FixedOpcodeCount   *[]float64                   `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
+	DataDirMethod      string                       `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
+	MaxGasPerTest      *uint64                      `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
+	RPCSeedKey         string                       `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	FillerExtraArgs    []string                     `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
 }
 
 // ResolveTarget returns a copy of the i-th target with any unset hoistable
@@ -466,6 +472,25 @@ func (e *EESTPayloadsConfig) ResolveTarget(i int) EESTPayloadTarget {
 
 	if t.Fork == "" {
 		t.Fork = g.Fork
+	}
+
+	if len(t.Tests) == 0 {
+		t.Tests = g.Tests
+	}
+
+	if t.Filter == "" {
+		t.Filter = g.Filter
+	}
+
+	if t.Marker == "" {
+		t.Marker = g.Marker
+	}
+
+	// Hoist the address-stubs pair as a unit: a target that sets either form
+	// keeps its own and inherits neither, preserving their mutual exclusion.
+	if len(t.AddressStubs) == 0 && t.AddressStubsFile == "" {
+		t.AddressStubs = g.AddressStubs
+		t.AddressStubsFile = g.AddressStubsFile
 	}
 
 	if len(t.GasBenchmarkValues) == 0 {
@@ -3809,16 +3834,22 @@ func restoreEnvironmentKeyCasing(cfg *Config, rawYAMLs []string) {
 	}
 }
 
+// rawEESTStubs holds just the inline address_stubs map for one level of the
+// eest_payloads config (the global config block or a single target).
+type rawEESTStubs struct {
+	AddressStubs map[string]map[string]string `yaml:"address_stubs"`
+}
+
 // rawEESTBuilderConfig is a minimal struct used to re-parse inline
 // address_stubs maps, whose stub-name keys Viper lowercases (it is
 // case-insensitive). EEST resolves stub names by exact match, so the
-// original casing must be restored.
+// original casing must be restored — both at the global config level
+// (hoisted into targets via ResolveTarget) and per target.
 type rawEESTBuilderConfig struct {
 	Builder struct {
 		EESTPayloads struct {
-			Targets []struct {
-				AddressStubs map[string]map[string]string `yaml:"address_stubs"`
-			} `yaml:"targets"`
+			Config  *rawEESTStubs  `yaml:"config"`
+			Targets []rawEESTStubs `yaml:"targets"`
 		} `yaml:"eest_payloads"`
 	} `yaml:"builder"`
 }
@@ -3826,17 +3857,19 @@ type rawEESTBuilderConfig struct {
 // restoreAddressStubsKeyCasing re-parses the raw YAML to recover the original
 // casing of inline address_stubs stub-name keys that Viper lowercased. Viper
 // replaces (rather than appends) list values on merge, so the last config file
-// that defines targets wins — mirror that with a last-wins positional match.
+// that defines targets (or the config block) wins — mirror that with a
+// last-wins positional match.
 func restoreAddressStubsKeyCasing(cfg *Config, rawYAMLs []string) {
 	if cfg.Builder == nil || cfg.Builder.EESTPayloads == nil {
 		return
 	}
 
-	targets := cfg.Builder.EESTPayloads.Targets
+	ep := cfg.Builder.EESTPayloads
 
-	var rawTargets []struct {
-		AddressStubs map[string]map[string]string `yaml:"address_stubs"`
-	}
+	var (
+		rawConfig  *rawEESTStubs
+		rawTargets []rawEESTStubs
+	)
 
 	for _, raw := range rawYAMLs {
 		var parsed rawEESTBuilderConfig
@@ -3844,21 +3877,30 @@ func restoreAddressStubsKeyCasing(cfg *Config, rawYAMLs []string) {
 			continue
 		}
 
+		if parsed.Builder.EESTPayloads.Config != nil {
+			rawConfig = parsed.Builder.EESTPayloads.Config
+		}
+
 		if len(parsed.Builder.EESTPayloads.Targets) > 0 {
 			rawTargets = parsed.Builder.EESTPayloads.Targets
 		}
 	}
 
-	// Only restore when the winning file's target list aligns 1:1 with the
-	// resolved config; otherwise leave the (lowercased) keys untouched rather
-	// than risk mismatching stubs onto the wrong target.
-	if len(rawTargets) != len(targets) {
+	// Global config defaults (hoisted into targets at resolve time).
+	if rawConfig != nil && ep.Config != nil && len(rawConfig.AddressStubs) > 0 {
+		ep.Config.AddressStubs = rawConfig.AddressStubs
+	}
+
+	// Per-target stubs. Only restore when the winning file's target list aligns
+	// 1:1 with the resolved config; otherwise leave the (lowercased) keys
+	// untouched rather than risk mismatching stubs onto the wrong target.
+	if len(rawTargets) != len(ep.Targets) {
 		return
 	}
 
-	for i := range targets {
+	for i := range ep.Targets {
 		if len(rawTargets[i].AddressStubs) > 0 {
-			targets[i].AddressStubs = rawTargets[i].AddressStubs
+			ep.Targets[i].AddressStubs = rawTargets[i].AddressStubs
 		}
 	}
 }

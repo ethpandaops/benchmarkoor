@@ -157,6 +157,46 @@ builder:
       # COW is mandatory at this size — overlayfs (Linux/OrbStack). On the host
       # this would be `copy` (infeasible). See .hack/orbstack.sh.
       datadir_method: overlayfs
+      # Both targets fill the SAME bloatnet set against the SAME prestate, so
+      # tests / filter / address_stubs are hoisted here once instead of repeated
+      # per target. Any target may still override an individual field.
+      tests:
+        - tests/benchmark/stateful/bloatnet
+      # Resolves @pytest.mark.stub_parametrize prefixes against pre-deployed
+      # state (e.g. bloated_eoa_10GB → 0x87a6…be04). Defined inline so there's
+      # no separate stubs file to provision; addr/pkey reference the bloated
+      # EOA this prestate pre-deploys. (Equivalent to address_stubs_file: <json>.)
+      address_stubs:
+        bloated_eoa_10GB:
+          addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
+          pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
+      # This prestate provides the bloated_eoa_10GB stub + the template-backed
+      # pre-state (sequential EOAs, CREATE2 contracts, sender pool, Bittrex
+      # chain). Exclusions:
+      #   erc20 / test_multi_opcode (bloatnet_factory_): need giant ERC20 /
+      #     factory stubs this prestate doesn't provide (require_stub_match).
+      #   test_setup_contracts: deploys 120k contracts from scratch in one
+      #     fixture (~120k blocks) — a state-builder, not a quick benchmark.
+      #   test_deep_branch: deploys worst-case deep MPT contracts at fill time
+      #     in a single block that exceeds the block gas limit (EIP-1559 caps
+      #     the per-block ramp, so the limit can't jump to fit it). Verified
+      #     unfillable even at gas_limit 1000M; needs prestate-deployed mined
+      #     contracts instead — see the worst_case_miner submodule.
+      #   test_extcodesize_bytecode_sizes, the zero_to_nonzero sstore variants,
+      #     test_sload_bloated_prefetch_miss, and the existing_slots_True
+      #     multi_contract cases: amsterdam gas/BAL divergence (these target the
+      #     post-amsterdam repricing; we fill against amsterdam).
+      # The two param-scoped excludes keep this functions' passing cases (12
+      # sstore_variants, 2 multi_contract). Result: 225 filled, 0 failed.
+      filter: >-
+        not erc20
+        and not test_multi_opcode
+        and not test_setup_contracts
+        and not test_deep_branch
+        and not test_extcodesize_bytecode_sizes
+        and not test_sload_bloated_prefetch_miss
+        and not (test_sstore_variants and zero_to_nonzero)
+        and not (test_sload_bloated_multi_contract and existing_slots_True)
     targets:
       - name: payload-generator-geth-stateful-full
         filler_client: geth
@@ -167,43 +207,6 @@ builder:
         filler_extra_args:
           - --override.amsterdam=1
         output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet}
-        # Resolves @pytest.mark.stub_parametrize prefixes against pre-deployed
-        # state (e.g. bloated_eoa_10GB → 0x87a6…be04). Defined inline so there's
-        # no separate stubs file to provision; addr/pkey reference the bloated
-        # EOA this prestate pre-deploys. (Equivalent to address_stubs_file: <json>.)
-        address_stubs:
-          bloated_eoa_10GB:
-            addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
-            pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
-        tests:
-          - tests/benchmark/stateful/bloatnet
-        # This prestate provides the bloated_eoa_10GB stub + the template-backed
-        # pre-state (sequential EOAs, CREATE2 contracts, sender pool, Bittrex
-        # chain). Exclusions:
-        #   erc20 / test_multi_opcode (bloatnet_factory_): need giant ERC20 /
-        #     factory stubs this prestate doesn't provide (require_stub_match).
-        #   test_setup_contracts: deploys 120k contracts from scratch in one
-        #     fixture (~120k blocks) — a state-builder, not a quick benchmark.
-        #   test_deep_branch: deploys worst-case deep MPT contracts at fill time
-        #     in a single block that exceeds the block gas limit (EIP-1559 caps
-        #     the per-block ramp, so the limit can't jump to fit it). Verified
-        #     unfillable even at gas_limit 1000M; needs prestate-deployed mined
-        #     contracts instead — see the worst_case_miner submodule.
-        #   test_extcodesize_bytecode_sizes, the zero_to_nonzero sstore variants,
-        #     test_sload_bloated_prefetch_miss, and the existing_slots_True
-        #     multi_contract cases: amsterdam gas/BAL divergence (these target the
-        #     post-amsterdam repricing; we fill against amsterdam).
-        # The two param-scoped excludes keep this functions' passing cases (12
-        # sstore_variants, 2 multi_contract). Result: 225 filled, 0 failed.
-        filter: >-
-          not erc20
-          and not test_multi_opcode
-          and not test_setup_contracts
-          and not test_deep_branch
-          and not test_extcodesize_bytecode_sizes
-          and not test_sload_bloated_prefetch_miss
-          and not (test_sstore_variants and zero_to_nonzero)
-          and not (test_sload_bloated_multi_contract and existing_slots_True)
 
       # Cross-client filler: build the SAME fixtures via nethermind instead of
       # geth. EEST fixtures are client-agnostic, so the runner only needs one
@@ -227,23 +230,6 @@ builder:
         genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
         output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet-nm}
-        # Same inline stubs as the geth target above.
-        address_stubs:
-          bloated_eoa_10GB:
-            addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
-            pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
-        tests:
-          - tests/benchmark/stateful/bloatnet
-        # Same exclusions as the geth target above (see those comments).
-        filter: >-
-          not erc20
-          and not test_multi_opcode
-          and not test_setup_contracts
-          and not test_deep_branch
-          and not test_extcodesize_bytecode_sizes
-          and not test_sload_bloated_prefetch_miss
-          and not (test_sstore_variants and zero_to_nonzero)
-          and not (test_sload_bloated_multi_contract and existing_slots_True)
 
 ## Stage 3: Run the bloatnet/repricing benchmarks
 runner:

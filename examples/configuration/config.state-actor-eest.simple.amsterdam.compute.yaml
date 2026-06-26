@@ -104,6 +104,10 @@ builder:
       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
       gas_benchmark_values: [10]  # Millions of gas to parametrise against
       datadir_method: copy        # 1GB snapshot; copy is fine (For bigger dirs we should use zfs/overlayfs/schelk)
+      # Every target fills the same compute suite, so hoist it here. The -k
+      # filters stay per-target (each client excludes a slightly different set).
+      tests:
+        - tests/benchmark/compute   # pytest paths inside the fill image
     # fill-stateful drives the filler over testing_buildBlockV1; the per-test
     # rewind uses debug_setHead (geth) or debug_resetHead (nethermind), and works
     # without either (the block is built on its explicit start_block parent). geth
@@ -122,8 +126,6 @@ builder:
         filler_extra_args:
           - --override.amsterdam=1
         output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam}
-        tests:
-          - tests/benchmark/compute   # pytest paths inside the fill image
         # Exclude the currently-failing compute tests so the fill is green. Reasons:
         #   blockhash: 256-block chain exceeds geth pathdb rewind (per-test reset)
         #   blobhash:  geth testing_buildBlockV1 panics on blob txs (no sidecar)
@@ -173,8 +175,6 @@ builder:
         # amsterdamTime in at boot (snapshot block 0 ts is 0, so amsterdam at ts 1).
         genesis_fork_override: { amsterdam: 1 }
         output_dir: ${EEST_FIXTURES_DIR_BESU:-/tmp/benchmarkoor/eest-fixtures-amsterdam-besu}
-        tests:
-          - tests/benchmark/compute
         # Identical exclusions to nethermind (keeps test_blockhash, which besu also
         # fills). besu fills the same compute set as nethermind once the BAL coinbase
         # fix is in the filler_image.
@@ -207,8 +207,6 @@ builder:
         genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
         output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-nm}
-        tests:
-          - tests/benchmark/compute
         # test_blockhash is kept here but excluded on the geth target: geth's
         # pathdb can't rebuild on start_block after the test's 256-block chain
         # (historical state unavailable), so geth corrupts; nethermind fills it.

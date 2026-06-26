@@ -107,6 +107,9 @@ builder:
       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
       gas_benchmark_values: [10]  # Millions of gas to parametrise against
       datadir_method: copy        # 1GB snapshot; copy is fine (For bigger dirs we should use zfs/overlayfs/schelk)
+      # Both targets fill the same stateful (BAL) suite, so hoist it here.
+      tests:
+        - tests/benchmark/stateful/eip7928_block_level_access_lists
     # amsterdam fill: filler_image must be a geth that registers --override.amsterdam
     # (bal-devnet-7 + the amsterdam-override patch); the geth target passes
     # --override.amsterdam=1 via filler_extra_args (snapshot block 0 ts is 0).
@@ -120,8 +123,6 @@ builder:
         filler_extra_args:
           - --override.amsterdam=1
         output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful}
-        tests:
-          - tests/benchmark/stateful/eip7928_block_level_access_lists
       # nethermind cross-client filler: builds the same fixtures via nethermind
       # instead of geth (EEST fixtures are client-agnostic, so the runner only
       # needs one set — geth's, above; this proves nethermind can fill). Writes
@@ -140,8 +141,6 @@ builder:
         genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
         output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful-nm}
-        tests:
-          - tests/benchmark/stateful/eip7928_block_level_access_lists
 
 ## Stage 3: Run benchmarks using the state-actor datadirs and the eest payloads
 runner:
