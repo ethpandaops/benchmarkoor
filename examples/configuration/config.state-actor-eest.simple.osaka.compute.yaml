@@ -84,13 +84,10 @@ builder:
       #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
       #   genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
       #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-besu
-      # nethermind: testing_buildBlockV1 works (Testing module in the special
-      # nethermindeth/nethermind:testing_build_block_with_opcode_tracing image),
-      # but debug_setHead is unimplemented (the per-test rewind aborts the run)
-      # and its receipt trips EEST's strict model. Re-enable when fixed.
+      # nethermind cross-client filler — uncomment to also fill via nethermind.
       # - name: payload-generator-nethermind
       #   filler_client: nethermind
-      #   filler_image: nethermindeth/nethermind:testing_build_block_with_opcode_tracing
+      #   filler_image: nethermindeth/nethermind:master
       #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
       #   genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
       #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-nethermind
