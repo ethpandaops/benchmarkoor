@@ -158,6 +158,7 @@ runner:
           fixtures_subdir: blockchain_tests_stateful_engine
   client:
     config:
+      rollback_strategy: container-recreate  # recreate the container and rollback snapshot datadir
       # Booting from a snapshot datadir leaves the Engine API forkchoice head
       # un-established, so clients answer SYNCING to every newPayload. A bootstrap
       # FCU to the snapshot head makes them canonical and ready to validate the

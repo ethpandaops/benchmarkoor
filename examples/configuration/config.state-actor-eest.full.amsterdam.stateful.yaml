@@ -221,6 +221,7 @@ runner:
           fixtures_subdir: blockchain_tests_stateful_engine
   client:
     config:
+      # rollback_strategy: container-recreate  # recreate the container and rollback snapshot datadir
       bootstrap_fcu:
         enabled: true
         max_retries: 10
