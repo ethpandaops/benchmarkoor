@@ -32,6 +32,7 @@ global:
     # client writes under its own <prefix>/<client> subdir.
     STATE_DIR: /tmp/benchmarkoor/state-actor/simple-amsterdam-compute
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/simple-amsterdam-compute
+    EEST_FIXTURES_RUNNER_SOURCE: geth   # which filler's fixtures the runner replays
 
 builder:
   ## Stage 1: Building datadirs using state-actor
@@ -214,7 +215,7 @@ runner:
     tests:
       source:
         eest_fixtures:
-          local_fixtures_dir: ${EEST_FIXTURES_DIR}/geth
+          local_fixtures_dir: ${EEST_FIXTURES_DIR}/${EEST_FIXTURES_RUNNER_SOURCE}
           fixtures_subdir: blockchain_tests_stateful_engine
   client:
     config:
