@@ -123,6 +123,19 @@ builder:
         genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
         output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful-nm}
 
+      # Besu — cross-client filler. ethpandaops/besu:bal-devnet-7 carries the
+      # merged TestingBuildBlockV1 coinbase fix needed to build correct EIP-7928
+      # BALs (see config.state-actor-eest.simple.amsterdam.compute.yaml).
+      - name: payload-generator-besu-stateful
+        filler_client: besu
+        filler_image: ethpandaops/besu:bal-devnet-7
+        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+        # besu reads forks from the geth-format genesis; benchmarkoor patches
+        # amsterdamTime in at boot (snapshot block 0 ts is 0, so amsterdam at ts 1).
+        genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
+        genesis_fork_override: { amsterdam: 1 }
+        output_dir: ${EEST_FIXTURES_DIR_BESU:-/tmp/benchmarkoor/eest-fixtures-amsterdam-stateful-besu}
+
 ## Stage 3: Run benchmarks using the state-actor datadirs and the eest payloads
 runner:
   client_logs_to_stdout: true
