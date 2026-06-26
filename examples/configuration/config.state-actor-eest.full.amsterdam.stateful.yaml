@@ -141,13 +141,12 @@ builder:
   eest_payloads:
     fill_dockerfile: Dockerfile.eest-filler
     pull_policy: if-not-present
-    eest_repo: https://github.com/skylenet/execution-specs.git
-    # = devnets/bal/7-bench-cap-aware-deploy + the fill-stateful tooling fixes
-    # that let nethermind drive fill-stateful (debug_resetHead fallback, receipt
-    # `error` strip, and start_block-not-"latest" nonce/rewind reads). Geth
-    # filling is unaffected by them. PR'd to ethereum/execution-specs
-    # devnets/bal/7-bench; move this ref there once it lands.
-    eest_ref: devnets/bal/7-bench-cap-aware-deploy-nm-resetHead
+    eest_repo: https://github.com/ethereum/execution-specs.git
+    # devnets/bal/7-bench carries the BAL benchmark tooling plus the fill-stateful
+    # fixes that let nethermind drive fill-stateful (debug_resetHead fallback,
+    # receipt `error` strip, and start_block-not-"latest" nonce/rewind reads).
+    # Geth filling is unaffected by them.
+    eest_ref: devnets/bal/7-bench
     config:
       fork: amsterdam
       # Hardhat/Anvil dev key #0 → 0xf39Fd6…2266 (the pre-funded seed above).

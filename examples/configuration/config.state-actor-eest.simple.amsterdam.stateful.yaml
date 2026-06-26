@@ -93,12 +93,12 @@ builder:
     # of pulling a pre-built one. Alternatively set fill_image: <pre-built image>.
     fill_dockerfile: Dockerfile.eest-filler
     pull_policy: if-not-present
-    eest_repo: https://github.com/skylenet/execution-specs.git
-    # = devnets/bal/7-bench-cap-aware-deploy + the fill-stateful fixes that let
-    # nethermind fill: the per-test rewind falls back to debug_resetHead
-    # (nethermind has no debug_setHead) and reads nonces at start_block, not
-    # "latest". Geth filling is unaffected by them.
-    eest_ref: devnets/bal/7-bench-cap-aware-deploy-nm-resetHead
+    eest_repo: https://github.com/ethereum/execution-specs.git
+    # devnets/bal/7-bench carries the BAL benchmark tooling plus the fill-stateful
+    # fixes that let nethermind fill: the per-test rewind falls back to
+    # debug_resetHead (nethermind has no debug_setHead) and reads nonces at
+    # start_block, not "latest". Geth filling is unaffected by them.
+    eest_ref: devnets/bal/7-bench
     config:
       fork: amsterdam            # fill amsterdam fixtures (snapshot stays osaka)
       # Pin the seed key so its account (0x7e5f…bdf, privkey 1) can be pre-funded
