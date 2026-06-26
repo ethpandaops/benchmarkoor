@@ -32,6 +32,10 @@
 #
 global:
   log_level: info
+  env:
+    # Per-config snapshot dir so configs that build a different state-actor
+    # snapshot don't collide under /tmp. Override by exporting STATE_DIR_PREFIX.
+    STATE_DIR_PREFIX: /tmp/benchmarkoor/state-actor/full-amsterdam-stateful
 
 builder:
   ## Stage 1: Building the large repricing datadir using state-actor
@@ -125,17 +129,17 @@ builder:
               "0x0": "0xa3c1e324ca1ce40db73ed6026c4a177f099b5770"
     targets:
       - client: geth
-        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        output_dir: ${STATE_DIR_PREFIX}/geth
       - client: nethermind
-        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+        output_dir: ${STATE_DIR_PREFIX}/nethermind
       # - client: reth   # +~77 GB each — enable only with disk to spare
-      #   output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth
+      #   output_dir: ${STATE_DIR_PREFIX}/reth
       # - client: besu
-      #   output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+      #   output_dir: ${STATE_DIR_PREFIX}/besu
       # - client: ethrex
-      #   output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex
+      #   output_dir: ${STATE_DIR_PREFIX}/ethrex
       # - client: erigon
-      #   output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon
+      #   output_dir: ${STATE_DIR_PREFIX}/erigon
 
   ## Stage 2: Building EEST bloatnet/repricing fixtures
   eest_payloads:
@@ -181,7 +185,7 @@ builder:
       - name: payload-generator-geth-stateful-full
         filler_client: geth
         filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        source_dir: ${STATE_DIR_PREFIX}/geth
         # geth boots from the snapshot datadir; activate amsterdam at block 0's
         # timestamp (0) + 1 via the override flag — same as the runner geth instance.
         filler_extra_args:
@@ -192,10 +196,10 @@ builder:
       - name: payload-generator-nethermind-stateful-full
         filler_client: nethermind
         filler_image: nethermindeth/nethermind:master
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+        source_dir: ${STATE_DIR_PREFIX}/nethermind
         # nethermind reads a parity chainspec; amsterdam is activated via the
         # per-instance genesis_eip_override (same EIP set as the runner instance).
-        genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+        genesis: ${STATE_DIR_PREFIX}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
         output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet-nm}
 
@@ -223,22 +227,22 @@ runner:
       # is omitted; nethermind reads a parity-format chainspec and gets amsterdam
       # via the per-instance genesis_eip_override below.
       genesis:
-        nethermind: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
-        # reth:  ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth/chainspec.json
-        # besu: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
-        # ethrex: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex/ethrex-genesis.json
-        # erigon: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon/chainspec.json
+        nethermind: ${STATE_DIR_PREFIX}/nethermind/parity-chainspec.json
+        # reth:  ${STATE_DIR_PREFIX}/reth/chainspec.json
+        # besu: ${STATE_DIR_PREFIX}/besu/besu-chainspec.json
+        # ethrex: ${STATE_DIR_PREFIX}/ethrex/ethrex-genesis.json
+        # erigon: ${STATE_DIR_PREFIX}/erigon/chainspec.json
     datadirs:
       geth:
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        source_dir: ${STATE_DIR_PREFIX}/geth
         method: overlayfs
       nethermind:
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+        source_dir: ${STATE_DIR_PREFIX}/nethermind
         method: overlayfs
-      # reth: { source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth, method: overlayfs }
-      # besu: { source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu, method: overlayfs }
-      # ethrex: { source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex, method: overlayfs }
-      # erigon: { source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon, method: overlayfs }
+      # reth: { source_dir: ${STATE_DIR_PREFIX}/reth, method: overlayfs }
+      # besu: { source_dir: ${STATE_DIR_PREFIX}/besu, method: overlayfs }
+      # ethrex: { source_dir: ${STATE_DIR_PREFIX}/ethrex, method: overlayfs }
+      # erigon: { source_dir: ${STATE_DIR_PREFIX}/erigon, method: overlayfs }
 
   instances:
     - id: geth

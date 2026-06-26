@@ -26,6 +26,10 @@
 #
 global:
   log_level: info
+  env:
+    # Per-config snapshot dir so configs that build a different state-actor
+    # snapshot don't collide under /tmp. Override by exporting STATE_DIR_PREFIX.
+    STATE_DIR_PREFIX: /tmp/benchmarkoor/state-actor/simple-amsterdam-compute
 
 builder:
   ## Stage 1: Building datadirs using state-actor
@@ -70,17 +74,17 @@ builder:
           nonce: 0
     targets:
       - client: geth
-        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        output_dir: ${STATE_DIR_PREFIX}/geth
       - client: reth
-        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth
+        output_dir: ${STATE_DIR_PREFIX}/reth
       - client: nethermind
-        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+        output_dir: ${STATE_DIR_PREFIX}/nethermind
       - client: besu
-        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+        output_dir: ${STATE_DIR_PREFIX}/besu
       - client: ethrex
-        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex
+        output_dir: ${STATE_DIR_PREFIX}/ethrex
       - client: erigon
-        output_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon
+        output_dir: ${STATE_DIR_PREFIX}/erigon
 
   ## Stage 2: Building EEST compute fixtures
   eest_payloads:
@@ -111,7 +115,7 @@ builder:
       - name: payload-generator-geth
         filler_client: geth
         filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        source_dir: ${STATE_DIR_PREFIX}/geth
         # geth boots from the snapshot datadir; activate amsterdam at block 0's
         # timestamp (0) + 1 via the override flag — same as the runner geth instance.
         filler_extra_args:
@@ -146,8 +150,8 @@ builder:
         # besu bal-devnet-7 — now carries the TestingBuildBlockV1 coinbase fix
         # (merged upstream) that fill-stateful needs to build correct EIP-7928 BALs.
         filler_image: ethpandaops/besu:bal-devnet-7
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
-        genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
+        source_dir: ${STATE_DIR_PREFIX}/besu
+        genesis: ${STATE_DIR_PREFIX}/besu/besu-chainspec.json
         # besu reads forks from the geth-format genesis; benchmarkoor patches
         # amsterdamTime in at boot (snapshot block 0 ts is 0, so amsterdam at ts 1).
         genesis_fork_override: { amsterdam: 1 }
@@ -174,8 +178,8 @@ builder:
       - name: payload-generator-nethermind
         filler_client: nethermind
         filler_image: nethermindeth/nethermind:master
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
-        genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
+        source_dir: ${STATE_DIR_PREFIX}/nethermind
+        genesis: ${STATE_DIR_PREFIX}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
         output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-nm}
         # test_blockhash is kept here but excluded on the geth target: geth's
@@ -224,40 +228,40 @@ runner:
         # nethermind reads a parity-format chainspec that schedules forks per-EIP,
         # so amsterdam is activated via the per-instance genesis_eip_override below
         # (not genesis_fork_override). The osaka chainspec is used as-is.
-        nethermind: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
-        #geth: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth/geth-genesis.json
-        reth:  ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth/chainspec.json
+        nethermind: ${STATE_DIR_PREFIX}/nethermind/parity-chainspec.json
+        #geth: ${STATE_DIR_PREFIX}/geth/geth-genesis.json
+        reth:  ${STATE_DIR_PREFIX}/reth/chainspec.json
         # besu/reth/ethrex have no --override.amsterdam flag — they read forks
         # from the genesis. benchmarkoor patches it for them at boot via the
         # per-instance genesis_fork_override below (sets amsterdamTime + inherits
         # the amsterdam blobSchedule), so the osaka chainspec is used as-is.
-        besu: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
-        ethrex: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex/ethrex-genesis.json
+        besu: ${STATE_DIR_PREFIX}/besu/besu-chainspec.json
+        ethrex: ${STATE_DIR_PREFIX}/ethrex/ethrex-genesis.json
         # erigon consumes a geth-format genesis via its init container. Filename
         # follows the per-client state-actor convention (geth-genesis.json,
         # ethrex-genesis.json); confirm/adjust once state-actor publishes the
         # erigon image.
-        erigon: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon/chainspec.json
-        #erigon: /tmp/benchmarkoor/state-actor/geth/geth-genesis.json
+        erigon: ${STATE_DIR_PREFIX}/erigon/chainspec.json
+        #erigon: ${STATE_DIR_PREFIX}/geth/geth-genesis.json
 
     datadirs:
       geth:
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/geth
+        source_dir: ${STATE_DIR_PREFIX}/geth
         method: copy
       reth:
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/reth
+        source_dir: ${STATE_DIR_PREFIX}/reth
         method: copy
       nethermind:
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind
+        source_dir: ${STATE_DIR_PREFIX}/nethermind
         method: copy
       besu:
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
+        source_dir: ${STATE_DIR_PREFIX}/besu
         method: copy
       ethrex:
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/ethrex
+        source_dir: ${STATE_DIR_PREFIX}/ethrex
         method: copy
       erigon:
-        source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/erigon
+        source_dir: ${STATE_DIR_PREFIX}/erigon
         method: copy
 
   instances:

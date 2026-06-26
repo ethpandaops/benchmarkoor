@@ -680,7 +680,13 @@ type MetadataConfig struct {
 
 // GlobalConfig contains global application settings.
 type GlobalConfig struct {
-	LogLevel    string                  `yaml:"log_level" mapstructure:"log_level"`
+	LogLevel string `yaml:"log_level" mapstructure:"log_level"`
+	// Env declares config-local variables available to ${VAR} / ${VAR:-default}
+	// substitution throughout the file, as a per-config default for an env var of
+	// the same name. A real shell env var of that name still wins, so configs stay
+	// overridable. Consumed at load time (see envExpander); the parsed map is not
+	// otherwise used and — unlike the substitution source — is Viper-lowercased.
+	Env         map[string]string       `yaml:"env,omitempty" mapstructure:"env"`
 	Directories GlobalDirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
 }
 
@@ -1356,6 +1362,64 @@ func expandEnvWithDefaults(s string) string {
 	return os.Getenv(s)
 }
 
+// rawGlobalEnv is a minimal struct used to read global.env from the raw
+// (pre-expansion) YAML. Read this way rather than from the parsed Config so the
+// keys keep their original casing (Viper lowercases all map keys), since they
+// are used as case-sensitive ${VAR} substitution names.
+type rawGlobalEnv struct {
+	Global struct {
+		Env map[string]string `yaml:"env"`
+	} `yaml:"global"`
+}
+
+// collectGlobalEnv parses global.env from each raw config and merges them
+// (later files win). A value may itself reference the shell environment (e.g.
+// "${BASE:-/tmp}/state-actor"), which is expanded here; values do not see one
+// another.
+func collectGlobalEnv(contents []string) map[string]string {
+	env := make(map[string]string)
+
+	for _, content := range contents {
+		var rg rawGlobalEnv
+		if err := yaml.Unmarshal([]byte(content), &rg); err != nil {
+			continue
+		}
+
+		for k, val := range rg.Global.Env {
+			env[k] = os.Expand(val, expandEnvWithDefaults)
+		}
+	}
+
+	return env
+}
+
+// envExpander returns the os.Expand mapping used for ${VAR} / ${VAR:-default}
+// substitution across config files. Resolution order is: the shell environment,
+// then global.env from the config, then the inline default. Keeping the shell
+// first means global.env acts as a per-config default that an env var can still
+// override (e.g. in CI).
+func envExpander(contents []string) func(string) string {
+	globalEnv := collectGlobalEnv(contents)
+
+	return func(s string) string {
+		name, defaultVal, hasDefault := strings.Cut(s, ":-")
+
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+
+		if v, ok := globalEnv[name]; ok && v != "" {
+			return v
+		}
+
+		if hasDefault {
+			return defaultVal
+		}
+
+		return ""
+	}
+}
+
 // Load reads and parses configuration files from the given paths.
 // When multiple paths are provided, configs are merged in order (later values override earlier).
 // Environment variables can be substituted in config values using ${VAR}, $VAR, or
@@ -1376,27 +1440,37 @@ func Load(paths ...string) (*Config, error) {
 
 	v.SetConfigType("yaml")
 
-	// Load and merge configs in order, collecting expanded YAML for
-	// post-processing (Viper lowercases map keys, so we re-parse to
-	// restore original casing for environment variables).
-	rawYAMLs := make([]string, 0, len(paths))
+	// Read every file up front so global.env (which may live in any of them) is
+	// known before we expand ${VAR} references.
+	contents := make([]string, 0, len(paths))
 
-	for i, path := range paths {
+	for _, path := range paths {
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("reading config file %q: %w", path, err)
 		}
 
-		expanded := os.Expand(string(content), expandEnvWithDefaults)
+		contents = append(contents, string(content))
+	}
+
+	expand := envExpander(contents)
+
+	// Load and merge configs in order, collecting expanded YAML for
+	// post-processing (Viper lowercases map keys, so we re-parse to
+	// restore original casing for environment variables).
+	rawYAMLs := make([]string, 0, len(paths))
+
+	for i, content := range contents {
+		expanded := os.Expand(content, expand)
 		rawYAMLs = append(rawYAMLs, expanded)
 
 		if i == 0 {
 			if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
-				return nil, fmt.Errorf("parsing config %q: %w", path, err)
+				return nil, fmt.Errorf("parsing config %q: %w", paths[i], err)
 			}
 		} else {
 			if err := v.MergeConfig(strings.NewReader(expanded)); err != nil {
-				return nil, fmt.Errorf("merging config %q: %w", path, err)
+				return nil, fmt.Errorf("merging config %q: %w", paths[i], err)
 			}
 		}
 	}

@@ -88,6 +88,45 @@ builder:
 	assert.Equal(t, "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04", resolved.AddressStubs["bloated_EOA_10GB"]["addr"])
 }
 
+func TestLoad_GlobalEnv(t *testing.T) {
+	configContent := `
+global:
+  log_level: info
+  env:
+    STATE_DIR_PREFIX: /tmp/bench/state-actor/simple-amsterdam-compute
+    NESTED: ${BASE_DIR:-/srv}/fixtures
+runner:
+  container_network: ${STATE_DIR_PREFIX}
+  benchmark:
+    results_dir: ${NESTED}
+    tests:
+      filter: ${MISSING:-fallback}
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	t.Run("global.env supplies ${VAR}; defaults and nesting work", func(t *testing.T) {
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		// global.env value substituted where no inline default is given.
+		assert.Equal(t, "/tmp/bench/state-actor/simple-amsterdam-compute", cfg.Runner.ContainerNetwork)
+		// global.env value that itself references the shell env (BASE_DIR unset → its default).
+		assert.Equal(t, "/srv/fixtures", cfg.Runner.Benchmark.ResultsDir)
+		// inline default still applies when neither shell nor global.env has the var.
+		assert.Equal(t, "fallback", cfg.Runner.Benchmark.Tests.Filter)
+		// keys keep their original casing for substitution despite Viper lowercasing.
+		require.Contains(t, cfg.Global.Env, "state_dir_prefix") // parsed map is lowercased (documented)
+	})
+
+	t.Run("shell env overrides global.env", func(t *testing.T) {
+		t.Setenv("STATE_DIR_PREFIX", "/mnt/big")
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.Equal(t, "/mnt/big", cfg.Runner.ContainerNetwork, "shell env must win over global.env")
+	})
+}
+
 func TestLoad_EnvVarOverrides(t *testing.T) {
 	// Create a minimal config file for testing.
 	configContent := `
