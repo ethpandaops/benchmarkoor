@@ -162,31 +162,11 @@ builder:
       tests:
         - tests/benchmark/stateful/bloatnet
       # Resolves @pytest.mark.stub_parametrize prefixes against pre-deployed
-      # state (e.g. bloated_eoa_10GB → 0x87a6…be04). Defined inline so there's
-      # no separate stubs file to provision; addr/pkey reference the bloated
-      # EOA this prestate pre-deploys. (Equivalent to address_stubs_file: <json>.)
+      # state (e.g. bloated_eoa_10GB → 0x87a6…be04).
       address_stubs:
         bloated_eoa_10GB:
           addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
           pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
-      # This prestate provides the bloated_eoa_10GB stub + the template-backed
-      # pre-state (sequential EOAs, CREATE2 contracts, sender pool, Bittrex
-      # chain). Exclusions:
-      #   erc20 / test_multi_opcode (bloatnet_factory_): need giant ERC20 /
-      #     factory stubs this prestate doesn't provide (require_stub_match).
-      #   test_setup_contracts: deploys 120k contracts from scratch in one
-      #     fixture (~120k blocks) — a state-builder, not a quick benchmark.
-      #   test_deep_branch: deploys worst-case deep MPT contracts at fill time
-      #     in a single block that exceeds the block gas limit (EIP-1559 caps
-      #     the per-block ramp, so the limit can't jump to fit it). Verified
-      #     unfillable even at gas_limit 1000M; needs prestate-deployed mined
-      #     contracts instead — see the worst_case_miner submodule.
-      #   test_extcodesize_bytecode_sizes, the zero_to_nonzero sstore variants,
-      #     test_sload_bloated_prefetch_miss, and the existing_slots_True
-      #     multi_contract cases: amsterdam gas/BAL divergence (these target the
-      #     post-amsterdam repricing; we fill against amsterdam).
-      # The two param-scoped excludes keep this functions' passing cases (12
-      # sstore_variants, 2 multi_contract). Result: 225 filled, 0 failed.
       filter: >-
         not erc20
         and not test_multi_opcode
@@ -197,6 +177,7 @@ builder:
         and not (test_sstore_variants and zero_to_nonzero)
         and not (test_sload_bloated_multi_contract and existing_slots_True)
     targets:
+      # Geth
       - name: payload-generator-geth-stateful-full
         filler_client: geth
         filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
@@ -207,19 +188,7 @@ builder:
           - --override.amsterdam=1
         output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet}
 
-      # Cross-client filler: build the SAME fixtures via nethermind instead of
-      # geth. EEST fixtures are client-agnostic, so the runner only needs one
-      # set (geth's, above) — this target exists to prove nethermind can drive
-      # fill-stateful. Validated: fills 225/0 and the fixtures replay clean on
-      # BOTH geth and nethermind (0 InvalidBlockLevelAccessList). It writes to
-      # its own output_dir and is otherwise independent; comment it out to skip
-      # the extra ~3 min fill if you only want the geth fixtures.
-      #
-      # MUST use the master image: it has testing_buildBlockV1 AND correct
-      # EIP-7928 BALs. The older nethermind testing_build_block_with_opcode_
-      # tracing image builds INVALID BALs (rejected by geth and nethermind on
-      # replay). nethermind has no debug_setHead, so the per-test chain rewind
-      # relies on the eest_ref branch's debug_resetHead fallback.
+      # Nethermind
       - name: payload-generator-nethermind-stateful-full
         filler_client: nethermind
         filler_image: nethermindeth/nethermind:master

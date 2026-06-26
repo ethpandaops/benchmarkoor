@@ -106,15 +106,8 @@ builder:
       # filters stay per-target (each client excludes a slightly different set).
       tests:
         - tests/benchmark/compute   # pytest paths inside the fill image
-    # fill-stateful drives the filler over testing_buildBlockV1; the per-test
-    # rewind uses debug_setHead (geth) or debug_resetHead (nethermind), and works
-    # without either (the block is built on its explicit start_block parent). geth
-    # and nethermind both fill; besu's target stays commented (upstream bug).
-    #
-    # amsterdam fill: filler_image must be a geth that registers --override.amsterdam
-    # (bal-devnet-7 + the amsterdam-override patch); the geth target passes
-    # --override.amsterdam=1 via filler_extra_args (snapshot block 0 ts is 0).
     targets:
+      # Geth
       - name: payload-generator-geth
         filler_client: geth
         filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
@@ -146,21 +139,8 @@ builder:
           and not test_block_full_data
           and not test_prefetch_cold_storage
           and not test_ext_account_query_cold
-      # besu cross-client filler. besu drives the fill over testing_buildBlockV1
-      # (TESTING namespace, besu-eth/besu#9838) just like nethermind. Earlier besu
-      # self-rejected every block on engine_newPayloadV5 with a BAL hash mismatch:
-      # testing_buildBlockV1 credited fees + the EIP-7928 block access list to the
-      # request's suggestedFeeRecipient but wrote the node's configured coinbase
-      # (Address.ZERO) into the header, so re-execution recomputed the BAL under a
-      # different coinbase. Fixed by a one-line change in TestingBuildBlockV1
-      # (miningConfiguration.setCoinbase(suggestedFeeRecipient) before building) —
-      # the filler_image below MUST carry that patch (besu bal-devnet-7 +
-      # TestingBuildBlockV1 coinbase fix). The eest builder auto-pins besu's session
-      # priority fee, so no extra args are needed. Validated against the same filter
-      # as nethermind: 0 BAL mismatches, fixtures replay clean. (besu fills the
-      # BLS12-381 MSM benchmarks too — they only fail at gas_benchmark_values [1],
-      # where the k=128 MSM call's ~1.33M intrinsic calldata gas exceeds the 1M tx
-      # limit; at [10] above they fit.)
+
+      # Besu
       - name: payload-generator-besu
         filler_client: besu
         # besu bal-devnet-7 built with the TestingBuildBlockV1 coinbase fix (see the
@@ -191,13 +171,8 @@ builder:
           and not test_block_full_data
           and not test_prefetch_cold_storage
           and not test_ext_account_query_cold
-      # nethermind cross-client filler. EEST fixtures are client-agnostic, so the
-      # runner only needs one set (geth's, above); this proves nethermind can fill.
-      # MUST use the master image (testing_buildBlockV1 + correct EIP-7928 BALs);
-      # the per-test rewind falls back to debug_resetHead (nethermind has no
-      # debug_setHead). Uses the geth filter minus `not test_blockhash` — geth
-      # can't fill that test but nethermind can. Validated: 1037 filled, 4
-      # skipped, 0 failed; fixtures replay clean on nethermind.
+
+      # Nethermind
       - name: payload-generator-nethermind
         filler_client: nethermind
         filler_image: nethermindeth/nethermind:master
