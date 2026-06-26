@@ -6,6 +6,8 @@ This document describes all configuration options for benchmarkoor. The [config.
 
 - [Overview](#overview)
 - [Environment Variables](#environment-variables)
+  - [Config-local variables (`global.env`)](#config-local-variables-globalenv)
+  - [Environment Variable Overrides](#environment-variable-overrides)
 - [Configuration Merging](#configuration-merging)
 - [Global Settings](#global-settings)
 - [Runner Settings](#runner-settings)
@@ -52,6 +54,23 @@ runner:
     results_dir: ${RESULTS_DIR:-./results}
 ```
 
+### Config-local variables (`global.env`)
+
+`global.env` declares variables inside the config itself, available to the same `${VAR}` / `${VAR:-default}` substitution everywhere in the file. This keeps a config self-contained — no need to `export` a value before running — while preserving the single-point-of-edit indirection:
+
+```yaml
+global:
+  env:
+    STATE_DIR_PREFIX: /tmp/benchmarkoor/state-actor/simple-amsterdam-compute
+builder:
+  state_actor:
+    targets:
+      - client: geth
+        output_dir: ${STATE_DIR_PREFIX}/geth   # → /tmp/benchmarkoor/state-actor/simple-amsterdam-compute/geth
+```
+
+Resolution order for any `${VAR}` is **shell environment → `global.env` → inline `:-default`**. A real environment variable of the same name therefore still wins, so `global.env` acts as a per-config default that CI or an ad-hoc `VAR=… benchmarkoor …` invocation can override. A `global.env` value may itself reference the shell environment (e.g. `${BASE:-/tmp}/state-actor`); values do not reference one another.
+
 ### Environment Variable Overrides
 
 Configuration values can also be overridden via environment variables with the `BENCHMARKOOR_` prefix. The variable name is derived from the config path using underscores:
@@ -83,6 +102,8 @@ The `global` section contains application-wide settings.
 ```yaml
 global:
   log_level: info
+  env:
+    STATE_DIR_PREFIX: /tmp/benchmarkoor/state-actor/my-config
   directories:
     cachedir: ~/.cache/benchmarkoor
 ```
@@ -92,6 +113,7 @@ global:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `log_level` | string | `info` | Logging level: `debug`, `info`, `warn`, `error` |
+| `env` | map[string]string | – | Config-local variables for `${VAR}` substitution; a per-config default that a shell env var of the same name still overrides. See [Config-local variables](#config-local-variables-globalenv). |
 | `directories.cachedir` | string | `~/.cache/benchmarkoor` | On-disk cache shared by both commands: executor git/archive clones (`run`) and the EEST repo clone (`build`). |
 
 ## Runner Settings
@@ -1601,7 +1623,7 @@ builder:
 
 `eest_payloads` generates **stateful** EEST benchmark fixtures: it boots a filler EL client on a *writable copy* of a pre-populated snapshot datadir, runs `fill-stateful` against the live client (recording engine-API payloads anchored to the snapshot's head block), and writes the fixtures to each target's `output_dir`. `fill-stateful` itself does not manage datadirs — benchmarkoor boots the filler and snapshots it.
 
-> **Filler client:** `geth` (`ethpandaops/geth:master`) is the production-ready filler. `nethermind` (`nethermindeth/nethermind:master`) also works — it implements `testing_buildBlockV1` with correct EIP-7928 block-access-lists, and `fill-stateful`'s per-test rewind falls back to `debug_resetHead` for it (nethermind has no `debug_setHead`). `besu` is plumbed in benchmarkoor but blocked upstream.
+> **Filler client:** `geth` (`ethpandaops/geth:master`) is the production-ready filler. `nethermind` (`nethermindeth/nethermind:master`) also works — it implements `testing_buildBlockV1` with correct EIP-7928 block-access-lists, and `fill-stateful`'s per-test rewind falls back to `debug_resetHead` for it (nethermind has no `debug_setHead`). `besu` works too with an image carrying the merged `TestingBuildBlockV1` coinbase fix (e.g. `ethpandaops/besu:bal-devnet-7`); benchmarkoor auto-pins its session priority fee.
 >
 > **Fill image:** there is no published `fill-stateful` image yet (the command lands in execution-specs [#2637](https://github.com/ethereum/execution-specs/pull/2637)). Build one from the repo's `Dockerfile.eest-filler` (it bundles `uv` + execution-specs) and point `fill_image` at it:
 > ```bash
@@ -1654,18 +1676,31 @@ builder:
 
 ### `builder.eest_payloads.config` options
 
-Every field below is also available per-target; a non-nil/non-empty value on a target overrides the default. Use this block to avoid repeating `fork`, `gas_benchmark_values`, etc.
+Every field below is also available per-target; a non-nil/non-empty value on a target overrides the default. Use this block to avoid repeating shared knobs (`fork`, `tests`, `filter`, `address_stubs`, …) across targets that build the same suite. (Only the identity/locator fields — `name`, `filler_client`, `source_dir`, `output_dir`, `genesis`, `genesis_fork_override`, `genesis_eip_override` — are target-only and never hoisted.)
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `filler_image` | string | – | Docker image for the filler client (e.g. `ethpandaops/geth:master`). |
 | `fork` | string | – | Fork to fill against, e.g. `Osaka` (passed to `fill-stateful --fork`). |
+| `tests` | string[] | – | pytest paths inside the fill image, e.g. `tests/benchmark/compute`. Required after resolution — set here or per-target. |
+| `filter` | string | – | pytest `-k` expression (substring/node-id selection). |
+| `marker` | string | – | pytest `-m` marker expression, orthogonal to `filter`'s `-k`, e.g. `repricing` / `not repricing`. |
+| `address_stubs` | map | – | Inline `--address-stubs` map: stub name → arbitrary string fields (e.g. `addr`, `pkey`). Materialised to a temp JSON file at build time. Mutually exclusive with `address_stubs_file`. |
+| `address_stubs_file` | string | – | **Absolute** host path to a `--address-stubs` JSON map. Mutually exclusive with `address_stubs`. |
 | `gas_benchmark_values` | int[] | – | Gas budgets in millions, e.g. `[10, 30]`; joined into `--gas-benchmark-values`. Mutually exclusive with `fixed_opcode_count`. |
 | `fixed_opcode_count` | float[] | – | Opcode counts in thousands, e.g. `[0.5, 1, 2]`; joined into `--fixed-opcode-count`. An empty list (`[]`) passes the flag bare, using the fill image's `.fixed_opcode_counts.json` default. Mutually exclusive with `gas_benchmark_values`. |
 | `datadir_method` | string | `copy` | How the filler's writable copy of `source_dir` is prepared: `copy`, `overlayfs`, `fuse-overlayfs`, `zfs`, `direct`, `schelk`. Use `zfs`/`overlayfs` to avoid a full copy of a large snapshot. |
 | `max_gas_per_test` | uint64 | – | Overrides the fork's transaction gas-limit cap (`--max-gas-per-test`). |
 | `rpc_seed_key` | string | – | Pin the seed EOA for reproducible fills (`--rpc-seed-key`); otherwise one is generated and funded via CL withdrawal. |
 | `filler_extra_args` | []string | – | Extra argv appended to the filler client command. |
+
+> **Address-stubs hoisting:** `address_stubs` / `address_stubs_file` hoist as a *unit* — a target that sets either form inherits neither from `config`, so their mutual exclusion is preserved. An inline `address_stubs` example:
+> ```yaml
+> address_stubs:
+>   bloated_eoa_10GB:
+>     addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
+>     pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
+> ```
 
 ### `builder.eest_payloads.targets[]` options
 
@@ -1674,18 +1709,14 @@ Identity/locator fields are target-only; the rest mirror `config` and are resolv
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `name` | string | `filler_client` | Used by `--target` to filter. Must be unique across targets. |
-| `filler_client` | string | – | Client booted as the filler. `geth` or `nethermind` (both implement `testing_buildBlockV1`). |
+| `filler_client` | string | – | Client booted as the filler: `geth`, `nethermind`, or `besu` (all implement `testing_buildBlockV1`). |
 | `source_dir` | string | – | **Absolute** host path to the pristine snapshot datadir (e.g. a `state_actor` `output_dir`). Never mutated — a writable copy is filled. Existence is checked at build time. |
 | `genesis` | string | – | **Absolute** host path to the genesis/chainspec the filler boots with (besu/nethermind read their fork schedule from it; passed via the client's genesis flag). Must match the chain config used to produce `source_dir`. geth/erigon boot from the datadir instead and need no `genesis`. |
 | `genesis_fork_override` | map | – | Patch the geth-format `genesis` at filler boot to activate forks at given timestamps (`{amsterdam: 1}` → `config.amsterdamTime`, inheriting the blob schedule). For besu/reth/ethrex fillers. Same mechanism as the runner. Requires `genesis`. |
 | `genesis_eip_override` | object | – | Patch a parity/nethermind `genesis` at filler boot, setting `params.eip<N>TransitionTimestamp` for each listed EIP. Fields: `timestamp` (uint), `eips` ([]uint). For the nethermind filler. Requires `genesis`; mutually exclusive with `genesis_fork_override`. |
 | `output_dir` | string | – | **Absolute** host path for the generated fixtures. Skipped if already populated unless `--force` / `force: true`. Written under `<output_dir>/blockchain_tests_stateful_engine/`. |
-| `tests` | []string | – | **Required.** pytest paths inside the fill image, e.g. `tests/benchmark/compute`. |
-| `filter` | string | – | Optional pytest `-k` expression (substring/node-id selection). |
-| `marker` | string | – | Optional pytest `-m` marker expression (orthogonal to `filter`'s `-k`), e.g. `repricing` to select the gas-repricing reference benchmarks, or `not repricing`. |
-| `address_stubs_file` | string | – | **Absolute** host path to a `--address-stubs` JSON map, required by stub-dependent tests (e.g. bloatnet opcode tests). |
 | `force` | bool | `false` | Per-target override of `--force`: wipe `output_dir` before filling. |
-| `filler_image`, `fork`, `gas_benchmark_values`, `fixed_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `filler_extra_args` | — | from `config` | See the `config` table above. `fork` and `filler_image` are required after resolution. |
+| `filler_image`, `fork`, `tests`, `filter`, `marker`, `address_stubs`, `address_stubs_file`, `gas_benchmark_values`, `fixed_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `filler_extra_args` | — | from `config` | Mirror `config` with per-target precedence — see the `config` table above. `tests`, `fork`, and `filler_image` are required after resolution (set on the target or in `config`). |
 
 ### Replaying generated fixtures
 
