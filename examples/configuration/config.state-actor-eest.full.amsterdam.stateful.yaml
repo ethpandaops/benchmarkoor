@@ -13,9 +13,6 @@
 # INSIDE the machine (overlayfs mount needs CAP_SYS_ADMIN):
 #
 #   .hack/orbstack.sh bench
-#   # one-off: make the address stubs available at the path referenced below
-#   orb -m bench sudo mkdir -p /tmp/benchmarkoor
-#   orb -m bench sudo cp $(pwd)/examples/configuration/stubs-repricing-amsterdam.json /tmp/benchmarkoor/
 #   orb -m bench sudo benchmarkoor build --config $(pwd)/examples/configuration/config.state-actor-eest.full.amsterdam.stateful.yaml --force
 #   orb -m bench sudo benchmarkoor run   --config $(pwd)/examples/configuration/config.state-actor-eest.full.amsterdam.stateful.yaml --limit-instance-id=geth
 #
@@ -171,9 +168,13 @@ builder:
           - --override.amsterdam=1
         output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet}
         # Resolves @pytest.mark.stub_parametrize prefixes against pre-deployed
-        # state (e.g. bloated_eoa_10GB → 0x87a6…be04). Copy the committed
-        # stubs-repricing-amsterdam.json here (see header). Must be absolute.
-        address_stubs_file: ${EEST_STUBS_FILE:-/tmp/benchmarkoor/stubs-repricing-amsterdam.json}
+        # state (e.g. bloated_eoa_10GB → 0x87a6…be04). Defined inline so there's
+        # no separate stubs file to provision; addr/pkey reference the bloated
+        # EOA this prestate pre-deploys. (Equivalent to address_stubs_file: <json>.)
+        address_stubs:
+          bloated_eoa_10GB:
+            addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
+            pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
         tests:
           - tests/benchmark/stateful/bloatnet
         # This prestate provides the bloated_eoa_10GB stub + the template-backed
@@ -226,7 +227,11 @@ builder:
         genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
         output_dir: ${EEST_FIXTURES_DIR_NM:-/tmp/benchmarkoor/eest-fixtures-amsterdam-bloatnet-nm}
-        address_stubs_file: ${EEST_STUBS_FILE:-/tmp/benchmarkoor/stubs-repricing-amsterdam.json}
+        # Same inline stubs as the geth target above.
+        address_stubs:
+          bloated_eoa_10GB:
+            addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
+            pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
         tests:
           - tests/benchmark/stateful/bloatnet
         # Same exclusions as the geth target above (see those comments).

@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -279,6 +280,20 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 		defer cleanup()
 
 		t.Genesis = patched
+	}
+
+	// address_stubs defines the stub mapping inline; materialize it to a temp
+	// JSON file so the existing mount + --address-stubs path (keyed on
+	// AddressStubsFile) works unchanged — identical to the genesis patch above.
+	if len(t.AddressStubs) > 0 {
+		stubsPath, cleanup, serr := materializeAddressStubs(log, t)
+		if serr != nil {
+			return serr
+		}
+
+		defer cleanup()
+
+		t.AddressStubsFile = stubsPath
 	}
 
 	// Stream the filler's logs for the lifetime of this build.
@@ -869,6 +884,51 @@ func patchFillerGenesis(
 
 		return "", nil, fmt.Errorf("chmod temp genesis file: %w", err)
 	}
+
+	return path, cleanup, nil
+}
+
+// materializeAddressStubs serializes a target's inline address_stubs map to a
+// temp JSON file readable by the container UID (0644) and returns its path plus
+// a cleanup callback. The file mirrors the on-disk address_stubs_file format so
+// downstream mount + --address-stubs handling is identical.
+func materializeAddressStubs(
+	log logrus.FieldLogger, t *config.EESTPayloadTarget,
+) (string, func(), error) {
+	data, err := json.MarshalIndent(t.AddressStubs, "", "  ")
+	if err != nil {
+		return "", nil, fmt.Errorf("marshaling address_stubs: %w", err)
+	}
+
+	f, err := os.CreateTemp(mountTempDir(), "benchmarkoor-eest-stubs-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("creating temp stubs file: %w", err)
+	}
+
+	path := f.Name()
+
+	cleanup := func() { _ = os.Remove(path) }
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		cleanup()
+
+		return "", nil, fmt.Errorf("writing temp stubs file: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		cleanup()
+
+		return "", nil, fmt.Errorf("closing temp stubs file: %w", err)
+	}
+
+	if err := os.Chmod(path, 0o644); err != nil {
+		cleanup()
+
+		return "", nil, fmt.Errorf("chmod temp stubs file: %w", err)
+	}
+
+	log.WithField("stubs", len(t.AddressStubs)).Info("Materialized inline address_stubs to temp file")
 
 	return path, cleanup, nil
 }

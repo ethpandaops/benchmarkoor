@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -253,4 +254,36 @@ func TestEESTPayloadsBuilder_BuildSkipsPopulatedDir(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.Equal(t, "leftover", entries[0].Name())
+}
+
+func TestMaterializeAddressStubs(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	stubs := map[string]map[string]string{
+		"bloated_eoa_10GB": {
+			"addr": "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04",
+			"pkey": "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e",
+		},
+	}
+	tgt := &config.EESTPayloadTarget{AddressStubs: stubs}
+
+	path, cleanup, err := materializeAddressStubs(noopLogger(), tgt)
+	require.NoError(t, err)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm(), "stubs file must be container-readable")
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var got map[string]map[string]string
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, stubs, got, "materialized JSON must round-trip the inline map")
+
+	// cleanup removes the temp file.
+	cleanup()
+
+	_, err = os.Stat(path)
+	assert.True(t, os.IsNotExist(err), "cleanup should remove the temp stubs file")
 }

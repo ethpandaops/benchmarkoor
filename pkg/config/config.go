@@ -398,7 +398,7 @@ type EESTPayloadDefaults struct {
 
 // EESTPayloadTarget is one fixture-generation run. Identity/locator fields
 // (Name, FillerClient, SourceDir, OutputDir, Genesis, GenesisForkOverride,
-// GenesisEIPOverride, Tests, Filter, Marker, AddressStubsFile) live exclusively
+// GenesisEIPOverride, Tests, Filter, Marker, AddressStubsFile, AddressStubs) live exclusively
 // on the target; the remaining fields mirror EESTPayloadDefaults and are
 // resolved via ResolveTarget.
 type EESTPayloadTarget struct {
@@ -419,7 +419,13 @@ type EESTPayloadTarget struct {
 	// chainspec (nethermind).
 	GenesisForkOverride map[string]uint64   `yaml:"genesis_fork_override,omitempty" mapstructure:"genesis_fork_override"`
 	GenesisEIPOverride  *GenesisEIPOverride `yaml:"genesis_eip_override,omitempty" mapstructure:"genesis_eip_override"`
-	AddressStubsFile    string              `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
+	// AddressStubsFile points at a JSON file of named address stubs; AddressStubs
+	// defines the same mapping inline (the builder materializes it to a temp JSON
+	// file). They are mutually exclusive. Each stub maps a symbolic name to an
+	// arbitrary set of string fields (e.g. addr, pkey) that fill-stateful resolves
+	// against the snapshot's pre-deployed state via --address-stubs.
+	AddressStubsFile string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
+	AddressStubs     map[string]map[string]string `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
 	// Tests are pytest paths inside the fill image, e.g. tests/benchmark/compute.
 	Tests []string `yaml:"tests,omitempty" mapstructure:"tests"`
 	// Filter is a pytest -k expression (substring/node-id selection).
@@ -1386,6 +1392,7 @@ func Load(paths ...string) (*Config, error) {
 	}
 
 	restoreEnvironmentKeyCasing(&cfg, rawYAMLs)
+	restoreAddressStubsKeyCasing(&cfg, rawYAMLs)
 
 	cfg.applyDefaults()
 
@@ -2198,6 +2205,18 @@ func validateEESTPayloadPaths(t *EESTPayloadTarget, prefix string, seenOutputs m
 		return fmt.Errorf(
 			"%s.address_stubs_file must be an absolute path, got %q", prefix, t.AddressStubsFile,
 		)
+	}
+
+	if t.AddressStubsFile != "" && len(t.AddressStubs) > 0 {
+		return fmt.Errorf(
+			"%s: address_stubs_file and address_stubs are mutually exclusive", prefix,
+		)
+	}
+
+	for name, stub := range t.AddressStubs {
+		if stub["addr"] == "" {
+			return fmt.Errorf("%s.address_stubs[%q].addr is required", prefix, name)
+		}
 	}
 
 	return nil
@@ -3786,6 +3805,60 @@ func restoreEnvironmentKeyCasing(cfg *Config, rawYAMLs []string) {
 	for i := range cfg.Runner.Instances {
 		if orig, ok := envByID[cfg.Runner.Instances[i].ID]; ok {
 			cfg.Runner.Instances[i].Environment = orig
+		}
+	}
+}
+
+// rawEESTBuilderConfig is a minimal struct used to re-parse inline
+// address_stubs maps, whose stub-name keys Viper lowercases (it is
+// case-insensitive). EEST resolves stub names by exact match, so the
+// original casing must be restored.
+type rawEESTBuilderConfig struct {
+	Builder struct {
+		EESTPayloads struct {
+			Targets []struct {
+				AddressStubs map[string]map[string]string `yaml:"address_stubs"`
+			} `yaml:"targets"`
+		} `yaml:"eest_payloads"`
+	} `yaml:"builder"`
+}
+
+// restoreAddressStubsKeyCasing re-parses the raw YAML to recover the original
+// casing of inline address_stubs stub-name keys that Viper lowercased. Viper
+// replaces (rather than appends) list values on merge, so the last config file
+// that defines targets wins — mirror that with a last-wins positional match.
+func restoreAddressStubsKeyCasing(cfg *Config, rawYAMLs []string) {
+	if cfg.Builder == nil || cfg.Builder.EESTPayloads == nil {
+		return
+	}
+
+	targets := cfg.Builder.EESTPayloads.Targets
+
+	var rawTargets []struct {
+		AddressStubs map[string]map[string]string `yaml:"address_stubs"`
+	}
+
+	for _, raw := range rawYAMLs {
+		var parsed rawEESTBuilderConfig
+		if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil {
+			continue
+		}
+
+		if len(parsed.Builder.EESTPayloads.Targets) > 0 {
+			rawTargets = parsed.Builder.EESTPayloads.Targets
+		}
+	}
+
+	// Only restore when the winning file's target list aligns 1:1 with the
+	// resolved config; otherwise leave the (lowercased) keys untouched rather
+	// than risk mismatching stubs onto the wrong target.
+	if len(rawTargets) != len(targets) {
+		return
+	}
+
+	for i := range targets {
+		if len(rawTargets[i].AddressStubs) > 0 {
+			targets[i].AddressStubs = rawTargets[i].AddressStubs
 		}
 	}
 }

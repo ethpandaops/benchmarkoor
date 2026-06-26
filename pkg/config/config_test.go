@@ -13,6 +13,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoad_InlineAddressStubsKeyCasing(t *testing.T) {
+	// Viper is case-insensitive and lowercases all map keys; EEST resolves stub
+	// names by exact match, so Load must restore the original casing.
+	configContent := `
+builder:
+  eest_payloads:
+    fill_image: fill:latest
+    targets:
+      - name: geth-stateful
+        filler_client: geth
+        filler_image: ethpandaops/geth:master
+        source_dir: /snap
+        output_dir: /out
+        fork: Amsterdam
+        tests:
+          - tests/benchmark/stateful/bloatnet
+        address_stubs:
+          bloated_EOA_10GB:
+            addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
+            pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
+`
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	stubs := cfg.Builder.EESTPayloads.Targets[0].AddressStubs
+	require.Contains(t, stubs, "bloated_EOA_10GB", "stub-name casing must survive Viper lowercasing")
+	assert.Equal(t, "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04", stubs["bloated_EOA_10GB"]["addr"])
+	assert.Equal(t, "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e", stubs["bloated_EOA_10GB"]["pkey"])
+}
+
 func TestLoad_EnvVarOverrides(t *testing.T) {
 	// Create a minimal config file for testing.
 	configContent := `
@@ -3922,6 +3956,45 @@ func TestValidateEESTPayloads(t *testing.T) {
 				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
 			}(),
 			wantErr: false,
+		},
+		{
+			name: "inline address_stubs is valid",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.AddressStubs = map[string]map[string]string{
+					"bloated_eoa_10GB": {"addr": "0x87a6", "pkey": "0x4da3"},
+				}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr: false,
+		},
+		{
+			name: "address_stubs_file and address_stubs are mutually exclusive",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.AddressStubsFile = "/host/stubs.json"
+				tgt.AddressStubs = map[string]map[string]string{
+					"bloated_eoa_10GB": {"addr": "0x87a6"},
+				}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "mutually exclusive",
+		},
+		{
+			name: "inline address_stubs entry without addr fails",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.AddressStubs = map[string]map[string]string{
+					"bloated_eoa_10GB": {"pkey": "0x4da3"},
+				}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "addr is required",
 		},
 	}
 
