@@ -234,9 +234,9 @@ runner:
       # via the per-instance genesis_eip_override below.
       genesis:
         nethermind: ${STATE_DIR}/nethermind/parity-chainspec.json
+        ethrex: ${STATE_DIR}/ethrex/ethrex-genesis.json
         # reth:  ${STATE_DIR}/reth/chainspec.json
         # besu: ${STATE_DIR}/besu/besu-chainspec.json
-        # ethrex: ${STATE_DIR}/ethrex/ethrex-genesis.json
         # erigon: ${STATE_DIR}/erigon/chainspec.json
     datadirs:
       geth:
@@ -245,9 +245,11 @@ runner:
       nethermind:
         source_dir: ${STATE_DIR}/nethermind
         method: overlayfs
+      ethrex:
+        source_dir: ${STATE_DIR}/ethrex
+        method: overlayfs
       # reth: { source_dir: ${STATE_DIR}/reth, method: overlayfs }
       # besu: { source_dir: ${STATE_DIR}/besu, method: overlayfs }
-      # ethrex: { source_dir: ${STATE_DIR}/ethrex, method: overlayfs }
       # erigon: { source_dir: ${STATE_DIR}/erigon, method: overlayfs }
 
   instances:
@@ -275,11 +277,11 @@ runner:
     #   genesis_fork_override: { amsterdam: 1 }
     #   environment: { BESU_OPTS: "-Xms8g -Xmx8g -XX:+AlwaysPreTouch" }
     #   extra_args: [--p2p-enabled=true, --Xplugin-rocksdb-high-spec-enabled=true, --Xbal-perfect-parallelization-enabled=true, --Xbal-state-root-enabled=true, --Xbal-prefetch-reading-enabled=true, --Xbal-prefetch-batch-size=8, --Xbal-processing-timeout=-1, --Xbal-state-root-timeout=-1]
-    # - id: ethrex
-    #   client: ethrex
-    #   image: ethpandaops/ethrex:bal-devnet-7
-    #   genesis_fork_override: { amsterdam: 1 }
-    #   extra_args: [--skip-genesis-validation, --no-precompile-cache]
+    - id: ethrex
+      client: ethrex
+      image: ethpandaops/ethrex:bal-devnet-7
+      genesis_fork_override: { amsterdam: 1 }
+      extra_args: [--skip-genesis-validation, --no-precompile-cache]
     # - id: erigon
     #   client: erigon
     #   image: ethpandaops/erigon:bal-devnet-7
