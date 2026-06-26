@@ -80,7 +80,7 @@ builder:
       # (upstream besu bug in testing_buildBlockV1). Re-enable when fixed.
       # - name: payload-generator-besu
       #   filler_client: besu
-      #   filler_image: hyperledger/besu:26.6.1   # >= 26.6 ships testing_buildBlockV1
+      #   filler_image: ethpandaops/besu:main
       #   source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
       #   genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
       #   output_dir: ${EEST_FIXTURES_DIR:-/tmp/benchmarkoor/eest-fixtures}-besu
