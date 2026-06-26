@@ -1543,17 +1543,35 @@ State-actor itself only writes the genesis block; subsequent blocks come from ru
 ### Running
 
 ```bash
-# Build every target declared under builder.state_actor.targets
+# Build every target declared under builder.state_actor.targets / builder.eest_payloads.targets
 benchmarkoor build --config build.yaml
 
-# Build only specific targets (by name)
+# Build only specific targets by name, across all builders
 benchmarkoor build --config build.yaml --target geth-5g --target reth-spec
+
+# Limit a single builder's targets (the other builder is unrestricted)
+benchmarkoor build --config build.yaml --limit-state-actor-target nethermind
+benchmarkoor build --config build.yaml --limit-eest-payload-target payload-generator-nethermind
+
+# Build just one client end-to-end: its snapshot, then its fill
+benchmarkoor build --config build.yaml \
+  --limit-state-actor-target nethermind \
+  --limit-eest-payload-target payload-generator-nethermind
 
 # Overwrite existing output_dir contents
 benchmarkoor build --config build.yaml --force
 ```
 
-The command exits non-zero if any target fails; successful targets are still left in place on partial failure. A final summary lists each target with `OK ` (built), `SKIP` (output_dir already populated), or `ERR ` (failed). `--force` wipes each target's `output_dir` before building, bypassing the skip behaviour.
+| Flag | Description |
+|---|---|
+| `--target` | Filter by target `name` across **all** builders (comma-separated or repeated). |
+| `--limit-state-actor-target` | Filter only `builder.state_actor` targets; `eest_payloads` is left unrestricted. |
+| `--limit-eest-payload-target` | Filter only `builder.eest_payloads` targets; `state_actor` is left unrestricted. |
+| `--force` | Wipe each selected target's `output_dir` before building (bypasses the skip-if-populated behaviour). |
+
+A target is built when it passes the global `--target` filter **and** the per-builder limit for the builder that owns it; an unset filter imposes no restriction. Any filter value that names no existing target is a hard error (typos surface immediately — the per-builder limits are checked against only that builder's target names).
+
+The command exits non-zero if any target fails; successful targets are still left in place on partial failure. A final summary lists each target with `OK ` (built), `SKIP` (output_dir already populated), or `ERR ` (failed).
 
 ### Examples
 

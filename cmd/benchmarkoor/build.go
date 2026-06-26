@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -18,8 +19,10 @@ import (
 )
 
 var (
-	buildTargetFilter []string
-	buildForce        bool
+	buildTargetFilter       []string
+	buildStateActorTargets  []string
+	buildEESTPayloadTargets []string
+	buildForce              bool
 )
 
 var buildCmd = &cobra.Command{
@@ -42,7 +45,11 @@ build can consume a datadir produced earlier in the same invocation.`,
 func init() {
 	rootCmd.AddCommand(buildCmd)
 	buildCmd.Flags().StringSliceVar(&buildTargetFilter, "target", nil,
-		"Only build targets whose name matches (comma-separated or repeated)")
+		"Only build targets whose name matches, across all builders (comma-separated or repeated)")
+	buildCmd.Flags().StringSliceVar(&buildStateActorTargets, "limit-state-actor-target", nil,
+		"Only build builder.state_actor targets whose name matches (comma-separated or repeated)")
+	buildCmd.Flags().StringSliceVar(&buildEESTPayloadTargets, "limit-eest-payload-target", nil,
+		"Only build builder.eest_payloads targets whose name matches (comma-separated or repeated)")
 	buildCmd.Flags().BoolVar(&buildForce, "force", false,
 		"Remove each target's output_dir before building")
 }
@@ -196,7 +203,12 @@ type buildResult struct {
 // runBuilders selects and builds the requested targets across all builders,
 // preserving declaration order, then prints a summary.
 func runBuilders(ctx context.Context, builders []builder.Builder) error {
-	targets, err := selectTargets(builders, buildTargetFilter)
+	perBuilder := map[string]builderFilter{
+		builder.StateActorBuilderName:   {flag: "--limit-state-actor-target", values: buildStateActorTargets},
+		builder.EESTPayloadsBuilderName: {flag: "--limit-eest-payload-target", values: buildEESTPayloadTargets},
+	}
+
+	targets, err := selectTargets(builders, buildTargetFilter, perBuilder)
 	if err != nil {
 		return err
 	}
@@ -294,44 +306,110 @@ type selectedTarget struct {
 	info    builder.TargetInfo
 }
 
-// selectTargets flattens all builders' targets in declaration order and
-// filters them by the names in filter. An empty filter returns every target.
-// Unmatched filter values produce an error so typos surface immediately.
-func selectTargets(builders []builder.Builder, filter []string) ([]selectedTarget, error) {
-	wanted := make(map[string]bool, len(filter))
+// builderFilter is a per-builder `--limit-<builder>-target` filter: the wanted
+// target names plus the flag name, used for a precise "matched nothing" error.
+type builderFilter struct {
+	flag   string
+	values []string
+}
 
-	for _, f := range filter {
-		if f = strings.TrimSpace(f); f != "" {
-			wanted[f] = true
-		}
-	}
+// selectTargets flattens all builders' targets in declaration order and filters
+// them. A target is selected when it passes both the global `--target` filter
+// and the per-builder filter for the builder that owns it (keyed by Builder
+// Name()). An empty filter imposes no restriction. Unmatched filter values
+// produce an error so typos surface immediately — the global filter is checked
+// against every target name, each per-builder filter against only that builder's
+// target names.
+func selectTargets(
+	builders []builder.Builder, global []string, perBuilder map[string]builderFilter,
+) ([]selectedTarget, error) {
+	globalWanted := nameSet(global)
 
 	var out []selectedTarget
 
-	matched := make(map[string]bool, len(wanted))
-
 	for _, b := range builders {
+		bf := perBuilder[b.Name()]
+		builderWanted := nameSet(bf.values)
+
 		for _, info := range b.Targets() {
-			if len(wanted) > 0 && !wanted[info.Name] {
+			if len(globalWanted) > 0 && !globalWanted[info.Name] {
+				continue
+			}
+
+			if len(builderWanted) > 0 && !builderWanted[info.Name] {
 				continue
 			}
 
 			out = append(out, selectedTarget{builder: b, info: info})
-			matched[info.Name] = true
 		}
 	}
 
+	if err := checkFiltersMatched(builders, globalWanted, perBuilder); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// nameSet builds a lookup set from filter values, trimming blanks.
+func nameSet(values []string) map[string]bool {
+	set := make(map[string]bool, len(values))
+
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			set[v] = true
+		}
+	}
+
+	return set
+}
+
+// checkFiltersMatched verifies every filter value names an existing target,
+// returning an error listing any that matched nothing.
+func checkFiltersMatched(
+	builders []builder.Builder, global map[string]bool, perBuilder map[string]builderFilter,
+) error {
+	allNames := make(map[string]bool)
+	namesByBuilder := make(map[string]map[string]bool, len(builders))
+
+	for _, b := range builders {
+		names := make(map[string]bool)
+
+		for _, info := range b.Targets() {
+			names[info.Name] = true
+			allNames[info.Name] = true
+		}
+
+		namesByBuilder[b.Name()] = names
+	}
+
+	if missing := unmatched(global, allNames); len(missing) > 0 {
+		return errors.New("--target filter matched no targets: " + strings.Join(missing, ", "))
+	}
+
+	for builderName, bf := range perBuilder {
+		if missing := unmatched(nameSet(bf.values), namesByBuilder[builderName]); len(missing) > 0 {
+			return fmt.Errorf(
+				"%s matched no %s targets: %s", bf.flag, builderName, strings.Join(missing, ", "),
+			)
+		}
+	}
+
+	return nil
+}
+
+// unmatched returns the wanted names absent from available, sorted for a stable
+// error message.
+func unmatched(wanted, available map[string]bool) []string {
 	var missing []string
 
 	for name := range wanted {
-		if !matched[name] {
+		if !available[name] {
 			missing = append(missing, name)
 		}
 	}
 
-	if len(missing) > 0 {
-		return nil, errors.New("--target filter matched no targets: " + strings.Join(missing, ", "))
-	}
+	sort.Strings(missing)
 
-	return out, nil
+	return missing
 }
