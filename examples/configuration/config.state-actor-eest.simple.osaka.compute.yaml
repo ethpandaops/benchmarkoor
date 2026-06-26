@@ -56,8 +56,6 @@ builder:
     eest_repo: https://github.com/ethereum/execution-specs.git
     eest_ref: forks/amsterdam
     config:
-      # filler_image is set per-target below so each target can fill with a
-      # different client. Shared knobs stay here and are hoisted into every target.
       fork: osaka
       gas_benchmark_values: [10]  # Millions of gas to parametrise against
       datadir_method: copy        # 1GB snapshot; copy is fine (For bigger dirs we should use zfs/overlayfs/schelk)

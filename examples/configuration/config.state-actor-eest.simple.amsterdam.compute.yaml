@@ -95,8 +95,6 @@ builder:
     # start_block, not "latest". Geth filling is unaffected by them.
     eest_ref: devnets/bal/7-bench
     config:
-      # filler_image is set per-target below so each target can fill with a
-      # different client. Shared knobs stay here and are hoisted into every target.
       fork: amsterdam            # fill amsterdam fixtures (snapshot stays osaka)
       # Pin the seed key so its account (0x7e5f…bdf, privkey 1) can be pre-funded
       # in the snapshot above — lets fill-stateful skip the withdrawal funding
