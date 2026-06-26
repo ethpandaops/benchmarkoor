@@ -21,9 +21,9 @@
 # nethermind via genesis_eip_override. (Per the assume-Amsterdam decision; the
 # gist itself notes the repricing actually ships in glamsterdam.)
 #
-# NB: only geth is enabled by default — each extra client needs its OWN ~77 GB
-# snapshot (state-actor builds one per target), so 6 clients ≈ 460 GB. Uncomment
-# the others once you have the disk.
+# NB: geth, nethermind and ethrex are enabled by default — each client needs its
+# OWN multi-hundred-GB snapshot (state-actor builds one per target), so all 6
+# clients would need ~1.5 TB. Uncomment reth/besu/erigon once you have the disk.
 #
 # STATUS: validated end-to-end in the OrbStack VM — geth fills 225 bloatnet
 # cases (0 failed) against this prestate, and the geth/nethermind genesis state
@@ -46,9 +46,9 @@ builder:
     images:
       geth: ghcr.io/ethereum/state-actor:main
       nethermind: ghcr.io/ethereum/state-actor-nethermind:main
+      ethrex: ghcr.io/ethereum/state-actor-ethrex:main
       # reth: ghcr.io/ethereum/state-actor-reth:main
       # besu: ghcr.io/ethereum/state-actor-besu:main
-      # ethrex: ghcr.io/ethereum/state-actor-ethrex:main
       # erigon: ghcr.io/ethereum/state-actor-erigon:main
     pull_policy: always
     config:
@@ -132,9 +132,11 @@ builder:
               "0x0": "0xa3c1e324ca1ce40db73ed6026c4a177f099b5770"
     targets:
       - client: geth
-        output_dir: ${STATE_DIR}/geth
+        output_dir: ${STATE_DIR}/geth          # ~338 GB on disk once built
       - client: nethermind
-        output_dir: ${STATE_DIR}/nethermind
+        output_dir: ${STATE_DIR}/nethermind    # ~248 GB on disk once built
+      - client: ethrex
+        output_dir: ${STATE_DIR}/ethrex        # ~436 GB; snapshot only (ethrex isn't a fill-stateful filler)
       # - client: reth   # +~77 GB each — enable only with disk to spare
       #   output_dir: ${STATE_DIR}/reth
       # - client: besu
