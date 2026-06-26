@@ -93,10 +93,10 @@ func TestLoad_GlobalEnv(t *testing.T) {
 global:
   log_level: info
   env:
-    STATE_DIR_PREFIX: /tmp/bench/state-actor/simple-amsterdam-compute
+    STATE_DIR: /tmp/bench/state-actor/simple-amsterdam-compute
     NESTED: ${BASE_DIR:-/srv}/fixtures
 runner:
-  container_network: ${STATE_DIR_PREFIX}
+  container_network: ${STATE_DIR}
   benchmark:
     results_dir: ${NESTED}
     tests:
@@ -116,11 +116,11 @@ runner:
 		// inline default still applies when neither shell nor global.env has the var.
 		assert.Equal(t, "fallback", cfg.Runner.Benchmark.Tests.Filter)
 		// keys keep their original casing for substitution despite Viper lowercasing.
-		require.Contains(t, cfg.Global.Env, "state_dir_prefix") // parsed map is lowercased (documented)
+		require.Contains(t, cfg.Global.Env, "state_dir") // parsed map is lowercased (documented)
 	})
 
 	t.Run("shell env overrides global.env", func(t *testing.T) {
-		t.Setenv("STATE_DIR_PREFIX", "/mnt/big")
+		t.Setenv("STATE_DIR", "/mnt/big")
 		cfg, err := Load(configPath)
 		require.NoError(t, err)
 		assert.Equal(t, "/mnt/big", cfg.Runner.ContainerNetwork, "shell env must win over global.env")

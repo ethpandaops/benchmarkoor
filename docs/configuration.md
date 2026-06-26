@@ -61,12 +61,12 @@ runner:
 ```yaml
 global:
   env:
-    STATE_DIR_PREFIX: /tmp/benchmarkoor/state-actor/simple-amsterdam-compute
+    STATE_DIR: /tmp/benchmarkoor/state-actor/simple-amsterdam-compute
 builder:
   state_actor:
     targets:
       - client: geth
-        output_dir: ${STATE_DIR_PREFIX}/geth   # → /tmp/benchmarkoor/state-actor/simple-amsterdam-compute/geth
+        output_dir: ${STATE_DIR}/geth   # → /tmp/benchmarkoor/state-actor/simple-amsterdam-compute/geth
 ```
 
 Resolution order for any `${VAR}` is **shell environment → `global.env` → inline `:-default`**. A real environment variable of the same name therefore still wins, so `global.env` acts as a per-config default that CI or an ad-hoc `VAR=… benchmarkoor …` invocation can override. A `global.env` value may itself reference the shell environment (e.g. `${BASE:-/tmp}/state-actor`); values do not reference one another.
@@ -103,7 +103,7 @@ The `global` section contains application-wide settings.
 global:
   log_level: info
   env:
-    STATE_DIR_PREFIX: /tmp/benchmarkoor/state-actor/my-config
+    STATE_DIR: /tmp/benchmarkoor/state-actor/my-config
   directories:
     cachedir: ~/.cache/benchmarkoor
 ```
