@@ -112,6 +112,13 @@ func (r *runner) runContainerLifecycle(
 			Source: prepared.MountPath,
 			Target: containerDir,
 		}
+
+		// Surface any state-actor provenance dropped at the snapshot root
+		// (state-actor-manifest.json + its content-addressed spec sidecar) into
+		// the run output under .state-actor/ so the UI can render the State Actor
+		// Configuration. Read from the original source dir (the manifest lives
+		// there, not necessarily in the copied/overlaid datadir).
+		copyStateActorFiles(log, datadirCfg.SourceDir, runResultsDir, r.cfg.ResultsOwner)
 	} else if r.cfg.FullConfig != nil &&
 		r.cfg.FullConfig.GetRollbackStrategy(instance) == config.RollbackStrategyCheckpointRestore {
 		// Checkpoint-restore without a pre-populated datadir uses a bind
@@ -1444,4 +1451,71 @@ func writeRunConfig(resultsDir string, cfg *RunConfig, owner *fsutil.OwnerConfig
 	}
 
 	return nil
+}
+
+// stateActorFilePrefix matches the provenance files a recent state-actor drops
+// at the datadir root: state-actor-manifest.json and its content-addressed spec
+// sidecar (state-actor-spec-<sha256>.yaml).
+const stateActorFilePrefix = "state-actor-"
+
+// copyStateActorFiles copies any state-actor provenance files from the snapshot
+// source dir's root into <runResultsDir>/.state-actor/. Best-effort: a missing
+// source, no matching files, or copy errors are logged but never fail the run —
+// the metadata is auxiliary and only present for snapshots built by a recent
+// state-actor.
+func copyStateActorFiles(
+	log logrus.FieldLogger,
+	sourceDir, runResultsDir string,
+	owner *fsutil.OwnerConfig,
+) {
+	if sourceDir == "" {
+		return
+	}
+
+	entries, err := os.ReadDir(sourceDir)
+	if err != nil {
+		log.WithError(err).Debug("state-actor: reading snapshot source dir")
+
+		return
+	}
+
+	names := make([]string, 0, 2)
+
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), stateActorFilePrefix) {
+			names = append(names, e.Name())
+		}
+	}
+
+	if len(names) == 0 {
+		return
+	}
+
+	dst := filepath.Join(runResultsDir, ".state-actor")
+	if err := fsutil.MkdirAll(dst, 0o755, owner); err != nil {
+		log.WithError(err).Warn("state-actor: creating .state-actor output dir")
+
+		return
+	}
+
+	copied := 0
+
+	for _, name := range names {
+		data, readErr := os.ReadFile(filepath.Join(sourceDir, name))
+		if readErr != nil {
+			log.WithError(readErr).WithField("file", name).Warn("state-actor: reading file")
+
+			continue
+		}
+
+		if writeErr := fsutil.WriteFile(filepath.Join(dst, name), data, 0o644, owner); writeErr != nil {
+			log.WithError(writeErr).WithField("file", name).Warn("state-actor: writing file")
+
+			continue
+		}
+
+		copied++
+	}
+
+	log.WithField("count", copied).Debug("Copied state-actor provenance into run output")
 }
