@@ -23,6 +23,34 @@ func (f *fakeBuilder) Build(context.Context, string, builder.BuildOptions) (bool
 	return false, nil
 }
 
+func TestLimitFilters(t *testing.T) {
+	// limitFilters reads the package-level flag vars; save and restore them.
+	savedSA, savedEEST := buildStateActorTargets, buildEESTPayloadTargets
+	t.Cleanup(func() { buildStateActorTargets, buildEESTPayloadTargets = savedSA, savedEEST })
+
+	buildStateActorTargets = []string{"nethermind"}
+	buildEESTPayloadTargets = []string{"payload-generator-nethermind"}
+
+	sa := &fakeBuilder{name: builder.StateActorBuilderName}
+	eest := &fakeBuilder{name: builder.EESTPayloadsBuilderName}
+
+	t.Run("both present yields both filters", func(t *testing.T) {
+		got := limitFilters([]builder.Builder{sa, eest})
+		require.Len(t, got, 2)
+		assert.Equal(t, []string{"nethermind"}, got[builder.StateActorBuilderName].values)
+		assert.Equal(t, []string{"payload-generator-nethermind"}, got[builder.EESTPayloadsBuilderName].values)
+	})
+
+	t.Run("absent (skipped) builder's limit is dropped", func(t *testing.T) {
+		// state_actor skipped → only eest builder present.
+		got := limitFilters([]builder.Builder{eest})
+		require.Len(t, got, 1)
+		_, hasSA := got[builder.StateActorBuilderName]
+		assert.False(t, hasSA, "skipped builder's limit must be omitted")
+		assert.Equal(t, []string{"payload-generator-nethermind"}, got[builder.EESTPayloadsBuilderName].values)
+	})
+}
+
 func TestSelectTargets(t *testing.T) {
 	// state_actor builds per-client snapshots; eest_payloads fills per named target.
 	stateActor := &fakeBuilder{

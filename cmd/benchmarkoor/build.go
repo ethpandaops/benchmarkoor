@@ -22,6 +22,8 @@ var (
 	buildTargetFilter       []string
 	buildStateActorTargets  []string
 	buildEESTPayloadTargets []string
+	buildSkipStateActor     bool
+	buildSkipEESTPayloads   bool
 	buildForce              bool
 )
 
@@ -50,6 +52,10 @@ func init() {
 		"Only build builder.state_actor targets whose name matches (comma-separated or repeated)")
 	buildCmd.Flags().StringSliceVar(&buildEESTPayloadTargets, "limit-eest-payload-target", nil,
 		"Only build builder.eest_payloads targets whose name matches (comma-separated or repeated)")
+	buildCmd.Flags().BoolVar(&buildSkipStateActor, "skip-state-actor-build", false,
+		"Skip the builder.state_actor builder entirely")
+	buildCmd.Flags().BoolVar(&buildSkipEESTPayloads, "skip-eest-payload-build", false,
+		"Skip the builder.eest_payloads builder entirely")
 	buildCmd.Flags().BoolVar(&buildForce, "force", false,
 		"Remove each target's output_dir before building")
 }
@@ -88,6 +94,10 @@ func runBuild(_ *cobra.Command, _ []string) error {
 	}
 
 	defer stop()
+
+	if len(builders) == 0 {
+		return fmt.Errorf("all configured builders were skipped; nothing to build")
+	}
 
 	return runBuilders(ctx, builders)
 }
@@ -143,7 +153,11 @@ func buildBuilders(ctx context.Context, cfg *config.Config) ([]builder.Builder, 
 
 	var builders []builder.Builder
 
-	if cfg.Builder.StateActor != nil {
+	if cfg.Builder.StateActor != nil && buildSkipStateActor {
+		log.Info("Skipping builder.state_actor (--skip-state-actor-build)")
+	}
+
+	if cfg.Builder.StateActor != nil && !buildSkipStateActor {
 		runtime := cfg.GetStateActorContainerRuntime()
 
 		mgr, err := getManager(runtime)
@@ -156,7 +170,11 @@ func buildBuilders(ctx context.Context, cfg *config.Config) ([]builder.Builder, 
 		builders = append(builders, builder.NewStateActorBuilder(log, cfg.Builder.StateActor, runtime, mgr))
 	}
 
-	if cfg.Builder.EESTPayloads != nil {
+	if cfg.Builder.EESTPayloads != nil && buildSkipEESTPayloads {
+		log.Info("Skipping builder.eest_payloads (--skip-eest-payload-build)")
+	}
+
+	if cfg.Builder.EESTPayloads != nil && !buildSkipEESTPayloads {
 		runtime := cfg.GetEESTPayloadsContainerRuntime()
 
 		mgr, err := getManager(runtime)
@@ -203,12 +221,7 @@ type buildResult struct {
 // runBuilders selects and builds the requested targets across all builders,
 // preserving declaration order, then prints a summary.
 func runBuilders(ctx context.Context, builders []builder.Builder) error {
-	perBuilder := map[string]builderFilter{
-		builder.StateActorBuilderName:   {flag: "--limit-state-actor-target", values: buildStateActorTargets},
-		builder.EESTPayloadsBuilderName: {flag: "--limit-eest-payload-target", values: buildEESTPayloadTargets},
-	}
-
-	targets, err := selectTargets(builders, buildTargetFilter, perBuilder)
+	targets, err := selectTargets(builders, buildTargetFilter, limitFilters(builders))
 	if err != nil {
 		return err
 	}
@@ -311,6 +324,27 @@ type selectedTarget struct {
 type builderFilter struct {
 	flag   string
 	values []string
+}
+
+// limitFilters maps each present builder to its `--limit-<builder>-target`
+// filter. A builder absent from `builders` (e.g. skipped via --skip-*-build) is
+// omitted, so its limit flag is silently ignored rather than erroring as
+// "matched no targets".
+func limitFilters(builders []builder.Builder) map[string]builderFilter {
+	all := map[string]builderFilter{
+		builder.StateActorBuilderName:   {flag: "--limit-state-actor-target", values: buildStateActorTargets},
+		builder.EESTPayloadsBuilderName: {flag: "--limit-eest-payload-target", values: buildEESTPayloadTargets},
+	}
+
+	out := make(map[string]builderFilter, len(builders))
+
+	for _, b := range builders {
+		if f, ok := all[b.Name()]; ok {
+			out[b.Name()] = f
+		}
+	}
+
+	return out
 }
 
 // selectTargets flattens all builders' targets in declaration order and filters

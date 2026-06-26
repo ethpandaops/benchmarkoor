@@ -1567,9 +1567,11 @@ benchmarkoor build --config build.yaml --force
 | `--target` | Filter by target `name` across **all** builders (comma-separated or repeated). |
 | `--limit-state-actor-target` | Filter only `builder.state_actor` targets; `eest_payloads` is left unrestricted. |
 | `--limit-eest-payload-target` | Filter only `builder.eest_payloads` targets; `state_actor` is left unrestricted. |
+| `--skip-state-actor-build` | Skip the `builder.state_actor` builder entirely (only `eest_payloads` runs). |
+| `--skip-eest-payload-build` | Skip the `builder.eest_payloads` builder entirely (only `state_actor` runs). |
 | `--force` | Wipe each selected target's `output_dir` before building (bypasses the skip-if-populated behaviour). |
 
-A target is built when it passes the global `--target` filter **and** the per-builder limit for the builder that owns it; an unset filter imposes no restriction. Any filter value that names no existing target is a hard error (typos surface immediately — the per-builder limits are checked against only that builder's target names).
+A target is built when it passes the global `--target` filter **and** the per-builder limit for the builder that owns it; an unset filter imposes no restriction. Any filter value that names no existing target is a hard error (typos surface immediately — the per-builder limits are checked against only that builder's target names). `--skip-*-build` removes a whole builder; a skipped builder's `--limit-*-target` is then ignored. Skipping every configured builder is an error.
 
 The command exits non-zero if any target fails; successful targets are still left in place on partial failure. A final summary lists each target with `OK ` (built), `SKIP` (output_dir already populated), or `ERR ` (failed).
 
