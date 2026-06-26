@@ -147,7 +147,7 @@ builder:
   ## Stage 2: Building EEST bloatnet/repricing fixtures
   eest_payloads:
     fill_dockerfile: Dockerfile.eest-filler
-    pull_policy: if-not-present
+    pull_policy: always
     eest_repo: https://github.com/ethereum/execution-specs.git
     # devnets/bal/7-bench carries the BAL benchmark tooling plus the fill-stateful
     # fixes that let nethermind drive fill-stateful (debug_resetHead fallback,
