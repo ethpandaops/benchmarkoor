@@ -439,6 +439,9 @@ export interface SuiteInfo {
   }
   pre_run_steps?: SuiteFile[]
   tests: SuiteTest[]
+  // eest_metadata is true when the suite output carries an .eest-meta directory
+  // (EEST fill provenance) copied from the fixtures' .meta.
+  eest_metadata?: boolean
 }
 
 export interface SuiteTestEEST {

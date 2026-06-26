@@ -14,6 +14,7 @@ import { ResourceCharts } from '@/components/suite-detail/ResourceCharts'
 import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/RunsHeatmap'
 import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
+import { EESTMetadata } from '@/components/suite-detail/EESTMetadata'
 import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { isPayloadSortCol, type PayloadSort } from '@/components/suite-detail/payloadSort'
 import { FacetPanel } from '@/components/shared/FacetPanel'
@@ -630,6 +631,8 @@ export function SuiteDetailPage() {
   }
 
   const hasPreRunSteps = suite.pre_run_steps && suite.pre_run_steps.length > 0
+  // EEST build metadata renders as a section inside the Source tab when present.
+  const hasEestMeta = !!suite.eest_metadata
 
   // Tab order: runs(0), tests(1), pre_run_steps(2, conditional), source(last)
   const sourceTabIndex = hasPreRunSteps ? 3 : 2
@@ -1539,8 +1542,9 @@ export function SuiteDetailPage() {
               />
             </TabPanel>
           )}
-          <TabPanel>
+          <TabPanel className="flex flex-col gap-4">
             <SuiteSource title="Source" source={suite.source} />
+            {hasEestMeta && <EESTMetadata suiteHash={suiteHash} />}
           </TabPanel>
         </TabPanels>
       </TabGroup>

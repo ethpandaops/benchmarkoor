@@ -75,6 +75,25 @@ func TestLocalFileServer_ServeFile(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), `{"ok":true}`)
 	})
 
+	t.Run("serves dotfile directory (.eest-meta)", func(t *testing.T) {
+		metaDir := filepath.Join(root, "suites", "abc", ".eest-meta")
+		require.NoError(t, os.MkdirAll(metaDir, 0o755))
+		require.NoError(t, os.WriteFile(
+			filepath.Join(metaDir, "fixtures.ini"),
+			[]byte("[environment]\npython = 3.12.13\n"), 0o644))
+
+		req := httptest.NewRequest(
+			http.MethodGet,
+			"/mydata/suites/abc/.eest-meta/fixtures.ini", nil,
+		)
+		rec := httptest.NewRecorder()
+
+		err := srv.ServeFile(rec, req, "mydata/suites/abc/.eest-meta/fixtures.ini")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "python = 3.12.13")
+	})
+
 	t.Run("returns error for missing file", func(t *testing.T) {
 		req := httptest.NewRequest(
 			http.MethodGet,
