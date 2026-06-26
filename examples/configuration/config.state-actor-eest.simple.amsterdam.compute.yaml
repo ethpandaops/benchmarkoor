@@ -143,10 +143,9 @@ builder:
       # Besu
       - name: payload-generator-besu
         filler_client: besu
-        # besu bal-devnet-7 built with the TestingBuildBlockV1 coinbase fix (see the
-        # comment above). Build+push from a patched besu checkout, or swap for an
-        # upstream image once the fix lands in besu-eth/besu's bal-devnet-7 line.
-        filler_image: skylenet/besu:bal-devnet-7-testing-coinbase-fix
+        # besu bal-devnet-7 — now carries the TestingBuildBlockV1 coinbase fix
+        # (merged upstream) that fill-stateful needs to build correct EIP-7928 BALs.
+        filler_image: ethpandaops/besu:bal-devnet-7
         source_dir: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu
         genesis: ${STATE_DIR_PREFIX:-/tmp/benchmarkoor/state-actor}/besu/besu-chainspec.json
         # besu reads forks from the geth-format genesis; benchmarkoor patches
@@ -154,8 +153,7 @@ builder:
         genesis_fork_override: { amsterdam: 1 }
         output_dir: ${EEST_FIXTURES_DIR_BESU:-/tmp/benchmarkoor/eest-fixtures-amsterdam-besu}
         # Identical exclusions to nethermind (keeps test_blockhash, which besu also
-        # fills). besu fills the same compute set as nethermind once the BAL coinbase
-        # fix is in the filler_image.
+        # fills). besu fills the same compute set as nethermind.
         filter: >-
           not test_blobhash
           and not test_create
