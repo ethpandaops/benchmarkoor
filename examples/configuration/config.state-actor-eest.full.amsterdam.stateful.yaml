@@ -212,6 +212,14 @@ builder:
 runner:
   client_logs_to_stdout: true
   cleanup_on_start: false
+  directories:
+    # Scratch dir for the overlayfs/copy datadir prep (default: system temp).
+    # reth keeps state in one monolithic MDBX file that gets copied here, so on a
+    # host where /tmp is a small tmpfs (e.g. the OrbStack VM) set TMP_DATADIR to a
+    # real disk (e.g. /root/bench/tmp) or reth dies with "No space left on
+    # device". RocksDB/Pebble clients (geth/nethermind/besu/ethrex) are fine on
+    # the default.
+    tmp_datadir: ${TMP_DATADIR:-}
   benchmark:
     results_dir: ./results
     generate_results_index: true
@@ -248,10 +256,8 @@ runner:
       ethrex:
         source_dir: ${STATE_DIR}/ethrex
         method: overlayfs
-      # reth stores state in one monolithic MDBX file, so its overlayfs upper
-      # must live on a real disk — point TMPDIR at one (e.g. TMPDIR=/root/bench/tmp).
-      # The default /tmp is often a small tmpfs and reth dies with "No space left
-      # on device" while copying the DB up. (RocksDB/Pebble clients are unaffected.)
+      # reth's overlay copies a monolithic MDBX file — on a tmpfs /tmp set
+      # TMP_DATADIR to a real disk (see runner.directories.tmp_datadir above).
       reth:
         source_dir: ${STATE_DIR}/reth
         method: overlayfs
