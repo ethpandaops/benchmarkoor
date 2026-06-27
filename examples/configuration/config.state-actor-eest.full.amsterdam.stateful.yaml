@@ -47,7 +47,7 @@ builder:
       geth: ghcr.io/ethereum/state-actor:main
       nethermind: ghcr.io/ethereum/state-actor-nethermind:main
       ethrex: ghcr.io/ethereum/state-actor-ethrex:main
-      # reth: ghcr.io/ethereum/state-actor-reth:main
+      reth: ghcr.io/ethereum/state-actor-reth:main
       # besu: ghcr.io/ethereum/state-actor-besu:main
       # erigon: ghcr.io/ethereum/state-actor-erigon:main
     pull_policy: always
@@ -137,8 +137,8 @@ builder:
         output_dir: ${STATE_DIR}/nethermind    # ~248 GB on disk once built
       - client: ethrex
         output_dir: ${STATE_DIR}/ethrex        # ~436 GB; snapshot only (ethrex isn't a fill-stateful filler)
-      # - client: reth   # +~77 GB each — enable only with disk to spare
-      #   output_dir: ${STATE_DIR}/reth
+      - client: reth
+        output_dir: ${STATE_DIR}/reth          # ~353 GB; snapshot only (reth isn't a fill-stateful filler)
       # - client: besu
       #   output_dir: ${STATE_DIR}/besu
       # - client: ethrex
@@ -235,7 +235,7 @@ runner:
       genesis:
         nethermind: ${STATE_DIR}/nethermind/parity-chainspec.json
         ethrex: ${STATE_DIR}/ethrex/ethrex-genesis.json
-        # reth:  ${STATE_DIR}/reth/chainspec.json
+        reth:  ${STATE_DIR}/reth/chainspec.json
         # besu: ${STATE_DIR}/besu/besu-chainspec.json
         # erigon: ${STATE_DIR}/erigon/chainspec.json
     datadirs:
@@ -248,7 +248,13 @@ runner:
       ethrex:
         source_dir: ${STATE_DIR}/ethrex
         method: overlayfs
-      # reth: { source_dir: ${STATE_DIR}/reth, method: overlayfs }
+      # reth stores state in one monolithic MDBX file, so its overlayfs upper
+      # must live on a real disk — point TMPDIR at one (e.g. TMPDIR=/root/bench/tmp).
+      # The default /tmp is often a small tmpfs and reth dies with "No space left
+      # on device" while copying the DB up. (RocksDB/Pebble clients are unaffected.)
+      reth:
+        source_dir: ${STATE_DIR}/reth
+        method: overlayfs
       # besu: { source_dir: ${STATE_DIR}/besu, method: overlayfs }
       # erigon: { source_dir: ${STATE_DIR}/erigon, method: overlayfs }
 
@@ -258,14 +264,14 @@ runner:
       image: skylenet/geth:bal-devnet-7-amsterdam-override
       extra_args:
         - --override.amsterdam=1
-    # Other clients need their own ~77 GB snapshot (state_actor target above) +
-    # their genesis/override wiring — mirror config.state-actor-eest.simple.amsterdam.stateful.yaml.
-    # - id: reth
-    #   client: reth
-    #   image: ethpandaops/reth:bal-devnet-7
-    #   genesis_fork_override: { amsterdam: 1 }
-    #   extra_args: [--engine.slow-block-threshold=0]
-    #   retry_new_payloads_failed_state: { enabled: true, max_retries: 10, backoff: 1s }
+    # Other clients need their own snapshot (state_actor target above) + their
+    # genesis/override wiring — mirror config.state-actor-eest.simple.amsterdam.stateful.yaml.
+    - id: reth
+      client: reth
+      image: ethpandaops/reth:bal-devnet-7
+      genesis_fork_override: { amsterdam: 1 }
+      extra_args: [--engine.slow-block-threshold=0]
+      retry_new_payloads_failed_state: { enabled: true, max_retries: 10, backoff: 1s }
     - id: nethermind
       client: nethermind
       image: nethermindeth/nethermind:master
