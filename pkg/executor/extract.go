@@ -270,7 +270,8 @@ func downloadSequential(
 
 	pw := newProgressLogger(log, totalSize)
 
-	if _, err := io.Copy(out, io.TeeReader(resp.Body, pw)); err != nil {
+	written, err := io.Copy(out, io.TeeReader(resp.Body, pw))
+	if err != nil {
 		_ = out.Close()
 		_ = os.Remove(destPath)
 
@@ -279,6 +280,15 @@ func downloadSequential(
 
 	if err := out.Close(); err != nil {
 		return fmt.Errorf("closing file %s: %w", destPath, err)
+	}
+
+	// When the server told us the size up front, make sure the body delivered
+	// it in full. A truncated body otherwise becomes a silently corrupt cache
+	// entry that is reused forever.
+	if totalSize > 0 && written != totalSize {
+		_ = os.Remove(destPath)
+
+		return fmt.Errorf("incomplete download %s: got %d bytes, want %d", destPath, written, totalSize)
 	}
 
 	log.WithField("size", formatBytes(pw.Written())).Info("Download complete")
@@ -417,8 +427,17 @@ func downloadChunk(
 		return fmt.Errorf("seeking to offset %d: %w", start, err)
 	}
 
-	if _, err := io.Copy(f, io.TeeReader(resp.Body, pw)); err != nil {
+	// A short read here is not reported as an error by io.Copy: a server can
+	// end the body early at a clean EOF and we would write fewer bytes than the
+	// range we asked for. Because the destination was pre-allocated, the missing
+	// bytes stay as a zero-filled hole. Verify we got every byte of the range.
+	written, err := io.Copy(f, io.TeeReader(resp.Body, pw))
+	if err != nil {
 		return fmt.Errorf("writing chunk: %w", err)
+	}
+
+	if want := end - start + 1; written != want {
+		return fmt.Errorf("short chunk: got %d bytes, want %d", written, want)
 	}
 
 	return nil

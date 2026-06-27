@@ -135,23 +135,45 @@ func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 	s.fixturesDir = filepath.Join(cacheBase, "fixtures")
 	s.genesisDir = filepath.Join(cacheBase, "genesis")
 
-	// Check if already extracted.
-	if _, err := os.Stat(s.fixturesDir); os.IsNotExist(err) {
-		if s.cfg.UseArtifacts() {
-			s.log.Info("Downloading EEST fixtures from GitHub artifacts")
+	// Fixtures and genesis are extracted in two steps. The existence of either
+	// directory does not mean the cache is complete, so gate reuse on a marker
+	// written only after both steps succeed. Without it, a run interrupted
+	// between the two steps would be treated as cached and reused forever with
+	// genesis missing.
+	completeMarker := filepath.Join(cacheBase, ".complete")
 
-			if err := s.downloadArtifacts(ctx, cacheBase); err != nil {
-				return nil, fmt.Errorf("downloading artifacts: %w", err)
-			}
-		} else {
-			s.log.Info("Downloading EEST fixtures from GitHub release")
+	if _, err := os.Stat(completeMarker); err == nil {
+		s.log.WithField("path", cacheBase).Info("Using cached EEST fixtures")
 
-			if err := s.downloadAndExtract(ctx, cacheBase); err != nil {
-				return nil, fmt.Errorf("downloading fixtures: %w", err)
-			}
+		return s.discoverTests()
+	}
+
+	// Clear any partial cache left by an earlier interrupted run before
+	// re-downloading.
+	if err := os.RemoveAll(s.fixturesDir); err != nil {
+		return nil, fmt.Errorf("clearing partial fixtures cache: %w", err)
+	}
+
+	if err := os.RemoveAll(s.genesisDir); err != nil {
+		return nil, fmt.Errorf("clearing partial genesis cache: %w", err)
+	}
+
+	if s.cfg.UseArtifacts() {
+		s.log.Info("Downloading EEST fixtures from GitHub artifacts")
+
+		if err := s.downloadArtifacts(ctx, cacheBase); err != nil {
+			return nil, fmt.Errorf("downloading artifacts: %w", err)
 		}
 	} else {
-		s.log.WithField("path", cacheBase).Info("Using cached EEST fixtures")
+		s.log.Info("Downloading EEST fixtures from GitHub release")
+
+		if err := s.downloadAndExtract(ctx, cacheBase); err != nil {
+			return nil, fmt.Errorf("downloading fixtures: %w", err)
+		}
+	}
+
+	if err := os.WriteFile(completeMarker, nil, 0o644); err != nil {
+		return nil, fmt.Errorf("writing cache completion marker: %w", err)
 	}
 
 	// Parse fixtures and build tests.
