@@ -112,10 +112,10 @@ func TestStore_UpsertRunIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, runs, 1, "upsert must not duplicate the row")
 
-	// The original values are preserved (first-write-wins with the
-	// current Assign+FirstOrCreate implementation).
-	assert.Equal(t, "running", runs[0].Status)
-	assert.Equal(t, 5, runs[0].TestsTotal)
+	// The second upsert overwrites the row (last-write-wins), so a re-index can
+	// correct an already-stored run.
+	assert.Equal(t, "completed", runs[0].Status)
+	assert.Equal(t, 10, runs[0].TestsTotal)
 }
 
 func TestStore_ListRunIDs(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Store provides persistence for the indexed benchmark data.
@@ -238,14 +239,19 @@ func (s *store) Stop() error {
 }
 
 // UpsertRun inserts or updates a run record keyed by discovery_path + run_id.
+//
+// It uses an INSERT ... ON CONFLICT DO UPDATE so a re-index overwrites every
+// column, including fields reset to their zero value (e.g. tests_failed back to
+// 0, a cleared status). A struct-based Assign/Updates would skip those zero
+// fields and leave stale data behind.
 func (s *store) UpsertRun(ctx context.Context, run *Run) error {
-	result := s.db.WithContext(ctx).
-		Where("discovery_path = ? AND run_id = ?",
-			run.DiscoveryPath, run.RunID).
-		Assign(run).
-		FirstOrCreate(run)
-	if result.Error != nil {
-		return fmt.Errorf("upserting run: %w", result.Error)
+	if err := s.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "discovery_path"}, {Name: "run_id"}},
+			UpdateAll: true,
+		}).
+		Create(run).Error; err != nil {
+		return fmt.Errorf("upserting run: %w", err)
 	}
 
 	return nil
@@ -630,12 +636,17 @@ type clientRunRow struct {
 func (s *store) ListTestStatsBySuiteRecent(
 	ctx context.Context, suiteHash string, maxRunsPerClient int,
 ) ([]TestStat, error) {
-	// Step 1: lightweight query to get distinct client/run combos.
+	// Step 1: lightweight query to get one row per client/run combo. We group by
+	// client and run_id (rather than SELECT DISTINCT over run_start too) so that
+	// a run whose stats carry inconsistent run_start values still counts as a
+	// single run. Otherwise it would produce several rows, consume several of the
+	// per-client slots, and evict other recent runs.
 	var rows []clientRunRow
 	if err := s.readDB.WithContext(ctx).
 		Model(&TestStat{}).
-		Select("DISTINCT client, run_id, run_start").
+		Select("client, run_id, MAX(run_start) AS run_start").
 		Where("suite_hash = ?", suiteHash).
+		Group("client, run_id").
 		Order("run_start DESC").
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf(
