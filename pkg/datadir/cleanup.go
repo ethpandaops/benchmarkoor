@@ -165,6 +165,16 @@ func CleanupOrphanedOverlayMounts(ctx context.Context, log logrus.FieldLogger, m
 			}
 		}
 
+		// Only remove the directory once the overlay is confirmed unmounted.
+		// Removing it while merged is still a live mount would make RemoveAll
+		// recurse through the mount and delete the data underneath it.
+		if overlayMountCheck(mount.MountPoint) {
+			log.WithField("mount_point", mount.MountPoint).
+				Warn("Overlay still mounted; skipping removal to avoid deleting through a live mount")
+
+			continue
+		}
+
 		// Remove the base directory.
 		if err := os.RemoveAll(mount.BaseDir); err != nil {
 			log.WithError(err).WithField("base_dir", mount.BaseDir).Warn("Failed to remove orphaned overlay directory")
@@ -174,4 +184,29 @@ func CleanupOrphanedOverlayMounts(ctx context.Context, log logrus.FieldLogger, m
 	}
 
 	return nil
+}
+
+// overlayMountCheck reports whether path is currently a mount point. It is a
+// variable so tests can simulate an overlay that is still mounted.
+var overlayMountCheck = isMountPoint
+
+// isMountPoint reports whether path appears as a mount point in /proc/mounts.
+// On systems without /proc/mounts there are no overlay mounts to worry about,
+// so it returns false.
+func isMountPoint(path string) bool {
+	file, err := os.Open("/proc/mounts")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = file.Close() }()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 2 && fields[1] == path {
+			return true
+		}
+	}
+
+	return false
 }
