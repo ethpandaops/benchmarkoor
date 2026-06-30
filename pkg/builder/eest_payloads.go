@@ -28,9 +28,9 @@ import (
 const EESTPayloadsBuilderName = "eest-payloads"
 
 const (
-	// eestBuildNetwork is the docker/podman network shared by the filler
+	// EESTBuildNetwork is the docker/podman network shared by the filler
 	// client and the fill-stateful container so they can reach each other.
-	eestBuildNetwork = "benchmarkoor-build"
+	EESTBuildNetwork = "benchmarkoor-build"
 
 	// fillerReadyTimeout bounds how long we wait for the filler client's RPC
 	// to answer — opening a large archive snapshot can take several minutes.
@@ -239,8 +239,8 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 
 	defer cleanupJWT()
 
-	if err := b.mgr.EnsureNetwork(ctx, eestBuildNetwork); err != nil {
-		return fmt.Errorf("ensuring network %q: %w", eestBuildNetwork, err)
+	if err := b.mgr.EnsureNetwork(ctx, EESTBuildNetwork); err != nil {
+		return fmt.Errorf("ensuring network %q: %w", EESTBuildNetwork, err)
 	}
 
 	provider, err := datadir.NewProvider(b.log, t.DataDirMethod)
@@ -464,7 +464,7 @@ func (b *EESTPayloadsBuilder) startFiller(
 		Image:       t.FillerImage,
 		Command:     cmd,
 		Mounts:      mounts,
-		NetworkName: eestBuildNetwork,
+		NetworkName: EESTBuildNetwork,
 		SecurityOpt: []string{"seccomp=unconfined"},
 		// Run as the invoking host user so the state the filler writes into the
 		// copied datadir is owned by that user and can be cleaned up afterwards
@@ -495,7 +495,7 @@ func (b *EESTPayloadsBuilder) startFiller(
 		}
 	}()
 
-	ip, err = b.mgr.GetContainerIP(ctx, id, eestBuildNetwork)
+	ip, err = b.mgr.GetContainerIP(ctx, id, EESTBuildNetwork)
 	if err != nil {
 		_ = b.mgr.RemoveContainer(context.Background(), id)
 
@@ -627,7 +627,7 @@ func (b *EESTPayloadsBuilder) runFill(
 		Image:       fillImage,
 		Command:     args,
 		Mounts:      mounts,
-		NetworkName: eestBuildNetwork,
+		NetworkName: EESTBuildNetwork,
 		User:        currentUserSpec(),
 		Env:         env,
 		Labels:      b.labels(t),

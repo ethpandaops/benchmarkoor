@@ -126,6 +126,15 @@ func buildBuilders(ctx context.Context, cfg *config.Config) ([]builder.Builder, 
 
 	stop := func() {
 		for _, mgr := range managers {
+			// Best-effort teardown of the shared eest_payloads build network
+			// (created lazily during the fill). RemoveNetwork errors when it was
+			// never created (e.g. no eest build ran) — expected, so log at Debug.
+			// Use a fresh context so cleanup still runs if the build ctx was
+			// cancelled (e.g. SIGINT).
+			if err := mgr.RemoveNetwork(context.Background(), builder.EESTBuildNetwork); err != nil {
+				log.WithError(err).Debug("Build network not removed (likely never created)")
+			}
+
 			if err := mgr.Stop(); err != nil {
 				log.WithError(err).Warn("Failed to stop container manager")
 			}

@@ -164,6 +164,27 @@ func (m *manager) EnsureNetwork(ctx context.Context, name string) error {
 	return nil
 }
 
+// NetworkExists reports whether a network with the given name exists.
+func (m *manager) NetworkExists(ctx context.Context, name string) (bool, error) {
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	nets, err := network.List(conn, &network.ListOptions{
+		Filters: map[string][]string{"name": {name}},
+	})
+	if err != nil {
+		return false, fmt.Errorf("listing networks: %w", err)
+	}
+
+	for _, n := range nets {
+		if n.Name == name {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // RemoveNetwork removes a Podman network.
 func (m *manager) RemoveNetwork(ctx context.Context, name string) error {
 	conn, cancel := m.connWithCtx(ctx)

@@ -539,6 +539,9 @@ func (m *fakeMgr) Stop() error                   { panic("Stop not used in build
 func (m *fakeMgr) EnsureNetwork(_ context.Context, _ string) error {
 	panic("EnsureNetwork not used in builder tests")
 }
+func (m *fakeMgr) NetworkExists(_ context.Context, _ string) (bool, error) {
+	panic("NetworkExists not used in builder tests")
+}
 func (m *fakeMgr) RemoveNetwork(_ context.Context, _ string) error {
 	panic("RemoveNetwork not used in builder tests")
 }
