@@ -88,6 +88,50 @@ builder:
 	assert.Equal(t, "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04", resolved.AddressStubs["bloated_EOA_10GB"]["addr"])
 }
 
+func TestLoad_MultiFileConfigStubCasing(t *testing.T) {
+	// Viper deep-merges the eest_payloads.config map across --config files. The
+	// stub-name casing restore must accumulate config.address_stubs from every
+	// file, not just the last one — otherwise a config.address_stubs defined in
+	// an earlier file keeps its Viper-lowercased keys when a later file only
+	// touches a different config field.
+	dir := t.TempDir()
+
+	base := filepath.Join(dir, "base.yaml")
+	require.NoError(t, os.WriteFile(base, []byte(`
+builder:
+  eest_payloads:
+    fill_image: fill:latest
+    config:
+      address_stubs:
+        bloated_EOA_10GB: { addr: "0xabc" }
+    targets:
+      - name: t
+        filler_client: geth
+        filler_image: g
+        source_dir: /s
+        output_dir: /o
+        fork: Osaka
+        tests: [x]
+`), 0o644))
+
+	// Merged last; sets a different config field, no address_stubs.
+	override := filepath.Join(dir, "override.yaml")
+	require.NoError(t, os.WriteFile(override, []byte(`
+builder:
+  eest_payloads:
+    config:
+      fork: Prague
+`), 0o644))
+
+	cfg, err := Load(base, override)
+	require.NoError(t, err)
+
+	stubs := cfg.Builder.EESTPayloads.Config.AddressStubs
+	require.Contains(t, stubs, "bloated_EOA_10GB",
+		"config.address_stubs casing must survive a multi-file merge that touches other config fields")
+	assert.Equal(t, "Prague", cfg.Builder.EESTPayloads.Config.Fork, "later file's fork still wins")
+}
+
 func TestLoad_GlobalEnv(t *testing.T) {
 	configContent := `
 global:

@@ -3940,10 +3940,14 @@ func restoreAddressStubsKeyCasing(cfg *Config, rawYAMLs []string) {
 
 	ep := cfg.Builder.EESTPayloads
 
-	var (
-		rawConfig  *rawEESTStubs
-		rawTargets []rawEESTStubs
-	)
+	// configStubs accumulates the config-block stubs across all files (later
+	// files win per key), mirroring how Viper deep-merges the config map — so a
+	// config.address_stubs set in an earlier file isn't dropped when a later
+	// file only touches some other config field. Targets, by contrast, are
+	// replaced wholesale on merge, so the last file's list wins (see below).
+	configStubs := make(map[string]map[string]string)
+
+	var rawTargets []rawEESTStubs
 
 	for _, raw := range rawYAMLs {
 		var parsed rawEESTBuilderConfig
@@ -3951,8 +3955,10 @@ func restoreAddressStubsKeyCasing(cfg *Config, rawYAMLs []string) {
 			continue
 		}
 
-		if parsed.Builder.EESTPayloads.Config != nil {
-			rawConfig = parsed.Builder.EESTPayloads.Config
+		if c := parsed.Builder.EESTPayloads.Config; c != nil {
+			for name, stub := range c.AddressStubs {
+				configStubs[name] = stub
+			}
 		}
 
 		if len(parsed.Builder.EESTPayloads.Targets) > 0 {
@@ -3961,8 +3967,8 @@ func restoreAddressStubsKeyCasing(cfg *Config, rawYAMLs []string) {
 	}
 
 	// Global config defaults (hoisted into targets at resolve time).
-	if rawConfig != nil && ep.Config != nil && len(rawConfig.AddressStubs) > 0 {
-		ep.Config.AddressStubs = rawConfig.AddressStubs
+	if ep.Config != nil && len(configStubs) > 0 {
+		ep.Config.AddressStubs = configStubs
 	}
 
 	// Per-target stubs. Only restore when the winning file's target list aligns
