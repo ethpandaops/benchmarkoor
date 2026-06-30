@@ -3,6 +3,7 @@ package indexstore_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,38 @@ func TestUpsertRunUpdatesAllFieldsIncludingZeros(t *testing.T) {
 	runs, err := s.ListRuns(ctx, "dp")
 	require.NoError(t, err)
 	assert.Len(t, runs, 1, "re-index should update in place, not duplicate")
+}
+
+// A re-index must update the run's mutable fields but preserve the original
+// indexed_at (first-index time), recording the re-index time only in
+// reindexed_at. Overwriting indexed_at would lose the first-index timestamp.
+func TestUpsertRunPreservesIndexedAtOnReindex(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	firstIndexed := time.Unix(1000, 0).UTC()
+	require.NoError(t, s.UpsertRun(ctx, &indexstore.Run{
+		DiscoveryPath: "dp", RunID: "run-1",
+		Status: "running", Client: "geth",
+		IndexedAt: firstIndexed,
+	}))
+
+	reindexed := time.Unix(2000, 0).UTC()
+	require.NoError(t, s.UpsertRun(ctx, &indexstore.Run{
+		DiscoveryPath: "dp", RunID: "run-1",
+		Status: "completed", Client: "geth",
+		IndexedAt: reindexed, ReindexedAt: &reindexed,
+	}))
+
+	got, err := s.GetRunByRunID(ctx, "run-1")
+	require.NoError(t, err)
+
+	assert.Equal(t, "completed", got.Status, "mutable fields should update")
+	assert.Equal(t, firstIndexed.Unix(), got.IndexedAt.Unix(),
+		"indexed_at must remain the original first-index time")
+	require.NotNil(t, got.ReindexedAt, "reindexed_at should be recorded")
+	assert.Equal(t, reindexed.Unix(), got.ReindexedAt.Unix(),
+		"reindexed_at must record the latest re-index")
 }
 
 func TestUpsertRunInsertsNewRun(t *testing.T) {

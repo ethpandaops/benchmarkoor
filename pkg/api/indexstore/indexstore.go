@@ -238,17 +238,31 @@ func (s *store) Stop() error {
 	return sqlDB.Close()
 }
 
+// runUpsertColumns lists the columns a re-index overwrites on conflict. It is
+// every column except the primary key (id), the conflict target
+// (discovery_path, run_id), and indexed_at. Listing them explicitly (rather
+// than UpdateAll) still overwrites fields reset to their zero value (e.g.
+// tests_failed back to 0, a cleared status), which a struct-based Assign/Updates
+// would skip — while preserving indexed_at as the original first-index time.
+// reindexed_at is updated so each re-index records when it happened.
+var runUpsertColumns = []string{
+	"timestamp", "timestamp_end", "suite_hash", "status",
+	"termination_reason", "has_result", "instance_id", "client",
+	"image", "rollback_strategy", "tests_total", "tests_passed",
+	"tests_failed", "steps_json", "metadata_json", "reindexed_at",
+}
+
 // UpsertRun inserts or updates a run record keyed by discovery_path + run_id.
 //
-// It uses an INSERT ... ON CONFLICT DO UPDATE so a re-index overwrites every
-// column, including fields reset to their zero value (e.g. tests_failed back to
-// 0, a cleared status). A struct-based Assign/Updates would skip those zero
-// fields and leave stale data behind.
+// It uses an INSERT ... ON CONFLICT DO UPDATE so a re-index overwrites the run's
+// columns, including fields reset to their zero value. The original indexed_at
+// is deliberately preserved (see runUpsertColumns); only reindexed_at tracks the
+// latest re-index.
 func (s *store) UpsertRun(ctx context.Context, run *Run) error {
 	if err := s.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "discovery_path"}, {Name: "run_id"}},
-			UpdateAll: true,
+			DoUpdates: clause.AssignmentColumns(runUpsertColumns),
 		}).
 		Create(run).Error; err != nil {
 		return fmt.Errorf("upserting run: %w", err)
@@ -647,7 +661,10 @@ func (s *store) ListTestStatsBySuiteRecent(
 		Select("client, run_id, MAX(run_start) AS run_start").
 		Where("suite_hash = ?", suiteHash).
 		Group("client, run_id").
-		Order("run_start DESC").
+		// run_id is a deterministic tie-breaker so that, when more runs than the
+		// per-client cap share the same run_start, the same runs are kept on
+		// every call and across SQLite and Postgres.
+		Order("run_start DESC, run_id DESC").
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf(
 			"listing recent client runs: %w", err,
