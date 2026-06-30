@@ -54,10 +54,12 @@ set -euo pipefail
 REPO_ROOT="$1"
 GO_BUILD_TAGS="$2"
 
-echo "==> apt: docker.io + golang-go"
+echo "==> apt: docker.io + golang-go + make + git"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq docker.io golang-go
+# make + git let you run the repo's Makefile targets (e.g. `make build-core`,
+# `make test-core`) inside the machine; git also stamps the version/commit.
+apt-get install -y -qq docker.io golang-go make git
 
 echo "==> Starting the machine's own dockerd"
 systemctl enable --now docker
