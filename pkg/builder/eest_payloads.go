@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,6 +59,15 @@ const (
 	// its own, so this is only needed for besu. 1 gwei.
 	besuDefaultPriorityFeeWei = "1000000000"
 )
+
+// embeddedFillDockerfile is the default fill-image Dockerfile, compiled into the
+// binary so the fill image can be built without a Dockerfile on disk. It is used
+// when neither fill_image nor fill_dockerfile is configured. The Dockerfile
+// copies nothing from the build context (execution-specs is mounted at run
+// time), so it builds against an empty context written to a temp dir.
+//
+//go:embed Dockerfile.eest-filler
+var embeddedFillDockerfile []byte
 
 // EESTPayloadsBuilder generates stateful EEST benchmark fixtures. Per target
 // it boots a filler EL client on a writable copy of a pre-populated snapshot
@@ -532,8 +542,16 @@ func (b *EESTPayloadsBuilder) ensureFillImage(ctx context.Context, log logrus.Fi
 	}
 
 	b.fillImageOnce.Do(func() {
+		dockerfile, cleanup, err := b.resolveFillDockerfile()
+		if err != nil {
+			b.fillImageErr = err
+
+			return
+		}
+		defer cleanup()
+
 		tag := b.cfg.ResolveFillImageTag()
-		if err := b.buildFillImage(ctx, log, b.cfg.FillDockerfile, tag); err != nil {
+		if err := b.buildFillImage(ctx, log, dockerfile, tag); err != nil {
 			b.fillImageErr = err
 
 			return
@@ -543,6 +561,33 @@ func (b *EESTPayloadsBuilder) ensureFillImage(ctx context.Context, log logrus.Fi
 	})
 
 	return b.fillImage, b.fillImageErr
+}
+
+// resolveFillDockerfile returns the Dockerfile path to build the fill image
+// from, plus a cleanup func to run once the build completes. When
+// fill_dockerfile is configured it is used directly (no-op cleanup). Otherwise
+// the embedded default Dockerfile is written to a temp dir — which doubles as
+// the (empty) build context — and cleanup removes it.
+func (b *EESTPayloadsBuilder) resolveFillDockerfile() (string, func(), error) {
+	noop := func() {}
+
+	if b.cfg.FillDockerfile != "" {
+		return b.cfg.FillDockerfile, noop, nil
+	}
+
+	dir, err := os.MkdirTemp("", "benchmarkoor-fill-dockerfile-")
+	if err != nil {
+		return "", noop, fmt.Errorf("creating temp dir for embedded fill Dockerfile: %w", err)
+	}
+
+	path := filepath.Join(dir, "Dockerfile.eest-filler")
+	if err := os.WriteFile(path, embeddedFillDockerfile, 0o600); err != nil {
+		_ = os.RemoveAll(dir)
+
+		return "", noop, fmt.Errorf("writing embedded fill Dockerfile: %w", err)
+	}
+
+	return path, func() { _ = os.RemoveAll(dir) }, nil
 }
 
 // buildFillImage builds the fill image from dockerfile, tagging it tag, by

@@ -305,8 +305,9 @@ type EESTPayloadsConfig struct {
 	// FillDockerfile, when set, makes benchmarkoor build the fill image from the
 	// given Dockerfile at build time (using the container runtime), instead of
 	// pulling a pre-built image. The built image is tagged FillImage when set,
-	// otherwise DefaultFillImageTag. Mutually informative with FillImage: at
-	// least one of the two must be provided.
+	// otherwise DefaultFillImageTag. Both FillImage and FillDockerfile are
+	// optional: when neither is set, benchmarkoor builds the fill image from a
+	// default Dockerfile embedded in the binary.
 	FillDockerfile string `yaml:"fill_dockerfile,omitempty" mapstructure:"fill_dockerfile"`
 	PullPolicy     string `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
 	JWT            string `yaml:"jwt,omitempty" mapstructure:"jwt"`
@@ -338,10 +339,12 @@ const (
 	DefaultFillImageTag = "benchmarkoor-eest-fill:local"
 )
 
-// BuildsFillImage reports whether benchmarkoor should build the fill image from
-// FillDockerfile (rather than pulling a pre-built FillImage).
+// BuildsFillImage reports whether benchmarkoor should build the fill image
+// (rather than pulling a pre-built FillImage). It builds whenever FillDockerfile
+// is set, or when no FillImage is configured to pull — in the latter case from
+// the Dockerfile embedded in the binary.
 func (e *EESTPayloadsConfig) BuildsFillImage() bool {
-	return e.FillDockerfile != ""
+	return e.FillDockerfile != "" || e.FillImage == ""
 }
 
 // ResolveFillImageTag returns the image reference for the fill container: the
@@ -2180,12 +2183,10 @@ func (c *Config) validateEESTPayloads() error {
 		)
 	}
 
-	if ep.FillImage == "" && ep.FillDockerfile == "" {
-		return fmt.Errorf(
-			"builder.eest_payloads: one of fill_image (a pre-built image) or " +
-				"fill_dockerfile (built by benchmarkoor) is required",
-		)
-	}
+	// Neither fill_image nor fill_dockerfile is required: with both unset,
+	// benchmarkoor builds the fill image from the Dockerfile embedded in the
+	// binary. fill_image pulls a pre-built image; fill_dockerfile builds from a
+	// Dockerfile on disk.
 
 	// Reject a missing Dockerfile at config time so typos surface early.
 	// Relative paths are resolved against the working directory.

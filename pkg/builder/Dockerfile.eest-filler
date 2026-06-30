@@ -1,18 +1,22 @@
 # Dockerfile.eest-filler
 #
-# Builds the toolchain image referenced by `builder.eest_payloads.fill_image`:
-# it carries only `uv` + python + the build toolchain — NOT the execution-specs
-# repo. benchmarkoor clones execution-specs at build time (at the configured
-# `eest_ref`, caching it on disk) and mounts the checkout into this container at
-# /eest, then runs `uv run fill-stateful`. uv builds the venv into the mounted
-# checkout on first use (cached across runs). This keeps the EEST version in
-# config and changeable without rebuilding the image.
+# The default fill-image Dockerfile: it carries only `uv` + python + the build
+# toolchain — NOT the execution-specs repo. benchmarkoor clones execution-specs
+# at build time (at the configured `eest_ref`, caching it on disk) and mounts the
+# checkout into this container at /eest, then runs `uv run fill-stateful`. uv
+# builds the venv into the mounted checkout on first use (cached across runs).
+# This keeps the EEST version in config and changeable without rebuilding the image.
+#
+# This file is embedded into the benchmarkoor binary (see pkg/builder), so by
+# default the fill image is built from it with no Dockerfile needed on disk. Set
+# builder.eest_payloads.fill_image to pull a pre-built image, or fill_dockerfile
+# to build from a custom one.
 #
 # fill-stateful drives a *live* EL client over testing_buildBlockV1, so — unlike
 # the t8n-based `fill` — it needs NO evmone/eels transition-tool binary.
 #
-# Build:
-#   docker build -f Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
+# Build it by hand (from the repo root):
+#   docker build -f pkg/builder/Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
 #   # (podman build works identically)
 #
 # Then point your config at it:

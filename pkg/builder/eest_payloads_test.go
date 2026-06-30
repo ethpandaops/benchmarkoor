@@ -14,6 +14,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEmbeddedFillDockerfile(t *testing.T) {
+	require.NotEmpty(t, embeddedFillDockerfile, "Dockerfile.eest-filler must be embedded")
+	body := string(embeddedFillDockerfile)
+	assert.Contains(t, body, "FROM python:")
+	assert.Contains(t, body, "WORKDIR /eest")
+}
+
+func TestResolveFillDockerfile(t *testing.T) {
+	t.Run("configured path is used as-is with no-op cleanup", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "Custom.Dockerfile")
+		require.NoError(t, os.WriteFile(path, []byte("FROM scratch\n"), 0o600))
+
+		b := &EESTPayloadsBuilder{cfg: &config.EESTPayloadsConfig{FillDockerfile: path}}
+		got, cleanup, err := b.resolveFillDockerfile()
+		require.NoError(t, err)
+
+		assert.Equal(t, path, got)
+
+		cleanup()
+		assert.FileExists(t, path, "cleanup must not remove a configured Dockerfile")
+	})
+
+	t.Run("embedded default is written to a temp context and cleaned up", func(t *testing.T) {
+		b := &EESTPayloadsBuilder{cfg: &config.EESTPayloadsConfig{}}
+		got, cleanup, err := b.resolveFillDockerfile()
+		require.NoError(t, err)
+
+		content, readErr := os.ReadFile(got) //nolint:gosec // path produced by the function under test
+		require.NoError(t, readErr)
+		assert.Equal(t, embeddedFillDockerfile, content, "temp Dockerfile must match the embedded one")
+
+		cleanup()
+		assert.NoFileExists(t, got, "cleanup must remove the embedded temp Dockerfile")
+	})
+}
+
 func TestBuildFillArgs(t *testing.T) {
 	spec := client.NewGethSpec()
 	prefix := []string{"uv", "run", "fill-stateful"}

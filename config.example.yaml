@@ -275,15 +275,11 @@ runner:
 #   # Boots a filler client on a copy of a snapshot datadir (e.g. a state_actor
 #   # output_dir above), records engine-API payloads, and writes fixtures that
 #   # `run` consumes via tests.source.eest_fixtures. Runs after state_actor.
-#   # Only geth supports fill-stateful's testing_buildBlockV1 today. Build the
-#   # fill image from the repo's Dockerfile.eest-filler (execution-specs #2637):
-#   #   docker build -f Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
+#   # The fill image (uv/python toolchain) is built from a Dockerfile embedded in
+#   # the binary by default — nothing to publish. Optionally pull or customise it.
 #   eest_payloads:
-#     fill_image: ghcr.io/your-org/eest-fill-stateful:latest
-#     # Instead of a pre-built fill_image, point at a Dockerfile and benchmarkoor
-#     # builds it (with the container runtime) at build time, tagging it fill_image
-#     # if set or a default local tag. One of fill_image / fill_dockerfile is required.
-#     # fill_dockerfile: Dockerfile.eest-filler
+#     # fill_image: ghcr.io/your-org/eest-fill-stateful:latest   # pull a pre-built image instead
+#     # fill_dockerfile: pkg/builder/Dockerfile.eest-filler      # or build from a custom Dockerfile
 #     # pull_policy: always           # always | if-not-present | never
 #     # container_runtime: docker     # defaults to runner.container_runtime, then docker
 #     # jwt: <hex>                    # Engine API secret shared with the filler (default: built-in)

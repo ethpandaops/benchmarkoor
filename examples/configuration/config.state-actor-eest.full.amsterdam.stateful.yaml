@@ -147,7 +147,8 @@ builder:
 
   ## Stage 2: Building EEST bloatnet/repricing fixtures
   eest_payloads:
-    fill_dockerfile: Dockerfile.eest-filler
+    # Fill image defaults to a Dockerfile embedded in the binary; set fill_image
+    # to pull a pre-built one, or fill_dockerfile to build from a custom Dockerfile.
     pull_policy: always
     eest_repo: https://github.com/ethereum/execution-specs.git
     # devnets/bal/7-bench carries the BAL benchmark tooling plus the fill-stateful

@@ -56,9 +56,9 @@ builder:
 
   ## Stage 2: Building EEST stateful fixtures
   eest_payloads:
-    # Build the fill image (uv/python toolchain) from the repo's Dockerfile instead
-    # of pulling a pre-built one. Alternatively set fill_image: <pre-built image>.
-    fill_dockerfile: Dockerfile.eest-filler
+    # By default benchmarkoor builds the fill image (uv/python toolchain) from a
+    # Dockerfile embedded in the binary. Set fill_image: <pre-built image> to pull
+    # one instead, or fill_dockerfile: <path> to build from a custom Dockerfile.
     pull_policy: always
     eest_repo: https://github.com/ethereum/execution-specs.git
     eest_ref: forks/amsterdam

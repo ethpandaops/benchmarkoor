@@ -13,6 +13,49 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBuildsFillImage(t *testing.T) {
+	tests := []struct {
+		name           string
+		fillImage      string
+		fillDockerfile string
+		wantBuilds     bool
+		wantTag        string
+	}{
+		{
+			name:       "neither set builds from embedded default",
+			wantBuilds: true,
+			wantTag:    DefaultFillImageTag,
+		},
+		{
+			name:       "fill_image only pulls",
+			fillImage:  "fill:latest",
+			wantBuilds: false,
+			wantTag:    "fill:latest",
+		},
+		{
+			name:           "fill_dockerfile only builds, default tag",
+			fillDockerfile: "Dockerfile.eest-filler",
+			wantBuilds:     true,
+			wantTag:        DefaultFillImageTag,
+		},
+		{
+			name:           "both set builds, tagged fill_image",
+			fillImage:      "fill:latest",
+			fillDockerfile: "Dockerfile.eest-filler",
+			wantBuilds:     true,
+			wantTag:        "fill:latest",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &EESTPayloadsConfig{FillImage: tt.fillImage, FillDockerfile: tt.fillDockerfile}
+			assert.Equal(t, tt.wantBuilds, e.BuildsFillImage())
+			assert.Equal(t, tt.wantTag, e.ResolveFillImageTag())
+		})
+	}
+}
+
 func TestLoad_InlineAddressStubsKeyCasing(t *testing.T) {
 	// Viper is case-insensitive and lowercases all map keys; EEST resolves stub
 	// names by exact match, so Load must restore the original casing.
@@ -3964,12 +4007,10 @@ func TestValidateEESTPayloads(t *testing.T) {
 			},
 		},
 		{
-			name: "neither fill_image nor fill_dockerfile",
+			name: "neither fill_image nor fill_dockerfile is valid (embedded default)",
 			ep: &EESTPayloadsConfig{
 				Targets: []EESTPayloadTarget{base(dirA)},
 			},
-			wantErr:   true,
-			errSubstr: "fill_image",
 		},
 		{
 			name: "fill_dockerfile only is valid",

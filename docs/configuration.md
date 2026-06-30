@@ -1646,16 +1646,17 @@ builder:
 
 > **Filler client:** `geth` (`ethpandaops/geth:master`) is the production-ready filler. `nethermind` (`nethermindeth/nethermind:master`) also works — it implements `testing_buildBlockV1` with correct EIP-7928 block-access-lists, and `fill-stateful`'s per-test rewind falls back to `debug_resetHead` for it (nethermind has no `debug_setHead`). `besu` works too with an image carrying the merged `TestingBuildBlockV1` coinbase fix (e.g. `ethpandaops/besu:bal-devnet-7`); benchmarkoor auto-pins its session priority fee.
 >
-> **Fill image:** there is no published `fill-stateful` image yet (the command lands in execution-specs [#2637](https://github.com/ethereum/execution-specs/pull/2637)). Build one from the repo's `Dockerfile.eest-filler` (it bundles `uv` + execution-specs) and point `fill_image` at it:
+> **Fill image:** by default benchmarkoor builds the fill image (the `uv`/python toolchain that runs `fill-stateful`) from a Dockerfile **embedded in the binary** — nothing to publish or pass. To pull a pre-built image instead, set `fill_image`; to build from a custom Dockerfile, set `fill_dockerfile`. The embedded Dockerfile lives at `pkg/builder/Dockerfile.eest-filler`; to build it by hand:
 > ```bash
-> docker build -f Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
+> docker build -f pkg/builder/Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
 > ```
 
 ```yaml
 builder:
   eest_payloads:
-    fill_image: ghcr.io/your-org/eest-fill-stateful:latest   # image carrying `uv run fill-stateful`
-    # fill_dockerfile: Dockerfile.eest-filler   # build the fill image instead of pulling one
+    # Fill image defaults to a Dockerfile embedded in the binary. Optionally:
+    # fill_image: ghcr.io/your-org/eest-fill-stateful:latest   # pull a pre-built image instead
+    # fill_dockerfile: pkg/builder/Dockerfile.eest-filler      # or build from a custom Dockerfile
     pull_policy: always                  # always | if-not-present | never (default: always)
     container_runtime: docker            # docker | podman (default: inherits runner.container_runtime, then docker)
     # jwt: <hex>                         # Engine API secret, shared with the filler (default: benchmarkoor's DefaultJWT)
@@ -1684,9 +1685,9 @@ builder:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `fill_image` | string | – | Pre-built container image carrying the uv/python toolchain that runs `fill-stateful`. Required unless `fill_dockerfile` is set. |
-| `fill_dockerfile` | string | – | Path to a Dockerfile (e.g. `Dockerfile.eest-filler`) that benchmarkoor builds with the container runtime at build time, instead of pulling a pre-built image. Tagged `fill_image` when set, else `benchmarkoor-eest-fill:local`. Requires the runtime's `build` CLI (docker/podman) on the host. One of `fill_image` / `fill_dockerfile` is required. |
-| `pull_policy` | string | `always` | One of `always`, `if-not-present`, `never`. Applies to both the fill image and the filler image (ignored for a locally built `fill_dockerfile`). |
+| `fill_image` | string | – | Pre-built container image carrying the uv/python toolchain that runs `fill-stateful`. Optional: when neither this nor `fill_dockerfile` is set, benchmarkoor builds the fill image from a Dockerfile embedded in the binary. |
+| `fill_dockerfile` | string | – | Path to a custom Dockerfile that benchmarkoor builds with the container runtime at build time, instead of pulling a pre-built image or using the embedded default. Tagged `fill_image` when set, else `benchmarkoor-eest-fill:local`. Requires the runtime's `build` CLI (docker/podman) on the host. |
+| `pull_policy` | string | `always` | One of `always`, `if-not-present`, `never`. Applies to both the fill image and the filler image (ignored for a locally built fill image). |
 | `container_runtime` | string | runner's runtime, then `docker` | Container runtime for the filler + fill containers. |
 | `jwt` | string | benchmarkoor's `DefaultJWT` | Engine API JWT secret; shared between the filler client and `fill-stateful`. |
 | `fill_command` | []string | `[uv, run, fill-stateful]` | argv prefix invoked inside `fill_image` before the `fill-stateful` flags. Override if your image exposes the command differently. |
