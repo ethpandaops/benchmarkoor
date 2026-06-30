@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
@@ -137,8 +138,12 @@ func (w *containerStreamWriter) Write(p []byte) (int, error) {
 
 // tailBuffer is an io.Writer that retains at most `max` bytes of the most
 // recent input. Useful for surfacing the trailing output of a failing
-// container in the resulting error.
+// container in the resulting error. It is safe for concurrent use: the
+// container log-streaming goroutine can still be draining final lines into it
+// while the caller reads String() on the error path (the streaming goroutine is
+// not joined before the container-wait returns).
 type tailBuffer struct {
+	mu  sync.Mutex
 	buf bytes.Buffer
 	max int
 }
@@ -148,6 +153,9 @@ func newTailBuffer(maxBytes int) *tailBuffer {
 }
 
 func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	t.buf.Write(p)
 
 	if excess := t.buf.Len() - t.max; excess > 0 {
@@ -158,5 +166,8 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 }
 
 func (t *tailBuffer) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	return t.buf.String()
 }
