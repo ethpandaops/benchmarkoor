@@ -290,14 +290,52 @@ func TestConvertStatefulFixture(t *testing.T) {
 	// Test = 1 benchmark * 2 lines.
 	assert.Len(t, result.TestLines, 2)
 
-	// First setup line replays the first pre_run block.
-	var rpcCall map[string]any
-	require.NoError(t, json.Unmarshal([]byte(result.SetupLines[0]), &rpcCall))
-	assert.Equal(t, "engine_newPayloadV4", rpcCall["method"])
+	// Ordering by CONTENT (not just method name): the shared pre_run blocks must
+	// precede the fixture's own setup block. SetupLines are (newPayload, fcU)
+	// pairs, so newPayload lines sit at even indices: [0]=pre_run#1, [2]=pre_run#2,
+	// [4]=pre_run#3 (start), [6]=setup.
+	assert.Equal(t, "engine_newPayloadV4", rpcMethod(t, result.SetupLines[0]))
+	assert.Equal(t, "0xb1", newPayloadBlockHash(t, result.SetupLines[0]),
+		"first setup line must replay the first pre_run block, not the fixture's setup")
+	assert.Equal(t, "0xstart", newPayloadBlockHash(t, result.SetupLines[4]),
+		"third newPayload is the last pre_run block (start)")
+	assert.Equal(t, "0xsetup", newPayloadBlockHash(t, result.SetupLines[6]),
+		"the fixture's own setup block comes AFTER the pre_run blocks")
 
 	// The benchmark newPayload is the test step.
-	require.NoError(t, json.Unmarshal([]byte(result.TestLines[0]), &rpcCall))
-	assert.Equal(t, "engine_newPayloadV4", rpcCall["method"])
+	assert.Equal(t, "engine_newPayloadV4", rpcMethod(t, result.TestLines[0]))
+	assert.Equal(t, "0xbench", newPayloadBlockHash(t, result.TestLines[0]))
+}
+
+// rpcMethod decodes a JSON-RPC line and returns its "method".
+func rpcMethod(t *testing.T, line string) string {
+	t.Helper()
+
+	var call map[string]any
+	require.NoError(t, json.Unmarshal([]byte(line), &call))
+
+	method, _ := call["method"].(string)
+
+	return method
+}
+
+// newPayloadBlockHash decodes an engine_newPayloadVX line and returns the
+// execution payload's blockHash (params[0].blockHash).
+func newPayloadBlockHash(t *testing.T, line string) string {
+	t.Helper()
+
+	var call map[string]any
+	require.NoError(t, json.Unmarshal([]byte(line), &call))
+
+	params, ok := call["params"].([]any)
+	require.True(t, ok && len(params) > 0, "newPayload line must carry params")
+
+	payload, ok := params[0].(map[string]any)
+	require.True(t, ok, "first param must be the execution payload object")
+
+	hash, _ := payload["blockHash"].(string)
+
+	return hash
 }
 
 func TestConvertStatefulFixture_NilPreRun(t *testing.T) {

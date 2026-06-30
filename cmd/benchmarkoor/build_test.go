@@ -2,12 +2,25 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/builder"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestMain initializes the package-level logger (nil until main() runs) so tests
+// that exercise functions which log (e.g. summarise) don't nil-panic.
+func TestMain(m *testing.M) {
+	log = logrus.New()
+	log.SetOutput(io.Discard)
+
+	os.Exit(m.Run())
+}
 
 // fakeBuilder is a minimal builder.Builder for exercising selectTargets.
 type fakeBuilder struct {
@@ -21,6 +34,31 @@ func (f *fakeBuilder) Targets() []builder.TargetInfo { return f.targets }
 
 func (f *fakeBuilder) Build(context.Context, string, builder.BuildOptions) (bool, error) {
 	return false, nil
+}
+
+func TestSummarise(t *testing.T) {
+	t.Run("all OK/SKIP returns no error", func(t *testing.T) {
+		err := summarise([]buildResult{
+			{builder: "state-actor", name: "geth", skipped: false},
+			{builder: "state-actor", name: "reth", skipped: true},
+			{builder: "eest-payloads", name: "fill-geth", skipped: false},
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("any failure aggregates into an error naming the failed targets", func(t *testing.T) {
+		err := summarise([]buildResult{
+			{builder: "state-actor", name: "geth"},
+			{builder: "eest-payloads", name: "fill-besu", err: errors.New("boom")},
+			{builder: "eest-payloads", name: "fill-reth", err: errors.New("kaboom")},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "2 target(s) failed")
+		assert.Contains(t, err.Error(), "fill-besu")
+		assert.Contains(t, err.Error(), "fill-reth")
+		// A successful target must not appear in the failed list.
+		assert.NotContains(t, err.Error(), "geth")
+	})
 }
 
 func TestLimitFilters(t *testing.T) {
