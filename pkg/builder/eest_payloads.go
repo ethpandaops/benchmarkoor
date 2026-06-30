@@ -3,6 +3,7 @@ package builder
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -315,12 +316,9 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 
 	log.Info("Waiting for filler client RPC to become ready")
 
-	readyCtx, cancel := context.WithTimeout(ctx, fillerReadyTimeout)
-	version, err := waitForRPC(readyCtx, fillerIP, spec.RPCPort())
-	cancel()
-
+	version, err := b.waitForFillerReady(ctx, fillerID, fillerIP, spec.RPCPort())
 	if err != nil {
-		return fmt.Errorf("filler client never became ready: %w", err)
+		return err
 	}
 
 	snapshotHash, err := getLatestBlockHash(ctx, fillerIP, spec.RPCPort())
@@ -334,6 +332,73 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 	}).Info("Filler client ready; running fill-stateful")
 
 	return b.runFill(ctx, log, t, fillerIP, spec, jwtPath, snapshotHash, eestRepoPath)
+}
+
+// waitForFillerReady blocks until the filler's RPC answers or the filler
+// container exits, whichever happens first, returning the client version.
+//
+// A filler that dies before its RPC comes up (panic on boot, bad flags, OOM,
+// corrupt datadir) would otherwise leave waitForRPC polling a dead endpoint for
+// the full fillerReadyTimeout. Watching the container exit lets us fail fast
+// with the exit code instead of hanging for 15 minutes.
+func (b *EESTPayloadsBuilder) waitForFillerReady(
+	ctx context.Context,
+	containerID, ip string,
+	port int,
+) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, fillerReadyTimeout)
+	defer cancel()
+
+	exitCh, exitErrCh := b.mgr.WaitForContainerExit(ctx, containerID)
+
+	type rpcResult struct {
+		version string
+		err     error
+	}
+
+	resultCh := make(chan rpcResult, 1)
+
+	go func() {
+		version, err := waitForRPC(ctx, ip, port)
+		resultCh <- rpcResult{version: version, err: err}
+	}()
+
+	select {
+	case res := <-resultCh:
+		if res.err != nil {
+			return "", fmt.Errorf("filler client never became ready: %w", res.err)
+		}
+
+		return res.version, nil
+	case info := <-exitCh:
+		// cancel() unblocks the waitForRPC goroutine; the deferred cancel also
+		// covers it, but stopping the poll immediately is tidier.
+		cancel()
+
+		return "", fmt.Errorf(
+			"filler client exited before RPC became ready "+
+				"(exit code %d, oom_killed=%t)",
+			info.ExitCode, info.OOMKilled,
+		)
+	case err := <-exitErrCh:
+		// A wait error from our own timeout/cancel isn't actionable — defer to
+		// the RPC goroutine, whose timeout message describes it better.
+		if err == nil ||
+			errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) {
+			res := <-resultCh
+
+			if res.err != nil {
+				return "", fmt.Errorf("filler client never became ready: %w", res.err)
+			}
+
+			return res.version, nil
+		}
+
+		cancel()
+
+		return "", fmt.Errorf("watching filler container: %w", err)
+	}
 }
 
 // startFiller boots the filler EL client and returns its container ID and IP.
