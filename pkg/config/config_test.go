@@ -88,6 +88,45 @@ builder:
 	assert.Equal(t, "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04", resolved.AddressStubs["bloated_EOA_10GB"]["addr"])
 }
 
+func TestValidate_InstanceGenesisOverrideMutualExclusion(t *testing.T) {
+	forkOverride := map[string]uint64{"amsterdam": 1}
+	eipOverride := &GenesisEIPOverride{Timestamp: 1, EIPs: []uint64{7928}}
+
+	mkCfg := func(inst ClientInstance) *Config {
+		return &Config{Runner: RunnerConfig{Instances: []ClientInstance{inst}}}
+	}
+
+	t.Run("both set is rejected", func(t *testing.T) {
+		err := mkCfg(ClientInstance{
+			ID: "geth", Client: "geth",
+			GenesisForkOverride: forkOverride,
+			GenesisEIPOverride:  eipOverride,
+		}).Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "genesis_fork_override and genesis_eip_override are mutually exclusive")
+	})
+
+	t.Run("only fork override does not trip the check", func(t *testing.T) {
+		// Validate may still fail for unrelated reasons (no test source, etc.) —
+		// just assert it isn't the mutual-exclusion error.
+		err := mkCfg(ClientInstance{
+			ID: "geth", Client: "geth", GenesisForkOverride: forkOverride,
+		}).Validate()
+		if err != nil {
+			assert.NotContains(t, err.Error(), "mutually exclusive")
+		}
+	})
+
+	t.Run("only eip override does not trip the check", func(t *testing.T) {
+		err := mkCfg(ClientInstance{
+			ID: "nethermind", Client: "nethermind", GenesisEIPOverride: eipOverride,
+		}).Validate()
+		if err != nil {
+			assert.NotContains(t, err.Error(), "mutually exclusive")
+		}
+	})
+}
+
 func TestLoad_StateActorSpec(t *testing.T) {
 	dir := t.TempDir()
 

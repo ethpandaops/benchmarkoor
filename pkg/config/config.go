@@ -1803,6 +1803,18 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 			return fmt.Errorf("instance %q: unknown client type %q", instance.ID, instance.Client)
 		}
 
+		// genesis_fork_override (geth-format <fork>Time) and genesis_eip_override
+		// (parity eip<N>TransitionTimestamp) patch different genesis formats, so a
+		// single instance can set at most one — mirrors the eest_payloads target
+		// check. (Without this, the contradiction only surfaces at boot when the
+		// override apply rejects the genesis format.)
+		if len(instance.GenesisForkOverride) > 0 && instance.GenesisEIPOverride != nil {
+			return fmt.Errorf(
+				"instance %q: genesis_fork_override and genesis_eip_override are mutually exclusive",
+				instance.ID,
+			)
+		}
+
 		// Validate instance-level datadir (skip if not in active set).
 		if instance.DataDir != nil {
 			if len(opt.ActiveInstanceIDs) == 0 {
