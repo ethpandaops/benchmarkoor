@@ -45,6 +45,21 @@ inputs:
     required: false
     default: ''
 
+  build-config-urls:
+    description: 'Comma-separated URLs for config files to download and pass to `benchmarkoor build` via --config (merged in order). Setting this or build-config enables the build phase (state-actor snapshots + eest payloads), which runs before the benchmark run.'
+    required: false
+    default: ''
+
+  build-config:
+    description: 'Raw YAML config content to pass to `benchmarkoor build` via --config (appended after URL config). Setting this or build-config-urls enables the build phase.'
+    required: false
+    default: ''
+
+  build-args:
+    description: 'Extra flags passed to the benchmarkoor build command (e.g. --force, --limit-state-actor-target=)'
+    required: false
+    default: ''
+
   tmp-dir:
     description: 'Temporary directory path used for benchmarkoor data (overlayfs) and cache'
     required: false
@@ -108,6 +123,56 @@ runs:
         "$BIN" --version || true
 
         echo "binary=${BIN}" >> "$GITHUB_OUTPUT"
+
+    - name: Build Benchmarkoor artifacts
+      id: build-benchmarkoor
+      if: inputs.build-config != '' || inputs.build-config-urls != ''
+      shell: bash
+      env:
+        INPUT_BUILD_CONFIG: ${{ inputs.build-config }}
+        INPUT_BUILD_CONFIG_URLS: ${{ inputs.build-config-urls }}
+      run: |
+        BIN="${{ steps.extract-binary.outputs.binary }}"
+
+        # Download URL configs if provided (comma-separated)
+        if [ -n "$INPUT_BUILD_CONFIG_URLS" ]; then
+          IFS=',' read -ra CONFIG_URLS <<< "$INPUT_BUILD_CONFIG_URLS"
+          for i in "${!CONFIG_URLS[@]}"; do
+            URL=$(echo "${CONFIG_URLS[$i]}" | xargs)  # trim whitespace
+            echo "Downloading build config from ${URL}"
+            curl -fsSL "${URL}" -o "${{ runner.temp }}/benchmarkoor-build-config-url-${i}.yaml"
+          done
+        fi
+
+        # Write inline config if provided
+        if [ -n "$INPUT_BUILD_CONFIG" ]; then
+          echo "$INPUT_BUILD_CONFIG" > "${{ runner.temp }}/benchmarkoor-build-config-inline.yaml"
+        fi
+
+        # Build argv as an array so quoted values survive intact. Config files
+        # apply in order: URL configs, then inline config (last wins). This step
+        # runs from the workspace, so any relative paths in the config (e.g. a
+        # custom fill_dockerfile) resolve against the checkout.
+        ARGS=("build")
+        for cfg in "${{ runner.temp }}"/benchmarkoor-build-config-url-*.yaml; do
+          [ -f "$cfg" ] && ARGS+=("--config=$cfg")
+        done
+        if [ -f "${{ runner.temp }}/benchmarkoor-build-config-inline.yaml" ]; then
+          ARGS+=("--config=${{ runner.temp }}/benchmarkoor-build-config-inline.yaml")
+        fi
+
+        # Append extra build args if provided (whitespace-split, same as run).
+        if [ -n "${{ inputs.build-args }}" ]; then
+          # shellcheck disable=SC2206 # intentional word-split for argv
+          EXTRA_ARGS=(${{ inputs.build-args }})
+          ARGS+=("${EXTRA_ARGS[@]}")
+        fi
+
+        # `sudo -E` for the same reasons as the run step: keeps the built
+        # snapshots/fixtures root-owned (so the rootful run phase can read
+        # them) and propagates caller env (e.g. STATE_DIR) into the build.
+        echo "Running: sudo -E $BIN ${ARGS[*]}"
+        sudo -E "$BIN" "${ARGS[@]}"
 
     - name: Get Job ID from GH API
       id: get-job-id
@@ -253,5 +318,7 @@ runs:
         rm -rf "${{ runner.temp }}/results"
         rm -f "${{ runner.temp }}/benchmarkoor-config-url-"*.yaml
         rm -f "${{ runner.temp }}/benchmarkoor-config-inline.yaml"
+        rm -f "${{ runner.temp }}/benchmarkoor-build-config-url-"*.yaml
+        rm -f "${{ runner.temp }}/benchmarkoor-build-config-inline.yaml"
         rm -f "${{ runner.temp }}/benchmarkoor-results.tar.gz"
         rm -f "${{ runner.temp }}/benchmarkoor"

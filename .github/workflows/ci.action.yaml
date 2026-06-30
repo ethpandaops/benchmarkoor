@@ -138,3 +138,122 @@ jobs:
               instances:
                 - id: reth
                   client: reth
+
+  # Exercises the builder pipeline end-to-end: state-actor builds OSAKA
+  # snapshots for nethermind + besu, the eest_payloads builder fills the
+  # compute "bn128" subset with the besu filler, then the runner replays
+  # those fixtures on nethermind and besu. datadir_method: copy + a small
+  # 256 MB snapshot keep it within a GitHub-hosted runner.
+  state-actor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # The client + fill images and the locally built benchmarkoor image are
+      # several GB; free the runner's preinstalled toolchains to be safe.
+      - name: Free disk space
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/share/dotnet /usr/local/share/boost
+          df -h /
+
+      - name: Build snapshots + fill payloads, then run (nethermind + besu)
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-ref: ${{ github.event.pull_request.head.sha }}
+          git-repo: ${{ github.event.pull_request.head.repo.clone_url }}
+          build-args: '--force'
+          build-config: |
+            builder:
+              state_actor:
+                images:
+                  nethermind: ghcr.io/ethereum/state-actor-nethermind:main
+                  besu: ghcr.io/ethereum/state-actor-besu:main
+                pull_policy: always
+                config:
+                  seed: 1234
+                  fork: osaka
+                  chain: 1337
+                  gas_limit: 300000000
+                  target_size: 256MB
+                spec:
+                  entities:
+                    # Predeploy the Arachnid CREATE2 factory so the EEST fill
+                    # bootstrap detects it and skips the keyless deploy.
+                    - kind: contract
+                      template: create2_factory
+                      name: deterministic-deployment-proxy
+                      address: 0x4e59b44847b379578588920cA78FbF26c0B4956C
+                    # Pre-fund fill-stateful's seed (rpc_seed_key=0x..01 below)
+                    # so it skips the withdrawal funding block.
+                    - kind: eoa
+                      name: fill-stateful-seed
+                      address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
+                      balance: "10000000000000000000000000000"
+                      nonce: 0
+                targets:
+                  - client: nethermind
+                    output_dir: /tmp/benchmarkoor/state-actor/nethermind
+                  - client: besu
+                    output_dir: /tmp/benchmarkoor/state-actor/besu
+              eest_payloads:
+                # Fill image is built from the Dockerfile embedded in the binary.
+                pull_policy: always
+                eest_repo: https://github.com/ethereum/execution-specs.git
+                eest_ref: devnets/bal/7-bench
+                config:
+                  fork: osaka
+                  rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+                  gas_benchmark_values: [10]
+                  datadir_method: copy
+                  tests:
+                    - tests/benchmark/compute
+                  filter: bn128
+                targets:
+                  - name: payload-generator-besu
+                    filler_client: besu
+                    # besu image carrying testing_buildBlockV1 (drives fill-stateful).
+                    filler_image: ethpandaops/besu:bal-devnet-7
+                    source_dir: /tmp/benchmarkoor/state-actor/besu
+                    genesis: /tmp/benchmarkoor/state-actor/besu/besu-chainspec.json
+                    output_dir: /tmp/benchmarkoor/eest-fixtures/besu
+          run-config-urls: >-
+            https://raw.githubusercontent.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-cleanup.yaml,
+            https://raw.githubusercontent.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-clientstdout.yaml
+          run-config: |
+            runner:
+              benchmark:
+                tests:
+                  source:
+                    eest_fixtures:
+                      local_fixtures_dir: /tmp/benchmarkoor/eest-fixtures/besu
+                      fixtures_subdir: blockchain_tests_stateful_engine
+              client:
+                config:
+                  bootstrap_fcu:
+                    enabled: true
+                    max_retries: 10
+                    backoff: 1s
+                  genesis:
+                    nethermind: /tmp/benchmarkoor/state-actor/nethermind/parity-chainspec.json
+                    besu: /tmp/benchmarkoor/state-actor/besu/besu-chainspec.json
+                datadirs:
+                  nethermind:
+                    source_dir: /tmp/benchmarkoor/state-actor/nethermind
+                    method: copy
+                  besu:
+                    source_dir: /tmp/benchmarkoor/state-actor/besu
+                    method: copy
+              instances:
+                - id: nethermind
+                  client: nethermind
+                  image: nethermindeth/nethermind:master
+                  extra_args: [--Init.BaseDbPath=/data]
+                - id: besu
+                  client: besu
+                  image: ethpandaops/besu:bal-devnet-7
+                  extra_args: [--p2p-enabled=true]
