@@ -16,8 +16,9 @@
 # Usage:
 #   .hack/orbstack.sh [machine-name]          # default: bench
 #
-# After it finishes, run benchmarkoor INSIDE the machine as root (overlayfs mount
-# needs CAP_SYS_ADMIN), e.g.:
+# After it finishes the binary is at <repo>/bin/benchmarkoor (also symlinked onto
+# PATH, so a bare `benchmarkoor` works). Run it INSIDE the machine as root
+# (overlayfs mount needs CAP_SYS_ADMIN), e.g.:
 #   orb -m bench sudo benchmarkoor build \
 #     --config $(pwd)/examples/configuration/config.state-actor-eest.full.amsterdam.stateful.yaml --force
 #   orb -m bench sudo benchmarkoor run \
@@ -26,8 +27,6 @@ set -euo pipefail
 
 MACHINE="${1:-bench}"
 DISTRO="${ORBSTACK_DISTRO:-ubuntu}"
-# Build tags mirror the Makefile (avoid btrfs/devicemapper graphdrivers + gpgme).
-GO_BUILD_TAGS="exclude_graphdriver_btrfs,exclude_graphdriver_devicemapper,containers_image_openpgp"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -49,10 +48,9 @@ fi
 
 # 2. Provision inside the machine: dedicated dockerd + Go toolchain, then build
 #    benchmarkoor natively. Everything below runs as root in the machine.
-orb -m "${MACHINE}" sudo bash -s -- "${REPO_ROOT}" "${GO_BUILD_TAGS}" <<'PROVISION'
+orb -m "${MACHINE}" sudo bash -s -- "${REPO_ROOT}" <<'PROVISION'
 set -euo pipefail
 REPO_ROOT="$1"
-GO_BUILD_TAGS="$2"
 
 echo "==> apt: docker.io + golang-go + make + git"
 export DEBIAN_FRONTEND=noninteractive
@@ -74,11 +72,15 @@ case "$(go version)" in
   *) echo "warning: Go < 1.23 detected; benchmarkoor needs >= 1.23. Install a newer Go." >&2 ;;
 esac
 
-echo "==> Building benchmarkoor (native, tags: ${GO_BUILD_TAGS})"
+echo "==> Building benchmarkoor (make build-core)"
 cd "${REPO_ROOT}"
-GOCACHE=/root/.cache/go-build GOPATH=/root/go GOFLAGS=-mod=mod \
-  go build -tags "${GO_BUILD_TAGS}" -o /usr/local/bin/benchmarkoor ./cmd/benchmarkoor
-/usr/local/bin/benchmarkoor --help >/dev/null && echo "==> benchmarkoor installed at /usr/local/bin/benchmarkoor"
+GOCACHE=/root/.cache/go-build GOPATH=/root/go make build-core
+# The binary lands in ${REPO_ROOT}/bin/benchmarkoor. Symlink it onto PATH so a
+# bare `benchmarkoor` works from anywhere and a later `make build-core` (rebuild
+# after a code change) is picked up automatically — no stale copy.
+ln -sf "${REPO_ROOT}/bin/benchmarkoor" /usr/local/bin/benchmarkoor
+benchmarkoor --help >/dev/null \
+  && echo "==> benchmarkoor built at ${REPO_ROOT}/bin/benchmarkoor (symlinked onto PATH at /usr/local/bin/benchmarkoor)"
 
 echo "==> Verifying overlayfs works in this machine"
 d="$(mktemp -d)"; mkdir -p "$d"/{low,up,work,merged}; echo ok > "$d/low/f"
@@ -91,7 +93,8 @@ cat <<EOF
 
 ==> Done. The '${MACHINE}' machine is ready (dedicated dockerd + overlayfs + benchmarkoor).
 
-Run benchmarkoor inside it as root (the repo is shared at ${REPO_ROOT}):
+benchmarkoor is built at ${REPO_ROOT}/bin/benchmarkoor (symlinked onto PATH).
+Run it inside the machine as root (the repo is shared at ${REPO_ROOT}):
 
   orb -m ${MACHINE} sudo benchmarkoor build \\
     --config ${REPO_ROOT}/examples/configuration/config.state-actor-eest.full.amsterdam.stateful.yaml --force
