@@ -69,7 +69,7 @@ builder:
     # jochem-brouwer's production-minimum repricing prestate. The big cost is
     # entity "storage-pattern-10gb" (335M slots ≈ 73 GB); the 150000-count knobs
     # give 300M-gas cold-access headroom (count >= gas/2000).
-    spec: |
+    spec:
       entities:
         # Pre-funded seed for fill-stateful — Hardhat/Anvil dev key #0
         # (pkey 0xac0974…ff80). Pinned below via rpc_seed_key.

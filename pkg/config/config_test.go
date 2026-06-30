@@ -88,6 +88,63 @@ builder:
 	assert.Equal(t, "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04", resolved.AddressStubs["bloated_EOA_10GB"]["addr"])
 }
 
+func TestLoad_StateActorSpec(t *testing.T) {
+	dir := t.TempDir()
+
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
+
+		return p
+	}
+
+	t.Run("structured mapping materializes to the YAML body with number fidelity", func(t *testing.T) {
+		cfg, err := Load(write("structured.yaml", `
+builder:
+  state_actor:
+    images: { geth: img }
+    config: { target_size: 1GB }
+    spec:
+      entities:
+        - kind: eoa
+          name: bloated
+          approximate_size_bytes: 2_000_000_000
+        - kind: contract
+          address: 0x4e59b44847b379578588920cA78FbF26c0B4956C
+    targets:
+      - { client: geth, output_dir: /o }
+`))
+		require.NoError(t, err)
+		require.NoError(t, cfg.validateBuilder())
+
+		kind, body := cfg.Builder.StateActor.ResolveSpec()
+		assert.Equal(t, StateActorSpecInline, kind)
+		assert.Contains(t, body, "entities:")
+		// Bare integers and mixed-case hex round-trip exactly (no float coercion,
+		// no lowercasing) because the spec is re-parsed from the raw YAML.
+		assert.Contains(t, body, "2_000_000_000")
+		assert.Contains(t, body, "0x4e59b44847b379578588920cA78FbF26c0B4956C")
+	})
+
+	t.Run("block-scalar spec still works (back-compat)", func(t *testing.T) {
+		cfg, err := Load(write("scalar.yaml", "builder:\n"+
+			"  state_actor:\n"+
+			"    images: { geth: img }\n"+
+			"    config: { target_size: 1GB }\n"+
+			"    spec: |\n"+
+			"      entities:\n"+
+			"        - kind: eoa\n"+
+			"          name: legacy\n"+
+			"    targets:\n"+
+			"      - { client: geth, output_dir: /o }\n"))
+		require.NoError(t, err)
+
+		kind, body := cfg.Builder.StateActor.ResolveSpec()
+		assert.Equal(t, StateActorSpecInline, kind)
+		assert.Contains(t, body, "name: legacy")
+	})
+}
+
 func TestLoad_MultiFileConfigStubCasing(t *testing.T) {
 	// Viper deep-merges the eest_payloads.config map across --config files. The
 	// stub-name casing restore must accumulate config.address_stubs from every

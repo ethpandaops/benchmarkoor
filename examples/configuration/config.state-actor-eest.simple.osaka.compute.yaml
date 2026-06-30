@@ -32,7 +32,7 @@ builder:
       gas_limit: 300000000 # 300M
       target_size: 256MB
       #target_size: 20GB
-    spec: |
+    spec:
       entities:
         - kind: eoa
           name: bloated-eoa-2g

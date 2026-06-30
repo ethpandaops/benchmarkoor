@@ -1472,8 +1472,8 @@ builder:
     container_runtime: docker                     # docker | podman (default: inherits runner.container_runtime, then docker)
     # spec source — top-level, shared across every target.
     # Pick at most one of:
-    #   spec: |       # inline YAML; benchmarkoor writes it to a temp file before invoking state-actor
-    #     ...
+    #   spec:         # structured YAML (or a `|` block scalar); written to a temp file before invoking state-actor
+    #     entities: [ ... ]
     #   spec_file: /etc/benchmarkoor/state-spec.yaml   # absolute host path
     config:                                       # shared per-target defaults; targets override when set
       seed: 1
@@ -1491,7 +1491,7 @@ builder:
 | `images` | map[string]string | – | Per-client docker images for state-actor. Every active target's client must have an entry; state-actor needs a different cgo build per client (reth → MDBX, besu → RocksDB JNI, nethermind → .NET RocksDB). |
 | `pull_policy` | string | `always` | One of `always`, `if-not-present`, `never`. |
 | `container_runtime` | string | runner's runtime, then `docker` | Container runtime for the build container. |
-| `spec` | string (YAML) | – | Inline state spec body (see [state-actor SPEC.md](https://github.com/ethereum/state-actor/blob/main/docs/SPEC.md)). Materialised to a temp file at build time. Mutually exclusive with `spec_file`. |
+| `spec` | YAML mapping or string | – | Inline state spec body (see [state-actor SPEC.md](https://github.com/ethereum/state-actor/blob/main/docs/SPEC.md)). Write it as **structured YAML** (a mapping — your editor highlights it) or as a `\|` block scalar; both materialise to the same temp spec file at build time. Mutually exclusive with `spec_file`. |
 | `spec_file` | string | – | Absolute host path to a state spec YAML. Bind-mounted read-only into the build container. Mutually exclusive with `spec`. |
 | `config` | object | – | Shared defaults for the per-target build parameters. See below. |
 | `targets` | []object | – | Required when invoking `benchmarkoor build`. See below. |
@@ -1622,17 +1622,18 @@ builder:
         archive: false    # overrides config.archive=true (besu doesn't support archive)
 ```
 
-Inline spec — write the YAML directly in the config:
+Inline spec — write the YAML directly in the config (structured, so editors highlight it; a `|` block scalar works too):
 
 ```yaml
 builder:
   state_actor:
     images:
       geth: ghcr.io/ethereum/state-actor:latest
-    spec: |
-      genesis:
-        chain_id: 1337
-        gas_limit: 30000000
+    spec:
+      entities:
+        - kind: eoa
+          name: bloated-eoa
+          approximate_size_bytes: 2_000_000_000
       # … rest of the state spec
     targets:
       - client: geth

@@ -47,7 +47,7 @@ builder:
       gas_limit: 300000000 # 300M
       target_size: 256MB
       #target_size: 20GB
-    spec: |
+    spec:
       entities:
         # Predeploy the Arachnid deterministic-deployment proxy at the canonical
         # 0x4e59…956c. EEST's fill bootstrap deploys it via a keyless tx with a

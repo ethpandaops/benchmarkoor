@@ -92,6 +92,12 @@ type BuilderConfig struct {
 // complementary — when both are set state-actor uses the spec and
 // treats target_size as a headroom budget for any further auto-fill.
 //
+// Spec may be written either as a structured YAML mapping (so editors give it
+// syntax highlighting) or as a "|" block scalar; both normalize to the YAML
+// body state-actor consumes. The field is excluded from Viper decoding and
+// populated by normalizeStateActorSpec from the raw YAML (Viper can't decode a
+// mapping into a string, and re-parsing preserves numbers/casing/comments).
+//
 // Config holds the per-target build parameters that can be hoisted up
 // to avoid repeating them. Any field set on a target overrides the
 // corresponding field in Config.
@@ -99,7 +105,7 @@ type StateActorConfig struct {
 	ContainerRuntime string                    `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
 	Images           map[string]string         `yaml:"images,omitempty" mapstructure:"images"`
 	PullPolicy       string                    `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
-	Spec             string                    `yaml:"spec,omitempty" mapstructure:"spec"`
+	Spec             string                    `yaml:"spec,omitempty" mapstructure:"-"`
 	SpecFile         string                    `yaml:"spec_file,omitempty" mapstructure:"spec_file"`
 	Config           *StateActorClientDefaults `yaml:"config,omitempty" mapstructure:"config"`
 	Targets          []StateActorTarget        `yaml:"targets,omitempty" mapstructure:"targets"`
@@ -1492,6 +1498,7 @@ func Load(paths ...string) (*Config, error) {
 
 	restoreEnvironmentKeyCasing(&cfg, rawYAMLs)
 	restoreAddressStubsKeyCasing(&cfg, rawYAMLs)
+	normalizeStateActorSpec(&cfg, rawYAMLs)
 
 	cfg.applyDefaults()
 
@@ -3983,4 +3990,68 @@ func restoreAddressStubsKeyCasing(cfg *Config, rawYAMLs []string) {
 			ep.Targets[i].AddressStubs = rawTargets[i].AddressStubs
 		}
 	}
+}
+
+// normalizeStateActorSpec resolves builder.state_actor.spec from the raw YAML
+// into a YAML string body. The field is excluded from Viper decoding so it can
+// be authored either as a structured mapping (for editor syntax highlighting)
+// or as a "|" block scalar — both normalize to the body state-actor consumes.
+// Re-parsing the raw YAML preserves number formatting, value casing and
+// comments that a Viper round-trip would lose. Last file with a spec wins (it
+// is a scalar override, not a merged map).
+func normalizeStateActorSpec(cfg *Config, rawYAMLs []string) {
+	if cfg.Builder == nil || cfg.Builder.StateActor == nil {
+		return
+	}
+
+	for _, raw := range rawYAMLs {
+		var doc yaml.Node
+		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil || len(doc.Content) == 0 {
+			continue
+		}
+
+		spec := yamlMapValue(yamlMapValue(yamlMapValue(doc.Content[0], "builder"), "state_actor"), "spec")
+		if spec == nil {
+			continue
+		}
+
+		body, err := stateActorSpecBody(spec)
+		if err != nil {
+			continue
+		}
+
+		cfg.Builder.StateActor.Spec = body
+	}
+}
+
+// stateActorSpecBody serializes a spec node to the YAML body state-actor reads:
+// a scalar (a "|" block) yields its string content verbatim; a mapping is
+// re-marshaled to YAML.
+func stateActorSpecBody(node *yaml.Node) (string, error) {
+	if node.Kind == yaml.ScalarNode {
+		return node.Value, nil
+	}
+
+	out, err := yaml.Marshal(node)
+	if err != nil {
+		return "", err
+	}
+
+	return string(out), nil
+}
+
+// yamlMapValue returns the value node for key in a YAML mapping node, or nil
+// when the node is not a mapping or the key is absent.
+func yamlMapValue(m *yaml.Node, key string) *yaml.Node {
+	if m == nil || m.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+
+	return nil
 }
