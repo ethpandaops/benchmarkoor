@@ -97,3 +97,25 @@ func testLogger() logrus.FieldLogger {
 
 	return l
 }
+
+// The kernel octal-escapes whitespace and backslashes in /proc/mounts. The
+// still-mounted gate must decode those back to the literal path it compares
+// against, otherwise it silently fails open on any temp path with a space and
+// deletes through a live mount.
+func TestUnescapeMountField(t *testing.T) {
+	cases := map[string]string{
+		"/tmp/plain/merged":              "/tmp/plain/merged",
+		`/mnt/fast\040disk/bench/merged`: "/mnt/fast disk/bench/merged",
+		`/mnt/a\011b/merged`:             "/mnt/a\tb/merged",
+		`/mnt/a\012b/merged`:             "/mnt/a\nb/merged",
+		`/mnt/back\134slash/merged`:      `/mnt/back\slash/merged`,
+		`/mnt/two\040\040spaces/merged`:  "/mnt/two  spaces/merged",
+		`/mnt/trailing\back`:             `/mnt/trailing\back`, // not a 3-octal-digit escape
+	}
+
+	for in, want := range cases {
+		if got := unescapeMountField(in); got != want {
+			t.Errorf("unescapeMountField(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

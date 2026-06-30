@@ -161,13 +161,14 @@ func (m *manager) Apply(ctx context.Context, cfg *Config, cpus []int) error {
 		}
 	}
 
-	// Refresh the crash-recovery state file whenever new originals were captured.
+	// Refresh the crash-recovery state file whenever new originals were
+	// captured. Write the new file before removing the previous one, so a crash
+	// or a write failure never leaves the host pinned to the benchmark settings
+	// with no state file to recover from. SaveState uses a 1-second-granularity
+	// filename, so two captures within the same second reuse the same path (an
+	// in-place overwrite); only a distinct earlier file needs removing.
 	if captured {
-		if m.stateFile != "" {
-			if err := RemoveStateFile(m.stateFile); err != nil {
-				m.log.WithError(err).Warn("Failed to remove previous CPU frequency state file")
-			}
-		}
+		previous := m.stateFile
 
 		stateFile, err := SaveState(m.cacheDir, m.originalSettings)
 		if err != nil {
@@ -175,6 +176,12 @@ func (m *manager) Apply(ctx context.Context, cfg *Config, cpus []int) error {
 		} else {
 			m.stateFile = stateFile
 			m.log.WithField("state_file", stateFile).Debug("Saved CPU frequency state")
+
+			if previous != "" && previous != stateFile {
+				if err := RemoveStateFile(previous); err != nil {
+					m.log.WithError(err).Warn("Failed to remove previous CPU frequency state file")
+				}
+			}
 		}
 	}
 
@@ -282,11 +289,14 @@ func (m *manager) restoreSettings(ctx context.Context) error {
 
 	var restoreErrs []error
 
-	// Restore turbo boost first.
+	// Restore turbo boost first. Turbo control is best-effort everywhere else
+	// (Apply and the crash-recovery RestoreFromStateFile path only log on
+	// failure), so a turbo restore failure must not be treated as fatal here:
+	// doing so would keep the recovery state forever and make Restore/Stop
+	// report an error on every call even when every CPU was restored.
 	if m.originalSettings.TurboBoost != nil {
 		if err := restoreTurboBoost(m.sysfsBasePath, m.originalSettings.TurboBoost); err != nil {
 			m.log.WithError(err).Warn("Failed to restore turbo boost")
-			restoreErrs = append(restoreErrs, fmt.Errorf("turbo boost: %w", err))
 		}
 	}
 

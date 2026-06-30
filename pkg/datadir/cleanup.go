@@ -203,10 +203,45 @@ func isMountPoint(path string) bool {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
-		if len(fields) >= 2 && fields[1] == path {
+		if len(fields) >= 2 && unescapeMountField(fields[1]) == path {
 			return true
 		}
 	}
 
 	return false
+}
+
+// unescapeMountField decodes the octal escape sequences the kernel writes into
+// /proc/mounts (space as \040, tab as \011, newline as \012, backslash as
+// \134). Without decoding, a mount point under a path containing any of these
+// characters would never match the literal path and the still-mounted check
+// would silently fail open.
+func unescapeMountField(field string) string {
+	if !strings.ContainsRune(field, '\\') {
+		return field
+	}
+
+	var b strings.Builder
+
+	b.Grow(len(field))
+
+	for i := 0; i < len(field); i++ {
+		// A backslash followed by exactly three octal digits is an escaped byte.
+		if field[i] == '\\' && i+3 < len(field) &&
+			isOctalDigit(field[i+1]) && isOctalDigit(field[i+2]) && isOctalDigit(field[i+3]) {
+			b.WriteByte((field[i+1]-'0')<<6 | (field[i+2]-'0')<<3 | (field[i+3] - '0'))
+			i += 3
+
+			continue
+		}
+
+		b.WriteByte(field[i])
+	}
+
+	return b.String()
+}
+
+// isOctalDigit reports whether c is an octal digit (0-7).
+func isOctalDigit(c byte) bool {
+	return c >= '0' && c <= '7'
 }
