@@ -28,6 +28,7 @@ type ContainerManager interface {
 
 	// Network operations.
 	EnsureNetwork(ctx context.Context, name string) error
+	NetworkExists(ctx context.Context, name string) (bool, error)
 	RemoveNetwork(ctx context.Context, name string) error
 
 	// Container operations.
@@ -106,6 +107,7 @@ type ContainerSpec struct {
 	ResourceLimits *ResourceLimits
 	CapAdd         []string // Additional Linux capabilities (e.g., "SYS_PTRACE" for CRIU).
 	SecurityOpt    []string // Security options (e.g., "seccomp=unconfined").
+	User           string   // Container user (e.g., "1000:1000"); defaults to "root" when empty.
 }
 
 // Mount defines a volume mount.
@@ -216,6 +218,24 @@ func (m *manager) EnsureNetwork(ctx context.Context, name string) error {
 	return nil
 }
 
+// NetworkExists reports whether a network with the given name exists.
+func (m *manager) NetworkExists(ctx context.Context, name string) (bool, error) {
+	networks, err := m.client.NetworkList(ctx, network.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("name", name)),
+	})
+	if err != nil {
+		return false, fmt.Errorf("listing networks: %w", err)
+	}
+
+	for _, net := range networks {
+		if net.Name == name {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // RemoveNetwork removes a Docker network.
 func (m *manager) RemoveNetwork(ctx context.Context, name string) error {
 	if err := m.client.NetworkRemove(ctx, name); err != nil {
@@ -247,9 +267,17 @@ func (m *manager) CreateContainer(ctx context.Context, spec *ContainerSpec) (str
 		})
 	}
 
+	// Containers run as root unless the spec requests a specific user (e.g. the
+	// state-actor builder runs as the invoking host user so its output datadir
+	// is owned by that user rather than root).
+	user := spec.User
+	if user == "" {
+		user = "root"
+	}
+
 	containerCfg := &container.Config{
 		Image:      spec.Image,
-		User:       "root",
+		User:       user,
 		Env:        env,
 		Labels:     spec.Labels,
 		Entrypoint: spec.Entrypoint,

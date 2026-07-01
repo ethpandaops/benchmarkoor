@@ -6,6 +6,8 @@ This document describes all configuration options for benchmarkoor. The [config.
 
 - [Overview](#overview)
 - [Environment Variables](#environment-variables)
+  - [Config-local variables (`global.env`)](#config-local-variables-globalenv)
+  - [Environment Variable Overrides](#environment-variable-overrides)
 - [Configuration Merging](#configuration-merging)
 - [Global Settings](#global-settings)
 - [Runner Settings](#runner-settings)
@@ -52,6 +54,23 @@ runner:
     results_dir: ${RESULTS_DIR:-./results}
 ```
 
+### Config-local variables (`global.env`)
+
+`global.env` declares variables inside the config itself, available to the same `${VAR}` / `${VAR:-default}` substitution everywhere in the file. This keeps a config self-contained — no need to `export` a value before running — while preserving the single-point-of-edit indirection:
+
+```yaml
+global:
+  env:
+    STATE_DIR: /tmp/benchmarkoor/state-actor/simple-amsterdam-compute
+builder:
+  state_actor:
+    targets:
+      - client: geth
+        output_dir: ${STATE_DIR}/geth   # → /tmp/benchmarkoor/state-actor/simple-amsterdam-compute/geth
+```
+
+Resolution order for any `${VAR}` is **shell environment → `global.env` → inline `:-default`**. A real environment variable of the same name therefore still wins, so `global.env` acts as a per-config default that CI or an ad-hoc `VAR=… benchmarkoor …` invocation can override. A `global.env` value may itself reference the shell environment (e.g. `${BASE:-/tmp}/state-actor`); values do not reference one another.
+
 ### Environment Variable Overrides
 
 Configuration values can also be overridden via environment variables with the `BENCHMARKOOR_` prefix. The variable name is derived from the config path using underscores:
@@ -83,6 +102,10 @@ The `global` section contains application-wide settings.
 ```yaml
 global:
   log_level: info
+  env:
+    STATE_DIR: /tmp/benchmarkoor/state-actor/my-config
+  directories:
+    cachedir: ~/.cache/benchmarkoor
 ```
 
 ### Options
@@ -90,6 +113,8 @@ global:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `log_level` | string | `info` | Logging level: `debug`, `info`, `warn`, `error` |
+| `env` | map[string]string | – | Config-local variables for `${VAR}` substitution; a per-config default that a shell env var of the same name still overrides. See [Config-local variables](#config-local-variables-globalenv). |
+| `directories.cachedir` | string | `~/.cache/benchmarkoor` | On-disk cache shared by both commands: executor git/archive clones (`run`) and the EEST repo clone (`build`). |
 
 ## Runner Settings
 
@@ -104,7 +129,6 @@ runner:
   run_timeout: 4h
   directories:
     tmp_datadir: /tmp/benchmarkoor
-    tmp_cachedir: /tmp/benchmarkoor-cache
   drop_caches_path: /proc/sys/vm/drop_caches
   cpu_sysfs_path: /sys/devices/system/cpu
 ```
@@ -118,8 +142,7 @@ runner:
 | `container_network` | string | `benchmarkoor` | Container network name |
 | `cleanup_on_start` | bool | `false` | Remove leftover containers/networks on startup |
 | `run_timeout` | string | - | Global timeout for the entire run covering all instances, setup, and teardown. Uses Go duration format (e.g., `4h`, `30m`). See [Runner Run Timeout](#runner-run-timeout) |
-| `directories.tmp_datadir` | string | system temp | Directory for temporary datadir copies |
-| `directories.tmp_cachedir` | string | `~/.cache/benchmarkoor` | Directory for executor cache (git clones, etc.) |
+| `directories.tmp_datadir` | string | system temp | Directory for temporary datadir copies. (The shared cache dir is `global.directories.cachedir`.) |
 | `drop_caches_path` | string | `/proc/sys/vm/drop_caches` | Path to Linux drop_caches file (for containerized environments) |
 | `cpu_sysfs_path` | string | `/sys/devices/system/cpu` | Base path for CPU sysfs files (for containerized environments where `/sys` is read-only and the host path is bind-mounted elsewhere, e.g., `/host_sys_cpu`) |
 | `metadata.labels` | map[string]string | - | Arbitrary key-value labels attached to the run (see [Metadata Labels](#metadata-labels)) |
@@ -944,6 +967,8 @@ When both `retry_new_payloads_syncing_state` and `retry_new_payloads_failed_stat
 
 Some clients (e.g., Erigon) may still be performing internal initialization or syncing after their RPC endpoint becomes available. The `bootstrap_fcu` option sends an `engine_forkchoiceUpdatedV3` call in a retry loop after RPC is ready, using the latest block hash from `eth_getBlockByNumber("latest")`. The client accepting the FCU with `VALID` status confirms it has finished syncing and is ready for test execution.
 
+> **Besu** accepts the bootstrap FCU on an isolated snapshot node only with `--p2p-enabled=true`: its synchronizer must run to register the post-merge head as in-sync, otherwise besu answers `SYNCING` to every FCU. Set `extra_args: [--p2p-enabled=true]` on the besu instance (`--max-peers=0` + `--discovery-enabled=false` keep it isolated, with zero real peers).
+
 **Shorthand** (uses defaults: `max_retries: 30`, `backoff: 1s`):
 
 ```yaml
@@ -1158,6 +1183,8 @@ runner:
 | `restart` | string | No | - | Container restart policy |
 | `environment` | map | No | - | Additional environment variables |
 | `genesis` | string | No | From `runner.client.config.genesis` | Override genesis file URL |
+| `genesis_fork_override` | map | No | - | Activate forks at given timestamps by patching a geth-format genesis at boot. See [Genesis Fork & EIP Overrides](#genesis-fork--eip-overrides) |
+| `genesis_eip_override` | object | No | - | Activate EIPs at a timestamp by patching a parity/nethermind chainspec at boot. See [Genesis Fork & EIP Overrides](#genesis-fork--eip-overrides) |
 | `datadir` | object | No | From `runner.client.datadirs` | Instance-specific data directory config |
 | `drop_memory_caches` | string | No | From `runner.client.config` | Instance-specific cache drop setting |
 | `rollback_strategy` | string | No | From `runner.client.config` | Instance-specific rollback strategy |
@@ -1171,6 +1198,45 @@ runner:
 | `post_test_sleep_duration` | string | No | From `runner.client.config` | Instance-specific post-test sleep duration |
 | `bootstrap_fcu` | bool/object | No | From `runner.client.config` | Instance-specific bootstrap FCU setting |
 | `opcode_extraction` | object | No | From `runner.client.config` | Instance-specific opcode extraction setting (replaces global) |
+
+#### Genesis Fork & EIP Overrides
+
+These options let an instance activate a fork that is not scheduled in the genesis it boots from — for example, running Amsterdam payloads against an Osaka snapshot. benchmarkoor patches the genesis file in-memory at boot, before mounting it; the source genesis on disk is never modified, and untouched fields (including large integers) round-trip verbatim, so the genesis block hash is unchanged.
+
+Use these only for clients that read their fork schedule from the genesis file. **geth and erigon do not** — they read the fork schedule from the datadir, so a patched genesis is ignored. For those, use the client's own fork-override flag instead (e.g. `--override.amsterdam=<timestamp>` in `extra_args`).
+
+**`genesis_fork_override`** — for geth-format genesis files (besu, reth, ethrex). A map of fork name to activation timestamp. For each entry it sets `config.<fork>Time`, and if the genesis has a `blobSchedule` that lacks the fork, it inherits the schedule of the latest preceding fork (so the new fork carries a blob schedule, as geth-family clients require).
+
+```yaml
+runner:
+  instances:
+    - id: besu
+      client: besu
+      genesis: /path/to/osaka-chainspec.json   # used as-is
+      genesis_fork_override:
+        amsterdam: 1   # sets config.amsterdamTime=1, inherits blobSchedule.amsterdam
+```
+
+**`genesis_eip_override`** — for parity/nethermind-format chainspecs, which schedule forks per-EIP rather than by fork name. It sets `params.eip<N>TransitionTimestamp` for each listed EIP to the given (hex-encoded) timestamp. The EIP list is devnet-specific, so it lives in config.
+
+```yaml
+runner:
+  instances:
+    - id: nethermind
+      client: nethermind
+      genesis: /path/to/osaka-parity-chainspec.json   # used as-is
+      genesis_eip_override:
+        timestamp: 1
+        eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037]
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `genesis_fork_override` | map[string]uint | Fork name → activation timestamp (unix seconds). geth-format genesis only. |
+| `genesis_eip_override.timestamp` | uint | Activation timestamp (unix seconds) applied to every listed EIP. |
+| `genesis_eip_override.eips` | []uint | EIP numbers to activate, e.g. `[7928, 8037]`. parity/nethermind chainspec only. |
+
+Applying an override to the wrong genesis format is an error (a geth-format override needs a top-level `config` object; an EIP override needs a top-level `params` object).
 
 ## Resource Limits
 
@@ -1382,9 +1448,12 @@ runner:
 
 ## Builder
 
-The `builder` section configures tools that pre-populate client datadirs on disk. Today the only builder is `state-actor` (https://github.com/ethereum/state-actor), which writes per-client genesis state directly in each EL's native on-disk format — geth Pebble, reth MDBX, besu/nethermind RocksDB — bypassing the client's normal genesis-replay path.
+The `builder` section configures tools that pre-populate benchmark inputs on disk. There are two builders:
 
-Builds are **decoupled from `benchmarkoor run`**: invoke `benchmarkoor build` to materialise datadirs, then run benchmarks against them via the regular `datadir.method: copy|zfs|schelk|…` providers. A missing datadir at `run` time is an error — it is never auto-built.
+- **`state_actor`** (https://github.com/ethereum/state-actor) writes per-client genesis state directly in each EL's native on-disk format — geth Pebble, reth MDBX, besu/nethermind RocksDB — bypassing the client's normal genesis-replay path.
+- **`eest_payloads`** generates stateful EEST benchmark fixtures by running [`fill-stateful`](https://github.com/ethereum/execution-specs/pull/2637) against a filler client booted on a pre-populated snapshot (typically one produced by `state_actor`). The fixtures are replayed by `benchmarkoor run`.
+
+Builds are **decoupled from `benchmarkoor run`**: invoke `benchmarkoor build` to materialise the artifacts, then run benchmarks against them via the regular `datadir.method: copy|zfs|schelk|…` providers and test-source config. A missing datadir at `run` time is an error — it is never auto-built. When both builders are configured, they run in declaration order (`state_actor` before `eest_payloads`) so a fixture build can consume a datadir produced earlier in the same `benchmarkoor build` invocation.
 
 ### `builder.state_actor` options
 
@@ -1403,8 +1472,8 @@ builder:
     container_runtime: docker                     # docker | podman (default: inherits runner.container_runtime, then docker)
     # spec source — top-level, shared across every target.
     # Pick at most one of:
-    #   spec: |       # inline YAML; benchmarkoor writes it to a temp file before invoking state-actor
-    #     ...
+    #   spec:         # structured YAML (or a `|` block scalar); written to a temp file before invoking state-actor
+    #     entities: [ ... ]
     #   spec_file: /etc/benchmarkoor/state-spec.yaml   # absolute host path
     config:                                       # shared per-target defaults; targets override when set
       seed: 1
@@ -1422,7 +1491,7 @@ builder:
 | `images` | map[string]string | – | Per-client docker images for state-actor. Every active target's client must have an entry; state-actor needs a different cgo build per client (reth → MDBX, besu → RocksDB JNI, nethermind → .NET RocksDB). |
 | `pull_policy` | string | `always` | One of `always`, `if-not-present`, `never`. |
 | `container_runtime` | string | runner's runtime, then `docker` | Container runtime for the build container. |
-| `spec` | string (YAML) | – | Inline state spec body (see [state-actor SPEC.md](https://github.com/ethereum/state-actor/blob/main/docs/SPEC.md)). Materialised to a temp file at build time. Mutually exclusive with `spec_file`. |
+| `spec` | YAML mapping or string | – | Inline state spec body (see [state-actor SPEC.md](https://github.com/ethereum/state-actor/blob/main/docs/SPEC.md)). Write it as **structured YAML** (a mapping — your editor highlights it) or as a `\|` block scalar; both materialise to the same temp spec file at build time. Mutually exclusive with `spec_file`. |
 | `spec_file` | string | – | Absolute host path to a state spec YAML. Bind-mounted read-only into the build container. Mutually exclusive with `spec`. |
 | `config` | object | – | Shared defaults for the per-target build parameters. See below. |
 | `targets` | []object | – | Required when invoking `benchmarkoor build`. See below. |
@@ -1455,7 +1524,7 @@ The fields below mirror `builder.state_actor.config`; any field set here overrid
 | Option | Type | Default | Applies to | Description |
 |---|---|---|---|---|
 | `name` | string | `client` | all | Human-readable name. Used by `--target` to filter. Must be unique across targets; defaults to the `client` field when omitted. |
-| `client` | string | – | all | One of `geth`, `reth`, `besu`, `nethermind`. State-actor does not support `erigon` or `nimbus`. |
+| `client` | string | – | all | One of `geth`, `reth`, `besu`, `nethermind`, `ethrex`. State-actor does not support `erigon` or `nimbus`. |
 | `output_dir` | string | – | all | Absolute host path. If the directory already contains entries, that target is **skipped** (no error) — pass `--force` (CLI) or set `force: true` here to wipe and rebuild. For geth, state-actor writes into `<output_dir>/geth/chaindata`. |
 | `target_size` | string | from `config` | all | Advisory size budget for auto-generated state, e.g. `5GB`, `500MB` (base-1024). Required for the target when no spec is configured; when a spec is configured (top-level or default), `target_size` is optional and acts as a headroom budget that state-actor fills past the spec's projected cost. |
 | `force` | bool | `false` | all | Per-target override of the CLI `--force` flag: wipes `output_dir` before building so state-actor sees a clean directory. Useful when most targets should skip-if-built but specific ones should always rebuild. |
@@ -1469,22 +1538,42 @@ The fields below mirror `builder.state_actor.config`; any field set here overrid
 | `binary_trie` | bool | from `config`, then `false` | geth | EIP-7864 binary trie. Set `false` to opt out of a global default. Rejected (after resolution) for non-geth. |
 | `group_depth` | int | from `config`, then `8` (state-actor) | geth + binary_trie | Binary-trie serialisation unit. Range 1..8. Requires effective `binary_trie=true`. |
 
-State-actor itself only writes the genesis block; subsequent blocks come from running a client against the produced datadir. See [state-actor RUNBOOK.md](https://github.com/ethereum/state-actor/blob/main/docs/RUNBOOK.md) for the per-client boot recipes (e.g. geth needs `--db.engine=pebble`; reth needs `--debug.skip-genesis-validation`; besu needs `--data-storage-format=BONSAI`).
+State-actor itself only writes the genesis block; subsequent blocks come from running a client against the produced datadir. See [state-actor RUNBOOK.md](https://github.com/ethereum/state-actor/blob/main/docs/RUNBOOK.md) for the per-client boot recipes (e.g. geth needs `--db.engine=pebble`; reth needs `--debug.skip-genesis-validation`; besu needs `--data-storage-format=BONSAI`; ethrex needs `--skip-genesis-validation` and ≥ v16.0.0).
 
 ### Running
 
 ```bash
-# Build every target declared under builder.state_actor.targets
+# Build every target declared under builder.state_actor.targets / builder.eest_payloads.targets
 benchmarkoor build --config build.yaml
 
-# Build only specific targets (by name)
+# Build only specific targets by name, across all builders
 benchmarkoor build --config build.yaml --target geth-5g --target reth-spec
+
+# Limit a single builder's targets (the other builder is unrestricted)
+benchmarkoor build --config build.yaml --limit-state-actor-target nethermind
+benchmarkoor build --config build.yaml --limit-eest-payload-target payload-generator-nethermind
+
+# Build just one client end-to-end: its snapshot, then its fill
+benchmarkoor build --config build.yaml \
+  --limit-state-actor-target nethermind \
+  --limit-eest-payload-target payload-generator-nethermind
 
 # Overwrite existing output_dir contents
 benchmarkoor build --config build.yaml --force
 ```
 
-The command exits non-zero if any target fails; successful targets are still left in place on partial failure. A final summary lists each target with `OK ` (built), `SKIP` (output_dir already populated), or `ERR ` (failed). `--force` wipes each target's `output_dir` before building, bypassing the skip behaviour.
+| Flag | Description |
+|---|---|
+| `--target` | Filter by target `name` across **all** builders (comma-separated or repeated). |
+| `--limit-state-actor-target` | Filter only `builder.state_actor` targets; `eest_payloads` is left unrestricted. |
+| `--limit-eest-payload-target` | Filter only `builder.eest_payloads` targets; `state_actor` is left unrestricted. |
+| `--skip-state-actor-build` | Skip the `builder.state_actor` builder entirely (only `eest_payloads` runs). |
+| `--skip-eest-payload-build` | Skip the `builder.eest_payloads` builder entirely (only `state_actor` runs). |
+| `--force` | Wipe each selected target's `output_dir` before building (bypasses the skip-if-populated behaviour). |
+
+A target is built when it passes the global `--target` filter **and** the per-builder limit for the builder that owns it; an unset filter imposes no restriction. Any filter value that names no existing target is a hard error (typos surface immediately — the per-builder limits are checked against only that builder's target names). `--skip-*-build` removes a whole builder; a skipped builder's `--limit-*-target` is then ignored. Skipping every configured builder is an error.
+
+The command exits non-zero if any target fails; successful targets are still left in place on partial failure. A final summary lists each target with `OK ` (built), `SKIP` (output_dir already populated), or `ERR ` (failed).
 
 ### Examples
 
@@ -1533,22 +1622,146 @@ builder:
         archive: false    # overrides config.archive=true (besu doesn't support archive)
 ```
 
-Inline spec — write the YAML directly in the config:
+Inline spec — write the YAML directly in the config (structured, so editors highlight it; a `|` block scalar works too):
 
 ```yaml
 builder:
   state_actor:
     images:
       geth: ghcr.io/ethereum/state-actor:latest
-    spec: |
-      genesis:
-        chain_id: 1337
-        gas_limit: 30000000
+    spec:
+      entities:
+        - kind: eoa
+          name: bloated-eoa
+          approximate_size_bytes: 2_000_000_000
       # … rest of the state spec
     targets:
       - client: geth
         output_dir: /srv/state/geth-spec
 ```
+
+### `builder.eest_payloads` options
+
+`eest_payloads` generates **stateful** EEST benchmark fixtures: it boots a filler EL client on a *writable copy* of a pre-populated snapshot datadir, runs `fill-stateful` against the live client (recording engine-API payloads anchored to the snapshot's head block), and writes the fixtures to each target's `output_dir`. `fill-stateful` itself does not manage datadirs — benchmarkoor boots the filler and snapshots it.
+
+> **Filler client:** `geth` (`ethpandaops/geth:master`) is the production-ready filler. `nethermind` (`nethermindeth/nethermind:master`) also works — it implements `testing_buildBlockV1` with correct EIP-7928 block-access-lists, and `fill-stateful`'s per-test rewind falls back to `debug_resetHead` for it (nethermind has no `debug_setHead`). `besu` works too with an image carrying the merged `TestingBuildBlockV1` coinbase fix (e.g. `ethpandaops/besu:bal-devnet-7`); benchmarkoor auto-pins its session priority fee.
+>
+> **Fill image:** by default benchmarkoor builds the fill image (the `uv`/python toolchain that runs `fill-stateful`) from a Dockerfile **embedded in the binary** — nothing to publish or pass. To pull a pre-built image instead, set `fill_image`; to build from a custom Dockerfile, set `fill_dockerfile`. The embedded Dockerfile lives at `pkg/builder/Dockerfile.eest-filler`; to build it by hand:
+> ```bash
+> docker build -f pkg/builder/Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
+> ```
+
+```yaml
+builder:
+  eest_payloads:
+    # Fill image defaults to a Dockerfile embedded in the binary. Optionally:
+    # fill_image: ghcr.io/your-org/eest-fill-stateful:latest   # pull a pre-built image instead
+    # fill_dockerfile: pkg/builder/Dockerfile.eest-filler      # or build from a custom Dockerfile
+    pull_policy: always                  # always | if-not-present | never (default: always)
+    container_runtime: docker            # docker | podman (default: inherits runner.container_runtime, then docker)
+    # jwt: <hex>                         # Engine API secret, shared with the filler (default: benchmarkoor's DefaultJWT)
+    # fill_command: [uv, run, fill-stateful]   # argv prefix inside fill_image (this is the default)
+    # eest_repo: https://github.com/ethereum/execution-specs.git   # cloned + mounted at /eest (default)
+    # eest_ref: forks/amsterdam          # branch, tag, or commit to check out (default: forks/amsterdam)
+    config:                              # shared per-target defaults; targets override when set
+      filler_image: ethpandaops/geth:master
+      fork: Osaka
+      gas_benchmark_values: [10, 30]     # millions of gas to parametrise against
+      # fixed_opcode_count: [0.5, 1, 2]  # thousands of opcodes; mutually exclusive with gas_benchmark_values
+      datadir_method: copy               # copy | overlayfs | fuse-overlayfs | zfs | direct | schelk
+    targets:
+      - name: compute-geth
+        filler_client: geth
+        source_dir: /srv/state/geth-archive     # PRISTINE snapshot (never mutated; a writable copy is filled)
+        # geth boots from the datadir; to fill a fork that activates after the
+        # snapshot, pass --override.<fork> here (besu/nethermind use `genesis` +
+        # genesis_fork_override / genesis_eip_override instead):
+        # filler_extra_args: [--override.amsterdam=1]
+        output_dir: /srv/fixtures/compute
+        tests:
+          - tests/benchmark/compute              # pytest paths inside the fill image
+        filter: bn128                            # optional pytest -k expression
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `fill_image` | string | – | Pre-built container image carrying the uv/python toolchain that runs `fill-stateful`. Optional: when neither this nor `fill_dockerfile` is set, benchmarkoor builds the fill image from a Dockerfile embedded in the binary. |
+| `fill_dockerfile` | string | – | Path to a custom Dockerfile that benchmarkoor builds with the container runtime at build time, instead of pulling a pre-built image or using the embedded default. Tagged `fill_image` when set, else `benchmarkoor-eest-fill:local`. Requires the runtime's `build` CLI (docker/podman) on the host. |
+| `pull_policy` | string | `always` | One of `always`, `if-not-present`, `never`. Applies to both the fill image and the filler image (ignored for a locally built fill image). |
+| `container_runtime` | string | runner's runtime, then `docker` | Container runtime for the filler + fill containers. |
+| `jwt` | string | benchmarkoor's `DefaultJWT` | Engine API JWT secret; shared between the filler client and `fill-stateful`. |
+| `fill_command` | []string | `[uv, run, fill-stateful]` | argv prefix invoked inside `fill_image` before the `fill-stateful` flags. Override if your image exposes the command differently. |
+| `eest_repo` | string | `https://github.com/ethereum/execution-specs.git` | execution-specs repo cloned for filling. |
+| `eest_ref` | string | `forks/amsterdam` | Branch, tag, or commit of `eest_repo`. benchmarkoor always clones the repo at this ref into an on-disk cache at build time and mounts the checkout into the fill container at `/eest` (the `fill_image` carries only the uv/python toolchain, not the repo), so the EEST version is config-driven and changeable without rebuilding the image. The clone is cached and re-fetched only when the ref changes; `uv` builds the venv into the mounted checkout on first use (cached across runs). |
+| `config` | object | – | Shared defaults for the per-target parameters. See below. |
+| `targets` | []object | – | Required when invoking `benchmarkoor build`. See below. |
+
+### `builder.eest_payloads.config` options
+
+Every field below is also available per-target; a non-nil/non-empty value on a target overrides the default. Use this block to avoid repeating shared knobs (`fork`, `tests`, `filter`, `address_stubs`, …) across targets that build the same suite. (Only the identity/locator fields — `name`, `filler_client`, `source_dir`, `output_dir`, `genesis`, `genesis_fork_override`, `genesis_eip_override` — are target-only and never hoisted.)
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `filler_image` | string | – | Docker image for the filler client (e.g. `ethpandaops/geth:master`). |
+| `fork` | string | – | Fork to fill against, e.g. `Osaka` (passed to `fill-stateful --fork`). |
+| `tests` | string[] | – | pytest paths inside the fill image, e.g. `tests/benchmark/compute`. Required after resolution — set here or per-target. |
+| `filter` | string | – | pytest `-k` expression (substring/node-id selection). |
+| `marker` | string | – | pytest `-m` marker expression, orthogonal to `filter`'s `-k`, e.g. `repricing` / `not repricing`. |
+| `address_stubs` | map | – | Inline `--address-stubs` map: stub name → arbitrary string fields (e.g. `addr`, `pkey`). Materialised to a temp JSON file at build time. Mutually exclusive with `address_stubs_file`. |
+| `address_stubs_file` | string | – | **Absolute** host path to a `--address-stubs` JSON map. Mutually exclusive with `address_stubs`. |
+| `gas_benchmark_values` | int[] | – | Gas budgets in millions, e.g. `[10, 30]`; joined into `--gas-benchmark-values`. Mutually exclusive with `fixed_opcode_count`. |
+| `fixed_opcode_count` | float[] | – | Opcode counts in thousands, e.g. `[0.5, 1, 2]`; joined into `--fixed-opcode-count`. An empty list (`[]`) passes the flag bare, using the fill image's `.fixed_opcode_counts.json` default. Mutually exclusive with `gas_benchmark_values`. |
+| `datadir_method` | string | `copy` | How the filler's writable copy of `source_dir` is prepared: `copy`, `overlayfs`, `fuse-overlayfs`, `zfs`, `direct`, `schelk`. Use `zfs`/`overlayfs` to avoid a full copy of a large snapshot. |
+| `max_gas_per_test` | uint64 | – | Overrides the fork's transaction gas-limit cap (`--max-gas-per-test`). |
+| `rpc_seed_key` | string | – | Pin the seed EOA for reproducible fills (`--rpc-seed-key`); otherwise one is generated and funded via CL withdrawal. |
+| `filler_extra_args` | []string | – | Extra argv appended to the filler client command. |
+
+> **Address-stubs hoisting:** `address_stubs` / `address_stubs_file` hoist as a *unit* — a target that sets either form inherits neither from `config`, so their mutual exclusion is preserved. An inline `address_stubs` example:
+> ```yaml
+> address_stubs:
+>   bloated_eoa_10GB:
+>     addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
+>     pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
+> ```
+
+### `builder.eest_payloads.targets[]` options
+
+Identity/locator fields are target-only; the rest mirror `config` and are resolved with per-target precedence.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `name` | string | `filler_client` | Used by `--target` to filter. Must be unique across targets. |
+| `filler_client` | string | – | Client booted as the filler: `geth`, `nethermind`, or `besu` (all implement `testing_buildBlockV1`). |
+| `source_dir` | string | – | **Absolute** host path to the pristine snapshot datadir (e.g. a `state_actor` `output_dir`). Never mutated — a writable copy is filled. Existence is checked at build time. |
+| `genesis` | string | – | **Absolute** host path to the genesis/chainspec the filler boots with (besu/nethermind read their fork schedule from it; passed via the client's genesis flag). Must match the chain config used to produce `source_dir`. geth/erigon boot from the datadir instead and need no `genesis`. |
+| `genesis_fork_override` | map | – | Patch the geth-format `genesis` at filler boot to activate forks at given timestamps (`{amsterdam: 1}` → `config.amsterdamTime`, inheriting the blob schedule). For besu/reth/ethrex fillers. Same mechanism as the runner. Requires `genesis`. |
+| `genesis_eip_override` | object | – | Patch a parity/nethermind `genesis` at filler boot, setting `params.eip<N>TransitionTimestamp` for each listed EIP. Fields: `timestamp` (uint), `eips` ([]uint). For the nethermind filler. Requires `genesis`; mutually exclusive with `genesis_fork_override`. |
+| `output_dir` | string | – | **Absolute** host path for the generated fixtures. Skipped if already populated unless `--force` / `force: true`. Written under `<output_dir>/blockchain_tests_stateful_engine/`. |
+| `force` | bool | `false` | Per-target override of `--force`: wipe `output_dir` before filling. |
+| `filler_image`, `fork`, `tests`, `filter`, `marker`, `address_stubs`, `address_stubs_file`, `gas_benchmark_values`, `fixed_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `filler_extra_args` | — | from `config` | Mirror `config` with per-target precedence — see the `config` table above. `tests`, `fork`, and `filler_image` are required after resolution (set on the target or in `config`). |
+
+### Replaying generated fixtures
+
+Point `benchmarkoor run` at the **pristine** snapshot (never the copy the filler mutated) and at the fixture output:
+
+```yaml
+runner:
+  client:
+    datadirs:
+      geth:
+        source_dir: /srv/state/geth-archive       # the pristine snapshot
+        method: zfs                                # or copy/overlayfs/…
+  benchmark:
+    tests:
+      source:
+        eest_fixtures:
+          local_fixtures_dir: /srv/fixtures/compute
+          fixtures_subdir: blockchain_tests_stateful_engine
+```
+
+> Stateful replay needs the new fixture format support — see benchmarkoor [#182](https://github.com/ethpandaops/benchmarkoor/pull/182).
+
+As a sanity check, each fixture's recorded `benchmarkGasUsed` should match benchmarkoor's measured `gas_used_total` for that test.
 
 ## API Server
 

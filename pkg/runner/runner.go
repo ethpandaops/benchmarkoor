@@ -60,7 +60,7 @@ type Config struct {
 	GenesisURLs        map[string]string
 	DataDirs           map[string]*config.DataDirConfig
 	TmpDataDir         string // Directory for temporary datadir copies (empty = system default)
-	TmpCacheDir        string // Directory for temporary cache files (empty = system default)
+	CacheDir           string // Shared on-disk cache dir (git/archive clones, etc.)
 	ReadyTimeout       time.Duration
 	TestFilter         string
 	FullConfig         *config.Config // Full config for resolving per-instance settings

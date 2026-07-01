@@ -2,6 +2,7 @@ package cpufreq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -131,21 +132,56 @@ func (m *manager) Apply(ctx context.Context, cfg *Config, cpus []int) error {
 
 	m.log.WithField("cpus", cpus).Debug("Applying CPU frequency settings")
 
-	// Save original settings before making changes.
+	// Capture original settings for any CPU we have not seen before, so a later
+	// Apply that targets different CPUs still records their originals. Capturing
+	// only on the first Apply would leave any CPU touched by a later call
+	// unrestorable.
 	if m.originalSettings == nil {
-		original, err := m.captureOriginalSettings(cpus)
-		if err != nil {
-			return fmt.Errorf("capturing original settings: %w", err)
-		}
-		m.originalSettings = original
+		m.originalSettings = &OriginalSettings{CPUs: make(map[int]*CPUSettings)}
+	}
 
-		// Persist state file for crash recovery.
-		stateFile, err := SaveState(m.cacheDir, original)
+	captured := false
+
+	for _, cpuID := range cpus {
+		if _, ok := m.originalSettings.CPUs[cpuID]; ok {
+			continue
+		}
+
+		m.originalSettings.CPUs[cpuID] = m.captureCPUSettings(cpuID)
+		captured = true
+	}
+
+	// Capture turbo boost state once; it is global, not per-CPU.
+	if m.originalSettings.TurboBoost == nil {
+		if turbo, err := captureTurboBoostSettings(m.sysfsBasePath); err != nil {
+			m.log.WithError(err).Debug("Turbo boost settings not available")
+		} else {
+			m.originalSettings.TurboBoost = turbo
+			captured = true
+		}
+	}
+
+	// Refresh the crash-recovery state file whenever new originals were
+	// captured. Write the new file before removing the previous one, so a crash
+	// or a write failure never leaves the host pinned to the benchmark settings
+	// with no state file to recover from. SaveState uses a 1-second-granularity
+	// filename, so two captures within the same second reuse the same path (an
+	// in-place overwrite); only a distinct earlier file needs removing.
+	if captured {
+		previous := m.stateFile
+
+		stateFile, err := SaveState(m.cacheDir, m.originalSettings)
 		if err != nil {
 			m.log.WithError(err).Warn("Failed to save CPU frequency state file")
 		} else {
 			m.stateFile = stateFile
 			m.log.WithField("state_file", stateFile).Debug("Saved CPU frequency state")
+
+			if previous != "" && previous != stateFile {
+				if err := RemoveStateFile(previous); err != nil {
+					m.log.WithError(err).Warn("Failed to remove previous CPU frequency state file")
+				}
+			}
 		}
 	}
 
@@ -251,7 +287,13 @@ func (m *manager) restoreSettings(ctx context.Context) error {
 
 	m.log.Info("Restoring original CPU frequency settings")
 
-	// Restore turbo boost first.
+	var restoreErrs []error
+
+	// Restore turbo boost first. Turbo control is best-effort everywhere else
+	// (Apply and the crash-recovery RestoreFromStateFile path only log on
+	// failure), so a turbo restore failure must not be treated as fatal here:
+	// doing so would keep the recovery state forever and make Restore/Stop
+	// report an error on every call even when every CPU was restored.
 	if m.originalSettings.TurboBoost != nil {
 		if err := restoreTurboBoost(m.sysfsBasePath, m.originalSettings.TurboBoost); err != nil {
 			m.log.WithError(err).Warn("Failed to restore turbo boost")
@@ -267,6 +309,7 @@ func (m *manager) restoreSettings(ctx context.Context) error {
 					"cpu":      cpuID,
 					"governor": settings.Governor,
 				}).WithError(err).Warn("Failed to restore governor")
+				restoreErrs = append(restoreErrs, fmt.Errorf("cpu %d governor: %w", cpuID, err))
 			}
 		}
 
@@ -277,6 +320,7 @@ func (m *manager) restoreSettings(ctx context.Context) error {
 					"cpu":     cpuID,
 					"max_khz": settings.ScalingMaxKHz,
 				}).WithError(err).Warn("Failed to restore max frequency")
+				restoreErrs = append(restoreErrs, fmt.Errorf("cpu %d max freq: %w", cpuID, err))
 			}
 		}
 		if settings.ScalingMinKHz > 0 {
@@ -285,11 +329,18 @@ func (m *manager) restoreSettings(ctx context.Context) error {
 					"cpu":     cpuID,
 					"min_khz": settings.ScalingMinKHz,
 				}).WithError(err).Warn("Failed to restore min frequency")
+				restoreErrs = append(restoreErrs, fmt.Errorf("cpu %d min freq: %w", cpuID, err))
 			}
 		}
 	}
 
-	// Clean up state file.
+	// Keep the in-memory originals and the state file if anything failed, so a
+	// later retry or the crash-recovery path can finish restoring. Discarding
+	// them here would strand CPUs in the benchmark settings permanently.
+	if len(restoreErrs) > 0 {
+		return fmt.Errorf("failed to fully restore CPU settings: %w", errors.Join(restoreErrs...))
+	}
+
 	if m.stateFile != "" {
 		if err := RemoveStateFile(m.stateFile); err != nil {
 			m.log.WithError(err).Warn("Failed to remove state file")
@@ -325,50 +376,35 @@ func (m *manager) GetCPUInfo() ([]CPUInfo, error) {
 	return infos, nil
 }
 
-// captureOriginalSettings captures current CPU frequency settings for the given CPUs.
-func (m *manager) captureOriginalSettings(cpus []int) (*OriginalSettings, error) {
-	original := &OriginalSettings{
-		CPUs: make(map[int]*CPUSettings, len(cpus)),
-	}
+// captureCPUSettings captures the current governor and scaling frequencies for
+// a single CPU.
+func (m *manager) captureCPUSettings(cpuID int) *CPUSettings {
+	settings := &CPUSettings{}
 
-	for _, cpuID := range cpus {
-		settings := &CPUSettings{}
-
-		// Capture current governor.
-		gov, err := getGovernor(m.sysfsBasePath, cpuID)
-		if err != nil {
-			m.log.WithField("cpu", cpuID).WithError(err).Warn("Failed to get governor")
-		} else {
-			settings.Governor = gov
-		}
-
-		// Capture current scaling frequencies.
-		minKHz, err := getScalingMinFreq(m.sysfsBasePath, cpuID)
-		if err != nil {
-			m.log.WithField("cpu", cpuID).WithError(err).Warn("Failed to get scaling min freq")
-		} else {
-			settings.ScalingMinKHz = minKHz
-		}
-
-		maxKHz, err := getScalingMaxFreq(m.sysfsBasePath, cpuID)
-		if err != nil {
-			m.log.WithField("cpu", cpuID).WithError(err).Warn("Failed to get scaling max freq")
-		} else {
-			settings.ScalingMaxKHz = maxKHz
-		}
-
-		original.CPUs[cpuID] = settings
-	}
-
-	// Capture turbo boost state.
-	turboSettings, err := captureTurboBoostSettings(m.sysfsBasePath)
+	// Capture current governor.
+	gov, err := getGovernor(m.sysfsBasePath, cpuID)
 	if err != nil {
-		m.log.WithError(err).Debug("Turbo boost settings not available")
+		m.log.WithField("cpu", cpuID).WithError(err).Warn("Failed to get governor")
 	} else {
-		original.TurboBoost = turboSettings
+		settings.Governor = gov
 	}
 
-	return original, nil
+	// Capture current scaling frequencies.
+	minKHz, err := getScalingMinFreq(m.sysfsBasePath, cpuID)
+	if err != nil {
+		m.log.WithField("cpu", cpuID).WithError(err).Warn("Failed to get scaling min freq")
+	} else {
+		settings.ScalingMinKHz = minKHz
+	}
+
+	maxKHz, err := getScalingMaxFreq(m.sysfsBasePath, cpuID)
+	if err != nil {
+		m.log.WithField("cpu", cpuID).WithError(err).Warn("Failed to get scaling max freq")
+	} else {
+		settings.ScalingMaxKHz = maxKHz
+	}
+
+	return settings
 }
 
 // ParseFrequency parses a frequency string and returns the value in kHz.

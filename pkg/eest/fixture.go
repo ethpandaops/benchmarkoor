@@ -6,8 +6,15 @@ import (
 	"strconv"
 )
 
-// SupportedFixtureFormat is the fixture format we support.
+// SupportedFixtureFormat is the genesis-based fixture format we support.
 const SupportedFixtureFormat = "blockchain_test_engine_x"
+
+// SupportedStatefulFixtureFormat is the stateful-engine fixture format. Unlike
+// the genesis-based format, these fixtures boot from a pre-populated snapshot
+// datadir (no genesis): shared pre_run payloads advance the snapshot to a
+// common start block, SetupEngineNewPayloads bring the per-test pre-state into
+// place, and EngineNewPayloads carry the benchmark block.
+const SupportedStatefulFixtureFormat = "blockchain_test_stateful_engine"
 
 // Fixture represents a single EEST test fixture.
 type Fixture struct {
@@ -15,6 +22,26 @@ type Fixture struct {
 	Network            string              `json:"network"`
 	GenesisBlockHeader *BlockHeader        `json:"genesisBlockHeader"`
 	EngineNewPayloads  []*EngineNewPayload `json:"engineNewPayloads"`
+
+	// Stateful-engine fields (only set for SupportedStatefulFixtureFormat).
+	// SetupEngineNewPayloads run after the shared pre_run payloads to build the
+	// per-test pre-state; StartBlockHash links the fixture to its pre_run file.
+	SetupEngineNewPayloads []*EngineNewPayload `json:"setupEngineNewPayloads"`
+	SnapshotBlockHash      string              `json:"snapshotBlockHash"`
+	StartBlockHash         string              `json:"startBlockHash"`
+	LastBlockHash          string              `json:"lastblockhash"`
+}
+
+// StatefulPreRun is a shared pre_run file referenced by stateful fixtures via
+// their startBlockHash. Its EngineNewPayloads advance the snapshot datadir to
+// the common start block before each fixture's per-test setup runs. The same
+// pre_run is reused by every fixture that starts from the same block, which is
+// why EEST writes it once under pre_run/<startBlockHash>.json.
+type StatefulPreRun struct {
+	Network           string              `json:"network"`
+	SnapshotBlockHash string              `json:"snapshotBlockHash"`
+	StartBlockHash    string              `json:"startBlockHash"`
+	EngineNewPayloads []*EngineNewPayload `json:"engineNewPayloads"`
 }
 
 // FixtureInfo contains metadata about the fixture.
@@ -30,7 +57,18 @@ type FixtureInfo struct {
 
 // IsSupportedFormat returns true if the fixture has a supported format.
 func (f *Fixture) IsSupportedFormat() bool {
-	return f.Info != nil && f.Info.FixtureFormat == SupportedFixtureFormat
+	if f.Info == nil {
+		return false
+	}
+
+	return f.Info.FixtureFormat == SupportedFixtureFormat ||
+		f.Info.FixtureFormat == SupportedStatefulFixtureFormat
+}
+
+// IsStateful reports whether the fixture uses the stateful-engine format, which
+// replays against a snapshot datadir and carries no genesis.
+func (f *Fixture) IsStateful() bool {
+	return f.Info != nil && f.Info.FixtureFormat == SupportedStatefulFixtureFormat
 }
 
 // BlockHeader represents an Ethereum block header.
@@ -215,4 +253,15 @@ func ParseFixtureFile(data []byte) (map[string]*Fixture, error) {
 	}
 
 	return fixtures, nil
+}
+
+// ParsePreRunFile parses a stateful pre_run JSON file. Unlike a fixture file,
+// it holds a single object (not a map keyed by test name).
+func ParsePreRunFile(data []byte) (*StatefulPreRun, error) {
+	var preRun StatefulPreRun
+	if err := json.Unmarshal(data, &preRun); err != nil {
+		return nil, err
+	}
+
+	return &preRun, nil
 }

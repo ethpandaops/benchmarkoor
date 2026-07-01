@@ -135,23 +135,45 @@ func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 	s.fixturesDir = filepath.Join(cacheBase, "fixtures")
 	s.genesisDir = filepath.Join(cacheBase, "genesis")
 
-	// Check if already extracted.
-	if _, err := os.Stat(s.fixturesDir); os.IsNotExist(err) {
-		if s.cfg.UseArtifacts() {
-			s.log.Info("Downloading EEST fixtures from GitHub artifacts")
+	// Fixtures and genesis are extracted in two steps. The existence of either
+	// directory does not mean the cache is complete, so gate reuse on a marker
+	// written only after both steps succeed. Without it, a run interrupted
+	// between the two steps would be treated as cached and reused forever with
+	// genesis missing.
+	completeMarker := filepath.Join(cacheBase, ".complete")
 
-			if err := s.downloadArtifacts(ctx, cacheBase); err != nil {
-				return nil, fmt.Errorf("downloading artifacts: %w", err)
-			}
-		} else {
-			s.log.Info("Downloading EEST fixtures from GitHub release")
+	if _, err := os.Stat(completeMarker); err == nil {
+		s.log.WithField("path", cacheBase).Info("Using cached EEST fixtures")
 
-			if err := s.downloadAndExtract(ctx, cacheBase); err != nil {
-				return nil, fmt.Errorf("downloading fixtures: %w", err)
-			}
+		return s.discoverTests()
+	}
+
+	// Clear any partial cache left by an earlier interrupted run before
+	// re-downloading.
+	if err := os.RemoveAll(s.fixturesDir); err != nil {
+		return nil, fmt.Errorf("clearing partial fixtures cache: %w", err)
+	}
+
+	if err := os.RemoveAll(s.genesisDir); err != nil {
+		return nil, fmt.Errorf("clearing partial genesis cache: %w", err)
+	}
+
+	if s.cfg.UseArtifacts() {
+		s.log.Info("Downloading EEST fixtures from GitHub artifacts")
+
+		if err := s.downloadArtifacts(ctx, cacheBase); err != nil {
+			return nil, fmt.Errorf("downloading artifacts: %w", err)
 		}
 	} else {
-		s.log.WithField("path", cacheBase).Info("Using cached EEST fixtures")
+		s.log.Info("Downloading EEST fixtures from GitHub release")
+
+		if err := s.downloadAndExtract(ctx, cacheBase); err != nil {
+			return nil, fmt.Errorf("downloading fixtures: %w", err)
+		}
+	}
+
+	if err := os.WriteFile(completeMarker, nil, 0o644); err != nil {
+		return nil, fmt.Errorf("writing cache completion marker: %w", err)
 	}
 
 	// Parse fixtures and build tests.
@@ -560,6 +582,72 @@ func (s *EESTSource) downloadAndExtractTarball(ctx context.Context, url, targetD
 	return nil
 }
 
+// statefulPreRunMissing reports whether a stateful fixture's absent pre_run
+// file is worth warning about. It is only a concern when the start block is
+// ahead of the snapshot: then the snapshot→start advance is skipped and the
+// test would replay against the wrong state. When start == snapshot (e.g. a
+// pre-funded seed lets fill-stateful skip the funding block) there are no
+// pre_run blocks to replay, so the absence is expected and silent.
+func statefulPreRunMissing(f *eest.Fixture) bool {
+	return f.StartBlockHash != "" && f.StartBlockHash != f.SnapshotBlockHash
+}
+
+// loadPreRuns reads the shared pre_run files for stateful-engine fixtures from
+// <searchDir>/pre_run/*.json, keyed by start block hash. A missing pre_run
+// directory is not an error (the genesis-based format has none) and yields an
+// empty map.
+func (s *EESTSource) loadPreRuns(searchDir string) (map[string]*eest.StatefulPreRun, error) {
+	preRunDir := filepath.Join(searchDir, "pre_run")
+
+	entries, err := os.ReadDir(preRunDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]*eest.StatefulPreRun{}, nil
+		}
+
+		return nil, fmt.Errorf("reading pre_run directory: %w", err)
+	}
+
+	preRuns := make(map[string]*eest.StatefulPreRun, len(entries))
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		path := filepath.Join(preRunDir, entry.Name())
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("reading pre_run file %s: %w", path, err)
+		}
+
+		preRun, err := eest.ParsePreRunFile(data)
+		if err != nil {
+			s.log.WithFields(logrus.Fields{
+				"file":  path,
+				"error": err,
+			}).Warn("Failed to parse pre_run file, skipping")
+
+			continue
+		}
+
+		// Key by the start block hash the fixtures reference. Fall back to the
+		// file name (which EEST names <startBlockHash>.json) if the field is
+		// absent.
+		key := preRun.StartBlockHash
+		if key == "" {
+			key = strings.TrimSuffix(entry.Name(), ".json")
+		}
+
+		preRuns[key] = preRun
+	}
+
+	s.log.WithField("count", len(preRuns)).Debug("Loaded stateful pre_run files")
+
+	return preRuns, nil
+}
+
 // discoverTests parses fixture files and creates test entries.
 func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 	// Determine the fixtures search directory.
@@ -581,19 +669,38 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 		Tests:       make([]*TestWithSteps, 0),
 	}
 
+	// EEST writes a .meta directory (fixtures.ini with the fill command + python/
+	// tool versions, index.json, report_fill.html) at the root of the fixtures
+	// dir. Attach it when present so each suite's output can carry the provenance.
+	metaDir := filepath.Join(s.fixturesDir, ".meta")
+	if fi, err := os.Stat(metaDir); err == nil && fi.IsDir() {
+		result.MetaDir = metaDir
+
+		s.log.WithField("meta_dir", metaDir).Debug("Found EEST .meta directory")
+	}
+
 	s.log.WithField("path", searchDir).Info("Searching for fixtures")
+
+	// Load shared pre_run files (stateful-engine format). Keyed by start block
+	// hash; empty for the genesis-based format, which has no pre_run dir.
+	preRuns, err := s.loadPreRuns(searchDir)
+	if err != nil {
+		return nil, err
+	}
 
 	// Map fixture keys (testIds) to their TestWithSteps for pre_alloc matching.
 	testsByFixtureKey := make(map[string]*TestWithSteps, 256)
 
 	// Walk fixture directory for JSON files.
-	err := filepath.Walk(searchDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(searchDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
 		if info.IsDir() {
-			if info.Name() == "pre_alloc" {
+			// pre_alloc holds genesis groups; pre_run holds stateful setup
+			// payloads loaded separately above. Neither contains fixtures.
+			if info.Name() == "pre_alloc" || info.Name() == "pre_run" {
 				return filepath.SkipDir
 			}
 
@@ -643,7 +750,25 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 				continue
 			}
 
-			converted, err := eest.ConvertFixture(name, fixture)
+			var converted *eest.ConvertedTest
+
+			if fixture.IsStateful() {
+				preRun := preRuns[fixture.StartBlockHash]
+				if preRun == nil && statefulPreRunMissing(fixture) {
+					s.log.WithFields(logrus.Fields{
+						"file":           path,
+						"fixture":        name,
+						"start_block":    fixture.StartBlockHash,
+						"snapshot_block": fixture.SnapshotBlockHash,
+					}).Warn("No pre_run file for stateful fixture's start block; " +
+						"replaying setup payloads only")
+				}
+
+				converted, err = eest.ConvertStatefulFixture(name, fixture, preRun)
+			} else {
+				converted, err = eest.ConvertFixture(name, fixture)
+			}
+
 			if err != nil {
 				s.log.WithFields(logrus.Fields{
 					"file":    path,

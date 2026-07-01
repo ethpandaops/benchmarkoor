@@ -6,13 +6,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/eest"
+	"github.com/ethpandaops/benchmarkoor/pkg/gitrepo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -57,6 +57,10 @@ type PreparedSource struct {
 	BasePath    string
 	PreRunSteps []*StepFile
 	Tests       []*TestWithSteps
+	// MetaDir is the path to an auxiliary metadata directory to attach to each
+	// suite's output (e.g. an EEST fill's .meta dir with fixtures.ini, the fill
+	// report and index). Empty when the source has no such directory.
+	MetaDir string
 }
 
 // Source provides test files from local or git sources.
@@ -199,77 +203,9 @@ func (s *GitSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 	return s.discoverTests()
 }
 
-// prepareRepo clones or updates the git repository.
+// prepareRepo clones or updates the git repository into the on-disk cache.
 func (s *GitSource) prepareRepo(ctx context.Context) (string, error) {
-	repoHash := hashRepoURL(s.cfg.Repo)
-	localPath := filepath.Join(s.cacheDir, repoHash)
-
-	log := s.log.WithFields(logrus.Fields{
-		"repo":    s.cfg.Repo,
-		"version": s.cfg.Version,
-		"path":    localPath,
-	})
-
-	if _, err := os.Stat(localPath); os.IsNotExist(err) {
-		log.Info("Cloning repository")
-
-		if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-			return "", fmt.Errorf("creating cache directory: %w", err)
-		}
-
-		if looksLikeCommitHash(s.cfg.Version) {
-			// Commit hashes can't be used with --branch, so we init + fetch instead.
-			if err := s.cloneByCommitHash(ctx, localPath); err != nil {
-				return "", err
-			}
-		} else {
-			// Shallow clone with specific branch/tag.
-			cmd := exec.CommandContext(ctx, "git", "clone",
-				"--depth=1",
-				"--branch", s.cfg.Version,
-				"--single-branch",
-				s.cfg.Repo, localPath)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-
-			if err := cmd.Run(); err != nil {
-				return "", fmt.Errorf("cloning repository: %w", err)
-			}
-		}
-	} else {
-		// For commit hashes, skip fetch if HEAD already matches.
-		if looksLikeCommitHash(s.cfg.Version) {
-			headHash, err := s.getHeadHash(ctx, localPath)
-			if err == nil && strings.HasPrefix(headHash, s.cfg.Version) {
-				log.Info("Cached repository already at requested version")
-
-				return localPath, nil
-			}
-		}
-
-		log.Info("Updating cached repository")
-
-		// Fetch the specific version.
-		cmd := exec.CommandContext(ctx, "git", "-C", localPath, "fetch",
-			"--depth=1", "origin", s.cfg.Version)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("fetching version: %w", err)
-		}
-
-		// Checkout FETCH_HEAD.
-		cmd = exec.CommandContext(ctx, "git", "-C", localPath, "checkout", "FETCH_HEAD")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("checking out version: %w", err)
-		}
-	}
-
-	return localPath, nil
+	return gitrepo.CloneOrUpdate(ctx, s.log, s.cfg.Repo, s.cfg.Version, s.cacheDir)
 }
 
 // discoverTests discovers all tests from the git source.
@@ -305,78 +241,6 @@ func (s *GitSource) GetSourceInfo() (*SuiteSource, error) {
 	}
 
 	return &SuiteSource{Git: git}, nil
-}
-
-// cloneByCommitHash initializes a repo and fetches a specific commit hash.
-func (s *GitSource) cloneByCommitHash(ctx context.Context, localPath string) error {
-	// git init
-	cmd := exec.CommandContext(ctx, "git", "init", localPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("initializing repository: %w", err)
-	}
-
-	// git remote add origin <repo>
-	cmd = exec.CommandContext(ctx, "git", "-C", localPath,
-		"remote", "add", "origin", s.cfg.Repo)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("adding remote: %w", err)
-	}
-
-	// git fetch --depth=1 origin <hash>
-	cmd = exec.CommandContext(ctx, "git", "-C", localPath,
-		"fetch", "--depth=1", "origin", s.cfg.Version)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("fetching commit %s: %w", s.cfg.Version, err)
-	}
-
-	// git checkout FETCH_HEAD
-	cmd = exec.CommandContext(ctx, "git", "-C", localPath,
-		"checkout", "FETCH_HEAD")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("checking out commit %s: %w", s.cfg.Version, err)
-	}
-
-	return nil
-}
-
-// getHeadHash returns the current HEAD commit hash for the repository at repoPath.
-func (s *GitSource) getHeadHash(ctx context.Context, repoPath string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "HEAD")
-
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-
-	return strings.TrimSpace(string(out)), nil
-}
-
-// looksLikeCommitHash returns true if s looks like a git commit hash
-// (7-40 lowercase/uppercase hex characters).
-func looksLikeCommitHash(s string) bool {
-	if len(s) < 7 || len(s) > 40 {
-		return false
-	}
-
-	for _, c := range s {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
-			return false
-		}
-	}
-
-	return true
 }
 
 // hashRepoURL creates a hash of the repository URL for caching.

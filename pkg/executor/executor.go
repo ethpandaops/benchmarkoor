@@ -1296,28 +1296,11 @@ func (e *executor) executeRPC(
 	start := time.Now()
 	resp, err := http.DefaultClient.Do(req)
 
-	// Read stats AFTER the request completes and compute delta.
-	// This captures resource usage during server processing, not during body read.
-	var delta *ResourceDelta
-	if e.statsReader != nil && beforeStats != nil {
-		if afterStats, readErr := e.statsReader.ReadStats(); readErr == nil {
-			statsDelta := stats.ComputeDelta(beforeStats, afterStats)
-			if statsDelta != nil {
-				delta = &ResourceDelta{
-					MemoryDelta:    statsDelta.MemoryDelta,
-					MemoryAbsBytes: afterStats.Memory,
-					CPUDeltaUsec:   statsDelta.CPUDeltaUsec,
-					DiskReadBytes:  statsDelta.DiskReadBytes,
-					DiskWriteBytes: statsDelta.DiskWriteBytes,
-					DiskReadOps:    statsDelta.DiskReadOps,
-					DiskWriteOps:   statsDelta.DiskWriteOps,
-				}
-			}
-		}
-	}
-
 	if err != nil {
 		fullDuration := time.Since(start).Nanoseconds()
+
+		// Collect the delta after timing is captured (see collectResourceDelta).
+		delta := e.collectResourceDelta(beforeStats)
 
 		return "", 0, fullDuration, delta, fmt.Errorf("executing request: %w", err)
 	}
@@ -1335,11 +1318,50 @@ func (e *executor) executeRPC(
 		duration = bodyReadComplete.Sub(wroteRequest).Nanoseconds()
 	}
 
+	// Read the AFTER stats only now that the timing window is closed. The stats
+	// backend can block — the Docker Stats API on macOS takes ~1-2s per read —
+	// and any time spent there must NOT count toward the measured RPC duration,
+	// which feeds MGas/s. Reading it earlier (between Do() and the body read)
+	// inflated every newPayload to ~2s and crushed MGas/s.
+	delta := e.collectResourceDelta(beforeStats)
+
 	if err != nil {
 		return "", duration, fullDuration, delta, fmt.Errorf("reading response: %w", err)
 	}
 
 	return strings.TrimSpace(string(body)), duration, fullDuration, delta, nil
+}
+
+// collectResourceDelta reads the post-request stats snapshot and diffs it
+// against before, returning nil when stats collection is disabled/unavailable.
+//
+// It MUST be called OUTSIDE the request-timing window: the stats backend can
+// block (notably the Docker Stats API on macOS), and that latency must never be
+// attributed to the RPC under measurement.
+func (e *executor) collectResourceDelta(before *stats.Stats) *ResourceDelta {
+	if e.statsReader == nil || before == nil {
+		return nil
+	}
+
+	afterStats, err := e.statsReader.ReadStats()
+	if err != nil {
+		return nil
+	}
+
+	statsDelta := stats.ComputeDelta(before, afterStats)
+	if statsDelta == nil {
+		return nil
+	}
+
+	return &ResourceDelta{
+		MemoryDelta:    statsDelta.MemoryDelta,
+		MemoryAbsBytes: afterStats.Memory,
+		CPUDeltaUsec:   statsDelta.CPUDeltaUsec,
+		DiskReadBytes:  statsDelta.DiskReadBytes,
+		DiskWriteBytes: statsDelta.DiskWriteBytes,
+		DiskReadOps:    statsDelta.DiskReadOps,
+		DiskWriteOps:   statsDelta.DiskWriteOps,
+	}
 }
 
 // rpcRequest is used to parse the method from a JSON-RPC request.
@@ -1739,7 +1761,7 @@ func executeSimpleRPC(ctx context.Context, endpoint, payload string) (string, er
 func (e *executor) dumpPostTestResponse(
 	resultsDir, testName, filename, response string,
 ) error {
-	postTestDir := filepath.Join(resultsDir, testName, "post_test_rpc_calls")
+	postTestDir := filepath.Join(resultsDir, sanitizeResultPath(testName), "post_test_rpc_calls")
 	if err := fsutil.MkdirAll(postTestDir, 0755, e.cfg.ResultsOwner); err != nil {
 		return fmt.Errorf("creating post_test_rpc_calls directory: %w", err)
 	}

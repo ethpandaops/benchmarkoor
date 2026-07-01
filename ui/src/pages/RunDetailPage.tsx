@@ -8,6 +8,8 @@ import { useRunResult } from '@/api/hooks/useRunResult'
 import { useRunOpcodes } from '@/api/hooks/useRunOpcodes'
 import { useSuite } from '@/api/hooks/useSuite'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
+import { StateActorConfiguration } from '@/components/run-detail/StateActorConfiguration'
+import { useStateActorManifest } from '@/api/hooks/useStateActorManifest'
 import { MetadataLabels } from '@/components/run-detail/MetadataLabels'
 import { GitHubSection } from '@/components/run-detail/GitHubSection'
 import { FilesPanel } from '@/components/run-detail/FilesPanel'
@@ -184,6 +186,7 @@ export function RunDetailPage() {
     enabled: !!runId,
   })
   const { data: blockLogs } = useBlockLogs(runId)
+  const { data: stateActorManifest } = useStateActorManifest(runId, fetchOnDisk)
 
   const isLoading = liveRunsLoading || configLoading || resultLoading
   const error = configError
@@ -734,6 +737,8 @@ export function RunDetailPage() {
       <GitHubSection labels={config.metadata?.labels} />
 
       <RunConfiguration instance={config.instance} system={config.system} startBlock={config.start_block} metadata={config.metadata} benchmarkoorVersion={config.benchmarkoor_version} />
+
+      {stateActorManifest && <StateActorConfiguration manifest={stateActorManifest} runId={runId} />}
 
       <FilesPanel
         runId={runId}

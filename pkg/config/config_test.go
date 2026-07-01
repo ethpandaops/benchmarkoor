@@ -13,6 +13,303 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBuildsFillImage(t *testing.T) {
+	tests := []struct {
+		name           string
+		fillImage      string
+		fillDockerfile string
+		wantBuilds     bool
+		wantTag        string
+	}{
+		{
+			name:       "neither set builds from embedded default",
+			wantBuilds: true,
+			wantTag:    DefaultFillImageTag,
+		},
+		{
+			name:       "fill_image only pulls",
+			fillImage:  "fill:latest",
+			wantBuilds: false,
+			wantTag:    "fill:latest",
+		},
+		{
+			name:           "fill_dockerfile only builds, default tag",
+			fillDockerfile: "Dockerfile.eest-filler",
+			wantBuilds:     true,
+			wantTag:        DefaultFillImageTag,
+		},
+		{
+			name:           "both set builds, tagged fill_image",
+			fillImage:      "fill:latest",
+			fillDockerfile: "Dockerfile.eest-filler",
+			wantBuilds:     true,
+			wantTag:        "fill:latest",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &EESTPayloadsConfig{FillImage: tt.fillImage, FillDockerfile: tt.fillDockerfile}
+			assert.Equal(t, tt.wantBuilds, e.BuildsFillImage())
+			assert.Equal(t, tt.wantTag, e.ResolveFillImageTag())
+		})
+	}
+}
+
+func TestLoad_InlineAddressStubsKeyCasing(t *testing.T) {
+	// Viper is case-insensitive and lowercases all map keys; EEST resolves stub
+	// names by exact match, so Load must restore the original casing.
+	configContent := `
+builder:
+  eest_payloads:
+    fill_image: fill:latest
+    targets:
+      - name: geth-stateful
+        filler_client: geth
+        filler_image: ethpandaops/geth:master
+        source_dir: /snap
+        output_dir: /out
+        fork: Amsterdam
+        tests:
+          - tests/benchmark/stateful/bloatnet
+        address_stubs:
+          bloated_EOA_10GB:
+            addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
+            pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
+`
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	stubs := cfg.Builder.EESTPayloads.Targets[0].AddressStubs
+	require.Contains(t, stubs, "bloated_EOA_10GB", "stub-name casing must survive Viper lowercasing")
+	assert.Equal(t, "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04", stubs["bloated_EOA_10GB"]["addr"])
+	assert.Equal(t, "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e", stubs["bloated_EOA_10GB"]["pkey"])
+}
+
+func TestLoad_GlobalAddressStubsHoistAndCasing(t *testing.T) {
+	// address_stubs defined once under config: must keep its key casing and be
+	// hoisted into a target that sets none of its own.
+	configContent := `
+builder:
+  eest_payloads:
+    fill_image: fill:latest
+    config:
+      fork: Amsterdam
+      datadir_method: copy
+      tests:
+        - tests/benchmark/stateful/bloatnet
+      filter: "not erc20"
+      address_stubs:
+        bloated_EOA_10GB:
+          addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
+    targets:
+      - name: geth-stateful
+        filler_client: geth
+        filler_image: ethpandaops/geth:master
+        source_dir: /snap
+        output_dir: /out
+`
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	// Global config block keeps the original stub-name casing.
+	require.Contains(t, cfg.Builder.EESTPayloads.Config.AddressStubs, "bloated_EOA_10GB")
+
+	// And it (plus tests/filter) is hoisted into the bare target.
+	resolved := cfg.Builder.EESTPayloads.ResolveTarget(0)
+	assert.Equal(t, []string{"tests/benchmark/stateful/bloatnet"}, resolved.Tests)
+	assert.Equal(t, "not erc20", resolved.Filter)
+	require.Contains(t, resolved.AddressStubs, "bloated_EOA_10GB")
+	assert.Equal(t, "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04", resolved.AddressStubs["bloated_EOA_10GB"]["addr"])
+}
+
+func TestValidate_InstanceGenesisOverrideMutualExclusion(t *testing.T) {
+	forkOverride := map[string]uint64{"amsterdam": 1}
+	eipOverride := &GenesisEIPOverride{Timestamp: 1, EIPs: []uint64{7928}}
+
+	mkCfg := func(inst ClientInstance) *Config {
+		return &Config{Runner: RunnerConfig{Instances: []ClientInstance{inst}}}
+	}
+
+	t.Run("both set is rejected", func(t *testing.T) {
+		err := mkCfg(ClientInstance{
+			ID: "geth", Client: "geth",
+			GenesisForkOverride: forkOverride,
+			GenesisEIPOverride:  eipOverride,
+		}).Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "genesis_fork_override and genesis_eip_override are mutually exclusive")
+	})
+
+	t.Run("only fork override does not trip the check", func(t *testing.T) {
+		// Validate may still fail for unrelated reasons (no test source, etc.) —
+		// just assert it isn't the mutual-exclusion error.
+		err := mkCfg(ClientInstance{
+			ID: "geth", Client: "geth", GenesisForkOverride: forkOverride,
+		}).Validate()
+		if err != nil {
+			assert.NotContains(t, err.Error(), "mutually exclusive")
+		}
+	})
+
+	t.Run("only eip override does not trip the check", func(t *testing.T) {
+		err := mkCfg(ClientInstance{
+			ID: "nethermind", Client: "nethermind", GenesisEIPOverride: eipOverride,
+		}).Validate()
+		if err != nil {
+			assert.NotContains(t, err.Error(), "mutually exclusive")
+		}
+	})
+}
+
+func TestLoad_StateActorSpec(t *testing.T) {
+	dir := t.TempDir()
+
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
+
+		return p
+	}
+
+	t.Run("structured mapping materializes to the YAML body with number fidelity", func(t *testing.T) {
+		cfg, err := Load(write("structured.yaml", `
+builder:
+  state_actor:
+    images: { geth: img }
+    config: { target_size: 1GB }
+    spec:
+      entities:
+        - kind: eoa
+          name: bloated
+          approximate_size_bytes: 2_000_000_000
+        - kind: contract
+          address: 0x4e59b44847b379578588920cA78FbF26c0B4956C
+    targets:
+      - { client: geth, output_dir: /o }
+`))
+		require.NoError(t, err)
+		require.NoError(t, cfg.validateBuilder())
+
+		kind, body := cfg.Builder.StateActor.ResolveSpec()
+		assert.Equal(t, StateActorSpecInline, kind)
+		assert.Contains(t, body, "entities:")
+		// Bare integers and mixed-case hex round-trip exactly (no float coercion,
+		// no lowercasing) because the spec is re-parsed from the raw YAML.
+		assert.Contains(t, body, "2_000_000_000")
+		assert.Contains(t, body, "0x4e59b44847b379578588920cA78FbF26c0B4956C")
+	})
+
+	t.Run("block-scalar spec still works (back-compat)", func(t *testing.T) {
+		cfg, err := Load(write("scalar.yaml", "builder:\n"+
+			"  state_actor:\n"+
+			"    images: { geth: img }\n"+
+			"    config: { target_size: 1GB }\n"+
+			"    spec: |\n"+
+			"      entities:\n"+
+			"        - kind: eoa\n"+
+			"          name: legacy\n"+
+			"    targets:\n"+
+			"      - { client: geth, output_dir: /o }\n"))
+		require.NoError(t, err)
+
+		kind, body := cfg.Builder.StateActor.ResolveSpec()
+		assert.Equal(t, StateActorSpecInline, kind)
+		assert.Contains(t, body, "name: legacy")
+	})
+}
+
+func TestLoad_MultiFileConfigStubCasing(t *testing.T) {
+	// Viper deep-merges the eest_payloads.config map across --config files. The
+	// stub-name casing restore must accumulate config.address_stubs from every
+	// file, not just the last one — otherwise a config.address_stubs defined in
+	// an earlier file keeps its Viper-lowercased keys when a later file only
+	// touches a different config field.
+	dir := t.TempDir()
+
+	base := filepath.Join(dir, "base.yaml")
+	require.NoError(t, os.WriteFile(base, []byte(`
+builder:
+  eest_payloads:
+    fill_image: fill:latest
+    config:
+      address_stubs:
+        bloated_EOA_10GB: { addr: "0xabc" }
+    targets:
+      - name: t
+        filler_client: geth
+        filler_image: g
+        source_dir: /s
+        output_dir: /o
+        fork: Osaka
+        tests: [x]
+`), 0o644))
+
+	// Merged last; sets a different config field, no address_stubs.
+	override := filepath.Join(dir, "override.yaml")
+	require.NoError(t, os.WriteFile(override, []byte(`
+builder:
+  eest_payloads:
+    config:
+      fork: Prague
+`), 0o644))
+
+	cfg, err := Load(base, override)
+	require.NoError(t, err)
+
+	stubs := cfg.Builder.EESTPayloads.Config.AddressStubs
+	require.Contains(t, stubs, "bloated_EOA_10GB",
+		"config.address_stubs casing must survive a multi-file merge that touches other config fields")
+	assert.Equal(t, "Prague", cfg.Builder.EESTPayloads.Config.Fork, "later file's fork still wins")
+}
+
+func TestLoad_GlobalEnv(t *testing.T) {
+	configContent := `
+global:
+  log_level: info
+  env:
+    STATE_DIR: /tmp/bench/state-actor/simple-amsterdam-compute
+    NESTED: ${BASE_DIR:-/srv}/fixtures
+runner:
+  container_network: ${STATE_DIR}
+  benchmark:
+    results_dir: ${NESTED}
+    tests:
+      filter: ${MISSING:-fallback}
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	t.Run("global.env supplies ${VAR}; defaults and nesting work", func(t *testing.T) {
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+
+		// global.env value substituted where no inline default is given.
+		assert.Equal(t, "/tmp/bench/state-actor/simple-amsterdam-compute", cfg.Runner.ContainerNetwork)
+		// global.env value that itself references the shell env (BASE_DIR unset → its default).
+		assert.Equal(t, "/srv/fixtures", cfg.Runner.Benchmark.ResultsDir)
+		// inline default still applies when neither shell nor global.env has the var.
+		assert.Equal(t, "fallback", cfg.Runner.Benchmark.Tests.Filter)
+		// keys keep their original casing for substitution despite Viper lowercasing.
+		require.Contains(t, cfg.Global.Env, "state_dir") // parsed map is lowercased (documented)
+	})
+
+	t.Run("shell env overrides global.env", func(t *testing.T) {
+		t.Setenv("STATE_DIR", "/mnt/big")
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.Equal(t, "/mnt/big", cfg.Runner.ContainerNetwork, "shell env must win over global.env")
+	})
+}
+
 func TestLoad_EnvVarOverrides(t *testing.T) {
 	// Create a minimal config file for testing.
 	configContent := `
@@ -106,12 +403,12 @@ runner:
 			},
 		},
 		{
-			name: "nested field override - directories.tmp_cachedir",
+			name: "nested field override - global.directories.cachedir",
 			envVars: map[string]string{
-				"BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_CACHEDIR": "/cache/custom",
+				"BENCHMARKOOR_GLOBAL_DIRECTORIES_CACHEDIR": "/cache/custom",
 			},
 			validate: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "/cache/custom", cfg.Runner.Directories.TmpCacheDir)
+				assert.Equal(t, "/cache/custom", cfg.Global.Directories.CacheDir)
 			},
 		},
 		{
@@ -452,14 +749,13 @@ func TestSourceConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "eest_fixtures local dir missing local_genesis_dir",
+			name: "eest_fixtures local dir without local_genesis_dir (stateful)",
 			source: SourceConfig{
 				EESTFixtures: &EESTFixturesSource{
 					LocalFixturesDir: tmpDir,
 				},
 			},
-			wantErr:   true,
-			errSubstr: "local_genesis_dir is required",
+			wantErr: false,
 		},
 		{
 			name: "eest_fixtures local dir missing local_fixtures_dir",
@@ -3233,6 +3529,8 @@ func TestValidateBuilder(t *testing.T) {
 		"reth":       "ghcr.io/ethereum/state-actor-reth:latest",
 		"besu":       "ghcr.io/ethereum/state-actor-besu:latest",
 		"nethermind": "ghcr.io/ethereum/state-actor-nethermind:latest",
+		"ethrex":     "ghcr.io/ethereum/state-actor-ethrex:latest",
+		"erigon":     "ghcr.io/ethereum/state-actor-erigon:latest",
 	}
 
 	// mkCfg builds a Config with just the builder block populated so the
@@ -3287,13 +3585,11 @@ func TestValidateBuilder(t *testing.T) {
 			},
 		},
 		{
-			name: "unsupported client erigon",
+			name: "supported client erigon",
 			sa: &StateActorConfig{
 				Images:  allImages,
 				Targets: []StateActorTarget{{Client: "erigon", OutputDir: dirA, TargetSize: "5GB"}},
 			},
-			wantErr:   true,
-			errSubstr: "erigon",
 		},
 		{
 			name: "unsupported client nimbus",
@@ -3665,3 +3961,421 @@ func TestGetStateActorContainerRuntime(t *testing.T) {
 		assert.Equal(t, "docker", cfg.GetStateActorContainerRuntime())
 	})
 }
+
+func TestValidateEESTPayloads(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+
+	// mkCfg builds a Config with only the eest_payloads builder block so the
+	// builder validation runs in isolation.
+	mkCfg := func(ep *EESTPayloadsConfig) *Config {
+		return &Config{Builder: &BuilderConfig{EESTPayloads: ep}}
+	}
+
+	// base returns a minimal valid target rooted at dir.
+	base := func(dir string) EESTPayloadTarget {
+		return EESTPayloadTarget{
+			FillerClient: "geth",
+			FillerImage:  "ethpandaops/geth:master",
+			SourceDir:    "/snap",
+			OutputDir:    dir,
+			Fork:         "Osaka",
+			Tests:        []string{"tests/benchmark/compute"},
+		}
+	}
+
+	dockerfile := filepath.Join(dirA, "Dockerfile.eest-filler")
+	if err := os.WriteFile(dockerfile, []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name      string
+		ep        *EESTPayloadsConfig
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "nil builder is fine",
+			ep:   nil,
+		},
+		{
+			name: "valid minimal",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				Targets:   []EESTPayloadTarget{base(dirA)},
+			},
+		},
+		{
+			name: "neither fill_image nor fill_dockerfile is valid (embedded default)",
+			ep: &EESTPayloadsConfig{
+				Targets: []EESTPayloadTarget{base(dirA)},
+			},
+		},
+		{
+			name: "fill_dockerfile only is valid",
+			ep: &EESTPayloadsConfig{
+				FillDockerfile: dockerfile,
+				Targets:        []EESTPayloadTarget{base(dirA)},
+			},
+		},
+		{
+			name: "fill_dockerfile not found",
+			ep: &EESTPayloadsConfig{
+				FillDockerfile: filepath.Join(dirB, "missing", "Dockerfile"),
+				Targets:        []EESTPayloadTarget{base(dirA)},
+			},
+			wantErr:   true,
+			errSubstr: "fill_dockerfile",
+		},
+		{
+			name: "eest_repo without eest_ref is valid (ref defaults)",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				EESTRepo:  "https://github.com/ethereum/execution-specs.git",
+				Targets:   []EESTPayloadTarget{base(dirA)},
+			},
+		},
+		{
+			name: "eest_ref alone is valid (repo defaults)",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				EESTRef:   "v1.2.3",
+				Targets:   []EESTPayloadTarget{base(dirA)},
+			},
+		},
+		{
+			name: "invalid container_runtime",
+			ep: &EESTPayloadsConfig{
+				ContainerRuntime: "lima",
+				FillImage:        "fill:latest",
+				Targets:          []EESTPayloadTarget{base(dirA)},
+			},
+			wantErr:   true,
+			errSubstr: "container_runtime",
+		},
+		{
+			name: "unsupported filler client",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.FillerClient = "reth"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "cannot act as the fill-stateful filler",
+		},
+		{
+			name: "besu filler client is supported",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.FillerClient = "besu"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+		},
+		{
+			name: "nethermind filler client is supported",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.FillerClient = "nethermind"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+		},
+		{
+			name: "missing tests",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.Tests = nil
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "tests is required",
+		},
+		{
+			name: "missing fork",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.Fork = ""
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "fork is required",
+		},
+		{
+			name: "fork hoisted from config defaults",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.Fork = ""
+
+				return &EESTPayloadsConfig{
+					FillImage: "fill:latest",
+					Config:    &EESTPayloadDefaults{Fork: "Osaka"},
+					Targets:   []EESTPayloadTarget{tgt},
+				}
+			}(),
+		},
+		{
+			name: "relative source_dir",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.SourceDir = "relative/path"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "source_dir must be an absolute path",
+		},
+		{
+			name: "relative output_dir",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base("relative/out")
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "output_dir must be an absolute path",
+		},
+		{
+			name: "duplicate output_dir",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				Targets: []EESTPayloadTarget{
+					func() EESTPayloadTarget { t := base(dirA); t.Name = "a"; return t }(),
+					func() EESTPayloadTarget { t := base(dirA); t.Name = "b"; return t }(),
+				},
+			},
+			wantErr:   true,
+			errSubstr: "duplicates",
+		},
+		{
+			name: "duplicate name",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				Targets: []EESTPayloadTarget{
+					func() EESTPayloadTarget { t := base(dirA); t.Name = "dup"; return t }(),
+					func() EESTPayloadTarget { t := base(dirB); t.Name = "dup"; return t }(),
+				},
+			},
+			wantErr:   true,
+			errSubstr: "duplicates",
+		},
+		{
+			name: "invalid datadir_method",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.DataDirMethod = "btrfs"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "datadir_method",
+		},
+		{
+			name: "invalid gas_benchmark_values",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.GasBenchmarkValues = []int{10, 0}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "gas_benchmark_values",
+		},
+		{
+			name: "invalid fixed_opcode_count",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.FixedOpcodeCount = &[]float64{0.5, -1}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "fixed_opcode_count",
+		},
+		{
+			name: "gas_benchmark_values and fixed_opcode_count are mutually exclusive",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.GasBenchmarkValues = []int{10}
+				tgt.FixedOpcodeCount = &[]float64{0.5}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "mutually exclusive",
+		},
+		{
+			name: "fixed_opcode_count bare (empty list) is valid",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.FixedOpcodeCount = &[]float64{}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr: false,
+		},
+		{
+			name: "inline address_stubs is valid",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.AddressStubs = map[string]map[string]string{
+					"bloated_eoa_10GB": {"addr": "0x87a6", "pkey": "0x4da3"},
+				}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr: false,
+		},
+		{
+			name: "address_stubs_file and address_stubs are mutually exclusive",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.AddressStubsFile = "/host/stubs.json"
+				tgt.AddressStubs = map[string]map[string]string{
+					"bloated_eoa_10GB": {"addr": "0x87a6"},
+				}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "mutually exclusive",
+		},
+		{
+			name: "inline address_stubs entry without addr fails",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.AddressStubs = map[string]map[string]string{
+					"bloated_eoa_10GB": {"pkey": "0x4da3"},
+				}
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "addr is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := mkCfg(tt.ep).validateBuilder()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestEESTPayloadsResolveTarget(t *testing.T) {
+	ep := &EESTPayloadsConfig{
+		Config: &EESTPayloadDefaults{
+			FillerImage:        "ethpandaops/geth:master",
+			Fork:               "Osaka",
+			Tests:              []string{"tests/benchmark/stateful/bloatnet"},
+			Filter:             "not erc20",
+			Marker:             "not repricing",
+			AddressStubs:       map[string]map[string]string{"bloated_eoa_10GB": {"addr": "0x87a6"}},
+			GasBenchmarkValues: []int{10, 30},
+			DataDirMethod:      "zfs",
+			MaxGasPerTest:      u64Cfg(45000000),
+			RPCSeedKey:         "0xseed",
+			FillerExtraArgs:    []string{"--verbosity=3"},
+		},
+		Targets: []EESTPayloadTarget{
+			// Inherits everything from config.
+			{Name: "inherit", FillerClient: "geth", SourceDir: "/s", OutputDir: "/o"},
+			// Overrides fork and gas values.
+			{Name: "override", FillerClient: "geth", SourceDir: "/s2", OutputDir: "/o2",
+				Fork: "Prague", GasBenchmarkValues: []int{60}},
+		},
+	}
+
+	inherit := ep.ResolveTarget(0)
+	assert.Equal(t, "ethpandaops/geth:master", inherit.FillerImage)
+	assert.Equal(t, "Osaka", inherit.Fork)
+	assert.Equal(t, []string{"tests/benchmark/stateful/bloatnet"}, inherit.Tests)
+	assert.Equal(t, "not erc20", inherit.Filter)
+	assert.Equal(t, "not repricing", inherit.Marker)
+	assert.Equal(t, map[string]map[string]string{"bloated_eoa_10GB": {"addr": "0x87a6"}}, inherit.AddressStubs)
+	assert.Equal(t, []int{10, 30}, inherit.GasBenchmarkValues)
+	assert.Equal(t, "zfs", inherit.DataDirMethod)
+	require.NotNil(t, inherit.MaxGasPerTest)
+	assert.Equal(t, uint64(45000000), *inherit.MaxGasPerTest)
+	assert.Equal(t, []string{"--verbosity=3"}, inherit.FillerExtraArgs)
+
+	override := ep.ResolveTarget(1)
+	assert.Equal(t, "Prague", override.Fork, "per-target fork wins")
+	assert.Equal(t, []int{60}, override.GasBenchmarkValues, "per-target gas values win")
+	assert.Equal(t, "ethpandaops/geth:master", override.FillerImage, "still inherits unset fields")
+	assert.Equal(t, "not erc20", override.Filter, "inherits filter when unset")
+}
+
+// TestEESTPayloadsResolveTarget_AddressStubsUnit verifies the address-stubs
+// pair is hoisted as a unit: a target setting either form inherits neither,
+// preserving their mutual exclusion.
+func TestEESTPayloadsResolveTarget_AddressStubsUnit(t *testing.T) {
+	ep := &EESTPayloadsConfig{
+		Config: &EESTPayloadDefaults{
+			AddressStubs: map[string]map[string]string{"global": {"addr": "0xglobal"}},
+		},
+		Targets: []EESTPayloadTarget{
+			// Sets only the file form: must NOT inherit the global inline map.
+			{Name: "file-only", FillerClient: "geth", SourceDir: "/s", OutputDir: "/o",
+				AddressStubsFile: "/host/stubs.json"},
+			// Sets neither: inherits the global inline map.
+			{Name: "inherit", FillerClient: "geth", SourceDir: "/s2", OutputDir: "/o2"},
+		},
+	}
+
+	fileOnly := ep.ResolveTarget(0)
+	assert.Equal(t, "/host/stubs.json", fileOnly.AddressStubsFile)
+	assert.Empty(t, fileOnly.AddressStubs, "target with file form must not inherit global inline stubs")
+
+	inherit := ep.ResolveTarget(1)
+	assert.Empty(t, inherit.AddressStubsFile)
+	assert.Equal(t, map[string]map[string]string{"global": {"addr": "0xglobal"}}, inherit.AddressStubs)
+}
+
+func TestEESTPayloadsEffectiveName(t *testing.T) {
+	withName := EESTPayloadTarget{Name: "compute", FillerClient: "geth"}
+	assert.Equal(t, "compute", withName.EffectiveName())
+
+	noName := EESTPayloadTarget{FillerClient: "geth"}
+	assert.Equal(t, "geth", noName.EffectiveName())
+}
+
+func TestEESTPayloadsResolveFillCommand(t *testing.T) {
+	def := (&EESTPayloadsConfig{}).ResolveFillCommand()
+	assert.Equal(t, []string{"uv", "run", "fill-stateful"}, def)
+
+	custom := (&EESTPayloadsConfig{FillCommand: []string{"fill-stateful"}}).ResolveFillCommand()
+	assert.Equal(t, []string{"fill-stateful"}, custom)
+}
+
+func TestGetEESTPayloadsContainerRuntime(t *testing.T) {
+	t.Run("builder override wins", func(t *testing.T) {
+		cfg := &Config{
+			Runner:  RunnerConfig{ContainerRuntime: "docker"},
+			Builder: &BuilderConfig{EESTPayloads: &EESTPayloadsConfig{ContainerRuntime: "podman"}},
+		}
+		assert.Equal(t, "podman", cfg.GetEESTPayloadsContainerRuntime())
+	})
+
+	t.Run("falls back to runner runtime", func(t *testing.T) {
+		cfg := &Config{
+			Runner:  RunnerConfig{ContainerRuntime: "podman"},
+			Builder: &BuilderConfig{EESTPayloads: &EESTPayloadsConfig{}},
+		}
+		assert.Equal(t, "podman", cfg.GetEESTPayloadsContainerRuntime())
+	})
+}
+
+func u64Cfg(v uint64) *uint64 { return &v }

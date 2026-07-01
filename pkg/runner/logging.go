@@ -272,8 +272,23 @@ func waitForLogDrain(
 }
 
 // removeHook removes a hook from the logger.
+//
+// logrus protects logger.Hooks with the logger's own (unexported) mutex, which
+// both AddHook and the hook-firing path take before touching the map. We can't
+// take that mutex from here, so mutating logger.Hooks directly would race any
+// goroutine that is still logging on this logger. At teardown that includes the
+// container death monitor and the log-streaming goroutine, which run under
+// r.wg and may not have stopped yet. Such a race makes Go abort the whole
+// process with a "concurrent map read and map write" fatal error.
+//
+// ReplaceHooks swaps the map in under the logger's lock, so we build the
+// filtered copy first and then install it in one atomic step.
 func (r *runner) removeHook(hook logrus.Hook) {
-	for level, hooks := range r.logger.Hooks {
+	oldHooks := r.logger.ReplaceHooks(make(logrus.LevelHooks))
+
+	newHooks := make(logrus.LevelHooks, len(oldHooks))
+
+	for level, hooks := range oldHooks {
 		filtered := make([]logrus.Hook, 0, len(hooks))
 
 		for _, h := range hooks {
@@ -282,6 +297,8 @@ func (r *runner) removeHook(hook logrus.Hook) {
 			}
 		}
 
-		r.logger.Hooks[level] = filtered
+		newHooks[level] = filtered
 	}
+
+	r.logger.ReplaceHooks(newHooks)
 }

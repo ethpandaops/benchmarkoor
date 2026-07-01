@@ -76,6 +76,81 @@ func TestSuiteInfo_BackwardCompat_LoadsOldSummary(t *testing.T) {
 	assert.Nil(t, parsed.Tests[0].PayloadSizes)
 }
 
+func TestCreateSuiteOutput_CopiesEESTMeta(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Build a source .meta dir with a top-level file and a nested file.
+	metaDir := filepath.Join(tmp, "fixtures", ".meta")
+	require.NoError(t, os.MkdirAll(filepath.Join(metaDir, "assets"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(metaDir, "fixtures.ini"),
+		[]byte("[environment]\npython = 3.12.13\n"), 0o644))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(metaDir, "assets", "style.css"), []byte("body{}"), 0o644))
+
+	prepared := &PreparedSource{
+		MetaDir: metaDir,
+		Tests: []*TestWithSteps{
+			{
+				Name: "test_meta",
+				Test: &StepFile{
+					Name:     "test_meta",
+					Provider: &inlineProvider{lines: []string{minimalDenebRequest(t)}},
+				},
+			},
+		},
+	}
+	info := &SuiteInfo{Hash: "abc123"}
+
+	require.NoError(t, CreateSuiteOutput(logrus.New(), tmp, "abc123", info, prepared, nil))
+
+	suiteMeta := filepath.Join(tmp, "suites", "abc123", ".eest-meta")
+
+	gotIni, err := os.ReadFile(filepath.Join(suiteMeta, "fixtures.ini"))
+	require.NoError(t, err)
+	assert.Contains(t, string(gotIni), "python = 3.12.13")
+
+	gotCSS, err := os.ReadFile(filepath.Join(suiteMeta, "assets", "style.css"))
+	require.NoError(t, err)
+	assert.Equal(t, "body{}", string(gotCSS))
+
+	// summary.json flags the metadata so the UI can surface it.
+	data, err := os.ReadFile(filepath.Join(tmp, "suites", "abc123", "summary.json"))
+	require.NoError(t, err)
+
+	var parsed SuiteInfo
+	require.NoError(t, json.Unmarshal(data, &parsed))
+	assert.True(t, parsed.EESTMetadata)
+}
+
+func TestCreateSuiteOutput_NoEESTMetaWhenAbsent(t *testing.T) {
+	tmp := t.TempDir()
+	prepared := &PreparedSource{
+		Tests: []*TestWithSteps{
+			{
+				Name: "test_nometa",
+				Test: &StepFile{
+					Name:     "test_nometa",
+					Provider: &inlineProvider{lines: []string{minimalDenebRequest(t)}},
+				},
+			},
+		},
+	}
+	info := &SuiteInfo{Hash: "nometa01"}
+
+	require.NoError(t, CreateSuiteOutput(logrus.New(), tmp, "nometa01", info, prepared, nil))
+
+	_, err := os.Stat(filepath.Join(tmp, "suites", "nometa01", ".eest-meta"))
+	assert.True(t, os.IsNotExist(err))
+
+	data, err := os.ReadFile(filepath.Join(tmp, "suites", "nometa01", "summary.json"))
+	require.NoError(t, err)
+
+	var parsed SuiteInfo
+	require.NoError(t, json.Unmarshal(data, &parsed))
+	assert.False(t, parsed.EESTMetadata)
+}
+
 func TestCreateSuiteOutput_MergesPayloadSizesOnSecondRun(t *testing.T) {
 	tmp := t.TempDir()
 	testLine := minimalDenebRequest(t)

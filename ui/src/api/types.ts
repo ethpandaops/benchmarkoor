@@ -189,6 +189,55 @@ export interface RunConfig {
   }
 }
 
+// .state-actor/state-actor-manifest.json per run (present only when the run's
+// snapshot was built by a state-actor that emits the manifest). Mirrors the
+// state-actor manifest schema (github.com/ethereum/state-actor).
+export interface StateActorManifest {
+  schema_version: number
+  state_actor: {
+    version: string
+    go_version: string
+    os: string
+    arch: string
+    vcs_revision?: string
+    vcs_time?: string
+    vcs_modified: boolean
+  }
+  generated_at: string
+  command: string[]
+  flags: {
+    client: string
+    db: string
+    seed: number
+    seed_input: number
+    fork: string
+    fork_input: string
+    chain_id: number
+    gas_limit: number
+    timestamp: number
+    extra_data?: string
+    target_size?: string
+    binary_trie: boolean
+    group_depth: number
+    archive: boolean
+    spec_path?: string
+  }
+  spec?: {
+    input_path: string
+    sha256: string
+    output_file: string
+  }
+  result?: {
+    state_root: string
+    accounts_created: number
+    contracts_created: number
+    storage_slots: number
+    total_db_size_bytes: number
+    elapsed_ms: number
+  }
+  reproduced_from?: string
+}
+
 export interface SystemInfo {
   hostname: string
   os: string
@@ -439,6 +488,9 @@ export interface SuiteInfo {
   }
   pre_run_steps?: SuiteFile[]
   tests: SuiteTest[]
+  // eest_metadata is true when the suite output carries an .eest-meta directory
+  // (EEST fill provenance) copied from the fixtures' .meta.
+  eest_metadata?: boolean
 }
 
 export interface SuiteTestEEST {
@@ -547,7 +599,7 @@ export interface SourceInfo {
     }
   }
   eest?: {
-    github_repo: string
+    github_repo?: string
     github_release?: string
     fixtures_url?: string
     genesis_url?: string
@@ -556,6 +608,10 @@ export interface SourceInfo {
     genesis_artifact_name?: string
     fixtures_artifact_run_id?: string
     genesis_artifact_run_id?: string
+    local_fixtures_dir?: string
+    local_genesis_dir?: string
+    local_fixtures_tarball?: string
+    local_genesis_tarball?: string
   }
 }
 

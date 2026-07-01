@@ -73,11 +73,13 @@ type Config struct {
 	Builder *BuilderConfig `yaml:"builder,omitempty" mapstructure:"builder"`
 }
 
-// BuilderConfig is the top-level builder block. Today it only houses
-// state-actor; future builders (e.g. geth-import, snap-sync) plug in
-// alongside.
+// BuilderConfig is the top-level builder block. It houses state-actor
+// (materialises pre-populated datadirs) and eest_payloads (generates
+// stateful EEST benchmark fixtures against such a datadir). Future
+// builders plug in alongside.
 type BuilderConfig struct {
-	StateActor *StateActorConfig `yaml:"state_actor,omitempty" mapstructure:"state_actor"`
+	StateActor   *StateActorConfig   `yaml:"state_actor,omitempty" mapstructure:"state_actor"`
+	EESTPayloads *EESTPayloadsConfig `yaml:"eest_payloads,omitempty" mapstructure:"eest_payloads"`
 }
 
 // StateActorConfig configures how the state-actor binary is invoked via
@@ -90,6 +92,12 @@ type BuilderConfig struct {
 // complementary — when both are set state-actor uses the spec and
 // treats target_size as a headroom budget for any further auto-fill.
 //
+// Spec may be written either as a structured YAML mapping (so editors give it
+// syntax highlighting) or as a "|" block scalar; both normalize to the YAML
+// body state-actor consumes. The field is excluded from Viper decoding and
+// populated by normalizeStateActorSpec from the raw YAML (Viper can't decode a
+// mapping into a string, and re-parsing preserves numbers/casing/comments).
+//
 // Config holds the per-target build parameters that can be hoisted up
 // to avoid repeating them. Any field set on a target overrides the
 // corresponding field in Config.
@@ -97,7 +105,7 @@ type StateActorConfig struct {
 	ContainerRuntime string                    `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
 	Images           map[string]string         `yaml:"images,omitempty" mapstructure:"images"`
 	PullPolicy       string                    `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
-	Spec             string                    `yaml:"spec,omitempty" mapstructure:"spec"`
+	Spec             string                    `yaml:"spec,omitempty" mapstructure:"-"`
 	SpecFile         string                    `yaml:"spec_file,omitempty" mapstructure:"spec_file"`
 	Config           *StateActorClientDefaults `yaml:"config,omitempty" mapstructure:"config"`
 	Targets          []StateActorTarget        `yaml:"targets,omitempty" mapstructure:"targets"`
@@ -258,13 +266,15 @@ func (s *StateActorConfig) ImageFor(client string) string {
 }
 
 // stateActorSupportedClients lists the clients state-actor itself can
-// materialise datadirs for. Erigon and Nimbus are intentionally absent
-// (state-actor does not implement writers for them).
+// materialise datadirs for. Nimbus is intentionally absent (state-actor
+// does not implement a writer for it).
 var stateActorSupportedClients = map[string]struct{}{
 	"geth":       {},
 	"reth":       {},
 	"besu":       {},
 	"nethermind": {},
+	"ethrex":     {},
+	"erigon":     {},
 }
 
 // stateActorValidPullPolicies mirrors the pull-policy vocabulary used by
@@ -274,6 +284,283 @@ var stateActorValidPullPolicies = map[string]bool{
 	"always":         true,
 	"if-not-present": true,
 	"never":          true,
+}
+
+// EESTPayloadsConfig configures generation of stateful EEST benchmark
+// fixtures via the `fill-stateful` command (execution-specs). See
+// https://github.com/ethereum/execution-specs/pull/2637.
+//
+// Unlike state-actor, this builder is an orchestrator: per target it
+// boots a filler EL client on a copy of a pre-populated snapshot datadir
+// (e.g. produced by builder.state_actor), runs fill-stateful against the
+// live client, and writes the resulting fixtures to the target's
+// output_dir. The fixtures are later replayed by `benchmarkoor run`.
+//
+// FillImage is the container image carrying the `fill-stateful` command
+// (uv + execution-specs). Config holds per-target defaults that can be
+// hoisted to avoid repetition; any field set on a target wins.
+type EESTPayloadsConfig struct {
+	ContainerRuntime string `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
+	FillImage        string `yaml:"fill_image,omitempty" mapstructure:"fill_image"`
+	// FillDockerfile, when set, makes benchmarkoor build the fill image from the
+	// given Dockerfile at build time (using the container runtime), instead of
+	// pulling a pre-built image. The built image is tagged FillImage when set,
+	// otherwise DefaultFillImageTag. Both FillImage and FillDockerfile are
+	// optional: when neither is set, benchmarkoor builds the fill image from a
+	// default Dockerfile embedded in the binary.
+	FillDockerfile string `yaml:"fill_dockerfile,omitempty" mapstructure:"fill_dockerfile"`
+	PullPolicy     string `yaml:"pull_policy,omitempty" mapstructure:"pull_policy"`
+	JWT            string `yaml:"jwt,omitempty" mapstructure:"jwt"`
+	// FillCommand is the argv prefix invoked inside FillImage before the
+	// fill-stateful flags. Defaults to ["uv", "run", "fill-stateful"].
+	FillCommand []string `yaml:"fill_command,omitempty" mapstructure:"fill_command"`
+	// EESTRepo / EESTRef select the execution-specs checkout used for filling.
+	// benchmarkoor always clones the repo at this ref into an on-disk cache at
+	// build time and mounts it into the fill container at /eest (the fill image
+	// carries only the uv/python toolchain, not the repo). This lets the EEST
+	// version live in config and change without rebuilding the image. Both
+	// default when unset: EESTRepo to the execution-specs URL, EESTRef to
+	// DefaultEESTRef.
+	EESTRepo string               `yaml:"eest_repo,omitempty" mapstructure:"eest_repo"`
+	EESTRef  string               `yaml:"eest_ref,omitempty" mapstructure:"eest_ref"`
+	Config   *EESTPayloadDefaults `yaml:"config,omitempty" mapstructure:"config"`
+	Targets  []EESTPayloadTarget  `yaml:"targets,omitempty" mapstructure:"targets"`
+}
+
+const (
+	// DefaultEESTRepo is the execution-specs repository cloned for fill-stateful
+	// when builder.eest_payloads.eest_repo is unset.
+	DefaultEESTRepo = "https://github.com/ethereum/execution-specs.git"
+	// DefaultEESTRef is the execution-specs ref cloned for fill-stateful when
+	// builder.eest_payloads.eest_ref is unset (where fill-stateful currently lives).
+	DefaultEESTRef = "forks/amsterdam"
+	// DefaultFillImageTag is the tag applied to a fill image built from
+	// fill_dockerfile when no explicit fill_image tag is given.
+	DefaultFillImageTag = "benchmarkoor-eest-fill:local"
+)
+
+// BuildsFillImage reports whether benchmarkoor should build the fill image
+// (rather than pulling a pre-built FillImage). It builds whenever FillDockerfile
+// is set, or when no FillImage is configured to pull — in the latter case from
+// the Dockerfile embedded in the binary.
+func (e *EESTPayloadsConfig) BuildsFillImage() bool {
+	return e.FillDockerfile != "" || e.FillImage == ""
+}
+
+// ResolveFillImageTag returns the image reference for the fill container: the
+// configured FillImage, or DefaultFillImageTag when only a Dockerfile is set.
+func (e *EESTPayloadsConfig) ResolveFillImageTag() string {
+	if e.FillImage != "" {
+		return e.FillImage
+	}
+
+	return DefaultFillImageTag
+}
+
+// ResolveEESTRepo returns the configured EEST repo URL, defaulting to
+// DefaultEESTRepo.
+func (e *EESTPayloadsConfig) ResolveEESTRepo() string {
+	if e.EESTRepo != "" {
+		return e.EESTRepo
+	}
+
+	return DefaultEESTRepo
+}
+
+// ResolveEESTRef returns the configured EEST ref, defaulting to DefaultEESTRef.
+func (e *EESTPayloadsConfig) ResolveEESTRef() string {
+	if e.EESTRef != "" {
+		return e.EESTRef
+	}
+
+	return DefaultEESTRef
+}
+
+// DefaultFillCommand is the argv prefix used to invoke fill-stateful inside
+// the fill image when EESTPayloadsConfig.FillCommand is unset.
+var DefaultFillCommand = []string{"uv", "run", "fill-stateful"}
+
+// ResolveFillCommand returns the configured fill-stateful argv prefix, or
+// DefaultFillCommand when unset.
+func (e *EESTPayloadsConfig) ResolveFillCommand() []string {
+	if len(e.FillCommand) > 0 {
+		return e.FillCommand
+	}
+
+	return DefaultFillCommand
+}
+
+// EESTPayloadDefaults are the per-target build parameters that may be
+// hoisted to the top level under `builder.eest_payloads.config`. Every
+// field is also present on EESTPayloadTarget; a non-nil/non-empty value
+// on the target wins over the corresponding default. See ResolveTarget.
+type EESTPayloadDefaults struct {
+	FillerImage        string                       `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
+	Fork               string                       `yaml:"fork,omitempty" mapstructure:"fork"`
+	Tests              []string                     `yaml:"tests,omitempty" mapstructure:"tests"`
+	Filter             string                       `yaml:"filter,omitempty" mapstructure:"filter"`
+	Marker             string                       `yaml:"marker,omitempty" mapstructure:"marker"`
+	AddressStubsFile   string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
+	AddressStubs       map[string]map[string]string `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
+	GasBenchmarkValues []int                        `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
+	FixedOpcodeCount   *[]float64                   `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
+	DataDirMethod      string                       `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
+	MaxGasPerTest      *uint64                      `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
+	RPCSeedKey         string                       `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	FillerExtraArgs    []string                     `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+}
+
+// EESTPayloadTarget is one fixture-generation run. Identity/locator fields
+// (Name, FillerClient, SourceDir, OutputDir, Genesis, GenesisForkOverride,
+// GenesisEIPOverride) live exclusively on the target; the remaining fields
+// mirror EESTPayloadDefaults and are resolved via ResolveTarget.
+type EESTPayloadTarget struct {
+	Name         string `yaml:"name,omitempty" mapstructure:"name"`
+	FillerClient string `yaml:"filler_client" mapstructure:"filler_client"`
+	SourceDir    string `yaml:"source_dir" mapstructure:"source_dir"`
+	OutputDir    string `yaml:"output_dir" mapstructure:"output_dir"`
+	// Genesis is the genesis/chainspec the filler boots from (besu/nethermind
+	// read their fork schedule from it). geth/erigon boot from the snapshot
+	// datadir instead and activate forks via --override.<fork> in
+	// FillerExtraArgs, so they need no Genesis. Mirrors runner client `genesis`.
+	Genesis string `yaml:"genesis,omitempty" mapstructure:"genesis"`
+	// GenesisForkOverride / GenesisEIPOverride patch the Genesis at filler boot
+	// to activate a fork the file doesn't schedule (e.g. amsterdam on an osaka
+	// snapshot), identically to the runner. GenesisForkOverride sets
+	// config.<fork>Time in a geth-format genesis (besu/reth/ethrex);
+	// GenesisEIPOverride sets params.eip<N>TransitionTimestamp in a parity
+	// chainspec (nethermind).
+	GenesisForkOverride map[string]uint64   `yaml:"genesis_fork_override,omitempty" mapstructure:"genesis_fork_override"`
+	GenesisEIPOverride  *GenesisEIPOverride `yaml:"genesis_eip_override,omitempty" mapstructure:"genesis_eip_override"`
+	Force               bool                `yaml:"force,omitempty" mapstructure:"force"`
+
+	// Hoistable fields (mirror EESTPayloadDefaults): a non-empty/non-nil value
+	// here wins over the corresponding builder.eest_payloads.config default.
+	FillerImage string `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
+	Fork        string `yaml:"fork,omitempty" mapstructure:"fork"`
+	// Tests are pytest paths inside the fill image, e.g. tests/benchmark/compute.
+	Tests []string `yaml:"tests,omitempty" mapstructure:"tests"`
+	// Filter is a pytest -k expression (substring/node-id selection).
+	Filter string `yaml:"filter,omitempty" mapstructure:"filter"`
+	// Marker is a pytest -m marker expression, orthogonal to Filter's -k. e.g.
+	// "repricing" to select the gas-repricing reference benchmarks, or
+	// "not repricing" to exclude them.
+	Marker string `yaml:"marker,omitempty" mapstructure:"marker"`
+	// AddressStubsFile points at a JSON file of named address stubs; AddressStubs
+	// defines the same mapping inline (the builder materializes it to a temp JSON
+	// file). They are mutually exclusive. Each stub maps a symbolic name to an
+	// arbitrary set of string fields (e.g. addr, pkey) that fill-stateful resolves
+	// against the snapshot's pre-deployed state via --address-stubs. When a target
+	// sets neither, both are hoisted as a unit from the config defaults.
+	AddressStubsFile   string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
+	AddressStubs       map[string]map[string]string `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
+	GasBenchmarkValues []int                        `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
+	FixedOpcodeCount   *[]float64                   `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
+	DataDirMethod      string                       `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
+	MaxGasPerTest      *uint64                      `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
+	RPCSeedKey         string                       `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	FillerExtraArgs    []string                     `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+}
+
+// ResolveTarget returns a copy of the i-th target with any unset hoistable
+// fields filled in from EESTPayloadsConfig.Config. Identity/locator fields
+// are never touched. Per-target value wins when set (non-nil for pointer
+// types, non-empty for strings/slices); otherwise the value from Config is
+// used. When Config is nil, the target is returned unchanged.
+func (e *EESTPayloadsConfig) ResolveTarget(i int) EESTPayloadTarget {
+	t := e.Targets[i]
+	if e.Config == nil {
+		return t
+	}
+
+	g := e.Config
+
+	if t.FillerImage == "" {
+		t.FillerImage = g.FillerImage
+	}
+
+	if t.Fork == "" {
+		t.Fork = g.Fork
+	}
+
+	if len(t.Tests) == 0 {
+		t.Tests = g.Tests
+	}
+
+	if t.Filter == "" {
+		t.Filter = g.Filter
+	}
+
+	if t.Marker == "" {
+		t.Marker = g.Marker
+	}
+
+	// Hoist the address-stubs pair as a unit: a target that sets either form
+	// keeps its own and inherits neither, preserving their mutual exclusion.
+	if len(t.AddressStubs) == 0 && t.AddressStubsFile == "" {
+		t.AddressStubs = g.AddressStubs
+		t.AddressStubsFile = g.AddressStubsFile
+	}
+
+	if len(t.GasBenchmarkValues) == 0 {
+		t.GasBenchmarkValues = g.GasBenchmarkValues
+	}
+
+	if t.FixedOpcodeCount == nil {
+		t.FixedOpcodeCount = g.FixedOpcodeCount
+	}
+
+	if t.DataDirMethod == "" {
+		t.DataDirMethod = g.DataDirMethod
+	}
+
+	if t.MaxGasPerTest == nil {
+		t.MaxGasPerTest = g.MaxGasPerTest
+	}
+
+	if t.RPCSeedKey == "" {
+		t.RPCSeedKey = g.RPCSeedKey
+	}
+
+	if len(t.FillerExtraArgs) == 0 {
+		t.FillerExtraArgs = g.FillerExtraArgs
+	}
+
+	return t
+}
+
+// EffectiveName returns the target's user-facing name, defaulting to the
+// filler client when Name was not set — matching the `--target` filter
+// behaviour in the build command.
+func (t *EESTPayloadTarget) EffectiveName() string {
+	if t.Name != "" {
+		return t.Name
+	}
+
+	return t.FillerClient
+}
+
+// eestFillerSupportedClients lists the clients benchmarkoor knows how to boot as
+// the fill-stateful filler (see fillerCommand in pkg/builder). fill-stateful
+// forces use_testing_build_block=True, so a filler MUST implement the
+// testing_buildBlockV1 RPC and debug_setHead (the per-test chain rewind).
+//
+// Status as of this writing:
+//   - geth: fully works (ethpandaops/geth implements both).
+//   - besu: plumbed but blocked upstream — testing_buildBlockV1 (TESTING
+//     namespace, besu-eth/besu#9838) + debug_setHead both respond, but
+//     besu's self-built block fails its own engine_newPayloadV4 with a
+//     World-State-Root mismatch. Kept as scaffolding.
+//   - nethermind: plumbed but blocked upstream — testing_buildBlockV1 works
+//     (Testing module, special image) but debug_setHead is unimplemented and
+//     its receipt trips EEST's strict model. Kept as scaffolding.
+//
+// besu/nethermind stay listed so configs can experiment with them once the
+// upstream gaps close; their example targets are commented out.
+var eestFillerSupportedClients = map[string]struct{}{
+	"geth":       {},
+	"besu":       {},
+	"nethermind": {},
 }
 
 // RunnerConfig contains all run-specific configuration settings.
@@ -403,16 +690,44 @@ type MetadataConfig struct {
 // GlobalConfig contains global application settings.
 type GlobalConfig struct {
 	LogLevel string `yaml:"log_level" mapstructure:"log_level"`
+	// Env declares config-local variables available to ${VAR} / ${VAR:-default}
+	// substitution throughout the file, as a per-config default for an env var of
+	// the same name. A real shell env var of that name still wins, so configs stay
+	// overridable. Consumed at load time (see envExpander); the parsed map is not
+	// otherwise used and — unlike the substitution source — is Viper-lowercased.
+	Env         map[string]string       `yaml:"env,omitempty" mapstructure:"env"`
+	Directories GlobalDirectoriesConfig `yaml:"directories,omitempty" mapstructure:"directories"`
 }
 
-// DirectoriesConfig contains directory path configurations.
+// GlobalDirectoriesConfig contains directory paths shared across the build and
+// run commands.
+type GlobalDirectoriesConfig struct {
+	// CacheDir is the on-disk cache shared by both commands: executor git/archive
+	// clones (run) and the EEST repo clone (build). If empty, defaults to
+	// ~/.cache/benchmarkoor.
+	CacheDir string `yaml:"cachedir,omitempty" mapstructure:"cachedir"`
+}
+
+// DirectoriesConfig contains runner-specific directory path configurations.
 type DirectoriesConfig struct {
 	// TmpDataDir is the directory for temporary datadir copies.
 	// If empty, uses the system default temp directory.
 	TmpDataDir string `yaml:"tmp_datadir,omitempty" mapstructure:"tmp_datadir"`
-	// TmpCacheDir is the directory for executor cache (git clones, etc).
-	// If empty, uses ~/.cache/benchmarkoor.
-	TmpCacheDir string `yaml:"tmp_cachedir,omitempty" mapstructure:"tmp_cachedir"`
+}
+
+// ResolveCacheDir returns the configured global cache directory, defaulting to
+// ~/.cache/benchmarkoor when unset.
+func (c *Config) ResolveCacheDir() (string, error) {
+	if c.Global.Directories.CacheDir != "" {
+		return c.Global.Directories.CacheDir, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("getting home directory for cache dir: %w", err)
+	}
+
+	return filepath.Join(home, ".cache", "benchmarkoor"), nil
 }
 
 // BenchmarkConfig contains benchmark-specific settings.
@@ -551,19 +866,20 @@ func (e *EESTFixturesSource) validate() error {
 	// Validate local dir mode.
 	if hasLocalDir {
 		if e.LocalFixturesDir == "" {
-			return fmt.Errorf("eest_fixtures: local_fixtures_dir is required when local_genesis_dir is set")
-		}
-
-		if e.LocalGenesisDir == "" {
-			return fmt.Errorf("eest_fixtures: local_genesis_dir is required when local_fixtures_dir is set")
+			return fmt.Errorf("eest_fixtures: local_fixtures_dir is required for local directory mode")
 		}
 
 		if err := validateDirExists(e.LocalFixturesDir, "eest_fixtures.local_fixtures_dir"); err != nil {
 			return err
 		}
 
-		if err := validateDirExists(e.LocalGenesisDir, "eest_fixtures.local_genesis_dir"); err != nil {
-			return err
+		// local_genesis_dir is optional: stateful-engine fixtures boot from a
+		// pre-populated snapshot datadir (configured via runner.client.datadirs)
+		// and carry no genesis. Validate it only when provided.
+		if e.LocalGenesisDir != "" {
+			if err := validateDirExists(e.LocalGenesisDir, "eest_fixtures.local_genesis_dir"); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -683,6 +999,19 @@ func (s *SourceConfig) IsConfigured() bool {
 
 // DefaultContainerDir is the default container mount path for data directories.
 const DefaultContainerDir = "/data"
+
+// GenesisEIPOverride activates a set of EIPs at a given timestamp in a
+// parity/nethermind-format chainspec (which schedules forks per-EIP rather than
+// by fork name). It is the parity-format counterpart of GenesisForkOverride: the
+// devnet-specific EIP list lives in config and benchmarkoor patches the
+// chainspec at boot.
+type GenesisEIPOverride struct {
+	// Timestamp is the activation time (unix seconds) applied to every listed EIP.
+	Timestamp uint64 `yaml:"timestamp" mapstructure:"timestamp"`
+	// EIPs are the EIP numbers to activate, e.g. [7928, 8037]. Each becomes a
+	// params.eip<N>TransitionTimestamp entry.
+	EIPs []uint64 `yaml:"eips" mapstructure:"eips"`
+}
 
 // DataDirConfig configures a pre-populated data directory for a client.
 type DataDirConfig struct {
@@ -1007,6 +1336,8 @@ type ClientInstance struct {
 	Restart                          string                            `yaml:"restart,omitempty" mapstructure:"restart"`
 	Environment                      map[string]string                 `yaml:"environment,omitempty" mapstructure:"environment"`
 	Genesis                          string                            `yaml:"genesis,omitempty" mapstructure:"genesis"`
+	GenesisForkOverride              map[string]uint64                 `yaml:"genesis_fork_override,omitempty" mapstructure:"genesis_fork_override"`
+	GenesisEIPOverride               *GenesisEIPOverride               `yaml:"genesis_eip_override,omitempty" mapstructure:"genesis_eip_override"`
 	DataDir                          *DataDirConfig                    `yaml:"datadir,omitempty" mapstructure:"datadir"`
 	DropMemoryCaches                 string                            `yaml:"drop_memory_caches,omitempty" mapstructure:"drop_memory_caches"`
 	RollbackStrategy                 string                            `yaml:"rollback_strategy,omitempty" mapstructure:"rollback_strategy"`
@@ -1040,6 +1371,64 @@ func expandEnvWithDefaults(s string) string {
 	return os.Getenv(s)
 }
 
+// rawGlobalEnv is a minimal struct used to read global.env from the raw
+// (pre-expansion) YAML. Read this way rather than from the parsed Config so the
+// keys keep their original casing (Viper lowercases all map keys), since they
+// are used as case-sensitive ${VAR} substitution names.
+type rawGlobalEnv struct {
+	Global struct {
+		Env map[string]string `yaml:"env"`
+	} `yaml:"global"`
+}
+
+// collectGlobalEnv parses global.env from each raw config and merges them
+// (later files win). A value may itself reference the shell environment (e.g.
+// "${BASE:-/tmp}/state-actor"), which is expanded here; values do not see one
+// another.
+func collectGlobalEnv(contents []string) map[string]string {
+	env := make(map[string]string)
+
+	for _, content := range contents {
+		var rg rawGlobalEnv
+		if err := yaml.Unmarshal([]byte(content), &rg); err != nil {
+			continue
+		}
+
+		for k, val := range rg.Global.Env {
+			env[k] = os.Expand(val, expandEnvWithDefaults)
+		}
+	}
+
+	return env
+}
+
+// envExpander returns the os.Expand mapping used for ${VAR} / ${VAR:-default}
+// substitution across config files. Resolution order is: the shell environment,
+// then global.env from the config, then the inline default. Keeping the shell
+// first means global.env acts as a per-config default that an env var can still
+// override (e.g. in CI).
+func envExpander(contents []string) func(string) string {
+	globalEnv := collectGlobalEnv(contents)
+
+	return func(s string) string {
+		name, defaultVal, hasDefault := strings.Cut(s, ":-")
+
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+
+		if v, ok := globalEnv[name]; ok && v != "" {
+			return v
+		}
+
+		if hasDefault {
+			return defaultVal
+		}
+
+		return ""
+	}
+}
+
 // Load reads and parses configuration files from the given paths.
 // When multiple paths are provided, configs are merged in order (later values override earlier).
 // Environment variables can be substituted in config values using ${VAR}, $VAR, or
@@ -1060,27 +1449,37 @@ func Load(paths ...string) (*Config, error) {
 
 	v.SetConfigType("yaml")
 
-	// Load and merge configs in order, collecting expanded YAML for
-	// post-processing (Viper lowercases map keys, so we re-parse to
-	// restore original casing for environment variables).
-	rawYAMLs := make([]string, 0, len(paths))
+	// Read every file up front so global.env (which may live in any of them) is
+	// known before we expand ${VAR} references.
+	contents := make([]string, 0, len(paths))
 
-	for i, path := range paths {
+	for _, path := range paths {
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("reading config file %q: %w", path, err)
 		}
 
-		expanded := os.Expand(string(content), expandEnvWithDefaults)
+		contents = append(contents, string(content))
+	}
+
+	expand := envExpander(contents)
+
+	// Load and merge configs in order, collecting expanded YAML for
+	// post-processing (Viper lowercases map keys, so we re-parse to
+	// restore original casing for environment variables).
+	rawYAMLs := make([]string, 0, len(paths))
+
+	for i, content := range contents {
+		expanded := os.Expand(content, expand)
 		rawYAMLs = append(rawYAMLs, expanded)
 
 		if i == 0 {
 			if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
-				return nil, fmt.Errorf("parsing config %q: %w", path, err)
+				return nil, fmt.Errorf("parsing config %q: %w", paths[i], err)
 			}
 		} else {
 			if err := v.MergeConfig(strings.NewReader(expanded)); err != nil {
-				return nil, fmt.Errorf("merging config %q: %w", path, err)
+				return nil, fmt.Errorf("merging config %q: %w", paths[i], err)
 			}
 		}
 	}
@@ -1101,6 +1500,8 @@ func Load(paths ...string) (*Config, error) {
 	}
 
 	restoreEnvironmentKeyCasing(&cfg, rawYAMLs)
+	restoreAddressStubsKeyCasing(&cfg, rawYAMLs)
+	normalizeStateActorSpec(&cfg, rawYAMLs)
 
 	cfg.applyDefaults()
 
@@ -1113,6 +1514,7 @@ func bindEnvKeys(v *viper.Viper) {
 	keys := []string{
 		// Global settings
 		"global.log_level",
+		"global.directories.cachedir",
 		// Runner settings
 		"runner.container_runtime",
 		"runner.client_logs_to_stdout",
@@ -1182,6 +1584,8 @@ func bindEnvKeys(v *viper.Viper) {
 		// Builder settings
 		"builder.state_actor.container_runtime",
 		"builder.state_actor.pull_policy",
+		"builder.eest_payloads.container_runtime",
+		"builder.eest_payloads.pull_policy",
 	}
 
 	for _, key := range keys {
@@ -1310,6 +1714,19 @@ func (c *Config) applyDefaults() {
 			c.Builder.StateActor.PullPolicy = DefaultPullPolicy
 		}
 	}
+
+	// Apply builder.eest_payloads defaults. ContainerRuntime is left empty
+	// so GetEESTPayloadsContainerRuntime can fall back at call time; JWT
+	// defaults to DefaultJWT so the filler client and fill-stateful share it.
+	if c.Builder != nil && c.Builder.EESTPayloads != nil {
+		if c.Builder.EESTPayloads.PullPolicy == "" {
+			c.Builder.EESTPayloads.PullPolicy = DefaultPullPolicy
+		}
+
+		if c.Builder.EESTPayloads.JWT == "" {
+			c.Builder.EESTPayloads.JWT = DefaultJWT
+		}
+	}
 }
 
 // GetStateActorContainerRuntime returns the container runtime to use for
@@ -1318,6 +1735,17 @@ func (c *Config) applyDefaults() {
 func (c *Config) GetStateActorContainerRuntime() string {
 	if c.Builder != nil && c.Builder.StateActor != nil && c.Builder.StateActor.ContainerRuntime != "" {
 		return c.Builder.StateActor.ContainerRuntime
+	}
+
+	return c.GetContainerRuntime()
+}
+
+// GetEESTPayloadsContainerRuntime returns the container runtime to use for
+// eest_payloads builds. Falls back to the runner's runtime when the builder
+// block does not override it.
+func (c *Config) GetEESTPayloadsContainerRuntime() string {
+	if c.Builder != nil && c.Builder.EESTPayloads != nil && c.Builder.EESTPayloads.ContainerRuntime != "" {
+		return c.Builder.EESTPayloads.ContainerRuntime
 	}
 
 	return c.GetContainerRuntime()
@@ -1376,6 +1804,18 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 
 		if !isValidClient(instance.Client) {
 			return fmt.Errorf("instance %q: unknown client type %q", instance.ID, instance.Client)
+		}
+
+		// genesis_fork_override (geth-format <fork>Time) and genesis_eip_override
+		// (parity eip<N>TransitionTimestamp) patch different genesis formats, so a
+		// single instance can set at most one — mirrors the eest_payloads target
+		// check. (Without this, the contradiction only surfaces at boot when the
+		// override apply rejects the genesis format.)
+		if len(instance.GenesisForkOverride) > 0 && instance.GenesisEIPOverride != nil {
+			return fmt.Errorf(
+				"instance %q: genesis_fork_override and genesis_eip_override are mutually exclusive",
+				instance.ID,
+			)
 		}
 
 		// Validate instance-level datadir (skip if not in active set).
@@ -1565,11 +2005,24 @@ func (c *Config) ValidateBuilder() error {
 	return c.validateBuilder()
 }
 
-// validateBuilder enforces the builder.state_actor rules: supported
+// validateBuilder validates each configured builder block.
+func (c *Config) validateBuilder() error {
+	if c.Builder == nil {
+		return nil
+	}
+
+	if err := c.validateStateActor(); err != nil {
+		return err
+	}
+
+	return c.validateEESTPayloads()
+}
+
+// validateStateActor enforces the builder.state_actor rules: supported
 // clients, single-source-of-truth target_size XOR spec, archive/binary-trie
 // applicability, group_depth range, image resolvability, and uniqueness of
 // target names and output_dirs.
-func (c *Config) validateBuilder() error {
+func (c *Config) validateStateActor() error {
 	if c.Builder == nil || c.Builder.StateActor == nil {
 		return nil
 	}
@@ -1615,7 +2068,7 @@ func (c *Config) validateBuilder() error {
 		if _, ok := stateActorSupportedClients[t.Client]; !ok {
 			return fmt.Errorf(
 				"%s.client: %q is not supported by state-actor "+
-					"(must be geth, reth, besu, or nethermind)",
+					"(must be geth, reth, besu, nethermind, ethrex, or erigon)",
 				prefix, t.Client,
 			)
 		}
@@ -1699,6 +2152,239 @@ func (c *Config) validateBuilder() error {
 	}
 
 	return nil
+}
+
+// validateEESTPayloads enforces the builder.eest_payloads rules: a
+// configured fill_image, supported filler clients, required locator fields
+// (source_dir/output_dir/tests/fork), valid datadir method and
+// gas-benchmark values, absolute paths, and uniqueness of target names and
+// output_dirs. Existence of source_dir/genesis_file/address_stubs_file is
+// checked at build time, not here — a state-actor target earlier in the
+// same config may still need to produce them.
+func (c *Config) validateEESTPayloads() error {
+	if c.Builder == nil || c.Builder.EESTPayloads == nil {
+		return nil
+	}
+
+	ep := c.Builder.EESTPayloads
+
+	if !validContainerRuntimes[ep.ContainerRuntime] {
+		return fmt.Errorf(
+			"builder.eest_payloads.container_runtime: invalid value %q "+
+				"(must be \"docker\" or \"podman\")", ep.ContainerRuntime,
+		)
+	}
+
+	if !stateActorValidPullPolicies[ep.PullPolicy] {
+		return fmt.Errorf(
+			"builder.eest_payloads.pull_policy: invalid value %q "+
+				"(must be \"always\", \"if-not-present\", or \"never\")",
+			ep.PullPolicy,
+		)
+	}
+
+	// Neither fill_image nor fill_dockerfile is required: with both unset,
+	// benchmarkoor builds the fill image from the Dockerfile embedded in the
+	// binary. fill_image pulls a pre-built image; fill_dockerfile builds from a
+	// Dockerfile on disk.
+
+	// Reject a missing Dockerfile at config time so typos surface early.
+	// Relative paths are resolved against the working directory.
+	if ep.FillDockerfile != "" {
+		if _, err := os.Stat(ep.FillDockerfile); err != nil {
+			return fmt.Errorf("builder.eest_payloads.fill_dockerfile: %w", err)
+		}
+	}
+
+	seenOutputs := make(map[string]int, len(ep.Targets))
+	seenNames := make(map[string]int, len(ep.Targets))
+
+	for i := range ep.Targets {
+		t := ep.ResolveTarget(i)
+		prefix := fmt.Sprintf("builder.eest_payloads.targets[%d]", i)
+
+		if _, ok := eestFillerSupportedClients[t.FillerClient]; !ok {
+			return fmt.Errorf(
+				"%s.filler_client: %q cannot act as the fill-stateful filler "+
+					"(supported: geth, besu, nethermind)",
+				prefix, t.FillerClient,
+			)
+		}
+
+		name := t.EffectiveName()
+		if prev, dup := seenNames[name]; dup {
+			return fmt.Errorf(
+				"%s: name %q duplicates targets[%d] (set an explicit name to disambiguate)",
+				prefix, name, prev,
+			)
+		}
+
+		seenNames[name] = i
+
+		if err := validateEESTPayloadPaths(&t, prefix, seenOutputs, i); err != nil {
+			return err
+		}
+
+		if len(t.Tests) == 0 {
+			return fmt.Errorf(
+				"%s.tests is required (at least one pytest path, e.g. tests/benchmark/compute)",
+				prefix,
+			)
+		}
+
+		if t.Fork == "" {
+			return fmt.Errorf(
+				"%s.fork is required (set it on the target or builder.eest_payloads.config.fork)",
+				prefix,
+			)
+		}
+
+		if t.FillerImage == "" {
+			return fmt.Errorf(
+				"%s.filler_image is required (e.g. ethpandaops/geth:master)", prefix,
+			)
+		}
+
+		if !validDataDirMethods[t.DataDirMethod] {
+			return fmt.Errorf(
+				"%s.datadir_method: invalid value %q "+
+					"(must be copy, overlayfs, fuse-overlayfs, zfs, direct, or schelk)",
+				prefix, t.DataDirMethod,
+			)
+		}
+
+		if err := validateGasBenchmarkValues(t.GasBenchmarkValues, prefix); err != nil {
+			return err
+		}
+
+		if err := validateFixedOpcodeCount(t.FixedOpcodeCount, prefix); err != nil {
+			return err
+		}
+
+		if len(t.GasBenchmarkValues) > 0 && t.FixedOpcodeCount != nil {
+			return fmt.Errorf(
+				"%s: gas_benchmark_values and fixed_opcode_count are mutually exclusive "+
+					"(fill-stateful rejects both)", prefix,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateEESTPayloadPaths checks output_dir / genesis /
+// address_stubs_file are absolute and output_dir is unique.
+func validateEESTPayloadPaths(t *EESTPayloadTarget, prefix string, seenOutputs map[string]int, i int) error {
+	if t.SourceDir == "" {
+		return fmt.Errorf("%s.source_dir is required", prefix)
+	}
+
+	if !filepath.IsAbs(t.SourceDir) {
+		return fmt.Errorf("%s.source_dir must be an absolute path, got %q", prefix, t.SourceDir)
+	}
+
+	if t.OutputDir == "" {
+		return fmt.Errorf("%s.output_dir is required", prefix)
+	}
+
+	if !filepath.IsAbs(t.OutputDir) {
+		return fmt.Errorf("%s.output_dir must be an absolute path, got %q", prefix, t.OutputDir)
+	}
+
+	if prev, dup := seenOutputs[t.OutputDir]; dup {
+		return fmt.Errorf(
+			"%s.output_dir %q duplicates targets[%d].output_dir", prefix, t.OutputDir, prev,
+		)
+	}
+
+	seenOutputs[t.OutputDir] = i
+
+	if t.Genesis != "" && !filepath.IsAbs(t.Genesis) {
+		return fmt.Errorf("%s.genesis must be an absolute path, got %q", prefix, t.Genesis)
+	}
+
+	// genesis_fork_override / genesis_eip_override patch the boot genesis, so
+	// they require one. (geth/erigon fillers boot from the datadir and use
+	// --override.<fork> in filler_extra_args instead.)
+	if len(t.GenesisForkOverride) > 0 && t.Genesis == "" {
+		return fmt.Errorf("%s.genesis_fork_override requires genesis", prefix)
+	}
+
+	if t.GenesisEIPOverride != nil && len(t.GenesisEIPOverride.EIPs) > 0 && t.Genesis == "" {
+		return fmt.Errorf("%s.genesis_eip_override requires genesis", prefix)
+	}
+
+	if len(t.GenesisForkOverride) > 0 && t.GenesisEIPOverride != nil {
+		return fmt.Errorf(
+			"%s: genesis_fork_override and genesis_eip_override are mutually exclusive", prefix,
+		)
+	}
+
+	if t.AddressStubsFile != "" && !filepath.IsAbs(t.AddressStubsFile) {
+		return fmt.Errorf(
+			"%s.address_stubs_file must be an absolute path, got %q", prefix, t.AddressStubsFile,
+		)
+	}
+
+	if t.AddressStubsFile != "" && len(t.AddressStubs) > 0 {
+		return fmt.Errorf(
+			"%s: address_stubs_file and address_stubs are mutually exclusive", prefix,
+		)
+	}
+
+	for name, stub := range t.AddressStubs {
+		if stub["addr"] == "" {
+			return fmt.Errorf("%s.address_stubs[%q].addr is required", prefix, name)
+		}
+	}
+
+	return nil
+}
+
+// validateGasBenchmarkValues checks a list of positive integers (millions of
+// gas), e.g. [10, 30]. An empty list is allowed.
+func validateGasBenchmarkValues(values []int, prefix string) error {
+	for _, v := range values {
+		if v < 1 {
+			return fmt.Errorf(
+				"%s.gas_benchmark_values: %d is not a positive integer (millions of gas)", prefix, v,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateFixedOpcodeCount checks a list of positive numbers (thousands of
+// opcodes), e.g. [0.5, 1, 2]. A nil pointer (unset) is allowed, as is a
+// non-nil empty list (passes the bare --fixed-opcode-count flag, which uses
+// the fill image's .fixed_opcode_counts.json default).
+func validateFixedOpcodeCount(values *[]float64, prefix string) error {
+	if values == nil {
+		return nil
+	}
+
+	for _, v := range *values {
+		if v <= 0 {
+			return fmt.Errorf(
+				"%s.fixed_opcode_count: %v is not a positive number (thousands of opcodes)", prefix, v,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validDataDirMethods mirrors the datadir.method vocabulary accepted by
+// pkg/datadir.NewProvider and DataDirConfig validation.
+var validDataDirMethods = map[string]bool{
+	"":               true, // unset → copy
+	"copy":           true,
+	"overlayfs":      true,
+	"fuse-overlayfs": true,
+	"zfs":            true,
+	"direct":         true,
+	"schelk":         true,
 }
 
 // validateLiveReporting checks the runner.live_reporting config when enabled.
@@ -3240,4 +3926,145 @@ func restoreEnvironmentKeyCasing(cfg *Config, rawYAMLs []string) {
 			cfg.Runner.Instances[i].Environment = orig
 		}
 	}
+}
+
+// rawEESTStubs holds just the inline address_stubs map for one level of the
+// eest_payloads config (the global config block or a single target).
+type rawEESTStubs struct {
+	AddressStubs map[string]map[string]string `yaml:"address_stubs"`
+}
+
+// rawEESTBuilderConfig is a minimal struct used to re-parse inline
+// address_stubs maps, whose stub-name keys Viper lowercases (it is
+// case-insensitive). EEST resolves stub names by exact match, so the
+// original casing must be restored — both at the global config level
+// (hoisted into targets via ResolveTarget) and per target.
+type rawEESTBuilderConfig struct {
+	Builder struct {
+		EESTPayloads struct {
+			Config  *rawEESTStubs  `yaml:"config"`
+			Targets []rawEESTStubs `yaml:"targets"`
+		} `yaml:"eest_payloads"`
+	} `yaml:"builder"`
+}
+
+// restoreAddressStubsKeyCasing re-parses the raw YAML to recover the original
+// casing of inline address_stubs stub-name keys that Viper lowercased. Viper
+// replaces (rather than appends) list values on merge, so the last config file
+// that defines targets (or the config block) wins — mirror that with a
+// last-wins positional match.
+func restoreAddressStubsKeyCasing(cfg *Config, rawYAMLs []string) {
+	if cfg.Builder == nil || cfg.Builder.EESTPayloads == nil {
+		return
+	}
+
+	ep := cfg.Builder.EESTPayloads
+
+	// configStubs accumulates the config-block stubs across all files (later
+	// files win per key), mirroring how Viper deep-merges the config map — so a
+	// config.address_stubs set in an earlier file isn't dropped when a later
+	// file only touches some other config field. Targets, by contrast, are
+	// replaced wholesale on merge, so the last file's list wins (see below).
+	configStubs := make(map[string]map[string]string)
+
+	var rawTargets []rawEESTStubs
+
+	for _, raw := range rawYAMLs {
+		var parsed rawEESTBuilderConfig
+		if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil {
+			continue
+		}
+
+		if c := parsed.Builder.EESTPayloads.Config; c != nil {
+			for name, stub := range c.AddressStubs {
+				configStubs[name] = stub
+			}
+		}
+
+		if len(parsed.Builder.EESTPayloads.Targets) > 0 {
+			rawTargets = parsed.Builder.EESTPayloads.Targets
+		}
+	}
+
+	// Global config defaults (hoisted into targets at resolve time).
+	if ep.Config != nil && len(configStubs) > 0 {
+		ep.Config.AddressStubs = configStubs
+	}
+
+	// Per-target stubs. Only restore when the winning file's target list aligns
+	// 1:1 with the resolved config; otherwise leave the (lowercased) keys
+	// untouched rather than risk mismatching stubs onto the wrong target.
+	if len(rawTargets) != len(ep.Targets) {
+		return
+	}
+
+	for i := range ep.Targets {
+		if len(rawTargets[i].AddressStubs) > 0 {
+			ep.Targets[i].AddressStubs = rawTargets[i].AddressStubs
+		}
+	}
+}
+
+// normalizeStateActorSpec resolves builder.state_actor.spec from the raw YAML
+// into a YAML string body. The field is excluded from Viper decoding so it can
+// be authored either as a structured mapping (for editor syntax highlighting)
+// or as a "|" block scalar — both normalize to the body state-actor consumes.
+// Re-parsing the raw YAML preserves number formatting, value casing and
+// comments that a Viper round-trip would lose. Last file with a spec wins (it
+// is a scalar override, not a merged map).
+func normalizeStateActorSpec(cfg *Config, rawYAMLs []string) {
+	if cfg.Builder == nil || cfg.Builder.StateActor == nil {
+		return
+	}
+
+	for _, raw := range rawYAMLs {
+		var doc yaml.Node
+		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil || len(doc.Content) == 0 {
+			continue
+		}
+
+		spec := yamlMapValue(yamlMapValue(yamlMapValue(doc.Content[0], "builder"), "state_actor"), "spec")
+		if spec == nil {
+			continue
+		}
+
+		body, err := stateActorSpecBody(spec)
+		if err != nil {
+			continue
+		}
+
+		cfg.Builder.StateActor.Spec = body
+	}
+}
+
+// stateActorSpecBody serializes a spec node to the YAML body state-actor reads:
+// a scalar (a "|" block) yields its string content verbatim; a mapping is
+// re-marshaled to YAML.
+func stateActorSpecBody(node *yaml.Node) (string, error) {
+	if node.Kind == yaml.ScalarNode {
+		return node.Value, nil
+	}
+
+	out, err := yaml.Marshal(node)
+	if err != nil {
+		return "", err
+	}
+
+	return string(out), nil
+}
+
+// yamlMapValue returns the value node for key in a YAML mapping node, or nil
+// when the node is not a mapping or the key is absent.
+func yamlMapValue(m *yaml.Node, key string) *yaml.Node {
+	if m == nil || m.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+
+	return nil
 }

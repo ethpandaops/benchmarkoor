@@ -4,3 +4,11 @@ extend-exclude = ["go.mod"]
 [default.extend-words]
 PANC = "PANC"
 ERRO = "ERRO"
+BULD = "BULD"
+
+# EIP-7928 block access lists. typos splits the identifier "BALs" into "BA"+"Ls"
+# and flags "BA" as a typo of "BY"/"BE"; allow the whole identifier (and the
+# singular "BAL") so the BAL terminology in comments/config passes.
+[default.extend-identifiers]
+BAL = "BAL"
+BALs = "BALs"

@@ -6,6 +6,11 @@
 
 global:
   log_level: ${LOG_LEVEL:-info}
+  # Optional directory configurations shared by the build and run commands.
+  # directories:
+  #   # On-disk cache: executor git/archive clones (run) and the EEST repo clone
+  #   # (build). Defaults to ~/.cache/benchmarkoor.
+  #   cachedir: ${TMP_DIR:-/tmp}/benchmarkoor-cache
 
 runner:
   # Container runtime: "docker" (default) or "podman".
@@ -24,8 +29,7 @@ runner:
   # directories:
   #   # Directory for temporary datadir copies (defaults to system temp).
   #   tmp_datadir: ${TMP_DIR:-/tmp}/benchmarkoor
-  #   # Directory for executor cache - git clones, etc (defaults to ~/.cache/benchmarkoor).
-  #   tmp_cachedir: ${TMP_DIR:-/tmp}/benchmarkoor-cache
+  #   # (The shared cache dir lives under global.directories.cachedir.)
   # Optional: Override path to drop_caches file (default: /proc/sys/vm/drop_caches).
   # Useful when running in containers where the file is mounted at a different path.
   # drop_caches_path: /proc/sys/vm/drop_caches
@@ -266,6 +270,45 @@ runner:
 #         client: reth
 #         output_dir: /srv/state/reth-spec
 #         # inherits the top-level spec/spec_file and every field from `config`
+#
+#   # Optional: generate stateful EEST benchmark fixtures with fill-stateful.
+#   # Boots a filler client on a copy of a snapshot datadir (e.g. a state_actor
+#   # output_dir above), records engine-API payloads, and writes fixtures that
+#   # `run` consumes via tests.source.eest_fixtures. Runs after state_actor.
+#   # The fill image (uv/python toolchain) is built from a Dockerfile embedded in
+#   # the binary by default — nothing to publish. Optionally pull or customise it.
+#   eest_payloads:
+#     # fill_image: ghcr.io/your-org/eest-fill-stateful:latest   # pull a pre-built image instead
+#     # fill_dockerfile: pkg/builder/Dockerfile.eest-filler      # or build from a custom Dockerfile
+#     # pull_policy: always           # always | if-not-present | never
+#     # container_runtime: docker     # defaults to runner.container_runtime, then docker
+#     # jwt: <hex>                    # Engine API secret shared with the filler (default: built-in)
+#     # fill_command: [uv, run, fill-stateful]   # argv prefix inside fill_image (default)
+#     # EEST checkout cloned at build time and mounted into the fill container at
+#     # /eest (fill_image is just the uv/python toolchain). Cached on disk; re-cloned
+#     # only when the ref changes. Both default as shown.
+#     # eest_repo: https://github.com/ethereum/execution-specs.git
+#     # eest_ref: forks/amsterdam     # branch, tag, or commit to check out
+#     config:                         # shared per-target defaults; targets override when set
+#       filler_image: ethpandaops/geth:master
+#       fork: Osaka
+#       gas_benchmark_values: [10, 30] # millions of gas to parametrise against
+#       # fixed_opcode_count parametrises by opcode count (thousands) instead of gas;
+#       # mutually exclusive with gas_benchmark_values. [] passes the flag bare, which
+#       # uses the fill image's .fixed_opcode_counts.json default.
+#       # fixed_opcode_count: [0.5, 1, 2]
+#       datadir_method: copy          # copy | overlayfs | fuse-overlayfs | zfs | direct | schelk
+#     targets:
+#       - name: compute-geth
+#         filler_client: geth         # only geth is supported today
+#         source_dir: /srv/state/geth-5g            # PRISTINE snapshot (never mutated)
+#         genesis_file: /srv/state/geth-5g/genesis.json   # chain config for the filler boot
+#         output_dir: /srv/fixtures/compute
+#         tests:
+#           - tests/benchmark/compute # pytest paths inside the fill image
+#         # filter: bn128             # optional pytest -k expression
+#         # force: true               # wipe output_dir before filling
+#         # address_stubs_file: /etc/benchmarkoor/stubs.json  # for stub-dependent tests
 
 # Optional: API server for authentication and user management.
 # When configured, the UI can integrate with the API for login, admin, and role-based access.

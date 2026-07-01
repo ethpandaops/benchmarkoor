@@ -1,0 +1,64 @@
+# Dockerfile.eest-filler
+#
+# The default fill-image Dockerfile: it carries only `uv` + python + the build
+# toolchain — NOT the execution-specs repo. benchmarkoor clones execution-specs
+# at build time (at the configured `eest_ref`, caching it on disk) and mounts the
+# checkout into this container at /eest, then runs `uv run fill-stateful`. uv
+# builds the venv into the mounted checkout on first use (cached across runs).
+# This keeps the EEST version in config and changeable without rebuilding the image.
+#
+# This file is embedded into the benchmarkoor binary (see pkg/builder), so by
+# default the fill image is built from it with no Dockerfile needed on disk. Set
+# builder.eest_payloads.fill_image to pull a pre-built image, or fill_dockerfile
+# to build from a custom one.
+#
+# fill-stateful drives a *live* EL client over testing_buildBlockV1, so — unlike
+# the t8n-based `fill` — it needs NO evmone/eels transition-tool binary.
+#
+# Build it by hand (from the repo root):
+#   docker build -f pkg/builder/Dockerfile.eest-filler -t ghcr.io/your-org/eest-fill-stateful:latest .
+#   # (podman build works identically)
+#
+# Then point your config at it:
+#   builder:
+#     eest_payloads:
+#       fill_image: ghcr.io/your-org/eest-fill-stateful:latest
+#       eest_ref: forks/amsterdam   # optional; defaults to forks/amsterdam
+
+ARG PYTHON_VERSION=3.12
+
+FROM python:${PYTHON_VERSION}-slim-bookworm
+
+# uv: copy the static binary from the official image (recommended pattern).
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# Runtime deps: git (fill-stateful reads its commit hash from the checkout, and
+# uv resolves git deps); ca-certificates for HTTPS to PyPI; build-essential plus
+# clang/libclang-dev/pkg-config for EEST dependencies without a prebuilt wheel.
+# In particular `ethereum-execution[optimized]` pulls in rust-pyspec-glue, whose
+# native mdbx-sys crate has no arm64 wheel and is compiled from source: its build
+# script runs bindgen, which dlopens libclang. Cargo itself is bootstrapped by uv
+# at build time, so only the clang toolchain has to be present in the image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git \
+        ca-certificates \
+        build-essential \
+        clang \
+        libclang-dev \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Point bindgen/clang-sys straight at the bookworm-default LLVM 14 libclang so it
+# never falls back to its "couldn't find any valid shared libraries" failure. The
+# base image is pinned to bookworm (above), so the LLVM major version is stable.
+ENV LIBCLANG_PATH=/usr/lib/llvm-14/lib
+
+ENV UV_NO_PROGRESS=1
+
+# The execution-specs checkout is bind-mounted here by benchmarkoor at run time;
+# the relative test paths (e.g. tests/benchmark/stateful) resolve against it.
+WORKDIR /eest
+
+# Standalone default; benchmarkoor overrides this with the full fill-stateful argv.
+CMD ["uv", "--version"]

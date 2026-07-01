@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/builder"
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
@@ -45,6 +46,12 @@ type managedContainer struct {
 // managedVolume associates a volume with the manager that owns it.
 type managedVolume struct {
 	info docker.VolumeInfo
+	mgr  docker.ContainerManager
+}
+
+// managedNetwork associates a network name with the manager that owns it.
+type managedNetwork struct {
+	name string
 	mgr  docker.ContainerManager
 }
 
@@ -95,6 +102,22 @@ func performCleanup(ctx context.Context, managers []docker.ContainerManager, for
 		}
 	}
 
+	// Detect the shared eest_payloads build network, left behind after a build.
+	var networks []managedNetwork
+
+	for _, mgr := range managers {
+		exists, err := mgr.NetworkExists(ctx, builder.EESTBuildNetwork)
+		if err != nil {
+			log.WithError(err).Warn("Failed to check for the build network")
+
+			continue
+		}
+
+		if exists {
+			networks = append(networks, managedNetwork{name: builder.EESTBuildNetwork, mgr: mgr})
+		}
+	}
+
 	// List orphaned ZFS resources.
 	zfsResources, err := datadir.ListOrphanedZFSResources(ctx)
 	if err != nil {
@@ -113,8 +136,8 @@ func performCleanup(ctx context.Context, managers []docker.ContainerManager, for
 		log.WithError(err).Warn("Failed to list CPU frequency state files")
 	}
 
-	if len(containers) == 0 && len(volumes) == 0 && len(zfsResources) == 0 &&
-		len(overlayMounts) == 0 && len(cpufreqStateFiles) == 0 {
+	if len(containers) == 0 && len(volumes) == 0 && len(networks) == 0 &&
+		len(zfsResources) == 0 && len(overlayMounts) == 0 && len(cpufreqStateFiles) == 0 {
 		log.Info("No benchmarkoor resources found")
 
 		return nil
@@ -134,6 +157,14 @@ func performCleanup(ctx context.Context, managers []docker.ContainerManager, for
 
 		for _, v := range volumes {
 			fmt.Printf("  - %s\n", v.info.Name)
+		}
+	}
+
+	if len(networks) > 0 {
+		fmt.Printf("\nNetworks to be removed (%d):\n", len(networks))
+
+		for _, n := range networks {
+			fmt.Printf("  - %s\n", n.name)
 		}
 	}
 
@@ -197,6 +228,15 @@ func performCleanup(ctx context.Context, managers []docker.ContainerManager, for
 
 		if err := v.mgr.RemoveVolume(ctx, v.info.Name); err != nil {
 			log.WithError(err).WithField("volume", v.info.Name).Warn("Failed to remove volume")
+		}
+	}
+
+	// Remove networks (after their containers are gone).
+	for _, n := range networks {
+		log.WithField("network", n.name).Info("Removing network")
+
+		if err := n.mgr.RemoveNetwork(ctx, n.name); err != nil {
+			log.WithError(err).WithField("network", n.name).Warn("Failed to remove network")
 		}
 	}
 

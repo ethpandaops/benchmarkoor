@@ -96,7 +96,11 @@ function GitHubIcon({ className }: { className?: string }) {
   )
 }
 
-function getGitHubUrl(repo: string, sha?: string, directory?: string): string {
+function getGitHubUrl(repo?: string, sha?: string, directory?: string): string {
+  if (!repo) {
+    return ''
+  }
+
   let baseUrl = repo
   if (repo.startsWith('git@github.com:')) {
     baseUrl = repo.replace('git@github.com:', 'https://github.com/').replace(/\.git$/, '')
@@ -130,7 +134,14 @@ function SourceTypeBadge({ source }: { source: SourceInfo }) {
   if (source.eest) {
     const hasArtifacts =
       source.eest.fixtures_artifact_name || source.eest.genesis_artifact_name
-    return <Badge variant="success">{hasArtifacts ? 'EEST Artifact' : 'EEST Release'}</Badge>
+    const isLocal =
+      !source.eest.github_repo &&
+      (source.eest.local_fixtures_dir ||
+        source.eest.local_genesis_dir ||
+        source.eest.local_fixtures_tarball ||
+        source.eest.local_genesis_tarball)
+    const label = isLocal ? 'EEST Local' : hasArtifacts ? 'EEST Artifact' : 'EEST Release'
+    return <Badge variant="success">{label}</Badge>
   }
 
   return null
@@ -290,15 +301,32 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
         : 'View on GitHub'
     const hasArtifacts =
       eest.fixtures_artifact_name || eest.genesis_artifact_name || eest.fixtures_artifact_run_id || eest.genesis_artifact_run_id
+    // Local-directory / tarball sources (e.g. stateful fixtures built locally)
+    // have no GitHub repo, release, or artifact — only show the GitHub link when
+    // there is actually a repo to point at.
+    const localFields: Array<{ label: string; value: string }> = [
+      { label: 'Local Fixtures Dir', value: eest.local_fixtures_dir ?? '' },
+      { label: 'Local Genesis Dir', value: eest.local_genesis_dir ?? '' },
+      { label: 'Local Fixtures Tarball', value: eest.local_fixtures_tarball ?? '' },
+      { label: 'Local Genesis Tarball', value: eest.local_genesis_tarball ?? '' },
+    ].filter((f) => f.value)
 
     return (
       <Card title={<span className="flex items-center gap-2">{title}<SourceTypeBadge source={source} /></span>} collapsible>
         <div className="flex flex-col gap-4">
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Repository</dt>
-              <dd className="mt-1 break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.github_repo}</dd>
-            </div>
+            {eest.github_repo && (
+              <div>
+                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Repository</dt>
+                <dd className="mt-1 break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">{eest.github_repo}</dd>
+              </div>
+            )}
+            {localFields.map((f) => (
+              <div key={f.label}>
+                <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">{f.label}</dt>
+                <dd className="mt-1 break-all font-mono text-sm/6 text-gray-900 dark:text-gray-100">{f.value}</dd>
+              </div>
+            ))}
             {eest.github_release && (
               <div>
                 <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Release</dt>
@@ -381,15 +409,17 @@ export function SuiteSource({ title, source }: SuiteSourceProps) {
               </dl>
             </div>
           )}
-          <a
-            href={githubLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex w-fit items-center gap-2 rounded-xs bg-gray-900 px-3 py-1.5 text-sm/6 font-medium text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300"
-          >
-            <GitHubIcon className="size-4" />
-            {githubLinkLabel}
-          </a>
+          {eest.github_repo && (
+            <a
+              href={githubLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-fit items-center gap-2 rounded-xs bg-gray-900 px-3 py-1.5 text-sm/6 font-medium text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300"
+            >
+              <GitHubIcon className="size-4" />
+              {githubLinkLabel}
+            </a>
+          )}
         </div>
       </Card>
     )

@@ -220,6 +220,198 @@ func TestConvertFixture_PayloadVersions(t *testing.T) {
 	}
 }
 
+// statefulPayload builds a minimal EngineNewPayload for stateful conversion
+// tests, with the given block number/hash/parent.
+func statefulPayload(number, hash, parent string) *EngineNewPayload {
+	return &EngineNewPayload{
+		ExecutionPayload: &ExecutionPayload{
+			ParentHash:    parent,
+			FeeRecipient:  "0xfee",
+			StateRoot:     "0xstate",
+			ReceiptsRoot:  "0xreceipts",
+			LogsBloom:     "0xbloom",
+			PrevRandao:    "0xrandao",
+			BlockNumber:   number,
+			GasLimit:      "0x1000000",
+			GasUsed:       "0x0",
+			Timestamp:     "0x100",
+			ExtraData:     "0x",
+			BaseFeePerGas: "0x7",
+			BlockHash:     hash,
+			Transactions:  []string{},
+		},
+		NewPayloadVersion:        4,
+		ForkchoiceUpdatedVersion: 3,
+		BlobVersionedHashes:      []string{},
+		ParentBeaconBlockRoot:    "0xbeacon",
+		ExecutionRequests:        []string{},
+	}
+}
+
+func TestConvertStatefulFixture(t *testing.T) {
+	preRun := &StatefulPreRun{
+		SnapshotBlockHash: "0xsnapshot",
+		StartBlockHash:    "0xstart",
+		// snapshot (0x0) -> start (0x3): three pre_run blocks.
+		EngineNewPayloads: []*EngineNewPayload{
+			statefulPayload("0x1", "0xb1", "0xsnapshot"),
+			statefulPayload("0x2", "0xb2", "0xb1"),
+			statefulPayload("0x3", "0xstart", "0xb2"),
+		},
+	}
+
+	fixture := &Fixture{
+		Info:              &FixtureInfo{FixtureFormat: SupportedStatefulFixtureFormat},
+		Network:           "Osaka",
+		SnapshotBlockHash: "0xsnapshot",
+		StartBlockHash:    "0xstart",
+		LastBlockHash:     "0xbench",
+		// start (0x3) -> setup (0x4).
+		SetupEngineNewPayloads: []*EngineNewPayload{
+			statefulPayload("0x4", "0xsetup", "0xstart"),
+		},
+		// setup (0x4) -> benchmark (0x5): the measured block.
+		EngineNewPayloads: []*EngineNewPayload{
+			statefulPayload("0x5", "0xbench", "0xsetup"),
+		},
+	}
+
+	result, err := ConvertStatefulFixture("test_stateful", fixture, preRun)
+	require.NoError(t, err)
+
+	assert.Equal(t, "test_stateful", result.Name)
+	// GenesisHash carries the snapshot hash for reporting.
+	assert.Equal(t, "0xsnapshot", result.GenesisHash)
+	assert.Equal(t, "0xbench", result.FinalHash)
+	// 3 pre_run + 1 setup + 1 benchmark = 5 payloads.
+	assert.Equal(t, 5, result.PayloadCount)
+	// Setup = (3 pre_run + 1 setup) * 2 lines (newPayload + fcU).
+	assert.Len(t, result.SetupLines, 8)
+	// Test = 1 benchmark * 2 lines.
+	assert.Len(t, result.TestLines, 2)
+
+	// Ordering by CONTENT (not just method name): the shared pre_run blocks must
+	// precede the fixture's own setup block. SetupLines are (newPayload, fcU)
+	// pairs, so newPayload lines sit at even indices: [0]=pre_run#1, [2]=pre_run#2,
+	// [4]=pre_run#3 (start), [6]=setup.
+	assert.Equal(t, "engine_newPayloadV4", rpcMethod(t, result.SetupLines[0]))
+	assert.Equal(t, "0xb1", newPayloadBlockHash(t, result.SetupLines[0]),
+		"first setup line must replay the first pre_run block, not the fixture's setup")
+	assert.Equal(t, "0xstart", newPayloadBlockHash(t, result.SetupLines[4]),
+		"third newPayload is the last pre_run block (start)")
+	assert.Equal(t, "0xsetup", newPayloadBlockHash(t, result.SetupLines[6]),
+		"the fixture's own setup block comes AFTER the pre_run blocks")
+
+	// The benchmark newPayload is the test step.
+	assert.Equal(t, "engine_newPayloadV4", rpcMethod(t, result.TestLines[0]))
+	assert.Equal(t, "0xbench", newPayloadBlockHash(t, result.TestLines[0]))
+}
+
+// rpcMethod decodes a JSON-RPC line and returns its "method".
+func rpcMethod(t *testing.T, line string) string {
+	t.Helper()
+
+	var call map[string]any
+	require.NoError(t, json.Unmarshal([]byte(line), &call))
+
+	method, _ := call["method"].(string)
+
+	return method
+}
+
+// newPayloadBlockHash decodes an engine_newPayloadVX line and returns the
+// execution payload's blockHash (params[0].blockHash).
+func newPayloadBlockHash(t *testing.T, line string) string {
+	t.Helper()
+
+	var call map[string]any
+	require.NoError(t, json.Unmarshal([]byte(line), &call))
+
+	params, ok := call["params"].([]any)
+	require.True(t, ok && len(params) > 0, "newPayload line must carry params")
+
+	payload, ok := params[0].(map[string]any)
+	require.True(t, ok, "first param must be the execution payload object")
+
+	hash, _ := payload["blockHash"].(string)
+
+	return hash
+}
+
+func TestConvertStatefulFixture_NilPreRun(t *testing.T) {
+	fixture := &Fixture{
+		Info:                   &FixtureInfo{FixtureFormat: SupportedStatefulFixtureFormat},
+		SnapshotBlockHash:      "0xsnapshot",
+		SetupEngineNewPayloads: []*EngineNewPayload{statefulPayload("0x4", "0xsetup", "0xstart")},
+		EngineNewPayloads:      []*EngineNewPayload{statefulPayload("0x5", "0xbench", "0xsetup")},
+	}
+
+	result, err := ConvertStatefulFixture("test_stateful", fixture, nil)
+	require.NoError(t, err)
+
+	// Without pre_run, only the fixture's own setup payload is replayed.
+	assert.Len(t, result.SetupLines, 2)
+	assert.Len(t, result.TestLines, 2)
+	assert.Equal(t, 2, result.PayloadCount)
+}
+
+func TestConvertStatefulFixture_NoBenchmarkPayloads(t *testing.T) {
+	fixture := &Fixture{
+		Info:                   &FixtureInfo{FixtureFormat: SupportedStatefulFixtureFormat},
+		SetupEngineNewPayloads: []*EngineNewPayload{statefulPayload("0x4", "0xsetup", "0xstart")},
+		EngineNewPayloads:      []*EngineNewPayload{},
+	}
+
+	_, err := ConvertStatefulFixture("test", fixture, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no benchmark payloads")
+}
+
+func TestConvertStatefulFixture_NilFixture(t *testing.T) {
+	_, err := ConvertStatefulFixture("test", nil, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "fixture is nil")
+}
+
+func TestParsePreRunFile(t *testing.T) {
+	jsonData := `{
+		"network": "Osaka",
+		"snapshotBlockHash": "0xsnapshot",
+		"startBlockHash": "0xstart",
+		"engineNewPayloads": [
+			{
+				"newPayloadVersion": "4",
+				"forkchoiceUpdatedVersion": "3",
+				"params": [
+					{"parentHash":"0xsnapshot","feeRecipient":"0xfee","stateRoot":"0xs",
+					 "receiptsRoot":"0xr","logsBloom":"0xb","prevRandao":"0xrd",
+					 "blockNumber":"0x1","gasLimit":"0x1000000","gasUsed":"0x0",
+					 "timestamp":"0x100","extraData":"0x","baseFeePerGas":"0x7",
+					 "blockHash":"0xstart","transactions":[]},
+					[], "0xbeacon", []
+				]
+			}
+		]
+	}`
+
+	preRun, err := ParsePreRunFile([]byte(jsonData))
+	require.NoError(t, err)
+	assert.Equal(t, "0xstart", preRun.StartBlockHash)
+	assert.Equal(t, "0xsnapshot", preRun.SnapshotBlockHash)
+	require.Len(t, preRun.EngineNewPayloads, 1)
+	assert.Equal(t, 4, preRun.EngineNewPayloads[0].NewPayloadVersion)
+}
+
+func TestFixture_IsStateful(t *testing.T) {
+	stateful := &Fixture{Info: &FixtureInfo{FixtureFormat: SupportedStatefulFixtureFormat}}
+	assert.True(t, stateful.IsStateful())
+	assert.True(t, stateful.IsSupportedFormat())
+
+	genesisBased := &Fixture{Info: &FixtureInfo{FixtureFormat: SupportedFixtureFormat}}
+	assert.False(t, genesisBased.IsStateful())
+	assert.True(t, genesisBased.IsSupportedFormat())
+}
+
 func TestParseFixtureFile(t *testing.T) {
 	jsonData := `{
 		"test_one": {

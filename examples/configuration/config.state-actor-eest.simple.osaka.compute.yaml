@@ -1,0 +1,206 @@
+# Building data directories and EEST COMPUTE payloads — OSAKA fill.
+# ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.simple.osaka.compute.yaml --force
+#
+# Running benchmark using geth:
+# ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.simple.osaka.compute.yaml --limit-instance-id=geth
+#
+global:
+  log_level: info
+  env:
+    # Per-config dirs so configs that build different state-actor snapshots or
+    # EEST fixtures don't collide under /tmp. Override by exporting these. Each
+    # client writes under its own <prefix>/<client> subdir.
+    STATE_DIR: /tmp/benchmarkoor/state-actor/simple-osaka-compute
+    EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/simple-osaka-compute
+    EEST_FIXTURES_RUNNER_SOURCE: geth   # which filler's fixtures the runner replays
+
+builder:
+  ## Stage 1: Building datadirs using state-actor
+  state_actor:
+    images:
+      geth: ghcr.io/ethereum/state-actor:main
+      reth: ghcr.io/ethereum/state-actor-reth:main
+      besu: ghcr.io/ethereum/state-actor-besu:main
+      nethermind: ghcr.io/ethereum/state-actor-nethermind:main
+      ethrex: ghcr.io/ethereum/state-actor-ethrex:main
+      erigon: ghcr.io/ethereum/state-actor-erigon:main
+    pull_policy: always
+    config:
+      seed: 1234
+      fork: osaka
+      chain: 1337
+      gas_limit: 300000000 # 300M
+      target_size: 256MB
+      #target_size: 20GB
+    spec:
+      entities:
+        - kind: eoa
+          name: bloated-eoa-2g
+          balance: "1000000000000000000"
+          nonce: 0
+          code: "0xef01003333333333333333333333333333333333333333"
+          approximate_size_bytes: 2_000_000_000
+    targets:
+      - client: geth
+        output_dir: ${STATE_DIR}/geth
+      - client: reth
+        output_dir: ${STATE_DIR}/reth
+      - client: nethermind
+        output_dir: ${STATE_DIR}/nethermind
+      - client: besu
+        output_dir: ${STATE_DIR}/besu
+      - client: ethrex
+        output_dir: ${STATE_DIR}/ethrex
+      - client: erigon
+        output_dir: ${STATE_DIR}/erigon
+
+  ## Stage 2: Building EEST stateful fixtures
+  eest_payloads:
+    # By default benchmarkoor builds the fill image (uv/python toolchain) from a
+    # Dockerfile embedded in the binary. Set fill_image: <pre-built image> to pull
+    # one instead, or fill_dockerfile: <path> to build from a custom Dockerfile.
+    pull_policy: always
+    eest_repo: https://github.com/ethereum/execution-specs.git
+    eest_ref: forks/amsterdam
+    config:
+      fork: osaka
+      gas_benchmark_values: [10]  # Millions of gas to parametrise against
+      datadir_method: copy        # 1GB snapshot; copy is fine (For bigger dirs we should use zfs/overlayfs/schelk)
+      # Every target fills the same compute subset, so hoist tests + filter here.
+      tests:
+        - tests/benchmark/compute   # pytest paths inside the fill image
+      filter: bn128 # Quick subset for fast end-to-end iteration: only the bn128 compute tests.
+    # fill-stateful forces testing_buildBlockV1 + debug_setHead, so a filler must
+    # implement both. geth (ethpandaops/geth) does. besu/nethermind are plumbed
+    # in benchmarkoor (see fillerCommand in pkg/builder) but blocked upstream, so
+    # their targets are commented out below — uncomment to experiment once the
+    # upstream gaps close.
+    targets:
+      - name: payload-generator-geth
+        filler_client: geth
+        filler_image: ethpandaops/geth:master
+        source_dir: ${STATE_DIR}/geth
+        output_dir: ${EEST_FIXTURES_DIR}/geth
+      # besu: testing_buildBlockV1 (TESTING namespace, besu-eth/besu#9838),
+      # debug_setHead and the session-fee pin all work, but besu's self-built
+      # block fails its own engine_newPayloadV4 with a World-State-Root mismatch
+      # (upstream besu bug in testing_buildBlockV1). Re-enable when fixed.
+      # - name: payload-generator-besu
+      #   filler_client: besu
+      #   filler_image: ethpandaops/besu:main
+      #   source_dir: ${STATE_DIR}/besu
+      #   genesis: ${STATE_DIR}/besu/besu-chainspec.json
+      #   output_dir: ${EEST_FIXTURES_DIR}/besu
+      # nethermind cross-client filler — uncomment to also fill via nethermind.
+      # - name: payload-generator-nethermind
+      #   filler_client: nethermind
+      #   filler_image: nethermindeth/nethermind:master
+      #   source_dir: ${STATE_DIR}/nethermind
+      #   genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
+      #   output_dir: ${EEST_FIXTURES_DIR}/nethermind
+
+## Stage 3: Run benchmarks using the state-actor datadirs and the eest payloads
+runner:
+  client_logs_to_stdout: true
+  cleanup_on_start: false
+  benchmark:
+    results_dir: ./results
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      source:
+        eest_fixtures:
+          local_fixtures_dir: ${EEST_FIXTURES_DIR}/${EEST_FIXTURES_RUNNER_SOURCE}
+          fixtures_subdir: blockchain_tests_stateful_engine
+  client:
+    config:
+      # Booting from a snapshot datadir leaves the Engine API forkchoice head
+      # un-established, so clients answer SYNCING to every newPayload. A bootstrap
+      # FCU to the snapshot head makes them canonical and ready to validate the
+      # replayed payloads (required for besu/reth/nethermind; geth is fine without).
+      bootstrap_fcu:
+        enabled: true
+        max_retries: 10
+        backoff: 1s
+      genesis:
+        nethermind: ${STATE_DIR}/nethermind/parity-chainspec.json
+        #geth: ${STATE_DIR}/geth/geth-genesis.json
+        reth:  ${STATE_DIR}/reth/chainspec.json
+        besu: ${STATE_DIR}/besu/besu-chainspec.json
+        ethrex: ${STATE_DIR}/ethrex/ethrex-genesis.json
+        # erigon consumes a geth-format genesis via its init container. Filename
+        # follows the per-client state-actor convention (geth-genesis.json,
+        # ethrex-genesis.json); confirm/adjust once state-actor publishes the
+        # erigon image.
+        erigon: ${STATE_DIR}/erigon/chainspec.json
+        #erigon: ${STATE_DIR}/geth/geth-genesis.json
+
+    datadirs:
+      geth:
+        source_dir: ${STATE_DIR}/geth
+        method: copy
+      reth:
+        source_dir: ${STATE_DIR}/reth
+        method: copy
+      nethermind:
+        source_dir: ${STATE_DIR}/nethermind
+        method: copy
+      besu:
+        source_dir: ${STATE_DIR}/besu
+        method: copy
+      ethrex:
+        source_dir: ${STATE_DIR}/ethrex
+        method: copy
+      erigon:
+        source_dir: ${STATE_DIR}/erigon
+        method: copy
+
+  instances:
+    - id: geth
+      client: geth
+      image: ethpandaops/geth:master
+    - id: reth
+      client: reth
+      #image: ghcr.io/paradigmxyz/reth:latest
+      image: ghcr.io/paradigmxyz/reth:nightly@sha256:e528857e5e9ebc2c6cb99f28436e70ded38ca905629f00afc98d186e27d206e0
+    - id: nethermind
+      client: nethermind
+      extra_args:
+        # benchmarkoor mounts the datadir at /data and the nethermind client
+        # passes --datadir=/data, but nethermind's BaseDbPath then defaults to
+        # /data/nethermind_db/<network>/ — so it reads a fresh EMPTY state db and
+        # ignores the state-actor snapshot written directly under /data/{state,
+        # blocks,headers,blockInfos}. It then builds genesis from the empty-alloc
+        # chainspec, so HasStateForBlock(genesis) is false and every replayed
+        # newPayload answers SYNCING. Pointing BaseDbPath at /data makes nethermind
+        # read the snapshot directly (it then logs "Detected HalfPath key scheme").
+        - --Init.BaseDbPath=/data
+    - id: besu
+      client: besu
+      # besu needs --p2p-enabled=true to accept the bootstrap FCU on a snapshot:
+      # its synchronizer must run to register the post-merge head as in-sync,
+      # otherwise besu answers SYNCING. --max-peers=0 + --discovery-enabled=false
+      # (the client defaults) keep it isolated — no real peers.
+      image: hyperledger/besu:26.6.1
+      extra_args:
+        - --p2p-enabled=true
+    - id: ethrex
+      client: ethrex
+      # ethrex >= v16.0.0 is required: it's the first release with
+      # --skip-genesis-validation (lambdaclass/ethrex#6783), needed because the
+      # state-actor snapshot commits a synthetic state root that the emitted
+      # ethrex-genesis.json (empty alloc) can't reproduce.
+      image: ghcr.io/lambdaclass/ethrex:latest
+      extra_args:
+        - --skip-genesis-validation
+    - id: erigon
+      client: erigon
+      # MUST match the erigon that state-actor pins for the snapshot
+      # (Dockerfile.erigon builds erigon at the bal-devnet-7 commit and notes the
+      # daemon must use that exact binary). state-actor's `erigon init` encodes the
+      # MDBX chain config the bal-devnet-7 way (e.g. chainId as a JSON string);
+      # stable erigon (erigontech/erigon:latest, 3.4.x) panics reading it back with
+      # "cannot unmarshal \"1337\" into a *big.Int". ethpandaops/erigon:bal-devnet-7
+      # reads it correctly and supports the amsterdam/BAL (EIP-7928) fork these
+      # benchmarks target.
+      image: ethpandaops/erigon:bal-devnet-7

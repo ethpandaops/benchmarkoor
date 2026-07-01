@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -12,6 +14,67 @@ import (
 
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 )
+
+// testNameMarker is the file written into each per-test result directory holding
+// the full, un-sanitized test name. Result aggregation reads it to recover the
+// real name when the directory was shortened by sanitizeResultPath.
+const testNameMarker = ".test-name"
+
+// resolveTestName returns the full test name for a result directory relative to
+// resultsDir, reading the testNameMarker written by WriteStepResults. It falls
+// back to the directory path when the marker is absent (older results), and
+// caches per directory.
+func resolveTestName(resultsDir, dir string, cache map[string]string) string {
+	if v, ok := cache[dir]; ok {
+		return v
+	}
+
+	name := dir
+
+	if data, err := os.ReadFile(filepath.Join(resultsDir, dir, testNameMarker)); err == nil {
+		if s := strings.TrimSpace(string(data)); s != "" {
+			name = s
+		}
+	}
+
+	cache[dir] = name
+
+	return name
+}
+
+// maxResultPathComponent caps each path component of a test result directory
+// below the common 255-byte filename limit, leaving headroom for suffixes like
+// ".request". EEST benchmark node ids — especially the verbose stateful/bloatnet
+// params — can exceed the limit and make MkdirAll fail with "file name too long".
+const maxResultPathComponent = 200
+
+// sanitizeResultPath caps each "/"-separated component of a test result path to
+// maxResultPathComponent bytes. Over-long components are truncated and suffixed
+// with a short content hash so they stay unique and stable; components within
+// the limit are returned unchanged (so existing layouts don't move). Apply it
+// consistently wherever a test name becomes a filesystem path (suite output,
+// step results, post-test dir) so the directories match. The result.json inside
+// still records the full test name, and result aggregation walks the tree, so
+// truncating the directory name is safe.
+func sanitizeResultPath(name string) string {
+	parts := strings.Split(name, "/")
+
+	changed := false
+
+	for i, p := range parts {
+		if len(p) > maxResultPathComponent {
+			sum := sha256.Sum256([]byte(p))
+			parts[i] = p[:maxResultPathComponent-17] + "-" + hex.EncodeToString(sum[:8])
+			changed = true
+		}
+	}
+
+	if !changed {
+		return name
+	}
+
+	return strings.Join(parts, "/")
+}
 
 // MethodStats contains aggregated statistics for a single method (int64 values).
 type MethodStats struct {
@@ -570,9 +633,20 @@ func WriteStepResults(
 	owner *fsutil.OwnerConfig,
 ) error {
 	// Ensure the test directory exists.
-	testDir := filepath.Join(resultDir, testName)
+	testDir := filepath.Join(resultDir, sanitizeResultPath(testName))
 	if err := fsutil.MkdirAll(testDir, 0755, owner); err != nil {
 		return fmt.Errorf("creating test result directory: %w", err)
+	}
+
+	// Persist the full, un-sanitized test name alongside the results so result
+	// aggregation can recover it even when the directory name was shortened to
+	// fit the filesystem's filename limit (see sanitizeResultPath). Without this,
+	// downstream consumers (stats.json, the UI's EEST node-id parsing) would see
+	// the truncated+hashed directory name instead of the real test name.
+	if err := fsutil.WriteFile(
+		filepath.Join(testDir, testNameMarker), []byte(testName), 0644, owner,
+	); err != nil {
+		return fmt.Errorf("writing test name marker: %w", err)
 	}
 
 	// Base path is the step type (e.g., "setup", "test", "cleanup").
@@ -626,6 +700,9 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 		PreRunSteps: make(map[string]*StepResult),
 		Tests:       make(map[string]*TestEntry),
 	}
+
+	// Caches the directory → full test name lookup (see testNameMarker).
+	nameCache := make(map[string]string)
 
 	// Walk the results directory looking for .result-aggregated.json files.
 	err := filepath.Walk(resultsDir, func(path string, info os.FileInfo, err error) error {
@@ -683,10 +760,13 @@ func GenerateRunResult(resultsDir string) (*RunResult, error) {
 			return nil
 		}
 
-		// The test name is the directory containing the step files.
+		// The test name is the directory containing the step files; recover the
+		// full name from the marker when the directory was shortened.
 		testName := dir
 		if testName == "." {
 			testName = ""
+		} else {
+			testName = resolveTestName(resultsDir, dir, nameCache)
 		}
 
 		// Set the step result.
