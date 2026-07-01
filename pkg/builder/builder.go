@@ -43,4 +43,8 @@ type TargetInfo struct {
 type BuildOptions struct {
 	// Force, when true, removes OutputDir before mkdir.
 	Force bool
+	// RebuildOnDiff, when true, rebuilds a populated OutputDir if the current
+	// config fingerprint differs from the one recorded at the last build,
+	// instead of skipping. Ignored when Force is set (force always rebuilds).
+	RebuildOnDiff bool
 }

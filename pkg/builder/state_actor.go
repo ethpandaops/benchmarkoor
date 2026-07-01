@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
@@ -96,7 +97,10 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 	// `--force` to state-actor.
 	force := opts.Force || target.Force
 
-	if !force {
+	// Fast path: a populated output_dir with neither --force nor
+	// --rebuild-on-diff skips without resolving the spec (the original cheap
+	// skip). Diff detection and building both need the spec, resolved below.
+	if !force && !opts.RebuildOnDiff {
 		populated, err := isPopulated(target.OutputDir)
 		if err != nil {
 			return false, err
@@ -104,20 +108,16 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 
 		if populated {
 			log.Info("Skipping build: output_dir already populated " +
-				"(pass --force or set force: true on the target to rebuild)")
+				"(pass --force, --rebuild-on-diff, or set force: true on the target to rebuild)")
 
 			return true, nil
 		}
 	}
 
-	if err := prepareOutputDir(target.OutputDir, force); err != nil {
-		return false, err
-	}
-
-	// Resolve which source state-actor will see: an absolute host path to
-	// a spec file (real or temp) when this target inherits from the
-	// top-level spec/spec_file, or "" when the target opted out via its
-	// own target_size.
+	// Resolve the spec: an absolute host path to a spec file (real or temp) when
+	// this target inherits from the top-level spec/spec_file, or "" when the
+	// target opted out via its own target_size. Needed both to run the build and
+	// to fingerprint the spec content.
 	specPath, cleanupSpec, err := b.resolveSpecPath()
 	if err != nil {
 		return false, err
@@ -125,6 +125,39 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 
 	if cleanupSpec != nil {
 		defer cleanupSpec()
+	}
+
+	inputs, err := stateActorFingerprintInputs(target, image, specPath)
+	if err != nil {
+		return false, err
+	}
+
+	if !force && opts.RebuildOnDiff {
+		populated, err := isPopulated(target.OutputDir)
+		if err != nil {
+			return false, err
+		}
+
+		if populated {
+			dec, err := decideRebuild(target.OutputDir, inputs)
+			if err != nil {
+				return false, err
+			}
+
+			if !dec.rebuild {
+				log.Infof("Skipping build: output_dir already populated (%s)", dec.reason)
+
+				return true, nil
+			}
+
+			log.WithField("changed", dec.changed).Info("Config changed since last build; rebuilding")
+
+			force = true
+		}
+	}
+
+	if err := prepareOutputDir(target.OutputDir, force); err != nil {
+		return false, err
 	}
 
 	mounts, err := b.buildMounts(target, specPath)
@@ -172,6 +205,13 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 	if err := b.mgr.RunInitContainer(ctx, spec, stdout, stderr); err != nil {
 		return false, fmt.Errorf("running state-actor: %w (output tail: %s)",
 			err, tail.String())
+	}
+
+	// Record the config fingerprint so a later --rebuild-on-diff run can tell
+	// whether the datadir is stale. Best-effort: a failure here must not fail an
+	// otherwise-successful build.
+	if err := writeBuildSidecar(target.OutputDir, StateActorBuilderName, inputs); err != nil {
+		log.WithError(err).Warn("Failed to write build fingerprint sidecar")
 	}
 
 	log.Info("Build completed")
@@ -341,6 +381,35 @@ func buildArgs(target *config.StateActorTarget, specPath string) []string {
 	}
 
 	return args
+}
+
+// stateActorFingerprintInputs builds the canonical fingerprint of a state-actor
+// target's output-affecting config: the exact argv state-actor is invoked with
+// (minus the volatile --db path), the resolved image, and the spec content
+// hash. Deriving the args from buildArgs keeps the fingerprint in lockstep with
+// whatever actually determines the datadir.
+func stateActorFingerprintInputs(target *config.StateActorTarget, image, specPath string) (fingerprintInputs, error) {
+	raw := buildArgs(target, "")
+	args := make([]string, 0, len(raw))
+
+	for _, a := range raw {
+		if strings.HasPrefix(a, "--db=") {
+			continue
+		}
+
+		args = append(args, a)
+	}
+
+	specHash, err := sha256File(specPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return fingerprintInputs{
+		"args":        args,
+		"image":       image,
+		"spec_sha256": specHash,
+	}, nil
 }
 
 // dbPath returns the value for state-actor's --db flag. Geth requires

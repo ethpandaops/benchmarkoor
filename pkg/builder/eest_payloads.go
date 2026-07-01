@@ -146,6 +146,35 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 	// orchestration and streamed-client log line.
 	log := b.log.WithField("target", target.EffectiveName())
 
+	// Cascade: fold the source snapshot's fingerprint into ours so a rebuilt
+	// state-actor datadir (its config changed) also invalidates these fixtures.
+	// Best-effort — an absent/unreadable source sidecar contributes "".
+	sourceFP := ""
+	if sc, err := readBuildSidecar(target.SourceDir); err != nil {
+		log.WithError(err).Warn("Failed to read source snapshot fingerprint; ignoring for cascade")
+	} else if sc != nil {
+		sourceFP = sc.Fingerprint
+	}
+
+	// Resolve the EEST ref to a commit SHA lazily (a network round-trip) — only
+	// when a diff check or the sidecar write actually needs it.
+	var eestSHA string
+	var eestSHAResolved bool
+	resolveEESTSHA := func() (string, error) {
+		if eestSHAResolved {
+			return eestSHA, nil
+		}
+
+		sha, err := gitrepo.RemoteSHA(ctx, b.cfg.ResolveEESTRepo(), b.cfg.ResolveEESTRef())
+		if err != nil {
+			return "", err
+		}
+
+		eestSHA, eestSHAResolved = sha, true
+
+		return sha, nil
+	}
+
 	force := opts.Force || target.Force
 
 	if !force {
@@ -155,10 +184,37 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 		}
 
 		if populated {
-			log.Info("Skipping build: output_dir already populated " +
-				"(pass --force or set force: true on the target to rebuild)")
+			if !opts.RebuildOnDiff {
+				log.Info("Skipping build: output_dir already populated " +
+					"(pass --force, --rebuild-on-diff, or set force: true on the target to rebuild)")
 
-			return true, nil
+				return true, nil
+			}
+
+			sha, err := resolveEESTSHA()
+			if err != nil {
+				return false, fmt.Errorf("resolving EEST ref for diff check: %w", err)
+			}
+
+			inputs, err := b.eestFingerprintInputs(target, sha, sourceFP)
+			if err != nil {
+				return false, err
+			}
+
+			dec, err := decideRebuild(target.OutputDir, inputs)
+			if err != nil {
+				return false, err
+			}
+
+			if !dec.rebuild {
+				log.Infof("Skipping build: output_dir already populated (%s)", dec.reason)
+
+				return true, nil
+			}
+
+			log.WithField("changed", dec.changed).Info("Config changed since last build; rebuilding")
+
+			force = true
 		}
 	}
 
@@ -170,7 +226,102 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 		return false, err
 	}
 
-	return false, b.run(ctx, log, target)
+	if err := b.run(ctx, log, target); err != nil {
+		return false, err
+	}
+
+	// Record the config fingerprint for a later --rebuild-on-diff run.
+	// Best-effort; failure must not fail an otherwise-successful build.
+	if sha, err := resolveEESTSHA(); err != nil {
+		log.WithError(err).Warn("Failed to resolve EEST ref for build fingerprint; sidecar not written")
+	} else if inputs, err := b.eestFingerprintInputs(target, sha, sourceFP); err != nil {
+		log.WithError(err).Warn("Failed to compute build fingerprint; sidecar not written")
+	} else if err := writeBuildSidecar(target.OutputDir, EESTPayloadsBuilderName, inputs); err != nil {
+		log.WithError(err).Warn("Failed to write build fingerprint sidecar")
+	}
+
+	return false, nil
+}
+
+// eestFingerprintInputs builds the canonical fingerprint of an eest_payloads
+// target's output-affecting config: the fill parameters, the content hashes of
+// its input files (genesis, address stubs, fill Dockerfile), the resolved EEST
+// commit SHA, and the source snapshot's fingerprint (so a rebuilt snapshot
+// cascades into a fixtures rebuild).
+func (b *EESTPayloadsBuilder) eestFingerprintInputs(target *config.EESTPayloadTarget, eestSHA, sourceFingerprint string) (fingerprintInputs, error) {
+	genesisHash, err := sha256File(target.Genesis)
+	if err != nil {
+		return nil, err
+	}
+
+	stubsHash, err := b.addressStubsHash(target)
+	if err != nil {
+		return nil, err
+	}
+
+	fillDockerfileHash, err := b.fillDockerfileHash()
+	if err != nil {
+		return nil, err
+	}
+
+	return fingerprintInputs{
+		"filler_client":          target.FillerClient,
+		"filler_image":           target.FillerImage,
+		"filler_extra_args":      target.FillerExtraArgs,
+		"fork":                   target.Fork,
+		"tests":                  target.Tests,
+		"filter":                 target.Filter,
+		"marker":                 target.Marker,
+		"gas_benchmark_values":   target.GasBenchmarkValues,
+		"fixed_opcode_count":     target.FixedOpcodeCount,
+		"max_gas_per_test":       target.MaxGasPerTest,
+		"rpc_seed_key":           target.RPCSeedKey,
+		"datadir_method":         target.DataDirMethod,
+		"genesis_sha256":         genesisHash,
+		"genesis_fork_override":  target.GenesisForkOverride,
+		"genesis_eip_override":   target.GenesisEIPOverride,
+		"address_stubs_sha256":   stubsHash,
+		"fill_command":           b.cfg.ResolveFillCommand(),
+		"fill_image":             b.cfg.FillImage,
+		"fill_dockerfile_sha256": fillDockerfileHash,
+		"eest_repo":              b.cfg.ResolveEESTRepo(),
+		"eest_sha":               eestSHA,
+		"source_fingerprint":     sourceFingerprint,
+	}, nil
+}
+
+// addressStubsHash hashes the target's address stubs — the referenced file's
+// contents, or the inline map — returning "" when none are configured.
+func (b *EESTPayloadsBuilder) addressStubsHash(target *config.EESTPayloadTarget) (string, error) {
+	if target.AddressStubsFile != "" {
+		return sha256File(target.AddressStubsFile)
+	}
+
+	if len(target.AddressStubs) > 0 {
+		data, err := json.Marshal(target.AddressStubs)
+		if err != nil {
+			return "", fmt.Errorf("hashing address_stubs: %w", err)
+		}
+
+		return sha256Hex(data), nil
+	}
+
+	return "", nil
+}
+
+// fillDockerfileHash hashes the Dockerfile the fill image is built from (a
+// custom fill_dockerfile or the embedded default), or returns "" when a
+// pre-built fill_image is pulled instead (its identity is covered separately).
+func (b *EESTPayloadsBuilder) fillDockerfileHash() (string, error) {
+	if !b.cfg.BuildsFillImage() {
+		return "", nil
+	}
+
+	if b.cfg.FillDockerfile != "" {
+		return sha256File(b.cfg.FillDockerfile)
+	}
+
+	return sha256Hex(embeddedFillDockerfile), nil
 }
 
 // findTargetIndex returns the index of the first target whose EffectiveName

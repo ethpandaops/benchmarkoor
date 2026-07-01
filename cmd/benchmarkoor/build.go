@@ -25,6 +25,7 @@ var (
 	buildSkipStateActor     bool
 	buildSkipEESTPayloads   bool
 	buildForce              bool
+	buildRebuildOnDiff      bool
 )
 
 var buildCmd = &cobra.Command{
@@ -58,6 +59,8 @@ func init() {
 		"Skip the builder.eest_payloads builder entirely")
 	buildCmd.Flags().BoolVar(&buildForce, "force", false,
 		"Remove each target's output_dir before building")
+	buildCmd.Flags().BoolVar(&buildRebuildOnDiff, "rebuild-on-diff", false,
+		"Rebuild a populated output_dir when its config fingerprint changed since the last build (instead of skipping)")
 }
 
 func runBuild(_ *cobra.Command, _ []string) error {
@@ -250,7 +253,7 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 			"output_dir": sel.info.OutputDir,
 		}).Info("Building target")
 
-		skipped, buildErr := sel.builder.Build(ctx, sel.info.Name, builder.BuildOptions{Force: buildForce})
+		skipped, buildErr := sel.builder.Build(ctx, sel.info.Name, builder.BuildOptions{Force: buildForce, RebuildOnDiff: buildRebuildOnDiff})
 
 		results = append(results, buildResult{
 			builder:   sel.builder.Name(),

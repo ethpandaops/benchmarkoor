@@ -96,6 +96,29 @@ func HeadSHA(ctx context.Context, repoPath string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// RemoteSHA resolves ref (a branch, tag, or commit) to a commit SHA on the
+// remote repo without cloning, via `git ls-remote`. A ref that already looks
+// like a commit hash is returned unchanged — it is pinned, and ls-remote cannot
+// look up an arbitrary commit. When a ref matches multiple entries (e.g. a
+// branch and a tag of the same name) the first is returned.
+func RemoteSHA(ctx context.Context, repo, ref string) (string, error) {
+	if looksLikeCommitHash(ref) {
+		return ref, nil
+	}
+
+	out, err := exec.CommandContext(ctx, "git", "ls-remote", repo, ref).Output()
+	if err != nil {
+		return "", fmt.Errorf("resolving %s@%s: %w", repo, ref, err)
+	}
+
+	fields := strings.Fields(strings.TrimSpace(string(out)))
+	if len(fields) == 0 {
+		return "", fmt.Errorf("ref %q not found in %s", ref, repo)
+	}
+
+	return fields[0], nil
+}
+
 // cloneByCommitHash initializes a repo and fetches a specific commit hash, then
 // checks it out (a commit hash cannot be passed to `git clone --branch`).
 func cloneByCommitHash(ctx context.Context, repo, version, localPath string) error {

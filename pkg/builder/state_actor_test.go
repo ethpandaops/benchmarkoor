@@ -204,7 +204,8 @@ func TestStateActorBuilder_PerTargetForce(t *testing.T) {
 
 	overrideEntries, err := os.ReadDir(overrideDir)
 	require.NoError(t, err)
-	assert.Empty(t, overrideEntries, "force: true should wipe the dir before running")
+	require.Len(t, overrideEntries, 1, "force: true wipes the leftover; only the build sidecar remains")
+	assert.Equal(t, buildSidecarFile, overrideEntries[0].Name())
 
 	require.Len(t, mgr.runs, 1, "only the force target should have run so far")
 
@@ -240,10 +241,12 @@ func TestStateActorBuilder_BuildForceClearsDir(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, skipped, "--force must skip the skip check")
 
-	// Force removes the directory and then re-creates it.
+	// Force removes the directory and then re-creates it; the post-build
+	// sidecar is the only thing left afterwards.
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
-	assert.Empty(t, entries, "leftover file should have been removed by --force")
+	require.Len(t, entries, 1, "force wipes the leftover; only the build sidecar remains")
+	assert.Equal(t, buildSidecarFile, entries[0].Name())
 
 	require.Len(t, mgr.runs, 1)
 	assert.Equal(t, "fallback:latest", mgr.runs[0].Image)

@@ -166,7 +166,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           git-ref: ${{ github.event.pull_request.head.sha }}
           git-repo: ${{ github.event.pull_request.head.repo.clone_url }}
-          build-args: '--force'
+          build-args: '--rebuild-on-diff'
           build-config: |
             builder:
               state_actor:

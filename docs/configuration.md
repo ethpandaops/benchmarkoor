@@ -1570,8 +1570,18 @@ benchmarkoor build --config build.yaml --force
 | `--skip-state-actor-build` | Skip the `builder.state_actor` builder entirely (only `eest_payloads` runs). |
 | `--skip-eest-payload-build` | Skip the `builder.eest_payloads` builder entirely (only `state_actor` runs). |
 | `--force` | Wipe each selected target's `output_dir` before building (bypasses the skip-if-populated behaviour). |
+| `--rebuild-on-diff` | Rebuild a populated `output_dir` when its config changed since the last build, instead of skipping (see below). |
 
 A target is built when it passes the global `--target` filter **and** the per-builder limit for the builder that owns it; an unset filter imposes no restriction. Any filter value that names no existing target is a hard error (typos surface immediately — the per-builder limits are checked against only that builder's target names). `--skip-*-build` removes a whole builder; a skipped builder's `--limit-*-target` is then ignored. Skipping every configured builder is an error.
+
+### Rebuild on config change (`--rebuild-on-diff`)
+
+By default a populated `output_dir` is skipped regardless of whether the config that produced it changed — you must `--force` to pick up a new fork, seed, spec, filter, etc. After every successful build benchmarkoor now records a `.benchmarkoor-build.json` sidecar in the `output_dir` holding a fingerprint of the output-affecting config. With `--rebuild-on-diff`, a populated target is rebuilt only when that fingerprint differs from the current config (the changed keys are logged); an unchanged config still skips, and a directory with no sidecar (built before this existed) is skipped until the next `--force` records a baseline.
+
+The fingerprint covers the inputs that actually change the output:
+
+- **state_actor:** client, image, target_size, seed, fork, chain_id, gas_limit, timestamp, extra_data, archive, binary_trie, group_depth, and the spec **content**.
+- **eest_payloads:** filler client + image, fork, tests, filter, marker, gas/opcode values, max gas, rpc seed key, filler extra args, datadir method, the **content** of the genesis / address-stubs / fill Dockerfile, the fork/EIP genesis overrides, and the execution-specs checkout resolved to a **commit SHA** (via `git ls-remote`, so a moving `eest_ref` that advanced is detected). It also folds in the **source snapshot's** fingerprint, so rebuilding a `state_actor` datadir cascades into rebuilding the fixtures generated from it.
 
 The command exits non-zero if any target fails; successful targets are still left in place on partial failure. A final summary lists each target with `OK ` (built), `SKIP` (output_dir already populated), or `ERR ` (failed).
 
