@@ -128,13 +128,13 @@ func changedInputKeys(old map[string]any, cur fingerprintInputs) []string {
 // current inputs matches the float64 the same value unmarshals to from a stored
 // sidecar.
 func jsonEqual(a, b any) bool {
-	ba, errA := json.Marshal(a)
-	bb, errB := json.Marshal(b)
+	aJSON, errA := json.Marshal(a)
+	bJSON, errB := json.Marshal(b)
 	if errA != nil || errB != nil {
 		return false
 	}
 
-	return string(ba) == string(bb)
+	return string(aJSON) == string(bJSON)
 }
 
 // rebuildDecision is the outcome of comparing current inputs against a
