@@ -34,6 +34,8 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { Badge } from '@/components/shared/Badge'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { Pagination } from '@/components/shared/Pagination'
+import { SegmentedControl } from '@/components/shared/SegmentedControl'
+import { DEFAULT_RESOURCE_STEP, RESOURCE_STEP_OPTIONS, type ResourceStep } from '@/utils/resourceStep'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 import { useAuth } from '@/hooks/useAuth'
 
@@ -357,6 +359,7 @@ export function SuiteDetailPage() {
 
   const [heatmapExpanded, setHeatmapExpanded] = useState(true)
   const [chartExpanded, setChartExpanded] = useState(true)
+  const [chartResStep, setChartResStep] = useState<ResourceStep>(DEFAULT_RESOURCE_STEP)
   const [chartZoomRange, setChartZoomRange] = useState({ start: 0, end: 100 })
   const [chartClientFilter, setChartClientFilter] = useState<Set<string>>(new Set())
   const [chartLabelFilters, setChartLabelFilters] = useState<Map<string, Set<string>>>(new Map())
@@ -1293,6 +1296,12 @@ export function SuiteDetailPage() {
                       <div className="flex items-center gap-3">
                         <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
                         <span className="text-xs font-medium text-gray-400 dark:text-gray-500">System Resources</span>
+                        <SegmentedControl
+                          value={chartResStep}
+                          onChange={setChartResStep}
+                          options={RESOURCE_STEP_OPTIONS}
+                          ariaLabel="Resource usage step"
+                        />
                         <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
                       </div>
                       <ResourceCharts
@@ -1300,6 +1309,8 @@ export function SuiteDetailPage() {
                         isDark={isDark}
                         xAxisMode={chartMode}
                         onXAxisModeChange={handleChartModeChange}
+                        resStep={chartResStep}
+                        onResStepChange={setChartResStep}
                         onRunClick={handleRunClick}
                         hideControls
                         zoomRange={chartZoomRange}

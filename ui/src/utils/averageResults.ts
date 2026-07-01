@@ -1,10 +1,48 @@
 import type { RunResult, AggregatedStats, TestEntry, ResourceTotals } from '@/api/types'
-import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
+import { type StepTypeOption, ALL_STEP_TYPES, getAggregatedStats } from '@/pages/RunDetailPage'
 
 export interface AveragedResult {
   result: RunResult
   // Per-test variance on MGas/s for error-bar and CV% display.
   variance: Record<string, { mgasStddev: number; mgasMean: number; mgasMin: number; mgasMax: number }>
+}
+
+// Per-step samples across runs. Statistics are gathered for every step
+// (setup/test/cleanup) independently so the averaged result preserves each
+// step's resource usage — the resource charts can then isolate setup vs test.
+interface StepSamples {
+  gasUsedTotal: number[]
+  gasUsedTimeTotal: number[]
+  timeTotal: number[]
+  success: number[]
+  fail: number[]
+  msgCount: number[]
+  // Resource samples are only collected for runs where the step reported them.
+  cpuUsec: number[]
+  memoryDeltaBytes: number[]
+  memoryBytes: number[]
+  diskReadBytes: number[]
+  diskWriteBytes: number[]
+  diskReadIops: number[]
+  diskWriteIops: number[]
+}
+
+function emptyStepSamples(): StepSamples {
+  return {
+    gasUsedTotal: [],
+    gasUsedTimeTotal: [],
+    timeTotal: [],
+    success: [],
+    fail: [],
+    msgCount: [],
+    cpuUsec: [],
+    memoryDeltaBytes: [],
+    memoryBytes: [],
+    diskReadBytes: [],
+    diskWriteBytes: [],
+    diskReadIops: [],
+    diskWriteIops: [],
+  }
 }
 
 /**
@@ -13,6 +51,12 @@ export interface AveragedResult {
  * median) across the N runs. Tests that don't appear in all N runs
  * are still included — their average is taken over however many runs
  * contained them.
+ *
+ * Each step (setup/test/cleanup) is averaged independently and written back to
+ * its own step in the synthetic entry, so the table (which sums the active
+ * `stepFilter`) and the resource charts (which can isolate a single step) both
+ * read correct per-step data. For the default single-step filter this is
+ * identical to averaging the summed stats.
  */
 export function averageResults(
   results: RunResult[],
@@ -27,63 +71,51 @@ export function averageResults(
     return { result: results[0], variance: {} }
   }
 
-  // Gather per-test samples.
-  const testSamples = new Map<
-    string,
-    {
-      gasUsedTotal: number[]
-      gasUsedTimeTotal: number[]
-      timeTotal: number[]
-      success: number[]
-      fail: number[]
-      msgCount: number[]
-      cpuUsec: number[]
-      memoryDeltaBytes: number[]
-      memoryBytes: number[]
-      diskReadBytes: number[]
-      diskWriteBytes: number[]
-      diskReadIops: number[]
-      diskWriteIops: number[]
-    }
-  >()
+  // Per-step samples per test, plus the MGas/s samples (summed over the active
+  // step filter) used for the error bars — kept separate so variance still
+  // reflects run-to-run variability of the filtered total, as before.
+  const perStepSamples = new Map<string, Partial<Record<StepTypeOption, StepSamples>>>()
+  const mgasSamples = new Map<string, { gasUsedTotal: number[]; gasUsedTimeTotal: number[] }>()
 
   for (const result of results) {
     for (const [name, entry] of Object.entries(result.tests)) {
+      // Match the previous inclusion rule: a test is present only if it has data
+      // for the active step filter in at least one run.
       const stats = getAggregatedStats(entry, stepFilter)
       if (!stats) continue
 
-      let samples = testSamples.get(name)
-      if (!samples) {
-        samples = {
-          gasUsedTotal: [],
-          gasUsedTimeTotal: [],
-          timeTotal: [],
-          success: [],
-          fail: [],
-          msgCount: [],
-          cpuUsec: [],
-          memoryDeltaBytes: [],
-          memoryBytes: [],
-          diskReadBytes: [],
-          diskWriteBytes: [],
-          diskReadIops: [],
-          diskWriteIops: [],
-        }
-        testSamples.set(name, samples)
+      let mgas = mgasSamples.get(name)
+      if (!mgas) {
+        mgas = { gasUsedTotal: [], gasUsedTimeTotal: [] }
+        mgasSamples.set(name, mgas)
+      }
+      mgas.gasUsedTotal.push(stats.gas_used_total)
+      mgas.gasUsedTimeTotal.push(stats.gas_used_time_total)
+
+      let steps = perStepSamples.get(name)
+      if (!steps) {
+        steps = {}
+        perStepSamples.set(name, steps)
       }
 
-      samples.gasUsedTotal.push(stats.gas_used_total)
-      samples.gasUsedTimeTotal.push(stats.gas_used_time_total)
-      samples.timeTotal.push(stats.time_total)
-      samples.success.push(stats.success)
-      samples.fail.push(stats.fail)
-      samples.msgCount.push(stats.msg_count)
+      for (const stepKey of ALL_STEP_TYPES) {
+        const aggregated = entry.steps?.[stepKey]?.aggregated
+        if (!aggregated) continue
 
-      // getAggregatedStats doesn't include resource_totals in its
-      // return value, so read it directly from the step entries.
-      for (const stepKey of stepFilter) {
-        const step = entry.steps?.[stepKey]
-        const r = step?.aggregated?.resource_totals
+        let samples = steps[stepKey]
+        if (!samples) {
+          samples = emptyStepSamples()
+          steps[stepKey] = samples
+        }
+
+        samples.gasUsedTotal.push(aggregated.gas_used_total)
+        samples.gasUsedTimeTotal.push(aggregated.gas_used_time_total)
+        samples.timeTotal.push(aggregated.time_total)
+        samples.success.push(aggregated.success)
+        samples.fail.push(aggregated.fail)
+        samples.msgCount.push(aggregated.msg_count)
+
+        const r = aggregated.resource_totals
         if (r) {
           samples.cpuUsec.push(r.cpu_usec ?? 0)
           samples.memoryDeltaBytes.push(r.memory_delta_bytes ?? 0)
@@ -92,7 +124,6 @@ export function averageResults(
           samples.diskWriteBytes.push(r.disk_write_bytes ?? 0)
           samples.diskReadIops.push(r.disk_read_iops ?? 0)
           samples.diskWriteIops.push(r.disk_write_iops ?? 0)
-          break // one step's resource data per test is enough
         }
       }
     }
@@ -103,58 +134,53 @@ export function averageResults(
   const syntheticTests: Record<string, TestEntry> = {}
   const variance: AveragedResult['variance'] = {}
 
-  for (const [name, samples] of testSamples) {
-    const gasUsedTotal = agg(samples.gasUsedTotal)
-    const gasUsedTimeTotal = agg(samples.gasUsedTimeTotal)
+  for (const [name, steps] of perStepSamples) {
+    const syntheticSteps: TestEntry['steps'] = {}
 
-    // Build resource_totals if we have samples for it.
-    let resource_totals: ResourceTotals | undefined
-    if (samples.cpuUsec.length > 0) {
-      resource_totals = {
-        cpu_usec: agg(samples.cpuUsec),
-        memory_delta_bytes: agg(samples.memoryDeltaBytes),
-        memory_bytes: agg(samples.memoryBytes),
-        disk_read_bytes: agg(samples.diskReadBytes),
-        disk_write_bytes: agg(samples.diskWriteBytes),
-        disk_read_iops: agg(samples.diskReadIops),
-        disk_write_iops: agg(samples.diskWriteIops),
+    for (const stepKey of ALL_STEP_TYPES) {
+      const samples = steps[stepKey]
+      if (!samples) continue
+
+      let resource_totals: ResourceTotals | undefined
+      if (samples.cpuUsec.length > 0) {
+        resource_totals = {
+          cpu_usec: agg(samples.cpuUsec),
+          memory_delta_bytes: agg(samples.memoryDeltaBytes),
+          memory_bytes: agg(samples.memoryBytes),
+          disk_read_bytes: agg(samples.diskReadBytes),
+          disk_write_bytes: agg(samples.diskWriteBytes),
+          disk_read_iops: agg(samples.diskReadIops),
+          disk_write_iops: agg(samples.diskWriteIops),
+        }
       }
+
+      const aggregated: AggregatedStats = {
+        gas_used_total: agg(samples.gasUsedTotal),
+        gas_used_time_total: agg(samples.gasUsedTimeTotal),
+        time_total: agg(samples.timeTotal),
+        success: Math.round(agg(samples.success)),
+        fail: Math.round(agg(samples.fail)),
+        msg_count: Math.round(agg(samples.msgCount)),
+        method_stats: { times: {}, mgas_s: {} },
+        resource_totals,
+      }
+
+      syntheticSteps[stepKey] = { aggregated }
     }
 
-    const aggregated: AggregatedStats = {
-      gas_used_total: gasUsedTotal,
-      gas_used_time_total: gasUsedTimeTotal,
-      time_total: agg(samples.timeTotal),
-      success: Math.round(agg(samples.success)),
-      fail: Math.round(agg(samples.fail)),
-      msg_count: Math.round(agg(samples.msgCount)),
-      method_stats: { times: {}, mgas_s: {} },
-      resource_totals,
-    }
+    syntheticTests[name] = { dir: '', steps: syntheticSteps }
 
-    // Build the TestEntry with the active step populated.
-    // The comparison components read via getAggregatedStats which
-    // iterates the step keys from the filter, so we put the averaged
-    // data under the first step in the filter (usually "test").
-    const stepKey = stepFilter[0] ?? 'test'
-    syntheticTests[name] = {
-      dir: '',
-      steps: {
-        [stepKey]: { aggregated },
-      },
-    }
-
-    // Compute MGas/s variance for error bars.
-    const mgasValues = samples.gasUsedTimeTotal.map((t, i) =>
-      t > 0 ? (samples.gasUsedTotal[i] * 1000) / t : 0,
-    )
+    // Compute MGas/s variance for error bars over the active step filter.
+    const mgas = mgasSamples.get(name)
+    const gasUsedTotal = mgas?.gasUsedTotal ?? []
+    const gasUsedTimeTotal = mgas?.gasUsedTimeTotal ?? []
+    const mgasValues = gasUsedTimeTotal.map((t, i) => (t > 0 ? (gasUsedTotal[i] * 1000) / t : 0))
     const mgasAvg = mean(mgasValues)
-    const mgasStddev = stddev(mgasValues, mgasAvg)
     variance[name] = {
-      mgasStddev,
+      mgasStddev: stddev(mgasValues, mgasAvg),
       mgasMean: mgasAvg,
-      mgasMin: Math.min(...mgasValues),
-      mgasMax: Math.max(...mgasValues),
+      mgasMin: mgasValues.length > 0 ? Math.min(...mgasValues) : 0,
+      mgasMax: mgasValues.length > 0 ? Math.max(...mgasValues) : 0,
     }
   }
 

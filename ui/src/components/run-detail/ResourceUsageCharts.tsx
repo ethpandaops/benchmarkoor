@@ -1,73 +1,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { Cpu } from 'lucide-react'
-import type { TestEntry, ResourceTotals, SuiteTest } from '@/api/types'
+import type { TestEntry, StepResult, SuiteTest } from '@/api/types'
 import { formatBytes } from '@/utils/format'
 import { compileQuery } from '@/utils/eestNameFilter'
 import { formatTestNameLong } from '@/utils/eestName'
 import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 import { getAggregatedStats, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
+import { SegmentedControl } from '@/components/shared/SegmentedControl'
+import {
+  aggregateResourceByStep,
+  DEFAULT_RESOURCE_STEP,
+  RESOURCE_STEP_OPTIONS,
+  type AggregatedResource,
+  type ResourceStep,
+  type StepResource,
+} from '@/utils/resourceStep'
 
-// Aggregated resource data from all steps of a test entry
-interface AggregatedResourceData {
-  totals: ResourceTotals
-  timeTotalNs: number
-  memoryBytes: number
+// stepResource normalises a per-test-result step into the shared helper's input.
+function stepResource(step?: StepResult): StepResource | undefined {
+  if (!step?.aggregated) return undefined
+
+  return { resourceTotals: step.aggregated.resource_totals, timeTotalNs: step.aggregated.time_total }
 }
 
-// Get aggregated resource totals from all steps of a test entry
-function getAggregatedResourceData(entry: TestEntry): AggregatedResourceData | undefined {
+// Aggregate a test entry's resource usage for the selected step(s).
+function getAggregatedResourceData(entry: TestEntry, step: ResourceStep): AggregatedResource | undefined {
   if (!entry.steps) return undefined
 
-  const steps = [entry.steps.setup, entry.steps.test, entry.steps.cleanup].filter((s) => s?.aggregated?.resource_totals)
-
-  if (steps.length === 0) return undefined
-
-  // Sum up resource totals from all steps
-  let cpuUsec = 0
-  let memoryDelta = 0
-  let diskRead = 0
-  let diskWrite = 0
-  let diskReadOps = 0
-  let diskWriteOps = 0
-  let timeTotalNs = 0
-  let memoryBytes = 0
-
-  for (const step of steps) {
-    if (step?.aggregated) {
-      timeTotalNs += step.aggregated.time_total ?? 0
-
-      if (step.aggregated.resource_totals) {
-        const res = step.aggregated.resource_totals
-        cpuUsec += res.cpu_usec ?? 0
-        memoryDelta += res.memory_delta_bytes ?? 0
-        diskRead += res.disk_read_bytes ?? 0
-        diskWrite += res.disk_write_bytes ?? 0
-        diskReadOps += res.disk_read_iops ?? 0
-        diskWriteOps += res.disk_write_iops ?? 0
-
-        // Take max absolute memory across steps (it's a snapshot, not cumulative)
-        const stepMemory = res.memory_bytes ?? 0
-        if (stepMemory > memoryBytes) {
-          memoryBytes = stepMemory
-        }
-      }
-    }
-  }
-
-  return {
-    totals: {
-      cpu_usec: cpuUsec,
-      memory_delta_bytes: memoryDelta,
-      memory_bytes: memoryBytes,
-      disk_read_bytes: diskRead,
-      disk_write_bytes: diskWrite,
-      disk_read_iops: diskReadOps,
-      disk_write_iops: diskWriteOps,
+  return aggregateResourceByStep(
+    {
+      setup: stepResource(entry.steps.setup),
+      test: stepResource(entry.steps.test),
+      cleanup: stepResource(entry.steps.cleanup),
     },
-    timeTotalNs,
-    memoryBytes,
-  }
+    step,
+  )
 }
 
 function useDarkMode() {
@@ -232,6 +200,7 @@ export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilt
   const isDark = useDarkMode()
   const { mode: nameMode } = useNameDisplayMode()
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 })
+  const [resStep, setResStep] = useState<ResourceStep>(DEFAULT_RESOURCE_STEP)
   const highlightedTestRef = useRef<string | null>(null)
 
   const handleZoom = useCallback((start: number, end: number) => {
@@ -291,7 +260,7 @@ export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilt
     sortedTests.forEach(([testName, test], index) => {
       const testIndex = index + 1
       const testNumber = suiteOrder?.get(testName) ?? testIndex
-      const agg = getAggregatedResourceData(test)
+      const agg = getAggregatedResourceData(test, resStep)
       if (agg) {
         hasData = true
         const res = agg.totals
@@ -350,7 +319,7 @@ export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilt
     }
 
     return { dataPoints: points, hasResourceData: hasData, hasMemoryMBData: hasMemoryMB, summaryStats: stats }
-  }, [tests, suiteTests, searchQuery, statusFilter])
+  }, [tests, suiteTests, searchQuery, statusFilter, resStep])
 
    
   const chartOptions = useMemo(() => {
@@ -708,23 +677,31 @@ export function ResourceUsageCharts({ tests, suiteTests, searchQuery, statusFilt
           <Cpu className="size-4 text-gray-400 dark:text-gray-500" />
           Resource Usage
         </h3>
-        {resourceCollectionMethod && (
-          <span className="text-xs/5 text-gray-500 dark:text-gray-400">
-            Collection via{' '}
-            <span
-              className="cursor-help rounded-xs bg-gray-100 px-1.5 py-0.5 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
-              title={
-                resourceCollectionMethod === 'cgroupv2'
-                  ? 'Metrics collected directly from Linux cgroup v2 filesystem (low overhead, high precision)'
-                  : resourceCollectionMethod === 'dockerstats'
-                    ? 'Metrics collected via Docker Stats API (fallback when cgroup access is unavailable)'
-                    : undefined
-              }
-            >
-              {resourceCollectionMethod}
+        <div className="flex items-center gap-3">
+          {resourceCollectionMethod && (
+            <span className="text-xs/5 text-gray-500 dark:text-gray-400">
+              Collection via{' '}
+              <span
+                className="cursor-help rounded-xs bg-gray-100 px-1.5 py-0.5 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                title={
+                  resourceCollectionMethod === 'cgroupv2'
+                    ? 'Metrics collected directly from Linux cgroup v2 filesystem (low overhead, high precision)'
+                    : resourceCollectionMethod === 'dockerstats'
+                      ? 'Metrics collected via Docker Stats API (fallback when cgroup access is unavailable)'
+                      : undefined
+                }
+              >
+                {resourceCollectionMethod}
+              </span>
             </span>
-          </span>
-        )}
+          )}
+          <SegmentedControl
+            value={resStep}
+            onChange={setResStep}
+            options={RESOURCE_STEP_OPTIONS}
+            ariaLabel="Resource usage step"
+          />
+        </div>
       </div>
 
       {/* Summary Stats Row */}

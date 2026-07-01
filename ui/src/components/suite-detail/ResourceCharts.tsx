@@ -4,6 +4,13 @@ import clsx from 'clsx'
 import type { IndexEntry, ResourceTotals } from '@/api/types'
 import { getClientChartColor } from '@/utils/client-colors'
 import { formatBytes } from '@/utils/format'
+import { SegmentedControl } from '@/components/shared/SegmentedControl'
+import {
+  aggregateResourceByStep,
+  DEFAULT_RESOURCE_STEP,
+  RESOURCE_STEP_OPTIONS,
+  type ResourceStep,
+} from '@/utils/resourceStep'
 
 export type XAxisMode = 'time' | 'runCount'
 
@@ -12,6 +19,10 @@ interface ResourceChartsProps {
   isDark?: boolean
   xAxisMode?: XAxisMode
   onXAxisModeChange?: (mode: XAxisMode) => void
+  // resStep can be controlled by the page (which renders its own toggle when
+  // hideControls is set); otherwise the component manages it internally.
+  resStep?: ResourceStep
+  onResStepChange?: (step: ResourceStep) => void
   onRunClick?: (runId: string) => void
   hideControls?: boolean
   zoomRange?: { start: number; end: number }
@@ -54,33 +65,18 @@ function formatOps(ops: number): string {
 
 type MetricKey = 'cpu_usec' | 'memory_delta_bytes' | 'disk_read_bytes' | 'disk_write_bytes' | 'disk_read_iops' | 'disk_write_iops'
 
-// Aggregates resource totals from all steps (setup, test, cleanup)
-function getAggregatedResourceTotals(entry: IndexEntry): ResourceTotals | undefined {
+// Aggregates resource totals for the selected step(s) of an index entry.
+function getAggregatedResourceTotals(entry: IndexEntry, step: ResourceStep): ResourceTotals | undefined {
   const steps = entry.tests.steps
-  let hasData = false
-  const totals: ResourceTotals = {
-    cpu_usec: 0,
-    memory_delta_bytes: 0,
-    disk_read_bytes: 0,
-    disk_write_bytes: 0,
-    disk_read_iops: 0,
-    disk_write_iops: 0,
-  }
 
-  const stepList = [steps.setup, steps.test, steps.cleanup]
-  for (const step of stepList) {
-    if (step?.resource_totals) {
-      hasData = true
-      totals.cpu_usec += step.resource_totals.cpu_usec
-      totals.memory_delta_bytes += step.resource_totals.memory_delta_bytes
-      totals.disk_read_bytes += step.resource_totals.disk_read_bytes
-      totals.disk_write_bytes += step.resource_totals.disk_write_bytes
-      totals.disk_read_iops += step.resource_totals.disk_read_iops
-      totals.disk_write_iops += step.resource_totals.disk_write_iops
-    }
-  }
-
-  return hasData ? totals : undefined
+  return aggregateResourceByStep(
+    {
+      setup: { resourceTotals: steps.setup?.resource_totals },
+      test: { resourceTotals: steps.test?.resource_totals },
+      cleanup: { resourceTotals: steps.cleanup?.resource_totals },
+    },
+    step,
+  )?.totals
 }
 
 interface MetricConfig {
@@ -104,19 +100,20 @@ interface SingleChartProps {
   runs: IndexEntry[]
   isDark: boolean
   xAxisMode: XAxisMode
+  resStep: ResourceStep
   onRunClick?: (runId: string) => void
   isLargeDataset: boolean
   zoomRange: { start: number; end: number }
   onZoom: (start: number, end: number) => void
 }
 
-function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick, isLargeDataset, zoomRange, onZoom }: SingleChartProps) {
+function SingleChart({ metric, runs, isDark, xAxisMode, resStep, onRunClick, isLargeDataset, zoomRange, onZoom }: SingleChartProps) {
   const { clientGroups: chartData, maxRunIndex } = useMemo(() => {
     const clientGroups = new Map<string, DataPoint[]>()
     let maxRunIndex = 1
 
     for (const run of runs) {
-      const resourceTotals = getAggregatedResourceTotals(run)
+      const resourceTotals = getAggregatedResourceTotals(run, resStep)
       if (!resourceTotals) continue
 
       const value = resourceTotals[metric.key]
@@ -147,7 +144,7 @@ function SingleChart({ metric, runs, isDark, xAxisMode, onRunClick, isLargeDatas
     }
 
     return { clientGroups, maxRunIndex }
-  }, [runs, metric.key])
+  }, [runs, metric.key, resStep])
 
   const series = useMemo(() => {
     return Array.from(chartData.entries()).map(([client, data]) => ({
@@ -347,6 +344,8 @@ export function ResourceCharts({
   isDark = false,
   xAxisMode: controlledMode,
   onXAxisModeChange,
+  resStep: controlledResStep,
+  onResStepChange,
   onRunClick,
   hideControls = false,
   zoomRange: controlledZoom,
@@ -360,6 +359,17 @@ export function ResourceCharts({
       onXAxisModeChange(mode)
     } else {
       setInternalMode(mode)
+    }
+  }
+
+  const [internalResStep, setInternalResStep] = useState<ResourceStep>(DEFAULT_RESOURCE_STEP)
+  const resStep = controlledResStep ?? internalResStep
+
+  const setResStep = (step: ResourceStep) => {
+    if (onResStepChange) {
+      onResStepChange(step)
+    } else {
+      setInternalResStep(step)
     }
   }
 
@@ -383,7 +393,7 @@ export function ResourceCharts({
   }, [runs])
 
   const hasResourceData = useMemo(() => {
-    return runs.some((run) => getAggregatedResourceTotals(run) !== undefined)
+    return runs.some((run) => getAggregatedResourceTotals(run, 'sum') !== undefined)
   }, [runs])
 
   if (!hasResourceData) {
@@ -397,7 +407,13 @@ export function ResourceCharts({
   return (
     <div className="flex flex-col gap-4">
       {!hideControls && (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <SegmentedControl
+            value={resStep}
+            onChange={setResStep}
+            options={RESOURCE_STEP_OPTIONS}
+            ariaLabel="Resource usage step"
+          />
           <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
             <button
               onClick={() => setXAxisMode('runCount')}
@@ -433,6 +449,7 @@ export function ResourceCharts({
             runs={runs}
             isDark={isDark}
             xAxisMode={xAxisMode}
+            resStep={resStep}
             onRunClick={onRunClick}
             isLargeDataset={isLargeDataset}
             zoomRange={activeZoom}

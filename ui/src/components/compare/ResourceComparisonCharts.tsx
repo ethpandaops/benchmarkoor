@@ -1,66 +1,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { Cpu } from 'lucide-react'
-import type { TestEntry, ResourceTotals, SuiteTest } from '@/api/types'
+import type { TestEntry, StepResult, SuiteTest } from '@/api/types'
 import { formatBytes } from '@/utils/format'
 import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import type { ZoomRange } from './MGasComparisonChart'
 import { useChartAreaClick } from './useChartAreaClick'
 import { formatTestNameLong } from '@/utils/eestName'
 import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
+import { SegmentedControl } from '@/components/shared/SegmentedControl'
+import {
+  aggregateResourceByStep,
+  DEFAULT_RESOURCE_STEP,
+  RESOURCE_STEP_OPTIONS,
+  type AggregatedResource,
+  type ResourceStep,
+  type StepResource,
+} from '@/utils/resourceStep'
 
-interface AggregatedResourceData {
-  totals: ResourceTotals
-  timeTotalNs: number
-  memoryBytes: number
+// stepResource normalises a per-test-result step into the shared helper's input.
+function stepResource(step?: StepResult): StepResource | undefined {
+  if (!step?.aggregated) return undefined
+
+  return { resourceTotals: step.aggregated.resource_totals, timeTotalNs: step.aggregated.time_total }
 }
 
-function getAggregatedResourceData(entry: TestEntry): AggregatedResourceData | undefined {
+function getAggregatedResourceData(entry: TestEntry, step: ResourceStep): AggregatedResource | undefined {
   if (!entry.steps) return undefined
 
-  const steps = [entry.steps.setup, entry.steps.test, entry.steps.cleanup].filter((s) => s?.aggregated?.resource_totals)
-
-  if (steps.length === 0) return undefined
-
-  let cpuUsec = 0
-  let memoryDelta = 0
-  let diskRead = 0
-  let diskWrite = 0
-  let diskReadOps = 0
-  let diskWriteOps = 0
-  let timeTotalNs = 0
-  let memoryBytes = 0
-
-  for (const step of steps) {
-    if (step?.aggregated) {
-      timeTotalNs += step.aggregated.time_total ?? 0
-      if (step.aggregated.resource_totals) {
-        const res = step.aggregated.resource_totals
-        cpuUsec += res.cpu_usec ?? 0
-        memoryDelta += res.memory_delta_bytes ?? 0
-        diskRead += res.disk_read_bytes ?? 0
-        diskWrite += res.disk_write_bytes ?? 0
-        diskReadOps += res.disk_read_iops ?? 0
-        diskWriteOps += res.disk_write_iops ?? 0
-        const stepMemory = res.memory_bytes ?? 0
-        if (stepMemory > memoryBytes) memoryBytes = stepMemory
-      }
-    }
-  }
-
-  return {
-    totals: {
-      cpu_usec: cpuUsec,
-      memory_delta_bytes: memoryDelta,
-      memory_bytes: memoryBytes,
-      disk_read_bytes: diskRead,
-      disk_write_bytes: diskWrite,
-      disk_read_iops: diskReadOps,
-      disk_write_iops: diskWriteOps,
+  return aggregateResourceByStep(
+    {
+      setup: stepResource(entry.steps.setup),
+      test: stepResource(entry.steps.test),
+      cleanup: stepResource(entry.steps.cleanup),
     },
-    timeTotalNs,
-    memoryBytes,
-  }
+    step,
+  )
 }
 
 function useDarkMode() {
@@ -114,7 +89,7 @@ function formatOps(ops: number): string {
   return `${(ops / 1_000_000).toFixed(1)}M`
 }
 
-function buildDataPoints(tests: Record<string, TestEntry>, nameFilter?: (name: string) => boolean, suiteTests?: SuiteTest[]): ResourceDataPoint[] {
+function buildDataPoints(tests: Record<string, TestEntry>, resStep: ResourceStep, nameFilter?: (name: string) => boolean, suiteTests?: SuiteTest[]): ResourceDataPoint[] {
   const suiteOrder = new Map<string, number>()
   if (suiteTests) {
     suiteTests.forEach((t, i) => suiteOrder.set(t.name, i + 1))
@@ -130,7 +105,7 @@ function buildDataPoints(tests: Record<string, TestEntry>, nameFilter?: (name: s
 
   const points: ResourceDataPoint[] = []
   sortedTests.forEach(([testName, test], index) => {
-    const agg = getAggregatedResourceData(test)
+    const agg = getAggregatedResourceData(test, resStep)
     if (agg) {
       const res = agg.totals
       let cpuPercent = 0
@@ -201,6 +176,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
   const prevZoomRef = useRef(zoomRange)
+  const [resStep, setResStep] = useState<ResourceStep>(DEFAULT_RESOURCE_STEP)
 
   const handleZoom = useCallback((start: number, end: number) => {
     if (prevZoomRef.current.start !== start || prevZoomRef.current.end !== end) {
@@ -212,8 +188,8 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
   }, [onZoomChange])
 
   const pointsPerRun = useMemo(
-    () => runs.map((r) => r.result ? buildDataPoints(r.result.tests, testNameFilter, suiteTests) : []),
-    [runs, testNameFilter, suiteTests],
+    () => runs.map((r) => r.result ? buildDataPoints(r.result.tests, resStep, testNameFilter, suiteTests) : []),
+    [runs, resStep, testNameFilter, suiteTests],
   )
 
   const highlightedTestRef = useRef<string | null>(null)
@@ -440,6 +416,12 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
             )
           })}
         </div>
+        <SegmentedControl
+          value={resStep}
+          onChange={setResStep}
+          options={RESOURCE_STEP_OPTIONS}
+          ariaLabel="Resource usage step"
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
