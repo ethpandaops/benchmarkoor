@@ -111,12 +111,30 @@ func RemoteSHA(ctx context.Context, repo, ref string) (string, error) {
 		return "", fmt.Errorf("resolving %s@%s: %w", repo, ref, err)
 	}
 
-	fields := strings.Fields(strings.TrimSpace(string(out)))
-	if len(fields) == 0 {
+	// ls-remote prints "<sha>\t<refname>" per line. An annotated tag yields two
+	// lines — the tag object and, suffixed "^{}", the commit it peels to; prefer
+	// the peeled commit. Otherwise the first match wins.
+	first := ""
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		if strings.HasSuffix(fields[1], "^{}") {
+			return fields[0], nil
+		}
+
+		if first == "" {
+			first = fields[0]
+		}
+	}
+
+	if first == "" {
 		return "", fmt.Errorf("ref %q not found in %s", ref, repo)
 	}
 
-	return fields[0], nil
+	return first, nil
 }
 
 // cloneByCommitHash initializes a repo and fetches a specific commit hash, then

@@ -177,28 +177,43 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 
 	force := opts.Force || target.Force
 
-	if !force {
+	// Fast path: a populated output_dir with neither --force nor
+	// --rebuild-on-diff skips before doing any fingerprint work.
+	if !force && !opts.RebuildOnDiff {
 		populated, err := isPopulated(target.OutputDir)
 		if err != nil {
 			return false, err
 		}
 
 		if populated {
-			if !opts.RebuildOnDiff {
-				log.Info("Skipping build: output_dir already populated " +
-					"(pass --force, --rebuild-on-diff, or set force: true on the target to rebuild)")
+			log.Info("Skipping build: output_dir already populated " +
+				"(pass --force, --rebuild-on-diff, or set force: true on the target to rebuild)")
 
-				return true, nil
-			}
+			return true, nil
+		}
+	}
 
-			sha, err := resolveEESTSHA()
-			if err != nil {
-				return false, fmt.Errorf("resolving EEST ref for diff check: %w", err)
-			}
+	// Compute the fingerprint up front: run() mutates target's genesis /
+	// address-stubs paths to temp files it then deletes, so the sidecar must be
+	// fingerprinted from the pre-run config (and from the same inputs the diff
+	// check used). Best-effort — a failure (e.g. a transient ls-remote) only
+	// skips the sidecar for a plain build, but is fatal for a diff check, which
+	// cannot proceed without it.
+	var inputs fingerprintInputs
+	sha, inputsErr := resolveEESTSHA()
+	if inputsErr == nil {
+		inputs, inputsErr = b.eestFingerprintInputs(target, sha, sourceFP)
+	}
 
-			inputs, err := b.eestFingerprintInputs(target, sha, sourceFP)
-			if err != nil {
-				return false, err
+	if !force && opts.RebuildOnDiff {
+		populated, err := isPopulated(target.OutputDir)
+		if err != nil {
+			return false, err
+		}
+
+		if populated {
+			if inputsErr != nil {
+				return false, fmt.Errorf("computing fingerprint for diff check: %w", inputsErr)
 			}
 
 			dec, err := decideRebuild(target.OutputDir, inputs)
@@ -230,12 +245,10 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 		return false, err
 	}
 
-	// Record the config fingerprint for a later --rebuild-on-diff run.
-	// Best-effort; failure must not fail an otherwise-successful build.
-	if sha, err := resolveEESTSHA(); err != nil {
-		log.WithError(err).Warn("Failed to resolve EEST ref for build fingerprint; sidecar not written")
-	} else if inputs, err := b.eestFingerprintInputs(target, sha, sourceFP); err != nil {
-		log.WithError(err).Warn("Failed to compute build fingerprint; sidecar not written")
+	// Record the config fingerprint (computed pre-run) for a later
+	// --rebuild-on-diff run. Best-effort; a failure must not fail the build.
+	if inputsErr != nil {
+		log.WithError(inputsErr).Warn("Failed to compute build fingerprint; sidecar not written")
 	} else if err := writeBuildSidecar(target.OutputDir, EESTPayloadsBuilderName, inputs); err != nil {
 		log.WithError(err).Warn("Failed to write build fingerprint sidecar")
 	}
@@ -286,7 +299,11 @@ func (b *EESTPayloadsBuilder) eestFingerprintInputs(target *config.EESTPayloadTa
 		"fill_dockerfile_sha256": fillDockerfileHash,
 		"eest_repo":              b.cfg.ResolveEESTRepo(),
 		"eest_sha":               eestSHA,
-		"source_fingerprint":     sourceFingerprint,
+		// source_dir alongside source_fingerprint: the fingerprint catches a
+		// rebuilt source snapshot, and the path catches a swap to a *different*
+		// snapshot that carries no sidecar (so contributes an empty fingerprint).
+		"source_dir":         target.SourceDir,
+		"source_fingerprint": sourceFingerprint,
 	}, nil
 }
 
