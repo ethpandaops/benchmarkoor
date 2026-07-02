@@ -59,6 +59,34 @@ function serializeStepFilter(steps: IndexStepType[]): string | undefined {
   return steps.join(',')
 }
 
+// Group-by keys. The `groupBy` URL param is: unset = all label keys (the
+// default), 'none' = no grouping, otherwise a comma-separated list of keys.
+// allKeys is the set of available label keys (excludes the special
+// 'instance_id' option, which is only ever present when explicitly selected).
+function parseGroupByKeys(param: string | undefined, allKeys: string[]): string[] {
+  if (param === undefined) return allKeys
+  if (param === 'none') return []
+  const valid = new Set([...allKeys, 'instance_id'])
+  return param.split(',').map((k) => k.trim()).filter((k) => valid.has(k))
+}
+
+// Serialize group-by keys to the URL param: undefined when it equals the
+// all-labels default, 'none' when empty, otherwise the comma-joined keys.
+function serializeGroupByKeys(keys: string[], allKeys: string[]): string | undefined {
+  if (keys.length === 0) return 'none'
+  const keySet = new Set(keys)
+  if (keys.length === allKeys.length && allKeys.every((k) => keySet.has(k))) {
+    return undefined
+  }
+  return keys.join(',')
+}
+
+// groupValueForRun resolves a single group key to a run's value: the instance
+// id for the special 'instance_id' key, otherwise the metadata label value.
+function groupValueForRun(run: IndexEntry, key: string): string {
+  return key === 'instance_id' ? run.instance.id : (run.metadata?.[key] ?? '(none)')
+}
+
 // ---------------------------------------------------------------------------
 // ChartFilters — client toggles + label chip filters for the Run Charts
 // ---------------------------------------------------------------------------
@@ -440,31 +468,28 @@ export function SuiteDetailPage() {
     return Array.from(keys).sort()
   }, [suiteRunsAll])
 
-  // Effective group-by: when groupBy is unset in the URL, auto-default to the
-  // first available label key. The sentinel 'none' means the user explicitly
-  // chose no grouping.
-  const effectiveGroupBy = useMemo(() => {
-    if (groupBy === 'none') return undefined
-    if (groupBy !== undefined) return groupBy
-    return groupByLabelKeys[0]
-  }, [groupBy, groupByLabelKeys])
+  // Effective group-by keys: when groupBy is unset in the URL, default to ALL
+  // available label keys; 'none' means the user chose no grouping. Filtered to
+  // keys actually present in the data.
+  const effectiveGroupByKeys = useMemo(
+    () => parseGroupByKeys(groupBy, groupByLabelKeys),
+    [groupBy, groupByLabelKeys],
+  )
 
-  // Apply grouping: transforms client name to include the group suffix
+  // Apply grouping: transforms client name to include the composite group suffix
+  // (`key=value` per selected key, joined).
   const applyGrouping = useCallback((runs: IndexEntry[]): IndexEntry[] => {
-    if (!effectiveGroupBy) return runs
+    if (effectiveGroupByKeys.length === 0) return runs
     return runs.map((run) => {
-      let suffix: string
-      if (effectiveGroupBy === 'instance_id') {
-        suffix = run.instance.id
-      } else {
-        suffix = run.metadata?.[effectiveGroupBy] ?? '(none)'
-      }
+      const suffix = effectiveGroupByKeys
+        .map((key) => `${key}=${groupValueForRun(run, key)}`)
+        .join(', ')
       return {
         ...run,
         instance: { ...run.instance, client: `${run.instance.client} / ${suffix}` },
       }
     })
-  }, [effectiveGroupBy])
+  }, [effectiveGroupByKeys])
 
   const groupedRunsAll = useMemo(() => applyGrouping(suiteRunsAll), [suiteRunsAll, applyGrouping])
 
@@ -854,12 +879,20 @@ export function SuiteDetailPage() {
     })
   }
 
-  const handleGroupByChange = (key: string | undefined) => {
+  const setGroupBy = (param: string | undefined) => {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy: key },
+      search: { tab, client, image, status, sortBy, sortDir, chartMode, chartPassingOnly: chartPassingOnlyParam, heatmapColor, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy: param },
     })
+  }
+
+  // Toggle a single key in/out of the current group-by selection.
+  const handleGroupByToggle = (key: string) => {
+    const next = effectiveGroupByKeys.includes(key)
+      ? effectiveGroupByKeys.filter((k) => k !== key)
+      : [...effectiveGroupByKeys, key]
+    setGroupBy(serializeGroupByKeys(next, groupByLabelKeys))
   }
 
   const handleStepFilterChange = (steps: IndexStepType[]) => {
@@ -1024,40 +1057,32 @@ export function SuiteDetailPage() {
                   {groupByLabelKeys.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                       <span className="text-xs/5 font-medium text-gray-700 sm:text-sm/6 dark:text-gray-300">Group by:</span>
-                      <div className="flex items-center gap-1">
+                      <div className="flex flex-wrap items-center gap-1">
                         <button
-                          onClick={() => handleGroupByChange('none')}
+                          onClick={() => setGroupBy('none')}
                           className={`rounded-xs px-2 py-0.5 text-xs font-medium transition-colors sm:px-2.5 sm:py-1 ${
-                            !effectiveGroupBy
+                            effectiveGroupByKeys.length === 0
                               ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
                               : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
                           }`}
+                          title="Disable grouping"
                         >
                           None
                         </button>
-                        {groupByLabelKeys.map((key) => (
+                        {[...groupByLabelKeys, 'instance_id'].map((key) => (
                           <button
                             key={key}
-                            onClick={() => handleGroupByChange(key)}
+                            onClick={() => handleGroupByToggle(key)}
                             className={`rounded-xs px-2 py-0.5 text-xs font-medium transition-colors sm:px-2.5 sm:py-1 ${
-                              effectiveGroupBy === key
+                              effectiveGroupByKeys.includes(key)
                                 ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
                                 : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
                             }`}
+                            title={`${effectiveGroupByKeys.includes(key) ? 'Remove' : 'Add'} ${key === 'instance_id' ? 'instance id' : key} ${effectiveGroupByKeys.includes(key) ? 'from' : 'to'} grouping`}
                           >
-                            {key}
+                            {key === 'instance_id' ? 'instance id' : key}
                           </button>
                         ))}
-                        <button
-                          onClick={() => handleGroupByChange('instance_id')}
-                          className={`rounded-xs px-2 py-0.5 text-xs font-medium transition-colors sm:px-2.5 sm:py-1 ${
-                            effectiveGroupBy === 'instance_id'
-                              ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
-                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
-                          }`}
-                        >
-                          instance id
-                        </button>
                       </div>
                     </div>
                   )}
@@ -1117,8 +1142,8 @@ export function SuiteDetailPage() {
                     <div className="border-t border-gray-200 p-3 sm:p-4 dark:border-gray-700">
                       <RunsHeatmap
                         runs={suiteRunsAll}
-                        groupBy={effectiveGroupBy}
-                        getCompareGroupHref={effectiveGroupBy ? (groupRuns) => {
+                        groupBy={effectiveGroupByKeys}
+                        getCompareGroupHref={effectiveGroupByKeys.length > 0 ? (groupRuns) => {
                           const sorted = [...groupRuns].sort((a, b) => b.timestamp - a.timestamp)
                           const seen = new Set<string>()
                           const ids: string[] = []
@@ -1136,8 +1161,8 @@ export function SuiteDetailPage() {
                           if (ids.length < MIN_COMPARE_RUNS) return undefined
                           return `/compare?runs=${encodeURIComponent(ids.join(','))}`
                         } : undefined}
-                        getCompareClientAcrossGroupsHref={effectiveGroupBy ? (client) => {
-                          // Find the latest successful run for this client in each group
+                        getCompareClientAcrossGroupsHref={effectiveGroupByKeys.length > 0 ? (client) => {
+                          // Find the latest successful run for this client in each composite group
                           const sorted = [...suiteRunsAll]
                             .filter((r) => r.instance.client === client)
                             .sort((a, b) => b.timestamp - a.timestamp)
@@ -1146,9 +1171,7 @@ export function SuiteDetailPage() {
                           for (const run of sorted) {
                             // Skip live runs — can't compare in-progress runs.
                             if (run.status === 'running') continue
-                            const groupValue = effectiveGroupBy === 'instance_id'
-                              ? run.instance.id
-                              : (run.metadata?.[effectiveGroupBy] ?? '(none)')
+                            const groupValue = effectiveGroupByKeys.map((k) => groupValueForRun(run, k)).join(', ')
                             if (seenGroups.has(groupValue)) continue
                             if (run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total) {
                               seenGroups.add(groupValue)
@@ -1157,28 +1180,29 @@ export function SuiteDetailPage() {
                             if (ids.length >= MAX_COMPARE_RUNS) break
                           }
                           if (ids.length < MIN_COMPARE_RUNS) return undefined
-                          const labels = effectiveGroupBy === 'instance_id' ? 'instance-id' : `label:${effectiveGroupBy}`
+                          // `labels` is a single-key run-label display mode on the compare page;
+                          // use the first label key (or instance-id when that's all there is).
+                          const labelKey = effectiveGroupByKeys.find((k) => k !== 'instance_id')
+                          const labels = labelKey ? `label:${labelKey}` : 'instance-id'
                           return `/compare?runs=${encodeURIComponent(ids.join(','))}&labels=${encodeURIComponent(labels)}`
                         } : undefined}
-                        getGroupCompareGroupHref={effectiveGroupBy ? (groupLabel, groupClients) => {
-                          const labelFilter = effectiveGroupBy !== 'instance_id' ? `${effectiveGroupBy}=${groupLabel}` : ''
-                          const groups = groupClients.map((c) => `${c}:${labelFilter}`).join(';')
+                        getGroupCompareGroupHref={effectiveGroupByKeys.length > 0 ? (groupMetadata, groupClients) => {
+                          // groupMetadata is the group's key=value pairs (instance_id excluded);
+                          // empty (instance_id-only) yields a bare `client:` filter.
+                          const filter = Object.entries(groupMetadata).map(([k, v]) => `${k}=${v}`).join(',')
+                          const groups = groupClients.map((c) => `${c}:${filter}`).join(';')
                           return `/compare/groups?suite=${encodeURIComponent(suiteHash)}&groups=${encodeURIComponent(groups)}`
                         } : undefined}
-                        getGroupCompareClientAcrossGroupsHref={effectiveGroupBy ? (client) => {
-                          // Build one group per label-value for this client.
-                          const labelValues = new Set<string>()
+                        getGroupCompareClientAcrossGroupsHref={effectiveGroupByKeys.length > 0 ? (client) => {
+                          // Build one group per distinct label-value combination for this client
+                          // (instance_id can't be expressed as a metadata filter, so it's excluded).
+                          const metaKeys = effectiveGroupByKeys.filter((k) => k !== 'instance_id')
+                          const filters = new Set<string>()
                           for (const run of suiteRunsAll) {
                             if (run.instance.client !== client) continue
-                            const val = effectiveGroupBy === 'instance_id'
-                              ? run.instance.id
-                              : (run.metadata?.[effectiveGroupBy] ?? '')
-                            if (val) labelValues.add(val)
+                            filters.add(metaKeys.map((k) => `${k}=${run.metadata?.[k] ?? '(none)'}`).join(','))
                           }
-                          const groups = [...labelValues].sort().map((val) => {
-                            if (effectiveGroupBy === 'instance_id') return `${client}:`
-                            return `${client}:${effectiveGroupBy}=${val}`
-                          }).join(';')
+                          const groups = [...filters].sort().map((filter) => `${client}:${filter}`).join(';')
                           return `/compare/groups?suite=${encodeURIComponent(suiteHash)}&groups=${encodeURIComponent(groups)}`
                         } : undefined}
                         isDark={isDark}

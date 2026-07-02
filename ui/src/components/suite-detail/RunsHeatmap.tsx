@@ -94,14 +94,14 @@ export type MetricMode = 'duration' | 'mgas'
 
 interface RunsHeatmapProps {
   runs: IndexEntry[]
-  /** When set, runs are grouped by this label key (or 'instance_id') before client grouping. */
-  groupBy?: string
+  /** When set, runs are grouped by these label keys (or 'instance_id') before client grouping. Multiple keys form a composite group. */
+  groupBy?: string[]
   /** Returns the URL for the per-group compare button, or undefined to render it inert. */
   getCompareGroupHref?: (runs: IndexEntry[]) => string | undefined
   /** Returns the URL for comparing a client's latest successful run across groups. */
   getCompareClientAcrossGroupsHref?: (client: string) => string | undefined
-  /** Returns the URL for the averaged group-vs-group comparison page. */
-  getGroupCompareGroupHref?: (groupLabel: string, clients: string[]) => string | undefined
+  /** Returns the URL for the averaged group-vs-group comparison page. groupMetadata maps each grouped label key to this group's value (instance_id excluded, as it isn't a metadata filter). */
+  getGroupCompareGroupHref?: (groupMetadata: Record<string, string>, clients: string[]) => string | undefined
   /** Returns the URL for a client's averaged comparison across label groups. */
   getGroupCompareClientAcrossGroupsHref?: (client: string) => string | undefined
   isDark: boolean
@@ -117,6 +117,9 @@ interface RunsHeatmapProps {
 
 interface GroupSection {
   label: string
+  // Per-key values for the compare-URL builders (instance_id excluded — it is
+  // not a metadata filter). Empty when grouping only by instance_id.
+  metadata: Record<string, string>
   clients: string[]
   clientRuns: Record<string, IndexEntry[]>
   clientDurationStats: Record<string, ClientStats>
@@ -129,6 +132,21 @@ interface TooltipData {
   run: IndexEntry
   x: number
   y: number
+}
+
+// runGroup computes a run's composite group across the selected keys: a display
+// label of `key=value` pairs, plus a metadata map (instance_id excluded — it is
+// not a metadata filter) for the group-compare URL builders.
+function runGroup(run: IndexEntry, keys: string[]): { label: string; metadata: Record<string, string> } {
+  const metadata: Record<string, string> = {}
+  const parts = keys.map((key) => {
+    const value = key === 'instance_id' ? run.instance.id : (run.metadata?.[key] ?? '(none)')
+    if (key !== 'instance_id') metadata[key] = value
+
+    return `${key}=${value}`
+  })
+
+  return { label: parts.join(', '), metadata }
 }
 
 export function RunsHeatmap({
@@ -255,18 +273,18 @@ export function RunsHeatmap({
 
   // When groupBy is set, split runs into sections by label value
   const groupSections: GroupSection[] | null = useMemo(() => {
-    if (!groupBy) return null
+    if (!groupBy || groupBy.length === 0) return null
 
-    // Partition runs by group value
+    // Partition runs by their composite group value (across all selected keys).
     const grouped = new Map<string, IndexEntry[]>()
+    const groupMeta = new Map<string, Record<string, string>>()
     for (const run of runs) {
-      const value = groupBy === 'instance_id'
-        ? run.instance.id
-        : (run.metadata?.[groupBy] ?? '(none)')
-      let list = grouped.get(value)
+      const g = runGroup(run, groupBy)
+      let list = grouped.get(g.label)
       if (!list) {
         list = []
-        grouped.set(value, list)
+        grouped.set(g.label, list)
+        groupMeta.set(g.label, g.metadata)
       }
       list.push(run)
     }
@@ -321,6 +339,7 @@ export function RunsHeatmap({
 
       sections.push({
         label,
+        metadata: groupMeta.get(label) ?? {},
         clients: Object.keys(sectionClientRuns).sort(),
         clientRuns: sectionClientRuns,
         clientDurationStats: sectionDurationStats,
@@ -458,14 +477,12 @@ export function RunsHeatmap({
         )}
       </div>
 
-      {(groupSections ?? [{ label: '', clients, clientRuns, clientDurationStats, clientMgasStats, clientDurationScales, clientMgasScales }]).map((section, sectionIdx) => (
+      {(groupSections ?? [{ label: '', metadata: {}, clients, clientRuns, clientDurationStats, clientMgasStats, clientDurationScales, clientMgasScales }]).map((section, sectionIdx) => (
         <div key={section.label || '_default'} className={clsx(sectionIdx > 0 && 'mt-4')}>
           {section.label && (
             <div className="mb-2 flex items-center gap-3">
               <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
               <span className="inline-flex items-center gap-1.5 rounded-xs border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs/5 font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                <span className="font-semibold">{groupBy}</span>
-                <span>=</span>
                 <span>{section.label}</span>
               </span>
               {getCompareGroupHref && (
@@ -479,7 +496,7 @@ export function RunsHeatmap({
               )}
               {getGroupCompareGroupHref && (
                 <a
-                  href={getGroupCompareGroupHref(section.label, section.clients)}
+                  href={getGroupCompareGroupHref(section.metadata, section.clients)}
                   className="flex shrink-0 cursor-pointer items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                   title="Compare averaged groups for clients in this group"
                 >
