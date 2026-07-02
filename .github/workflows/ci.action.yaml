@@ -160,12 +160,13 @@ jobs:
             /opt/hostedtoolcache/CodeQL /usr/share/dotnet /usr/local/share/boost
           df -h /
 
-      - name: Build snapshots + fill payloads, then run (nethermind + besu)
+      - name: Build snapshots + fill payloads (nethermind + besu)
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           git-ref: ${{ github.event.pull_request.head.sha }}
           git-repo: ${{ github.event.pull_request.head.repo.clone_url }}
+          mode: build
           build-args: '--rebuild-on-diff'
           build-config: |
             builder:
@@ -221,6 +222,14 @@ jobs:
                     source_dir: /tmp/benchmarkoor/state-actor/besu
                     genesis: /tmp/benchmarkoor/state-actor/besu/besu-chainspec.json
                     output_dir: /tmp/benchmarkoor/eest-fixtures/besu
+
+      - name: Run benchmarks (nethermind + besu)
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-ref: ${{ github.event.pull_request.head.sha }}
+          git-repo: ${{ github.event.pull_request.head.repo.clone_url }}
+          mode: run
           run-config-urls: >-
             https://raw.githubusercontent.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-cleanup.yaml,
             https://raw.githubusercontent.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-clientstdout.yaml

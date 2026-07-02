@@ -10,6 +10,11 @@ inputs:
     description: 'GitHub token for API access'
     required: true
 
+  mode:
+    description: 'Which phase(s) to run: "all" (build if a build-config is set, then run — the default), "build" (build only, no run), or "run" (run only, skip build even if a build-config is set).'
+    required: false
+    default: 'all'
+
   image:
     description: 'Docker image to extract the benchmarkoor binary from (e.g., ghcr.io/ethpandaops/benchmarkoor:master). If not provided, will build the image locally from git-ref/git-repo and extract from it.'
     required: false
@@ -68,6 +73,14 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Validate mode
+      shell: bash
+      run: |
+        case "${{ inputs.mode }}" in
+          all|build|run) ;;
+          *) echo "Invalid mode '${{ inputs.mode }}' (expected: all, build, or run)" >&2; exit 1 ;;
+        esac
+
     - name: Verify and install dependencies
       uses: ethpandaops/benchmarkoor/.github/actions/dependencies@0ff45ea539387c901ac4a7845e2c6e6aeb9d8f25
 
@@ -126,7 +139,7 @@ runs:
 
     - name: Build Benchmarkoor artifacts
       id: build-benchmarkoor
-      if: inputs.build-config != '' || inputs.build-config-urls != ''
+      if: (inputs.mode == 'all' || inputs.mode == 'build') && (inputs.build-config != '' || inputs.build-config-urls != '')
       shell: bash
       env:
         INPUT_BUILD_CONFIG: ${{ inputs.build-config }}
@@ -176,6 +189,7 @@ runs:
 
     - name: Get Job ID from GH API
       id: get-job-id
+      if: inputs.mode == 'all' || inputs.mode == 'run'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -186,6 +200,7 @@ runs:
 
     - name: Run Benchmarkoor
       id: run-benchmarkoor
+      if: inputs.mode == 'all' || inputs.mode == 'run'
       shell: bash
       env:
         INPUT_RUN_CONFIG: ${{ inputs.run-config }}
@@ -296,7 +311,7 @@ runs:
         done
 
     - name: Create results archive
-      if: always() && inputs.upload-artifacts == 'true'
+      if: always() && inputs.upload-artifacts == 'true' && inputs.mode != 'build'
       shell: bash
       run: |
         if [ -d "${{ runner.temp }}/results" ]; then
@@ -305,7 +320,7 @@ runs:
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
-      if: always() && inputs.upload-artifacts == 'true'
+      if: always() && inputs.upload-artifacts == 'true' && inputs.mode != 'build'
       with:
         name: benchmarkoor-${{ github.run_id }}
         path: ${{ runner.temp }}/benchmarkoor-results.tar.gz
