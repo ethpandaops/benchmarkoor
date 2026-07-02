@@ -27,6 +27,72 @@ func installFakeSchelk(t *testing.T, body string) {
 	t.Setenv("BENCHMARKOOR_SCHELK_BIN", binPath)
 }
 
+// writeSchelkState writes a state.json with the given mount_point and points
+// SCHELK_STATE at it.
+func writeSchelkState(t *testing.T, mountPoint string) {
+	t.Helper()
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	data := fmt.Sprintf(`{"mount_point":%q,"is_mounted":true}`, mountPoint)
+	require.NoError(t, os.WriteFile(statePath, []byte(data), 0o600))
+	t.Setenv("SCHELK_STATE", statePath)
+}
+
+func TestSchelkDir(t *testing.T) {
+	t.Run("no state file is not a schelk dir", func(t *testing.T) {
+		t.Setenv("SCHELK_STATE", filepath.Join(t.TempDir(), "absent.json"))
+
+		mp, isSchelk, err := SchelkDir("/some/dir")
+		require.NoError(t, err)
+		assert.False(t, isSchelk)
+		assert.Empty(t, mp)
+	})
+
+	t.Run("output_dir under the mount is a schelk dir", func(t *testing.T) {
+		mount := t.TempDir()
+		writeSchelkState(t, mount)
+
+		mp, isSchelk, err := SchelkDir(filepath.Join(mount, "eth", "geth"))
+		require.NoError(t, err)
+		assert.True(t, isSchelk)
+		assert.Equal(t, mount, mp)
+	})
+
+	t.Run("output_dir outside the mount is not a schelk dir", func(t *testing.T) {
+		mount := t.TempDir()
+		writeSchelkState(t, mount)
+
+		mp, isSchelk, err := SchelkDir(filepath.Join(t.TempDir(), "geth"))
+		require.NoError(t, err)
+		assert.False(t, isSchelk)
+		assert.Equal(t, mount, mp)
+	})
+}
+
+func TestEnsureSchelkMounted_NoMountPoint(t *testing.T) {
+	writeSchelkState(t, "")
+
+	err := EnsureSchelkMounted(context.Background(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no mount_point")
+}
+
+func TestSchelkPromote(t *testing.T) {
+	t.Run("invokes promote -y", func(t *testing.T) {
+		installFakeSchelk(t, `[ "$1" = promote ] && [ "$2" = "-y" ] && exit 0 || exit 3`)
+		require.NoError(t, SchelkPromote(context.Background(), nil))
+	})
+
+	t.Run("surfaces failure with output", func(t *testing.T) {
+		installFakeSchelk(t, "echo nope >&2\nexit 1")
+
+		err := SchelkPromote(context.Background(), nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "promote")
+		assert.Contains(t, err.Error(), "nope")
+	})
+}
+
 func TestRunSchelk_HappyPath(t *testing.T) {
 	installFakeSchelk(t, "echo hello\nexit 0")
 

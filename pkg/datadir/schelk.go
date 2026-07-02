@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -284,6 +285,87 @@ func ReadSchelkState(path string) (*SchelkState, error) {
 	}
 
 	return &s, nil
+}
+
+// SchelkDir reports whether outputDir lives under a configured schelk mount,
+// returning the mount point when it does. When schelk is not set up (no state
+// file) it returns isSchelk=false with no error, so callers that don't use
+// schelk are unaffected. A malformed/unreadable existing state file is an error.
+func SchelkDir(outputDir string) (mountPoint string, isSchelk bool, err error) {
+	statePath := SchelkStatePath()
+	if _, statErr := os.Stat(statePath); errors.Is(statErr, os.ErrNotExist) {
+		return "", false, nil
+	}
+
+	state, err := ReadSchelkState(statePath)
+	if err != nil {
+		return "", false, err
+	}
+
+	if state.MountPoint == "" {
+		return "", false, nil
+	}
+
+	abs, err := filepath.Abs(outputDir)
+	if err != nil {
+		return "", false, fmt.Errorf("resolving output_dir %q: %w", outputDir, err)
+	}
+
+	return state.MountPoint, pathIsUnderMountpoint(abs, state.MountPoint), nil
+}
+
+// EnsureSchelkMounted makes sure the schelk scratch volume is mounted, running
+// `schelk mount` when it is not. It errors when schelk's recorded state and the
+// kernel disagree (a crash artefact that only `schelk full-recover` resolves).
+func EnsureSchelkMounted(ctx context.Context, log logrus.FieldLogger) error {
+	bin := SchelkBinary()
+
+	state, err := ReadSchelkState(SchelkStatePath())
+	if err != nil {
+		return err
+	}
+
+	if state.MountPoint == "" {
+		return fmt.Errorf("schelk state has no mount_point — run `schelk init-new` or `schelk init-from` first")
+	}
+
+	mounted, err := IsMountedAt(state.MountPoint)
+	if err != nil {
+		return fmt.Errorf("checking mount status: %w", err)
+	}
+
+	switch {
+	case state.IsMounted && !mounted:
+		// schelk state says mounted but the kernel disagrees — typically a
+		// crash or interrupted recover left dm-era and state out of sync.
+		// `schelk mount` will refuse ("Volume is already mounted"); only
+		// `schelk full-recover` can re-establish a consistent baseline.
+		return fmt.Errorf(
+			"schelk state at %q says is_mounted=true but %q is not in /proc/mounts "+
+				"(inconsistent, likely from a prior crash) — run `%s full-recover` to reset, then retry",
+			SchelkStatePath(), state.MountPoint, bin,
+		)
+	case !mounted:
+		output, runErr := RunSchelk(ctx, log, "mount", "-y")
+		if runErr != nil {
+			return fmt.Errorf("`%s mount` failed: %w (output: %s)",
+				bin, runErr, strings.TrimSpace(string(output)))
+		}
+	}
+
+	return nil
+}
+
+// SchelkPromote persists the current scratch contents as the new virgin
+// baseline via `schelk promote`, so subsequent recover/restore reset to it.
+func SchelkPromote(ctx context.Context, log logrus.FieldLogger) error {
+	output, err := RunSchelk(ctx, log, "promote", "-y")
+	if err != nil {
+		return fmt.Errorf("`%s promote` failed: %w (output: %s)",
+			SchelkBinary(), err, strings.TrimSpace(string(output)))
+	}
+
+	return nil
 }
 
 // IsMountedAt reports whether the given mount point appears as a mount

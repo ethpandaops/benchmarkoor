@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/sirupsen/logrus"
 )
@@ -91,6 +92,23 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 	// in build.go's "Building target" header and image is logged on the
 	// "Running state-actor" line, so they don't repeat on every streamed line.
 	log := b.log.WithField("target", target.EffectiveName())
+
+	// When output_dir lives under a schelk mount, make sure the scratch is
+	// mounted before anything inspects or writes it: the datadir is materialised
+	// onto the mount, and the skip/diff checks below must read the mounted
+	// content, not an empty mount point. Non-schelk output_dirs are untouched.
+	schelkMount, isSchelk, err := datadir.SchelkDir(target.OutputDir)
+	if err != nil {
+		return false, fmt.Errorf("checking schelk state for %q: %w", target.OutputDir, err)
+	}
+
+	if isSchelk {
+		log.WithField("mount_point", schelkMount).Info("output_dir is under a schelk mount; ensuring mounted")
+
+		if err := datadir.EnsureSchelkMounted(ctx, log); err != nil {
+			return false, fmt.Errorf("ensuring schelk mount: %w", err)
+		}
+	}
 
 	// The CLI `--force` flag and per-target `force: true` both bypass the
 	// skip-on-populated check, wipe the existing output_dir, and forward
@@ -212,6 +230,19 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 	// otherwise-successful build.
 	if err := writeBuildSidecar(target.OutputDir, StateActorBuilderName, inputs); err != nil {
 		log.WithError(err).Warn("Failed to write build fingerprint sidecar")
+	}
+
+	// The datadir just changed (a build ran), so persist it as the new schelk
+	// baseline. This reaches here only when a build actually happened — the skip
+	// paths return earlier — so an unchanged, skipped target is never promoted.
+	// Failure is fatal: leaving the mount ahead of the baseline would let a
+	// later `schelk recover` silently revert to the stale datadir.
+	if isSchelk {
+		log.Info("Persisting datadir as the new schelk baseline (`schelk promote`)")
+
+		if err := datadir.SchelkPromote(ctx, log); err != nil {
+			return false, fmt.Errorf("schelk promote: %w", err)
+		}
 	}
 
 	log.Info("Build completed")

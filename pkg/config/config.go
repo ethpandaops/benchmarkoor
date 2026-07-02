@@ -3078,37 +3078,12 @@ func (c *Config) validateDataDirMethods(opt ValidateOpts) error {
 		return fmt.Errorf("datadir.method \"schelk\": schelk state has no mount_point — run `schelk init-new` or `schelk init-from` first")
 	}
 
-	mountedActual, err := datadir.IsMountedAt(state.MountPoint)
-	if err != nil {
-		return fmt.Errorf("datadir.method \"schelk\": checking mount status: %w", err)
+	// Ensure the scratch is mounted (shared with the state-actor builder's
+	// preflight). Errors on the crash-inconsistent state (pointing the user at
+	// `schelk full-recover`) or a failed `schelk mount`.
+	if err := datadir.EnsureSchelkMounted(context.Background(), nil); err != nil {
+		return fmt.Errorf("datadir.method %q: %w", "schelk", err)
 	}
-
-	switch {
-	case state.IsMounted && !mountedActual:
-		// schelk state says mounted but the kernel disagrees — typically
-		// a crash or interrupted recover left dm-era and state out of sync.
-		// schelk mount will refuse ("Volume is already mounted") and only
-		// `schelk full-recover` can re-establish a consistent baseline.
-		return fmt.Errorf(
-			"datadir.method \"schelk\": state at %q says is_mounted=true but %q is not in /proc/mounts "+
-				"(inconsistent, likely from a prior crash) — run `%s full-recover` to reset, then retry",
-			datadir.SchelkStatePath(), state.MountPoint, bin,
-		)
-	case !state.IsMounted && !mountedActual:
-		// Use datadir.RunSchelk so a SIGTERM during validation does not
-		// kill the in-flight `schelk mount` mid-operation.
-		output, runErr := datadir.RunSchelk(context.Background(), nil, "mount", "-y")
-		if runErr != nil {
-			return fmt.Errorf(
-				"datadir.method \"schelk\": `%s mount` failed: %w (output: %s)",
-				bin, runErr, strings.TrimSpace(string(output)),
-			)
-		}
-	}
-	// state.IsMounted && mountedActual: nothing to do — Prepare will run
-	//   schelk restore to re-establish baseline at run start.
-	// !state.IsMounted && mountedActual: unusual but harmless; let Prepare
-	//   handle it via restore.
 
 	for _, si := range schelkInstances {
 		info, statErr := os.Stat(si.sourceDir)

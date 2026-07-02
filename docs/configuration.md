@@ -1119,6 +1119,8 @@ What benchmarkoor does at runtime:
 - **Per container lifecycle**, `Prepare` runs `schelk restore` (recover + mount) so each iteration starts from the virgin baseline. `Cleanup` runs `schelk recover` to unmount and restore baseline.
 - **Graceful shutdown**: schelk commands run in their own process group, so a SIGTERM to benchmarkoor does not propagate to schelk. An in-flight schelk command is given up to 60 seconds to finish before being killed, so a recover mid-flight is not interrupted.
 
+**Building onto a schelk mount:** when a `builder.state_actor` target's `output_dir` is under the schelk mount, `benchmarkoor build` mounts the scratch first (the same `schelk mount` preflight as above), materialises the datadir onto it, and — only when a build actually ran (fresh / `--force` / a `--rebuild-on-diff` change) — runs `schelk promote` to persist the new datadir as the virgin baseline. A skipped, unchanged target is not promoted. This is how the built datadir becomes the baseline the runner's per-iteration `schelk restore` resets to. No configuration is needed — it is detected from the output_dir path.
+
 Notes:
 - `rollback_strategy: container-checkpoint-restore` is **not** compatible with `method: schelk` (it requires `method: zfs`).
 - All operational schelk commands require root.
