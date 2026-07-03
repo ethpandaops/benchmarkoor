@@ -89,6 +89,16 @@ func runBuild(_ *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Apply the global builder timeout if configured.
+	if buildTimeout := cfg.GetBuilderRunTimeout(); buildTimeout > 0 {
+		log.WithField("timeout", buildTimeout).Info("Global builder timeout configured")
+
+		var timeoutCancel context.CancelFunc
+
+		ctx, timeoutCancel = context.WithTimeout(ctx, buildTimeout)
+		defer timeoutCancel()
+	}
+
 	installSignalHandler(cancel)
 
 	builders, stop, err := buildBuilders(ctx, cfg)

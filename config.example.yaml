@@ -231,6 +231,9 @@ runner:
 # consumed by `run` through the normal datadir.method providers.
 # See https://github.com/ethereum/state-actor for spec authoring.
 # builder:
+#   # Global timeout capping the entire `benchmarkoor build` (all builders and
+#   # targets). Go duration; empty = no timeout. Env: BENCHMARKOOR_BUILDER_RUN_TIMEOUT.
+#   # run_timeout: 2h
 #   state_actor:
 #     # Per-client docker images. Every active target's client needs an entry —
 #     # state-actor needs a different cgo build per EL.

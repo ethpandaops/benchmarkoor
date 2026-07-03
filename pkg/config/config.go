@@ -78,6 +78,10 @@ type Config struct {
 // stateful EEST benchmark fixtures against such a datadir). Future
 // builders plug in alongside.
 type BuilderConfig struct {
+	// RunTimeout caps the entire build (all builders and targets) as a Go
+	// duration string (e.g. "2h"). Empty means no timeout. Overridable via
+	// BENCHMARKOOR_BUILDER_RUN_TIMEOUT.
+	RunTimeout   string              `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
 	StateActor   *StateActorConfig   `yaml:"state_actor,omitempty" mapstructure:"state_actor"`
 	EESTPayloads *EESTPayloadsConfig `yaml:"eest_payloads,omitempty" mapstructure:"eest_payloads"`
 }
@@ -1515,6 +1519,8 @@ func bindEnvKeys(v *viper.Viper) {
 		// Global settings
 		"global.log_level",
 		"global.directories.cachedir",
+		// Builder settings
+		"builder.run_timeout",
 		// Runner settings
 		"runner.container_runtime",
 		"runner.client_logs_to_stdout",
@@ -2009,6 +2015,13 @@ func (c *Config) ValidateBuilder() error {
 func (c *Config) validateBuilder() error {
 	if c.Builder == nil {
 		return nil
+	}
+
+	if c.Builder.RunTimeout != "" {
+		if _, err := time.ParseDuration(c.Builder.RunTimeout); err != nil {
+			return fmt.Errorf("invalid builder.run_timeout %q: %w",
+				c.Builder.RunTimeout, err)
+		}
 	}
 
 	if err := c.validateStateActor(); err != nil {
@@ -2732,6 +2745,21 @@ func (c *Config) GetRunnerRunTimeout() time.Duration {
 	}
 
 	d, err := time.ParseDuration(c.Runner.RunTimeout)
+	if err != nil {
+		return 0
+	}
+
+	return d
+}
+
+// GetBuilderRunTimeout returns the global builder-level timeout that caps the
+// entire build (all builders and targets). Returns 0 if not set.
+func (c *Config) GetBuilderRunTimeout() time.Duration {
+	if c.Builder == nil || c.Builder.RunTimeout == "" {
+		return 0
+	}
+
+	d, err := time.ParseDuration(c.Builder.RunTimeout)
 	if err != nil {
 		return 0
 	}

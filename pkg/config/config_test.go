@@ -56,6 +56,33 @@ func TestBuildsFillImage(t *testing.T) {
 	}
 }
 
+func TestGetBuilderRunTimeout(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *Config
+		want time.Duration
+	}{
+		{"nil builder", &Config{}, 0},
+		{"empty", &Config{Builder: &BuilderConfig{}}, 0},
+		{"valid", &Config{Builder: &BuilderConfig{RunTimeout: "2h"}}, 2 * time.Hour},
+		{"invalid falls back to 0", &Config{Builder: &BuilderConfig{RunTimeout: "nope"}}, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.cfg.GetBuilderRunTimeout())
+		})
+	}
+}
+
+func TestValidateBuilder_RunTimeout(t *testing.T) {
+	require.NoError(t, (&Config{Builder: &BuilderConfig{RunTimeout: "30m"}}).validateBuilder())
+
+	err := (&Config{Builder: &BuilderConfig{RunTimeout: "5 hours"}}).validateBuilder()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "builder.run_timeout")
+}
+
 func TestLoad_InlineAddressStubsKeyCasing(t *testing.T) {
 	// Viper is case-insensitive and lowercases all map keys; EEST resolves stub
 	// names by exact match, so Load must restore the original casing.

@@ -78,6 +78,7 @@ Configuration values can also be overridden via environment variables with the `
 | Config Path | Environment Variable |
 |-------------|---------------------|
 | `global.log_level` | `BENCHMARKOOR_GLOBAL_LOG_LEVEL` |
+| `builder.run_timeout` | `BENCHMARKOOR_BUILDER_RUN_TIMEOUT` |
 | `runner.run_timeout` | `BENCHMARKOOR_RUNNER_RUN_TIMEOUT` |
 | `runner.benchmark.results_dir` | `BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_DIR` |
 | `runner.client.config.jwt` | `BENCHMARKOOR_RUNNER_CLIENT_CONFIG_JWT` |
@@ -1456,6 +1457,10 @@ The `builder` section configures tools that pre-populate benchmark inputs on dis
 - **`eest_payloads`** generates stateful EEST benchmark fixtures by running [`fill-stateful`](https://github.com/ethereum/execution-specs/pull/2637) against a filler client booted on a pre-populated snapshot (typically one produced by `state_actor`). The fixtures are replayed by `benchmarkoor run`.
 
 Builds are **decoupled from `benchmarkoor run`**: invoke `benchmarkoor build` to materialise the artifacts, then run benchmarks against them via the regular `datadir.method: copy|zfs|schelk|…` providers and test-source config. A missing datadir at `run` time is an error — it is never auto-built. When both builders are configured, they run in declaration order (`state_actor` before `eest_payloads`) so a fixture build can consume a datadir produced earlier in the same `benchmarkoor build` invocation.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `run_timeout` | string | – | Global timeout capping the entire `benchmarkoor build` (all builders and targets), as a Go duration (e.g. `2h`, `90m`). Empty means no timeout. Overridable via `BENCHMARKOOR_BUILDER_RUN_TIMEOUT`. The analogue of [`runner.run_timeout`](#runner-run-timeout) for builds. |
 
 ### `builder.state_actor` options
 
