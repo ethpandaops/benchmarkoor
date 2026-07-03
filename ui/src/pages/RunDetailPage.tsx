@@ -789,21 +789,6 @@ export function RunDetailPage() {
               )}
             </div>
           </div>
-          <FacetPanel
-            testNames={Object.keys(result.tests)}
-            query={q}
-            onToggle={(term) => handleSearchChange(toggleSearchTerm(q, term))}
-          />
-          <DimensionInsights
-            tests={result.tests}
-            stepFilter={stepFilter}
-            searchQuery={q}
-            statusFilter={status}
-            query={q}
-            onToggle={(term) => handleSearchChange(toggleSearchTerm(q, term))}
-            onTestClick={handleTestModalChange}
-            threshold={heatmapThreshold}
-          />
           <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
             <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
               <Flame className="size-4 text-gray-400 dark:text-gray-500" />
@@ -837,6 +822,21 @@ export function RunDetailPage() {
             />
             </div>
           </div>
+          <FacetPanel
+            testNames={Object.keys(result.tests)}
+            query={q}
+            onToggle={(term) => handleSearchChange(toggleSearchTerm(q, term))}
+          />
+          <DimensionInsights
+            tests={result.tests}
+            stepFilter={stepFilter}
+            searchQuery={q}
+            statusFilter={status}
+            query={q}
+            onToggle={(term) => handleSearchChange(toggleSearchTerm(q, term))}
+            onTestClick={handleTestModalChange}
+            threshold={heatmapThreshold}
+          />
 
           {mergedSuiteTests && mergedSuiteTests.length > 0 && (
             <div className="overflow-hidden rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
