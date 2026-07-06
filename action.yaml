@@ -133,7 +133,7 @@ runs:
         chmod +x "$BIN"
 
         echo "Extracted binary to $BIN"
-        "$BIN" --version || true
+        "$BIN" version || true
 
         echo "binary=${BIN}" >> "$GITHUB_OUTPUT"
 
