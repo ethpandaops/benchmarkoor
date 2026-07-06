@@ -233,7 +233,7 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 		}
 	}
 
-	if err := b.checkInputs(target); err != nil {
+	if err := b.checkInputs(ctx, target); err != nil {
 		return false, err
 	}
 
@@ -356,7 +356,21 @@ func (b *EESTPayloadsBuilder) findTargetIndex(name string) int {
 // checkInputs verifies the build-time inputs exist. Existence is checked
 // here (not at config-validation time) because a state-actor target earlier
 // in the same config may still need to produce source_dir.
-func (b *EESTPayloadsBuilder) checkInputs(t *config.EESTPayloadTarget) error {
+func (b *EESTPayloadsBuilder) checkInputs(ctx context.Context, t *config.EESTPayloadTarget) error {
+	// A source_dir under a schelk mount is only a real path once the schelk
+	// scratch is mounted — which otherwise happens later in run()→Prepare. A
+	// preceding state-actor build leaves the datadir promoted as the schelk
+	// baseline but not necessarily mounted (`schelk promote`), so mount it here
+	// before the existence checks below (source_dir and, for schelk configs, the
+	// genesis alongside it). Non-schelk source_dirs are untouched.
+	if _, isSchelk, err := datadir.SchelkDir(t.SourceDir); err != nil {
+		return fmt.Errorf("checking schelk state for source_dir %q: %w", t.SourceDir, err)
+	} else if isSchelk {
+		if err := datadir.EnsureSchelkMounted(ctx, b.log); err != nil {
+			return fmt.Errorf("ensuring schelk mount for source_dir %q: %w", t.SourceDir, err)
+		}
+	}
+
 	if info, err := os.Stat(t.SourceDir); err != nil {
 		return fmt.Errorf("source_dir %q: %w", t.SourceDir, err)
 	} else if !info.IsDir() {

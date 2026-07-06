@@ -14,6 +14,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCheckInputs_NonSchelkSource(t *testing.T) {
+	// Force "no schelk configured" (absent state file) so source_dir is treated
+	// as a plain directory and the schelk mount path is not taken.
+	t.Setenv("SCHELK_STATE", filepath.Join(t.TempDir(), "absent.json"))
+
+	b := &EESTPayloadsBuilder{log: noopLogger()}
+	src := t.TempDir()
+
+	require.NoError(t, b.checkInputs(context.Background(), &config.EESTPayloadTarget{SourceDir: src}))
+
+	err := b.checkInputs(context.Background(), &config.EESTPayloadTarget{SourceDir: filepath.Join(src, "missing")})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "source_dir")
+}
+
 func TestEmbeddedFillDockerfile(t *testing.T) {
 	require.NotEmpty(t, embeddedFillDockerfile, "Dockerfile.eest-filler must be embedded")
 	body := string(embeddedFillDockerfile)
