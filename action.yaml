@@ -174,6 +174,9 @@ runs:
           ARGS+=("--config=${{ runner.temp }}/benchmarkoor-build-config-inline.yaml")
         fi
 
+        # Emit a machine-readable build summary for the markdown step below.
+        ARGS+=("--summary-json=${{ runner.temp }}/benchmarkoor-build-summary.json")
+
         # Append extra build args if provided (whitespace-split, same as run).
         if [ -n "${{ inputs.build-args }}" ]; then
           # shellcheck disable=SC2206 # intentional word-split for argv
@@ -186,6 +189,25 @@ runs:
         # them) and propagates caller env (e.g. STATE_DIR) into the build.
         echo "Running: sudo -E $BIN ${ARGS[*]}"
         sudo -E "$BIN" "${ARGS[@]}"
+
+    - name: Generate build markdown summary
+      # Runs even if the build failed so a partial summary (incl. ERR targets)
+      # still reaches the job summary. sudo because the build artifacts are
+      # root-owned (see above).
+      if: always() && (inputs.mode == 'all' || inputs.mode == 'build') && (inputs.build-config != '' || inputs.build-config-urls != '')
+      shell: bash
+      run: |
+        BIN="${{ steps.extract-binary.outputs.binary }}"
+        SUMMARY="${{ runner.temp }}/benchmarkoor-build-summary.json"
+        if [ -f "$SUMMARY" ]; then
+          sudo -E "$BIN" generate-build-markdown-summary \
+            --input="$SUMMARY" \
+            --output="${{ runner.temp }}/benchmarkoor-build-summary.md"
+          if [ -f "${{ runner.temp }}/benchmarkoor-build-summary.md" ]; then
+            cat "${{ runner.temp }}/benchmarkoor-build-summary.md" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        fi
 
     - name: Get Job ID from GH API
       id: get-job-id
@@ -335,5 +357,6 @@ runs:
         rm -f "${{ runner.temp }}/benchmarkoor-config-inline.yaml"
         rm -f "${{ runner.temp }}/benchmarkoor-build-config-url-"*.yaml
         rm -f "${{ runner.temp }}/benchmarkoor-build-config-inline.yaml"
+        rm -f "${{ runner.temp }}/benchmarkoor-build-summary.json" "${{ runner.temp }}/benchmarkoor-build-summary.md"
         rm -f "${{ runner.temp }}/benchmarkoor-results.tar.gz"
         rm -f "${{ runner.temp }}/benchmarkoor"

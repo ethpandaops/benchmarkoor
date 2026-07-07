@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,10 +10,12 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/builder"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/podman"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -26,6 +29,7 @@ var (
 	buildSkipEESTPayloads   bool
 	buildForce              bool
 	buildRebuildOnDiff      bool
+	buildSummaryJSON        string
 )
 
 var buildCmd = &cobra.Command{
@@ -61,6 +65,8 @@ func init() {
 		"Remove each target's output_dir before building")
 	buildCmd.Flags().BoolVar(&buildRebuildOnDiff, "rebuild-on-diff", false,
 		"Rebuild a populated output_dir when its config fingerprint changed since the last build (instead of skipping)")
+	buildCmd.Flags().StringVar(&buildSummaryJSON, "summary-json", "",
+		"Write a machine-readable build summary to this path (render it with `generate-build-markdown-summary`)")
 }
 
 func runBuild(_ *cobra.Command, _ []string) error {
@@ -249,6 +255,7 @@ type buildResult struct {
 	outputDir string
 	skipped   bool
 	err       error
+	elapsed   time.Duration
 }
 
 // runBuilders selects and builds the requested targets across all builders,
@@ -274,6 +281,7 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 			"output_dir": sel.info.OutputDir,
 		}).Info("Building target")
 
+		start := time.Now()
 		skipped, buildErr := sel.builder.Build(ctx, sel.info.Name, builder.BuildOptions{Force: buildForce, RebuildOnDiff: buildRebuildOnDiff})
 
 		results = append(results, buildResult{
@@ -283,6 +291,7 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 			outputDir: sel.info.OutputDir,
 			skipped:   skipped,
 			err:       buildErr,
+			elapsed:   time.Since(start),
 		})
 
 		if buildErr != nil {
@@ -290,7 +299,61 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 		}
 	}
 
+	if buildSummaryJSON != "" {
+		if err := writeBuildSummaryJSON(buildSummaryJSON, results); err != nil {
+			log.WithError(err).Warn("Failed to write build summary JSON")
+		}
+	}
+
 	return summarise(results)
+}
+
+// writeBuildSummaryJSON persists the per-target build outcomes as a
+// BuildSummary that `generate-build-markdown-summary` renders to markdown.
+func writeBuildSummaryJSON(path string, results []buildResult) error {
+	targets := make([]executor.BuildTargetSummary, 0, len(results))
+
+	for _, r := range results {
+		status := "OK"
+
+		switch {
+		case r.err != nil:
+			status = "ERR"
+		case r.skipped:
+			status = "SKIP"
+		}
+
+		errMsg := ""
+		if r.err != nil {
+			errMsg = r.err.Error()
+		}
+
+		targets = append(targets, executor.BuildTargetSummary{
+			Builder:   r.builder,
+			Name:      r.name,
+			Client:    r.client,
+			OutputDir: r.outputDir,
+			Status:    status,
+			Error:     errMsg,
+			ElapsedMs: r.elapsed.Milliseconds(),
+		})
+	}
+
+	summary := executor.BuildSummary{
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Targets:     targets,
+	}
+
+	data, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling build summary: %w", err)
+	}
+
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		return fmt.Errorf("writing build summary: %w", err)
+	}
+
+	return nil
 }
 
 // summarise logs the per-target outcome grouped under each builder and returns

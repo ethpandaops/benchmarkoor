@@ -523,7 +523,7 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 		"snapshot_block": snapshotHash,
 	}).Info("Filler client ready; running fill-stateful")
 
-	return b.runFill(ctx, log, t, fillerIP, spec, jwtPath, snapshotHash, eestRepoPath)
+	return b.runFill(ctx, log, t, fillerIP, spec, jwtPath, snapshotHash, eestRepoPath, sha)
 }
 
 // waitForFillerReady blocks until the filler's RPC answers or the filler
@@ -797,13 +797,85 @@ func (b *EESTPayloadsBuilder) buildFillImage(ctx context.Context, log logrus.Fie
 	return nil
 }
 
+const (
+	// eestFillResultFile is the sidecar written next to the fixtures recording
+	// how many tests the fill produced/failed (read by the build markdown summary).
+	eestFillResultFile = ".benchmarkoor-fill.json"
+
+	// pytestReportFile is the pytest-json-report output written under output_dir
+	// (via PYTEST_ADDOPTS --json-report); it carries the authoritative
+	// passed/failed tally. Relative to output_dir (= the fill container's /out).
+	pytestReportFile = ".benchmarkoor-pytest-report.json"
+)
+
+// recordEESTFillResult writes the .benchmarkoor-fill.json sidecar for the build
+// summary: the target's provenance plus authoritative counts from EEST's own
+// report artifacts — the generated-fixture count from .meta/index.json and the
+// failed/errored count from the pytest json report. It is written even after a
+// failed fill (fill-stateful continues through failures and still writes both the
+// fixtures and the reports), so a failed target is still fully described.
+// Best-effort: missing/unparseable reports yield zero counts rather than an error.
+func recordEESTFillResult(t *config.EESTPayloadTarget, eestSHA string) error {
+	result := struct {
+		SourceDir    string `json:"source_dir"`
+		FillerClient string `json:"filler_client"`
+		FillerImage  string `json:"filler_image"`
+		EESTSHA      string `json:"eest_sha"`
+		Fork         string `json:"fork"`
+		Filter       string `json:"filter"`
+		Filled       int    `json:"filled"`
+		Failed       int    `json:"failed"`
+	}{
+		SourceDir:    t.SourceDir,
+		FillerClient: t.FillerClient,
+		FillerImage:  t.FillerImage,
+		EESTSHA:      eestSHA,
+		Fork:         t.Fork,
+		Filter:       t.Filter,
+	}
+
+	// Generated fixtures (filled) — EEST's index.json test_count.
+	if data, err := os.ReadFile(filepath.Join(t.OutputDir, ".meta", "index.json")); err == nil {
+		var idx struct {
+			TestCount int `json:"test_count"`
+		}
+		if json.Unmarshal(data, &idx) == nil {
+			result.Filled = idx.TestCount
+		}
+	}
+
+	// Failures — pytest's json report summary (failed + errored).
+	if data, err := os.ReadFile(filepath.Join(t.OutputDir, pytestReportFile)); err == nil {
+		var rep struct {
+			Summary struct {
+				Failed int `json:"failed"`
+				Error  int `json:"error"`
+			} `json:"summary"`
+		}
+		if json.Unmarshal(data, &rep) == nil {
+			result.Failed = rep.Summary.Failed + rep.Summary.Error
+		}
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("marshalling fill result: %w", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(t.OutputDir, eestFillResultFile), append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("writing fill result: %w", err)
+	}
+
+	return nil
+}
+
 func (b *EESTPayloadsBuilder) runFill(
 	ctx context.Context,
 	log logrus.FieldLogger,
 	t *config.EESTPayloadTarget,
 	fillerIP string,
 	spec client.Spec,
-	jwtPath, snapshotHash, eestRepoPath string,
+	jwtPath, snapshotHash, eestRepoPath, eestSHA string,
 ) error {
 	fillImage, err := b.ensureFillImage(ctx, log)
 	if err != nil {
@@ -826,9 +898,13 @@ func (b *EESTPayloadsBuilder) runFill(
 	// Run as the invoking host user so fixtures written to /out are owned by
 	// that user. The uv/pytest fill image keeps writable state under /tmp.
 	env := map[string]string{
-		"HOME":           "/tmp",
-		"UV_CACHE_DIR":   "/tmp/uv-cache",
-		"PYTEST_ADDOPTS": "-o cache_dir=/tmp/.pytest_cache",
+		"HOME":         "/tmp",
+		"UV_CACHE_DIR": "/tmp/uv-cache",
+		// Enable pytest's json report so we can read an authoritative
+		// passed/failed tally for the build summary (the json-report plugin ships
+		// in the fill image). fill-stateful continues through failures, so a
+		// partial fill still records how many tests failed.
+		"PYTEST_ADDOPTS": "-o cache_dir=/tmp/.pytest_cache --json-report --json-report-file=" + fillOutputPath + "/" + pytestReportFile,
 		// fill-stateful reads its commit hash from the /eest git checkout; as a
 		// non-root user git can refuse with "dubious ownership". Inject
 		// safe.directory=* via git's env-based config so it trusts the repo.
@@ -865,8 +941,17 @@ func (b *EESTPayloadsBuilder) runFill(
 
 	log.WithField("argv", args).Info("Running fill-stateful")
 
-	if err := b.mgr.RunInitContainer(ctx, containerSpec, out, out); err != nil {
-		return fmt.Errorf("running fill-stateful: %w (output tail: %s)", err, tail.String())
+	runErr := b.mgr.RunInitContainer(ctx, containerSpec, out, out)
+
+	// Record fill counts (from EEST's report artifacts) for the build summary —
+	// best-effort, and after a failed fill too, since fill-stateful continues
+	// through failures and still writes the reports.
+	if err := recordEESTFillResult(t, eestSHA); err != nil {
+		log.WithError(err).Warn("Failed to record fill result")
+	}
+
+	if runErr != nil {
+		return fmt.Errorf("running fill-stateful: %w (output tail: %s)", runErr, tail.String())
 	}
 
 	log.Info("Build completed")

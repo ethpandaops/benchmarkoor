@@ -14,6 +14,49 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRecordEESTFillResult(t *testing.T) {
+	out := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(out, ".meta"), 0o755))
+
+	// EEST's index.json gives the generated (filled) count; pytest's json report
+	// gives failed + error.
+	require.NoError(t, os.WriteFile(filepath.Join(out, ".meta", "index.json"),
+		[]byte(`{"test_count":34,"test_cases":[]}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(out, pytestReportFile),
+		[]byte(`{"summary":{"passed":34,"failed":2,"error":1,"total":37}}`), 0o600))
+
+	require.NoError(t, recordEESTFillResult(&config.EESTPayloadTarget{
+		OutputDir: out, SourceDir: "/src/geth", FillerClient: "geth", Fork: "osaka",
+	}, "27174ca1b2c3"))
+
+	data, err := os.ReadFile(filepath.Join(out, eestFillResultFile))
+	require.NoError(t, err)
+
+	var got struct {
+		SourceDir    string `json:"source_dir"`
+		FillerClient string `json:"filler_client"`
+		EESTSHA      string `json:"eest_sha"`
+		Filled       int    `json:"filled"`
+		Failed       int    `json:"failed"`
+	}
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, 34, got.Filled)
+	assert.Equal(t, 3, got.Failed) // failed + error
+	assert.Equal(t, "/src/geth", got.SourceDir)
+	assert.Equal(t, "geth", got.FillerClient)
+	assert.Equal(t, "27174ca1b2c3", got.EESTSHA)
+
+	// Missing reports → provenance still recorded, zero counts, no error.
+	empty := t.TempDir()
+	require.NoError(t, recordEESTFillResult(&config.EESTPayloadTarget{OutputDir: empty, FillerClient: "besu"}, ""))
+	data, err = os.ReadFile(filepath.Join(empty, eestFillResultFile))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, 0, got.Filled)
+	assert.Equal(t, 0, got.Failed)
+	assert.Equal(t, "besu", got.FillerClient)
+}
+
 func TestCheckInputs_NonSchelkSource(t *testing.T) {
 	// Force "no schelk configured" (absent state file) so source_dir is treated
 	// as a plain directory and the schelk mount path is not taken.
