@@ -78,18 +78,29 @@ type eestFillResult struct {
 	Failed       int    `json:"failed"`
 }
 
-// GenerateBuildMarkdown reads a build-summary.json and renders a markdown
-// summary of the state-actor and eest-payloads builds, enriching each target
-// from its on-disk output_dir artifacts. Output is truncated to maxChars.
-func GenerateBuildMarkdown(summaryPath string, maxChars int) (string, error) {
-	data, err := os.ReadFile(summaryPath)
+// ReadBuildSummary parses a build-summary.json written by
+// `benchmarkoor build --summary-json`.
+func ReadBuildSummary(path string) (*BuildSummary, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("reading build summary %s: %w", summaryPath, err)
+		return nil, fmt.Errorf("reading build summary %s: %w", path, err)
 	}
 
 	var summary BuildSummary
 	if err := json.Unmarshal(data, &summary); err != nil {
-		return "", fmt.Errorf("parsing build summary %s: %w", summaryPath, err)
+		return nil, fmt.Errorf("parsing build summary %s: %w", path, err)
+	}
+
+	return &summary, nil
+}
+
+// GenerateBuildMarkdown reads a build-summary.json and renders a markdown
+// summary of the state-actor and eest-payloads builds, enriching each target
+// from its on-disk output_dir artifacts. Output is truncated to maxChars.
+func GenerateBuildMarkdown(summaryPath string, maxChars int) (string, error) {
+	summary, err := ReadBuildSummary(summaryPath)
+	if err != nil {
+		return "", err
 	}
 
 	var sb strings.Builder
