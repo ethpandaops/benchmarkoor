@@ -147,6 +147,15 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 	// orchestration and streamed-client log line.
 	log := b.log.WithField("target", target.EffectiveName())
 
+	// source_dir may live under a schelk mount (a state-actor datadir promoted
+	// onto schelk, left unmounted). Mount it before anything reads the source:
+	// the cascade fingerprint below, the genesis hash in the diff fingerprint,
+	// and checkInputs all touch source_dir/genesis and would otherwise fail on an
+	// unmounted path.
+	if err := b.ensureSourceSchelkMounted(ctx, log, target.SourceDir); err != nil {
+		return false, err
+	}
+
 	// Cascade: fold the source snapshot's fingerprint into ours so a rebuilt
 	// state-actor datadir (its config changed) also invalidates these fixtures.
 	// Best-effort — an absent/unreadable source sidecar contributes "".
@@ -361,19 +370,33 @@ func (b *EESTPayloadsBuilder) findTargetIndex(name string) int {
 // checkInputs verifies the build-time inputs exist. Existence is checked
 // here (not at config-validation time) because a state-actor target earlier
 // in the same config may still need to produce source_dir.
-func (b *EESTPayloadsBuilder) checkInputs(ctx context.Context, t *config.EESTPayloadTarget) error {
-	// A source_dir under a schelk mount is only a real path once the schelk
-	// scratch is mounted — which otherwise happens later in run()→Prepare. A
-	// preceding state-actor build leaves the datadir promoted as the schelk
-	// baseline but not necessarily mounted (`schelk promote`), so mount it here
-	// before the existence checks below (source_dir and, for schelk configs, the
-	// genesis alongside it). Non-schelk source_dirs are untouched.
-	if _, isSchelk, err := datadir.SchelkDir(t.SourceDir); err != nil {
-		return fmt.Errorf("checking schelk state for source_dir %q: %w", t.SourceDir, err)
-	} else if isSchelk {
-		if err := datadir.EnsureSchelkMounted(ctx, b.log); err != nil {
-			return fmt.Errorf("ensuring schelk mount for source_dir %q: %w", t.SourceDir, err)
+// ensureSourceSchelkMounted mounts the schelk scratch when source_dir lives
+// under a schelk mount. A preceding state-actor build promotes its datadir as
+// the schelk baseline but leaves it unmounted (`schelk promote`), so the source
+// snapshot — its build sidecar, the genesis alongside it, and the fixtures — is
+// only a real path once remounted. Idempotent; a no-op for non-schelk sources.
+func (b *EESTPayloadsBuilder) ensureSourceSchelkMounted(ctx context.Context, log logrus.FieldLogger, sourceDir string) error {
+	_, isSchelk, err := datadir.SchelkDir(sourceDir)
+	if err != nil {
+		return fmt.Errorf("checking schelk state for source_dir %q: %w", sourceDir, err)
+	}
+
+	if isSchelk {
+		if err := datadir.EnsureSchelkMounted(ctx, log); err != nil {
+			return fmt.Errorf("ensuring schelk mount for source_dir %q: %w", sourceDir, err)
 		}
+	}
+
+	return nil
+}
+
+func (b *EESTPayloadsBuilder) checkInputs(ctx context.Context, t *config.EESTPayloadTarget) error {
+	// Build already mounts the schelk scratch up front (before the diff
+	// fingerprint reads the source), so by here source_dir/genesis are real
+	// paths. Re-run the idempotent ensure defensively in case checkInputs is
+	// reached via a path that skipped it.
+	if err := b.ensureSourceSchelkMounted(ctx, b.log, t.SourceDir); err != nil {
+		return err
 	}
 
 	if info, err := os.Stat(t.SourceDir); err != nil {
