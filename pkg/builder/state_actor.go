@@ -225,9 +225,16 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 
 	log.WithFields(logrus.Fields{"image": image, "argv": args}).Info("Running state-actor")
 
-	if err := b.mgr.RunInitContainer(ctx, spec, stdout, stderr); err != nil {
+	// state-actor can run for a long time and may log nothing; periodically log
+	// the growing datadir size so the build shows progress.
+	stopProgress := logDatadirProgress(ctx, log, target.OutputDir, datadirProgressInterval)
+
+	runErr := b.mgr.RunInitContainer(ctx, spec, stdout, stderr)
+	stopProgress()
+
+	if runErr != nil {
 		return false, fmt.Errorf("running state-actor: %w (output tail: %s)",
-			err, tail.String())
+			runErr, tail.String())
 	}
 
 	// Record the docker image (name + resolved sha256 digest) into the manifest
