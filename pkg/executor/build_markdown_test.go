@@ -30,6 +30,7 @@ func TestGenerateBuildMarkdown(t *testing.T) {
 	require.NoError(t, os.MkdirAll(eestDir, 0o755))
 
 	manifest := `{"flags":{"client":"nethermind","fork":"osaka","seed":1234,"chain_id":1337,"gas_limit":300000000,"target_size":"256MB"},` +
+		`"benchmarkoor":{"image":"ethpandaops/nethermind:master","image_digest":"sha256:abc123def456"},` +
 		`"result":{"state_root":"0x120a6b331ed0fa9bec93ce22ab765a057b4e7c707d0fd97388fcd4316ed65498",` +
 		`"accounts_created":301540,"contracts_created":5248,"storage_slots":1351914,"total_db_size_bytes":526000000,"elapsed_ms":4348}}`
 	require.NoError(t, os.WriteFile(filepath.Join(saDir, stateActorManifestFile), []byte(manifest), 0o600))
@@ -56,6 +57,9 @@ func TestGenerateBuildMarkdown(t *testing.T) {
 	assert.Contains(t, md, "| Accounts created | 301,540 |")
 	assert.Contains(t, md, "| Storage slots | 1,351,914 |")
 	assert.Contains(t, md, "0x120a6b33") // short state root prefix
+	// docker image + digest recorded into the manifest
+	assert.Contains(t, md, "| Docker image | `ethpandaops/nethermind:master` |")
+	assert.Contains(t, md, "| Image digest | `sha256:abc123def456` |")
 	// eest provenance + fill counts + newly added filler image / EEST commit
 	assert.Contains(t, md, "| Source | /schelk/state-actor/v1/nethermind |")
 	assert.Contains(t, md, "| Filler image | `ethpandaops/geth:master` |")

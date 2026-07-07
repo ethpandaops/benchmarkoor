@@ -55,6 +55,12 @@ type stateActorManifest struct {
 		TotalDBSizeBytes int64  `json:"total_db_size_bytes"`
 		ElapsedMs        int64  `json:"elapsed_ms"`
 	} `json:"result"`
+	// Benchmarkoor is the benchmarkoor-namespaced block added after generation,
+	// carrying the docker image used to produce the datadir + its sha256 digest.
+	Benchmarkoor *struct {
+		Image       string `json:"image"`
+		ImageDigest string `json:"image_digest"`
+	} `json:"benchmarkoor"`
 }
 
 // eestFillResult mirrors the .benchmarkoor-fill.json sidecar: the eest target's
@@ -138,6 +144,11 @@ func writeStateActorSection(sb *strings.Builder, t BuildTargetSummary) {
 
 	if m := readStateActorManifest(t.OutputDir); m != nil {
 		writeField(sb, "Fork", orDash(m.Flags.Fork))
+
+		if m.Benchmarkoor != nil {
+			writeField(sb, "Docker image", code(m.Benchmarkoor.Image))
+			writeField(sb, "Image digest", code(m.Benchmarkoor.ImageDigest))
+		}
 
 		if m.Result != nil {
 			writeField(sb, "State root", code(shortHash(m.Result.StateRoot)))

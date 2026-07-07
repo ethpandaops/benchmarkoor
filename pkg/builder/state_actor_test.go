@@ -503,6 +503,23 @@ func TestStateActorBuilder_SpecAndTargetSizeCoexist(t *testing.T) {
 	require.Len(t, mgr.runs[0].Mounts, 2, "output_dir + spec file should both be mounted")
 }
 
+func TestRecordManifestImage(t *testing.T) {
+	out := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(out, stateActorManifestFile),
+		[]byte(`{"schema_version":1,"flags":{"client":"geth"}}`), 0o600))
+
+	b := &StateActorBuilder{mgr: &fakeMgr{}, log: noopLogger()}
+	require.NoError(t, b.recordManifestImage(context.Background(), noopLogger(), out, "ethpandaops/geth:master"))
+
+	got, err := os.ReadFile(filepath.Join(out, stateActorManifestFile))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(got), `"benchmarkoor"`)
+	assert.Contains(t, string(got), `"image": "ethpandaops/geth:master"`)
+	assert.Contains(t, string(got), `"image_digest": "sha256:`)
+	assert.Contains(t, string(got), `"client": "geth"`) // existing fields preserved
+}
+
 // ---------------- helpers ----------------
 
 func noopLogger() logrus.FieldLogger {
@@ -564,7 +581,7 @@ func (m *fakeMgr) StreamLogs(_ context.Context, _ string, _, _ io.Writer) error 
 	panic("StreamLogs not used in builder tests")
 }
 func (m *fakeMgr) GetImageDigest(_ context.Context, _ string) (string, error) {
-	panic("GetImageDigest not used in builder tests")
+	return "sha256:0000000000000000000000000000000000000000000000000000000000000000", nil
 }
 func (m *fakeMgr) GetContainerIP(_ context.Context, _, _ string) (string, error) {
 	panic("GetContainerIP not used in builder tests")

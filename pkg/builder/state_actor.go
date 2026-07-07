@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -225,6 +226,13 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 			err, tail.String())
 	}
 
+	// Record the docker image (name + resolved sha256 digest) into the manifest
+	// so it travels with the state-actor metadata and surfaces in the build
+	// summary. Best-effort: a failure here must not fail an otherwise-good build.
+	if err := b.recordManifestImage(ctx, log, target.OutputDir, image); err != nil {
+		log.WithError(err).Warn("Failed to record docker image in state-actor manifest")
+	}
+
 	// Record the config fingerprint so a later --rebuild-on-diff run can tell
 	// whether the datadir is stale. Best-effort: a failure here must not fail an
 	// otherwise-successful build.
@@ -248,6 +256,51 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 	log.Info("Build completed")
 
 	return false, nil
+}
+
+// stateActorManifestFile is the metadata JSON the external state-actor binary
+// writes into each datadir.
+const stateActorManifestFile = "state-actor-manifest.json"
+
+// recordManifestImage augments the state-actor manifest with the docker image
+// used to produce the datadir and its resolved sha256 digest, under a
+// benchmarkoor-namespaced key, so the image travels with the state-actor
+// metadata (and surfaces in the build summary).
+func (b *StateActorBuilder) recordManifestImage(ctx context.Context, log logrus.FieldLogger, outputDir, image string) error {
+	digest, err := b.mgr.GetImageDigest(ctx, image)
+	if err != nil {
+		log.WithError(err).Debug("Could not resolve state-actor image digest")
+
+		digest = ""
+	}
+
+	path := filepath.Join(outputDir, stateActorManifestFile)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading manifest: %w", err)
+	}
+
+	var manifest map[string]any
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return fmt.Errorf("parsing manifest: %w", err)
+	}
+
+	manifest["benchmarkoor"] = map[string]any{
+		"image":        image,
+		"image_digest": digest,
+	}
+
+	out, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling manifest: %w", err)
+	}
+
+	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("writing manifest: %w", err)
+	}
+
+	return nil
 }
 
 // findTargetIndex returns the index of the first target whose
