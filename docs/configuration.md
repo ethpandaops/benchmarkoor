@@ -1685,6 +1685,7 @@ builder:
       fork: Osaka
       gas_benchmark_values: [10, 30]     # millions of gas to parametrise against
       # fixed_opcode_count: [0.5, 1, 2]  # thousands of opcodes; mutually exclusive with gas_benchmark_values
+      # extract_opcode_count: true       # record per-opcode counts in _info.metadata.opcode_count (geth filler; slow)
       datadir_method: copy               # copy | overlayfs | fuse-overlayfs | zfs | direct | schelk
     targets:
       - name: compute-geth
@@ -1728,6 +1729,7 @@ Every field below is also available per-target; a non-nil/non-empty value on a t
 | `address_stubs_file` | string | – | **Absolute** host path to a `--address-stubs` JSON map. Mutually exclusive with `address_stubs`. |
 | `gas_benchmark_values` | int[] | – | Gas budgets in millions, e.g. `[10, 30]`; joined into `--gas-benchmark-values`. Mutually exclusive with `fixed_opcode_count`. |
 | `fixed_opcode_count` | float[] | – | Opcode counts in thousands, e.g. `[0.5, 1, 2]`; joined into `--fixed-opcode-count`. An empty list (`[]`) passes the flag bare, using the fill image's `.fixed_opcode_counts.json` default. Mutually exclusive with `gas_benchmark_values`. |
+| `extract_opcode_count` | bool | `false` | Enable `fill-stateful --extract-opcode-count`: trace each execution-phase block (`debug_traceBlockByHash` + a JS opcode tracer) and record per-opcode execution counts in each fixture's `_info.metadata.opcode_count`. Requires a JS-tracer-capable filler (**geth**) and an `eest_repo`/`eest_ref` whose `fill-stateful` carries the flag ([execution-specs#3124](https://github.com/ethereum/execution-specs/pull/3124)). Adds a full re-execution trace per block, so it is slow and opt-in. |
 | `datadir_method` | string | `copy` | How the filler's writable copy of `source_dir` is prepared: `copy`, `overlayfs`, `fuse-overlayfs`, `zfs`, `direct`, `schelk`. Use `zfs`/`overlayfs` to avoid a full copy of a large snapshot. |
 | `max_gas_per_test` | uint64 | – | Overrides the fork's transaction gas-limit cap (`--max-gas-per-test`). |
 | `rpc_seed_key` | string | – | Pin the seed EOA for reproducible fills (`--rpc-seed-key`); otherwise one is generated and funded via CL withdrawal. |
@@ -1755,7 +1757,7 @@ Identity/locator fields are target-only; the rest mirror `config` and are resolv
 | `genesis_eip_override` | object | – | Patch a parity/nethermind `genesis` at filler boot, setting `params.eip<N>TransitionTimestamp` for each listed EIP. Fields: `timestamp` (uint), `eips` ([]uint). For the nethermind filler. Requires `genesis`; mutually exclusive with `genesis_fork_override`. |
 | `output_dir` | string | – | **Absolute** host path for the generated fixtures. Skipped if already populated unless `--force` / `force: true`. Written under `<output_dir>/blockchain_tests_stateful_engine/`. |
 | `force` | bool | `false` | Per-target override of `--force`: wipe `output_dir` before filling. |
-| `filler_image`, `fork`, `tests`, `filter`, `marker`, `address_stubs`, `address_stubs_file`, `gas_benchmark_values`, `fixed_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `filler_extra_args` | — | from `config` | Mirror `config` with per-target precedence — see the `config` table above. `tests`, `fork`, and `filler_image` are required after resolution (set on the target or in `config`). |
+| `filler_image`, `fork`, `tests`, `filter`, `marker`, `address_stubs`, `address_stubs_file`, `gas_benchmark_values`, `fixed_opcode_count`, `extract_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `filler_extra_args` | — | from `config` | Mirror `config` with per-target precedence — see the `config` table above. `tests`, `fork`, and `filler_image` are required after resolution (set on the target or in `config`). |
 
 ### Replaying generated fixtures
 
