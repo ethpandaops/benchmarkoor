@@ -36,6 +36,7 @@ func TestRecordEESTFillResult(t *testing.T) {
 		SourceDir    string `json:"source_dir"`
 		FillerClient string `json:"filler_client"`
 		EESTSHA      string `json:"eest_sha"`
+		SizeBytes    int64  `json:"size_bytes"`
 		Filled       int    `json:"filled"`
 		Failed       int    `json:"failed"`
 	}
@@ -45,6 +46,7 @@ func TestRecordEESTFillResult(t *testing.T) {
 	assert.Equal(t, "/src/geth", got.SourceDir)
 	assert.Equal(t, "geth", got.FillerClient)
 	assert.Equal(t, "27174ca1b2c3", got.EESTSHA)
+	assert.Positive(t, got.SizeBytes) // sums the index.json + pytest report on disk
 
 	// Missing reports → provenance still recorded, zero counts, no error.
 	empty := t.TempDir()

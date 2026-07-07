@@ -67,6 +67,7 @@ type eestFillResult struct {
 	EESTSHA      string `json:"eest_sha"`
 	Fork         string `json:"fork"`
 	Filter       string `json:"filter"`
+	SizeBytes    int64  `json:"size_bytes"`
 	Filled       int    `json:"filled"`
 	Failed       int    `json:"failed"`
 }
@@ -160,6 +161,7 @@ func writeEESTSection(sb *strings.Builder, t BuildTargetSummary) {
 		writeField(sb, "Filter", orDash(fill.Filter))
 		writeField(sb, "Filled", formatInt(int64(fill.Filled)))
 		writeField(sb, "Failed", formatInt(int64(fill.Failed)))
+		writeField(sb, "Fixtures size", formatBytes(fill.SizeBytes))
 	}
 
 	writeField(sb, "Elapsed", formatDurationNs(t.ElapsedMs*1_000_000))

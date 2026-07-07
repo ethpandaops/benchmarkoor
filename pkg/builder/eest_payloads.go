@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -808,6 +809,27 @@ const (
 	pytestReportFile = ".benchmarkoor-pytest-report.json"
 )
 
+// dirSize returns the total size in bytes of all regular files under dir.
+func dirSize(dir string) int64 {
+	var total int64
+
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		if d.Type().IsRegular() {
+			if info, err := d.Info(); err == nil {
+				total += info.Size()
+			}
+		}
+
+		return nil
+	})
+
+	return total
+}
+
 // recordEESTFillResult writes the .benchmarkoor-fill.json sidecar for the build
 // summary: the target's provenance plus authoritative counts from EEST's own
 // report artifacts — the generated-fixture count from .meta/index.json and the
@@ -823,6 +845,7 @@ func recordEESTFillResult(t *config.EESTPayloadTarget, eestSHA string) error {
 		EESTSHA      string `json:"eest_sha"`
 		Fork         string `json:"fork"`
 		Filter       string `json:"filter"`
+		SizeBytes    int64  `json:"size_bytes"`
 		Filled       int    `json:"filled"`
 		Failed       int    `json:"failed"`
 	}{
@@ -832,6 +855,7 @@ func recordEESTFillResult(t *config.EESTPayloadTarget, eestSHA string) error {
 		EESTSHA:      eestSHA,
 		Fork:         t.Fork,
 		Filter:       t.Filter,
+		SizeBytes:    dirSize(t.OutputDir),
 	}
 
 	// Generated fixtures (filled) — EEST's index.json test_count.

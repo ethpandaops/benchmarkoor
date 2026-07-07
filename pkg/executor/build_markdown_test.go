@@ -34,7 +34,7 @@ func TestGenerateBuildMarkdown(t *testing.T) {
 		`"accounts_created":301540,"contracts_created":5248,"storage_slots":1351914,"total_db_size_bytes":526000000,"elapsed_ms":4348}}`
 	require.NoError(t, os.WriteFile(filepath.Join(saDir, stateActorManifestFile), []byte(manifest), 0o600))
 
-	fill := `{"source_dir":"/schelk/state-actor/v1/nethermind","filler_client":"geth","filler_image":"ethpandaops/geth:master","eest_sha":"27174ca1b2c3deadbeef","fork":"osaka","filter":"bn128","filled":36,"failed":0}`
+	fill := `{"source_dir":"/schelk/state-actor/v1/nethermind","filler_client":"geth","filler_image":"ethpandaops/geth:master","eest_sha":"27174ca1b2c3deadbeef","fork":"osaka","filter":"bn128","size_bytes":78643200,"filled":36,"failed":0}`
 	require.NoError(t, os.WriteFile(filepath.Join(eestDir, eestFillResultFile), []byte(fill), 0o600))
 
 	p := writeBuildSummary(t, dir, BuildSummary{
@@ -62,6 +62,7 @@ func TestGenerateBuildMarkdown(t *testing.T) {
 	assert.Contains(t, md, "| EEST commit | `27174ca1b2` |")
 	assert.Contains(t, md, "| Filled | 36 |")
 	assert.Contains(t, md, "| Failed | 0 |")
+	assert.Contains(t, md, "| Fixtures size | 75.0 MiB |")
 }
 
 func TestGenerateBuildMarkdown_ErrTargetShowsError(t *testing.T) {
