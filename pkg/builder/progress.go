@@ -11,7 +11,7 @@ import (
 
 // datadirProgressInterval is how often the datadir-size progress line is logged
 // during a build.
-const datadirProgressInterval = 30 * time.Second
+const datadirProgressInterval = 5 * time.Minute
 
 // logDatadirProgress periodically logs the size of dir until the returned stop
 // func is called, giving visible progress during a long build even when the
