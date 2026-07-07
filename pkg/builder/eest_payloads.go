@@ -190,6 +190,8 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 			log.Info("Skipping build: output_dir already populated " +
 				"(pass --force, --rebuild-on-diff, or set force: true on the target to rebuild)")
 
+			b.backfillFillSidecarIfMissing(log, target)
+
 			return true, nil
 		}
 	}
@@ -224,6 +226,8 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 
 			if !dec.rebuild {
 				log.Infof("Skipping build: output_dir already populated (%s)", dec.reason)
+
+				b.backfillFillSidecarIfMissing(log, target)
 
 				return true, nil
 			}
@@ -828,6 +832,40 @@ func dirSize(dir string) int64 {
 	})
 
 	return total
+}
+
+// backfillFillSidecarIfMissing writes the fill result sidecar for a skipped
+// target when it's absent — e.g. fixtures produced by an older benchmarkoor or
+// restored from a baseline — so the build summary still shows the target's data
+// instead of just "skipped". Best-effort; an existing sidecar is left untouched.
+func (b *EESTPayloadsBuilder) backfillFillSidecarIfMissing(log logrus.FieldLogger, t *config.EESTPayloadTarget) {
+	if _, err := os.Stat(filepath.Join(t.OutputDir, eestFillResultFile)); err == nil {
+		return
+	}
+
+	if err := recordEESTFillResult(t, eestSHAFromFingerprint(t.OutputDir)); err != nil {
+		log.WithError(err).Warn("Failed to backfill fill result sidecar on skip")
+	}
+}
+
+// eestSHAFromFingerprint recovers the EEST commit recorded in the build
+// fingerprint sidecar, if present ("" when absent/unparseable).
+func eestSHAFromFingerprint(outputDir string) string {
+	data, err := os.ReadFile(filepath.Join(outputDir, buildSidecarFile))
+	if err != nil {
+		return ""
+	}
+
+	var sidecar struct {
+		Inputs struct {
+			EESTSHA string `json:"eest_sha"`
+		} `json:"inputs"`
+	}
+	if json.Unmarshal(data, &sidecar) != nil {
+		return ""
+	}
+
+	return sidecar.Inputs.EESTSHA
 }
 
 // recordEESTFillResult writes the .benchmarkoor-fill.json sidecar for the build

@@ -129,6 +129,8 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 			log.Info("Skipping build: output_dir already populated " +
 				"(pass --force, --rebuild-on-diff, or set force: true on the target to rebuild)")
 
+			b.backfillManifestImageIfMissing(ctx, log, target.OutputDir, image)
+
 			return true, nil
 		}
 	}
@@ -165,6 +167,8 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 
 			if !dec.rebuild {
 				log.Infof("Skipping build: output_dir already populated (%s)", dec.reason)
+
+				b.backfillManifestImageIfMissing(ctx, log, target.OutputDir, image)
 
 				return true, nil
 			}
@@ -261,6 +265,28 @@ func (b *StateActorBuilder) Build(ctx context.Context, name string, opts BuildOp
 // stateActorManifestFile is the metadata JSON the external state-actor binary
 // writes into each datadir.
 const stateActorManifestFile = "state-actor-manifest.json"
+
+// backfillManifestImageIfMissing records the docker image into a skipped
+// target's manifest when the benchmarkoor block is absent — a datadir built by
+// an older benchmarkoor or restored from a baseline — so the build summary
+// shows the image even on skip. Best-effort; an existing block is left as-is.
+func (b *StateActorBuilder) backfillManifestImageIfMissing(ctx context.Context, log logrus.FieldLogger, outputDir, image string) {
+	data, err := os.ReadFile(filepath.Join(outputDir, stateActorManifestFile))
+	if err != nil {
+		return
+	}
+
+	var probe struct {
+		Benchmarkoor json.RawMessage `json:"benchmarkoor"`
+	}
+	if json.Unmarshal(data, &probe) == nil && len(probe.Benchmarkoor) > 0 {
+		return
+	}
+
+	if err := b.recordManifestImage(ctx, log, outputDir, image); err != nil {
+		log.WithError(err).Warn("Failed to backfill docker image in manifest on skip")
+	}
+}
 
 // recordManifestImage augments the state-actor manifest with the docker image
 // used to produce the datadir and its resolved sha256 digest, under a

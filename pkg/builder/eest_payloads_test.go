@@ -347,10 +347,11 @@ func TestEESTPayloadsBuilder_BuildSkipsPopulatedDir(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, skipped, "Build should report skipped=true when output_dir is non-empty")
 
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	require.Len(t, entries, 1)
-	assert.Equal(t, "leftover", entries[0].Name())
+	// The original content is preserved, and the skip backfills the fill-result
+	// sidecar (it was missing) so the build summary can still show this target's
+	// data instead of just "skipped".
+	assert.FileExists(t, filepath.Join(dir, "leftover"))
+	assert.FileExists(t, filepath.Join(dir, eestFillResultFile))
 }
 
 func TestMaterializeAddressStubs(t *testing.T) {
