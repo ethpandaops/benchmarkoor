@@ -66,10 +66,11 @@ builder:
       fork: osaka
       gas_benchmark_values: [10]  # Millions of gas to parametrise against
       datadir_method: copy        # 1GB snapshot; copy is fine (For bigger dirs we should use zfs/overlayfs/schelk)
-      # extract_opcode_count: true  # trace each block (debug_traceBlockByHash + JS tracer) and
-      #                             # record per-opcode counts in _info.metadata.opcode_count.
-      #                             # Needs a JS-tracer-capable filler (geth) and an eest_repo/ref
-      #                             # carrying fill-stateful's --extract-opcode-count. Slow; opt-in.
+      # extract_opcode_count: true  # record per-opcode counts in each fixture's _info.metadata.opcode_count.
+      #                             # Traces each block via debug_traceBlockByHash with a custom JS tracer
+      #                             # (the per-block re-trace is what makes it slow; opt-in). Works with any
+      #                             # filler exposing debug_traceBlockByHash + JS tracer support (geth is
+      #                             # the validated one), and an eest_repo/ref carrying --extract-opcode-count.
       # Every target fills the same compute subset, so hoist tests + filter here.
       tests:
         - tests/benchmark/compute   # pytest paths inside the fill image

@@ -1685,7 +1685,7 @@ builder:
       fork: Osaka
       gas_benchmark_values: [10, 30]     # millions of gas to parametrise against
       # fixed_opcode_count: [0.5, 1, 2]  # thousands of opcodes; mutually exclusive with gas_benchmark_values
-      # extract_opcode_count: true       # record per-opcode counts in _info.metadata.opcode_count (geth filler; slow)
+      # extract_opcode_count: true       # per-opcode counts in _info.metadata.opcode_count via debug_traceBlockByHash + a custom JS tracer (slow)
       datadir_method: copy               # copy | overlayfs | fuse-overlayfs | zfs | direct | schelk
     targets:
       - name: compute-geth
@@ -1729,7 +1729,7 @@ Every field below is also available per-target; a non-nil/non-empty value on a t
 | `address_stubs_file` | string | – | **Absolute** host path to a `--address-stubs` JSON map. Mutually exclusive with `address_stubs`. |
 | `gas_benchmark_values` | int[] | – | Gas budgets in millions, e.g. `[10, 30]`; joined into `--gas-benchmark-values`. Mutually exclusive with `fixed_opcode_count`. |
 | `fixed_opcode_count` | float[] | – | Opcode counts in thousands, e.g. `[0.5, 1, 2]`; joined into `--fixed-opcode-count`. An empty list (`[]`) passes the flag bare, using the fill image's `.fixed_opcode_counts.json` default. Mutually exclusive with `gas_benchmark_values`. |
-| `extract_opcode_count` | bool | `false` | Enable `fill-stateful --extract-opcode-count`: trace each execution-phase block (`debug_traceBlockByHash` + a JS opcode tracer) and record per-opcode execution counts in each fixture's `_info.metadata.opcode_count`. Requires a JS-tracer-capable filler (**geth**) and an `eest_repo`/`eest_ref` whose `fill-stateful` carries the flag ([execution-specs#3124](https://github.com/ethereum/execution-specs/pull/3124)). Adds a full re-execution trace per block, so it is slow and opt-in. |
+| `extract_opcode_count` | bool | `false` | Enable `fill-stateful --extract-opcode-count`: after building each execution-phase block, trace it via `debug_traceBlockByHash` with a **custom JS opcode-counting tracer** and record per-opcode execution counts in each fixture's `_info.metadata.opcode_count`. The per-block re-trace with the custom tracer is what makes it **slow**, so it is opt-in. Works with any filler exposing `debug_traceBlockByHash` + JS tracer support (geth is the validated/production-ready filler). Needs an `eest_repo`/`eest_ref` whose `fill-stateful` carries the flag ([execution-specs#3124](https://github.com/ethereum/execution-specs/pull/3124)). |
 | `datadir_method` | string | `copy` | How the filler's writable copy of `source_dir` is prepared: `copy`, `overlayfs`, `fuse-overlayfs`, `zfs`, `direct`, `schelk`. Use `zfs`/`overlayfs` to avoid a full copy of a large snapshot. |
 | `max_gas_per_test` | uint64 | – | Overrides the fork's transaction gas-limit cap (`--max-gas-per-test`). |
 | `rpc_seed_key` | string | – | Pin the seed EOA for reproducible fills (`--rpc-seed-key`); otherwise one is generated and funded via CL withdrawal. |
