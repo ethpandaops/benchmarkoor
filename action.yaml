@@ -235,7 +235,9 @@ runs:
 
         while IFS=$'\t' read -r builder name outdir; do
           [ -d "$outdir" ] || continue
-          dest="$STAGING/${name}"
+          # Group by builder (state-actor/<target>, eest-payloads/<target>) so a
+          # state-actor and eest target of the same name don't collide.
+          dest="$STAGING/${builder}/${name}"
           mkdir -p "$dest"
           if [ "$builder" = "eest-payloads" ]; then
             sudo cp -a "$outdir/." "$dest/"
