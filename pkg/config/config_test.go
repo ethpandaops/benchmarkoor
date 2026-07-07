@@ -4329,14 +4329,15 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 			DataDirMethod:      "zfs",
 			MaxGasPerTest:      u64Cfg(45000000),
 			RPCSeedKey:         "0xseed",
+			ExtractOpcodeCount: boolCfg(true),
 			FillerExtraArgs:    []string{"--verbosity=3"},
 		},
 		Targets: []EESTPayloadTarget{
 			// Inherits everything from config.
 			{Name: "inherit", FillerClient: "geth", SourceDir: "/s", OutputDir: "/o"},
-			// Overrides fork and gas values.
+			// Overrides fork, gas values, and opts out of opcode extraction.
 			{Name: "override", FillerClient: "geth", SourceDir: "/s2", OutputDir: "/o2",
-				Fork: "Prague", GasBenchmarkValues: []int{60}},
+				Fork: "Prague", GasBenchmarkValues: []int{60}, ExtractOpcodeCount: boolCfg(false)},
 		},
 	}
 
@@ -4351,11 +4352,15 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 	assert.Equal(t, "zfs", inherit.DataDirMethod)
 	require.NotNil(t, inherit.MaxGasPerTest)
 	assert.Equal(t, uint64(45000000), *inherit.MaxGasPerTest)
+	require.NotNil(t, inherit.ExtractOpcodeCount)
+	assert.True(t, *inherit.ExtractOpcodeCount, "inherits extract_opcode_count when unset")
 	assert.Equal(t, []string{"--verbosity=3"}, inherit.FillerExtraArgs)
 
 	override := ep.ResolveTarget(1)
 	assert.Equal(t, "Prague", override.Fork, "per-target fork wins")
 	assert.Equal(t, []int{60}, override.GasBenchmarkValues, "per-target gas values win")
+	require.NotNil(t, override.ExtractOpcodeCount)
+	assert.False(t, *override.ExtractOpcodeCount, "per-target extract_opcode_count=false wins over default")
 	assert.Equal(t, "ethpandaops/geth:master", override.FillerImage, "still inherits unset fields")
 	assert.Equal(t, "not erc20", override.Filter, "inherits filter when unset")
 }
@@ -4421,3 +4426,4 @@ func TestGetEESTPayloadsContainerRuntime(t *testing.T) {
 }
 
 func u64Cfg(v uint64) *uint64 { return &v }
+func boolCfg(v bool) *bool    { return &v }

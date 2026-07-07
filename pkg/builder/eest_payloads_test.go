@@ -111,6 +111,8 @@ func TestResolveFillDockerfile(t *testing.T) {
 	})
 }
 
+func boolPtr(b bool) *bool { return &b }
+
 func TestBuildFillArgs(t *testing.T) {
 	spec := client.NewGethSpec()
 	prefix := []string{"uv", "run", "fill-stateful"}
@@ -140,8 +142,28 @@ func TestBuildFillArgs(t *testing.T) {
 			},
 			wantAbsent: []string{
 				"--clean", "--gas-benchmark-values", "--fixed-opcode-count", "--max-gas-per-test",
-				"--rpc-seed-key", "--address-stubs", "-k",
+				"--rpc-seed-key", "--address-stubs", "-k", "--extract-opcode-count",
 			},
+		},
+		{
+			name: "extract opcode count enabled",
+			target: &config.EESTPayloadTarget{
+				FillerClient:       "geth",
+				Fork:               "Osaka",
+				ExtractOpcodeCount: boolPtr(true),
+				Tests:              []string{"tests/benchmark/compute"},
+			},
+			wantContain: []string{"--extract-opcode-count"},
+		},
+		{
+			name: "extract opcode count disabled",
+			target: &config.EESTPayloadTarget{
+				FillerClient:       "geth",
+				Fork:               "Osaka",
+				ExtractOpcodeCount: boolPtr(false),
+				Tests:              []string{"tests/benchmark/compute"},
+			},
+			wantAbsent: []string{"--extract-opcode-count"},
 		},
 		{
 			name: "fixed opcode count values",

@@ -408,6 +408,7 @@ type EESTPayloadDefaults struct {
 	AddressStubs       map[string]map[string]string `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
 	GasBenchmarkValues []int                        `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
 	FixedOpcodeCount   *[]float64                   `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
+	ExtractOpcodeCount *bool                        `yaml:"extract_opcode_count,omitempty" mapstructure:"extract_opcode_count"`
 	DataDirMethod      string                       `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
 	MaxGasPerTest      *uint64                      `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
 	RPCSeedKey         string                       `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
@@ -460,10 +461,17 @@ type EESTPayloadTarget struct {
 	AddressStubs       map[string]map[string]string `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
 	GasBenchmarkValues []int                        `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
 	FixedOpcodeCount   *[]float64                   `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
-	DataDirMethod      string                       `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
-	MaxGasPerTest      *uint64                      `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
-	RPCSeedKey         string                       `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
-	FillerExtraArgs    []string                     `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+	// ExtractOpcodeCount enables fill-stateful's --extract-opcode-count: each
+	// execution-phase block is traced (debug_traceBlockByHash + a JS opcode
+	// tracer) and per-opcode execution counts are recorded in the fixture's
+	// _info.metadata.opcode_count. Requires a filler client with the debug
+	// namespace + JS tracer support (e.g. geth). Slow (a re-execution trace per
+	// block); opt-in.
+	ExtractOpcodeCount *bool    `yaml:"extract_opcode_count,omitempty" mapstructure:"extract_opcode_count"`
+	DataDirMethod      string   `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
+	MaxGasPerTest      *uint64  `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
+	RPCSeedKey         string   `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	FillerExtraArgs    []string `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
 }
 
 // ResolveTarget returns a copy of the i-th target with any unset hoistable
@@ -512,6 +520,10 @@ func (e *EESTPayloadsConfig) ResolveTarget(i int) EESTPayloadTarget {
 
 	if t.FixedOpcodeCount == nil {
 		t.FixedOpcodeCount = g.FixedOpcodeCount
+	}
+
+	if t.ExtractOpcodeCount == nil {
+		t.ExtractOpcodeCount = g.ExtractOpcodeCount
 	}
 
 	if t.DataDirMethod == "" {
