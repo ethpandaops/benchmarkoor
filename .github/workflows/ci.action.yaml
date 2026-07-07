@@ -168,6 +168,7 @@ jobs:
           git-repo: ${{ github.event.pull_request.head.repo.clone_url }}
           mode: build
           build-args: '--rebuild-on-diff'
+          upload-build-artifacts: 'true'
           build-config: |
             builder:
               state_actor:
