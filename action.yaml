@@ -35,6 +35,11 @@ inputs:
     required: false
     default: 'false'
 
+  upload-build-artifacts:
+    description: 'Whether to upload build artifacts as a GitHub artifact: each state-actor target''s metadata JSON (not the datadir) and each eest-payloads target''s full fixtures directory.'
+    required: false
+    default: 'false'
+
   run-config-urls:
     description: 'Comma-separated URLs for config files to download and pass via --config (merged in order)'
     required: false
@@ -209,6 +214,48 @@ runs:
           fi
         fi
 
+    - name: Archive build artifacts
+      # Collect each built target's artifacts (discovered from build-summary.json):
+      # eest-payloads → the full fixtures directory; state-actor → only the
+      # state-actor-* metadata files, NOT the multi-GB datadir. sudo because the
+      # build artifacts are root-owned; chown the staging copy so the upload (and
+      # tar) can read it. Runs on build modes, even on failure (partial artifacts).
+      if: always() && inputs.upload-build-artifacts == 'true' && (inputs.mode == 'all' || inputs.mode == 'build') && (inputs.build-config != '' || inputs.build-config-urls != '')
+      shell: bash
+      run: |
+        SUMMARY="${{ runner.temp }}/benchmarkoor-build-summary.json"
+        STAGING="${{ runner.temp }}/benchmarkoor-build-artifacts"
+        if [ ! -f "$SUMMARY" ]; then
+          echo "No build summary at $SUMMARY; nothing to archive"
+          exit 0
+        fi
+
+        sudo rm -rf "$STAGING"
+        mkdir -p "$STAGING"
+
+        while IFS=$'\t' read -r builder name outdir; do
+          [ -d "$outdir" ] || continue
+          dest="$STAGING/${name}"
+          mkdir -p "$dest"
+          if [ "$builder" = "eest-payloads" ]; then
+            sudo cp -a "$outdir/." "$dest/"
+          else
+            # state-actor: metadata files only (find runs as root to read the datadir).
+            sudo find "$outdir" -maxdepth 1 -name 'state-actor-*' -exec cp -a {} "$dest/" \;
+          fi
+        done < <(jq -r '.targets[] | [.builder, .name, .output_dir] | @tsv' "$SUMMARY")
+
+        sudo chown -R "$(id -u):$(id -g)" "$STAGING"
+        tar -czf "${{ runner.temp }}/benchmarkoor-build-artifacts.tar.gz" -C "${{ runner.temp }}" benchmarkoor-build-artifacts
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      if: always() && inputs.upload-build-artifacts == 'true' && (inputs.mode == 'all' || inputs.mode == 'build') && (inputs.build-config != '' || inputs.build-config-urls != '')
+      with:
+        name: benchmarkoor-build-${{ github.run_id }}
+        path: ${{ runner.temp }}/benchmarkoor-build-artifacts.tar.gz
+        if-no-files-found: ignore
+
     - name: Get Job ID from GH API
       id: get-job-id
       if: inputs.mode == 'all' || inputs.mode == 'run'
@@ -359,4 +406,5 @@ runs:
         rm -f "${{ runner.temp }}/benchmarkoor-build-config-inline.yaml"
         rm -f "${{ runner.temp }}/benchmarkoor-build-summary.json" "${{ runner.temp }}/benchmarkoor-build-summary.md"
         rm -f "${{ runner.temp }}/benchmarkoor-results.tar.gz"
+        sudo rm -rf "${{ runner.temp }}/benchmarkoor-build-artifacts" "${{ runner.temp }}/benchmarkoor-build-artifacts.tar.gz"
         rm -f "${{ runner.temp }}/benchmarkoor"
