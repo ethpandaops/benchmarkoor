@@ -41,9 +41,9 @@ inputs:
     default: 'false'
 
   build-artifact-name:
-    description: 'Name for the uploaded build artifact. Override to disambiguate matrix legs (artifact names must be unique within a run), e.g. append the client. Only used when upload-build-artifacts is true.'
+    description: 'Name for the uploaded build artifact. Override to disambiguate matrix legs (artifact names must be unique within a run), e.g. append the client. Leave empty for the default `benchmarkoor-build-<run_id>`. Only used when upload-build-artifacts is true.'
     required: false
-    default: 'benchmarkoor-build-${{ github.run_id }}'
+    default: ''
 
   run-config-urls:
     description: 'Comma-separated URLs for config files to download and pass via --config (merged in order)'
@@ -259,7 +259,7 @@ runs:
       uses: actions/upload-artifact@v7
       if: always() && inputs.upload-build-artifacts == 'true' && (inputs.mode == 'all' || inputs.mode == 'build') && (inputs.build-config != '' || inputs.build-config-urls != '')
       with:
-        name: ${{ inputs.build-artifact-name }}
+        name: ${{ inputs.build-artifact-name != '' && inputs.build-artifact-name || format('benchmarkoor-build-{0}', github.run_id) }}
         path: ${{ runner.temp }}/benchmarkoor-build-artifacts.tar.gz
         if-no-files-found: ignore
 
