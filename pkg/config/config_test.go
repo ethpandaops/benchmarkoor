@@ -4425,5 +4425,14 @@ func TestGetEESTPayloadsContainerRuntime(t *testing.T) {
 	})
 }
 
+func TestEESTFixturesSource_HasGenesisArtifact(t *testing.T) {
+	// Fixtures-only artifact → genesis is optional (not fetched).
+	assert.False(t, (&EESTFixturesSource{FixturesArtifactName: "f"}).HasGenesisArtifact())
+	assert.False(t, (&EESTFixturesSource{}).HasGenesisArtifact())
+	// Explicitly configured genesis → fetched.
+	assert.True(t, (&EESTFixturesSource{GenesisArtifactName: "benchmark_genesis"}).HasGenesisArtifact())
+	assert.True(t, (&EESTFixturesSource{GenesisArtifactRunID: "123"}).HasGenesisArtifact())
+}
+
 func u64Cfg(v uint64) *uint64 { return &v }
 func boolCfg(v bool) *bool    { return &v }

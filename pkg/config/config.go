@@ -824,6 +824,14 @@ func (e *EESTFixturesSource) UseArtifacts() bool {
 	return e.FixturesArtifactName != "" || e.GenesisArtifactName != ""
 }
 
+// HasGenesisArtifact reports whether a genesis artifact is explicitly configured.
+// Genesis is optional in artifact mode — stateful-engine fixtures boot from a
+// pre-populated snapshot datadir (runner.client.datadirs) and carry no genesis —
+// so it is only resolved/downloaded when a name or run ID is set.
+func (e *EESTFixturesSource) HasGenesisArtifact() bool {
+	return e.GenesisArtifactName != "" || e.GenesisArtifactRunID != ""
+}
+
 // UseLocalDir returns true if the source is configured to use local directories.
 func (e *EESTFixturesSource) UseLocalDir() bool {
 	return e.LocalFixturesDir != "" || e.LocalGenesisDir != ""

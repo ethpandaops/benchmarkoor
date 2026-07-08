@@ -106,22 +106,27 @@ func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 			s.log.WithField("run_id", runID).Info("Resolved latest fixtures artifact run ID")
 		}
 
-		genesisArtifact := s.cfg.GenesisArtifactName
-		if genesisArtifact == "" {
-			genesisArtifact = "benchmark_genesis"
-		}
-
-		if s.cfg.GenesisArtifactRunID != "" {
-			s.resolvedGenesisRunID = s.cfg.GenesisArtifactRunID
-		} else {
-			runID, err := s.resolveArtifactRunID(ctx, genesisArtifact)
-			if err != nil {
-				return nil, fmt.Errorf("resolving genesis artifact run ID: %w", err)
+		// Genesis is optional: only resolve it when explicitly configured. This
+		// lets a fixtures-only artifact (e.g. a benchmarkoor build artifact) be
+		// used without a paired genesis artifact.
+		if s.cfg.HasGenesisArtifact() {
+			genesisArtifact := s.cfg.GenesisArtifactName
+			if genesisArtifact == "" {
+				genesisArtifact = "benchmark_genesis"
 			}
 
-			s.resolvedGenesisRunID = runID
+			if s.cfg.GenesisArtifactRunID != "" {
+				s.resolvedGenesisRunID = s.cfg.GenesisArtifactRunID
+			} else {
+				runID, err := s.resolveArtifactRunID(ctx, genesisArtifact)
+				if err != nil {
+					return nil, fmt.Errorf("resolving genesis artifact run ID: %w", err)
+				}
 
-			s.log.WithField("run_id", runID).Info("Resolved latest genesis artifact run ID")
+				s.resolvedGenesisRunID = runID
+
+				s.log.WithField("run_id", runID).Info("Resolved latest genesis artifact run ID")
+			}
 		}
 
 		artifactKey := fmt.Sprintf("%s-%s", fixturesArtifact, s.resolvedFixturesRunID)
@@ -247,7 +252,14 @@ func (s *EESTSource) downloadArtifacts(ctx context.Context, cacheBase string) er
 		return fmt.Errorf("extracting fixtures tarballs: %w", err)
 	}
 
-	// Download genesis artifact.
+	// Download genesis artifact — only when explicitly configured (optional for
+	// stateful-engine fixtures, which boot from the snapshot datadir).
+	if !s.cfg.HasGenesisArtifact() {
+		s.log.Debug("No genesis artifact configured; skipping genesis download")
+
+		return nil
+	}
+
 	genesisArtifact := s.cfg.GenesisArtifactName
 	if genesisArtifact == "" {
 		genesisArtifact = "benchmark_genesis"
