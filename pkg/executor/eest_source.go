@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -71,6 +72,12 @@ func (s *EESTSource) Prepare(ctx context.Context) (*PreparedSource, error) {
 	// Handle local tarball mode — extract to cache.
 	if s.cfg.UseLocalTarball() {
 		return s.prepareLocalTarballs()
+	}
+
+	// Handle standalone URL mode — a release/plain .tar.gz URL or a GitHub
+	// Actions artifact URL. Downloads + extracts to cache; no genesis.
+	if s.cfg.UseFixturesURL() {
+		return s.prepareFromURL(ctx)
 	}
 
 	// Build cache path based on source type.
@@ -271,6 +278,148 @@ func (s *EESTSource) downloadArtifacts(ctx context.Context, cacheBase string) er
 	return nil
 }
 
+// prepareFromURL downloads + extracts fixtures from a standalone URL: a
+// release/plain .tar.gz URL or a GitHub Actions artifact URL. No genesis is
+// fetched (stateful-engine fixtures boot from the snapshot datadir).
+func (s *EESTSource) prepareFromURL(ctx context.Context) (*PreparedSource, error) {
+	cacheBase := filepath.Join(s.cacheDir, "eest-url", hashRepoURL(s.cfg.FixturesURL))
+	s.fixturesDir = filepath.Join(cacheBase, "fixtures")
+	s.genesisDir = filepath.Join(cacheBase, "genesis")
+
+	completeMarker := filepath.Join(cacheBase, ".complete")
+	if _, err := os.Stat(completeMarker); err == nil {
+		s.log.WithField("path", cacheBase).Info("Using cached EEST fixtures")
+
+		return s.discoverTests()
+	}
+
+	if err := os.RemoveAll(s.fixturesDir); err != nil {
+		return nil, fmt.Errorf("clearing partial fixtures cache: %w", err)
+	}
+
+	if err := s.downloadFromURL(ctx); err != nil {
+		return nil, fmt.Errorf("downloading fixtures from URL: %w", err)
+	}
+
+	if err := os.WriteFile(completeMarker, nil, 0o644); err != nil {
+		return nil, fmt.Errorf("writing cache completion marker: %w", err)
+	}
+
+	return s.discoverTests()
+}
+
+// downloadFromURL fetches fixtures from s.cfg.FixturesURL into s.fixturesDir. A
+// GitHub Actions artifact URL is downloaded via the API (needs a token) and its
+// inner .tar.gz extracted; any other URL is treated as a direct .tar.gz.
+func (s *EESTSource) downloadFromURL(ctx context.Context) error {
+	if err := os.MkdirAll(s.fixturesDir, 0o755); err != nil {
+		return fmt.Errorf("creating fixtures directory: %w", err)
+	}
+
+	url := s.cfg.FixturesURL
+
+	if owner, repo, artifactID, ok := parseGitHubArtifactURL(url); ok {
+		s.log.WithFields(logrus.Fields{
+			"owner": owner, "repo": repo, "artifact_id": artifactID,
+		}).Info("Downloading fixtures from GitHub Actions artifact URL")
+
+		if err := s.downloadArtifactZip(ctx, owner+"/"+repo, artifactID, s.fixturesDir); err != nil {
+			return fmt.Errorf("downloading artifact: %w", err)
+		}
+
+		// Build artifacts wrap the fixtures in an inner .tar.gz.
+		if err := s.extractInnerTarballs(ctx, s.fixturesDir); err != nil {
+			return fmt.Errorf("extracting inner tarballs: %w", err)
+		}
+
+		return nil
+	}
+
+	s.log.WithField("url", url).Info("Downloading fixtures tarball from URL")
+
+	if err := s.downloadAndExtractTarball(ctx, url, s.fixturesDir); err != nil {
+		return fmt.Errorf("downloading fixtures tarball: %w", err)
+	}
+
+	return nil
+}
+
+// ghArtifactURLRe matches a GitHub Actions artifact web URL, capturing owner,
+// repo, and the numeric artifact id:
+// https://github.com/<owner>/<repo>/actions/runs/<run>/artifacts/<id>
+var ghArtifactURLRe = regexp.MustCompile(
+	`^https://github\.com/([^/]+)/([^/]+)/actions/runs/\d+/artifacts/(\d+)`,
+)
+
+// parseGitHubArtifactURL returns the owner, repo, and artifact id for a GitHub
+// Actions artifact URL, or ok=false for any other URL.
+func parseGitHubArtifactURL(rawURL string) (owner, repo, artifactID string, ok bool) {
+	m := ghArtifactURLRe.FindStringSubmatch(rawURL)
+	if m == nil {
+		return "", "", "", false
+	}
+
+	return m[1], m[2], m[3], true
+}
+
+// downloadArtifactZip downloads a GitHub Actions artifact zip (apiRepo is
+// "owner/repo", artifactID is the numeric id) to targetDir and extracts it.
+// Requires a GitHub token.
+func (s *EESTSource) downloadArtifactZip(ctx context.Context, apiRepo, artifactID, targetDir string) error {
+	if s.githubToken == "" {
+		return fmt.Errorf(
+			"GitHub token is required to download a GitHub Actions artifact. " +
+				"Set runner.github_token or BENCHMARKOOR_RUNNER_GITHUB_TOKEN",
+		)
+	}
+
+	downloadURL := fmt.Sprintf(
+		"https://api.github.com/repos/%s/actions/artifacts/%s/zip",
+		apiRepo, artifactID,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return fmt.Errorf("creating artifact download request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.githubToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("downloading artifact: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+
+		return fmt.Errorf("downloading artifact: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	tmpFile, err := os.CreateTemp("", "gh-artifact-*.zip")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+
+	defer func() {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpFile.Name())
+	}()
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		return fmt.Errorf("writing artifact zip: %w", err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+
+	return s.extractZip(tmpFile.Name(), targetDir)
+}
+
 // prepareLocalTarballs extracts local .tar.gz fixtures and genesis to a cache directory.
 func (s *EESTSource) prepareLocalTarballs() (*PreparedSource, error) {
 	// Build a cache key from the tarball paths so re-extractions can be skipped.
@@ -437,52 +586,12 @@ func (s *EESTSource) downloadGitHubArtifact(ctx context.Context, artifactName, r
 		resolvedRunID = fmt.Sprintf("%d", matched.WorkflowRun.ID)
 	}
 
-	// Download the artifact zip.
-	downloadURL := fmt.Sprintf(
-		"https://api.github.com/repos/%s/actions/artifacts/%d/zip",
-		s.cfg.GitHubRepo, matched.ID,
-	)
-
-	dlReq, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("creating artifact download request: %w", err)
+	// Download + extract the artifact zip by its resolved numeric id.
+	if err := s.downloadArtifactZip(ctx, s.cfg.GitHubRepo, fmt.Sprintf("%d", matched.ID), targetDir); err != nil {
+		return "", err
 	}
 
-	dlReq.Header.Set("Authorization", "Bearer "+s.githubToken)
-	dlReq.Header.Set("Accept", "application/vnd.github+json")
-
-	dlResp, err := http.DefaultClient.Do(dlReq)
-	if err != nil {
-		return "", fmt.Errorf("downloading artifact: %w", err)
-	}
-
-	defer func() { _ = dlResp.Body.Close() }()
-
-	if dlResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(dlResp.Body)
-		return "", fmt.Errorf("downloading artifact: HTTP %d: %s", dlResp.StatusCode, string(body))
-	}
-
-	// Write to a temp file, then extract.
-	tmpFile, err := os.CreateTemp("", "gh-artifact-*.zip")
-	if err != nil {
-		return "", fmt.Errorf("creating temp file: %w", err)
-	}
-
-	defer func() {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpFile.Name())
-	}()
-
-	if _, err := io.Copy(tmpFile, dlResp.Body); err != nil {
-		return "", fmt.Errorf("writing artifact zip: %w", err)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		return "", fmt.Errorf("closing temp file: %w", err)
-	}
-
-	return resolvedRunID, s.extractZip(tmpFile.Name(), targetDir)
+	return resolvedRunID, nil
 }
 
 // extractZip extracts a zip archive to the target directory.

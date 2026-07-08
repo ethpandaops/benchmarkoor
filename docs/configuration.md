@@ -457,13 +457,24 @@ tests:
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `github_repo` | string | Yes | - | GitHub repository (e.g., `ethereum/execution-specs`) |
+| `github_repo` | string | Yes* | - | GitHub repository (e.g., `ethereum/execution-specs`). Required for release/artifact modes; not needed for `fixtures_url`. |
 | `github_release` | string | Yes* | - | Release tag (e.g., `test-benchmark@v0.0.9`) |
-| `fixtures_subdir` | string | No | `fixtures/blockchain_tests_engine_x` | Subdirectory within the fixtures tarball to search |
-| `fixtures_url` | string | No | Auto-generated | Override URL for fixtures tarball |
-| `genesis_url` | string | No | Auto-generated | Override URL for genesis tarball |
+| `fixtures_subdir` | string | No | `fixtures/blockchain_tests_engine_x` | Subdirectory within the extracted fixtures to search |
+| `fixtures_url` | string | No | Auto-generated | **Standalone source** (when `github_release` is unset): a release/plain `.tar.gz` URL, **or** a GitHub Actions artifact URL (`github.com/<owner>/<repo>/actions/runs/<run>/artifacts/<id>` — needs `runner.github_token`; its inner `.tar.gz` is auto-extracted). No genesis is fetched. Combine with `fixtures_subdir`. When `github_release` is set, it instead overrides the release tarball URL. |
+| `genesis_url` | string | No | Auto-generated | Override URL for genesis tarball (release mode) |
 
-*Either `github_release` or `fixtures_artifact_name` is required.
+*One of `github_release`, `fixtures_url`, or `fixtures_artifact_name` is required.
+
+**Standalone URL example** (e.g. reusing a benchmarkoor build artifact):
+
+```yaml
+tests:
+  source:
+    eest_fixtures:
+      fixtures_url: https://github.com/ethpandaops/benchmarkoor/actions/runs/28947560261/artifacts/8170387928
+      fixtures_subdir: benchmarkoor-build-artifacts/eest-payloads/geth/blockchain_tests_stateful_engine
+# runner.github_token (or BENCHMARKOOR_RUNNER_GITHUB_TOKEN) is required for artifact URLs.
+```
 
 ###### From GitHub Actions Artifacts
 

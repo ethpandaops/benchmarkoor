@@ -834,6 +834,14 @@ func (e *EESTFixturesSource) UseLocalTarball() bool {
 	return e.LocalFixturesTarball != "" || e.LocalGenesisTarball != ""
 }
 
+// UseFixturesURL returns true when fixtures should be fetched from a standalone
+// URL — a release/plain .tar.gz download or a GitHub Actions artifact URL. When
+// github_release is also set, fixtures_url is instead a release-URL override, so
+// this is false and release mode handles it.
+func (e *EESTFixturesSource) UseFixturesURL() bool {
+	return e.FixturesURL != "" && e.GitHubRelease == ""
+}
+
 // validate checks the EEST fixtures source configuration for errors.
 // Exactly one mode must be specified: release, artifact, local_dir, or local_tarball.
 func (e *EESTFixturesSource) validate() error {
@@ -841,6 +849,7 @@ func (e *EESTFixturesSource) validate() error {
 	hasArtifacts := e.UseArtifacts()
 	hasLocalDir := e.UseLocalDir()
 	hasLocalTarball := e.UseLocalTarball()
+	hasFixturesURL := e.UseFixturesURL()
 
 	// Count active modes.
 	modeCount := 0
@@ -860,18 +869,23 @@ func (e *EESTFixturesSource) validate() error {
 		modeCount++
 	}
 
+	if hasFixturesURL {
+		modeCount++
+	}
+
 	if modeCount == 0 {
 		return fmt.Errorf(
 			"eest_fixtures: must specify one of: github_release, " +
-				"fixtures_artifact_name, local_fixtures_dir/local_genesis_dir, " +
+				"fixtures_url, fixtures_artifact_name, " +
+				"local_fixtures_dir/local_genesis_dir, " +
 				"or local_fixtures_tarball/local_genesis_tarball",
 		)
 	}
 
 	if modeCount > 1 {
 		return fmt.Errorf(
-			"eest_fixtures: cannot combine modes (release, artifact, " +
-				"local_dir, local_tarball are mutually exclusive)",
+			"eest_fixtures: cannot combine modes (release, fixtures_url, " +
+				"artifact, local_dir, local_tarball are mutually exclusive)",
 		)
 	}
 

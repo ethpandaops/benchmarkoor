@@ -4427,3 +4427,16 @@ func TestGetEESTPayloadsContainerRuntime(t *testing.T) {
 
 func u64Cfg(v uint64) *uint64 { return &v }
 func boolCfg(v bool) *bool    { return &v }
+
+func TestEESTFixturesSource_UseFixturesURL(t *testing.T) {
+	// Standalone URL mode.
+	assert.True(t, (&EESTFixturesSource{FixturesURL: "https://x/f.tar.gz"}).UseFixturesURL())
+	// With github_release set, fixtures_url is a release-URL override, not standalone.
+	assert.False(t, (&EESTFixturesSource{FixturesURL: "https://x/f.tar.gz", GitHubRelease: "v1"}).UseFixturesURL())
+	assert.False(t, (&EESTFixturesSource{}).UseFixturesURL())
+
+	// A standalone fixtures_url is a valid mode and needs no github_repo.
+	require.NoError(t, (&EESTFixturesSource{
+		FixturesURL: "https://x/f.tar.gz", FixturesSubdir: "sub",
+	}).validate())
+}

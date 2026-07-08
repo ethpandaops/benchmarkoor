@@ -41,3 +41,22 @@ func TestStatefulPreRunMissing(t *testing.T) {
 		})
 	}
 }
+
+func TestParseGitHubArtifactURL(t *testing.T) {
+	owner, repo, id, ok := parseGitHubArtifactURL(
+		"https://github.com/ethpandaops/benchmarkoor/actions/runs/28947560261/artifacts/8170387928",
+	)
+	assert.True(t, ok)
+	assert.Equal(t, "ethpandaops", owner)
+	assert.Equal(t, "benchmarkoor", repo)
+	assert.Equal(t, "8170387928", id)
+
+	// A plain release / tarball URL is not an artifact URL.
+	_, _, _, ok = parseGitHubArtifactURL(
+		"https://github.com/ethpandaops/benchmarkoor-tests/releases/download/untagged-x/fixtures.tar.gz",
+	)
+	assert.False(t, ok)
+
+	_, _, _, ok = parseGitHubArtifactURL("https://example.com/fixtures.tar.gz")
+	assert.False(t, ok)
+}
