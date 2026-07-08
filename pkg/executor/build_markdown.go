@@ -13,6 +13,8 @@ import (
 const (
 	stateActorManifestFile = "state-actor-manifest.json"
 	eestFillResultFile     = ".benchmarkoor-fill.json"
+	buildFingerprintFile   = ".benchmarkoor-build.json"
+	pytestReportFile       = ".benchmarkoor-pytest-report.json"
 )
 
 // BuildSummary is the per-invocation result of `benchmarkoor build`, persisted
@@ -55,12 +57,33 @@ type stateActorManifest struct {
 		TotalDBSizeBytes int64  `json:"total_db_size_bytes"`
 		ElapsedMs        int64  `json:"elapsed_ms"`
 	} `json:"result"`
+	StateActor struct {
+		Version string `json:"version"`
+	} `json:"state_actor"`
 	// Benchmarkoor is the benchmarkoor-namespaced block added after generation,
 	// carrying the docker image used to produce the datadir + its sha256 digest.
 	Benchmarkoor *struct {
 		Image       string `json:"image"`
 		ImageDigest string `json:"image_digest"`
 	} `json:"benchmarkoor"`
+}
+
+// eestFingerprint mirrors the config-level fill inputs of the
+// .benchmarkoor-build.json fingerprint sidecar that we surface in the summary.
+type eestFingerprint struct {
+	Inputs struct {
+		Tests              []string `json:"tests"`
+		GasBenchmarkValues []int    `json:"gas_benchmark_values"`
+		Marker             string   `json:"marker"`
+		DataDirMethod      string   `json:"datadir_method"`
+		EESTRepo           string   `json:"eest_repo"`
+	} `json:"inputs"`
+}
+
+// pytestReport mirrors the fields of the pytest json report we surface (the
+// fill's wall-clock duration).
+type pytestReport struct {
+	Duration float64 `json:"duration"`
 }
 
 // eestFillResult mirrors the .benchmarkoor-fill.json sidecar: the eest target's
@@ -161,6 +184,26 @@ func writeStateActorSection(sb *strings.Builder, t BuildTargetSummary) {
 			writeField(sb, "Image digest", code(m.Benchmarkoor.ImageDigest))
 		}
 
+		if m.StateActor.Version != "" {
+			writeField(sb, "State-actor version", code(m.StateActor.Version))
+		}
+
+		if m.Flags.TargetSize != "" {
+			writeField(sb, "Target size", m.Flags.TargetSize)
+		}
+
+		if m.Flags.GasLimit != 0 {
+			writeField(sb, "Gas limit", formatInt(m.Flags.GasLimit))
+		}
+
+		if m.Flags.Seed != 0 {
+			writeField(sb, "Seed", formatInt(m.Flags.Seed))
+		}
+
+		if m.Flags.ChainID != 0 {
+			writeField(sb, "Chain ID", formatInt(m.Flags.ChainID))
+		}
+
 		if m.Result != nil {
 			writeField(sb, "State root", code(shortHash(m.Result.StateRoot)))
 			writeField(sb, "Accounts created", formatInt(m.Result.AccountsCreated))
@@ -174,16 +217,55 @@ func writeStateActorSection(sb *strings.Builder, t BuildTargetSummary) {
 }
 
 func writeEESTSection(sb *strings.Builder, t BuildTargetSummary) {
-	if fill := readEESTFillResult(t.OutputDir); fill != nil {
+	fill := readEESTFillResult(t.OutputDir)
+	fp := readEESTFingerprint(t.OutputDir)
+	rep := readPytestReport(t.OutputDir)
+
+	if fill != nil {
 		writeField(sb, "Source", orDash(fill.SourceDir))
 		writeField(sb, "Filler", orDash(fill.FillerClient))
 		writeField(sb, "Filler image", code(fill.FillerImage))
+	}
+
+	if fp != nil && fp.Inputs.EESTRepo != "" {
+		writeField(sb, "EEST repo", fp.Inputs.EESTRepo)
+	}
+
+	if fill != nil {
 		writeField(sb, "EEST commit", code(shortSHA(fill.EESTSHA)))
 		writeField(sb, "Fork", orDash(fill.Fork))
+	}
+
+	if fp != nil && len(fp.Inputs.Tests) > 0 {
+		writeField(sb, "Tests", code(strings.Join(fp.Inputs.Tests, ", ")))
+	}
+
+	if fill != nil {
 		writeField(sb, "Filter", orDash(fill.Filter))
+	}
+
+	if fp != nil {
+		if fp.Inputs.Marker != "" {
+			writeField(sb, "Marker", code(fp.Inputs.Marker))
+		}
+
+		if len(fp.Inputs.GasBenchmarkValues) > 0 {
+			writeField(sb, "Gas values", joinInts(fp.Inputs.GasBenchmarkValues))
+		}
+
+		if fp.Inputs.DataDirMethod != "" {
+			writeField(sb, "Datadir method", fp.Inputs.DataDirMethod)
+		}
+	}
+
+	if fill != nil {
 		writeField(sb, "Filled", formatInt(int64(fill.Filled)))
 		writeField(sb, "Failed", formatInt(int64(fill.Failed)))
 		writeField(sb, "Fixtures size", formatBytes(fill.SizeBytes))
+	}
+
+	if rep != nil && rep.Duration > 0 {
+		writeField(sb, "Fill duration", formatDurationNs(int64(rep.Duration*1e9)))
 	}
 
 	writeField(sb, "Elapsed", formatDurationNs(t.ElapsedMs*1_000_000))
@@ -284,6 +366,44 @@ func readEESTFillResult(outputDir string) *eestFillResult {
 	}
 
 	return &r
+}
+
+func readEESTFingerprint(outputDir string) *eestFingerprint {
+	data, err := os.ReadFile(filepath.Join(outputDir, buildFingerprintFile))
+	if err != nil {
+		return nil
+	}
+
+	var fp eestFingerprint
+	if err := json.Unmarshal(data, &fp); err != nil {
+		return nil
+	}
+
+	return &fp
+}
+
+func readPytestReport(outputDir string) *pytestReport {
+	data, err := os.ReadFile(filepath.Join(outputDir, pytestReportFile))
+	if err != nil {
+		return nil
+	}
+
+	var r pytestReport
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil
+	}
+
+	return &r
+}
+
+// joinInts renders an int slice as a comma-separated string ("200, 300").
+func joinInts(vals []int) string {
+	parts := make([]string, len(vals))
+	for i, v := range vals {
+		parts[i] = strconv.Itoa(v)
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 func orDash(s string) string {

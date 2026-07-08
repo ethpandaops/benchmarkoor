@@ -30,6 +30,7 @@ func TestGenerateBuildMarkdown(t *testing.T) {
 	require.NoError(t, os.MkdirAll(eestDir, 0o755))
 
 	manifest := `{"flags":{"client":"nethermind","fork":"osaka","seed":1234,"chain_id":1337,"gas_limit":300000000,"target_size":"256MB"},` +
+		`"state_actor":{"version":"50e3475"},` +
 		`"benchmarkoor":{"image":"ethpandaops/nethermind:master","image_digest":"sha256:abc123def456"},` +
 		`"result":{"state_root":"0x120a6b331ed0fa9bec93ce22ab765a057b4e7c707d0fd97388fcd4316ed65498",` +
 		`"accounts_created":301540,"contracts_created":5248,"storage_slots":1351914,"total_db_size_bytes":526000000,"elapsed_ms":4348}}`
@@ -37,6 +38,10 @@ func TestGenerateBuildMarkdown(t *testing.T) {
 
 	fill := `{"source_dir":"/schelk/state-actor/v1/nethermind","filler_client":"geth","filler_image":"ethpandaops/geth:master","eest_sha":"27174ca1b2c3deadbeef","fork":"osaka","filter":"bn128","size_bytes":78643200,"filled":36,"failed":0}`
 	require.NoError(t, os.WriteFile(filepath.Join(eestDir, eestFillResultFile), []byte(fill), 0o600))
+
+	fingerprint := `{"inputs":{"tests":["tests/benchmark/compute"],"gas_benchmark_values":[200,300],"marker":"repricing","datadir_method":"schelk","eest_repo":"https://github.com/ethereum/execution-specs.git"}}`
+	require.NoError(t, os.WriteFile(filepath.Join(eestDir, buildFingerprintFile), []byte(fingerprint), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(eestDir, pytestReportFile), []byte(`{"duration":2215.6}`), 0o600))
 
 	p := writeBuildSummary(t, dir, BuildSummary{
 		GeneratedAt: "2026-07-06T00:00:00Z",
@@ -60,6 +65,12 @@ func TestGenerateBuildMarkdown(t *testing.T) {
 	// docker image + digest recorded into the manifest
 	assert.Contains(t, md, "| Docker image | `ethpandaops/nethermind:master` |")
 	assert.Contains(t, md, "| Image digest | `sha256:abc123def456` |")
+	// state-actor: version + build params from the manifest
+	assert.Contains(t, md, "| State-actor version | `50e3475` |")
+	assert.Contains(t, md, "| Target size | 256MB |")
+	assert.Contains(t, md, "| Gas limit | 300,000,000 |")
+	assert.Contains(t, md, "| Seed | 1,234 |")
+	assert.Contains(t, md, "| Chain ID | 1,337 |")
 	// eest provenance + fill counts + newly added filler image / EEST commit
 	assert.Contains(t, md, "| Source | /schelk/state-actor/v1/nethermind |")
 	assert.Contains(t, md, "| Filler image | `ethpandaops/geth:master` |")
@@ -67,6 +78,13 @@ func TestGenerateBuildMarkdown(t *testing.T) {
 	assert.Contains(t, md, "| Filled | 36 |")
 	assert.Contains(t, md, "| Failed | 0 |")
 	assert.Contains(t, md, "| Fixtures size | 75.0 MiB |")
+	// eest: config inputs (fingerprint sidecar) + fill duration (pytest report)
+	assert.Contains(t, md, "| EEST repo | https://github.com/ethereum/execution-specs.git |")
+	assert.Contains(t, md, "| Tests | `tests/benchmark/compute` |")
+	assert.Contains(t, md, "| Marker | `repricing` |")
+	assert.Contains(t, md, "| Gas values | 200, 300 |")
+	assert.Contains(t, md, "| Datadir method | schelk |")
+	assert.Contains(t, md, "| Fill duration | 36m 55s |")
 }
 
 func TestGenerateBuildMarkdown_ErrTargetShowsError(t *testing.T) {
