@@ -5,7 +5,7 @@ import { ExternalLink } from 'lucide-react'
 
 import { fetchText } from '@/api/client'
 import { Card } from '@/components/shared/Card'
-import { getDataUrl, loadRuntimeConfig } from '@/config/runtime'
+import { getNavigableDataUrl, loadRuntimeConfig } from '@/config/runtime'
 
 interface EESTMetadataProps {
   suiteHash: string
@@ -76,10 +76,10 @@ export function EESTMetadata({ suiteHash }: EESTMetadataProps) {
   }
 
   const reportUrl = config
-    ? getDataUrl(`suites/${suiteHash}/.eest-meta/report_fill.html`, config)
+    ? getNavigableDataUrl(`suites/${suiteHash}/.eest-meta/report_fill.html`, config)
     : undefined
   const indexUrl = config
-    ? getDataUrl(`suites/${suiteHash}/.eest-meta/index.json`, config)
+    ? getNavigableDataUrl(`suites/${suiteHash}/.eest-meta/index.json`, config)
     : undefined
 
   return (

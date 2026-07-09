@@ -10,7 +10,7 @@ import { fetchText } from '@/api/client'
 import type { StateActorManifest } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Card } from '@/components/shared/Card'
-import { getDataUrl, loadRuntimeConfig } from '@/config/runtime'
+import { getNavigableDataUrl, loadRuntimeConfig } from '@/config/runtime'
 import { formatBytes, formatNumber } from '@/utils/format'
 
 interface StateActorConfigurationProps {
@@ -77,7 +77,9 @@ function RawFile({ runId, name }: { runId: string; name: string }) {
   })
 
   const text = file?.data ?? ''
-  const url = config ? getDataUrl(`runs/${runId}/.state-actor/${name}`, config) : undefined
+  const url = config
+    ? getNavigableDataUrl(`runs/${runId}/.state-actor/${name}`, config)
+    : undefined
 
   return (
     <div className="overflow-hidden rounded-xs border border-gray-200 dark:border-gray-700">

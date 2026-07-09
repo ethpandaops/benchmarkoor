@@ -108,6 +108,22 @@ export function getDataUrl(path: string, config: RuntimeConfig): string {
   return `${base}/${path}`
 }
 
+// getNavigableDataUrl returns a URL safe to open directly in the browser
+// (anchor href, iframe src, download link). In S3 + API mode the /files
+// endpoint returns a JSON {"url":...} envelope by default — great for
+// programmatic fetch, but a plain navigation would just render that JSON.
+// Appending ?redirect=true makes the endpoint 302 to the presigned URL so the
+// browser loads the file itself. Local mode serves the bytes directly, so no
+// redirect is needed there.
+export function getNavigableDataUrl(path: string, config: RuntimeConfig): string {
+  const url = getDataUrl(path, config)
+  if (isS3Mode(config) && config.api?.baseUrl) {
+    return `${url}${url.includes('?') ? '&' : '?'}redirect=true`
+  }
+
+  return url
+}
+
 export function toAbsoluteUrl(url: string): string {
   if (url.startsWith('http://') || url.startsWith('https://')) return url
   return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`

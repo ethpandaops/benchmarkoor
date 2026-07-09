@@ -7,7 +7,7 @@ import { FolderOpen, Folder, Check, Copy, Download, List, ChevronDown, ChevronRi
 import type { PostTestRPCCallConfig, TestEntry } from '@/api/types'
 import { fetchHead, type HeadResult } from '@/api/client'
 import { formatBytes } from '@/utils/format'
-import { getDataUrl, isS3Mode, loadRuntimeConfig, toAbsoluteUrl } from '@/config/runtime'
+import { getNavigableDataUrl, loadRuntimeConfig, toAbsoluteUrl } from '@/config/runtime'
 import { useAuth } from '@/hooks/useAuth'
 import { Modal } from '@/components/shared/Modal'
 
@@ -589,25 +589,20 @@ export function FilesPanel({ runId, tests, postTestRPCCalls, showDownloadList, d
 
   const downloadListText = useMemo(() => {
     if (!runtimeConfig || downloadEntries.length === 0) return ''
-    const s3 = isS3Mode(runtimeConfig)
     const needsAuth = requiresAuth && runtimeConfig.api?.baseUrl
 
     if (downloadFormat === 'urls') {
-      return downloadEntries.map((e) => {
-        let url = getDataUrl(e.path, runtimeConfig)
-        if (s3) url += `${url.includes('?') ? '&' : '?'}redirect=true`
-        return toAbsoluteUrl(url)
-      }).join('\n')
+      return downloadEntries.map((e) =>
+        toAbsoluteUrl(getNavigableDataUrl(e.path, runtimeConfig)),
+      ).join('\n')
     }
 
     // Build curl script with progress.
     const authFlag = needsAuth ? ' -H "Authorization: Bearer $BENCHMARKOOR_API_KEY"' : ''
     const total = downloadEntries.length
-    const urls = downloadEntries.map((e) => {
-      let url = getDataUrl(e.path, runtimeConfig)
-      if (s3) url += `${url.includes('?') ? '&' : '?'}redirect=true`
-      return `  '${toAbsoluteUrl(url)}' '${e.outputPath}'`
-    })
+    const urls = downloadEntries.map(
+      (e) => `  '${toAbsoluteUrl(getNavigableDataUrl(e.path, runtimeConfig))}' '${e.outputPath}'`,
+    )
 
     const lines: string[] = []
 
