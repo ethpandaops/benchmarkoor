@@ -118,6 +118,40 @@ func TestStore_UpsertRunIdempotent(t *testing.T) {
 	assert.Equal(t, 10, runs[0].TestsTotal)
 }
 
+func TestStore_RunsGeneration(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	// Starts at zero and every runs-table mutation bumps it.
+	assert.Equal(t, uint64(0), s.RunsGeneration())
+
+	run := &indexstore.Run{
+		DiscoveryPath: "dp/gen",
+		RunID:         "run-gen",
+		Timestamp:     time.Now().Unix(),
+		Status:        "completed",
+		Client:        "geth",
+	}
+	require.NoError(t, s.UpsertRun(ctx, run))
+	afterInsert := s.RunsGeneration()
+	assert.Greater(t, afterInsert, uint64(0))
+
+	// An idempotent upsert still counts as a mutation.
+	require.NoError(t, s.UpsertRun(ctx, run))
+	afterUpsert := s.RunsGeneration()
+	assert.Greater(t, afterUpsert, afterInsert)
+
+	// Cascade delete bumps it too.
+	require.NoError(t, s.DeleteRunCascade(ctx, "run-gen"))
+	assert.Greater(t, s.RunsGeneration(), afterUpsert)
+
+	// A read does not.
+	before := s.RunsGeneration()
+	_, err := s.ListAllRuns(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before, s.RunsGeneration())
+}
+
 func TestStore_ListRunIDs(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()

@@ -44,6 +44,12 @@ type server struct {
 	httpServer     *http.Server
 	wg             sync.WaitGroup
 	done           chan struct{}
+
+	// indexCache holds the marshaled /index response keyed by the runs-table
+	// generation, so repeated polls don't rebuild it. See handleIndex.
+	indexCacheMu   sync.Mutex
+	indexCacheGen  uint64
+	indexCacheBody []byte
 }
 
 // NewServer creates a new API server.

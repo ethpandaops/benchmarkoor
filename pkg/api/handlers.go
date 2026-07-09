@@ -29,6 +29,14 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
+// writeRawJSON writes an already-marshaled JSON body with a 200 status. Used
+// for responses that are built and cached ahead of time.
+func writeRawJSON(w http.ResponseWriter, body []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
 // --- Public handlers ---
 
 // handleHealth returns server health status.

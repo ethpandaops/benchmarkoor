@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/api/gormlogger"
@@ -49,6 +50,11 @@ type Store interface {
 
 	ListAllRuns(ctx context.Context) ([]Run, error)
 
+	// RunsGeneration returns a monotonic counter that is bumped on every
+	// mutation of the runs table. Callers can use it as a cheap cache key to
+	// detect whether the runs list has changed since a prior read.
+	RunsGeneration() uint64
+
 	GetRunByRunID(ctx context.Context, runID string) (*Run, error)
 	DeleteRun(ctx context.Context, runID string) error
 	DeleteRunCascade(ctx context.Context, runID string) error
@@ -84,6 +90,10 @@ type store struct {
 	cfg    *config.APIDatabaseConfig
 	db     *gorm.DB // write-only connection (single conn for SQLite)
 	readDB *gorm.DB // read-only connection pool (concurrent readers)
+
+	// runsGen is bumped on every runs-table mutation so readers can cheaply
+	// detect staleness. See RunsGeneration.
+	runsGen atomic.Uint64
 }
 
 // NewStore creates a new index Store backed by the configured database driver.
@@ -268,6 +278,8 @@ func (s *store) UpsertRun(ctx context.Context, run *Run) error {
 		return fmt.Errorf("upserting run: %w", err)
 	}
 
+	s.runsGen.Add(1)
+
 	return nil
 }
 
@@ -430,6 +442,11 @@ func (s *store) ListAllRuns(ctx context.Context) ([]Run, error) {
 	return runs, nil
 }
 
+// RunsGeneration returns the current runs-table generation counter.
+func (s *store) RunsGeneration() uint64 {
+	return s.runsGen.Load()
+}
+
 // GetRunByRunID returns a single run by its run ID.
 func (s *store) GetRunByRunID(
 	ctx context.Context, runID string,
@@ -454,6 +471,8 @@ func (s *store) DeleteRun(
 		return fmt.Errorf("deleting run: %w", err)
 	}
 
+	s.runsGen.Add(1)
+
 	return nil
 }
 
@@ -470,7 +489,7 @@ func (s *store) DeleteRunCascade(
 		return fmt.Errorf("looking up run: %w", err)
 	}
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("run_id = ?", runID).
 			Delete(&TestStat{}).Error; err != nil {
 			return fmt.Errorf("deleting test stats: %w", err)
@@ -504,7 +523,13 @@ func (s *store) DeleteRunCascade(
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	s.runsGen.Add(1)
+
+	return nil
 }
 
 // DeleteOrphanedSuite deletes a suite if no runs reference it anymore.

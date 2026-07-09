@@ -13,10 +13,54 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// emptyJSONObject is spliced in for runs that have no (or malformed) steps
+// JSON, preserving the historical behaviour where "steps" is always present.
+var emptyJSONObject = json.RawMessage("{}")
+
+// indexResponse is the /index payload. Field order mirrors the historical
+// shape (discovery_path first, then the executor.IndexEntry fields).
+type indexResponse struct {
+	Generated int64        `json:"generated"`
+	Entries   []indexEntry `json:"entries"`
+}
+
+type indexEntry struct {
+	DiscoveryPath     string                  `json:"discovery_path"`
+	RunID             string                  `json:"run_id"`
+	Timestamp         int64                   `json:"timestamp"`
+	TimestampEnd      int64                   `json:"timestamp_end,omitempty"`
+	SuiteHash         string                  `json:"suite_hash,omitempty"`
+	Instance          *executor.IndexInstance `json:"instance"`
+	Tests             indexTestStats          `json:"tests"`
+	Status            string                  `json:"status,omitempty"`
+	TerminationReason string                  `json:"termination_reason,omitempty"`
+	Metadata          json.RawMessage         `json:"metadata,omitempty"`
+}
+
+type indexTestStats struct {
+	TestsTotal  int             `json:"tests_total"`
+	TestsPassed int             `json:"tests_passed"`
+	TestsFailed int             `json:"tests_failed"`
+	Steps       json.RawMessage `json:"steps"`
+}
+
 // handleIndex returns the aggregated index of all benchmark runs from all
 // discovery paths. The response shape matches executor.Index with an
 // additional "discovery_path" field on each entry.
+//
+// The full payload is O(number of runs) and the UI polls it periodically, so
+// the marshaled body is cached and keyed by the store's runs generation: while
+// no run is upserted or deleted the response is served straight from the cache
+// without touching the database.
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	gen := s.indexStore.RunsGeneration()
+
+	if body := s.cachedIndex(gen); body != nil {
+		writeRawJSON(w, body)
+
+		return
+	}
+
 	runs, err := s.indexStore.ListAllRuns(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError,
@@ -25,26 +69,27 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type indexEntryWithDP struct {
-		DiscoveryPath string `json:"discovery_path"`
-		*executor.IndexEntry
-	}
-
-	entries := make([]indexEntryWithDP, 0, len(runs))
+	// ListAllRuns already orders by timestamp descending, so no re-sort here.
+	entries := make([]indexEntry, 0, len(runs))
 
 	for i := range runs {
 		run := &runs[i]
 
-		// Unmarshal steps JSON back to the struct.
-		var steps *executor.IndexStepsStats
-		if run.StepsJSON != "" {
-			var s executor.IndexStepsStats
-			if json.Unmarshal([]byte(run.StepsJSON), &s) == nil {
-				steps = &s
-			}
+		// Splice the stored steps/metadata JSON straight through instead of
+		// unmarshaling then re-marshaling. Malformed blobs fall back to the
+		// historical defaults ("{}" for steps, omitted for metadata).
+		steps := json.RawMessage(run.StepsJSON)
+		if len(steps) == 0 || !json.Valid(steps) {
+			steps = emptyJSONObject
 		}
 
-		entry := &executor.IndexEntry{
+		var metadata json.RawMessage
+		if run.MetadataJSON != "" && json.Valid([]byte(run.MetadataJSON)) {
+			metadata = json.RawMessage(run.MetadataJSON)
+		}
+
+		entries = append(entries, indexEntry{
+			DiscoveryPath:     run.DiscoveryPath,
 			RunID:             run.RunID,
 			Timestamp:         run.Timestamp,
 			TimestampEnd:      run.TimestampEnd,
@@ -57,40 +102,56 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 				Image:            run.Image,
 				RollbackStrategy: run.RollbackStrategy,
 			},
-			Tests: &executor.IndexTestStats{
+			Tests: indexTestStats{
 				TestsTotal:  run.TestsTotal,
 				TestsPassed: run.TestsPassed,
 				TestsFailed: run.TestsFailed,
 				Steps:       steps,
 			},
-		}
-
-		if entry.Tests.Steps == nil {
-			entry.Tests.Steps = &executor.IndexStepsStats{}
-		}
-
-		if run.MetadataJSON != "" {
-			var m map[string]string
-			if json.Unmarshal([]byte(run.MetadataJSON), &m) == nil {
-				entry.Metadata = m
-			}
-		}
-
-		entries = append(entries, indexEntryWithDP{
-			DiscoveryPath: run.DiscoveryPath,
-			IndexEntry:    entry,
+			Metadata: metadata,
 		})
 	}
 
-	// Sort by timestamp descending.
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Timestamp > entries[j].Timestamp
+	body, err := json.Marshal(indexResponse{
+		Generated: time.Now().Unix(),
+		Entries:   entries,
 	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"encoding index: " + err.Error()})
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"generated": time.Now().Unix(),
-		"entries":   entries,
-	})
+		return
+	}
+
+	s.storeCachedIndex(gen, body)
+	writeRawJSON(w, body)
+}
+
+// cachedIndex returns the cached marshaled index body if it was built for the
+// given runs generation, otherwise nil.
+func (s *server) cachedIndex(gen uint64) []byte {
+	s.indexCacheMu.Lock()
+	defer s.indexCacheMu.Unlock()
+
+	if s.indexCacheBody != nil && s.indexCacheGen == gen {
+		return s.indexCacheBody
+	}
+
+	return nil
+}
+
+// storeCachedIndex records a freshly built index body for the given
+// generation. A build is only allowed to replace the cache if its generation
+// is at least as fresh, so a slow build for an older generation can't clobber
+// a newer cached body.
+func (s *server) storeCachedIndex(gen uint64, body []byte) {
+	s.indexCacheMu.Lock()
+	defer s.indexCacheMu.Unlock()
+
+	if s.indexCacheBody == nil || gen >= s.indexCacheGen {
+		s.indexCacheGen = gen
+		s.indexCacheBody = body
+	}
 }
 
 // handleSuiteStats returns suite statistics for a given suite hash.
