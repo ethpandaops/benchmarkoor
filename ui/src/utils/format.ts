@@ -21,6 +21,12 @@ export function formatDuration(nanoseconds: number): string {
   return `${minutes}m${seconds}s`
 }
 
+// formatDurationMs renders a millisecond duration in human-readable form
+// (e.g. 6006337 -> "1h40m6s"), reusing the nanosecond formatter.
+export function formatDurationMs(milliseconds: number): string {
+  return formatDuration(milliseconds * 1_000_000)
+}
+
 export function formatNumber(num: number): string {
   return new Intl.NumberFormat().format(num)
 }

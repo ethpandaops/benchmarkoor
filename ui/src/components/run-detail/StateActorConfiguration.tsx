@@ -11,7 +11,7 @@ import type { StateActorManifest } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Card } from '@/components/shared/Card'
 import { getNavigableDataUrl, loadRuntimeConfig } from '@/config/runtime'
-import { formatBytes, formatNumber } from '@/utils/format'
+import { formatBytes, formatDurationMs, formatNumber } from '@/utils/format'
 
 interface StateActorConfigurationProps {
   manifest: StateActorManifest
@@ -246,7 +246,7 @@ export function StateActorConfiguration({ manifest, runId }: StateActorConfigura
             <Field label="Contracts created" value={formatNumber(result.contracts_created)} />
             <Field label="Storage slots" value={formatNumber(result.storage_slots)} />
             <Field label="DB size" value={formatBytes(result.total_db_size_bytes)} />
-            <Field label="Elapsed" value={`${formatNumber(result.elapsed_ms)} ms`} />
+            <Field label="Elapsed" value={formatDurationMs(result.elapsed_ms)} />
           </Section>
         )}
 
