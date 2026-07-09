@@ -1,11 +1,37 @@
 package executor
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/eest"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestFindMetaDir(t *testing.T) {
+	// Nested fixtures (e.g. a build artifact): fixtures_subdir resolves to
+	// <root>/a/b/blockchain_tests; .meta is a sibling at <root>/a/b/.meta.
+	root := t.TempDir()
+	nested := filepath.Join(root, "a", "b")
+	require.NoError(t, os.MkdirAll(filepath.Join(nested, "blockchain_tests"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(nested, ".meta"), 0o755))
+	assert.Equal(t, filepath.Join(nested, ".meta"),
+		findMetaDir(filepath.Join(nested, "blockchain_tests"), root),
+		"prefers the .meta sibling of the resolved fixtures dir")
+
+	// Root-level fallback: .meta only at the fixtures-cache root.
+	root2 := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root2, "fixtures", "blockchain_tests"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root2, ".meta"), 0o755))
+	assert.Equal(t, filepath.Join(root2, ".meta"),
+		findMetaDir(filepath.Join(root2, "fixtures", "blockchain_tests"), root2),
+		"falls back to the fixtures-cache root")
+
+	// No .meta anywhere.
+	assert.Empty(t, findMetaDir(filepath.Join(t.TempDir(), "x"), t.TempDir()))
+}
 
 func TestStatefulPreRunMissing(t *testing.T) {
 	tests := []struct {

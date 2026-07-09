@@ -770,6 +770,25 @@ func (s *EESTSource) loadPreRuns(searchDir string) (map[string]*eest.StatefulPre
 }
 
 // discoverTests parses fixture files and creates test entries.
+// findMetaDir locates the EEST .meta directory (fill provenance: fixtures.ini,
+// index.json, report_fill.html) for a set of fixtures. EEST writes it as a
+// sibling of the fixtures dir, so prefer the parent of searchDir (handles
+// fixtures nested under fixtures_subdir, e.g. a benchmarkoor build artifact);
+// fall back to the fixtures-cache root for root-level tarballs/releases. Returns
+// "" when no .meta is present.
+func findMetaDir(searchDir, fixturesRoot string) string {
+	for _, dir := range []string{
+		filepath.Join(filepath.Dir(searchDir), ".meta"),
+		filepath.Join(fixturesRoot, ".meta"),
+	} {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			return dir
+		}
+	}
+
+	return ""
+}
+
 func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 	// Determine the fixtures search directory.
 	fixturesSubdir := s.cfg.FixturesSubdir
@@ -791,10 +810,9 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 	}
 
 	// EEST writes a .meta directory (fixtures.ini with the fill command + python/
-	// tool versions, index.json, report_fill.html) at the root of the fixtures
+	// tool versions, index.json, report_fill.html) as a sibling of the fixtures
 	// dir. Attach it when present so each suite's output can carry the provenance.
-	metaDir := filepath.Join(s.fixturesDir, ".meta")
-	if fi, err := os.Stat(metaDir); err == nil && fi.IsDir() {
+	if metaDir := findMetaDir(searchDir, s.fixturesDir); metaDir != "" {
 		result.MetaDir = metaDir
 
 		s.log.WithField("meta_dir", metaDir).Debug("Found EEST .meta directory")
