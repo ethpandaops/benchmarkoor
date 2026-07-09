@@ -989,7 +989,14 @@ func (b *EESTPayloadsBuilder) runFill(
 		// passed/failed tally for the build summary (the json-report plugin ships
 		// in the fill image). fill-stateful continues through failures, so a
 		// partial fill still records how many tests failed.
-		"PYTEST_ADDOPTS": "-o cache_dir=/tmp/.pytest_cache --json-report --json-report-file=" + fillOutputPath + "/" + pytestReportFile,
+		//
+		// --self-contained-html inlines the pytest-html report's CSS into
+		// .meta/report_fill.html so it has no relative assets/ references. That
+		// lets the UI serve it from a presigned S3 URL (or an iframe) with full
+		// styling — a linked assets/style.css would resolve to an unsigned S3
+		// URL and 403. EEST only sets htmlpath, not self_contained_html, so this
+		// flag is honored.
+		"PYTEST_ADDOPTS": "-o cache_dir=/tmp/.pytest_cache --self-contained-html --json-report --json-report-file=" + fillOutputPath + "/" + pytestReportFile,
 		// fill-stateful reads its commit hash from the /eest git checkout; as a
 		// non-root user git can refuse with "dubious ownership". Inject
 		// safe.directory=* via git's env-based config so it trusts the repo.
