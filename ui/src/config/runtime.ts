@@ -1,3 +1,5 @@
+import { sanitizeResultPath } from './resultPath'
+
 export interface StorageConfig {
   s3: {
     enabled: boolean
@@ -92,6 +94,12 @@ export function getDiscoveryPath(key: string, config: RuntimeConfig): string {
 }
 
 export function getDataUrl(path: string, config: RuntimeConfig): string {
+  // Match the backend's write-time truncation of over-long path components so
+  // long-named tests resolve to the key that was actually stored (see
+  // sanitizeResultPath). Short components (runId, suite hash, step file) are
+  // untouched, so the run/suite key extraction below still works.
+  path = sanitizeResultPath(path)
+
   // Both S3 and local mode use the same {discovery_path}/{relative_path} URL
   // pattern. The discovery path prefix is looked up from the run/suite ID.
   if ((isS3Mode(config) || isLocalMode(config)) && config.api?.baseUrl) {
