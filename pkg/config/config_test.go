@@ -98,6 +98,44 @@ func TestLoad_BuilderRunTimeoutEnv(t *testing.T) {
 	assert.Equal(t, 3*time.Hour, c.GetBuilderRunTimeout())
 }
 
+func TestLoad_BuilderCleanupOnStart(t *testing.T) {
+	base := "builder:\n%s  state_actor:\n    images: {geth: img}\n" +
+		"    targets:\n      - client: geth\n        output_dir: /tmp/x\n"
+
+	t.Run("from file", func(t *testing.T) {
+		f := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(f, []byte(
+			fmt.Sprintf(base, "  cleanup_on_start: true\n")), 0o600))
+
+		c, err := Load(f)
+		require.NoError(t, err)
+		require.NotNil(t, c.Builder)
+		assert.True(t, c.Builder.CleanupOnStart)
+	})
+
+	t.Run("defaults to false", func(t *testing.T) {
+		f := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(f, []byte(fmt.Sprintf(base, "")), 0o600))
+
+		c, err := Load(f)
+		require.NoError(t, err)
+		require.NotNil(t, c.Builder)
+		assert.False(t, c.Builder.CleanupOnStart)
+	})
+
+	t.Run("from env when absent in file", func(t *testing.T) {
+		f := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(f, []byte(fmt.Sprintf(base, "")), 0o600))
+
+		t.Setenv("BENCHMARKOOR_BUILDER_CLEANUP_ON_START", "true")
+
+		c, err := Load(f)
+		require.NoError(t, err)
+		require.NotNil(t, c.Builder)
+		assert.True(t, c.Builder.CleanupOnStart)
+	})
+}
+
 func TestLoad_InlineAddressStubsKeyCasing(t *testing.T) {
 	// Viper is case-insensitive and lowercases all map keys; EEST resolves stub
 	// names by exact match, so Load must restore the original casing.

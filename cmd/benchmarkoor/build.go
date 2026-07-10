@@ -107,6 +107,23 @@ func runBuild(_ *cobra.Command, _ []string) error {
 
 	installSignalHandler(cancel)
 
+	// Clean up any benchmarkoor resources left by a previous build or run
+	// before starting, if configured. Uses all available runtimes so
+	// containers left under a different runtime (e.g. Docker vs Podman) are
+	// also removed. Mirrors runner.cleanup_on_start.
+	if cfg.Builder.CleanupOnStart {
+		log.Info("Performing cleanup before start")
+
+		cleanupManagers := buildCleanupManagers(ctx)
+		if err := performCleanup(ctx, cleanupManagers, true); err != nil {
+			log.WithError(err).Warn("Cleanup failed")
+		}
+
+		for _, mgr := range cleanupManagers {
+			_ = mgr.Stop()
+		}
+	}
+
 	builders, stop, err := buildBuilders(ctx, cfg)
 	if err != nil {
 		return err

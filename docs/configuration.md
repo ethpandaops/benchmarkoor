@@ -79,6 +79,7 @@ Configuration values can also be overridden via environment variables with the `
 |-------------|---------------------|
 | `global.log_level` | `BENCHMARKOOR_GLOBAL_LOG_LEVEL` |
 | `builder.run_timeout` | `BENCHMARKOOR_BUILDER_RUN_TIMEOUT` |
+| `builder.cleanup_on_start` | `BENCHMARKOOR_BUILDER_CLEANUP_ON_START` |
 | `runner.run_timeout` | `BENCHMARKOOR_RUNNER_RUN_TIMEOUT` |
 | `runner.benchmark.results_dir` | `BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_DIR` |
 | `runner.client.config.jwt` | `BENCHMARKOOR_RUNNER_CLIENT_CONFIG_JWT` |
@@ -1472,6 +1473,7 @@ Builds are **decoupled from `benchmarkoor run`**: invoke `benchmarkoor build` to
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `run_timeout` | string | – | Global timeout capping the entire `benchmarkoor build` (all builders and targets), as a Go duration (e.g. `2h`, `90m`). Empty means no timeout. Overridable via `BENCHMARKOOR_BUILDER_RUN_TIMEOUT`. The analogue of [`runner.run_timeout`](#runner-run-timeout) for builds. |
+| `cleanup_on_start` | bool | `false` | Remove leftover benchmarkoor resources (containers, volumes, the build network, ZFS clones, overlay mounts, CPU-freq state) before the build starts — the same sweep as the `benchmarkoor cleanup` command. Overridable via `BENCHMARKOOR_BUILDER_CLEANUP_ON_START`. The analogue of `runner.cleanup_on_start` for builds. |
 
 ### `builder.state_actor` options
 

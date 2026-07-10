@@ -81,9 +81,13 @@ type BuilderConfig struct {
 	// RunTimeout caps the entire build (all builders and targets) as a Go
 	// duration string (e.g. "2h"). Empty means no timeout. Overridable via
 	// BENCHMARKOOR_BUILDER_RUN_TIMEOUT.
-	RunTimeout   string              `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
-	StateActor   *StateActorConfig   `yaml:"state_actor,omitempty" mapstructure:"state_actor"`
-	EESTPayloads *EESTPayloadsConfig `yaml:"eest_payloads,omitempty" mapstructure:"eest_payloads"`
+	RunTimeout string `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
+	// CleanupOnStart removes any leftover benchmarkoor resources (containers,
+	// volumes, the build network, ZFS clones, overlay mounts, CPU-freq state)
+	// before the build starts. The analogue of runner.cleanup_on_start.
+	CleanupOnStart bool                `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
+	StateActor     *StateActorConfig   `yaml:"state_actor,omitempty" mapstructure:"state_actor"`
+	EESTPayloads   *EESTPayloadsConfig `yaml:"eest_payloads,omitempty" mapstructure:"eest_payloads"`
 }
 
 // StateActorConfig configures how the state-actor binary is invoked via
@@ -1556,6 +1560,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"global.directories.cachedir",
 		// Builder settings
 		"builder.run_timeout",
+		"builder.cleanup_on_start",
 		// Runner settings
 		"runner.container_runtime",
 		"runner.client_logs_to_stdout",
