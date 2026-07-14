@@ -442,6 +442,13 @@ runner:
       #   # Whether to restart the container before taking a CRIU checkpoint.
       #   # Restarting ensures a clean process state (cold caches, clean DB shutdown).
       #   restart_container: false
+      #   # Restore the checkpointed container in place between tests instead of
+      #   # importing the checkpoint archive into a fresh container. Skips the
+      #   # per-test archive extraction and container creation, cutting the
+      #   # restore latency roughly to CRIU's page-restore time. The checkpoint
+      #   # data is kept in the container's storage directory; tmpfs_threshold /
+      #   # tmpfs_max_size do not apply in this mode.
+      #   restore_in_place: false
       # Optional: Wait duration after RPC becomes ready before running tests.
       # Useful for clients like Erigon that need time to complete internal sync pipelines
       # after their RPC endpoint becomes available.

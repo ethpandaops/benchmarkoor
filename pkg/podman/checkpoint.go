@@ -39,6 +39,22 @@ type CheckpointManager interface {
 	// export file. Returns the new container's ID.
 	RestoreContainer(ctx context.Context, exportPath string, opts *RestoreOptions) (string, error)
 
+	// CheckpointContainerLocal checkpoints a running container, keeping the
+	// checkpoint data inside the container's storage directory instead of
+	// exporting an archive. The container stops after checkpointing. The
+	// kept checkpoint data allows repeated in-place restores of the same
+	// container via RestoreContainerInPlace.
+	CheckpointContainerLocal(
+		ctx context.Context, containerID string,
+		waitAfterTCPDrop time.Duration,
+	) error
+
+	// RestoreContainerInPlace restores a previously checkpointed container
+	// from the checkpoint data kept in its storage directory (no archive
+	// import, no new container). The checkpoint data is kept after the
+	// restore so the container can be stopped and restored again.
+	RestoreContainerInPlace(ctx context.Context, containerID string) error
+
 	// ReadFileFromImage extracts a file from an OCI image by running a
 	// throwaway container. Used to read config files that need patching
 	// before the real container starts.
@@ -139,6 +155,131 @@ func (m *manager) CheckpointContainer(
 	}
 
 	m.log.WithFields(fields).Info("Container checkpointed successfully")
+
+	return nil
+}
+
+// CheckpointContainerLocal checkpoints a running container, keeping the
+// checkpoint data in the container's storage directory (no export archive).
+// The container stops as part of the checkpoint. Because the checkpoint
+// data stays on disk (Keep), the same container can be restored in place
+// repeatedly — podman accepts a restore of a stopped container whenever
+// its kept checkpoint data is present.
+func (m *manager) CheckpointContainerLocal(
+	ctx context.Context,
+	containerID string,
+	waitAfterTCPDrop time.Duration,
+) error {
+	m.log.WithField("container", containerID[:12]).Info(
+		"Checkpointing container (local, in-place restores)",
+	)
+
+	// Same connection-drop dance as the export path: CRIU refuses to
+	// checkpoint established connections without --tcp-established, and
+	// even though in-place restores keep the container IP, dropping the
+	// sockets keeps both checkpoint flavours behaviourally identical.
+	if err := m.dropConnections(ctx, containerID, waitAfterTCPDrop); err != nil {
+		m.log.WithError(err).Warn("Failed to drop connections before checkpoint")
+	}
+
+	checkpointStart := time.Now()
+
+	fileLocks := true
+	keep := true
+	tcpEstablished := true
+	printStats := true
+
+	conn, connCancel := m.connWithCtx(ctx)
+	defer connCancel()
+
+	report, err := containers.Checkpoint(conn, containerID, &containers.CheckpointOptions{
+		FileLocks:      &fileLocks,
+		Keep:           &keep,
+		TCPEstablished: &tcpEstablished,
+		PrintStats:     &printStats,
+	})
+	if err != nil {
+		m.logCRIUDumpLog(containerID)
+
+		return fmt.Errorf("checkpointing container %s locally: %w", containerID[:12], err)
+	}
+
+	fields := logrus.Fields{
+		"duration":         time.Since(checkpointStart).Round(time.Millisecond),
+		"runtime_duration": time.Duration(report.RuntimeDuration) * time.Microsecond,
+	}
+
+	if s := report.CRIUStatistics; s != nil {
+		fields["freezing_time"] = time.Duration(s.FreezingTime) * time.Microsecond
+		fields["frozen_time"] = time.Duration(s.FrozenTime) * time.Microsecond
+		fields["memdump_time"] = time.Duration(s.MemdumpTime) * time.Microsecond
+		fields["memwrite_time"] = time.Duration(s.MemwriteTime) * time.Microsecond
+		fields["pages_scanned"] = s.PagesScanned
+		fields["pages_written"] = s.PagesWritten
+	}
+
+	m.log.WithFields(fields).Info("Container checkpointed successfully (local)")
+
+	return nil
+}
+
+// RestoreContainerInPlace restores a stopped, previously checkpointed
+// container from the checkpoint data kept in its storage directory. The
+// process resumes mid-execution with its original name, mounts, and IP.
+// Keep leaves the checkpoint data in place for the next restore.
+func (m *manager) RestoreContainerInPlace(
+	ctx context.Context,
+	containerID string,
+) error {
+	m.log.WithField("container", containerID[:12]).Info(
+		"Restoring container in place from kept checkpoint",
+	)
+
+	restoreStart := time.Now()
+
+	fileLocks := true
+	keep := true
+	tcpEstablished := true
+	tcpClose := true
+	printStats := true
+
+	// Note: no Name option — renaming is only valid for archive imports.
+	// The container to restore is addressed via the positional nameOrID.
+	restoreOpts := &containers.RestoreOptions{
+		FileLocks:      &fileLocks,
+		Keep:           &keep,
+		TCPEstablished: &tcpEstablished,
+		TCPClose:       &tcpClose,
+		PrintStats:     &printStats,
+	}
+
+	conn, connCancel := m.connWithCtx(ctx)
+	defer connCancel()
+
+	report, err := containers.Restore(conn, containerID, restoreOpts)
+	if err != nil {
+		m.logCRIURestoreLog(containerID)
+
+		return fmt.Errorf(
+			"restoring container %s in place: %w", containerID[:12], err,
+		)
+	}
+
+	fields := logrus.Fields{
+		"id":               report.Id[:12],
+		"duration":         time.Since(restoreStart).Round(time.Millisecond),
+		"runtime_duration": time.Duration(report.RuntimeDuration) * time.Microsecond,
+	}
+
+	if s := report.CRIUStatistics; s != nil {
+		fields["forking_time"] = time.Duration(s.ForkingTime) * time.Microsecond
+		fields["restore_time"] = time.Duration(s.RestoreTime) * time.Microsecond
+		fields["pages_compared"] = s.PagesCompared
+		fields["pages_skipped_cow"] = s.PagesSkippedCow
+		fields["pages_restored"] = s.PagesRestored
+	}
+
+	m.log.WithFields(fields).Info("Container restored in place successfully")
 
 	return nil
 }

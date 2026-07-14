@@ -192,6 +192,13 @@ func (r *runner) runTestsWithCheckpointRestore(
 		log.WithField("steps", n).Info("Pre-run steps completed before checkpoint")
 	}
 
+	// In-place mode keeps the checkpoint data in the container's storage
+	// directory and repeatedly restores the same container, skipping the
+	// per-test archive extraction and container creation of the
+	// export/import path. tmpfs_threshold/tmpfs_max_size only apply to the
+	// export archive, so they are ignored in this mode.
+	restoreInPlace := r.cfg.FullConfig.GetCheckpointRestoreInPlace(params.Instance)
+
 	// 3. Decide checkpoint export path: tmpfs (RAM) or disk.
 	//
 	// When checkpoint_tmpfs_threshold is configured and the container's
@@ -201,6 +208,10 @@ func (r *runner) runTestsWithCheckpointRestore(
 	tmpfsDir := ""
 
 	thresholdStr := r.cfg.FullConfig.GetCheckpointTmpfsThreshold(params.Instance)
+	if restoreInPlace {
+		thresholdStr = ""
+	}
+
 	if thresholdStr != "" {
 		threshold, parseErr := config.ParseByteSize(thresholdStr)
 		if parseErr != nil {
@@ -288,8 +299,14 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 	cpStart := time.Now()
 
-	if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath, waitAfterTCPDrop); err != nil {
-		return nil, fmt.Errorf("checkpointing container: %w", err)
+	if restoreInPlace {
+		if err := cpMgr.CheckpointContainerLocal(ctx, containerID, waitAfterTCPDrop); err != nil {
+			return nil, fmt.Errorf("checkpointing container locally: %w", err)
+		}
+	} else {
+		if err := cpMgr.CheckpointContainer(ctx, containerID, exportPath, waitAfterTCPDrop); err != nil {
+			return nil, fmt.Errorf("checkpointing container: %w", err)
+		}
 	}
 
 	log.WithField("duration", time.Since(cpStart)).Info(
@@ -297,6 +314,10 @@ func (r *runner) runTestsWithCheckpointRestore(
 	)
 
 	defer func() {
+		if restoreInPlace {
+			return
+		}
+
 		_ = os.Remove(exportPath)
 
 		if tmpfsDir != "" {
@@ -430,35 +451,63 @@ func (r *runner) runTestsWithCheckpointRestore(
 		}
 
 		// Restore container from checkpoint.
-		restoreName := fmt.Sprintf("%s-restore-%d", params.ContainerSpec.Name, i)
-		testLog.Info("Restoring container from checkpoint")
+		var (
+			restoreName string
+			restoredID  string
+			err         error
+		)
 
 		restoreStart := time.Now()
 
-		restoredID, err := cpMgr.RestoreContainer(ctx, exportPath, &podman.RestoreOptions{
-			Name:        restoreName,
-			NetworkName: r.cfg.ContainerNetwork,
-		})
-		if err != nil {
-			combined.TotalDuration = time.Since(startTime)
+		if restoreInPlace {
+			// Restore the original container from its kept checkpoint
+			// data — same ID, name, mounts, and IP every iteration.
+			restoreName = params.ContainerSpec.Name
+			restoredID = containerID
 
-			return combined, fmt.Errorf("restoring container for test %d: %w", i, err)
+			testLog.Info("Restoring container in place from checkpoint")
+
+			if err = cpMgr.RestoreContainerInPlace(ctx, containerID); err != nil {
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf(
+					"restoring container in place for test %d: %w", i, err,
+				)
+			}
+		} else {
+			restoreName = fmt.Sprintf("%s-restore-%d", params.ContainerSpec.Name, i)
+
+			testLog.Info("Restoring container from checkpoint")
+
+			restoredID, err = cpMgr.RestoreContainer(ctx, exportPath, &podman.RestoreOptions{
+				Name:        restoreName,
+				NetworkName: r.cfg.ContainerNetwork,
+			})
+			if err != nil {
+				combined.TotalDuration = time.Since(startTime)
+
+				return combined, fmt.Errorf("restoring container for test %d: %w", i, err)
+			}
 		}
 
 		testLog.WithField("duration", time.Since(restoreStart)).Info(
 			"Container restored from checkpoint",
 		)
 
-		// Register cleanup for this iteration.
-		iterID := restoredID
+		// Register cleanup for this iteration. In-place mode reuses the
+		// original container, whose removal is already handled by the
+		// container lifecycle cleanup.
+		if !restoreInPlace {
+			iterID := restoredID
 
-		*cleanupFuncs = append(*cleanupFuncs, func() {
-			if rmErr := r.containerMgr.RemoveContainer(
-				context.Background(), iterID,
-			); rmErr != nil && !isContainerNotFound(rmErr) {
-				testLog.WithError(rmErr).Warn("Failed to remove restored container")
-			}
-		})
+			*cleanupFuncs = append(*cleanupFuncs, func() {
+				if rmErr := r.containerMgr.RemoveContainer(
+					context.Background(), iterID,
+				); rmErr != nil && !isContainerNotFound(rmErr) {
+					testLog.WithError(rmErr).Warn("Failed to remove restored container")
+				}
+			})
+		}
 
 		// Get container IP.
 		restoredIP, err := r.containerMgr.GetContainerIP(
@@ -523,28 +572,44 @@ func (r *runner) runTestsWithCheckpointRestore(
 			testLog.WithError(execErr).Error("Test execution failed")
 		}
 
-		// Force-remove the container (no graceful stop needed — ZFS
-		// rollback discards the datadir anyway). Use a fresh context
-		// so this succeeds even if the parent was cancelled (CTRL+C).
-		testLog.Info("Force-removing restored container")
-
+		// Tear the restored container down for the next iteration. Use a
+		// fresh context so this succeeds even if the parent was cancelled
+		// (CTRL+C). In-place mode only stops the container (SIGKILL via
+		// zero timeout — the datadir rollback discards its writes anyway),
+		// keeping it and its checkpoint data for the next restore; the
+		// export/import mode removes the throwaway container entirely.
 		rmStart := time.Now()
 		rmCtx, rmCancel := context.WithTimeout(
 			context.Background(), 30*time.Second,
 		)
 
-		if rmErr := r.containerMgr.RemoveContainer(
-			rmCtx, restoredID,
-		); rmErr != nil && !isContainerNotFound(rmErr) {
-			testLog.WithError(rmErr).Warn(
-				"Failed to remove restored container",
-			)
+		if restoreInPlace {
+			testLog.Info("Stopping restored container")
+
+			zeroTimeout := 0
+			if stopErr := r.containerMgr.StopContainer(
+				rmCtx, restoredID, &zeroTimeout,
+			); stopErr != nil && !isContainerNotFound(stopErr) {
+				testLog.WithError(stopErr).Warn(
+					"Failed to stop restored container",
+				)
+			}
+		} else {
+			testLog.Info("Force-removing restored container")
+
+			if rmErr := r.containerMgr.RemoveContainer(
+				rmCtx, restoredID,
+			); rmErr != nil && !isContainerNotFound(rmErr) {
+				testLog.WithError(rmErr).Warn(
+					"Failed to remove restored container",
+				)
+			}
 		}
 
 		rmCancel()
 
 		testLog.WithField("duration", time.Since(rmStart)).Info(
-			"Restored container removed",
+			"Restored container torn down",
 		)
 
 		waitForLogDrain(logDone, logCancel, logDrainTimeout)

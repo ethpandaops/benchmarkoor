@@ -1088,6 +1088,7 @@ type CheckpointRestoreStrategyOptions struct {
 	TmpfsMaxSize          string `yaml:"tmpfs_max_size,omitempty" mapstructure:"tmpfs_max_size" json:"tmpfs_max_size,omitempty"`
 	WaitAfterTCPDropConns string `yaml:"wait_after_tcp_drop_connections,omitempty" mapstructure:"wait_after_tcp_drop_connections" json:"wait_after_tcp_drop_connections,omitempty"`
 	RestartContainer      bool   `yaml:"restart_container,omitempty" mapstructure:"restart_container" json:"restart_container,omitempty"`
+	RestoreInPlace        bool   `yaml:"restore_in_place,omitempty" mapstructure:"restore_in_place" json:"restore_in_place,omitempty"`
 }
 
 // BootstrapFCUConfig configures the bootstrap FCU call used to confirm the
@@ -2937,6 +2938,22 @@ func (c *Config) GetCheckpointRestartContainer(instance *ClientInstance) bool {
 	}
 
 	return opts.RestartContainer
+}
+
+// GetCheckpointRestoreInPlace returns whether per-test rollbacks restore the
+// checkpointed container in place from the checkpoint data kept in its
+// storage directory, instead of importing the checkpoint archive into a
+// fresh container. In-place restores skip the per-test archive extraction
+// and container creation, cutting the per-test restore latency roughly to
+// CRIU's page-restore time. Instance-level setting takes precedence over
+// global default.
+func (c *Config) GetCheckpointRestoreInPlace(instance *ClientInstance) bool {
+	opts := c.GetCheckpointRestoreStrategyOptions(instance)
+	if opts == nil {
+		return false
+	}
+
+	return opts.RestoreInPlace
 }
 
 // GetMetadataLabels returns the merged metadata labels for an instance.

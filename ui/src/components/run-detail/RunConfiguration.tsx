@@ -271,6 +271,12 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
                           {instance.checkpoint_restore_strategy_options.restart_container ? 'true' : 'false'}
                         </div>
                       )}
+                      {instance.checkpoint_restore_strategy_options.restore_in_place !== undefined && (
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">restore_in_place: </span>
+                          {instance.checkpoint_restore_strategy_options.restore_in_place ? 'true' : 'false'}
+                        </div>
+                      )}
                     </div>
                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                       Options for the container-checkpoint-restore rollback strategy.
