@@ -115,10 +115,17 @@ builder:
       #   BLOATNET_RECEIVER_CONTRACT_COUNT: "100"
       tests:
         - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
+    # IMPORTANT: the filler image's amsterdam max_code_size must match the EEST
+    # library's (Amsterdam.max_code_size() == 65536 / 64KB here). An older build
+    # capping code at 32KB (e.g. skylenet/geth:bal-devnet-7) reverts the
+    # setup's 64KB "max" contracts with "max code size exceeded". geth was
+    # validated end-to-end on ethpandaops/geth:glamsterdam-devnet-6; use the
+    # matching glamsterdam-devnet-6 besu/nethermind builds (adjust the tags
+    # below) so their fills agree on the same limit.
     targets:
       - name: pre-run-geth
         filler_client: geth
-        filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
+        filler_image: ethpandaops/geth:glamsterdam-devnet-6
         source_dir: ${STATE_DIR}/geth
         filler_extra_args:
           - --override.amsterdam=1
@@ -156,7 +163,7 @@ builder:
     targets:
       - name: payload-generator-geth-stateful
         filler_client: geth
-        filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
+        filler_image: ethpandaops/geth:glamsterdam-devnet-6
         source_dir: ${PRERUN_DIR}/geth          # ← builds on top of the pre-run
         filler_extra_args:
           - --override.amsterdam=1
@@ -215,7 +222,7 @@ runner:
   instances:
     - id: geth
       client: geth
-      image: skylenet/geth:bal-devnet-7-amsterdam-override
+      image: ethpandaops/geth:glamsterdam-devnet-6
       extra_args:
         - --override.amsterdam=1
     - id: nethermind
