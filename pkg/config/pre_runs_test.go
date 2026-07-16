@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -134,6 +135,48 @@ func TestValidatePreRuns(t *testing.T) {
 		c.Builder.PreRuns.Config.FundingAccounts = []PreRunFundingAccount{{}}
 		require.ErrorContains(t, c.validatePreRuns(), "address is required")
 	})
+}
+
+// TestRestorePreRunFillEnvKeyCasing verifies fill_env keys keep their original
+// (case-sensitive) casing after load, since Viper lowercases all map keys and
+// env-var names like BLOATNET_RECEIVER_CONTRACT_COUNT must survive verbatim.
+func TestRestorePreRunFillEnvKeyCasing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cfg.yaml")
+	yaml := `
+builder:
+  pre_runs:
+    container_runtime: docker
+    pull_policy: always
+    config:
+      fork: amsterdam
+      datadir_method: copy
+      tests: [tests/benchmark/stateful/bloatnet/test_setup_contracts.py]
+      fill_env:
+        BLOATNET_RECEIVER_CONTRACT_COUNT: "5"
+        Mixed_Case_Var: "x"
+    targets:
+      - name: pre-run-geth
+        filler_client: geth
+        filler_image: geth:latest
+        source_dir: /state/geth
+        output_dir: /prerun/geth
+        fill_env:
+          TARGET_ONLY_VAR: "y"
+`
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.NoError(t, cfg.ValidateBuilder())
+
+	tgt := cfg.Builder.PreRuns.ResolveTarget(0)
+	// Per-target fill_env wins as a unit; assert its key casing survived.
+	assert.Equal(t, map[string]string{"TARGET_ONLY_VAR": "y"}, tgt.FillEnv)
+
+	// Config-block casing survived too (used when a target sets no fill_env).
+	assert.Equal(t, "5", cfg.Builder.PreRuns.Config.FillEnv["BLOATNET_RECEIVER_CONTRACT_COUNT"])
+	assert.Equal(t, "x", cfg.Builder.PreRuns.Config.FillEnv["Mixed_Case_Var"])
 }
 
 // TestLoad_PreRunsExampleConfig loads the shipped pre-runs example config and

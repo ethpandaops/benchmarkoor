@@ -2,8 +2,11 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -78,6 +81,10 @@ type PreRunDefaults struct {
 	RPCSeedKey       string                       `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
 	DataDirMethod    string                       `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
 	FillerExtraArgs  []string                     `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+	// FillEnv are extra environment variables passed to the fill-stateful
+	// container, e.g. BLOATNET_RECEIVER_CONTRACT_COUNT to shrink the setup for a
+	// smoke run. Merged over benchmarkoor's own fill env (which wins on conflict).
+	FillEnv map[string]string `yaml:"fill_env,omitempty" mapstructure:"fill_env"`
 	// GasBenchmarkValues are the millions-of-gas budgets fill-stateful
 	// parametrizes the setup tests against (e.g. test_setup_contracts packs its
 	// deployment txs into blocks of this size). Passed as fill-stateful's
@@ -118,6 +125,7 @@ type PreRunTarget struct {
 	RPCSeedKey         string                       `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
 	DataDirMethod      string                       `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
 	FillerExtraArgs    []string                     `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+	FillEnv            map[string]string            `yaml:"fill_env,omitempty" mapstructure:"fill_env"`
 	GasBenchmarkValues []int                        `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
 	GasLimit           *uint64                      `yaml:"gas_limit,omitempty" mapstructure:"gas_limit"`
 	GasBumpMaxBlocks   *int                         `yaml:"gas_bump_max_blocks,omitempty" mapstructure:"gas_bump_max_blocks"`
@@ -217,6 +225,10 @@ func (p *PreRunsConfig) ResolveTarget(i int) PreRunTarget {
 		t.FillerExtraArgs = g.FillerExtraArgs
 	}
 
+	if len(t.FillEnv) == 0 {
+		t.FillEnv = g.FillEnv
+	}
+
 	if len(t.GasBenchmarkValues) == 0 {
 		t.GasBenchmarkValues = g.GasBenchmarkValues
 	}
@@ -274,6 +286,70 @@ func (a *PreRunFundingAccount) ResolveAmountGwei() uint64 {
 	}
 
 	return DefaultPreRunFundingAmountGwei
+}
+
+// rawPreRunFillEnv holds just the fill_env map for one level of the pre_runs
+// config (the config block or a single target).
+type rawPreRunFillEnv struct {
+	FillEnv map[string]string `yaml:"fill_env"`
+}
+
+// rawPreRunsBuilderConfig re-parses builder.pre_runs to recover fill_env keys
+// with their original casing (Viper lowercases all map keys, which would break
+// case-sensitive environment variable names like BLOATNET_RECEIVER_CONTRACT_COUNT).
+type rawPreRunsBuilderConfig struct {
+	Builder struct {
+		PreRuns struct {
+			Config  *rawPreRunFillEnv  `yaml:"config"`
+			Targets []rawPreRunFillEnv `yaml:"targets"`
+		} `yaml:"pre_runs"`
+	} `yaml:"builder"`
+}
+
+// restorePreRunFillEnvKeyCasing re-parses the raw YAML to recover the original
+// casing of builder.pre_runs fill_env keys that Viper lowercased. Mirrors
+// restoreAddressStubsKeyCasing: the config block accumulates across files (later
+// files win per key), and per-target maps are restored positionally only when
+// the winning file's target list aligns 1:1 with the resolved config.
+func restorePreRunFillEnvKeyCasing(cfg *Config, rawYAMLs []string) {
+	if cfg.Builder == nil || cfg.Builder.PreRuns == nil {
+		return
+	}
+
+	pr := cfg.Builder.PreRuns
+
+	configEnv := make(map[string]string)
+
+	var rawTargets []rawPreRunFillEnv
+
+	for _, raw := range rawYAMLs {
+		var parsed rawPreRunsBuilderConfig
+		if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil {
+			continue
+		}
+
+		if c := parsed.Builder.PreRuns.Config; c != nil {
+			maps.Copy(configEnv, c.FillEnv)
+		}
+
+		if len(parsed.Builder.PreRuns.Targets) > 0 {
+			rawTargets = parsed.Builder.PreRuns.Targets
+		}
+	}
+
+	if pr.Config != nil && len(configEnv) > 0 {
+		pr.Config.FillEnv = configEnv
+	}
+
+	if len(rawTargets) != len(pr.Targets) {
+		return
+	}
+
+	for i := range pr.Targets {
+		if len(rawTargets[i].FillEnv) > 0 {
+			pr.Targets[i].FillEnv = rawTargets[i].FillEnv
+		}
+	}
 }
 
 // GetPreRunsContainerRuntime returns the container runtime to use for pre_runs

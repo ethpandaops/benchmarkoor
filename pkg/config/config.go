@@ -1550,6 +1550,7 @@ func Load(paths ...string) (*Config, error) {
 
 	restoreEnvironmentKeyCasing(&cfg, rawYAMLs)
 	restoreAddressStubsKeyCasing(&cfg, rawYAMLs)
+	restorePreRunFillEnvKeyCasing(&cfg, rawYAMLs)
 	normalizeStateActorSpec(&cfg, rawYAMLs)
 
 	cfg.applyDefaults()

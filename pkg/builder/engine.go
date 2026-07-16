@@ -225,7 +225,11 @@ func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal)
 		attrs["slotNumber"] = uintToHex(c.slot)
 	}
 
-	built, err := c.call(ctx, c.engineURL, true, "testing_buildBlockV1",
+	// testing_buildBlockV1 lives in the `testing` namespace, which every filler
+	// exposes on its (unauthenticated) HTTP RPC port — geth's authrpc/engine port
+	// does not serve it. So call it on the RPC URL without a JWT; only the Engine
+	// API calls below (newPayload / forkchoiceUpdated) go to the engine port.
+	built, err := c.call(ctx, c.rpcURL, false, "testing_buildBlockV1",
 		[]any{parentHash, attrs, []any{}, engineExtraData})
 	if err != nil {
 		return "", 0, err

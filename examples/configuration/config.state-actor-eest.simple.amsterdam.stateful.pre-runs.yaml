@@ -108,6 +108,11 @@ builder:
       # Setup-contract deployment budget per block (millions of gas). With a
       # 1 TGas limit the deployments pack into few, large blocks.
       gas_benchmark_values: [30000]
+      # Extra env for the fill container. test_setup_contracts deploys 100k
+      # contracts by default; shrink it for a fast smoke/iteration run. Keys keep
+      # their exact casing.
+      # fill_env:
+      #   BLOATNET_RECEIVER_CONTRACT_COUNT: "100"
       tests:
         - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
     targets:

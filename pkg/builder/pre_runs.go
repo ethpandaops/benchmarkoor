@@ -353,7 +353,7 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 
 	log.WithField("start_block", snapshotHash).Info("Running fill-stateful on setup tests")
 
-	if err := b.runFill(ctx, log, et, fillerIP, spec, jwtPath, snapshotHash, eestRepoPath); err != nil {
+	if err := b.runFill(ctx, log, et, t.FillEnv, fillerIP, spec, jwtPath, snapshotHash, eestRepoPath); err != nil {
 		return err
 	}
 
@@ -370,6 +370,7 @@ func (b *PreRunsBuilder) runFill(
 	ctx context.Context,
 	log logrus.FieldLogger,
 	et *config.EESTPayloadTarget,
+	fillEnv map[string]string,
 	fillerIP string,
 	spec client.Spec,
 	jwtPath, snapshotHash, eestRepoPath string,
@@ -403,6 +404,14 @@ func (b *PreRunsBuilder) runFill(
 		"GIT_CONFIG_COUNT":   "1",
 		"GIT_CONFIG_KEY_0":   "safe.directory",
 		"GIT_CONFIG_VALUE_0": "*",
+	}
+
+	// Merge configured fill_env, but benchmarkoor's own keys above win so a
+	// config can't break the toolchain (HOME, git safe.directory, etc.).
+	for k, v := range fillEnv {
+		if _, reserved := env[k]; !reserved {
+			env[k] = v
+		}
 	}
 
 	suffix, err := randSuffix()
