@@ -485,6 +485,49 @@ func (c *engineClient) replayPayloads(ctx context.Context, payloads []recordedPa
 	return len(payloads), nil
 }
 
+// blockHashByNumber returns the hash of the block at numberHex (a 0x-quantity),
+// or "" when the block does not exist. Unlike "latest", querying by number is
+// reliable across clients — nethermind leaves the `latest` pointer at the
+// snapshot head after a newPayload/forkchoiceUpdated, so "latest" understates
+// the replayed head there.
+func (c *engineClient) blockHashByNumber(ctx context.Context, numberHex string) (string, error) {
+	res, err := c.call(ctx, c.rpcURL, false, "eth_getBlockByNumber", []any{numberHex, false})
+	if err != nil {
+		return "", err
+	}
+
+	if string(res) == "null" {
+		return "", nil
+	}
+
+	var block struct {
+		Hash string `json:"hash"`
+	}
+	if err := json.Unmarshal(res, &block); err != nil {
+		return "", fmt.Errorf("parsing block %s: %w", numberHex, err)
+	}
+
+	return block.Hash, nil
+}
+
+// payloadBlockNumberHash extracts the executionPayload.blockNumber (0x-quantity)
+// and blockHash from a newPayload param[0].
+func payloadBlockNumberHash(execPayload json.RawMessage) (numberHex, hash string, err error) {
+	var p struct {
+		BlockNumber string `json:"blockNumber"`
+		BlockHash   string `json:"blockHash"`
+	}
+	if err := json.Unmarshal(execPayload, &p); err != nil {
+		return "", "", fmt.Errorf("parsing execution payload: %w", err)
+	}
+
+	if p.BlockHash == "" || p.BlockNumber == "" {
+		return "", "", fmt.Errorf("execution payload missing blockNumber/blockHash")
+	}
+
+	return p.BlockNumber, p.BlockHash, nil
+}
+
 // payloadBlockHash extracts the executionPayload.blockHash from a newPayload
 // param[0].
 func payloadBlockHash(execPayload json.RawMessage) (string, error) {

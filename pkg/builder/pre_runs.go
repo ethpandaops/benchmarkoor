@@ -552,22 +552,24 @@ func (b *PreRunsBuilder) runReplay(ctx context.Context, log logrus.FieldLogger, 
 		return err
 	}
 
-	// The replay must land on the builder's head (the last payload's block hash);
-	// a mismatch means the bundle was incomplete or a block was rejected.
-	wantHead, err := payloadBlockHash(payloads[len(payloads)-1].Params[0])
+	// The replay must land on the builder's head (the last payload's block). Check
+	// by block number, not "latest": some clients (nethermind) leave `latest` at
+	// the snapshot head after newPayload/forkchoiceUpdated even though the block
+	// was applied.
+	wantNumber, wantHead, err := payloadBlockNumberHash(payloads[len(payloads)-1].Params[0])
 	if err != nil {
 		return fmt.Errorf("resolving expected head from bundle: %w", err)
 	}
 
-	gotHead, err := getLatestBlockHash(ctx, clientIP, spec.RPCPort())
+	gotHead, err := ec.blockHashByNumber(ctx, wantNumber)
 	if err != nil {
-		return fmt.Errorf("fetching replayed head: %w", err)
+		return fmt.Errorf("fetching replayed head at block %s: %w", wantNumber, err)
 	}
 
 	if gotHead != wantHead {
 		return fmt.Errorf(
-			"replay landed on head %s but the bundle head is %s (incomplete bundle or rejected block)",
-			gotHead, wantHead)
+			"replay landed on block %s hash %s but the bundle head is %s (incomplete bundle or rejected block)",
+			wantNumber, gotHead, wantHead)
 	}
 
 	log.WithField("head", gotHead).Info("Replay complete; stopping client to flush datadir")
@@ -637,6 +639,15 @@ func (b *PreRunsBuilder) startReplayClient(
 
 	cmd = append(cmd, t.FillerExtraArgs...)
 
+	// Run as the invoking host user, so point HOME/cache at a writable dir —
+	// clients like reth otherwise try to create a cache/log dir under / and fail
+	// with permission denied. The client's own DefaultEnvironment wins on
+	// conflict.
+	env := map[string]string{"HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache"}
+	for k, v := range spec.DefaultEnvironment() {
+		env[k] = v
+	}
+
 	suffix, err := randSuffix()
 	if err != nil {
 		return "", "", nil, fmt.Errorf("generating container name suffix: %w", err)
@@ -650,7 +661,7 @@ func (b *PreRunsBuilder) startReplayClient(
 		NetworkName: EESTBuildNetwork,
 		SecurityOpt: []string{"seccomp=unconfined"},
 		User:        currentUserSpec(),
-		Env:         spec.DefaultEnvironment(),
+		Env:         env,
 		Labels:      b.labels(t),
 	}
 
