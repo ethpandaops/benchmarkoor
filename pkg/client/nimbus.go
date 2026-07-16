@@ -15,17 +15,19 @@ func (s *nimbusSpec) Type() ClientType {
 }
 
 func (s *nimbusSpec) DefaultImage() string {
-	return "statusim/nimbus-eth1:performance"
+	return "statusim/nimbus-eth1:master"
 }
 
 func (s *nimbusSpec) DefaultCommand() []string {
 	return []string{
+		"executionClient",
 		// Data directory - should always point to /data
 		"--data-dir=/data",
 		// Peering
 		"--max-peers=0",
 		// "Public" JSON RPC API
 		"--rpc=true",
+		"--rpc-api=eth,debug",
 		"--http-address=0.0.0.0",
 		"--http-port=8545",
 		// "Engine" JSON RPC API
@@ -42,7 +44,7 @@ func (s *nimbusSpec) DefaultCommand() []string {
 }
 
 func (s *nimbusSpec) GenesisFlag() string {
-	return "--custom-network="
+	return "--network="
 }
 
 func (s *nimbusSpec) RequiresInit() bool {
@@ -82,7 +84,10 @@ func (s *nimbusSpec) DefaultEnvironment() map[string]string {
 }
 
 func (s *nimbusSpec) RPCRollbackSpec() *RPCRollbackSpec {
-	return nil
+	return &RPCRollbackSpec{
+		Method:    RollbackMethodSetHeadHex,
+		RPCMethod: "debug_setHead",
+	}
 }
 
 func (s *nimbusSpec) DefaultConfigFiles() map[string]string {

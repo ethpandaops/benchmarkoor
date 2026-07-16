@@ -38,7 +38,9 @@ runner:
       client: erigon
     - id: besu
       client: besu
-
+    - id: nimbus
+      client: nimbus
+      
 api:
   server:
     listen: ":9090"
