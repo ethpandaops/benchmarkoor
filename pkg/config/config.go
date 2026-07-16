@@ -85,9 +85,14 @@ type BuilderConfig struct {
 	// CleanupOnStart removes any leftover benchmarkoor resources (containers,
 	// volumes, the build network, ZFS clones, overlay mounts, CPU-freq state)
 	// before the build starts. The analogue of runner.cleanup_on_start.
-	CleanupOnStart bool                `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
-	StateActor     *StateActorConfig   `yaml:"state_actor,omitempty" mapstructure:"state_actor"`
-	EESTPayloads   *EESTPayloadsConfig `yaml:"eest_payloads,omitempty" mapstructure:"eest_payloads"`
+	CleanupOnStart bool              `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
+	StateActor     *StateActorConfig `yaml:"state_actor,omitempty" mapstructure:"state_actor"`
+	// PreRuns is an optional stage that runs after StateActor and before
+	// EESTPayloads: it advances a snapshot datadir (gas-bump + funding block +
+	// fill-stateful on setup tests) and persists the result for EESTPayloads to
+	// build on. See PreRunsConfig.
+	PreRuns      *PreRunsConfig      `yaml:"pre_runs,omitempty" mapstructure:"pre_runs"`
+	EESTPayloads *EESTPayloadsConfig `yaml:"eest_payloads,omitempty" mapstructure:"eest_payloads"`
 }
 
 // StateActorConfig configures how the state-actor binary is invoked via
@@ -1774,6 +1779,19 @@ func (c *Config) applyDefaults() {
 			c.Builder.EESTPayloads.JWT = DefaultJWT
 		}
 	}
+
+	// Apply builder.pre_runs defaults, mirroring eest_payloads: ContainerRuntime
+	// falls back at call time; JWT defaults to DefaultJWT so the filler client,
+	// benchmarkoor's own engine calls, and fill-stateful all share it.
+	if c.Builder != nil && c.Builder.PreRuns != nil {
+		if c.Builder.PreRuns.PullPolicy == "" {
+			c.Builder.PreRuns.PullPolicy = DefaultPullPolicy
+		}
+
+		if c.Builder.PreRuns.JWT == "" {
+			c.Builder.PreRuns.JWT = DefaultJWT
+		}
+	}
 }
 
 // GetStateActorContainerRuntime returns the container runtime to use for
@@ -2066,6 +2084,10 @@ func (c *Config) validateBuilder() error {
 	}
 
 	if err := c.validateStateActor(); err != nil {
+		return err
+	}
+
+	if err := c.validatePreRuns(); err != nil {
 		return err
 	}
 

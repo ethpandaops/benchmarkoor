@@ -1,0 +1,241 @@
+# Building data directories + a PRE-RUN setup datadir + EEST STATEFUL payloads
+# that build on top of it — AMSTERDAM fill.
+#
+# This is the sibling of config.state-actor-eest.simple.amsterdam.stateful.yaml
+# with an extra "pre_runs" stage (1.5) inserted between state-actor (stage 1)
+# and eest_payloads (stage 2):
+#
+#   1.   state_actor    OSAKA snapshot datadirs (seed pre-funded, CREATE2 factory
+#                       predeployed).
+#   1.5  pre_runs       per client: copy the snapshot into ${PRERUN_DIR}/<client>,
+#                       boot a filler on it, ramp the block gas limit to 1 TGas via
+#                       empty "gas-bump" blocks, build a funding block, then run
+#                       fill-stateful --no-reset-between-tests on
+#                       tests/benchmark/stateful/bloatnet/test_setup_contracts.py
+#                       so the deployed contracts PERSIST on the datadir. The
+#                       filler is stopped and ${PRERUN_DIR}/<client> is left holding
+#                       the advanced state (block "F").
+#   2.   eest_payloads  source_dir = ${PRERUN_DIR}/<client>, so the benchmark fill
+#                       (test_account_access) builds on top of block F and sees the
+#                       setup contracts (it recomputes their deterministic CREATE2
+#                       addresses — no manifest is exchanged between the two fills).
+#
+# pre_runs REQUIRES fill-stateful's --no-reset-between-tests flag, which lives on
+# skylenet/execution-specs feat/fill-stateful-no-reset-between-tests (branched off
+# LouisTsai-Csie/execution-specs full-benchmark-target, so it also carries the
+# bloatnet tests). Both stages point their eest_repo/eest_ref at it.
+#
+# Build (state_actor + pre_runs + eest_payloads, in order):
+#   ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.simple.amsterdam.stateful.pre-runs.yaml --force
+#
+# NOTE: this is a starting template. The gas budgets, funding amounts and images
+# below need tuning against a real run; the pre_runs stage is I/O- and
+# compute-heavy (a full 100k-contract deployment per client).
+#
+global:
+  log_level: info
+  env:
+    STATE_DIR: /tmp/benchmarkoor/state-actor/simple-amsterdam-stateful-preruns
+    PRERUN_DIR: /tmp/benchmarkoor/pre-runs/simple-amsterdam-stateful-preruns
+    EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/simple-amsterdam-stateful-preruns
+    EEST_FIXTURES_RUNNER_SOURCE: geth   # which filler's fixtures the runner replays
+    # execution-specs checkout carrying --no-reset-between-tests AND the bloatnet
+    # tests (a feature branch off LouisTsai-Csie full-benchmark-target).
+    EEST_REPO: https://github.com/skylenet/execution-specs.git
+    EEST_REF: feat/fill-stateful-no-reset-between-tests
+
+builder:
+  ## Stage 1: Building datadirs using state-actor
+  state_actor:
+    images:
+      geth: ghcr.io/ethereum/state-actor:main
+      reth: ghcr.io/ethereum/state-actor-reth:main
+      besu: ghcr.io/ethereum/state-actor-besu:main
+      nethermind: ghcr.io/ethereum/state-actor-nethermind:main
+      ethrex: ghcr.io/ethereum/state-actor-ethrex:main
+      erigon: ghcr.io/ethereum/state-actor-erigon:main
+    pull_policy: always
+    config:
+      seed: 1234
+      fork: osaka
+      chain: 1337
+      gas_limit: 300000000 # 300M
+      target_size: 256MB
+    spec:
+      entities:
+        # Predeploy the Arachnid deterministic-deployment proxy (fill's bootstrap
+        # keyless deploy exceeds amsterdam state-expansion gas — predeploy it).
+        - kind: contract
+          template: create2_factory
+          name: deterministic-deployment-proxy
+          address: 0x4e59b44847b379578588920cA78FbF26c0B4956C
+        # Pre-fund fill-stateful's seed account (rpc_seed_key=0x..01 → this addr).
+        - kind: eoa
+          name: fill-stateful-seed
+          address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
+          balance: "10000000000000000000000000000"
+          nonce: 0
+    # Only the clients that can act as the fill-stateful filler (implement
+    # testing_buildBlockV1) can be pre-run + eest fillers: geth, besu, nethermind.
+    # reth/ethrex/erigon can still be benchmarked, but they cannot PRODUCE the
+    # pre-run/setup datadir themselves, so they are omitted here.
+    targets:
+      - client: geth
+        output_dir: ${STATE_DIR}/geth
+      - client: nethermind
+        output_dir: ${STATE_DIR}/nethermind
+      - client: besu
+        output_dir: ${STATE_DIR}/besu
+
+  ## Stage 1.5: Pre-run — advance each snapshot (gas-bump + funding + setup fill)
+  pre_runs:
+    pull_policy: always
+    eest_repo: ${EEST_REPO}
+    eest_ref: ${EEST_REF}
+    config:
+      fork: amsterdam
+      rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+      datadir_method: copy
+      # Ramp the block gas limit up to 1 TGas with empty blocks before filling
+      # (default is already 1 TGas; shown here for clarity). The pre-run loops
+      # building empty blocks until the head gas limit reaches this.
+      gas_limit: 1000000000000
+      # One funding block crediting the seed account via a beacon withdrawal
+      # (mirrors NethermindEth/gas-benchmarks' funding block).
+      funding_accounts:
+        - address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
+          # amount_gwei defaults to 2^64-1 when omitted.
+      # Setup-contract deployment budget per block (millions of gas). With a
+      # 1 TGas limit the deployments pack into few, large blocks.
+      gas_benchmark_values: [30000]
+      tests:
+        - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
+    targets:
+      - name: pre-run-geth
+        filler_client: geth
+        filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
+        source_dir: ${STATE_DIR}/geth
+        filler_extra_args:
+          - --override.amsterdam=1
+        output_dir: ${PRERUN_DIR}/geth
+      - name: pre-run-nethermind
+        filler_client: nethermind
+        filler_image: nethermindeth/nethermind:master
+        source_dir: ${STATE_DIR}/nethermind
+        genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
+        genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
+        output_dir: ${PRERUN_DIR}/nethermind
+      - name: pre-run-besu
+        filler_client: besu
+        filler_image: ethpandaops/besu:bal-devnet-7
+        source_dir: ${STATE_DIR}/besu
+        genesis: ${STATE_DIR}/besu/besu-chainspec.json
+        genesis_fork_override: { amsterdam: 1 }
+        output_dir: ${PRERUN_DIR}/besu
+
+  ## Stage 2: EEST stateful fixtures that build on the pre-run datadir
+  eest_payloads:
+    pull_policy: always
+    eest_repo: ${EEST_REPO}
+    eest_ref: ${EEST_REF}
+    config:
+      fork: amsterdam
+      rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+      gas_benchmark_values: [10]
+      datadir_method: copy
+      # Benchmark the account-access opcodes against the accounts deployed by the
+      # pre-run's test_setup_contracts (recomputed deterministic CREATE2 addrs).
+      tests:
+        - tests/benchmark/stateful/bloatnet/test_account_query.py
+      filter: test_account_access
+    targets:
+      - name: payload-generator-geth-stateful
+        filler_client: geth
+        filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
+        source_dir: ${PRERUN_DIR}/geth          # ← builds on top of the pre-run
+        filler_extra_args:
+          - --override.amsterdam=1
+        output_dir: ${EEST_FIXTURES_DIR}/geth
+      - name: payload-generator-nethermind-stateful
+        filler_client: nethermind
+        filler_image: nethermindeth/nethermind:master
+        source_dir: ${PRERUN_DIR}/nethermind
+        genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
+        genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
+        output_dir: ${EEST_FIXTURES_DIR}/nethermind
+      - name: payload-generator-besu-stateful
+        filler_client: besu
+        filler_image: ethpandaops/besu:bal-devnet-7
+        source_dir: ${PRERUN_DIR}/besu
+        genesis: ${STATE_DIR}/besu/besu-chainspec.json
+        genesis_fork_override: { amsterdam: 1 }
+        output_dir: ${EEST_FIXTURES_DIR}/besu
+
+## Stage 3: Run benchmarks. Clients boot on the PRE-RUN datadirs (the fixtures
+## anchor at the pre-run head F, where the setup contracts exist), not the raw
+## state-actor snapshot.
+runner:
+  client_logs_to_stdout: true
+  cleanup_on_start: false
+  benchmark:
+    results_dir: ./results
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      source:
+        eest_fixtures:
+          local_fixtures_dir: ${EEST_FIXTURES_DIR}/${EEST_FIXTURES_RUNNER_SOURCE}
+          fixtures_subdir: blockchain_tests_stateful_engine
+  client:
+    config:
+      rollback_strategy: container-recreate
+      bootstrap_fcu:
+        enabled: true
+        max_retries: 10
+        backoff: 1s
+      genesis:
+        nethermind: ${STATE_DIR}/nethermind/parity-chainspec.json
+        besu: ${STATE_DIR}/besu/besu-chainspec.json
+    datadirs:
+      geth:
+        source_dir: ${PRERUN_DIR}/geth
+        method: copy
+      nethermind:
+        source_dir: ${PRERUN_DIR}/nethermind
+        method: copy
+      besu:
+        source_dir: ${PRERUN_DIR}/besu
+        method: copy
+
+  instances:
+    - id: geth
+      client: geth
+      image: skylenet/geth:bal-devnet-7-amsterdam-override
+      extra_args:
+        - --override.amsterdam=1
+    - id: nethermind
+      client: nethermind
+      image: nethermindeth/nethermind:master
+      genesis_eip_override:
+        timestamp: 1
+        eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037]
+      extra_args:
+        - --Init.BaseDbPath=/data
+        - --Blocks.ParallelExecution=true
+        - --Blocks.ParallelExecutionBatchRead=true
+    - id: besu
+      client: besu
+      image: ethpandaops/besu:bal-devnet-7
+      genesis_fork_override:
+        amsterdam: 1
+      environment:
+        BESU_OPTS: "-Xms8g -Xmx8g -XX:+AlwaysPreTouch"
+      extra_args:
+        - --p2p-enabled=true
+        - --Xplugin-rocksdb-high-spec-enabled=true
+        - --Xbal-perfect-parallelization-enabled=true
+        - --Xbal-state-root-enabled=true
+        - --Xbal-prefetch-reading-enabled=true
+        - --Xbal-prefetch-batch-size=8
+        - --Xbal-processing-timeout=-1
+        - --Xbal-state-root-timeout=-1
