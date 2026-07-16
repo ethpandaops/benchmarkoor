@@ -468,7 +468,8 @@ type EESTPayloadTarget struct {
 	// ExtractOpcodeCount enables fill-stateful's --extract-opcode-count: after
 	// building each execution-phase block it is traced via debug_traceBlockByHash
 	// with a custom JS opcode-counting tracer, recording per-opcode execution
-	// counts in the fixture's _info.metadata.opcode_count. The per-block re-trace
+	// counts in the fixture's _info.metadata.opcode_counts (one entry per
+	// engineNewPayloads block). The per-block re-trace
 	// with the custom tracer is what makes it slow, so it's opt-in. Works with any
 	// filler exposing debug_traceBlockByHash + JS tracer support (geth is the
 	// validated one).

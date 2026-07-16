@@ -46,13 +46,57 @@ type StatefulPreRun struct {
 
 // FixtureInfo contains metadata about the fixture.
 type FixtureInfo struct {
-	FixtureFormat         string         `json:"fixture-format"`
-	Hash                  string         `json:"hash,omitempty"`
-	OpcodeCount           map[string]int `json:"opcode_count,omitempty"`
-	Comment               string         `json:"comment,omitempty"`
-	FillingTransitionTool string         `json:"filling-transition-tool,omitempty"`
-	Description           string         `json:"description,omitempty"`
-	URL                   string         `json:"url,omitempty"`
+	FixtureFormat         string           `json:"fixture-format"`
+	Hash                  string           `json:"hash,omitempty"`
+	OpcodeCount           map[string]int   `json:"opcode_count,omitempty"`
+	Comment               string           `json:"comment,omitempty"`
+	FillingTransitionTool string           `json:"filling-transition-tool,omitempty"`
+	Description           string           `json:"description,omitempty"`
+	URL                   string           `json:"url,omitempty"`
+	Metadata              *FixtureMetadata `json:"metadata,omitempty"`
+}
+
+// FixtureMetadata is the optional _info.metadata block written by
+// fill-stateful at fill time.
+type FixtureMetadata struct {
+	// OpcodeCounts holds per-opcode execution counts, one entry per
+	// EngineNewPayloads block: OpcodeCounts[i] is the count for
+	// EngineNewPayloads[i], or nil when its trace was unavailable.
+	OpcodeCounts []map[string]int `json:"opcode_counts,omitempty"`
+}
+
+// AggregatedOpcodeCount returns the fixture's per-opcode execution counts as a
+// single map. It prefers the per-payload _info.metadata.opcode_counts (summed
+// across payloads, skipping nil entries) and falls back to the legacy flat
+// _info.opcode_count. Returns nil when neither is available.
+func (i *FixtureInfo) AggregatedOpcodeCount() map[string]int {
+	if i == nil {
+		return nil
+	}
+
+	if i.Metadata != nil {
+		hint := 0
+
+		for _, counts := range i.Metadata.OpcodeCounts {
+			if len(counts) > hint {
+				hint = len(counts)
+			}
+		}
+
+		if hint > 0 {
+			total := make(map[string]int, hint)
+
+			for _, counts := range i.Metadata.OpcodeCounts {
+				for op, n := range counts {
+					total[op] += n
+				}
+			}
+
+			return total
+		}
+	}
+
+	return i.OpcodeCount
 }
 
 // IsSupportedFormat returns true if the fixture has a supported format.

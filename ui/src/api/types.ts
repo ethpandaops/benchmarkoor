@@ -502,6 +502,14 @@ export interface SuiteTestEEST {
     'filling-transition-tool'?: string
     description?: string
     url?: string
+    metadata?: {
+      /**
+       * Per-payload opcode counts, one entry per engineNewPayloads block
+       * (null when that block's trace was unavailable). The suite writer
+       * aggregates these into the test's top-level opcode_count.
+       */
+      opcode_counts?: (Record<string, number> | null)[]
+    }
   }
 }
 

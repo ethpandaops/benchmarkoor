@@ -221,7 +221,7 @@ func CreateSuiteOutput(
 
 			if test.EESTInfo != nil {
 				suiteTest.EEST = &SuiteTestEEST{Info: test.EESTInfo}
-				suiteTest.OpcodeCount = test.EESTInfo.OpcodeCount
+				suiteTest.OpcodeCount = test.EESTInfo.AggregatedOpcodeCount()
 			}
 
 			// External opcode data takes precedence over EEST-derived opcodes.
@@ -492,8 +492,8 @@ func mergeOpcodeData(existing []SuiteTest, prepared *PreparedSource) {
 	for _, t := range prepared.Tests {
 		if t.OpcodeCount != nil {
 			opcodeByName[t.Name] = t.OpcodeCount
-		} else if t.EESTInfo != nil && t.EESTInfo.OpcodeCount != nil {
-			opcodeByName[t.Name] = t.EESTInfo.OpcodeCount
+		} else if counts := t.EESTInfo.AggregatedOpcodeCount(); counts != nil {
+			opcodeByName[t.Name] = counts
 		}
 	}
 

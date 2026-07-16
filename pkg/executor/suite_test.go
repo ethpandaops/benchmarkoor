@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/eest"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,6 +62,70 @@ func TestCreateSuiteOutput_WritesPayloadSizes(t *testing.T) {
 	assert.Greater(t, tps.SSZFull[0], uint64(100))
 	assert.Greater(t, tps.SSZFullSnappy[0], uint64(0))
 	assert.LessOrEqual(t, tps.SSZFullSnappy[0], tps.SSZFull[0])
+}
+
+func TestCreateSuiteOutput_AggregatesMetadataOpcodeCounts(t *testing.T) {
+	tmp := t.TempDir()
+	prepared := &PreparedSource{
+		Tests: []*TestWithSteps{
+			{
+				Name: "test_opcode_counts",
+				EESTInfo: &eest.FixtureInfo{
+					FixtureFormat: eest.SupportedStatefulFixtureFormat,
+					Metadata: &eest.FixtureMetadata{
+						OpcodeCounts: []map[string]int{
+							{"PUSH1": 3, "ADD": 1},
+							nil,
+							{"PUSH1": 2, "MUL": 4},
+						},
+					},
+				},
+			},
+		},
+	}
+	info := &SuiteInfo{Hash: "cafe"}
+	err := CreateSuiteOutput(logrus.New(), tmp, "cafe", info, prepared, nil)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(tmp, "suites", "cafe", "summary.json"))
+	require.NoError(t, err)
+
+	var parsed SuiteInfo
+	require.NoError(t, json.Unmarshal(data, &parsed))
+	require.Len(t, parsed.Tests, 1)
+	assert.Equal(t,
+		map[string]int{"PUSH1": 5, "ADD": 1, "MUL": 4},
+		parsed.Tests[0].OpcodeCount,
+	)
+	// The raw per-payload counts stay available under eest.info.metadata.
+	require.NotNil(t, parsed.Tests[0].EEST)
+	require.NotNil(t, parsed.Tests[0].EEST.Info.Metadata)
+	assert.Len(t, parsed.Tests[0].EEST.Info.Metadata.OpcodeCounts, 3)
+}
+
+func TestMergeOpcodeData_UsesMetadataOpcodeCounts(t *testing.T) {
+	existing := []SuiteTest{{Name: "test_a"}, {Name: "test_b"}}
+	prepared := &PreparedSource{
+		Tests: []*TestWithSteps{
+			{
+				Name: "test_a",
+				EESTInfo: &eest.FixtureInfo{
+					Metadata: &eest.FixtureMetadata{
+						OpcodeCounts: []map[string]int{{"PUSH1": 2}, {"PUSH1": 1}},
+					},
+				},
+			},
+			{
+				Name:     "test_b",
+				EESTInfo: &eest.FixtureInfo{OpcodeCount: map[string]int{"ADD": 7}},
+			},
+		},
+	}
+
+	mergeOpcodeData(existing, prepared)
+
+	assert.Equal(t, map[string]int{"PUSH1": 3}, existing[0].OpcodeCount)
+	assert.Equal(t, map[string]int{"ADD": 7}, existing[1].OpcodeCount)
 }
 
 func TestSuiteInfo_BackwardCompat_LoadsOldSummary(t *testing.T) {
