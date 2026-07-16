@@ -7,13 +7,15 @@
 #
 #   1.   state_actor    OSAKA snapshot datadirs (seed pre-funded, CREATE2 factory
 #                       predeployed).
-#   1.5  pre_runs       per client: copy the snapshot into ${PRERUN_DIR}/<client>,
-#                       boot a filler on it, ramp the block gas limit to 1 TGas via
-#                       empty "gas-bump" blocks, build a funding block, then run
-#                       fill-stateful --no-reset-between-tests on
-#                       tests/benchmark/stateful/bloatnet/test_setup_contracts.py
-#                       so the deployed contracts PERSIST on the datadir. The
-#                       filler is stopped and ${PRERUN_DIR}/<client> is left holding
+#   1.5  pre_runs       filler clients (geth/besu/nethermind): copy the snapshot
+#                       into ${PRERUN_DIR}/<client>, boot a filler, ramp the block
+#                       gas limit to 1 TGas via empty "gas-bump" blocks, build a
+#                       funding block, then run fill-stateful
+#                       --no-reset-between-tests on test_setup_contracts so the
+#                       deployed contracts PERSIST, and record a replayable payload
+#                       bundle. Non-filler clients (reth/ethrex) use a replay_from
+#                       target that advances their snapshot by replaying that
+#                       bundle. Either way ${PRERUN_DIR}/<client> ends up holding
 #                       the advanced state (block "F").
 #   2.   eest_payloads  source_dir = ${PRERUN_DIR}/<client>, so the benchmark fill
 #                       (test_account_access) builds on top of block F and sees the
@@ -75,10 +77,11 @@ builder:
           address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
           balance: "10000000000000000000000000000"
           nonce: 0
-    # Only the clients that can act as the fill-stateful filler (implement
-    # testing_buildBlockV1) can be pre-run + eest fillers: geth, besu, nethermind.
-    # reth/ethrex/erigon can still be benchmarked, but they cannot PRODUCE the
-    # pre-run/setup datadir themselves, so they are omitted here.
+    # geth/besu/nethermind can act as the fill-stateful filler (implement
+    # testing_buildBlockV1), so they PRODUCE the pre-run datadir directly.
+    # reth/ethrex cannot fill, but a pre_runs replay_from target advances their
+    # snapshots by replaying a filler's recorded payloads (see below). erigon
+    # needs a genesis-import init container, not yet supported for replay.
     targets:
       - client: geth
         output_dir: ${STATE_DIR}/geth
@@ -86,6 +89,10 @@ builder:
         output_dir: ${STATE_DIR}/nethermind
       - client: besu
         output_dir: ${STATE_DIR}/besu
+      - client: reth
+        output_dir: ${STATE_DIR}/reth
+      - client: ethrex
+        output_dir: ${STATE_DIR}/ethrex
 
   ## Stage 1.5: Pre-run — advance each snapshot (gas-bump + funding + setup fill)
   pre_runs:
@@ -145,6 +152,25 @@ builder:
         genesis: ${STATE_DIR}/besu/besu-chainspec.json
         genesis_fork_override: { amsterdam: 1 }
         output_dir: ${PRERUN_DIR}/besu
+      # Replay targets: advance reth/ethrex snapshots by replaying the geth
+      # builder's recorded payloads (they cannot fill themselves). The blocks are
+      # protocol-level, so any client reproduces the same state (validated head).
+      - name: pre-run-reth
+        filler_client: reth
+        replay_from: pre-run-geth
+        filler_image: ethpandaops/reth:glamsterdam-devnet-6
+        source_dir: ${STATE_DIR}/reth
+        genesis: ${STATE_DIR}/reth/chainspec.json
+        genesis_fork_override: { amsterdam: 1 }
+        output_dir: ${PRERUN_DIR}/reth
+      - name: pre-run-ethrex
+        filler_client: ethrex
+        replay_from: pre-run-geth
+        filler_image: ethpandaops/ethrex:glamsterdam-devnet-6
+        source_dir: ${STATE_DIR}/ethrex
+        genesis: ${STATE_DIR}/ethrex/ethrex-genesis.json
+        genesis_fork_override: { amsterdam: 1 }
+        output_dir: ${PRERUN_DIR}/ethrex
 
   ## Stage 2: EEST stateful fixtures that build on the pre-run datadir
   eest_payloads:

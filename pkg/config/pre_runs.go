@@ -105,10 +105,18 @@ type PreRunDefaults struct {
 // Identity/locator fields live on the target; the remaining fields mirror
 // PreRunDefaults and are resolved via ResolveTarget.
 type PreRunTarget struct {
-	Name                string              `yaml:"name,omitempty" mapstructure:"name"`
-	FillerClient        string              `yaml:"filler_client" mapstructure:"filler_client"`
-	SourceDir           string              `yaml:"source_dir" mapstructure:"source_dir"`
-	OutputDir           string              `yaml:"output_dir" mapstructure:"output_dir"`
+	Name         string `yaml:"name,omitempty" mapstructure:"name"`
+	FillerClient string `yaml:"filler_client" mapstructure:"filler_client"`
+	SourceDir    string `yaml:"source_dir" mapstructure:"source_dir"`
+	OutputDir    string `yaml:"output_dir" mapstructure:"output_dir"`
+	// ReplayFrom, when set to another target's name, makes this a REPLAY target:
+	// instead of gas-bumping/funding/filling itself (which needs a
+	// testing_buildBlockV1 filler), it boots its client on its own snapshot and
+	// replays the engine_newPayloads the named builder target recorded, advancing
+	// its datadir to the same head. This lets clients that cannot act as the
+	// fill-stateful filler (reth/ethrex/erigon) still get the pre-run datadir.
+	// The referenced target must be a builder (ReplayFrom empty) declared earlier.
+	ReplayFrom          string              `yaml:"replay_from,omitempty" mapstructure:"replay_from"`
 	Genesis             string              `yaml:"genesis,omitempty" mapstructure:"genesis"`
 	GenesisForkOverride map[string]uint64   `yaml:"genesis_fork_override,omitempty" mapstructure:"genesis_fork_override"`
 	GenesisEIPOverride  *GenesisEIPOverride `yaml:"genesis_eip_override,omitempty" mapstructure:"genesis_eip_override"`
@@ -258,6 +266,12 @@ func (t *PreRunTarget) EffectiveName() string {
 	return t.FillerClient
 }
 
+// IsReplay reports whether the target replays another target's recorded payloads
+// (rather than building them itself).
+func (t *PreRunTarget) IsReplay() bool {
+	return t.ReplayFrom != ""
+}
+
 // ResolveGasLimit returns the gas-bump target, defaulting to
 // DefaultPreRunGasLimit.
 func (t *PreRunTarget) ResolveGasLimit() uint64 {
@@ -398,18 +412,11 @@ func (c *Config) validatePreRuns() error {
 
 	seenOutputs := make(map[string]int, len(pr.Targets))
 	seenNames := make(map[string]int, len(pr.Targets))
+	builderNames := make(map[string]bool, len(pr.Targets))
 
 	for i := range pr.Targets {
 		t := pr.ResolveTarget(i)
 		prefix := fmt.Sprintf("builder.pre_runs.targets[%d]", i)
-
-		if _, ok := eestFillerSupportedClients[t.FillerClient]; !ok {
-			return fmt.Errorf(
-				"%s.filler_client: %q cannot act as the fill-stateful filler "+
-					"(supported: geth, besu, nethermind)",
-				prefix, t.FillerClient,
-			)
-		}
 
 		name := t.EffectiveName()
 		if prev, dup := seenNames[name]; dup {
@@ -425,6 +432,46 @@ func (c *Config) validatePreRuns() error {
 			return err
 		}
 
+		if t.FillerImage == "" {
+			return fmt.Errorf(
+				"%s.filler_image is required (e.g. ethpandaops/geth:master)", prefix,
+			)
+		}
+
+		if !validDataDirMethods[t.DataDirMethod] {
+			return fmt.Errorf(
+				"%s.datadir_method: invalid value %q "+
+					"(must be copy, overlayfs, fuse-overlayfs, zfs, direct, or schelk)",
+				prefix, t.DataDirMethod,
+			)
+		}
+
+		if t.IsReplay() {
+			// Replay targets boot any client and replay a builder's payloads, so
+			// they need no testing_buildBlockV1 filler / tests / gas config. The
+			// referenced builder must be a non-replay target declared earlier
+			// (so it runs first and its bundle exists).
+			if !builderNames[t.ReplayFrom] {
+				return fmt.Errorf(
+					"%s.replay_from: %q must name a non-replay pre_runs target declared earlier",
+					prefix, t.ReplayFrom,
+				)
+			}
+
+			continue
+		}
+
+		builderNames[name] = true
+
+		if _, ok := eestFillerSupportedClients[t.FillerClient]; !ok {
+			return fmt.Errorf(
+				"%s.filler_client: %q cannot act as the fill-stateful filler "+
+					"(supported: geth, besu, nethermind). Use replay_from to advance "+
+					"a non-filler client from another target's recorded payloads",
+				prefix, t.FillerClient,
+			)
+		}
+
 		if len(t.Tests) == 0 {
 			return fmt.Errorf(
 				"%s.tests is required (at least one pytest path, e.g. "+
@@ -437,20 +484,6 @@ func (c *Config) validatePreRuns() error {
 			return fmt.Errorf(
 				"%s.fork is required (set it on the target or builder.pre_runs.config.fork)",
 				prefix,
-			)
-		}
-
-		if t.FillerImage == "" {
-			return fmt.Errorf(
-				"%s.filler_image is required (e.g. ethpandaops/geth:master)", prefix,
-			)
-		}
-
-		if !validDataDirMethods[t.DataDirMethod] {
-			return fmt.Errorf(
-				"%s.datadir_method: invalid value %q "+
-					"(must be copy, overlayfs, fuse-overlayfs, zfs, direct, or schelk)",
-				prefix, t.DataDirMethod,
 			)
 		}
 

@@ -39,6 +39,25 @@ type engineClient struct {
 	fork      string
 	slot      uint64
 	http      *http.Client
+
+	// recorded accumulates the engine_newPayload requests built by buildBlock, in
+	// build order, when recording is enabled (see enableRecording). Used to export
+	// a replayable bundle for non-filler clients.
+	recording bool
+	recorded  []recordedPayload
+}
+
+// recordedPayload is one engine_newPayload request captured for replay: the
+// method (version) and the verbatim params (execution payload incl. any
+// blockAccessList, blob hashes, parentBeaconBlockRoot, executionRequests).
+type recordedPayload struct {
+	Method string            `json:"method"`
+	Params []json.RawMessage `json:"params"`
+}
+
+// enableRecording makes buildBlock capture each newPayload request it sends.
+func (c *engineClient) enableRecording() {
+	c.recording = true
 }
 
 // withdrawal is one beacon withdrawal in a funding block's payload attributes.
@@ -274,9 +293,20 @@ func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal)
 
 	// Gas-bump and funding blocks carry no blob transactions, so the blob
 	// versioned hashes are always empty.
-	if _, err := c.call(ctx, c.engineURL, true, c.newPayloadMethod(),
-		[]any{execPayload, []string{}, parentHash, execRequests}); err != nil {
+	npMethod := c.newPayloadMethod()
+	npParams := []any{execPayload, []string{}, parentHash, execRequests}
+
+	if _, err := c.call(ctx, c.engineURL, true, npMethod, npParams); err != nil {
 		return "", 0, err
+	}
+
+	if c.recording {
+		rec, recErr := toRecordedPayload(npMethod, npParams)
+		if recErr != nil {
+			return "", 0, recErr
+		}
+
+		c.recorded = append(c.recorded, rec)
 	}
 
 	fcs := map[string]any{
@@ -384,6 +414,92 @@ func (c *engineClient) fundingBlock(ctx context.Context, accounts []config.PreRu
 	}
 
 	return blockHash, nil
+}
+
+// toRecordedPayload marshals a newPayload method + params into a recordedPayload
+// (each param as raw JSON), for the replay bundle.
+func toRecordedPayload(method string, params []any) (recordedPayload, error) {
+	raw := make([]json.RawMessage, 0, len(params))
+
+	for i, p := range params {
+		b, err := json.Marshal(p)
+		if err != nil {
+			return recordedPayload{}, fmt.Errorf("marshaling %s param %d: %w", method, i, err)
+		}
+
+		raw = append(raw, b)
+	}
+
+	return recordedPayload{Method: method, Params: raw}, nil
+}
+
+// replayPayloads sends each recorded engine_newPayload (verbatim, including any
+// amsterdam blockAccessList) followed by an engine_forkchoiceUpdatedV3 to that
+// block's hash, advancing the client's canonical head one block at a time. It is
+// how a non-filler client's datadir is advanced to the builder's head. Returns
+// the number of payloads applied.
+func (c *engineClient) replayPayloads(ctx context.Context, payloads []recordedPayload, log logrus.FieldLogger) (int, error) {
+	log.WithField("payloads", len(payloads)).Info("Replaying recorded pre-run payloads")
+
+	lastLog := time.Now()
+
+	for i, p := range payloads {
+		select {
+		case <-ctx.Done():
+			return i, ctx.Err()
+		default:
+		}
+
+		if len(p.Params) == 0 {
+			return i, fmt.Errorf("payload %d has no params", i)
+		}
+
+		blockHash, err := payloadBlockHash(p.Params[0])
+		if err != nil {
+			return i, fmt.Errorf("payload %d: %w", i, err)
+		}
+
+		params := make([]any, len(p.Params))
+		for j := range p.Params {
+			params[j] = p.Params[j]
+		}
+
+		if _, err := c.call(ctx, c.engineURL, true, p.Method, params); err != nil {
+			return i, fmt.Errorf("replaying payload %d (%s): %w", i, blockHash, err)
+		}
+
+		fcs := map[string]any{
+			"headBlockHash": blockHash, "safeBlockHash": blockHash, "finalizedBlockHash": blockHash,
+		}
+		if _, err := c.call(ctx, c.engineURL, true, "engine_forkchoiceUpdatedV3", []any{fcs, nil}); err != nil {
+			return i, fmt.Errorf("forkchoiceUpdated after payload %d (%s): %w", i, blockHash, err)
+		}
+
+		if time.Since(lastLog) >= 5*time.Second {
+			log.WithField("replayed", i+1).Info("Replay in progress")
+
+			lastLog = time.Now()
+		}
+	}
+
+	return len(payloads), nil
+}
+
+// payloadBlockHash extracts the executionPayload.blockHash from a newPayload
+// param[0].
+func payloadBlockHash(execPayload json.RawMessage) (string, error) {
+	var p struct {
+		BlockHash string `json:"blockHash"`
+	}
+	if err := json.Unmarshal(execPayload, &p); err != nil {
+		return "", fmt.Errorf("parsing execution payload: %w", err)
+	}
+
+	if p.BlockHash == "" {
+		return "", fmt.Errorf("execution payload has no blockHash")
+	}
+
+	return p.BlockHash, nil
 }
 
 // hexToUint64 parses a 0x-prefixed (or bare) hex string to uint64.

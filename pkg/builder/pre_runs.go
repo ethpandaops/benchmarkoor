@@ -124,15 +124,51 @@ func (b *PreRunsBuilder) Build(ctx context.Context, name string, opts BuildOptio
 		}
 	}
 
+	if target.IsReplay() {
+		if err := b.runReplay(ctx, log, target); err != nil {
+			return false, err
+		}
+
+		return false, nil
+	}
+
 	if err := b.checkInputs(ctx, target); err != nil {
 		return false, err
 	}
 
-	if err := b.run(ctx, log, target); err != nil {
+	// Record a replayable payload bundle only when another target replays from
+	// this one, so a plain builder doesn't pay the cost.
+	record := b.hasReplayDependents(target.EffectiveName())
+
+	if err := b.run(ctx, log, target, record); err != nil {
 		return false, err
 	}
 
 	return false, nil
+}
+
+// hasReplayDependents reports whether any configured target replays from the
+// named builder target.
+func (b *PreRunsBuilder) hasReplayDependents(name string) bool {
+	for i := range b.cfg.Targets {
+		if b.cfg.Targets[i].ReplayFrom == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+// builderOutputDir returns the resolved output_dir of the target named name, or
+// "" when there is no such target.
+func (b *PreRunsBuilder) builderOutputDir(name string) string {
+	for i := range b.cfg.Targets {
+		if b.cfg.Targets[i].EffectiveName() == name {
+			return b.cfg.ResolveTarget(i).OutputDir
+		}
+	}
+
+	return ""
 }
 
 // findTargetIndex returns the index of the first target whose EffectiveName
@@ -207,13 +243,14 @@ func preRunToEESTTarget(src *config.PreRunTarget, outputDir, fixturesDir string)
 // run performs the orchestration: copy snapshot → output_dir, boot the filler
 // on it, gas-bump, funding block, fill setup tests (no reset between tests),
 // then stop the filler so output_dir holds the advanced datadir.
-func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *config.PreRunTarget) error {
+func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *config.PreRunTarget, record bool) error {
 	log.WithFields(logrus.Fields{
 		"filler_client": t.FillerClient,
 		"source_dir":    t.SourceDir,
 		"output_dir":    t.OutputDir,
 		"fork":          t.Fork,
 		"gas_limit":     t.ResolveGasLimit(),
+		"record":        record,
 	}).Info("Generating pre-run datadir")
 
 	repo, ref := b.cfg.ResolveEESTRepo(), b.cfg.ResolveEESTRef()
@@ -338,6 +375,10 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 		return err
 	}
 
+	if record {
+		ec.enableRecording()
+	}
+
 	if _, err := ec.bumpGasLimit(ctx, t.ResolveGasLimit(), t.ResolveGasBumpMaxBlocks(), log); err != nil {
 		return err
 	}
@@ -357,9 +398,290 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 		return err
 	}
 
+	// Export a replayable payload bundle (bump/funding blocks recorded above +
+	// the setup blocks from the fixtures) so replay_from targets can advance a
+	// non-filler client's datadir to this head.
+	if record {
+		if err := b.writeBundle(log, t.OutputDir, fixturesDir, ec.recorded); err != nil {
+			return fmt.Errorf("writing replay bundle: %w", err)
+		}
+	}
+
 	log.Info("Pre-run complete; stopping filler to flush datadir")
 
 	return nil
+}
+
+// writeBundle assembles the replay bundle from the recorded bump/funding
+// payloads and the setup fixtures, then writes it (ordered, deduped) to
+// outputDir.
+func (b *PreRunsBuilder) writeBundle(log logrus.FieldLogger, outputDir, fixturesDir string, recorded []recordedPayload) error {
+	fixturePayloads, err := extractFixturePayloads(fixturesDir)
+	if err != nil {
+		return fmt.Errorf("extracting fixture payloads: %w", err)
+	}
+
+	all := append(append([]recordedPayload{}, recorded...), fixturePayloads...)
+
+	ordered, err := sortAndDedupPayloads(all)
+	if err != nil {
+		return err
+	}
+
+	if err := writePayloadBundle(outputDir, ordered); err != nil {
+		return err
+	}
+
+	log.WithFields(logrus.Fields{
+		"payloads": len(ordered), "bundle": preRunBundleFile,
+	}).Info("Wrote replay bundle")
+
+	return nil
+}
+
+// runReplay advances a client's datadir by replaying another target's recorded
+// payload bundle (no gas-bump/funding/fill — no testing_buildBlockV1 needed), so
+// clients that cannot act as the fill-stateful filler still get the pre-run
+// datadir. It copies the snapshot into output_dir, boots the client on it in
+// place, replays the bundle block-by-block, then stops so output_dir holds the
+// advanced datadir.
+func (b *PreRunsBuilder) runReplay(ctx context.Context, log logrus.FieldLogger, t *config.PreRunTarget) error {
+	builderOut := b.builderOutputDir(t.ReplayFrom)
+	if builderOut == "" {
+		return fmt.Errorf("replay_from target %q not found", t.ReplayFrom)
+	}
+
+	payloads, err := readPayloadBundle(builderOut)
+	if err != nil {
+		return err
+	}
+
+	if len(payloads) == 0 {
+		return fmt.Errorf("replay bundle from %q is empty", t.ReplayFrom)
+	}
+
+	log.WithFields(logrus.Fields{
+		"client": t.FillerClient, "replay_from": t.ReplayFrom,
+		"source_dir": t.SourceDir, "output_dir": t.OutputDir, "payloads": len(payloads),
+	}).Info("Generating pre-run datadir by replay")
+
+	spec, err := b.eest.registry.Get(client.ClientType(t.FillerClient))
+	if err != nil {
+		return fmt.Errorf("resolving client %q: %w", t.FillerClient, err)
+	}
+
+	jwtPath, cleanupJWT, err := writeTempJWT(b.cfg.JWT)
+	if err != nil {
+		return err
+	}
+
+	defer cleanupJWT()
+
+	if err := b.eest.mgr.EnsureNetwork(ctx, EESTBuildNetwork); err != nil {
+		return fmt.Errorf("ensuring network %q: %w", EESTBuildNetwork, err)
+	}
+
+	if err := prepareOutputDir(t.OutputDir, true); err != nil {
+		return err
+	}
+
+	log.WithField("output_dir", t.OutputDir).Info("Copying snapshot datadir into output_dir")
+
+	if err := fsutil.CopyDir(t.SourceDir, t.OutputDir, nil); err != nil {
+		return fmt.Errorf("copying snapshot datadir: %w", err)
+	}
+
+	et := preRunToEESTTarget(t, t.OutputDir, "")
+
+	if len(et.GenesisForkOverride) > 0 ||
+		(et.GenesisEIPOverride != nil && len(et.GenesisEIPOverride.EIPs) > 0) {
+		patched, cleanup, perr := patchFillerGenesis(log, et)
+		if perr != nil {
+			return perr
+		}
+
+		defer cleanup()
+
+		et.Genesis = patched
+	}
+
+	provider, err := datadir.NewProvider(b.log, et.DataDirMethod)
+	if err != nil {
+		return fmt.Errorf("creating datadir provider: %w", err)
+	}
+
+	prepared, err := provider.Prepare(ctx, &datadir.ProviderConfig{
+		SourceDir: et.SourceDir, InstanceID: "prerun-replay-" + t.EffectiveName(), TmpDir: mountTempDir(),
+	})
+	if err != nil {
+		return fmt.Errorf("preparing datadir: %w", err)
+	}
+
+	defer func() {
+		if cleanupErr := prepared.Cleanup(); cleanupErr != nil {
+			log.WithError(cleanupErr).Warn("Failed to clean up datadir")
+		}
+	}()
+
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	defer streamCancel()
+
+	clientID, clientIP, configCleanup, err := b.startReplayClient(ctx, streamCtx, log, et, spec, prepared.MountPath, jwtPath)
+	if err != nil {
+		return err
+	}
+
+	defer configCleanup()
+	defer b.eest.stopFiller(log, clientID)
+
+	log.Info("Waiting for client RPC to become ready")
+
+	version, err := b.eest.waitForFillerReady(ctx, clientID, clientIP, spec.RPCPort())
+	if err != nil {
+		return err
+	}
+
+	log.WithField("client_version", version).Info("Client ready; replaying payloads")
+
+	ec, err := newEngineClient(clientIP, spec.RPCPort(), spec.EnginePort(), b.cfg.JWT, t.Fork)
+	if err != nil {
+		return err
+	}
+
+	if _, err := ec.replayPayloads(ctx, payloads, log); err != nil {
+		return err
+	}
+
+	// The replay must land on the builder's head (the last payload's block hash);
+	// a mismatch means the bundle was incomplete or a block was rejected.
+	wantHead, err := payloadBlockHash(payloads[len(payloads)-1].Params[0])
+	if err != nil {
+		return fmt.Errorf("resolving expected head from bundle: %w", err)
+	}
+
+	gotHead, err := getLatestBlockHash(ctx, clientIP, spec.RPCPort())
+	if err != nil {
+		return fmt.Errorf("fetching replayed head: %w", err)
+	}
+
+	if gotHead != wantHead {
+		return fmt.Errorf(
+			"replay landed on head %s but the bundle head is %s (incomplete bundle or rejected block)",
+			gotHead, wantHead)
+	}
+
+	log.WithField("head", gotHead).Info("Replay complete; stopping client to flush datadir")
+
+	return nil
+}
+
+// startReplayClient boots the client for a replay target using the client spec's
+// standard launch command (spec.DefaultCommand) — the same per-client launch the
+// runner uses — plus the datadir/jwt/genesis mounts and any fork overrides.
+// Unlike startFiller it does not use the testing_buildBlockV1 filler command, so
+// it works for clients that cannot act as the fill-stateful filler. Clients that
+// require a genesis-import init container (e.g. erigon) are not yet handled.
+func (b *PreRunsBuilder) startReplayClient(
+	ctx, streamCtx context.Context,
+	log logrus.FieldLogger,
+	t *config.EESTPayloadTarget,
+	spec client.Spec,
+	dataMount, jwtPath string,
+) (id, ip string, cleanup func(), err error) {
+	configCleanup := func() {}
+
+	defer func() {
+		if err != nil {
+			configCleanup()
+		}
+	}()
+
+	if spec.RequiresInit() {
+		return "", "", nil, fmt.Errorf(
+			"replay for client %q needs a genesis-import init container, which is not "+
+				"yet supported; use a builder (non-replay) target for it", t.FillerClient)
+	}
+
+	if err = b.eest.mgr.PullImage(ctx, t.FillerImage, b.cfg.PullPolicy); err != nil {
+		return "", "", nil, fmt.Errorf("pulling image %q: %w", t.FillerImage, err)
+	}
+
+	mounts := []docker.Mount{
+		{Source: dataMount, Target: spec.DataDir(), Type: "bind"},
+		{Source: jwtPath, Target: spec.JWTPath(), Type: "bind", ReadOnly: true},
+	}
+
+	if files := spec.DefaultConfigFiles(); len(files) > 0 {
+		configMounts, cfgCleanup, cfgErr := writeTempConfigFiles(files)
+		if cfgErr != nil {
+			err = cfgErr
+
+			return "", "", nil, cfgErr
+		}
+
+		mounts = append(mounts, configMounts...)
+		configCleanup = cfgCleanup
+	}
+
+	cmd := append([]string{}, spec.DefaultCommand()...)
+
+	if t.Genesis != "" {
+		mounts = append(mounts, docker.Mount{
+			Source: t.Genesis, Target: spec.GenesisPath(), Type: "bind", ReadOnly: true,
+		})
+
+		if flag := spec.GenesisFlag(); flag != "" {
+			cmd = append(cmd, flag+spec.GenesisPath())
+		}
+	}
+
+	cmd = append(cmd, t.FillerExtraArgs...)
+
+	suffix, err := randSuffix()
+	if err != nil {
+		return "", "", nil, fmt.Errorf("generating container name suffix: %w", err)
+	}
+
+	containerSpec := &docker.ContainerSpec{
+		Name:        fmt.Sprintf("benchmarkoor-build-prerun-replay-%s-%s", t.FillerClient, suffix),
+		Image:       t.FillerImage,
+		Command:     cmd,
+		Mounts:      mounts,
+		NetworkName: EESTBuildNetwork,
+		SecurityOpt: []string{"seccomp=unconfined"},
+		User:        currentUserSpec(),
+		Env:         spec.DefaultEnvironment(),
+		Labels:      b.labels(t),
+	}
+
+	log.WithField("argv", cmd).Info("Starting replay client")
+
+	id, err = b.eest.mgr.CreateContainer(ctx, containerSpec)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("creating replay container: %w", err)
+	}
+
+	if err = b.eest.mgr.StartContainer(ctx, id); err != nil {
+		_ = b.eest.mgr.RemoveContainer(context.Background(), id)
+
+		return "", "", nil, fmt.Errorf("starting replay container: %w", err)
+	}
+
+	go func() {
+		w := containerStream("CLIE", t.FillerClient)
+		if streamErr := b.eest.mgr.StreamLogs(streamCtx, id, w, w); streamErr != nil {
+			log.WithError(streamErr).Debug("Replay client log streaming stopped")
+		}
+	}()
+
+	ip, err = b.eest.mgr.GetContainerIP(ctx, id, EESTBuildNetwork)
+	if err != nil {
+		_ = b.eest.mgr.RemoveContainer(context.Background(), id)
+
+		return "", "", nil, fmt.Errorf("getting replay container IP: %w", err)
+	}
+
+	return id, ip, configCleanup, nil
 }
 
 // runFill runs fill-stateful against the live filler, with
