@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,28 +40,39 @@ func TestSortAndDedupPayloads(t *testing.T) {
 	assert.Equal(t, []string{"0xa", "0xb", "0xc"}, hashes, "sorted ascending by block number")
 }
 
-func TestPayloadBundleRoundTrip(t *testing.T) {
+func TestWriteRequestBundle(t *testing.T) {
 	dir := t.TempDir()
 	in := []recordedPayload{
 		payload("engine_newPayloadV5", "0x1", "0xaa"),
 		payload("engine_newPayloadV4", "0x2", "0xbb"),
 	}
 
-	require.NoError(t, writePayloadBundle(dir, in))
+	path, err := writeRequestBundle(dir, in)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, config.PreRunBundleSubdir, preRunBundleFile), path)
 
-	// The bundle lands at the well-known filename.
-	_, err := os.Stat(filepath.Join(dir, preRunBundleFile))
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 
-	got, err := readPayloadBundle(dir)
-	require.NoError(t, err)
-	require.Len(t, got, 2)
-	assert.Equal(t, "engine_newPayloadV5", got[0].Method)
-	assert.Equal(t, "engine_newPayloadV4", got[1].Method)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	// Two lines (newPayload + forkchoiceUpdated) per block.
+	require.Len(t, lines, 4)
 
-	h, err := payloadBlockHash(got[0].Params[0])
-	require.NoError(t, err)
-	assert.Equal(t, "0xaa", h)
+	// Line 0: newPayloadV5 request.
+	var np map[string]any
+	require.NoError(t, json.Unmarshal([]byte(lines[0]), &np))
+	assert.Equal(t, "engine_newPayloadV5", np["method"])
+
+	// Line 1: forkchoiceUpdated to the block's hash.
+	var fcu struct {
+		Method string `json:"method"`
+		Params []struct {
+			HeadBlockHash string `json:"headBlockHash"`
+		} `json:"params"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(lines[1]), &fcu))
+	assert.Equal(t, "engine_forkchoiceUpdatedV3", fcu.Method)
+	assert.Equal(t, "0xaa", fcu.Params[0].HeadBlockHash)
 }
 
 func TestExtractFixturePayloads(t *testing.T) {

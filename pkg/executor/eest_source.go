@@ -988,7 +988,57 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 		s.tests = reordered
 	}
 
+	// A configured pre_runs bundle is replayed once, before the fixtures, as a
+	// session-level pre-run step (the runner advances each client's raw snapshot
+	// to the setup head; already-applied blocks are skipped).
+	preRunSteps, err := s.loadPreRunBundleSteps()
+	if err != nil {
+		return nil, err
+	}
+
+	result.PreRunSteps = append(result.PreRunSteps, preRunSteps...)
+
 	return result, nil
+}
+
+// loadPreRunBundleSteps returns the configured builder.pre_runs bundle as
+// pre-run steps (the runner replays them before the fixtures). Returns nil when
+// no pre_runs source is configured.
+func (s *EESTSource) loadPreRunBundleSteps() ([]*StepFile, error) {
+	if s.cfg.PreRuns == nil || s.cfg.PreRuns.LocalFixturesDir == "" {
+		return nil, nil
+	}
+
+	subdir := s.cfg.PreRuns.FixturesSubdir
+	if subdir == "" {
+		subdir = config.PreRunBundleSubdir
+	}
+
+	bundleDir := filepath.Join(s.cfg.PreRuns.LocalFixturesDir, subdir)
+
+	entries, err := filepath.Glob(filepath.Join(bundleDir, "*.request"))
+	if err != nil {
+		return nil, fmt.Errorf("globbing pre_runs bundle %q: %w", bundleDir, err)
+	}
+
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no pre-run bundle (*.request) found under %q", bundleDir)
+	}
+
+	sort.Strings(entries)
+
+	steps := make([]*StepFile, 0, len(entries))
+	for _, path := range entries {
+		steps = append(steps, &StepFile{
+			Name: "pre_run/" + filepath.Base(path),
+			Path: path,
+		})
+	}
+
+	s.log.WithFields(logrus.Fields{"dir": bundleDir, "files": len(steps)}).
+		Info("Loaded pre-run bundle steps")
+
+	return steps, nil
 }
 
 // Cleanup is a no-op for EEST sources (we keep the cache).

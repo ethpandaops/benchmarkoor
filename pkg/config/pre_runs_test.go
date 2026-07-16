@@ -179,59 +179,6 @@ builder:
 	assert.Equal(t, "x", cfg.Builder.PreRuns.Config.FillEnv["Mixed_Case_Var"])
 }
 
-func TestValidatePreRuns_Replay(t *testing.T) {
-	base := func() *Config {
-		return &Config{
-			Builder: &BuilderConfig{
-				PreRuns: &PreRunsConfig{
-					ContainerRuntime: "docker",
-					PullPolicy:       "always",
-					Config: &PreRunDefaults{
-						Fork:          "amsterdam",
-						Tests:         []string{"tests/benchmark/stateful/bloatnet/test_setup_contracts.py"},
-						DataDirMethod: "copy",
-					},
-					Targets: []PreRunTarget{
-						{
-							Name: "pre-run-geth", FillerClient: "geth", FillerImage: "geth:latest",
-							SourceDir: "/state/geth", OutputDir: "/prerun/geth",
-						},
-						{
-							// Replay target: a non-filler client, no tests needed.
-							Name: "pre-run-reth", FillerClient: "reth", FillerImage: "reth:latest",
-							ReplayFrom: "pre-run-geth",
-							SourceDir:  "/state/reth", OutputDir: "/prerun/reth",
-						},
-					},
-				},
-			},
-		}
-	}
-
-	t.Run("valid replay target", func(t *testing.T) {
-		require.NoError(t, base().validatePreRuns())
-	})
-
-	t.Run("replay client need not be a filler", func(t *testing.T) {
-		c := base()
-		c.Builder.PreRuns.Targets[1].FillerClient = "erigon" // not a fill-stateful filler
-		require.NoError(t, c.validatePreRuns())
-	})
-
-	t.Run("unknown replay_from rejected", func(t *testing.T) {
-		c := base()
-		c.Builder.PreRuns.Targets[1].ReplayFrom = "nope"
-		require.ErrorContains(t, c.validatePreRuns(), "must name a non-replay pre_runs target")
-	})
-
-	t.Run("replay_from referencing a later target rejected", func(t *testing.T) {
-		c := base()
-		// Swap order so the replay target comes before its builder.
-		c.Builder.PreRuns.Targets[0], c.Builder.PreRuns.Targets[1] = c.Builder.PreRuns.Targets[1], c.Builder.PreRuns.Targets[0]
-		require.ErrorContains(t, c.validatePreRuns(), "declared earlier")
-	})
-}
-
 // TestLoad_PreRunsExampleConfig loads the shipped pre-runs example config and
 // validates it end-to-end, so the template stays in sync with the schema.
 func TestLoad_PreRunsExampleConfig(t *testing.T) {
@@ -245,17 +192,14 @@ func TestLoad_PreRunsExampleConfig(t *testing.T) {
 	require.NoError(t, cfg.ValidateBuilder())
 
 	require.NotNil(t, cfg.Builder.PreRuns)
-	// 3 filler builders (geth/besu/nethermind) + 2 replay targets (reth/ethrex).
-	assert.Len(t, cfg.Builder.PreRuns.Targets, 5)
+	// One filler builder (geth) produces the bundle; the runner replays it against
+	// every client, so no per-client pre-run targets are needed.
+	assert.Len(t, cfg.Builder.PreRuns.Targets, 1)
 
-	replays := 0
-	for i := range cfg.Builder.PreRuns.Targets {
-		tgt := cfg.Builder.PreRuns.ResolveTarget(i)
-		if tgt.IsReplay() {
-			replays++
-		}
-	}
-	assert.Equal(t, 2, replays, "reth/ethrex are replay targets")
+	// The runner replays the pre-run bundle before the fixtures.
+	require.NotNil(t, cfg.Runner.Benchmark.Tests.Source.EESTFixtures)
+	assert.NotNil(t, cfg.Runner.Benchmark.Tests.Source.EESTFixtures.PreRuns,
+		"runner eest_fixtures.pre_runs is wired")
 
 	// Env-expanded absolute output dirs and the gas-bump target resolve.
 	geth := cfg.Builder.PreRuns.ResolveTarget(0)

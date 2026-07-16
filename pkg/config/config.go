@@ -827,6 +827,26 @@ type EESTFixturesSource struct {
 	// Local tarball support (.tar.gz files).
 	LocalFixturesTarball string `yaml:"local_fixtures_tarball,omitempty" mapstructure:"local_fixtures_tarball"`
 	LocalGenesisTarball  string `yaml:"local_genesis_tarball,omitempty" mapstructure:"local_genesis_tarball"`
+	// PreRuns points at a builder.pre_runs bundle (engine_newPayload/
+	// forkchoiceUpdated request lines advancing a raw snapshot to the setup head).
+	// The runner replays it once per instance, before the benchmark fixtures, so
+	// every client reaches the setup state on its own raw snapshot — no per-client
+	// advanced datadirs. Already-applied blocks are skipped, so it is a no-op when
+	// the datadir is already advanced.
+	PreRuns *EESTPreRunsSource `yaml:"pre_runs,omitempty" mapstructure:"pre_runs"`
+}
+
+// PreRunBundleSubdir is the subdirectory (under a builder.pre_runs target's
+// output_dir) where the replayable payload bundle is written, and the default
+// EESTPreRunsSource.FixturesSubdir the runner reads it from.
+const PreRunBundleSubdir = "pre_run_bundle"
+
+// EESTPreRunsSource locates a builder.pre_runs payload bundle for the runner to
+// replay before the benchmark fixtures. It mirrors the fixtures source's local
+// layout: FixturesSubdir defaults to PreRunBundleSubdir.
+type EESTPreRunsSource struct {
+	LocalFixturesDir string `yaml:"local_fixtures_dir,omitempty" mapstructure:"local_fixtures_dir"`
+	FixturesSubdir   string `yaml:"fixtures_subdir,omitempty" mapstructure:"fixtures_subdir"`
 }
 
 // UseArtifacts returns true if the source is configured to use GitHub Actions artifacts.

@@ -10,76 +10,96 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 )
 
-// preRunBundleFile is the replayable payload bundle a builder pre-run target
-// writes into its output_dir: one recordedPayload (engine_newPayload) per line,
-// ordered by block number. A replay target reads it from the builder's
-// output_dir to advance its own datadir to the same head.
-const preRunBundleFile = ".pre-run-payloads.jsonl"
+const (
+	// preRunBundleFile is the bundle file itself: newline-delimited JSON-RPC
+	// request lines (an engine_newPayload + engine_forkchoiceUpdated pair per
+	// block, ordered by block number). This is the same ".request" line format
+	// the runner replays for fixture steps, so the runner consumes it as a
+	// session-level pre-run step with no conversion.
+	preRunBundleFile = "pre-run.request"
+	// preRunBundleFCUMethod is the forkchoiceUpdated version emitted after each
+	// newPayload. V3 (no payload attributes) is accepted across forks and was
+	// validated advancing amsterdam datadirs.
+	preRunBundleFCUMethod = "engine_forkchoiceUpdatedV3"
+)
 
-// writePayloadBundle writes payloads as JSONL to <dir>/preRunBundleFile.
-func writePayloadBundle(dir string, payloads []recordedPayload) error {
-	path := filepath.Join(dir, preRunBundleFile)
+// writeRequestBundle writes payloads as JSON-RPC ".request" lines to
+// <dir>/PreRunBundleSubdir/preRunBundleFile: for each block a newPayload request
+// followed by a forkchoiceUpdated to that block's hash.
+func writeRequestBundle(dir string, payloads []recordedPayload) (string, error) {
+	bundleDir := filepath.Join(dir, config.PreRunBundleSubdir)
+	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating bundle dir: %w", err)
+	}
+
+	path := filepath.Join(bundleDir, preRunBundleFile)
 
 	f, err := os.Create(path)
 	if err != nil {
-		return fmt.Errorf("creating payload bundle: %w", err)
+		return "", fmt.Errorf("creating bundle file: %w", err)
 	}
 
 	defer func() { _ = f.Close() }()
 
 	w := bufio.NewWriter(f)
-	enc := json.NewEncoder(w)
 
 	for i := range payloads {
-		if err := enc.Encode(&payloads[i]); err != nil {
-			return fmt.Errorf("encoding payload %d: %w", i, err)
+		npLine, fcuLine, lerr := payloadRequestLines(&payloads[i], i+1)
+		if lerr != nil {
+			return "", fmt.Errorf("building request lines for payload %d: %w", i, lerr)
+		}
+
+		if _, err := fmt.Fprintln(w, npLine); err != nil {
+			return "", fmt.Errorf("writing newPayload line: %w", err)
+		}
+
+		if _, err := fmt.Fprintln(w, fcuLine); err != nil {
+			return "", fmt.Errorf("writing forkchoiceUpdated line: %w", err)
 		}
 	}
 
 	if err := w.Flush(); err != nil {
-		return fmt.Errorf("flushing payload bundle: %w", err)
+		return "", fmt.Errorf("flushing bundle: %w", err)
 	}
 
-	return nil
+	return path, nil
 }
 
-// readPayloadBundle reads the JSONL payload bundle from <dir>/preRunBundleFile.
-func readPayloadBundle(dir string) ([]recordedPayload, error) {
-	path := filepath.Join(dir, preRunBundleFile)
-
-	f, err := os.Open(path)
+// payloadRequestLines returns the engine_newPayload + engine_forkchoiceUpdated
+// JSON-RPC request lines for one recorded payload (id used for both).
+func payloadRequestLines(p *recordedPayload, id int) (npLine, fcuLine string, err error) {
+	np, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": id, "method": p.Method, "params": p.Params,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("opening payload bundle %q: %w", path, err)
+		return "", "", fmt.Errorf("marshaling newPayload: %w", err)
 	}
 
-	defer func() { _ = f.Close() }()
-
-	var payloads []recordedPayload
-
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 1024*1024), 64*1024*1024) // large blocks (big BALs)
-
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
-		}
-
-		var p recordedPayload
-		if err := json.Unmarshal([]byte(line), &p); err != nil {
-			return nil, fmt.Errorf("parsing payload bundle line: %w", err)
-		}
-
-		payloads = append(payloads, p)
+	if len(p.Params) == 0 {
+		return "", "", fmt.Errorf("payload has no params")
 	}
 
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("reading payload bundle: %w", err)
+	hash, err := payloadBlockHash(p.Params[0])
+	if err != nil {
+		return "", "", err
 	}
 
-	return payloads, nil
+	fcu, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": id, "method": preRunBundleFCUMethod,
+		"params": []any{
+			map[string]string{"headBlockHash": hash, "safeBlockHash": hash, "finalizedBlockHash": hash},
+			nil,
+		},
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("marshaling forkchoiceUpdated: %w", err)
+	}
+
+	return string(np), string(fcu), nil
 }
 
 // rawFixtureEnginePayload is one engine_newPayload entry in a stateful fixture.
