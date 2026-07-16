@@ -115,13 +115,14 @@ builder:
       #   BLOATNET_RECEIVER_CONTRACT_COUNT: "100"
       tests:
         - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
-    # IMPORTANT: the filler image's amsterdam max_code_size must match the EEST
-    # library's (Amsterdam.max_code_size() == 65536 / 64KB here). An older build
-    # capping code at 32KB (e.g. skylenet/geth:bal-devnet-7) reverts the
-    # setup's 64KB "max" contracts with "max code size exceeded". geth was
-    # validated end-to-end on ethpandaops/geth:glamsterdam-devnet-6; use the
-    # matching glamsterdam-devnet-6 besu/nethermind builds (adjust the tags
-    # below) so their fills agree on the same limit.
+    # All fillers use matching ethpandaops/<client>:glamsterdam-devnet-6 images so
+    # they agree on the amsterdam fork params — in particular max_code_size, which
+    # EEST's Amsterdam.max_code_size() puts at 65536 (64KB). An older build capping
+    # code at 32KB (e.g. skylenet/geth:bal-devnet-7) reverts the setup's 64KB "max"
+    # contracts with "max code size exceeded". Only geth was validated end-to-end
+    # here; besu/nethermind are set to the matching build but unverified.
+    # nethermind schedules forks per-EIP, so its genesis_eip_override below carries
+    # the full glamsterdam-devnet-6 EIP set (geth/besu activate the whole fork).
     targets:
       - name: pre-run-geth
         filler_client: geth
@@ -132,14 +133,14 @@ builder:
         output_dir: ${PRERUN_DIR}/geth
       - name: pre-run-nethermind
         filler_client: nethermind
-        filler_image: nethermindeth/nethermind:master
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
         source_dir: ${STATE_DIR}/nethermind
         genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
-        genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
+        genesis_eip_override: { timestamp: 1, eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282] }
         output_dir: ${PRERUN_DIR}/nethermind
       - name: pre-run-besu
         filler_client: besu
-        filler_image: ethpandaops/besu:bal-devnet-7
+        filler_image: ethpandaops/besu:glamsterdam-devnet-6
         source_dir: ${STATE_DIR}/besu
         genesis: ${STATE_DIR}/besu/besu-chainspec.json
         genesis_fork_override: { amsterdam: 1 }
@@ -170,14 +171,14 @@ builder:
         output_dir: ${EEST_FIXTURES_DIR}/geth
       - name: payload-generator-nethermind-stateful
         filler_client: nethermind
-        filler_image: nethermindeth/nethermind:master
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
         source_dir: ${PRERUN_DIR}/nethermind
         genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
-        genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
+        genesis_eip_override: { timestamp: 1, eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282] }
         output_dir: ${EEST_FIXTURES_DIR}/nethermind
       - name: payload-generator-besu-stateful
         filler_client: besu
-        filler_image: ethpandaops/besu:bal-devnet-7
+        filler_image: ethpandaops/besu:glamsterdam-devnet-6
         source_dir: ${PRERUN_DIR}/besu
         genesis: ${STATE_DIR}/besu/besu-chainspec.json
         genesis_fork_override: { amsterdam: 1 }
@@ -227,17 +228,17 @@ runner:
         - --override.amsterdam=1
     - id: nethermind
       client: nethermind
-      image: nethermindeth/nethermind:master
+      image: ethpandaops/nethermind:glamsterdam-devnet-6
       genesis_eip_override:
         timestamp: 1
-        eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037]
+        eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282]
       extra_args:
         - --Init.BaseDbPath=/data
         - --Blocks.ParallelExecution=true
         - --Blocks.ParallelExecutionBatchRead=true
     - id: besu
       client: besu
-      image: ethpandaops/besu:bal-devnet-7
+      image: ethpandaops/besu:glamsterdam-devnet-6
       genesis_fork_override:
         amsterdam: 1
       environment:
