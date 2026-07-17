@@ -322,6 +322,104 @@ func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal)
 	return payloadFields.BlockHash, gl, nil
 }
 
+// replayBundleLogEvery controls how often replayBundle logs progress.
+const replayBundleLogEvery = 500
+
+// replaySyncingRetries is how many times replayBundle re-sends a payload that
+// returns SYNCING/ACCEPTED before giving up (some clients apply blocks async).
+const replaySyncingRetries = 60
+
+// replayBundle replays newline-delimited JSON-RPC request lines (an
+// engine_newPayload + forkchoiceUpdated pair per block, in order) against the
+// engine port, asserting each returns VALID. It advances the booted client's
+// datadir to the bundle's head — the mechanism replay_from targets use to reach
+// the setup head without running the fill.
+func (c *engineClient) replayBundle(ctx context.Context, lines []string, log logrus.FieldLogger) error {
+	for i, line := range lines {
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		if err := json.Unmarshal([]byte(line), &req); err != nil {
+			return fmt.Errorf("parsing line %d: %w", i, err)
+		}
+
+		params := make([]any, len(req.Params))
+		for j := range req.Params {
+			params[j] = req.Params[j]
+		}
+
+		if err := c.replayCall(ctx, req.Method, params); err != nil {
+			return fmt.Errorf("line %d (%s): %w", i, req.Method, err)
+		}
+
+		if log != nil && (i+1)%replayBundleLogEvery == 0 {
+			log.WithField("lines", fmt.Sprintf("%d/%d", i+1, len(lines))).Info("Replaying bundle")
+		}
+	}
+
+	return nil
+}
+
+// replayCall sends one engine_newPayload / forkchoiceUpdated request and asserts
+// the returned payload status is VALID, retrying on SYNCING/ACCEPTED.
+func (c *engineClient) replayCall(ctx context.Context, method string, params []any) error {
+	for attempt := 0; ; attempt++ {
+		res, err := c.call(ctx, c.engineURL, true, method, params)
+		if err != nil {
+			return err
+		}
+
+		status, err := payloadStatusFromResult(method, res)
+		if err != nil {
+			return err
+		}
+
+		switch status {
+		case "VALID":
+			return nil
+		case "SYNCING", "ACCEPTED":
+			if attempt >= replaySyncingRetries {
+				return fmt.Errorf("payload still %s after %d retries", status, attempt)
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+		default:
+			return fmt.Errorf("payload rejected with status %q", status)
+		}
+	}
+}
+
+// payloadStatusFromResult extracts the payload status from a newPayload
+// (top-level status) or forkchoiceUpdated (payloadStatus.status) result.
+func payloadStatusFromResult(method string, result json.RawMessage) (string, error) {
+	if strings.HasPrefix(method, "engine_forkchoiceUpdated") {
+		var r struct {
+			PayloadStatus struct {
+				Status string `json:"status"`
+			} `json:"payloadStatus"`
+		}
+		if err := json.Unmarshal(result, &r); err != nil {
+			return "", fmt.Errorf("parsing forkchoiceUpdated result: %w", err)
+		}
+
+		return r.PayloadStatus.Status, nil
+	}
+
+	var r struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(result, &r); err != nil {
+		return "", fmt.Errorf("parsing newPayload result: %w", err)
+	}
+
+	return r.Status, nil
+}
+
 // bumpGasLimit builds empty blocks until the head's gas limit reaches target or
 // maxBlocks blocks have been built. Each block can raise the limit by at most
 // 1/1024, so a ramp from a small snapshot limit to the target takes many

@@ -7,26 +7,25 @@
 #
 #   1.   state_actor    OSAKA snapshot datadirs per client (seed pre-funded,
 #                       CREATE2 factory predeployed).
-#   1.5  pre_runs       filler (nethermind): boot on the snapshot, ramp the block
-#                       gas limit to 1 TGas via empty "gas-bump" blocks, build a
-#                       funding block, run fill-stateful --no-reset-between-tests
-#                       on test_setup_contracts (contracts persist), and RECORD a
-#                       replayable payload bundle (the gas-bump + funding + setup
-#                       engine_newPayloads) under output_dir/pre_run_bundle/.
-#   2.   eest_payloads  fill the benchmark (test_account_access) on the filler's
+#   1.5  pre_runs       nethermind FILLS: boot on the snapshot, ramp the block gas
+#                       limit to 1 TGas via empty "gas-bump" blocks, build a funding
+#                       block, run fill-stateful --no-reset-between-tests on
+#                       test_setup_contracts (contracts persist), and RECORD a
+#                       replayable payload bundle under output_dir/pre_run_bundle/.
+#                       geth/besu/reth/ethrex REPLAY (replay_from): each advances
+#                       its own snapshot by replaying nethermind's bundle — no
+#                       re-fill, and it works for non-filler clients (reth/ethrex)
+#                       too since replay uses only the engine API.
+#   2.   eest_payloads  fill the benchmark (test_account_access) on nethermind's
 #                       advanced datadir → fixtures anchored at the setup head.
-#   3.   runner         each client boots on its own RAW snapshot and the runner
-#                       replays the pre-run bundle first (advancing it to the
-#                       setup head), then the benchmark fixtures. The runner's
-#                       existing per-client launch handles besu/nethermind/reth/
-#                       ethrex boot, so all clients run the same setup. The bundle
-#                       + fixtures come from the filler named by
-#                       EEST_FIXTURES_RUNNER_SOURCE (nethermind default).
+#   3.   runner         each client boots directly from its OWN advanced datadir
+#                       (already at the setup head) and runs the benchmark fixtures
+#                       — no run-time replay. EEST_FIXTURES_RUNNER_SOURCE selects
+#                       which filler's benchmark fixtures the runner uses.
 #
-# Only geth/besu/nethermind can act as the fill-stateful filler; this config uses
-# nethermind, with the geth filler kept commented out as an alternative (switch
-# with EEST_FIXTURES_RUNNER_SOURCE=geth). Every client (including non-fillers) is
-# advanced at run time by replaying the selected bundle — no per-client datadirs.
+# Only geth/besu/nethermind can act as the fill-stateful filler, so nethermind
+# fills; every other client (including non-fillers reth/ethrex) is advanced at
+# BUILD time by replaying nethermind's bundle onto its snapshot (replay_from).
 #
 # pre_runs REQUIRES fill-stateful's --no-reset-between-tests flag, on
 # skylenet/execution-specs feat/fill-stateful-no-reset-between-tests (branched
@@ -47,7 +46,8 @@ global:
     EEST_REPO: https://github.com/skylenet/execution-specs.git
     EEST_REF: feat/fill-stateful-no-reset-between-tests
     # Which filler's pre-run bundle + fixtures the runner replays against every
-    # client. nethermind is built below; uncomment the geth filler to use geth.
+    # client. Only nethermind's benchmark fixtures are built below, so leave this
+    # as nethermind (add a geth eest_payloads target to switch).
     EEST_FIXTURES_RUNNER_SOURCE: nethermind
 
 builder:
@@ -102,8 +102,8 @@ builder:
       - { client: ethrex, output_dir: "${STATE_DIR}/ethrex" }
 
   ## Stage 1.5: pre-runs — advance the filler's snapshot + record its payload
-  ## bundle (nethermind by default; a geth filler is kept commented below). The
-  ## runner replays the bundle from EEST_FIXTURES_RUNNER_SOURCE against every client.
+  ## bundle. nethermind fills; geth/besu/reth/ethrex advance their snapshots by
+  ## replaying that bundle (replay_from) — so every client gets an advanced datadir.
   pre_runs:
     pull_policy: always
     eest_repo: ${EEST_REPO}
@@ -127,16 +127,11 @@ builder:
       tests:
         - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
     targets:
-      # Alternative geth filler — set EEST_FIXTURES_RUNNER_SOURCE=geth and
-      # uncomment to build/replay geth's bundle instead of nethermind's.
-      # - name: pre-run-geth
-      #   filler_client: geth
-      #   filler_image: ethpandaops/geth:glamsterdam-devnet-6
-      #   source_dir: ${STATE_DIR}/geth
-      #   filler_extra_args: [--override.amsterdam=1]
-      #   output_dir: ${PRERUN_DIR}/geth
-      # nethermind reads a parity chainspec; amsterdam is activated via the
-      # per-EIP genesis_eip_override (same set as the runner nethermind instance).
+      # Fill target: nethermind runs the full setup (gas-bump + funding +
+      # fill-stateful on test_setup_contracts) and records the replayable bundle
+      # under output_dir/pre_run_bundle/. It reads a parity chainspec; amsterdam is
+      # activated via genesis_eip_override (same set as the runner nethermind
+      # instance). Declared first so the replay targets below can reference it.
       - name: pre-run-nethermind
         filler_client: nethermind
         filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
@@ -144,6 +139,46 @@ builder:
         genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282] }
         output_dir: ${PRERUN_DIR}/nethermind
+      # Replay targets: advance each client's snapshot by replaying nethermind's
+      # recorded bundle (replay_from) onto it — no re-fill. This works for
+      # non-filler clients (reth/ethrex) too, since replay uses only the engine
+      # API. Each boots with its standard runner command + genesis; the runner then
+      # boots each client from its own advanced datadir (no run-time replay). Each
+      # client's boot flags mirror its runner instance below.
+      - name: pre-run-geth
+        filler_client: geth
+        filler_image: ethpandaops/geth:glamsterdam-devnet-6
+        source_dir: ${STATE_DIR}/geth
+        filler_extra_args: [--override.amsterdam=1]
+        replay_from: pre-run-nethermind
+        output_dir: ${PRERUN_DIR}/geth
+      - name: pre-run-besu
+        filler_client: besu
+        filler_image: ethpandaops/besu:glamsterdam-devnet-6
+        source_dir: ${STATE_DIR}/besu
+        genesis: ${STATE_DIR}/besu/besu-chainspec.json
+        genesis_fork_override: { amsterdam: 1 }
+        filler_extra_args: [--p2p-enabled=true]
+        replay_from: pre-run-nethermind
+        output_dir: ${PRERUN_DIR}/besu
+      - name: pre-run-reth
+        filler_client: reth
+        filler_image: ethpandaops/reth:glamsterdam-devnet-6
+        source_dir: ${STATE_DIR}/reth
+        genesis: ${STATE_DIR}/reth/chainspec.json
+        genesis_fork_override: { amsterdam: 1 }
+        filler_extra_args: [--engine.slow-block-threshold=0]
+        replay_from: pre-run-nethermind
+        output_dir: ${PRERUN_DIR}/reth
+      - name: pre-run-ethrex
+        filler_client: ethrex
+        filler_image: ethpandaops/ethrex:glamsterdam-devnet-6
+        source_dir: ${STATE_DIR}/ethrex
+        genesis: ${STATE_DIR}/ethrex/ethrex-genesis.json
+        genesis_fork_override: { amsterdam: 1 }
+        filler_extra_args: [--skip-genesis-validation, --no-precompile-cache]
+        replay_from: pre-run-nethermind
+        output_dir: ${PRERUN_DIR}/ethrex
 
   ## Stage 2: fill the benchmark on the filler's advanced datadir
   eest_payloads:
@@ -197,25 +232,28 @@ runner:
           fixtures_subdir: blockchain_tests_stateful_engine
           # Replay the selected filler's recorded pre-run bundle before the
           # fixtures, per client.
-          pre_runs:
-            local_fixtures_dir: ${PRERUN_DIR}/${EEST_FIXTURES_RUNNER_SOURCE}
+          #pre_runs:
+          #  local_fixtures_dir: ${PRERUN_DIR}/${EEST_FIXTURES_RUNNER_SOURCE}
             # fixtures_subdir defaults to "pre_run_bundle".
   client:
     config:
-      rollback_strategy: container-recreate
+      #rollback_strategy: container-recreate
+      rollback_strategy: none
       bootstrap_fcu: { enabled: true, max_retries: 20, backoff: 1s }
       genesis:
         nethermind: ${STATE_DIR}/nethermind/parity-chainspec.json
         besu: ${STATE_DIR}/besu/besu-chainspec.json
         reth: ${STATE_DIR}/reth/chainspec.json
         ethrex: ${STATE_DIR}/ethrex/ethrex-genesis.json
-    # Every client boots on its own RAW snapshot; the pre-run bundle advances it.
+    # Every client boots directly from its OWN advanced datadir (produced by its
+    # pre_runs fill/replay target), already at the setup head — so no run-time
+    # replay is needed (eest_fixtures.pre_runs stays off above).
     datadirs:
-      geth: { source_dir: "${STATE_DIR}/geth", method: copy }
-      besu: { source_dir: "${STATE_DIR}/besu", method: copy }
-      nethermind: { source_dir: "${STATE_DIR}/nethermind", method: copy }
-      reth: { source_dir: "${STATE_DIR}/reth", method: copy }
-      ethrex: { source_dir: "${STATE_DIR}/ethrex", method: copy }
+      geth: { source_dir: "${PRERUN_DIR}/geth", method: copy }
+      besu: { source_dir: "${PRERUN_DIR}/besu", method: copy }
+      nethermind: { source_dir: "${PRERUN_DIR}/nethermind", method: copy }
+      reth: { source_dir: "${PRERUN_DIR}/reth", method: copy }
+      ethrex: { source_dir: "${PRERUN_DIR}/ethrex", method: copy }
   instances:
     - id: geth
       client: geth

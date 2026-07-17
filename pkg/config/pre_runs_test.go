@@ -135,6 +135,51 @@ func TestValidatePreRuns(t *testing.T) {
 		c.Builder.PreRuns.Config.FundingAccounts = []PreRunFundingAccount{{}}
 		require.ErrorContains(t, c.validatePreRuns(), "address is required")
 	})
+
+	// A replay target advancing a non-filler (reth) from the geth fill target's
+	// bundle: valid, and the non-filler client is allowed (no fill needed).
+	withReplay := func(rf string) *Config {
+		c := base()
+		c.Builder.PreRuns.Targets = append(c.Builder.PreRuns.Targets, PreRunTarget{
+			Name: "pre-run-reth", FillerClient: "reth", FillerImage: "reth:latest",
+			SourceDir: "/state/reth", OutputDir: "/prerun/reth", ReplayFrom: rf,
+		})
+
+		return c
+	}
+
+	t.Run("valid replay from earlier target", func(t *testing.T) {
+		require.NoError(t, withReplay("pre-run-geth").validatePreRuns())
+	})
+
+	t.Run("valid replay from absolute path", func(t *testing.T) {
+		require.NoError(t, withReplay("/some/pre_run_bundle/pre-run.request").validatePreRuns())
+	})
+
+	t.Run("replay from relative path rejected", func(t *testing.T) {
+		require.ErrorContains(t, withReplay("some/relative.request").validatePreRuns(), "absolute path")
+	})
+
+	t.Run("replay from a replay target rejected", func(t *testing.T) {
+		c := withReplay("pre-run-geth")
+		c.Builder.PreRuns.Targets = append(c.Builder.PreRuns.Targets, PreRunTarget{
+			Name: "pre-run-besu", FillerClient: "besu", FillerImage: "besu:latest",
+			SourceDir: "/state/besu", OutputDir: "/prerun/besu", ReplayFrom: "pre-run-reth",
+		})
+		require.ErrorContains(t, c.validatePreRuns(), "is itself a replay target")
+	})
+
+	t.Run("replay from later target rejected", func(t *testing.T) {
+		// geth fill target references reth replay target declared after it — but
+		// reth is a replay target, so this trips the replay-target check first.
+		c := base()
+		c.Builder.PreRuns.Targets[0].ReplayFrom = "pre-run-reth"
+		c.Builder.PreRuns.Targets = append(c.Builder.PreRuns.Targets, PreRunTarget{
+			Name: "pre-run-reth", FillerClient: "reth", FillerImage: "reth:latest",
+			SourceDir: "/state/reth", OutputDir: "/prerun/reth", ReplayFrom: "pre-run-geth",
+		})
+		require.Error(t, c.validatePreRuns())
+	})
 }
 
 // TestRestorePreRunFillEnvKeyCasing verifies fill_env keys keep their original
@@ -192,19 +237,22 @@ func TestLoad_PreRunsExampleConfig(t *testing.T) {
 	require.NoError(t, cfg.ValidateBuilder())
 
 	require.NotNil(t, cfg.Builder.PreRuns)
-	// nethermind is the active filler (default EEST_FIXTURES_RUNNER_SOURCE); the
-	// geth filler is kept commented out as an alternative. It produces the pre-run
-	// bundle the runner replays against every client.
-	require.Len(t, cfg.Builder.PreRuns.Targets, 1)
-	assert.Equal(t, "nethermind", cfg.Builder.PreRuns.ResolveTarget(0).FillerClient)
+	// nethermind fills; geth/besu/reth/ethrex advance by replaying its bundle
+	// (replay_from), so the runner boots every client from its own advanced datadir.
+	require.Len(t, cfg.Builder.PreRuns.Targets, 5)
 
-	// The runner replays the pre-run bundle before the fixtures.
-	require.NotNil(t, cfg.Runner.Benchmark.Tests.Source.EESTFixtures)
-	assert.NotNil(t, cfg.Runner.Benchmark.Tests.Source.EESTFixtures.PreRuns,
-		"runner eest_fixtures.pre_runs is wired")
+	nm := cfg.Builder.PreRuns.ResolveTarget(0)
+	assert.Equal(t, "nethermind", nm.FillerClient)
+	assert.False(t, nm.IsReplay(), "the first target fills")
+
+	// Every other target replays nethermind's bundle.
+	for i := 1; i < len(cfg.Builder.PreRuns.Targets); i++ {
+		rt := cfg.Builder.PreRuns.ResolveTarget(i)
+		assert.Truef(t, rt.IsReplay(), "target %d (%s) is a replay target", i, rt.FillerClient)
+		assert.Equalf(t, "pre-run-nethermind", rt.ReplayFrom, "target %d replays nethermind", i)
+	}
 
 	// Env-expanded absolute output dirs and the gas-bump target resolve.
-	nm := cfg.Builder.PreRuns.ResolveTarget(0)
 	assert.True(t, filepath.IsAbs(nm.OutputDir), "output_dir expands to an absolute path")
 	assert.Equal(t, uint64(1_000_000_000_000), nm.ResolveGasLimit())
 	require.Len(t, nm.FundingAccounts, 1)

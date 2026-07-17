@@ -114,6 +114,16 @@ type PreRunTarget struct {
 	GenesisEIPOverride  *GenesisEIPOverride `yaml:"genesis_eip_override,omitempty" mapstructure:"genesis_eip_override"`
 	Force               bool                `yaml:"force,omitempty" mapstructure:"force"`
 
+	// ReplayFrom makes this a REPLAY target: instead of running the fill
+	// (gas-bump + funding + fill-stateful), it boots FillerClient on a copy of
+	// SourceDir and replays a recorded .request bundle onto it, so OutputDir
+	// becomes the advanced datadir. This works for non-filler clients
+	// (reth/ethrex) too, since replay needs only the engine API. It resolves two
+	// ways: a declared non-replay pre_runs target name (replays that target's
+	// output_dir/pre_run_bundle bundle) or an absolute path to a .request file or
+	// a pre_run_bundle directory.
+	ReplayFrom string `yaml:"replay_from,omitempty" mapstructure:"replay_from"`
+
 	// Hoistable fields (mirror PreRunDefaults).
 	FillerImage        string                       `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
 	Fork               string                       `yaml:"fork,omitempty" mapstructure:"fork"`
@@ -258,6 +268,12 @@ func (t *PreRunTarget) EffectiveName() string {
 	return t.FillerClient
 }
 
+// IsReplay reports whether the target advances its datadir by replaying a
+// recorded bundle (ReplayFrom set) instead of running the fill.
+func (t *PreRunTarget) IsReplay() bool {
+	return t.ReplayFrom != ""
+}
+
 // ResolveGasLimit returns the gas-bump target, defaulting to
 // DefaultPreRunGasLimit.
 func (t *PreRunTarget) ResolveGasLimit() uint64 {
@@ -399,6 +415,17 @@ func (c *Config) validatePreRuns() error {
 	seenOutputs := make(map[string]int, len(pr.Targets))
 	seenNames := make(map[string]int, len(pr.Targets))
 
+	// Pre-collect target names + replay-ness so a replay_from can reference an
+	// earlier non-replay target regardless of loop position.
+	targetIndex := make(map[string]int, len(pr.Targets))
+	targetIsReplay := make(map[string]bool, len(pr.Targets))
+
+	for i := range pr.Targets {
+		rt := pr.ResolveTarget(i)
+		targetIndex[rt.EffectiveName()] = i
+		targetIsReplay[rt.EffectiveName()] = rt.IsReplay()
+	}
+
 	for i := range pr.Targets {
 		t := pr.ResolveTarget(i)
 		prefix := fmt.Sprintf("builder.pre_runs.targets[%d]", i)
@@ -429,6 +456,17 @@ func (c *Config) validatePreRuns() error {
 					"(must be copy, overlayfs, fuse-overlayfs, zfs, direct, or schelk)",
 				prefix, t.DataDirMethod,
 			)
+		}
+
+		// Replay targets advance by replaying a bundle, not by filling. They can
+		// use any bootable client (incl. non-fillers) and need none of the
+		// fill-specific config below.
+		if t.IsReplay() {
+			if err := validateReplayFrom(&t, prefix, targetIndex, targetIsReplay, i); err != nil {
+				return err
+			}
+
+			continue
 		}
 
 		if _, ok := eestFillerSupportedClients[t.FillerClient]; !ok {
@@ -467,6 +505,47 @@ func (c *Config) validatePreRuns() error {
 				return fmt.Errorf("%s.funding_accounts[%d].address is required", prefix, j)
 			}
 		}
+	}
+
+	return nil
+}
+
+// validateReplayFrom validates a replay target's replay_from: it must name an
+// earlier non-replay pre_runs target, or be an absolute path to a .request file
+// or a pre_run_bundle directory.
+func validateReplayFrom(
+	t *PreRunTarget, prefix string, targetIndex map[string]int, targetIsReplay map[string]bool, i int,
+) error {
+	if t.FillerClient == "" {
+		return fmt.Errorf(
+			"%s.filler_client is required (the client to boot and advance by replay)", prefix,
+		)
+	}
+
+	if srcIdx, isTarget := targetIndex[t.ReplayFrom]; isTarget {
+		if targetIsReplay[t.ReplayFrom] {
+			return fmt.Errorf(
+				"%s.replay_from: %q is itself a replay target; replay from a fill target",
+				prefix, t.ReplayFrom,
+			)
+		}
+
+		if srcIdx >= i {
+			return fmt.Errorf(
+				"%s.replay_from: target %q must be declared before this target", prefix, t.ReplayFrom,
+			)
+		}
+
+		return nil
+	}
+
+	// Not a declared target name: treat replay_from as a filesystem path.
+	if !filepath.IsAbs(t.ReplayFrom) {
+		return fmt.Errorf(
+			"%s.replay_from %q is neither a declared pre_runs target nor an absolute path "+
+				"to a .request file or pre_run_bundle directory",
+			prefix, t.ReplayFrom,
+		)
 	}
 
 	return nil

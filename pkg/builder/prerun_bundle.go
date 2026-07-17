@@ -69,6 +69,27 @@ func writeRequestBundle(dir string, payloads []recordedPayload) (string, error) 
 	return path, nil
 }
 
+// readRequestLines reads a newline-delimited .request bundle file, returning its
+// non-empty JSON-RPC request lines (an engine_newPayload + forkchoiceUpdated
+// pair per block, in order).
+func readRequestLines(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	raw := strings.Split(string(data), "\n")
+	lines := make([]string, 0, len(raw))
+
+	for _, line := range raw {
+		if strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
+		}
+	}
+
+	return lines, nil
+}
+
 // payloadRequestLines returns the engine_newPayload + engine_forkchoiceUpdated
 // JSON-RPC request lines for one recorded payload (id used for both).
 func payloadRequestLines(p *recordedPayload, id int) (npLine, fcuLine string, err error) {

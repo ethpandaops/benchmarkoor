@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -521,7 +522,7 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 	streamCtx, streamCancel := context.WithCancel(ctx)
 	defer streamCancel()
 
-	fillerID, fillerIP, configCleanup, err := b.startFiller(ctx, streamCtx, log, t, spec, prepared.MountPath, jwtPath)
+	fillerID, fillerIP, configCleanup, err := b.startFiller(ctx, streamCtx, log, t, spec, fillerCommand(t, spec), prepared.MountPath, jwtPath)
 	if err != nil {
 		return err
 	}
@@ -632,6 +633,7 @@ func (b *EESTPayloadsBuilder) startFiller(
 	log logrus.FieldLogger,
 	t *config.EESTPayloadTarget,
 	spec client.Spec,
+	cmd []string,
 	dataMount, jwtPath string,
 ) (id string, ip string, cleanup func(), err error) {
 	configCleanup := func() {}
@@ -677,8 +679,6 @@ func (b *EESTPayloadsBuilder) startFiller(
 		return "", "", nil, fmt.Errorf("generating container name suffix: %w", err)
 	}
 
-	cmd := fillerCommand(t, spec)
-
 	containerSpec := &docker.ContainerSpec{
 		Name:        fmt.Sprintf("benchmarkoor-build-eest-filler-%s-%s", t.FillerClient, suffix),
 		Image:       t.FillerImage,
@@ -689,7 +689,11 @@ func (b *EESTPayloadsBuilder) startFiller(
 		// Run as the invoking host user so the state the filler writes into the
 		// copied datadir is owned by that user and can be cleaned up afterwards
 		// (the copy is made by the host user, not root).
-		User:   currentUserSpec(),
+		User: currentUserSpec(),
+		// A writable HOME: as the host user there is no home dir, and some clients
+		// (reth writes ~/.cache/reth/logs) abort on boot without one. Merge the
+		// client's own env last so it can override.
+		Env:    fillerBootEnv(spec),
 		Labels: b.labels(t),
 	}
 
@@ -1078,6 +1082,73 @@ func fillerCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
 	default:
 		return fillerGethCommand(t, spec)
 	}
+}
+
+// fillerReplayCommand builds the boot argv for a replay target. Replay needs
+// only the engine API (newPayload/forkchoiceUpdated), not fill-stateful's
+// testing namespace, so it uses the client's standard runner command
+// (spec.DefaultCommand — correct for every client, incl. non-fillers like
+// reth/ethrex) plus the genesis chain flag and any filler_extra_args.
+func fillerReplayCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
+	args := spec.DefaultCommand()
+
+	if t.Genesis != "" && spec.GenesisFlag() != "" {
+		args = append(args, spec.GenesisFlag()+spec.GenesisPath())
+	}
+
+	return overrideArgs(args, t.FillerExtraArgs)
+}
+
+// overrideArgs appends extra to base, first dropping any base arg whose flag is
+// also set in extra (matched by the "--flag=" prefix). This lets filler_extra_args
+// override the client's default command instead of duplicating a flag, which some
+// clients (besu) reject. Mirrors the runner's instance extra_args handling.
+func overrideArgs(base, extra []string) []string {
+	prefixes := make([]string, 0, len(extra))
+
+	for _, arg := range extra {
+		if idx := strings.Index(arg, "="); idx != -1 {
+			prefixes = append(prefixes, arg[:idx+1])
+		}
+	}
+
+	out := make([]string, 0, len(base)+len(extra))
+
+	for _, c := range base {
+		override := false
+
+		for _, p := range prefixes {
+			if strings.HasPrefix(c, p) {
+				override = true
+
+				break
+			}
+		}
+
+		if !override {
+			out = append(out, c)
+		}
+	}
+
+	return append(out, extra...)
+}
+
+// fillerBootEnv returns the container environment for a booted filler/replay
+// client. The container runs as the host user, which has no home directory, so
+// it sets a writable HOME + XDG cache under /tmp (reth aborts on boot otherwise,
+// writing ~/.cache/reth/logs). The client's own default env is merged last so it
+// can override.
+func fillerBootEnv(spec client.Spec) map[string]string {
+	env := map[string]string{
+		"HOME":            "/tmp",
+		"XDG_CACHE_HOME":  "/tmp/.cache",
+		"XDG_DATA_HOME":   "/tmp/.local/share",
+		"XDG_CONFIG_HOME": "/tmp/.config",
+	}
+
+	maps.Copy(env, spec.DefaultEnvironment())
+
+	return env
 }
 
 // fillerGethCommand builds the geth argv for the filler client: the http API
