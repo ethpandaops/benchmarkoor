@@ -192,9 +192,11 @@ func TestLoad_PreRunsExampleConfig(t *testing.T) {
 	require.NoError(t, cfg.ValidateBuilder())
 
 	require.NotNil(t, cfg.Builder.PreRuns)
-	// One filler builder (geth) produces the bundle; the runner replays it against
-	// every client, so no per-client pre-run targets are needed.
-	assert.Len(t, cfg.Builder.PreRuns.Targets, 1)
+	// nethermind is the active filler (default EEST_FIXTURES_RUNNER_SOURCE); the
+	// geth filler is kept commented out as an alternative. It produces the pre-run
+	// bundle the runner replays against every client.
+	require.Len(t, cfg.Builder.PreRuns.Targets, 1)
+	assert.Equal(t, "nethermind", cfg.Builder.PreRuns.ResolveTarget(0).FillerClient)
 
 	// The runner replays the pre-run bundle before the fixtures.
 	require.NotNil(t, cfg.Runner.Benchmark.Tests.Source.EESTFixtures)
@@ -202,10 +204,10 @@ func TestLoad_PreRunsExampleConfig(t *testing.T) {
 		"runner eest_fixtures.pre_runs is wired")
 
 	// Env-expanded absolute output dirs and the gas-bump target resolve.
-	geth := cfg.Builder.PreRuns.ResolveTarget(0)
-	assert.True(t, filepath.IsAbs(geth.OutputDir), "output_dir expands to an absolute path")
-	assert.Equal(t, uint64(1_000_000_000_000), geth.ResolveGasLimit())
-	require.Len(t, geth.FundingAccounts, 1)
+	nm := cfg.Builder.PreRuns.ResolveTarget(0)
+	assert.True(t, filepath.IsAbs(nm.OutputDir), "output_dir expands to an absolute path")
+	assert.Equal(t, uint64(1_000_000_000_000), nm.ResolveGasLimit())
+	require.Len(t, nm.FundingAccounts, 1)
 
 	// eest_payloads builds on the pre-run output.
 	require.NotNil(t, cfg.Builder.EESTPayloads)

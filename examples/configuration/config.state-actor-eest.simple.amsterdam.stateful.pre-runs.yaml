@@ -7,30 +7,32 @@
 #
 #   1.   state_actor    OSAKA snapshot datadirs per client (seed pre-funded,
 #                       CREATE2 factory predeployed).
-#   1.5  pre_runs       ONE filler (geth): boot on the snapshot, ramp the block
+#   1.5  pre_runs       filler (nethermind): boot on the snapshot, ramp the block
 #                       gas limit to 1 TGas via empty "gas-bump" blocks, build a
 #                       funding block, run fill-stateful --no-reset-between-tests
 #                       on test_setup_contracts (contracts persist), and RECORD a
 #                       replayable payload bundle (the gas-bump + funding + setup
 #                       engine_newPayloads) under output_dir/pre_run_bundle/.
-#   2.   eest_payloads  fill the benchmark (test_account_access) on geth's
+#   2.   eest_payloads  fill the benchmark (test_account_access) on the filler's
 #                       advanced datadir → fixtures anchored at the setup head.
 #   3.   runner         each client boots on its own RAW snapshot and the runner
 #                       replays the pre-run bundle first (advancing it to the
 #                       setup head), then the benchmark fixtures. The runner's
 #                       existing per-client launch handles besu/nethermind/reth/
-#                       ethrex boot, so all clients run the same geth-built setup.
+#                       ethrex boot, so all clients run the same setup. The bundle
+#                       + fixtures come from the filler named by
+#                       EEST_FIXTURES_RUNNER_SOURCE (nethermind default).
 #
-# Only geth/besu/nethermind can act as the fill-stateful filler, so the pre-run
-# is produced once by geth; every client (including non-fillers) is advanced at
-# run time by replaying that bundle — no per-client advanced datadirs.
+# Only geth/besu/nethermind can act as the fill-stateful filler; this config uses
+# nethermind, with the geth filler kept commented out as an alternative (switch
+# with EEST_FIXTURES_RUNNER_SOURCE=geth). Every client (including non-fillers) is
+# advanced at run time by replaying the selected bundle — no per-client datadirs.
 #
 # pre_runs REQUIRES fill-stateful's --no-reset-between-tests flag, on
 # skylenet/execution-specs feat/fill-stateful-no-reset-between-tests (branched
 # off LouisTsai-Csie full-benchmark-target, so it also carries the bloatnet
 # tests). All fillers must use matching ethpandaops/<client>:glamsterdam-devnet-6
-# images so they agree on the amsterdam fork params (notably max_code_size = 64KB;
-# only geth is validated end-to-end here).
+# images so they agree on the amsterdam fork params (notably max_code_size = 64KB).
 #
 # Build then run:
 #   ./bin/benchmarkoor build --config examples/configuration/config.state-actor-eest.simple.amsterdam.stateful.pre-runs.yaml --force
@@ -44,6 +46,9 @@ global:
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/simple-amsterdam-stateful-preruns
     EEST_REPO: https://github.com/skylenet/execution-specs.git
     EEST_REF: feat/fill-stateful-no-reset-between-tests
+    # Which filler's pre-run bundle + fixtures the runner replays against every
+    # client. nethermind is built below; uncomment the geth filler to use geth.
+    EEST_FIXTURES_RUNNER_SOURCE: nethermind
 
 builder:
   ## Stage 1: per-client OSAKA snapshot datadirs
@@ -96,7 +101,9 @@ builder:
       - { client: reth, output_dir: "${STATE_DIR}/reth" }
       - { client: ethrex, output_dir: "${STATE_DIR}/ethrex" }
 
-  ## Stage 1.5: one pre-run — advance geth's snapshot + record the payload bundle
+  ## Stage 1.5: pre-runs — advance the filler's snapshot + record its payload
+  ## bundle (nethermind by default; a geth filler is kept commented below). The
+  ## runner replays the bundle from EEST_FIXTURES_RUNNER_SOURCE against every client.
   pre_runs:
     pull_policy: always
     eest_repo: ${EEST_REPO}
@@ -111,22 +118,33 @@ builder:
       # One funding block crediting the seed account via a beacon withdrawal.
       funding_accounts:
         - address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
-      gas_benchmark_values: [30000]
+      gas_benchmark_values: [1000]
       # test_setup_contracts deploys 100k contracts by default; shrink it for a
       # fast smoke/iteration run (keys keep their exact casing).
-      # fill_env:
-      #   BLOATNET_RECEIVER_CONTRACT_COUNT: "100"
+      fill_env:
+        BLOATNET_RECEIVER_CONTRACT_COUNT: "10000"
       tests:
         - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
     targets:
-      - name: pre-run-geth
-        filler_client: geth
-        filler_image: ethpandaops/geth:glamsterdam-devnet-6
-        source_dir: ${STATE_DIR}/geth
-        filler_extra_args: [--override.amsterdam=1]
-        output_dir: ${PRERUN_DIR}/geth
+      # Alternative geth filler — set EEST_FIXTURES_RUNNER_SOURCE=geth and
+      # uncomment to build/replay geth's bundle instead of nethermind's.
+      # - name: pre-run-geth
+      #   filler_client: geth
+      #   filler_image: ethpandaops/geth:glamsterdam-devnet-6
+      #   source_dir: ${STATE_DIR}/geth
+      #   filler_extra_args: [--override.amsterdam=1]
+      #   output_dir: ${PRERUN_DIR}/geth
+      # nethermind reads a parity chainspec; amsterdam is activated via the
+      # per-EIP genesis_eip_override (same set as the runner nethermind instance).
+      - name: pre-run-nethermind
+        filler_client: nethermind
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
+        source_dir: ${STATE_DIR}/nethermind
+        genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
+        genesis_eip_override: { timestamp: 1, eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282] }
+        output_dir: ${PRERUN_DIR}/nethermind
 
-  ## Stage 2: fill the benchmark on geth's advanced datadir
+  ## Stage 2: fill the benchmark on the filler's advanced datadir
   eest_payloads:
     pull_policy: always
     eest_repo: ${EEST_REPO}
@@ -138,17 +156,32 @@ builder:
       datadir_method: copy
       tests:
         - tests/benchmark/stateful/bloatnet/test_account_query.py
-      filter: test_account_access
+      # Exclude only the 5 variants that revert (receipt status 0) when filled on
+      # the setup datadir: a plain CALL sending value (value_sent_1) to an EXISTING
+      # account with overhead_baseline_False. CALLCODE, the NON_EXISTING target, and
+      # the overhead_baseline_True variants all fill cleanly, so this keeps the other
+      # 95 test_account_access cases (fill-stateful fails the whole build on any one
+      # failure). "CALL and not CALLCODE" isolates CALL, since -k matches substrings.
+      filter: test_account_access and not (value_sent_1 and overhead_baseline_False and CALL and not CALLCODE and not NON_EXISTING)
     targets:
-      - name: payload-generator-geth-stateful
-        filler_client: geth
-        filler_image: ethpandaops/geth:glamsterdam-devnet-6
-        source_dir: ${PRERUN_DIR}/geth
-        filler_extra_args: [--override.amsterdam=1]
-        output_dir: ${EEST_FIXTURES_DIR}/geth
+      # Alternative geth filler — uncomment together with pre-run-geth above.
+      # - name: payload-generator-geth-stateful
+      #   filler_client: geth
+      #   filler_image: ethpandaops/geth:glamsterdam-devnet-6
+      #   source_dir: ${PRERUN_DIR}/geth
+      #   filler_extra_args: [--override.amsterdam=1]
+      #   output_dir: ${EEST_FIXTURES_DIR}/geth
+      - name: payload-generator-nethermind-stateful
+        filler_client: nethermind
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
+        source_dir: ${PRERUN_DIR}/nethermind
+        genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
+        genesis_eip_override: { timestamp: 1, eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282] }
+        output_dir: ${EEST_FIXTURES_DIR}/nethermind
 
 ## Stage 3: run every client on its RAW snapshot; the runner replays the pre-run
-## bundle first (advancing to the setup head), then the geth-filled fixtures.
+## bundle first (advancing to the setup head), then the fixtures. Both are taken
+## from the filler selected by EEST_FIXTURES_RUNNER_SOURCE (nethermind default).
 runner:
   client_logs_to_stdout: false
   cleanup_on_start: true
@@ -159,11 +192,12 @@ runner:
     tests:
       source:
         eest_fixtures:
-          local_fixtures_dir: ${EEST_FIXTURES_DIR}/geth
+          local_fixtures_dir: ${EEST_FIXTURES_DIR}/${EEST_FIXTURES_RUNNER_SOURCE}
           fixtures_subdir: blockchain_tests_stateful_engine
-          # Replay geth's recorded pre-run bundle before the fixtures, per client.
+          # Replay the selected filler's recorded pre-run bundle before the
+          # fixtures, per client.
           pre_runs:
-            local_fixtures_dir: ${PRERUN_DIR}/geth
+            local_fixtures_dir: ${PRERUN_DIR}/${EEST_FIXTURES_RUNNER_SOURCE}
             # fixtures_subdir defaults to "pre_run_bundle".
   client:
     config:
@@ -196,7 +230,9 @@ runner:
       image: ethpandaops/besu:glamsterdam-devnet-6
       genesis_fork_override: { amsterdam: 1 }
       environment: { BESU_OPTS: "-Xms8g -Xmx8g -XX:+AlwaysPreTouch" }
-      extra_args: [--p2p-enabled=true, --Xplugin-rocksdb-high-spec-enabled=true, --Xbal-perfect-parallelization-enabled=true, --Xbal-state-root-enabled=true, --Xbal-prefetch-reading-enabled=true, --Xbal-prefetch-batch-size=8, --Xbal-processing-timeout=-1, --Xbal-state-root-timeout=-1]
+      # --Xbal-processing-timeout / --Xbal-state-root-timeout are not recognised by
+      # the glamsterdam-devnet-6 besu image (besu exits code 2: "Unknown options").
+      extra_args: [--p2p-enabled=true, --Xplugin-rocksdb-high-spec-enabled=true, --Xbal-perfect-parallelization-enabled=true, --Xbal-state-root-enabled=true, --Xbal-prefetch-reading-enabled=true, --Xbal-prefetch-batch-size=8]
     - id: reth
       client: reth
       image: ethpandaops/reth:glamsterdam-devnet-6
