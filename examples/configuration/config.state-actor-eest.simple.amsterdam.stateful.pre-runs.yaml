@@ -119,10 +119,11 @@ builder:
       funding_accounts:
         - address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
       gas_benchmark_values: [1000]
-      # test_setup_contracts deploys 100k contracts by default; shrink it for a
-      # fast smoke/iteration run (keys keep their exact casing).
+      # test_setup_contracts deploys 100k contracts by default; cap it at 1000 to
+      # keep the pre-run setup fill tractable (keys keep their exact casing). Raise
+      # or remove for a full-scale run.
       fill_env:
-        BLOATNET_RECEIVER_CONTRACT_COUNT: "10000"
+        BLOATNET_RECEIVER_CONTRACT_COUNT: "1000"
       tests:
         - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
     targets:
