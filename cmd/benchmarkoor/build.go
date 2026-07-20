@@ -319,11 +319,27 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 
 	results := make([]buildResult, 0, len(targets))
 
+	// eest_payloads consumes the pre_runs output (its source_dir is a pre_runs
+	// target's output_dir), so a rebuilt pre-run invalidates any existing eest
+	// fixtures. If any pre_runs target actually builds (not skipped), force the
+	// eest_payloads targets to rebuild even when their output_dir looks populated.
+	// Targets run in declaration order (pre_runs before eest_payloads), so this is
+	// known by the time an eest_payloads target is reached.
+	preRunsBuilt := false
+
 	for _, sel := range targets {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+
+		force := buildForce
+		if sel.builder.Name() == builder.EESTPayloadsBuilderName && preRunsBuilt {
+			force = true
+
+			log.WithField("target", sel.info.Name).
+				Info("Forcing builder.eest_payloads rebuild (a builder.pre_runs target was rebuilt)")
 		}
 
 		log.WithFields(logrus.Fields{
@@ -333,7 +349,11 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 		}).Info("Building target")
 
 		start := time.Now()
-		skipped, buildErr := sel.builder.Build(ctx, sel.info.Name, builder.BuildOptions{Force: buildForce, RebuildOnDiff: buildRebuildOnDiff})
+		skipped, buildErr := sel.builder.Build(ctx, sel.info.Name, builder.BuildOptions{Force: force, RebuildOnDiff: buildRebuildOnDiff})
+
+		if sel.builder.Name() == builder.PreRunsBuilderName && !skipped && buildErr == nil {
+			preRunsBuilt = true
+		}
 
 		results = append(results, buildResult{
 			builder:   sel.builder.Name(),
