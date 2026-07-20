@@ -47,16 +47,26 @@ global:
   log_level: info
   env:
     # TODO: the existing OSAKA nethermind snapshot to advance + benchmark on.
-    SNAPSHOT_DIR: /schelk/snapshots/nethermind/jochemnet/24402727
+    # This MUST be the CHAIN column directory — the one that directly contains
+    # blocks/, code/, state/, headers/, flat/, ... — because benchmarkoor boots
+    # nethermind with --Init.BaseDbPath=/data and nethermind reads the columns
+    # directly under it. For an ethpandaops snapshot that is
+    # ".../<block>/nethermind_db/<chain>", e.g. ".../nethermind_db/mainnet"
+    # (pointing at ".../nethermind_db" instead boots at GENESIS — the columns are
+    # one level too deep).
+    SNAPSHOT_DIR: /schelk/snapshots/nethermind/jochemnet/24402727/nethermind_db/mainnet
     # nethermind's parity chainspec for this network's OSAKA schedule. amsterdam
     # is NOT scheduled here — genesis_eip_override adds it (below) at
     # AMSTERDAM_ACTIVATION_TS. May be a local absolute path OR an http(s) URL
     # (downloaded at build/run time); point it at your network's chainspec.
     NETHERMIND_CHAINSPEC: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/master/network-configs/devnet-3/metadata/chainspec.json
     # TODO: the unix timestamp at which AMSTERDAM activates. It MUST be just after
-    # the snapshot head's timestamp: the pre-run builds 2 osaka blocks (funding +
-    # deploy) at head_ts+1 and head_ts+2, then crosses to amsterdam. Set this to
-    # the snapshot head block's timestamp + 3 (a couple seconds of headroom).
+    # the snapshot's ACTUAL HEAD block timestamp: the pre-run builds 2 osaka blocks
+    # (funding + deploy) at head_ts+1 and head_ts+2, then crosses to amsterdam. Set
+    # this to head_ts + 3. Get head_ts from the running client, e.g.
+    #   eth_getBlockByNumber("latest") .timestamp
+    # (do NOT trust the snapshot's _snapshot_*.json — its block may lag the real
+    # head). If this is below the head ts, the very first block is already amsterdam.
     # The SAME value is used by all three stages so they agree on the fork.
     AMSTERDAM_ACTIVATION_TS: "1800000000"
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/nethermind-existing-snapshot
@@ -87,7 +97,22 @@ builder:
       # mounts (never recovers), so they can't wipe the advanced scratch.
       # Switch to "copy" for a small, plain local directory that fits on disk (it
       # copies source_dir → output_dir and boots on the copy).
+      #
+      # NOTE: in-place (schelk) boots the filler directly on the snapshot, which is
+      # owned by the snapshot's UID (e.g. an ethpandaops fetcher UID), so the
+      # container must be able to WRITE it. Until benchmarkoor runs the filler as
+      # the datadir's owner, run `benchmarkoor build` as root (sudo) for in-place.
       datadir_method: schelk
+      # Real nethermind snapshots store state in the FlatDb format (there is a
+      # `flat` column in the DB). Without --FlatDb.Enabled=true nethermind reads the
+      # hash-trie and every state node looks "missing" (MissingTrieNodeException on
+      # boot). These flags mirror how the snapshot's node was run.
+      filler_extra_args:
+        - --FlatDb.Enabled=true
+        - --FlatDb.CompactionOffset=0
+        - --Init.AutoDump=None
+        - --Merge.NewPayloadBlockProcessingTimeout=70000
+        - --Blocks.CachePrecompilesOnBlockProcessing=false
       # Ramp the block gas limit up to 1 TGas with empty blocks before filling.
       gas_limit: 1000000000000
       # One funding block crediting the fill-stateful seed account via a beacon
@@ -144,6 +169,14 @@ builder:
       # NOT wipe the pre-run's advancement. The fill mutates the scratch in place;
       # its per-test reset leaves it at the setup head for the runner.
       datadir_method: direct
+      # Same FlatDb flags as the pre-run — the eest filler boots on the same
+      # nethermind snapshot and needs to read its flat state.
+      filler_extra_args:
+        - --FlatDb.Enabled=true
+        - --FlatDb.CompactionOffset=0
+        - --Init.AutoDump=None
+        - --Merge.NewPayloadBlockProcessingTimeout=70000
+        - --Blocks.CachePrecompilesOnBlockProcessing=false
       tests:
         - tests/benchmark/stateful/bloatnet/test_account_query.py
       # Exclude only the 5 variants that revert (receipt status 0) when filled on
