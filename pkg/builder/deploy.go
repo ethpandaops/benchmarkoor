@@ -34,10 +34,10 @@ func runtimeBytecode(code string) []byte {
 const maxDeployRuntimeSize = 0xFFFF
 
 // deployInitcode wraps runtime bytecode in the minimal init code that returns it
-// verbatim: it CODECOPYs the trailing runtime into memory and RETURNs it. This
-// lets a plain CREATE transaction deploy arbitrary runtime bytecode (e.g. the
-// EIP-8282 request contracts) to a CREATE-derived address, so the caller can
-// point a fork's system-contract address params at it.
+// verbatim: it copies the trailing runtime into memory (CODECOPY) and returns it
+// (RETURN). This lets a plain CREATE transaction deploy arbitrary runtime
+// bytecode (e.g. the EIP-8282 request contracts) to a CREATE-derived address, so
+// the caller can point a fork's system-contract address params at it.
 //
 // The 14-byte prefix is:
 //
