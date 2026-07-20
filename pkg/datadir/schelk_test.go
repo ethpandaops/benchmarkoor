@@ -77,6 +77,22 @@ func TestEnsureSchelkMounted_NoMountPoint(t *testing.T) {
 	assert.Contains(t, err.Error(), "no mount_point")
 }
 
+func TestRestoreSchelk_NoMountPoint(t *testing.T) {
+	writeSchelkState(t, "")
+
+	err := RestoreSchelk(context.Background(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no mount_point")
+}
+
+func TestRestoreSchelk_NoStateFile(t *testing.T) {
+	t.Setenv("SCHELK_STATE", filepath.Join(t.TempDir(), "absent.json"))
+
+	err := RestoreSchelk(context.Background(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
 func TestSchelkPromote(t *testing.T) {
 	t.Run("invokes promote -y", func(t *testing.T) {
 		installFakeSchelk(t, `[ "$1" = promote ] && [ "$2" = "-y" ] && exit 0 || exit 3`)

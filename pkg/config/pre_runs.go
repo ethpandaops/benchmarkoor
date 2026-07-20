@@ -1,10 +1,12 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -98,6 +100,10 @@ type PreRunDefaults struct {
 	// FundingAccounts are credited in the funding block. Empty means the
 	// funding block is skipped.
 	FundingAccounts []PreRunFundingAccount `yaml:"funding_accounts,omitempty" mapstructure:"funding_accounts"`
+	// Predeploy, when set, deploys contracts on a pre-fork before the target fork
+	// activates (see PreRunPredeploy). Requires genesis_eip_override to schedule
+	// the target fork's activation timestamp.
+	Predeploy *PreRunPredeploy `yaml:"predeploy,omitempty" mapstructure:"predeploy"`
 }
 
 // PreRunTarget is one pre-run: advance a snapshot datadir by gas-bumping,
@@ -140,6 +146,7 @@ type PreRunTarget struct {
 	GasLimit           *uint64                      `yaml:"gas_limit,omitempty" mapstructure:"gas_limit"`
 	GasBumpMaxBlocks   *int                         `yaml:"gas_bump_max_blocks,omitempty" mapstructure:"gas_bump_max_blocks"`
 	FundingAccounts    []PreRunFundingAccount       `yaml:"funding_accounts,omitempty" mapstructure:"funding_accounts"`
+	Predeploy          *PreRunPredeploy             `yaml:"predeploy,omitempty" mapstructure:"predeploy"`
 }
 
 // BuildsFillImage reports whether benchmarkoor should build the fill image
@@ -255,6 +262,10 @@ func (p *PreRunsConfig) ResolveTarget(i int) PreRunTarget {
 		t.FundingAccounts = g.FundingAccounts
 	}
 
+	if t.Predeploy == nil {
+		t.Predeploy = g.Predeploy
+	}
+
 	return t
 }
 
@@ -299,6 +310,16 @@ func (t *PreRunTarget) ResolveGasBumpMaxBlocks() int {
 func (a *PreRunFundingAccount) ResolveAmountGwei() uint64 {
 	if a.AmountGwei != nil {
 		return *a.AmountGwei
+	}
+
+	return DefaultPreRunFundingAmountGwei
+}
+
+// ResolveDeployerFundGwei returns the deployer's funding-block withdrawal amount
+// in gwei, defaulting to DefaultPreRunFundingAmountGwei.
+func (p *PreRunPredeploy) ResolveDeployerFundGwei() uint64 {
+	if p.DeployerFundGwei != nil {
+		return *p.DeployerFundGwei
 	}
 
 	return DefaultPreRunFundingAmountGwei
@@ -505,6 +526,92 @@ func (c *Config) validatePreRuns() error {
 				return fmt.Errorf("%s.funding_accounts[%d].address is required", prefix, j)
 			}
 		}
+
+		if t.Predeploy != nil {
+			if err := validatePredeploy(&t, prefix); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// validatePredeploy enforces the builder.pre_runs predeploy rules: a pre_fork,
+// a valid deployer key, at least one valid-hex contract, and a
+// genesis_eip_override that schedules the target fork at a positive activation
+// timestamp the deploy blocks precede.
+func validatePredeploy(t *PreRunTarget, prefix string) error {
+	p := t.Predeploy
+
+	if p.PreFork == "" {
+		return fmt.Errorf(
+			"%s.predeploy.pre_fork is required (the fork the snapshot boots at, e.g. osaka)", prefix,
+		)
+	}
+
+	if err := validateHexPrivateKey(p.DeployerKey); err != nil {
+		return fmt.Errorf("%s.predeploy.deployer_key: %w", prefix, err)
+	}
+
+	if len(p.Contracts) == 0 {
+		return fmt.Errorf("%s.predeploy.contracts is required (at least one contract to deploy)", prefix)
+	}
+
+	for j := range p.Contracts {
+		if err := validateHexBytecode(p.Contracts[j].Code); err != nil {
+			return fmt.Errorf("%s.predeploy.contracts[%d].code: %w", prefix, j, err)
+		}
+	}
+
+	if t.GenesisEIPOverride == nil || len(t.GenesisEIPOverride.EIPs) == 0 {
+		return fmt.Errorf(
+			"%s.predeploy requires genesis_eip_override (the target fork's EIPs, "+
+				"scheduled at the activation timestamp the deploy blocks precede)", prefix,
+		)
+	}
+
+	if t.GenesisEIPOverride.Timestamp == 0 {
+		return fmt.Errorf(
+			"%s.predeploy requires genesis_eip_override.timestamp > 0 "+
+				"(the target-fork activation time; the pre-fork deploy blocks must precede it)", prefix,
+		)
+	}
+
+	if p.DeployerFundGwei != nil && *p.DeployerFundGwei == 0 {
+		return fmt.Errorf("%s.predeploy.deployer_fund_gwei must be > 0 when set", prefix)
+	}
+
+	return nil
+}
+
+// validateHexPrivateKey checks s is a 0x-optional 32-byte hex private key.
+func validateHexPrivateKey(s string) error {
+	h := strings.TrimPrefix(s, "0x")
+	if len(h) != 64 {
+		return fmt.Errorf("expected a 32-byte (64 hex char) private key, got %d hex chars", len(h))
+	}
+
+	if _, err := hex.DecodeString(h); err != nil {
+		return fmt.Errorf("not valid hex: %w", err)
+	}
+
+	return nil
+}
+
+// validateHexBytecode checks s is non-empty, 0x-optional, even-length hex.
+func validateHexBytecode(s string) error {
+	h := strings.TrimPrefix(s, "0x")
+	if len(h) == 0 {
+		return fmt.Errorf("must be non-empty runtime bytecode")
+	}
+
+	if len(h)%2 != 0 {
+		return fmt.Errorf("odd number of hex digits (%d)", len(h))
+	}
+
+	if _, err := hex.DecodeString(h); err != nil {
+		return fmt.Errorf("not valid hex: %w", err)
 	}
 
 	return nil

@@ -183,6 +183,33 @@ func (b *PreRunsBuilder) checkInputs(ctx context.Context, t *config.PreRunTarget
 	return nil
 }
 
+// restoreSchelkSource restores the schelk scratch backing sourceDir to its
+// virgin baseline and mounts it (recover + mount), so a pre-run always advances
+// from a clean snapshot rather than whatever a prior run left behind. It errors
+// when sourceDir is not under the schelk mount (a datadir_method: schelk
+// misconfiguration).
+func (b *PreRunsBuilder) restoreSchelkSource(ctx context.Context, log logrus.FieldLogger, sourceDir string) error {
+	_, isSchelk, err := datadir.SchelkDir(sourceDir)
+	if err != nil {
+		return fmt.Errorf("checking schelk state for source_dir %q: %w", sourceDir, err)
+	}
+
+	if !isSchelk {
+		return fmt.Errorf(
+			"datadir_method is schelk but source_dir %q is not under the schelk mount point", sourceDir,
+		)
+	}
+
+	log.WithField("source_dir", sourceDir).
+		Info("Restoring schelk source to virgin baseline (recover + mount) before advancing")
+
+	if err := datadir.RestoreSchelk(ctx, log); err != nil {
+		return fmt.Errorf("restoring schelk source %q: %w", sourceDir, err)
+	}
+
+	return nil
+}
+
 // preRunToEESTTarget projects a PreRunTarget onto an EESTPayloadTarget so the
 // reused filler-boot / fill helpers (which operate on EESTPayloadTarget) apply.
 // The filler boots on outputDir (already populated with a copy of the snapshot)
@@ -258,12 +285,20 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 	// the pre-run exports a replayable payload bundle.
 	bf.ec.enableRecording()
 
-	if _, err := bf.ec.bumpGasLimit(ctx, t.ResolveGasLimit(), t.ResolveGasBumpMaxBlocks(), log); err != nil {
-		return err
-	}
+	if t.Predeploy != nil {
+		// Fork-crossing flow: fund (incl. the deployer) and deploy contracts on
+		// the pre-fork FIRST, then gas-bump — which crosses into the target fork.
+		if err := b.buildPredeployBlocks(ctx, log, bf, t); err != nil {
+			return err
+		}
+	} else {
+		if _, err := bf.ec.bumpGasLimit(ctx, t.ResolveGasLimit(), t.ResolveGasBumpMaxBlocks(), log); err != nil {
+			return err
+		}
 
-	if _, err := bf.ec.fundingBlock(ctx, t.FundingAccounts, log); err != nil {
-		return err
+		if _, err := bf.ec.fundingBlock(ctx, t.FundingAccounts, log); err != nil {
+			return err
+		}
 	}
 
 	snapshotHash, err := getLatestBlockHash(ctx, bf.ip, bf.spec.RPCPort())
@@ -285,6 +320,57 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 	}
 
 	log.Info("Pre-run complete; stopping filler to flush datadir")
+
+	return nil
+}
+
+// buildPredeployBlocks runs the fork-crossing block sequence for a predeploy
+// target: a pre-fork funding block that credits the configured accounts plus the
+// deployer, a pre-fork deploy block carrying the CREATE transactions, then the
+// gas-bump — whose blocks cross into the target fork once their timestamps reach
+// the genesis_eip_override activation timestamp. The subsequent fill then runs
+// on the target fork.
+func (b *PreRunsBuilder) buildPredeployBlocks(
+	ctx context.Context, log logrus.FieldLogger, bf *bootedFiller, t *config.PreRunTarget,
+) error {
+	p := t.Predeploy
+
+	key, deployerAddr, err := parseDeployerKey(p.DeployerKey)
+	if err != nil {
+		return err
+	}
+
+	// Fund the configured accounts AND the deployer, all on the pre-fork.
+	fund := p.ResolveDeployerFundGwei()
+	accounts := append([]config.PreRunFundingAccount{}, t.FundingAccounts...)
+	accounts = append(accounts, config.PreRunFundingAccount{
+		Address: deployerAddr.Hex(), AmountGwei: &fund,
+	})
+
+	if _, err := bf.ec.fundingBlock(ctx, accounts, log); err != nil {
+		return err
+	}
+
+	// Deploy the contracts on the pre-fork, before the target fork activates.
+	chainID, err := bf.ec.chainID(ctx)
+	if err != nil {
+		return fmt.Errorf("fetching chain id for deploy txs: %w", err)
+	}
+
+	runtimes := make([][]byte, len(p.Contracts))
+	for i := range p.Contracts {
+		runtimes[i] = runtimeBytecode(p.Contracts[i].Code)
+	}
+
+	if _, err := bf.ec.deployContracts(ctx, key, chainID, runtimes, log); err != nil {
+		return err
+	}
+
+	// Gas-bump — crosses into the target fork once block timestamps reach the
+	// genesis_eip_override activation timestamp.
+	if _, err := bf.ec.bumpGasLimit(ctx, t.ResolveGasLimit(), t.ResolveGasBumpMaxBlocks(), log); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -336,6 +422,17 @@ func (b *PreRunsBuilder) bootFiller(
 
 	if err = b.eest.mgr.EnsureNetwork(ctx, EESTBuildNetwork); err != nil {
 		return nil, fmt.Errorf("ensuring network %q: %w", EESTBuildNetwork, err)
+	}
+
+	// A schelk pre-run advances from a clean baseline: restore the source scratch
+	// to virgin (recover) and mount it before copying it out. This is
+	// pre-run-specific — the shared source-mount path (ensureSourceSchelkMounted,
+	// used by eest_payloads too) only ever mounts, never recovers, so it can't
+	// wipe an already-advanced volume.
+	if t.DataDirMethod == "schelk" {
+		if err = b.restoreSchelkSource(ctx, log, t.SourceDir); err != nil {
+			return nil, err
+		}
 	}
 
 	// Copy the snapshot datadir into output_dir; the filler boots on it in place
@@ -429,6 +526,13 @@ func (b *PreRunsBuilder) bootFiller(
 	ec, err := newEngineClient(fillerIP, spec.RPCPort(), spec.EnginePort(), b.cfg.JWT, t.Fork)
 	if err != nil {
 		return nil, err
+	}
+
+	// A predeploy target builds a chain that crosses a fork boundary: pre-fork
+	// funding + deploy blocks, then the target fork activates (at the
+	// genesis_eip_override timestamp) for the gas-bump and fill.
+	if t.Predeploy != nil && t.GenesisEIPOverride != nil {
+		ec = ec.withCrossing(t.Predeploy.PreFork, t.GenesisEIPOverride.Timestamp)
 	}
 
 	return &bootedFiller{

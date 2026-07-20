@@ -1,0 +1,207 @@
+# PRE-RUN payload bundle + EEST STATEFUL payloads on an EXISTING (OSAKA) snapshot
+# dir — nethermind only, crossing OSAKA → AMSTERDAM at build time.
+#
+# Sibling of config.state-actor-eest.simple.amsterdam.stateful.pre-runs.yaml, but
+# with NO state_actor stage: instead of synthesising a snapshot, this advances an
+# existing nethermind snapshot directory (SNAPSHOT_DIR) — e.g. a schelk-managed
+# snapshot of a real OSAKA network. The snapshot pre-dates amsterdam, so the
+# amsterdam system contracts (EIP-8282 builder execution requests) are NOT yet
+# present. state_actor is what predeploys them for synthetic snapshots; here the
+# pre_runs stage deploys them itself, on osaka, before amsterdam activates:
+#
+#   1.5  pre_runs       nethermind boots on SNAPSHOT_DIR (still OSAKA). On osaka it
+#                       (a) builds a funding block crediting the fill seed AND the
+#                       deployer, then (b) deploys the EIP-8282 request contracts
+#                       via CREATE txs from the deployer. It then gas-bumps to
+#                       1 TGas and fills test_setup_contracts — those blocks cross
+#                       into AMSTERDAM once their timestamp reaches
+#                       AMSTERDAM_ACTIVATION_TS. The advanced datadir + a
+#                       replayable payload bundle land under output_dir.
+#   2.   eest_payloads  fill the benchmark (test_account_access) on nethermind's
+#                       advanced (amsterdam) datadir → fixtures at the setup head.
+#   3.   runner         nethermind boots from its advanced datadir and runs the
+#                       benchmark fixtures.
+#
+# ┌─ IMPORTANT: EIP-8282 fixed-address system-call check ───────────────────────┐
+# │ nethermind HARDCODES the EIP-8282 request-contract addresses (they are NOT a │
+# │ chainspec param, unlike EIP-7002/7251), so the deploy below lands the        │
+# │ bytecode at the DEPLOYER's CREATE addresses, NOT at the hardcoded ones. On   │
+# │ amsterdam, nethermind's end-of-block 8282 system call targets the hardcoded  │
+# │ addresses and INVALIDATES any block whose target has no code — so every      │
+# │ amsterdam block here (gas-bump, fill) is rejected UNLESS you run a nethermind │
+# │ build that relaxes/skips that fixed-address check (feature flag TBD with the  │
+# │ client teams). The osaka funding + deploy blocks succeed regardless; the      │
+# │ amsterdam stages depend on that relaxed build.                                │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# Set the TODO values below for your network + snapshot before running on the
+# server that holds SNAPSHOT_DIR.
+#
+# Build then run:
+#   ./bin/benchmarkoor build --config examples/configuration/config.existing-snapshot-eest.simple.amsterdam.stateful.pre-runs.yaml --force
+#   ./bin/benchmarkoor run   --config examples/configuration/config.existing-snapshot-eest.simple.amsterdam.stateful.pre-runs.yaml
+#
+global:
+  log_level: info
+  env:
+    # TODO: the existing OSAKA nethermind snapshot to advance + benchmark on.
+    SNAPSHOT_DIR: /schelk/snapshots/nethermind/jochemnet/24402727
+    # TODO: nethermind's parity chainspec for this network's OSAKA schedule.
+    # amsterdam is NOT scheduled here — genesis_eip_override adds it (below) at
+    # AMSTERDAM_ACTIVATION_TS. nethermind needs the chainspec to boot; it is
+    # usually NOT inside the snapshot dir.
+    NETHERMIND_CHAINSPEC: /schelk/snapshots/nethermind/jochemnet/chainspec.json
+    # TODO: the unix timestamp at which AMSTERDAM activates. It MUST be just after
+    # the snapshot head's timestamp: the pre-run builds 2 osaka blocks (funding +
+    # deploy) at head_ts+1 and head_ts+2, then crosses to amsterdam. Set this to
+    # the snapshot head block's timestamp + 3 (a couple seconds of headroom).
+    # The SAME value is used by all three stages so they agree on the fork.
+    AMSTERDAM_ACTIVATION_TS: "1800000000"
+    PRERUN_DIR: /tmp/benchmarkoor/pre-runs/nethermind-existing-snapshot
+    EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/nethermind-existing-snapshot
+    EEST_REPO: https://github.com/skylenet/execution-specs.git
+    EEST_REF: feat/fill-stateful-no-reset-between-tests
+
+builder:
+  ## Stage 1.5: pre-run — deploy the 8282 contracts on osaka, cross to amsterdam,
+  ## advance the snapshot + record a replayable payload bundle.
+  pre_runs:
+    pull_policy: always
+    eest_repo: ${EEST_REPO}
+    eest_ref: ${EEST_REF}
+    config:
+      # Target (fill) fork. The pre-fork the snapshot boots at is under predeploy
+      # (on the target below). amsterdam activation + predeploy live on the target,
+      # since genesis_eip_override is a per-target field (as in the state-actor
+      # sibling), not a hoistable default.
+      fork: amsterdam
+      rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+      # SNAPSHOT_DIR lives under a schelk-managed mount. With schelk, the pre-run
+      # runs `schelk restore` (recover to the virgin baseline + mount) on the
+      # source before advancing, so it always starts from a clean snapshot. It
+      # never promotes, and the shared source-mount path used by later stages only
+      # mounts (never recovers), so eest below can't wipe the advanced volume.
+      # Switch to "copy" for a small, plain local directory (no recover).
+      # NOTE: the pre-run materialises output_dir as a full copy of the snapshot
+      # regardless of method; for a very large snapshot budget disk/time for that.
+      datadir_method: schelk
+      # Ramp the block gas limit up to 1 TGas with empty blocks before filling.
+      gas_limit: 1000000000000
+      # One funding block crediting the fill-stateful seed account via a beacon
+      # withdrawal (rpc_seed_key 0x..01 -> this address). The deployer (0x..02) is
+      # funded automatically alongside it.
+      funding_accounts:
+        - address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
+      gas_benchmark_values: [1000]
+      # test_setup_contracts deploys 100k contracts by default; cap it at 1000 to
+      # keep the pre-run setup fill tractable. Raise or remove for a full-scale run.
+      fill_env:
+        BLOATNET_RECEIVER_CONTRACT_COUNT: "1000"
+      tests:
+        - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
+    targets:
+      - name: pre-run-nethermind
+        filler_client: nethermind
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
+        source_dir: ${SNAPSHOT_DIR}
+        genesis: ${NETHERMIND_CHAINSPEC}
+        output_dir: ${PRERUN_DIR}/nethermind
+        # amsterdam is scheduled at the crossing timestamp (not from genesis) so
+        # the osaka funding + deploy blocks precede it. Same EIP set as the
+        # state-actor sibling + the eest target + the runner instance below.
+        genesis_eip_override:
+          timestamp: ${AMSTERDAM_ACTIVATION_TS}
+          eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282]
+        # Deploy the EIP-8282 builder-execution-request contracts on OSAKA, before
+        # amsterdam activates (a strict client rejects amsterdam blocks whose 8282
+        # system contracts have no code). The deployer is funded in the funding
+        # block; its contracts land at CREATE(deployer, 0) and CREATE(deployer, 1)
+        # (logged at build time). See the fixed-address caveat in the header.
+        predeploy:
+          pre_fork: osaka
+          deployer_key: "0x0000000000000000000000000000000000000000000000000000000000000002"
+          contracts:
+            # eip8282-builder-deposit-requests (devnet-6 bytecode).
+            - code: "0x3373fffffffffffffffffffffffffffffffffffffffe146101065760115f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461023457600182026001905f5b5f82111560695781019083028483029004916001019190604e565b90939004925050503660b814608957366102345734610234575f5260205ff35b8034106102345760383567ffffffffffffffff1680633b9aca001161023457633b9aca00029034031061023457600154600101600155600354806006026004015f358155600101602035815560010160403581556001016060358155600101608035815560010160a035905560b85f5f3760b85fa0600101600355005b600354600254808203806101001161011d57506101005b5f5b8181146101c3578281016006026004018160b8028154815260200181600101548152602001816002015480825260401c67ffffffffffffffff16816010018160381c81600701538160301c81600601538160281c81600501538160201c81600401538160181c81600301538160101c81600201538160081c81600101535360200181600301548152602001816004015481526020019060050154905260010161011f565b91018092146101d557906002556101e0565b90505f6002555f6003555b5f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff141561020d57505f5b6001546020828201116102225750505f610228565b01602090035b5f555f60015560b8025ff35b5f5ffd"
+            # eip8282-builder-exit-requests (devnet-6 bytecode).
+            - code: "0x3373fffffffffffffffffffffffffffffffffffffffe1460cb5760115f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461018857600182026001905f5b5f82111560685781019083028483029004916001019190604d565b909390049250505036603014608857366101885734610188575f5260205ff35b341061018857600154600101600155600354806003026004013381556001015f35815560010160203590553360601b5f5260305f60143760445fa0600101600355005b6003546002548082038060101160df575060105b5f5b8181146101175782810160030260040181604402815460601b8152601401816001015481526020019060020154905260010160e1565b91018092146101295790600255610134565b90505f6002555f6003555b5f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff141561016157505f5b6001546002828201116101765750505f61017c565b01600290035b5f555f6001556044025ff35b5f5ffd"
+
+  ## Stage 2: fill the benchmark on nethermind's advanced (amsterdam) datadir.
+  eest_payloads:
+    pull_policy: always
+    eest_repo: ${EEST_REPO}
+    eest_ref: ${EEST_REF}
+    config:
+      fork: amsterdam
+      rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+      gas_benchmark_values: [10]
+      # source_dir here is the pre-run OUTPUT (a plain dir under PRERUN_DIR, NOT
+      # under the schelk mount). Boot the filler DIRECTLY on it (no copy), so the
+      # fill just continues from where the pre-run left off. Because the source is
+      # not a schelk path, no schelk recover/mount happens at this stage.
+      #
+      # NOTE: direct mutates the pre-run output in place. The eest fill resets to
+      # the setup head between tests, so it normally leaves the datadir at that
+      # head — but if you re-run this stage, or the runner (which also reads
+      # PRERUN_DIR) needs a pristine setup head, switch this back to `copy` or give
+      # the runner its own copy.
+      datadir_method: direct
+      tests:
+        - tests/benchmark/stateful/bloatnet/test_account_query.py
+      # Exclude only the 5 variants that revert (receipt status 0) when filled on
+      # the setup datadir: a plain CALL sending value (value_sent_1) to an EXISTING
+      # account with overhead_baseline_False. CALLCODE, the NON_EXISTING target, and
+      # the overhead_baseline_True variants all fill cleanly, so this keeps the other
+      # 95 test_account_access cases. "CALL and not CALLCODE" isolates CALL, since -k
+      # matches substrings.
+      filter: test_account_access and not (value_sent_1 and overhead_baseline_False and CALL and not CALLCODE and not NON_EXISTING)
+    targets:
+      - name: payload-generator-nethermind-stateful
+        filler_client: nethermind
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
+        source_dir: ${PRERUN_DIR}/nethermind
+        genesis: ${NETHERMIND_CHAINSPEC}
+        output_dir: ${EEST_FIXTURES_DIR}/nethermind
+        # Same amsterdam schedule as the pre-run so this boot recognises the
+        # advanced datadir head (built post-activation) as amsterdam.
+        genesis_eip_override:
+          timestamp: ${AMSTERDAM_ACTIVATION_TS}
+          eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282]
+
+## Stage 3: run nethermind from its advanced datadir (already at the setup head).
+runner:
+  client_logs_to_stdout: false
+  cleanup_on_start: true
+  benchmark:
+    results_dir: ./results
+    generate_results_index: true
+    generate_suite_stats: true
+    tests:
+      source:
+        eest_fixtures:
+          local_fixtures_dir: ${EEST_FIXTURES_DIR}/nethermind
+          fixtures_subdir: blockchain_tests_stateful_engine
+  client:
+    config:
+      rollback_strategy: none
+      bootstrap_fcu: { enabled: true, max_retries: 20, backoff: 1s }
+      genesis:
+        nethermind: ${NETHERMIND_CHAINSPEC}
+    # nethermind boots on its advanced datadir (the pre-run output), already at
+    # the setup head, and replays the benchmark fixtures on it. method: direct
+    # boots in place (no copy), continuing from where the build left off.
+    # NOTE: direct mutates PRERUN_DIR in place, so a run advances it — to re-run
+    # cleanly, rebuild the pre-run (which recover+mounts a fresh baseline).
+    # Switch to `copy` to start each run from a pristine copy of the setup head.
+    datadirs:
+      nethermind: { source_dir: "${PRERUN_DIR}/nethermind", method: direct }
+  instances:
+    - id: nethermind
+      client: nethermind
+      image: ethpandaops/nethermind:glamsterdam-devnet-6
+      # Same amsterdam schedule as the build stages so the datadir head is
+      # recognised as amsterdam at run time.
+      genesis_eip_override:
+        timestamp: ${AMSTERDAM_ACTIVATION_TS}
+        eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282]
+      extra_args: [--Init.BaseDbPath=/data, --Blocks.ParallelExecution=true, --Blocks.ParallelExecutionBatchRead=true]

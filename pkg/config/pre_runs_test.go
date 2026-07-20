@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -179,6 +180,82 @@ func TestValidatePreRuns(t *testing.T) {
 			SourceDir: "/state/reth", OutputDir: "/prerun/reth", ReplayFrom: "pre-run-geth",
 		})
 		require.Error(t, c.validatePreRuns())
+	})
+
+	// withPredeploy returns a valid predeploy config, mutated by fn, for the
+	// osaka→amsterdam fork-crossing deployment.
+	validKey := "0x" + strings.Repeat("11", 32)
+	withPredeploy := func(fn func(*PreRunPredeploy, *PreRunTarget)) *Config {
+		c := base()
+		tgt := &c.Builder.PreRuns.Targets[0]
+		tgt.GenesisEIPOverride = &GenesisEIPOverride{Timestamp: 1_800_000_000, EIPs: []uint64{7928, 8282}}
+		p := &PreRunPredeploy{
+			PreFork:     "osaka",
+			DeployerKey: validKey,
+			Contracts:   []PreRunPredeployContract{{Code: "0x60006000fd"}},
+		}
+		if fn != nil {
+			fn(p, tgt)
+		}
+
+		tgt.Predeploy = p
+
+		return c
+	}
+
+	t.Run("valid predeploy", func(t *testing.T) {
+		require.NoError(t, withPredeploy(nil).validatePreRuns())
+	})
+
+	t.Run("predeploy without pre_fork rejected", func(t *testing.T) {
+		c := withPredeploy(func(p *PreRunPredeploy, _ *PreRunTarget) { p.PreFork = "" })
+		require.ErrorContains(t, c.validatePreRuns(), "pre_fork is required")
+	})
+
+	t.Run("predeploy with bad deployer key rejected", func(t *testing.T) {
+		c := withPredeploy(func(p *PreRunPredeploy, _ *PreRunTarget) { p.DeployerKey = "0xdeadbeef" })
+		require.ErrorContains(t, c.validatePreRuns(), "deployer_key")
+	})
+
+	t.Run("predeploy without contracts rejected", func(t *testing.T) {
+		c := withPredeploy(func(p *PreRunPredeploy, _ *PreRunTarget) { p.Contracts = nil })
+		require.ErrorContains(t, c.validatePreRuns(), "contracts is required")
+	})
+
+	t.Run("predeploy with odd-hex contract code rejected", func(t *testing.T) {
+		c := withPredeploy(func(p *PreRunPredeploy, _ *PreRunTarget) {
+			p.Contracts = []PreRunPredeployContract{{Code: "0x123"}}
+		})
+		require.ErrorContains(t, c.validatePreRuns(), "code")
+	})
+
+	t.Run("predeploy without genesis_eip_override rejected", func(t *testing.T) {
+		c := withPredeploy(func(_ *PreRunPredeploy, tgt *PreRunTarget) { tgt.GenesisEIPOverride = nil })
+		require.ErrorContains(t, c.validatePreRuns(), "genesis_eip_override")
+	})
+
+	t.Run("predeploy with zero activation timestamp rejected", func(t *testing.T) {
+		c := withPredeploy(func(_ *PreRunPredeploy, tgt *PreRunTarget) {
+			tgt.GenesisEIPOverride = &GenesisEIPOverride{Timestamp: 0, EIPs: []uint64{8282}}
+		})
+		require.ErrorContains(t, c.validatePreRuns(), "timestamp > 0")
+	})
+
+	t.Run("predeploy hoisted from config block", func(t *testing.T) {
+		// Predeploy set on the config defaults, not the target, resolves onto it.
+		// genesis_eip_override lives on the target (it is not a hoistable default).
+		c := base()
+		tgt := &c.Builder.PreRuns.Targets[0]
+		tgt.GenesisEIPOverride = &GenesisEIPOverride{Timestamp: 1_800_000_000, EIPs: []uint64{8282}}
+		c.Builder.PreRuns.Config.Predeploy = &PreRunPredeploy{
+			PreFork: "osaka", DeployerKey: validKey,
+			Contracts: []PreRunPredeployContract{{Code: "0x00"}},
+		}
+		require.NoError(t, c.validatePreRuns())
+
+		resolved := c.Builder.PreRuns.ResolveTarget(0)
+		require.NotNil(t, resolved.Predeploy)
+		assert.Equal(t, "osaka", resolved.Predeploy.PreFork)
 	})
 }
 

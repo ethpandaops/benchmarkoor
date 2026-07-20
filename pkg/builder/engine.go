@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,6 +40,14 @@ type engineClient struct {
 	fork      string
 	slot      uint64
 	http      *http.Client
+
+	// preFork and activationTS drive per-block fork selection when building a
+	// chain that crosses a fork boundary (e.g. deploy contracts on osaka, then
+	// gas-bump/fill on amsterdam). A block whose timestamp is < activationTS is
+	// built as preFork (V4, no slotNumber); at/after activationTS it is fork.
+	// activationTS == 0 disables crossing: every block is built as fork.
+	preFork      string
+	activationTS uint64
 
 	// recorded accumulates the engine_newPayload requests built by buildBlock, in
 	// build order, when recording is enabled (see enableRecording). Used to export
@@ -91,10 +100,36 @@ func newEngineClient(ip string, rpcPort, enginePort int, jwtHex, fork string) (*
 	}, nil
 }
 
-// newPayloadMethod returns the engine_newPayload version for the fork
-// (amsterdam → V5, otherwise V4), mirroring fill-stateful/gas-benchmarks.
+// withCrossing configures per-block fork crossing: blocks timestamped before
+// activationTS are built as preFork, and at/after it as c.fork. It returns c for
+// chaining. activationTS == 0 (or an empty preFork) leaves crossing disabled.
+func (c *engineClient) withCrossing(preFork string, activationTS uint64) *engineClient {
+	c.preFork = preFork
+	c.activationTS = activationTS
+
+	return c
+}
+
+// forkAt returns the fork a block timestamped ts is built under: preFork below
+// the activation timestamp, c.fork at/after it (or always c.fork when crossing
+// is disabled).
+func (c *engineClient) forkAt(ts uint64) string {
+	if c.activationTS > 0 && c.preFork != "" && ts < c.activationTS {
+		return c.preFork
+	}
+
+	return c.fork
+}
+
+// newPayloadMethod returns the engine_newPayload version for c.fork.
 func (c *engineClient) newPayloadMethod() string {
-	if strings.EqualFold(c.fork, "amsterdam") {
+	return newPayloadMethodFor(c.fork)
+}
+
+// newPayloadMethodFor returns the engine_newPayload version for the fork
+// (amsterdam → V5, otherwise V4), mirroring fill-stateful/gas-benchmarks.
+func newPayloadMethodFor(fork string) string {
+	if strings.EqualFold(fork, "amsterdam") {
 		return "engine_newPayloadV5"
 	}
 
@@ -217,11 +252,77 @@ func (c *engineClient) latestBlock(ctx context.Context) (hash string, timestamp,
 	return block.Hash, ts, gl, nil
 }
 
+// chainID returns the filler's chain id via eth_chainId, for signing deploy txs.
+func (c *engineClient) chainID(ctx context.Context) (*big.Int, error) {
+	res, err := c.call(ctx, c.rpcURL, false, "eth_chainId", []any{})
+	if err != nil {
+		return nil, err
+	}
+
+	var s string
+	if err := json.Unmarshal(res, &s); err != nil {
+		return nil, fmt.Errorf("parsing eth_chainId: %w", err)
+	}
+
+	id, ok := new(big.Int).SetString(strings.TrimPrefix(s, "0x"), 16)
+	if !ok {
+		return nil, fmt.Errorf("parsing chain id %q", s)
+	}
+
+	return id, nil
+}
+
+// latestBaseFee returns the current head's base fee per gas (0 if the block has
+// none), used to price deploy transactions above the base fee.
+func (c *engineClient) latestBaseFee(ctx context.Context) (*big.Int, error) {
+	res, err := c.call(ctx, c.rpcURL, false, "eth_getBlockByNumber", []any{"latest", false})
+	if err != nil {
+		return nil, err
+	}
+
+	var block struct {
+		BaseFeePerGas string `json:"baseFeePerGas"`
+	}
+	if err := json.Unmarshal(res, &block); err != nil {
+		return nil, fmt.Errorf("parsing latest block base fee: %w", err)
+	}
+
+	if block.BaseFeePerGas == "" {
+		return big.NewInt(0), nil
+	}
+
+	fee, ok := new(big.Int).SetString(strings.TrimPrefix(block.BaseFeePerGas, "0x"), 16)
+	if !ok {
+		return nil, fmt.Errorf("parsing base fee %q", block.BaseFeePerGas)
+	}
+
+	return fee, nil
+}
+
+// code returns the deployed bytecode at addr on the current head via eth_getCode.
+func (c *engineClient) code(ctx context.Context, addr string) ([]byte, error) {
+	res, err := c.call(ctx, c.rpcURL, false, "eth_getCode", []any{addr, "latest"})
+	if err != nil {
+		return nil, err
+	}
+
+	var s string
+	if err := json.Unmarshal(res, &s); err != nil {
+		return nil, fmt.Errorf("parsing eth_getCode: %w", err)
+	}
+
+	return hex.DecodeString(strings.TrimPrefix(s, "0x"))
+}
+
 // buildBlock builds one block on top of the current head via testing_buildBlockV1,
 // submits it with engine_newPayload, and makes it canonical with
-// engine_forkchoiceUpdatedV3. withdrawals may be nil (an empty block). It returns
-// the new head's block hash and gas limit.
-func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal) (blockHash string, gasLimit uint64, err error) {
+// engine_forkchoiceUpdatedV3. withdrawals may be nil (no withdrawals) and rawTxs
+// may be nil (an empty block); rawTxs are raw (network-encoded) transactions the
+// block includes in order. The block's fork (payload version, slotNumber) is
+// selected from its timestamp via forkAt, so a crossing chain builds pre-fork
+// blocks (deploy) and post-fork blocks (fill) with one client. It returns the
+// new head's block hash and gas limit.
+func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal, rawTxs [][]byte) (blockHash string, gasLimit uint64, err error) {
 	parentHash, parentTS, _, err := c.latestBlock(ctx)
 	if err != nil {
 		return "", 0, err
@@ -233,15 +334,25 @@ func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal)
 		withdrawals = []withdrawal{}
 	}
 
+	blockTS := parentTS + 1
+	blockFork := c.forkAt(blockTS)
+
 	attrs := map[string]any{
-		"timestamp":             uintToHex(parentTS + 1),
+		"timestamp":             uintToHex(blockTS),
 		"prevRandao":            parentHash,
 		"suggestedFeeRecipient": "0x0000000000000000000000000000000000000000",
 		"withdrawals":           withdrawals,
 		"parentBeaconBlockRoot": parentHash,
 	}
-	if strings.EqualFold(c.fork, "amsterdam") {
+	if strings.EqualFold(blockFork, "amsterdam") {
 		attrs["slotNumber"] = uintToHex(c.slot)
+	}
+
+	// testing_buildBlockV1's transactions param is a list of hex-encoded raw
+	// (network-encoded) transactions.
+	txs := make([]any, 0, len(rawTxs))
+	for _, raw := range rawTxs {
+		txs = append(txs, "0x"+hex.EncodeToString(raw))
 	}
 
 	// testing_buildBlockV1 lives in the `testing` namespace, which every filler
@@ -249,7 +360,7 @@ func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal)
 	// does not serve it. So call it on the RPC URL without a JWT; only the Engine
 	// API calls below (newPayload / forkchoiceUpdated) go to the engine port.
 	built, err := c.call(ctx, c.rpcURL, false, "testing_buildBlockV1",
-		[]any{parentHash, attrs, []any{}, engineExtraData})
+		[]any{parentHash, attrs, txs, engineExtraData})
 	if err != nil {
 		return "", 0, err
 	}
@@ -291,9 +402,9 @@ func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal)
 		execRequests = []string{}
 	}
 
-	// Gas-bump and funding blocks carry no blob transactions, so the blob
-	// versioned hashes are always empty.
-	npMethod := c.newPayloadMethod()
+	// Gas-bump, funding, and deploy blocks carry no blob transactions, so the
+	// blob versioned hashes are always empty.
+	npMethod := newPayloadMethodFor(blockFork)
 	npParams := []any{execPayload, []string{}, parentHash, execRequests}
 
 	if _, err := c.call(ctx, c.engineURL, true, npMethod, npParams); err != nil {
@@ -450,7 +561,7 @@ func (c *engineClient) bumpGasLimit(ctx context.Context, target uint64, maxBlock
 		default:
 		}
 
-		_, gl, buildErr := c.buildBlock(ctx, nil)
+		_, gl, buildErr := c.buildBlock(ctx, nil, nil)
 		if buildErr != nil {
 			return built, fmt.Errorf("building gas-bump block %d: %w", built+1, buildErr)
 		}
@@ -506,7 +617,7 @@ func (c *engineClient) fundingBlock(ctx context.Context, accounts []config.PreRu
 
 	log.WithField("accounts", len(accounts)).Info("Building funding block")
 
-	blockHash, _, err := c.buildBlock(ctx, withdrawals)
+	blockHash, _, err := c.buildBlock(ctx, withdrawals, nil)
 	if err != nil {
 		return "", fmt.Errorf("building funding block: %w", err)
 	}

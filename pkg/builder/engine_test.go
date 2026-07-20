@@ -42,6 +42,46 @@ func TestNewEngineClient_NewPayloadMethod(t *testing.T) {
 	assert.Equal(t, "http://10.0.0.1:8551", osaka.engineURL)
 }
 
+func TestNewPayloadMethodFor(t *testing.T) {
+	assert.Equal(t, "engine_newPayloadV5", newPayloadMethodFor("amsterdam"))
+	assert.Equal(t, "engine_newPayloadV5", newPayloadMethodFor("Amsterdam"))
+	assert.Equal(t, "engine_newPayloadV4", newPayloadMethodFor("osaka"))
+	assert.Equal(t, "engine_newPayloadV4", newPayloadMethodFor("prague"))
+}
+
+func TestEngineClient_ForkAt(t *testing.T) {
+	jwt := strings.Repeat("ab", 32)
+
+	t.Run("crossing disabled always returns c.fork", func(t *testing.T) {
+		c, err := newEngineClient("10.0.0.1", 8545, 8551, jwt, "amsterdam")
+		require.NoError(t, err)
+		// activationTS 0 (unset) → always the target fork, regardless of timestamp.
+		assert.Equal(t, "amsterdam", c.forkAt(0))
+		assert.Equal(t, "amsterdam", c.forkAt(1<<62))
+	})
+
+	t.Run("crossing selects preFork below activation, fork at/after", func(t *testing.T) {
+		c, err := newEngineClient("10.0.0.1", 8545, 8551, jwt, "amsterdam")
+		require.NoError(t, err)
+		c.withCrossing("osaka", 1000)
+
+		assert.Equal(t, "osaka", c.forkAt(999), "just below activation → pre-fork")
+		assert.Equal(t, "amsterdam", c.forkAt(1000), "at activation → target fork")
+		assert.Equal(t, "amsterdam", c.forkAt(1001), "above activation → target fork")
+
+		// The per-block newPayload version follows the selected fork.
+		assert.Equal(t, "engine_newPayloadV4", newPayloadMethodFor(c.forkAt(999)))
+		assert.Equal(t, "engine_newPayloadV5", newPayloadMethodFor(c.forkAt(1000)))
+	})
+
+	t.Run("empty preFork disables crossing even with activationTS", func(t *testing.T) {
+		c, err := newEngineClient("10.0.0.1", 8545, 8551, jwt, "amsterdam")
+		require.NoError(t, err)
+		c.withCrossing("", 1000)
+		assert.Equal(t, "amsterdam", c.forkAt(1))
+	})
+}
+
 func TestNewEngineClient_RejectsBadJWT(t *testing.T) {
 	_, err := newEngineClient("10.0.0.1", 8545, 8551, "", "osaka")
 	require.ErrorContains(t, err, "empty")

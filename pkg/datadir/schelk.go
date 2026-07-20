@@ -356,6 +356,43 @@ func EnsureSchelkMounted(ctx context.Context, log logrus.FieldLogger) error {
 	return nil
 }
 
+// RestoreSchelk restores the schelk scratch volume to the virgin baseline AND
+// mounts it, via `schelk restore` (= recover + mount). Unlike EnsureSchelkMounted
+// (mount only), it discards any dirty scratch state first, so a caller that
+// advances the volume always starts from a clean baseline. `restore` also
+// repairs an inconsistent post-crash state that plain `mount` would refuse, so
+// no separate consistency pre-check is needed. It errors if the mount does not
+// appear afterwards.
+func RestoreSchelk(ctx context.Context, log logrus.FieldLogger) error {
+	bin := SchelkBinary()
+
+	state, err := ReadSchelkState(SchelkStatePath())
+	if err != nil {
+		return err
+	}
+
+	if state.MountPoint == "" {
+		return fmt.Errorf("schelk state has no mount_point — run `schelk init-new` or `schelk init-from` first")
+	}
+
+	output, err := RunSchelk(ctx, log, "restore", "-y")
+	if err != nil {
+		return fmt.Errorf("`%s restore` failed: %w (output: %s)",
+			bin, err, strings.TrimSpace(string(output)))
+	}
+
+	mounted, err := IsMountedAt(state.MountPoint)
+	if err != nil {
+		return fmt.Errorf("checking mount status: %w", err)
+	}
+
+	if !mounted {
+		return fmt.Errorf("`%s restore` reported success but %q is not mounted", bin, state.MountPoint)
+	}
+
+	return nil
+}
+
 // SchelkPromote persists the current scratch contents as the new virgin
 // baseline via `schelk promote`, so subsequent recover/restore reset to it.
 func SchelkPromote(ctx context.Context, log logrus.FieldLogger) error {

@@ -1082,6 +1082,36 @@ type GenesisEIPOverride struct {
 	EIPs []uint64 `yaml:"eips" mapstructure:"eips"`
 }
 
+// PreRunPredeploy configures a pre-run that crosses a fork boundary at build
+// time: it boots the filler at PreFork (the fork the snapshot is at), deploys
+// Contracts via CREATE transactions on that fork, then lets the chain cross into
+// the target fork (builder.pre_runs.config.fork) at genesis_eip_override's
+// timestamp for the gas-bump and fill. This is how an osaka snapshot gets the
+// amsterdam system contracts (e.g. EIP-8282) deployed before amsterdam
+// activates, since a strict client rejects amsterdam blocks whose system
+// contracts have no code.
+type PreRunPredeploy struct {
+	// PreFork is the fork the snapshot boots at, used for the funding and deploy
+	// blocks built before the target fork activates (e.g. "osaka").
+	PreFork string `yaml:"pre_fork" mapstructure:"pre_fork"`
+	// DeployerKey is the 0x-prefixed private key that funds (via the pre-run
+	// funding block) and signs the CREATE transactions. Its contracts land at the
+	// CREATE addresses of this account at nonces 0..n-1.
+	DeployerKey string `yaml:"deployer_key" mapstructure:"deployer_key"`
+	// DeployerFundGwei is the withdrawal amount credited to the deployer in the
+	// funding block (default DefaultPreRunFundingAmountGwei).
+	DeployerFundGwei *uint64 `yaml:"deployer_fund_gwei,omitempty" mapstructure:"deployer_fund_gwei"`
+	// Contracts are the runtime bytecodes to deploy, in order.
+	Contracts []PreRunPredeployContract `yaml:"contracts" mapstructure:"contracts"`
+}
+
+// PreRunPredeployContract is one contract deployed by a PreRunPredeploy: Code is
+// the 0x-prefixed runtime bytecode (what ends up as the deployed account's code;
+// benchmarkoor wraps it in the minimal returning init code).
+type PreRunPredeployContract struct {
+	Code string `yaml:"code" mapstructure:"code"`
+}
+
 // DataDirConfig configures a pre-populated data directory for a client.
 type DataDirConfig struct {
 	SourceDir    string `yaml:"source_dir" json:"source_dir" mapstructure:"source_dir"`
