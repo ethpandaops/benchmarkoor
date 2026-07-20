@@ -70,6 +70,16 @@ func TestPreRunTarget_Defaults(t *testing.T) {
 	assert.Equal(t, "geth", tgt.EffectiveName())
 }
 
+func TestPreRunTargetInPlace(t *testing.T) {
+	schelk := PreRunTarget{DataDirMethod: "schelk", SourceDir: "/schelk/snap", OutputDir: "/tmp/out"}
+	assert.True(t, schelk.IsInPlace())
+	assert.Equal(t, "/schelk/snap", schelk.AdvancedDir(), "schelk advances source_dir in place")
+
+	cp := PreRunTarget{DataDirMethod: "copy", SourceDir: "/snap", OutputDir: "/tmp/out"}
+	assert.False(t, cp.IsInPlace())
+	assert.Equal(t, "/tmp/out", cp.AdvancedDir(), "copy advances output_dir")
+}
+
 func TestValidatePreRuns(t *testing.T) {
 	base := func() *Config {
 		return &Config{
@@ -205,6 +215,25 @@ func TestValidatePreRuns(t *testing.T) {
 
 	t.Run("valid predeploy", func(t *testing.T) {
 		require.NoError(t, withPredeploy(nil).validatePreRuns())
+	})
+
+	t.Run("schelk target without output_dir is valid (in place)", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Config.DataDirMethod = "schelk"
+		tgt := &c.Builder.PreRuns.Targets[0]
+		tgt.SourceDir = "/schelk/snap"
+		tgt.OutputDir = ""
+		require.NoError(t, c.validatePreRuns())
+
+		resolved := c.Builder.PreRuns.ResolveTarget(0)
+		assert.True(t, resolved.IsInPlace())
+		assert.Equal(t, "/schelk/snap", resolved.AdvancedDir())
+	})
+
+	t.Run("non-schelk target still requires output_dir", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].OutputDir = ""
+		require.ErrorContains(t, c.validatePreRuns(), "output_dir is required")
 	})
 
 	t.Run("predeploy without pre_fork rejected", func(t *testing.T) {

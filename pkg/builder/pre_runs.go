@@ -78,11 +78,14 @@ func (b *PreRunsBuilder) Targets() []TargetInfo {
 	out := make([]TargetInfo, 0, len(b.cfg.Targets))
 
 	for i := range b.cfg.Targets {
-		t := &b.cfg.Targets[i]
+		// Resolve so datadir_method (often hoisted from the config block) is set,
+		// and report the advanced datadir — source_dir for an in-place schelk
+		// target, output_dir otherwise.
+		t := b.cfg.ResolveTarget(i)
 		out = append(out, TargetInfo{
 			Name:      t.EffectiveName(),
 			Client:    t.FillerClient,
-			OutputDir: t.OutputDir,
+			OutputDir: t.AdvancedDir(),
 		})
 	}
 
@@ -110,8 +113,10 @@ func (b *PreRunsBuilder) Build(ctx context.Context, name string, opts BuildOptio
 	force := opts.Force || target.Force
 
 	// Skip a populated output_dir unless forced. Pre-runs have no config-diff
-	// fast-path (--rebuild-on-diff is treated as force for this builder).
-	if !force {
+	// fast-path (--rebuild-on-diff is treated as force for this builder). An
+	// in-place (schelk) target has no separate output_dir — its source scratch is
+	// always populated — so it always runs, restoring to a clean baseline first.
+	if !force && !target.IsInPlace() {
 		populated, err := isPopulated(target.OutputDir)
 		if err != nil {
 			return false, err
@@ -326,8 +331,9 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 
 	// Export the replayable payload bundle (bump/funding blocks recorded above +
 	// the setup blocks from the fixtures) so replay_from targets can advance
-	// their own snapshots from it.
-	if err := b.writeBundle(log, t.OutputDir, fixturesDir, bf.ec.recorded); err != nil {
+	// their own snapshots from it. It lands in the advanced datadir (bootDir):
+	// output_dir for a copy target, source_dir for an in-place schelk target.
+	if err := b.writeBundle(log, bf.bootDir, fixturesDir, bf.ec.recorded); err != nil {
 		return fmt.Errorf("writing pre-run bundle: %w", err)
 	}
 
@@ -395,6 +401,10 @@ type bootedFiller struct {
 	ip      string
 	jwtPath string
 	spec    client.Spec
+	// bootDir is the datadir the filler booted on and advances in place — the
+	// output_dir copy, or source_dir for an in-place (schelk) target. The replay
+	// bundle is written here.
+	bootDir string
 	cleanup func()
 }
 
@@ -436,30 +446,37 @@ func (b *PreRunsBuilder) bootFiller(
 		return nil, fmt.Errorf("ensuring network %q: %w", EESTBuildNetwork, err)
 	}
 
-	// A schelk pre-run advances from a clean baseline: restore the source scratch
-	// to virgin (recover) and mount it before copying it out. This is
-	// pre-run-specific — the shared source-mount path (ensureSourceSchelkMounted,
-	// used by eest_payloads too) only ever mounts, never recovers, so it can't
-	// wipe an already-advanced volume.
+	// The filler boots on bootDir (datadir method "direct", so its writes persist
+	// as the advanced datadir). For schelk the source is a copy-on-write scratch:
+	// restore it to a clean baseline (recover + mount) and boot IN PLACE on it —
+	// no multi-TB copy, and output_dir is unused. This recover is pre-run-specific;
+	// the shared source-mount path (ensureSourceSchelkMounted, used by eest_payloads
+	// too) only mounts, never recovers, so downstream stages can't wipe the
+	// advanced scratch. Other methods copy source_dir → output_dir and boot there.
+	bootDir := t.OutputDir
+
 	if t.DataDirMethod == "schelk" {
 		if err = b.restoreSchelkSource(ctx, log, t.SourceDir); err != nil {
 			return nil, err
 		}
+
+		bootDir = t.SourceDir
+
+		log.WithField("source_dir", t.SourceDir).
+			Info("Booting pre-run in place on schelk scratch (no copy)")
+	} else {
+		if err = prepareOutputDir(t.OutputDir, true); err != nil {
+			return nil, err
+		}
+
+		log.WithField("output_dir", t.OutputDir).Info("Copying snapshot datadir into output_dir")
+
+		if err = fsutil.CopyDir(t.SourceDir, t.OutputDir, nil); err != nil {
+			return nil, fmt.Errorf("copying snapshot datadir: %w", err)
+		}
 	}
 
-	// Copy the snapshot datadir into output_dir; the filler boots on it in place
-	// (datadir method "direct"), so its writes persist as the advanced datadir.
-	if err = prepareOutputDir(t.OutputDir, true); err != nil {
-		return nil, err
-	}
-
-	log.WithField("output_dir", t.OutputDir).Info("Copying snapshot datadir into output_dir")
-
-	if err = fsutil.CopyDir(t.SourceDir, t.OutputDir, nil); err != nil {
-		return nil, fmt.Errorf("copying snapshot datadir: %w", err)
-	}
-
-	et := preRunToEESTTarget(t, t.OutputDir, fixturesDir)
+	et := preRunToEESTTarget(t, bootDir, fixturesDir)
 
 	// genesis_fork_override / genesis_eip_override patch the boot genesis before
 	// the filler mounts it (besu/reth/ethrex/nethermind) — identical to eest.
@@ -553,6 +570,7 @@ func (b *PreRunsBuilder) bootFiller(
 		ip:      fillerIP,
 		jwtPath: jwtPath,
 		spec:    spec,
+		bootDir: bootDir,
 		cleanup: runCleanups,
 	}, nil
 }
@@ -611,7 +629,9 @@ func (b *PreRunsBuilder) resolveReplayBundle(replayFrom string) (string, error) 
 	for i := range b.cfg.Targets {
 		rt := b.cfg.ResolveTarget(i)
 		if rt.EffectiveName() == replayFrom {
-			return filepath.Join(rt.OutputDir, config.PreRunBundleSubdir, preRunBundleFile), nil
+			// AdvancedDir: output_dir for a copy target, source_dir for an
+			// in-place schelk target — the bundle lands in whichever it is.
+			return filepath.Join(rt.AdvancedDir(), config.PreRunBundleSubdir, preRunBundleFile), nil
 		}
 	}
 

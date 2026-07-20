@@ -15,12 +15,14 @@
 #                       via CREATE txs from the deployer. It then gas-bumps to
 #                       1 TGas and fills test_setup_contracts — those blocks cross
 #                       into AMSTERDAM once their timestamp reaches
-#                       AMSTERDAM_ACTIVATION_TS. The advanced datadir + a
-#                       replayable payload bundle land under output_dir.
+#                       AMSTERDAM_ACTIVATION_TS. With datadir_method: schelk it
+#                       advances the snapshot IN PLACE on the copy-on-write scratch
+#                       (no copy — see the schelk note below) and records the replay
+#                       bundle there.
 #   2.   eest_payloads  fill the benchmark (test_account_access) on nethermind's
 #                       advanced (amsterdam) datadir → fixtures at the setup head.
-#   3.   runner         nethermind boots from its advanced datadir and runs the
-#                       benchmark fixtures.
+#   3.   runner         nethermind boots from that same advanced datadir and runs
+#                       the benchmark fixtures.
 #
 # ┌─ IMPORTANT: EIP-8282 fixed-address system-call check ───────────────────────┐
 # │ nethermind HARDCODES the EIP-8282 request-contract addresses (they are NOT a │
@@ -57,7 +59,6 @@ global:
     # the snapshot head block's timestamp + 3 (a couple seconds of headroom).
     # The SAME value is used by all three stages so they agree on the fork.
     AMSTERDAM_ACTIVATION_TS: "1800000000"
-    PRERUN_DIR: /tmp/benchmarkoor/pre-runs/nethermind-existing-snapshot
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/nethermind-existing-snapshot
     EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
     EEST_REF: full-benchmark-target
@@ -77,13 +78,15 @@ builder:
       fork: amsterdam
       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
       # SNAPSHOT_DIR lives under a schelk-managed mount. With schelk, the pre-run
-      # runs `schelk restore` (recover to the virgin baseline + mount) on the
-      # source before advancing, so it always starts from a clean snapshot. It
-      # never promotes, and the shared source-mount path used by later stages only
-      # mounts (never recovers), so eest below can't wipe the advanced volume.
-      # Switch to "copy" for a small, plain local directory (no recover).
-      # NOTE: the pre-run materialises output_dir as a full copy of the snapshot
-      # regardless of method; for a very large snapshot budget disk/time for that.
+      # advances the snapshot IN PLACE on the copy-on-write scratch: it runs
+      # `schelk restore` (recover to the virgin baseline + mount) and boots the
+      # filler directly on source_dir — NO copy, so a multi-TB snapshot needs only
+      # the scratch's free space for the blocks it writes. output_dir is unused
+      # (source_dir IS the advanced datadir; eest + runner read it directly). It
+      # never promotes, and the shared source-mount path later stages use only
+      # mounts (never recovers), so they can't wipe the advanced scratch.
+      # Switch to "copy" for a small, plain local directory that fits on disk (it
+      # copies source_dir → output_dir and boots on the copy).
       datadir_method: schelk
       # Ramp the block gas limit up to 1 TGas with empty blocks before filling.
       gas_limit: 1000000000000
@@ -105,7 +108,7 @@ builder:
         filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
         source_dir: ${SNAPSHOT_DIR}
         genesis: ${NETHERMIND_CHAINSPEC}
-        output_dir: ${PRERUN_DIR}/nethermind
+        # No output_dir: schelk advances source_dir in place (see the note above).
         # amsterdam is scheduled at the crossing timestamp (not from genesis) so
         # the osaka funding + deploy blocks precede it. Same EIP set as the
         # state-actor sibling + the eest target + the runner instance below.
@@ -135,16 +138,11 @@ builder:
       fork: amsterdam
       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
       gas_benchmark_values: [10]
-      # source_dir here is the pre-run OUTPUT (a plain dir under PRERUN_DIR, NOT
-      # under the schelk mount). Boot the filler DIRECTLY on it (no copy), so the
-      # fill just continues from where the pre-run left off. Because the source is
-      # not a schelk path, no schelk recover/mount happens at this stage.
-      #
-      # NOTE: direct mutates the pre-run output in place. The eest fill resets to
-      # the setup head between tests, so it normally leaves the datadir at that
-      # head — but if you re-run this stage, or the runner (which also reads
-      # PRERUN_DIR) needs a pristine setup head, switch this back to `copy` or give
-      # the runner its own copy.
+      # source_dir here is the schelk scratch the pre-run just advanced (SNAPSHOT_DIR).
+      # Boot the filler DIRECTLY on it (no copy), continuing from the pre-run head.
+      # method: direct only mounts the schelk source (never recovers), so it does
+      # NOT wipe the pre-run's advancement. The fill mutates the scratch in place;
+      # its per-test reset leaves it at the setup head for the runner.
       datadir_method: direct
       tests:
         - tests/benchmark/stateful/bloatnet/test_account_query.py
@@ -159,7 +157,7 @@ builder:
       - name: payload-generator-nethermind-stateful
         filler_client: nethermind
         filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
-        source_dir: ${PRERUN_DIR}/nethermind
+        source_dir: ${SNAPSHOT_DIR}
         genesis: ${NETHERMIND_CHAINSPEC}
         output_dir: ${EEST_FIXTURES_DIR}/nethermind
         # Same amsterdam schedule as the pre-run so this boot recognises the
@@ -187,14 +185,14 @@ runner:
       bootstrap_fcu: { enabled: true, max_retries: 20, backoff: 1s }
       genesis:
         nethermind: ${NETHERMIND_CHAINSPEC}
-    # nethermind boots on its advanced datadir (the pre-run output), already at
+    # nethermind boots on the advanced schelk scratch (SNAPSHOT_DIR), already at
     # the setup head, and replays the benchmark fixtures on it. method: direct
-    # boots in place (no copy), continuing from where the build left off.
-    # NOTE: direct mutates PRERUN_DIR in place, so a run advances it — to re-run
-    # cleanly, rebuild the pre-run (which recover+mounts a fresh baseline).
-    # Switch to `copy` to start each run from a pristine copy of the setup head.
+    # boots in place (no copy) and only mounts the schelk source — it does NOT
+    # recover, so the pre-run's advancement survives. NOTE: the run mutates the
+    # scratch in place, so to re-run cleanly rebuild the pre-run (which
+    # recover+mounts a fresh baseline).
     datadirs:
-      nethermind: { source_dir: "${PRERUN_DIR}/nethermind", method: direct }
+      nethermind: { source_dir: "${SNAPSHOT_DIR}", method: direct }
   instances:
     - id: nethermind
       client: nethermind

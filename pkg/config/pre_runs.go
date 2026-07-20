@@ -285,6 +285,25 @@ func (t *PreRunTarget) IsReplay() bool {
 	return t.ReplayFrom != ""
 }
 
+// IsInPlace reports whether the pre-run advances source_dir in place instead of
+// copying it to output_dir first. This is the schelk case: the source lives on a
+// copy-on-write scratch, so the filler boots directly on it (no multi-TB copy)
+// and output_dir is unused. Other methods copy source_dir → output_dir.
+func (t *PreRunTarget) IsInPlace() bool {
+	return t.DataDirMethod == "schelk"
+}
+
+// AdvancedDir returns the directory that holds the advanced datadir and the
+// replay bundle after the pre-run: source_dir for an in-place (schelk) target,
+// output_dir otherwise. Downstream stages (eest_payloads, runner) read from it.
+func (t *PreRunTarget) AdvancedDir() string {
+	if t.IsInPlace() {
+		return t.SourceDir
+	}
+
+	return t.OutputDir
+}
+
 // ResolveGasLimit returns the gas-bump target, defaulting to
 // DefaultPreRunGasLimit.
 func (t *PreRunTarget) ResolveGasLimit() uint64 {
@@ -667,6 +686,16 @@ func validatePreRunPaths(t *PreRunTarget, prefix string, seenOutputs map[string]
 
 	if !filepath.IsAbs(t.SourceDir) {
 		return fmt.Errorf("%s.source_dir must be an absolute path, got %q", prefix, t.SourceDir)
+	}
+
+	// An in-place (schelk) target advances source_dir directly; output_dir is
+	// unused, so it is neither required nor uniqueness-checked.
+	if t.IsInPlace() {
+		if t.OutputDir != "" && !filepath.IsAbs(t.OutputDir) {
+			return fmt.Errorf("%s.output_dir must be an absolute path, got %q", prefix, t.OutputDir)
+		}
+
+		return nil
 	}
 
 	if t.OutputDir == "" {
