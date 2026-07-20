@@ -300,6 +300,9 @@ jobs:
           mode: build
           build-args: '--rebuild-on-diff'
           upload-build-artifacts: 'true'
+          # Distinct name so this does not collide with the state-actor job's
+          # build artifact (both otherwise default to benchmarkoor-build-<run_id>).
+          build-artifact-name: benchmarkoor-build-pre-runs-${{ github.run_id }}
           build-config: |
             builder:
               state_actor:
