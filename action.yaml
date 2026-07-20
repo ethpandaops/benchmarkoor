@@ -36,7 +36,7 @@ inputs:
     default: 'false'
 
   upload-build-artifacts:
-    description: 'Whether to upload build artifacts as a GitHub artifact: each state-actor target''s metadata JSON (not the datadir) and each eest-payloads target''s full fixtures directory.'
+    description: 'Whether to upload build artifacts as a GitHub artifact: each state-actor target''s metadata JSON (not the datadir), each eest-payloads target''s full fixtures directory, and each pre-runs target''s replay bundle (pre-run.request, not the datadir).'
     required: false
     default: 'false'
 
@@ -221,8 +221,10 @@ runs:
 
     - name: Archive build artifacts
       # Collect each built target's artifacts (discovered from build-summary.json):
-      # eest-payloads → the full fixtures directory; state-actor → only the
-      # state-actor-* metadata files, NOT the multi-GB datadir. sudo because the
+      # eest-payloads → the full fixtures directory; pre-runs → only the replay
+      # bundle (pre_run_bundle/pre-run.request), NOT the multi-GB datadir;
+      # state-actor → only the state-actor-* metadata files, NOT the multi-GB
+      # datadir. sudo because the
       # build artifacts are root-owned; chown the staging copy so the upload (and
       # tar) can read it. Runs on build modes, even on failure (partial artifacts).
       if: always() && inputs.upload-build-artifacts == 'true' && (inputs.mode == 'all' || inputs.mode == 'build') && (inputs.build-config != '' || inputs.build-config-urls != '')
@@ -246,6 +248,13 @@ runs:
           mkdir -p "$dest"
           if [ "$builder" = "eest-payloads" ]; then
             sudo cp -a "$outdir/." "$dest/"
+          elif [ "$builder" = "pre-runs" ]; then
+            # pre-runs: only the replayable bundle (pre-run.request), NOT the
+            # multi-GB advanced datadir. Absent for replay-only targets.
+            if [ -f "$outdir/pre_run_bundle/pre-run.request" ]; then
+              mkdir -p "$dest/pre_run_bundle"
+              sudo cp -a "$outdir/pre_run_bundle/pre-run.request" "$dest/pre_run_bundle/"
+            fi
           else
             # state-actor: metadata files only (find runs as root to read the datadir).
             sudo find "$outdir" -maxdepth 1 -name 'state-actor-*' -exec cp -a {} "$dest/" \;
