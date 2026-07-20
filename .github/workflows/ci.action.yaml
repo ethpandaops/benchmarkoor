@@ -267,3 +267,152 @@ jobs:
                   client: besu
                   image: ethpandaops/besu:bal-devnet-7
                   extra_args: [--p2p-enabled=true]
+
+  # Exercises the pre_runs builder end-to-end: state-actor builds an OSAKA besu
+  # snapshot, the pre_runs builder advances it (a tiny test_setup_contracts fill
+  # via the besu filler — deploying a handful of receiver contracts and recording
+  # a replay bundle), eest_payloads fills the bloatnet account-access benchmark on
+  # that ADVANCED datadir, then the runner replays those fixtures on besu. Single
+  # client + a 256 MB snapshot keep it within a GitHub-hosted runner; osaka means
+  # no amsterdam system-contract predeploys are needed.
+  pre-runs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # The client + fill images and the locally built benchmarkoor image are
+      # several GB; free the runner's preinstalled toolchains to be safe.
+      - name: Free disk space
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/share/dotnet /usr/local/share/boost
+          df -h /
+
+      - name: Build snapshot + pre-run + fill payloads (besu)
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-ref: ${{ github.event.pull_request.head.sha }}
+          git-repo: ${{ github.event.pull_request.head.repo.clone_url }}
+          mode: build
+          build-args: '--rebuild-on-diff'
+          upload-build-artifacts: 'true'
+          build-config: |
+            builder:
+              state_actor:
+                images:
+                  besu: ghcr.io/ethereum/state-actor-besu:main
+                pull_policy: always
+                config:
+                  seed: 1234
+                  fork: osaka
+                  chain: 1337
+                  gas_limit: 300000000
+                  target_size: 256MB
+                spec:
+                  entities:
+                    # Predeploy the Arachnid CREATE2 factory so the EEST fill
+                    # bootstrap detects it and skips the keyless deploy.
+                    - kind: contract
+                      template: create2_factory
+                      name: deterministic-deployment-proxy
+                      address: 0x4e59b44847b379578588920cA78FbF26c0B4956C
+                    # Pre-fund fill-stateful's seed (rpc_seed_key=0x..01 below), so
+                    # the pre-run does not need a funding block.
+                    - kind: eoa
+                      name: fill-stateful-seed
+                      address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
+                      balance: "10000000000000000000000000000"
+                      nonce: 0
+                targets:
+                  - client: besu
+                    output_dir: /tmp/benchmarkoor/state-actor/besu
+              # Advance the snapshot: boot besu, run a tiny setup fill (with
+              # fill-stateful --no-reset-between-tests, so the deployed contracts
+              # persist), and record a replay bundle under the output_dir.
+              pre_runs:
+                pull_policy: always
+                eest_repo: https://github.com/LouisTsai-Csie/execution-specs.git
+                eest_ref: full-benchmark-target
+                config:
+                  fork: osaka
+                  rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+                  datadir_method: copy
+                  # The snapshot is already at gas_limit, so the gas-bump is a no-op.
+                  gas_limit: 300000000
+                  gas_benchmark_values: [10]
+                  # Deploy only a handful of receiver contracts so the setup fill
+                  # stays tiny for CI (default is 100k).
+                  fill_env:
+                    BLOATNET_RECEIVER_CONTRACT_COUNT: "10"
+                  tests:
+                    - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
+                targets:
+                  - name: pre-run-besu
+                    filler_client: besu
+                    # besu image carrying testing_buildBlockV1 (drives fill-stateful).
+                    filler_image: ethpandaops/besu:bal-devnet-7
+                    source_dir: /tmp/benchmarkoor/state-actor/besu
+                    genesis: /tmp/benchmarkoor/state-actor/besu/besu-chainspec.json
+                    output_dir: /tmp/benchmarkoor/pre-runs/besu
+              eest_payloads:
+                pull_policy: always
+                eest_repo: https://github.com/LouisTsai-Csie/execution-specs.git
+                eest_ref: full-benchmark-target
+                config:
+                  fork: osaka
+                  rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+                  gas_benchmark_values: [10]
+                  datadir_method: copy
+                  tests:
+                    - tests/benchmark/stateful/bloatnet/test_account_query.py
+                  # Keep the fixture set small for CI (CALLCODE variants only).
+                  filter: test_account_access and CALLCODE
+                targets:
+                  - name: payload-generator-besu
+                    filler_client: besu
+                    filler_image: ethpandaops/besu:bal-devnet-7
+                    # Fill on the pre-run OUTPUT (the advanced datadir), not the raw snapshot.
+                    source_dir: /tmp/benchmarkoor/pre-runs/besu
+                    genesis: /tmp/benchmarkoor/state-actor/besu/besu-chainspec.json
+                    output_dir: /tmp/benchmarkoor/eest-fixtures/besu
+
+      - name: Run benchmarks (besu)
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-ref: ${{ github.event.pull_request.head.sha }}
+          git-repo: ${{ github.event.pull_request.head.repo.clone_url }}
+          mode: run
+          run-config-urls: >-
+            https://raw.githubusercontent.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-cleanup.yaml,
+            https://raw.githubusercontent.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-clientstdout.yaml
+          run-config: |
+            runner:
+              benchmark:
+                tests:
+                  source:
+                    eest_fixtures:
+                      local_fixtures_dir: /tmp/benchmarkoor/eest-fixtures/besu
+                      fixtures_subdir: blockchain_tests_stateful_engine
+              client:
+                config:
+                  bootstrap_fcu:
+                    enabled: true
+                    max_retries: 10
+                    backoff: 1s
+                  genesis:
+                    besu: /tmp/benchmarkoor/state-actor/besu/besu-chainspec.json
+                # besu boots on the advanced pre-run datadir, already at the setup head.
+                datadirs:
+                  besu:
+                    source_dir: /tmp/benchmarkoor/pre-runs/besu
+                    method: copy
+              instances:
+                - id: besu
+                  client: besu
+                  image: ethpandaops/besu:bal-devnet-7
+                  extra_args: [--p2p-enabled=true]
