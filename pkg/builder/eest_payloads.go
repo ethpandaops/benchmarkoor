@@ -206,6 +206,19 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 		}
 	}
 
+	// A URL genesis is downloaded to a local temp file so the fingerprint,
+	// checkInputs, and boot mount below all operate on a real path. A local path
+	// passes through unchanged. Done after the fast-path skip so a populated,
+	// unforced target does not fetch the URL.
+	genesisPath, genesisCleanup, err := resolveGenesisFile(ctx, log, target.Genesis)
+	if err != nil {
+		return false, err
+	}
+
+	defer genesisCleanup()
+
+	target.Genesis = genesisPath
+
 	// Compute the fingerprint up front: run() mutates target's genesis /
 	// address-stubs paths to temp files it then deletes, so the sidecar must be
 	// fingerprinted from the pre-run config (and from the same inputs the diff

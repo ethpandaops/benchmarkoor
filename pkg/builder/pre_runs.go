@@ -125,6 +125,18 @@ func (b *PreRunsBuilder) Build(ctx context.Context, name string, opts BuildOptio
 		}
 	}
 
+	// A URL genesis is downloaded to a local temp file so checkInputs and the
+	// filler boot below operate on a real path. A local path passes through. Done
+	// after the skip so a populated, unforced target does not fetch the URL.
+	genesisPath, genesisCleanup, err := resolveGenesisFile(ctx, log, target.Genesis)
+	if err != nil {
+		return false, err
+	}
+
+	defer genesisCleanup()
+
+	target.Genesis = genesisPath
+
 	if err := b.checkInputs(ctx, target); err != nil {
 		return false, err
 	}

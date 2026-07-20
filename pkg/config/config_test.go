@@ -4220,6 +4220,26 @@ func TestValidateEESTPayloads(t *testing.T) {
 			errSubstr: "output_dir must be an absolute path",
 		},
 		{
+			name: "genesis http url is valid",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.Genesis = "https://example.com/chainspec.json"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+		},
+		{
+			name: "relative genesis path rejected",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.Genesis = "relative/chainspec.json"
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "absolute path or http(s) URL",
+		},
+		{
 			name: "duplicate output_dir",
 			ep: &EESTPayloadsConfig{
 				FillImage: "fill:latest",

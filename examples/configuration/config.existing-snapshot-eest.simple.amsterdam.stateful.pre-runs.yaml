@@ -46,11 +46,11 @@ global:
   env:
     # TODO: the existing OSAKA nethermind snapshot to advance + benchmark on.
     SNAPSHOT_DIR: /schelk/snapshots/nethermind/jochemnet/24402727
-    # TODO: nethermind's parity chainspec for this network's OSAKA schedule.
-    # amsterdam is NOT scheduled here — genesis_eip_override adds it (below) at
-    # AMSTERDAM_ACTIVATION_TS. nethermind needs the chainspec to boot; it is
-    # usually NOT inside the snapshot dir.
-    NETHERMIND_CHAINSPEC: /schelk/snapshots/nethermind/jochemnet/chainspec.json
+    # nethermind's parity chainspec for this network's OSAKA schedule. amsterdam
+    # is NOT scheduled here — genesis_eip_override adds it (below) at
+    # AMSTERDAM_ACTIVATION_TS. May be a local absolute path OR an http(s) URL
+    # (downloaded at build/run time); point it at your network's chainspec.
+    NETHERMIND_CHAINSPEC: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/master/network-configs/devnet-3/metadata/chainspec.json
     # TODO: the unix timestamp at which AMSTERDAM activates. It MUST be just after
     # the snapshot head's timestamp: the pre-run builds 2 osaka blocks (funding +
     # deploy) at head_ts+1 and head_ts+2, then crosses to amsterdam. Set this to
@@ -59,8 +59,8 @@ global:
     AMSTERDAM_ACTIVATION_TS: "1800000000"
     PRERUN_DIR: /tmp/benchmarkoor/pre-runs/nethermind-existing-snapshot
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/nethermind-existing-snapshot
-    EEST_REPO: https://github.com/skylenet/execution-specs.git
-    EEST_REF: feat/fill-stateful-no-reset-between-tests
+    EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
+    EEST_REF: full-benchmark-target
 
 builder:
   ## Stage 1.5: pre-run — deploy the 8282 contracts on osaka, cross to amsterdam,

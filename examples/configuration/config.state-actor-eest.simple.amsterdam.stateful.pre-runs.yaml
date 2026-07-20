@@ -43,8 +43,8 @@ global:
     STATE_DIR: /tmp/benchmarkoor/state-actor/simple-amsterdam-stateful-preruns
     PRERUN_DIR: /tmp/benchmarkoor/pre-runs/simple-amsterdam-stateful-preruns
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/simple-amsterdam-stateful-preruns
-    EEST_REPO: https://github.com/skylenet/execution-specs.git
-    EEST_REF: feat/fill-stateful-no-reset-between-tests
+    EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
+    EEST_REF: full-benchmark-target
     # Which filler's pre-run bundle + fixtures the runner replays against every
     # client. Only nethermind's benchmark fixtures are built below, so leave this
     # as nethermind (add a geth eest_payloads target to switch).

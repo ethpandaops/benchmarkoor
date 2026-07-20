@@ -2426,8 +2426,8 @@ func validateEESTPayloadPaths(t *EESTPayloadTarget, prefix string, seenOutputs m
 
 	seenOutputs[t.OutputDir] = i
 
-	if t.Genesis != "" && !filepath.IsAbs(t.Genesis) {
-		return fmt.Errorf("%s.genesis must be an absolute path, got %q", prefix, t.Genesis)
+	if t.Genesis != "" && !isHTTPURLRef(t.Genesis) && !filepath.IsAbs(t.Genesis) {
+		return fmt.Errorf("%s.genesis must be an absolute path or http(s) URL, got %q", prefix, t.Genesis)
 	}
 
 	// genesis_fork_override / genesis_eip_override patch the boot genesis, so
@@ -2500,6 +2500,12 @@ func validateFixedOpcodeCount(values *[]float64, prefix string) error {
 	}
 
 	return nil
+}
+
+// isHTTPURLRef reports whether s is an http(s) URL rather than a local path.
+// Genesis/chainspec refs may be either; the builder downloads URLs at build time.
+func isHTTPURLRef(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
 
 // validDataDirMethods mirrors the datadir.method vocabulary accepted by
