@@ -313,7 +313,12 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 			return err
 		}
 
-		if _, err := bf.ec.fundingBlock(ctx, t.FundingAccounts, log); err != nil {
+		accounts, err := expandFundingAccounts(t)
+		if err != nil {
+			return err
+		}
+
+		if _, err := bf.ec.fundingBlock(ctx, accounts, log); err != nil {
 			return err
 		}
 	}
@@ -342,6 +347,30 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 	return nil
 }
 
+// expandFundingAccounts returns the target's explicit funding_accounts plus the
+// addresses derived from each funding_pools entry (EEST distinct-sender pools),
+// each credited the pool's amount. These are all funded in the pre-run funding
+// block via beacon withdrawals.
+func expandFundingAccounts(t *config.PreRunTarget) ([]config.PreRunFundingAccount, error) {
+	accounts := append([]config.PreRunFundingAccount{}, t.FundingAccounts...)
+
+	for i := range t.FundingPools {
+		p := &t.FundingPools[i]
+
+		addrs, err := deriveSenderPool(p.BaseKeySeed, p.Count)
+		if err != nil {
+			return nil, fmt.Errorf("deriving funding_pools[%d] (%q): %w", i, p.BaseKeySeed, err)
+		}
+
+		amount := p.ResolveAmountGwei()
+		for _, a := range addrs {
+			accounts = append(accounts, config.PreRunFundingAccount{Address: a.Hex(), AmountGwei: &amount})
+		}
+	}
+
+	return accounts, nil
+}
+
 // buildPredeployBlocks runs the fork-crossing block sequence for a predeploy
 // target: a pre-fork funding block that credits the configured accounts plus the
 // deployer, a pre-fork deploy block carrying the CREATE transactions, then the
@@ -358,9 +387,14 @@ func (b *PreRunsBuilder) buildPredeployBlocks(
 		return err
 	}
 
-	// Fund the configured accounts AND the deployer, all on the pre-fork.
+	// Fund the configured accounts + pools AND the deployer, all on the pre-fork.
 	fund := p.ResolveDeployerFundGwei()
-	accounts := append([]config.PreRunFundingAccount{}, t.FundingAccounts...)
+
+	accounts, err := expandFundingAccounts(t)
+	if err != nil {
+		return err
+	}
+
 	accounts = append(accounts, config.PreRunFundingAccount{
 		Address: deployerAddr.Hex(), AmountGwei: &fund,
 	})

@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -87,6 +88,38 @@ func TestRuntimeBytecode(t *testing.T) {
 	assert.Equal(t, []byte{0x60, 0x00, 0xfd}, runtimeBytecode("0x6000fd"))
 	assert.Equal(t, []byte{0x60, 0x00, 0xfd}, runtimeBytecode("6000fd"))
 	assert.Empty(t, runtimeBytecode("0x"))
+}
+
+func TestDeriveSenderPool(t *testing.T) {
+	addrs, err := deriveSenderPool("gas-repricings-private-key", 4)
+	require.NoError(t, err)
+	require.Len(t, addrs, 4)
+
+	// Deterministic: sender[0] matches execution-specs' SENDER_BASE_KEY EOA
+	// (the address that fails "insufficient funds ... 0x4e5e..." unfunded).
+	assert.Equal(t, common.HexToAddress("0x4e5e4CBB5d1c13242118aA32f02c7723D9c9377a"), addrs[0])
+
+	// Distinct + stable across calls.
+	again, err := deriveSenderPool("gas-repricings-private-key", 4)
+	require.NoError(t, err)
+	assert.Equal(t, addrs, again)
+	assert.NotEqual(t, addrs[0], addrs[1])
+}
+
+func TestExpandFundingAccounts(t *testing.T) {
+	amt := uint64(5)
+	tgt := &config.PreRunTarget{
+		FundingAccounts: []config.PreRunFundingAccount{{Address: "0xseed"}},
+		FundingPools:    []config.PreRunFundingPool{{BaseKeySeed: "gas-repricings-private-key", Count: 3, AmountGwei: &amt}},
+	}
+
+	accounts, err := expandFundingAccounts(tgt)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1+3, "explicit account + 3 pool addresses")
+	assert.Equal(t, "0xseed", accounts[0].Address)
+	assert.Equal(t, "0x4e5e4CBB5d1c13242118aA32f02c7723D9c9377a", accounts[1].Address)
+	require.NotNil(t, accounts[1].AmountGwei)
+	assert.Equal(t, uint64(5), *accounts[1].AmountGwei)
 }
 
 func TestDeployGas(t *testing.T) {

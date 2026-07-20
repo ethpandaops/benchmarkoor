@@ -29,6 +29,37 @@ func runtimeBytecode(code string) []byte {
 	return common.FromHex(code)
 }
 
+// deriveSenderPool derives the first count addresses of an EEST distinct-sender
+// pool: private key i is int(keccak256(seed)) + i, and the address is that key's
+// EOA. This mirrors execution-specs' yield_distinct_sender (SENDER_BASE_KEY =
+// int(keccak256(b"gas-repricings-private-key"))), so a pre-run can beacon-fund
+// the pool that stateful ether-transfer benchmarks draw senders from.
+func deriveSenderPool(seed string, count int) ([]common.Address, error) {
+	base := new(big.Int).SetBytes(crypto.Keccak256([]byte(seed)))
+	order := crypto.S256().Params().N
+
+	addrs := make([]common.Address, 0, count)
+
+	for i := range count {
+		k := new(big.Int).Add(base, big.NewInt(int64(i)))
+		if k.Sign() == 0 || k.Cmp(order) >= 0 {
+			return nil, fmt.Errorf("derived sender key %d is out of the secp256k1 range", i)
+		}
+
+		kb := make([]byte, 32)
+		k.FillBytes(kb)
+
+		key, err := crypto.ToECDSA(kb)
+		if err != nil {
+			return nil, fmt.Errorf("deriving sender %d: %w", i, err)
+		}
+
+		addrs = append(addrs, crypto.PubkeyToAddress(key.PublicKey))
+	}
+
+	return addrs, nil
+}
+
 // maxDeployRuntimeSize is the largest runtime bytecode deployInitcode can wrap:
 // its length is emitted as a PUSH2 operand.
 const maxDeployRuntimeSize = 0xFFFF

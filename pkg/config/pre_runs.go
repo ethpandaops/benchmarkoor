@@ -69,6 +69,18 @@ type PreRunFundingAccount struct {
 	AmountGwei *uint64 `yaml:"amount_gwei,omitempty" mapstructure:"amount_gwei"`
 }
 
+// PreRunFundingPool credits a deterministic pool of derived EOAs in the funding
+// block, so stateful benchmarks that draw senders from a pool (EEST's
+// yield_distinct_sender) have funded senders. The i-th address is the EOA of
+// private key int(keccak256(base_key_seed)) + i, matching execution-specs'
+// SENDER_BASE_KEY derivation. Count must cover the largest per-variant sender
+// count (gas_benchmark_value / per-iteration cost) across the selected tests.
+type PreRunFundingPool struct {
+	BaseKeySeed string  `yaml:"base_key_seed" mapstructure:"base_key_seed"`
+	Count       int     `yaml:"count" mapstructure:"count"`
+	AmountGwei  *uint64 `yaml:"amount_gwei,omitempty" mapstructure:"amount_gwei"`
+}
+
 // PreRunDefaults are the per-target build parameters hoistable to the top level
 // under builder.pre_runs.config. Every field is also present on PreRunTarget; a
 // non-nil/non-empty value on the target wins. See ResolveTarget.
@@ -100,6 +112,9 @@ type PreRunDefaults struct {
 	// FundingAccounts are credited in the funding block. Empty means the
 	// funding block is skipped.
 	FundingAccounts []PreRunFundingAccount `yaml:"funding_accounts,omitempty" mapstructure:"funding_accounts"`
+	// FundingPools credit derived sender pools in the funding block (see
+	// PreRunFundingPool) — for stateful benchmarks that draw senders from a pool.
+	FundingPools []PreRunFundingPool `yaml:"funding_pools,omitempty" mapstructure:"funding_pools"`
 	// Predeploy, when set, deploys contracts on a pre-fork before the target fork
 	// activates (see PreRunPredeploy). Requires genesis_eip_override to schedule
 	// the target fork's activation timestamp.
@@ -146,6 +161,7 @@ type PreRunTarget struct {
 	GasLimit           *uint64                      `yaml:"gas_limit,omitempty" mapstructure:"gas_limit"`
 	GasBumpMaxBlocks   *int                         `yaml:"gas_bump_max_blocks,omitempty" mapstructure:"gas_bump_max_blocks"`
 	FundingAccounts    []PreRunFundingAccount       `yaml:"funding_accounts,omitempty" mapstructure:"funding_accounts"`
+	FundingPools       []PreRunFundingPool          `yaml:"funding_pools,omitempty" mapstructure:"funding_pools"`
 	Predeploy          *PreRunPredeploy             `yaml:"predeploy,omitempty" mapstructure:"predeploy"`
 }
 
@@ -262,6 +278,10 @@ func (p *PreRunsConfig) ResolveTarget(i int) PreRunTarget {
 		t.FundingAccounts = g.FundingAccounts
 	}
 
+	if len(t.FundingPools) == 0 {
+		t.FundingPools = g.FundingPools
+	}
+
 	if t.Predeploy == nil {
 		t.Predeploy = g.Predeploy
 	}
@@ -329,6 +349,16 @@ func (t *PreRunTarget) ResolveGasBumpMaxBlocks() int {
 func (a *PreRunFundingAccount) ResolveAmountGwei() uint64 {
 	if a.AmountGwei != nil {
 		return *a.AmountGwei
+	}
+
+	return DefaultPreRunFundingAmountGwei
+}
+
+// ResolveAmountGwei returns the pool's per-address withdrawal amount in gwei,
+// defaulting to DefaultPreRunFundingAmountGwei.
+func (p *PreRunFundingPool) ResolveAmountGwei() uint64 {
+	if p.AmountGwei != nil {
+		return *p.AmountGwei
 	}
 
 	return DefaultPreRunFundingAmountGwei
@@ -543,6 +573,16 @@ func (c *Config) validatePreRuns() error {
 		for j := range t.FundingAccounts {
 			if t.FundingAccounts[j].Address == "" {
 				return fmt.Errorf("%s.funding_accounts[%d].address is required", prefix, j)
+			}
+		}
+
+		for j := range t.FundingPools {
+			if t.FundingPools[j].BaseKeySeed == "" {
+				return fmt.Errorf("%s.funding_pools[%d].base_key_seed is required", prefix, j)
+			}
+
+			if t.FundingPools[j].Count <= 0 {
+				return fmt.Errorf("%s.funding_pools[%d].count must be > 0", prefix, j)
 			}
 		}
 
