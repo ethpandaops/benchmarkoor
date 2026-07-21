@@ -221,6 +221,12 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.store.GetUserByUsername(r.Context(), req.Username)
 	if err != nil {
+		// Run the same bcrypt comparison a real user lookup would incur, so a
+		// non-existent username takes the same time as a wrong password for
+		// an existing one. Without this, the missing comparison is a timing
+		// oracle that lets a caller enumerate valid usernames.
+		checkPassword(dummyPasswordHash, req.Password)
+
 		writeJSON(w, http.StatusUnauthorized,
 			errorResponse{"invalid credentials"})
 
@@ -319,6 +325,24 @@ func checkPassword(hash, password string) bool {
 	return bcrypt.CompareHashAndPassword(
 		[]byte(hash), []byte(password),
 	) == nil
+}
+
+// dummyPasswordHash is a bcrypt hash of a fixed placeholder password,
+// computed once at startup and compared against on every login attempt for
+// a username that doesn't exist. This keeps the "user not found" path the
+// same cost as the "wrong password" path. See checkPassword's use in
+// handleLogin.
+var dummyPasswordHash = mustHashDummyPassword()
+
+func mustHashDummyPassword() string {
+	hash, err := bcrypt.GenerateFromPassword(
+		[]byte("benchmarkoor-dummy-password-for-timing-parity"), bcrypt.DefaultCost,
+	)
+	if err != nil {
+		panic("generating dummy password hash: " + err.Error())
+	}
+
+	return string(hash)
 }
 
 // --- API key handlers ---

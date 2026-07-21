@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,10 +86,11 @@ func (s *server) rateLimitMiddleware(
 	tier config.RateLimitTier,
 ) func(http.Handler) http.Handler {
 	limiterMap := newRateLimiterMap(tier.RequestsPerMinute)
+	trustedProxies := parseTrustedProxies(s.cfg.Server.TrustedProxies)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := extractIP(r)
+			ip := extractIP(r, trustedProxies)
 			limiter := limiterMap.getLimiter(ip)
 
 			if !limiter.Allow() {
@@ -102,27 +105,96 @@ func (s *server) rateLimitMiddleware(
 	}
 }
 
-// extractIP returns the client's IP address from the request.
-func extractIP(r *http.Request) string {
-	// Check X-Forwarded-For first (common with reverse proxies).
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the chain.
-		if idx := len(xff); idx > 0 {
-			for i, c := range xff {
-				if c == ',' {
-					return xff[:i]
-				}
-			}
+// extractIP returns the client's IP address for rate-limiting purposes.
+//
+// X-Forwarded-For is only honored when the direct connection (RemoteAddr)
+// comes from a configured trusted proxy - otherwise it's an arbitrary,
+// attacker-controlled header that would let every request claim a fresh
+// identity and bypass the limiter entirely. When trusted, the right-most
+// entry in the header is used, since that's the hop our trusted proxy
+// itself observed and appended - anything to its left could have been
+// forged by the client.
+func extractIP(r *http.Request, trustedProxies []*net.IPNet) string {
+	remoteIP, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		remoteIP = r.RemoteAddr
+	}
 
-			return xff
+	if !isTrustedProxy(remoteIP, trustedProxies) {
+		return remoteIP
+	}
+
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return remoteIP
+	}
+
+	hops := strings.Split(xff, ",")
+
+	clientIP := strings.TrimSpace(hops[len(hops)-1])
+	if clientIP == "" {
+		return remoteIP
+	}
+
+	return clientIP
+}
+
+// isTrustedProxy reports whether ip falls within any of the configured
+// trusted proxy networks.
+func isTrustedProxy(ip string, trustedProxies []*net.IPNet) bool {
+	if len(trustedProxies) == 0 {
+		return false
+	}
+
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+
+	for _, network := range trustedProxies {
+		if network.Contains(parsed) {
+			return true
 		}
 	}
 
-	// Fall back to RemoteAddr.
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+	return false
+}
+
+// parseTrustedProxies parses a list of bare IPs or CIDR ranges into
+// networks suitable for membership checks. Bare IPs are treated as
+// single-address networks. Entries that fail to parse are skipped, which
+// fails closed: a malformed entry simply never matches, rather than
+// granting broader trust than configured.
+func parseTrustedProxies(proxies []string) []*net.IPNet {
+	networks := make([]*net.IPNet, 0, len(proxies))
+
+	for _, p := range proxies {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+
+		if !strings.Contains(p, "/") {
+			ip := net.ParseIP(p)
+			if ip == nil {
+				continue
+			}
+
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+
+			p = fmt.Sprintf("%s/%d", p, bits)
+		}
+
+		_, network, err := net.ParseCIDR(p)
+		if err != nil {
+			continue
+		}
+
+		networks = append(networks, network)
 	}
 
-	return ip
+	return networks
 }

@@ -333,6 +333,13 @@ runner:
 #     #     requests_per_minute: 60   # Health/config endpoints
 #     #   authenticated:
 #     #     requests_per_minute: 120  # Admin endpoints
+#     # Trust X-Forwarded-For only from these reverse proxy/load balancer
+#     # IPs or CIDR ranges. Leave unset if the API is reachable directly —
+#     # an unset list means X-Forwarded-For is never trusted for rate
+#     # limiting, since honoring it from an arbitrary client would let
+#     # every request claim a different IP and bypass the limit above.
+#     # trusted_proxies:
+#     #   - 10.0.0.0/8
 #   auth:
 #     session_ttl: 24h  # How long sessions last before expiring
 #     # Allow unauthenticated users to access /files/ endpoints (default: false).
