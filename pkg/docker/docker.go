@@ -626,8 +626,36 @@ func (m *manager) GetClient() *client.Client {
 	return m.client
 }
 
+// ctxWithDone derives a context that is canceled either when ctx is
+// canceled or when the manager is stopping (m.done closes). The watcher
+// goroutine is tracked on m.wg so Stop() waits for it.
+func (m *manager) ctxWithDone(ctx context.Context) (context.Context, context.CancelFunc) {
+	derived, cancel := context.WithCancel(ctx)
+
+	m.wg.Add(1)
+
+	go func() {
+		defer m.wg.Done()
+
+		select {
+		case <-ctx.Done():
+			cancel()
+		case <-m.done:
+			cancel()
+		case <-derived.Done():
+		}
+	}()
+
+	return derived, cancel
+}
+
 // WaitForContainerExit returns channels that signal when a container exits.
 // The statusCh receives exit info (code + OOM status), errCh receives any wait errors.
+//
+// The producer goroutine is tracked on m.wg and its ContainerWait call runs
+// against a context derived via ctxWithDone, so Stop() actually cancels
+// the in-flight call and waits for the goroutine to finish instead of
+// returning while it - and its underlying connection - are still running.
 func (m *manager) WaitForContainerExit(
 	ctx context.Context,
 	containerID string,
@@ -635,12 +663,18 @@ func (m *manager) WaitForContainerExit(
 	statusCh := make(chan ContainerExitInfo, 1)
 	errCh := make(chan error, 1)
 
+	waitCtx, cancel := m.ctxWithDone(ctx)
+
+	m.wg.Add(1)
+
 	go func() {
+		defer m.wg.Done()
 		defer close(statusCh)
 		defer close(errCh)
+		defer cancel()
 
 		waitStatusCh, waitErrCh := m.client.ContainerWait(
-			ctx, containerID, container.WaitConditionNotRunning,
+			waitCtx, containerID, container.WaitConditionNotRunning,
 		)
 
 		select {
@@ -674,8 +708,8 @@ func (m *manager) WaitForContainerExit(
 			statusCh <- info
 		case err := <-waitErrCh:
 			errCh <- err
-		case <-ctx.Done():
-			errCh <- ctx.Err()
+		case <-waitCtx.Done():
+			errCh <- waitCtx.Err()
 		}
 	}()
 

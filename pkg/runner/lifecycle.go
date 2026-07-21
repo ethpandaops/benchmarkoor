@@ -1353,8 +1353,14 @@ func (r *runner) runContainerLifecycle(
 	}
 
 	// Return an error if the container died so callers (e.g. multi-genesis
-	// loop) stop instead of continuing with the next group.
-	if containerDied {
+	// loop) stop instead of continuing with the next group. Read under mu:
+	// the death-monitor goroutine (still running until execCancel/r.done
+	// fires) writes containerDied under the same lock.
+	mu.Lock()
+	died := containerDied
+	mu.Unlock()
+
+	if died {
 		return fmt.Errorf("container died during execution")
 	}
 

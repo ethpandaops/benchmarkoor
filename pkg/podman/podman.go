@@ -53,9 +53,18 @@ type manager struct {
 func (m *manager) connWithCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	derived, cancel := context.WithCancel(m.conn)
 
+	m.wg.Add(1)
+
 	go func() {
+		defer m.wg.Done()
+
 		select {
 		case <-ctx.Done():
+			cancel()
+		case <-m.done:
+			// Manager is stopping - release any in-flight call derived
+			// from this context instead of leaving it running past
+			// Stop() returning.
 			cancel()
 		case <-derived.Done():
 		}
@@ -703,7 +712,10 @@ func (m *manager) WaitForContainerExit(
 
 	waitConn, cancel := m.connWithCtx(ctx)
 
+	m.wg.Add(1)
+
 	go func() {
+		defer m.wg.Done()
 		defer close(statusCh)
 		defer close(errCh)
 		defer cancel()
