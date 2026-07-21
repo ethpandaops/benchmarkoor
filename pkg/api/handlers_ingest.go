@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
@@ -20,6 +21,14 @@ func (s *server) handleIngestRun(w http.ResponseWriter, r *http.Request) {
 	// gzip bodies, so this size is post-decompression.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeJSON(w, http.StatusRequestEntityTooLarge,
+				errorResponse{"request body too large"})
+
+			return
+		}
+
 		writeJSON(w, http.StatusBadRequest,
 			errorResponse{"failed to read request body"})
 
