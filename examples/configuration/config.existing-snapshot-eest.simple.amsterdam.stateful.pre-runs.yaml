@@ -120,6 +120,17 @@ builder:
       # funded automatically alongside it.
       funding_accounts:
         - address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
+      funding_pools:
+        # EEST yield_distinct_sender pool for stateful ether-transfer benchmarks
+        # (test_ether_transfers_onchain_receivers). Address i = EOA of key
+        # int(keccak256(base_key_seed)) + i, matching execution-specs' SENDER_BASE_KEY.
+        # count must cover the largest per-variant sender count
+        # (gas_benchmark_value / per-iteration cost). At 300 Mgas the biggest
+        # ether-transfer variant fans out to ~25000 distinct senders; size the
+        # pool to that so txs aren't dropped ("expected N but only <count>
+        # included"). Scale this together with gas_benchmark_values below.
+        - base_key_seed: gas-repricings-private-key
+          count: 25000
       gas_benchmark_values: [1000]
       # test_setup_contracts deploys 100k contracts by default; cap it at 1000 to
       # keep the pre-run setup fill tractable. Raise or remove for a full-scale run.
@@ -162,7 +173,12 @@ builder:
     config:
       fork: amsterdam
       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
-      gas_benchmark_values: [10]
+      # Per-benchmark gas budget (Mgas). EEST sizes each benchmark's workload
+      # (tx count / per-tx gas_limit) to this, NOT the block gas limit. 300 Mgas
+      # makes the benchmarks representative; it also drives the sender-pool size
+      # above — a bigger value fans out to more distinct senders, so raise
+      # funding_pools.count to match (300 Mgas -> ~25000).
+      gas_benchmark_values: [300]
       # source_dir here is the schelk scratch the pre-run just advanced (SNAPSHOT_DIR).
       # Boot the filler DIRECTLY on it (no copy), continuing from the pre-run head.
       # method: direct only mounts the schelk source (never recovers), so it does
@@ -178,14 +194,28 @@ builder:
         - --Merge.NewPayloadBlockProcessingTimeout=70000
         - --Blocks.CachePrecompilesOnBlockProcessing=false
       tests:
-        - tests/benchmark/stateful/bloatnet/test_account_query.py
-      # Exclude only the 5 variants that revert (receipt status 0) when filled on
-      # the setup datadir: a plain CALL sending value (value_sent_1) to an EXISTING
-      # account with overhead_baseline_False. CALLCODE, the NON_EXISTING target, and
-      # the overhead_baseline_True variants all fill cleanly, so this keeps the other
-      # 95 test_account_access cases. "CALL and not CALLCODE" isolates CALL, since -k
-      # matches substrings.
-      filter: test_account_access and not (value_sent_1 and overhead_baseline_False and CALL and not CALLCODE and not NON_EXISTING)
+        - tests/benchmark/stateful/bloatnet
+      marker: repricing
+      # Resolves @pytest.mark.stub_parametrize prefixes (e.g. bloated_eoa_10GB)
+      # against pre-deployed state; without it those variants are skipped.
+      address_stubs:
+        bloated_eoa_10GB:
+          addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
+          pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
+      # Exclude the 11 repricing variants that fail on this nethermind build
+      # (glamsterdam-devnet-6) at 300 Mgas: EEST's per-op gas model under-predicts
+      # what the client charges for value-bearing calls to CONTRACT accounts, so the
+      # tightly-budgeted txs run out of gas (receipt status 0, gas_used == gas_limit).
+      # EOA-target and CALLCODE variants fill cleanly. See
+      # docs/eest-300m-known-failures.md for the full list + evidence.
+      #   - account_access: CALL + value_sent_1 + overhead_baseline_False to the 4
+      #     EXISTING_CONTRACT_* modes (EOA/NON_EXISTING + CALLCODE pass).
+      #   - ether_transfers: value transfers to the create2/delegated/jumpdest
+      #     contract receivers (diff_to_contract_{minimal,same_max,diff_max} amount_1;
+      #     diff_to_delegated_contract_diff + diff_to_unique_code_jumpdest_contract
+      #     both amounts).
+      # "opcode_CALL and not CALLCODE" isolates CALL, since -k matches substrings.
+      filter: "not ( (test_account_access and opcode_CALL and not CALLCODE and value_sent_1 and overhead_baseline_False and EXISTING_CONTRACT) or (transfer_amount_1 and diff_to_contract_minimal) or (transfer_amount_1 and diff_to_contract_same_max) or (transfer_amount_1 and diff_to_contract_diff_max) or diff_to_delegated_contract_diff or diff_to_unique_code_jumpdest_contract )"
     targets:
       - name: payload-generator-nethermind-stateful
         filler_client: nethermind
