@@ -113,7 +113,7 @@ func TestExtractIP_MalformedHopsAreNeverUsedAsKeys(t *testing.T) {
 		got := extractIP(req, trusted)
 
 		assert.Equal(t, "10.0.0.1", got,
-			"an unparseable hop (%q) breaks the chain and must fall back to RemoteAddr, never become a limiter key", xff)
+			"an unparsable hop (%q) breaks the chain and must fall back to RemoteAddr, never become a limiter key", xff)
 	}
 }
 
