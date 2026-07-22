@@ -220,20 +220,25 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := s.store.GetUserByUsername(r.Context(), req.Username)
-	if err != nil {
-		// Run the same bcrypt comparison a real user lookup would incur, so a
-		// non-existent username takes the same time as a wrong password for
-		// an existing one. Without this, the missing comparison is a timing
-		// oracle that lets a caller enumerate valid usernames.
-		checkPassword(dummyPasswordHash, req.Password)
 
-		writeJSON(w, http.StatusUnauthorized,
-			errorResponse{"invalid credentials"})
+	// Every login attempt must cost exactly one bcrypt comparison, whatever
+	// the lookup found. A username that doesn't exist has no hash to compare,
+	// and a GitHub-sourced account has an empty one that bcrypt rejects on a
+	// length check in microseconds - either shortcut turns response time into
+	// an oracle for enumerating accounts. Both fall back to a fixed dummy
+	// hash of the same cost, and hasCredential (not the comparison result)
+	// decides whether authentication can succeed, so a caller who somehow
+	// guessed the dummy password still can't log in as anyone.
+	hash := dummyPasswordHash
 
-		return
+	hasCredential := err == nil && user != nil && isBcryptHash(user.PasswordHash)
+	if hasCredential {
+		hash = user.PasswordHash
 	}
 
-	if !checkPassword(user.PasswordHash, req.Password) {
+	passwordOK := checkPassword(hash, req.Password)
+
+	if !hasCredential || !passwordOK {
 		writeJSON(w, http.StatusUnauthorized,
 			errorResponse{"invalid credentials"})
 
@@ -327,23 +332,29 @@ func checkPassword(hash, password string) bool {
 	) == nil
 }
 
-// dummyPasswordHash is a bcrypt hash of a fixed placeholder password,
-// computed once at startup and compared against on every login attempt for
-// a username that doesn't exist. This keeps the "user not found" path the
-// same cost as the "wrong password" path. See checkPassword's use in
-// handleLogin.
-var dummyPasswordHash = mustHashDummyPassword()
+// isBcryptHash reports whether hash is a well-formed bcrypt hash, i.e. one
+// that CompareHashAndPassword will actually spend a key derivation on.
+// Accounts without a usable password (GitHub logins store an empty hash)
+// must not be authenticated by, or measurably faster than, a real compare.
+func isBcryptHash(hash string) bool {
+	_, err := bcrypt.Cost([]byte(hash))
 
-func mustHashDummyPassword() string {
-	hash, err := bcrypt.GenerateFromPassword(
-		[]byte("benchmarkoor-dummy-password-for-timing-parity"), bcrypt.DefaultCost,
-	)
-	if err != nil {
-		panic("generating dummy password hash: " + err.Error())
-	}
-
-	return string(hash)
+	return err == nil
 }
+
+// dummyPasswordHash is a bcrypt hash of dummyPassword at bcrypt.DefaultCost,
+// compared against on every login attempt that has no real hash to check.
+// This keeps those paths the same cost as a genuine wrong-password check.
+//
+// It is a pre-generated constant rather than something hashed at startup so
+// that binaries which never serve a login don't pay a bcrypt derivation
+// during package init. TestDummyPasswordHash_MatchesRealUserCost guards the
+// cost matching what real users are hashed with; if bcrypt.DefaultCost ever
+// changes, regenerate this from dummyPassword.
+const (
+	dummyPassword     = "benchmarkoor-dummy-password-for-timing-parity"
+	dummyPasswordHash = "$2a$10$84TC40fhRS1Wdjgk3xIF4OtF88k3UnTNGHw9X91VxI/wncL9i.EZC"
+)
 
 // --- API key handlers ---
 

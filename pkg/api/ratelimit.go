@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 )
 
@@ -86,11 +87,12 @@ func (s *server) rateLimitMiddleware(
 	tier config.RateLimitTier,
 ) func(http.Handler) http.Handler {
 	limiterMap := newRateLimiterMap(tier.RequestsPerMinute)
-	trustedProxies := parseTrustedProxies(s.cfg.Server.TrustedProxies)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := extractIP(r, trustedProxies)
+			s.warnOnUntrustedForwardedFor(r)
+
+			ip := extractIP(r, s.trustedProxies)
 			limiter := limiterMap.getLimiter(ip)
 
 			if !limiter.Allow() {
@@ -105,15 +107,42 @@ func (s *server) rateLimitMiddleware(
 	}
 }
 
+// warnOnUntrustedForwardedFor logs once if requests arrive carrying an
+// X-Forwarded-For header while no trusted proxies are configured. That
+// combination means a reverse proxy is almost certainly in front of the API
+// but isn't declared, so every client behind it is rate limited as a single
+// address - a silent lockout that is otherwise very hard to diagnose.
+func (s *server) warnOnUntrustedForwardedFor(r *http.Request) {
+	if len(s.trustedProxies) > 0 || r.Header.Get("X-Forwarded-For") == "" {
+		return
+	}
+
+	s.xffWarnOnce.Do(func() {
+		s.log.Warn(
+			"Requests carry X-Forwarded-For but api.server.trusted_proxies " +
+				"is empty, so rate limiting keys on the direct connection " +
+				"address. If a reverse proxy fronts this API, list every " +
+				"proxy in the chain under trusted_proxies - otherwise all " +
+				"clients behind it share a single rate limit bucket.",
+		)
+	})
+}
+
 // extractIP returns the client's IP address for rate-limiting purposes.
 //
 // X-Forwarded-For is only honored when the direct connection (RemoteAddr)
 // comes from a configured trusted proxy - otherwise it's an arbitrary,
 // attacker-controlled header that would let every request claim a fresh
-// identity and bypass the limiter entirely. When trusted, the right-most
-// entry in the header is used, since that's the hop our trusted proxy
-// itself observed and appended - anything to its left could have been
-// forged by the client.
+// identity and bypass the limiter entirely.
+//
+// When trusted, the header is walked right-to-left and the first entry that
+// is not itself a trusted proxy is returned: with a chain of proxies (say a
+// CDN in front of a load balancer) the right-most entries are the hops our
+// own infrastructure appended, and only the first untrusted address below
+// them is attributable. Anything further left could have been forged by the
+// client, so a malformed or exhausted chain falls back to RemoteAddr rather
+// than trusting a value we can't vouch for. Every candidate must parse as an
+// IP, so arbitrary strings never become limiter keys.
 func extractIP(r *http.Request, trustedProxies []*net.IPNet) string {
 	remoteIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -131,12 +160,21 @@ func extractIP(r *http.Request, trustedProxies []*net.IPNet) string {
 
 	hops := strings.Split(xff, ",")
 
-	clientIP := strings.TrimSpace(hops[len(hops)-1])
-	if clientIP == "" {
-		return remoteIP
+	for i := len(hops) - 1; i >= 0; i-- {
+		hop := strings.TrimSpace(hops[i])
+
+		if net.ParseIP(hop) == nil {
+			// A hop we can't parse breaks the chain: everything further
+			// left is unverifiable, so fall back to the connection address.
+			break
+		}
+
+		if !isTrustedProxy(hop, trustedProxies) {
+			return hop
+		}
 	}
 
-	return clientIP
+	return remoteIP
 }
 
 // isTrustedProxy reports whether ip falls within any of the configured
@@ -164,19 +202,27 @@ func isTrustedProxy(ip string, trustedProxies []*net.IPNet) bool {
 // networks suitable for membership checks. Bare IPs are treated as
 // single-address networks. Entries that fail to parse are skipped, which
 // fails closed: a malformed entry simply never matches, rather than
-// granting broader trust than configured.
-func parseTrustedProxies(proxies []string) []*net.IPNet {
+// granting broader trust than configured. Skipped entries are logged at
+// warn level, since a typo silently demotes a real proxy to untrusted and
+// collapses everyone behind it into one rate limit bucket.
+func parseTrustedProxies(log logrus.FieldLogger, proxies []string) []*net.IPNet {
 	networks := make([]*net.IPNet, 0, len(proxies))
 
 	for _, p := range proxies {
-		p = strings.TrimSpace(p)
-		if p == "" {
+		entry := strings.TrimSpace(p)
+		if entry == "" {
 			continue
 		}
 
-		if !strings.Contains(p, "/") {
-			ip := net.ParseIP(p)
+		cidr := entry
+
+		if !strings.Contains(cidr, "/") {
+			ip := net.ParseIP(cidr)
 			if ip == nil {
+				log.WithField("entry", entry).Warn(
+					"Ignoring api.server.trusted_proxies entry: not a valid IP or CIDR range",
+				)
+
 				continue
 			}
 
@@ -185,11 +231,15 @@ func parseTrustedProxies(proxies []string) []*net.IPNet {
 				bits = 128
 			}
 
-			p = fmt.Sprintf("%s/%d", p, bits)
+			cidr = fmt.Sprintf("%s/%d", cidr, bits)
 		}
 
-		_, network, err := net.ParseCIDR(p)
+		_, network, err := net.ParseCIDR(cidr)
 		if err != nil {
+			log.WithField("entry", entry).WithError(err).Warn(
+				"Ignoring api.server.trusted_proxies entry: not a valid IP or CIDR range",
+			)
+
 			continue
 		}
 

@@ -338,6 +338,10 @@ runner:
 #     # an unset list means X-Forwarded-For is never trusted for rate
 #     # limiting, since honoring it from an arbitrary client would let
 #     # every request claim a different IP and bypass the limit above.
+#     # List every proxy in the chain (e.g. CDN egress ranges as well as
+#     # the load balancer): the header is read right-to-left and the first
+#     # hop that isn't a trusted proxy is used as the client address, so a
+#     # missing entry keys every client on that proxy instead.
 #     # trusted_proxies:
 #     #   - 10.0.0.0/8
 #   auth:

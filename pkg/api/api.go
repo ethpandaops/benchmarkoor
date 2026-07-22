@@ -45,6 +45,14 @@ type server struct {
 	wg             sync.WaitGroup
 	done           chan struct{}
 
+	// trustedProxies holds the parsed api.server.trusted_proxies networks.
+	// Parsed once here rather than per middleware tier so the config is
+	// validated (and complained about) a single time at construction, and
+	// so every consumer of a request's client IP resolves it identically.
+	// See extractIP.
+	trustedProxies []*net.IPNet
+	xffWarnOnce    sync.Once
+
 	// indexCache holds the marshaled /index response keyed by the runs-table
 	// generation, so repeated polls don't rebuild it. See handleIndex.
 	indexCacheMu   sync.Mutex
@@ -60,10 +68,11 @@ func NewServer(
 	componentLog := log.WithField("component", "api")
 
 	return &server{
-		log:   componentLog,
-		cfg:   cfg,
-		done:  make(chan struct{}),
-		wsHub: newWsHub(componentLog),
+		log:            componentLog,
+		cfg:            cfg,
+		done:           make(chan struct{}),
+		wsHub:          newWsHub(componentLog),
+		trustedProxies: parseTrustedProxies(componentLog, cfg.Server.TrustedProxies),
 	}
 }
 
