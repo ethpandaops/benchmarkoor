@@ -32,6 +32,15 @@ const (
 	// ingest body. Without this, a small gzip payload can inflate to an
 	// arbitrary size in memory before any JSON validation ever runs.
 	maxIngestDecompressedBytes = 50 << 20 // 50 MiB
+
+	// maxJSONBodyBytes bounds request bodies on the auth and admin
+	// endpoints, which decode small JSON documents (credentials, a user
+	// record, an org mapping). Without it, json.Decoder happily buffers a
+	// whole multi-hundred-megabyte string value: a 64MiB login body costs
+	// ~320MiB of allocation, and /auth/login is reachable before any
+	// authentication runs. Orders of magnitude above any real payload,
+	// while still bounding the blast radius.
+	maxJSONBodyBytes = 1 << 20 // 1 MiB
 )
 
 // countingReader wraps an io.Reader and tracks total bytes read. Used by
@@ -268,6 +277,33 @@ func (s *server) requireIngestToken(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// limitRequestBody caps the request body at n bytes for every route it is
+// mounted on. Applied per route group rather than globally on purpose: a
+// global wrapper would become the underlying reader for gzipRequestBody's
+// own MaxBytesReader, and the smaller of the two limits would silently win
+// on the ingest path.
+//
+// A body that advertises a Content-Length over the cap is rejected on the
+// headers alone, without reading it. Bodies without a usable
+// Content-Length (chunked) are bounded by the reader instead, and surface
+// to the handler as a decode error.
+func (s *server) limitRequestBody(n int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ContentLength > n {
+				writeJSON(w, http.StatusRequestEntityTooLarge,
+					errorResponse{"request body too large"})
+
+				return
+			}
+
+			r.Body = http.MaxBytesReader(w, r.Body, n)
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // gzipRequestBody transparently inflates gzipped request bodies so

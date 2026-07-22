@@ -26,6 +26,12 @@ func (s *server) buildRouter() http.Handler {
 
 		// Auth endpoints.
 		r.Route("/auth", func(r chi.Router) {
+			// Cap request bodies before anything reads them. /login is
+			// reachable without authentication, and rate limiting is off
+			// by default, so this is the only thing standing between an
+			// anonymous caller and an unbounded allocation.
+			r.Use(s.limitRequestBody(maxJSONBodyBytes))
+
 			// Apply rate limiting to auth endpoints.
 			if s.cfg.Server.RateLimit.Enabled {
 				r.Use(s.rateLimitMiddleware(
@@ -123,6 +129,7 @@ func (s *server) buildRouter() http.Handler {
 
 		// Admin endpoints (require auth + admin role).
 		r.Route("/admin", func(r chi.Router) {
+			r.Use(s.limitRequestBody(maxJSONBodyBytes))
 			r.Use(s.requireAuth)
 			r.Use(s.requireRole("admin"))
 

@@ -326,6 +326,15 @@ The endpoint caps the raw request body at 10 MiB, and the decompressed size of a
 
 All endpoints are under the `/api/v1` prefix.
 
+### Request body limits
+
+| Endpoints | Limit |
+|-----------|-------|
+| `/auth/*`, `/admin/*` | 1 MiB |
+| `/ingest/*` | 10 MiB raw, 50 MiB decompressed (gzip) |
+
+A request whose `Content-Length` exceeds the limit is rejected with `413 Payload Too Large` before the body is read. The limits are not configurable.
+
 ### Public
 
 | Method | Path | Description |
