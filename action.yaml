@@ -163,7 +163,11 @@ runs:
           for i in "${!CONFIG_URLS[@]}"; do
             URL=$(echo "${CONFIG_URLS[$i]}" | xargs)  # trim whitespace
             echo "Downloading build config from ${URL}"
-            curl -fsSL "${URL}" -o "${{ runner.temp }}/benchmarkoor-build-config-url-${i}.yaml"
+            # --retry covers the transient class (5xx, 429, 408, timeouts) and
+            # still fails fast on a 404, so a raw.githubusercontent.com blip
+            # cannot kill a multi-hour benchmark before it starts.
+            curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 120 \
+              "${URL}" -o "${{ runner.temp }}/benchmarkoor-build-config-url-${i}.yaml"
           done
         fi
 
@@ -291,7 +295,10 @@ runs:
           for i in "${!CONFIG_URLS[@]}"; do
             URL=$(echo "${CONFIG_URLS[$i]}" | xargs)  # trim whitespace
             echo "Downloading config from ${URL}"
-            curl -fsSL "${URL}" -o "${{ runner.temp }}/benchmarkoor-config-url-${i}.yaml"
+            # See the build-config download above: retry the transient class,
+            # fail fast on a genuine 404.
+            curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 120 \
+              "${URL}" -o "${{ runner.temp }}/benchmarkoor-config-url-${i}.yaml"
           done
         fi
 
