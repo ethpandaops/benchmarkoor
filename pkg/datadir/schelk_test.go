@@ -150,6 +150,31 @@ func TestSchelkLockHeld(t *testing.T) {
 	assert.True(t, schelkLockHeld([]byte(lockErr)))
 	assert.False(t, schelkLockHeld([]byte("Volume is already mounted")))
 	assert.False(t, schelkLockHeld([]byte("no such device")))
+
+	// Naming the lock file is not contention: an unwritable or missing lock
+	// path must surface immediately rather than burn the whole retry budget.
+	assert.False(t, schelkLockHeld(
+		[]byte("failed to open /var/lib/schelk/schelk.lock: permission denied")))
+}
+
+func TestMountWaitingForLock_NilLoggerDoesNotPanic(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "attempts")
+	installFakeSchelk(t, fmt.Sprintf(`
+n=$(cat %[1]s 2>/dev/null || echo 0)
+n=$((n+1)); echo $n > %[1]s
+if [ "$n" -lt 2 ]; then
+  echo "Another schelk process is already running (flock on /var/lib/schelk/schelk.lock): EAGAIN"
+  exit 1
+fi
+exit 0
+`, counter))
+
+	// config.go calls EnsureSchelkMounted with a nil logger, and RunSchelk
+	// documents that log may be nil — the retry path must honour that.
+	require.NotPanics(t, func() {
+		err := mountWaitingForLock(context.Background(), nil, "schelk", time.Millisecond)
+		require.NoError(t, err)
+	})
 }
 
 func TestMountWaitingForLock_RetriesUntilLockClears(t *testing.T) {

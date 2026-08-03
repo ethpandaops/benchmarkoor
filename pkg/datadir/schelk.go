@@ -363,10 +363,13 @@ const (
 
 // schelkLockHeld reports whether schelk failed only because another process
 // holds the state lock. That is transient and clears on its own, unlike the
-// mount errors we want to surface immediately.
+// mount errors we want to surface immediately. Matching is deliberately narrow:
+// naming the lock file is not enough, since an unwritable or missing lock path
+// reports it too and would then be retried for the whole budget instead of
+// surfacing.
 func schelkLockHeld(output []byte) bool {
 	return bytes.Contains(output, []byte("Another schelk process is already running")) ||
-		bytes.Contains(output, []byte("schelk.lock"))
+		bytes.Contains(output, []byte("EAGAIN"))
 }
 
 // mountWaitingForLock runs `schelk mount`, retrying while the state lock is
@@ -393,8 +396,10 @@ func mountWaitingForLock(
 				bin, err, strings.TrimSpace(string(output)))
 		}
 
-		log.WithFields(logrus.Fields{"attempt": attempt, "retry_in": poll}).
-			Warn("schelk state lock held by another process; waiting")
+		if log != nil {
+			log.WithFields(logrus.Fields{"attempt": attempt, "retry_in": poll}).
+				Warn("schelk state lock held by another process; waiting")
+		}
 
 		select {
 		case <-ctx.Done():
