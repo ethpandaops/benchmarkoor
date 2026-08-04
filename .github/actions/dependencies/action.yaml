@@ -28,8 +28,8 @@ runs:
           # Detect OS
           if [[ "$OSTYPE" == "linux-gnu"* ]]; then
             # Linux - assume Ubuntu/Debian
-            sudo apt update
-            sudo apt install -y zip unzip
+            sudo apt -o DPkg::Lock::Timeout=300 update
+            sudo apt -o DPkg::Lock::Timeout=300 install -y zip unzip
           elif [[ "$OSTYPE" == "darwin"* ]]; then
             # macOS - zip/unzip should be pre-installed, but check with brew if needed
             if command -v brew &> /dev/null; then
@@ -61,14 +61,14 @@ runs:
           # Detect OS
           if [[ "$OSTYPE" == "linux-gnu"* ]]; then
             # Linux - assume Ubuntu/Debian
-            (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
+            (type -p wget >/dev/null || (sudo apt -o DPkg::Lock::Timeout=300 update && sudo apt-get -o DPkg::Lock::Timeout=300 install wget -y)) \
               && mkdir -p -m 755 /etc/apt/keyrings \
               && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
               && cat $out | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
               && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
               && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-            sudo apt update
-            sudo apt install -y gh
+            sudo apt -o DPkg::Lock::Timeout=300 update
+            sudo apt -o DPkg::Lock::Timeout=300 install -y gh
           elif [[ "$OSTYPE" == "darwin"* ]]; then
             # macOS
             if command -v brew &> /dev/null; then
@@ -97,8 +97,8 @@ runs:
           podman --version
         else
           echo "Installing podman..."
-          sudo apt-get update
-          sudo apt-get install -y podman
+          sudo apt-get -o DPkg::Lock::Timeout=300 update
+          sudo apt-get -o DPkg::Lock::Timeout=300 install -y podman
         fi
 
         # Install CRIU for checkpoint-restore support.
@@ -109,11 +109,11 @@ runs:
             . /etc/os-release
           fi
           if [ "${ID:-}" = "ubuntu" ]; then
-            sudo apt-get install -y software-properties-common
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y software-properties-common
             sudo add-apt-repository -y ppa:criu/ppa
-            sudo apt-get update
+            sudo apt-get -o DPkg::Lock::Timeout=300 update
           fi
-          sudo apt-get install -y criu
+          sudo apt-get -o DPkg::Lock::Timeout=300 install -y criu
           echo "CRIU installed: $(criu --version 2>&1 | head -1)"
         else
           echo "CRIU installation not supported on this OS, skipping"
