@@ -30,7 +30,7 @@
 # pre_runs REQUIRES fill-stateful's --no-reset-between-tests flag, on
 # skylenet/execution-specs feat/fill-stateful-no-reset-between-tests (branched
 # off LouisTsai-Csie full-benchmark-target, so it also carries the bloatnet
-# tests). All fillers must use matching ethpandaops/<client>:glamsterdam-devnet-6
+# tests). All fillers must use matching ethpandaops/<client>:glamsterdam-devnet-7
 # images so they agree on the amsterdam fork params (notably max_code_size = 64KB).
 #
 # Build then run:
@@ -44,7 +44,10 @@ global:
     PRERUN_DIR: /tmp/benchmarkoor/pre-runs/simple-amsterdam-stateful-preruns
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/simple-amsterdam-stateful-preruns
     EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
+    #EEST_REF: feat-deploy-script
     EEST_REF: full-benchmark-target
+    # EEST_REPO: https://github.com/ethereum/execution-specs.git
+    # EEST_REF: benchmarks/amsterdam
     # Which filler's pre-run bundle + fixtures the runner replays against every
     # client. Only nethermind's benchmark fixtures are built below, so leave this
     # as nethermind (add a geth eest_payloads target to switch).
@@ -77,18 +80,24 @@ builder:
         # Pre-fund fill-stateful's seed account (rpc_seed_key=0x..01 → this addr).
         # EIP-8282 builder-execution-request predeploys (system-called at end of
         # every block since amsterdam). Strict clients (besu/nethermind/ethrex)
-        # reject a block if these have no code; predeploy the devnet-6 bytecode so
-        # the end-of-block system call returns empty requests (queue empty).
+        # reject a block if these have no code; predeploy the bytecode so the
+        # end-of-block system call returns empty requests (queue empty).
+        # devnet-7 MOVED both predeploys to new addresses with new bytecode (and
+        # dropped them from the devnet genesis alloc — the live devnet deploys
+        # them via the EIP's presigned Nick's-method txs before the fork). The
+        # addresses/code below are the devnet-7 ones, matching EIP-8282's
+        # BUILDER_DEPOSIT/EXIT_CONTRACT_ADDRESS and verified against the code
+        # live on glamsterdam-devnet-7. Do NOT reuse the devnet-6 pair.
         - kind: contract
           name: eip8282-builder-deposit-requests
-          address: 0x0000884d2AA32eAa155F59A2f24eFa73D9008282
+          address: 0x0000bFF46984e3725691FA540a8C7589300D8282
           nonce: 1
-          code: "0x3373fffffffffffffffffffffffffffffffffffffffe146101065760115f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461023457600182026001905f5b5f82111560695781019083028483029004916001019190604e565b90939004925050503660b814608957366102345734610234575f5260205ff35b8034106102345760383567ffffffffffffffff1680633b9aca001161023457633b9aca00029034031061023457600154600101600155600354806006026004015f358155600101602035815560010160403581556001016060358155600101608035815560010160a035905560b85f5f3760b85fa0600101600355005b600354600254808203806101001161011d57506101005b5f5b8181146101c3578281016006026004018160b8028154815260200181600101548152602001816002015480825260401c67ffffffffffffffff16816010018160381c81600701538160301c81600601538160281c81600501538160201c81600401538160181c81600301538160101c81600201538160081c81600101535360200181600301548152602001816004015481526020019060050154905260010161011f565b91018092146101d557906002556101e0565b90505f6002555f6003555b5f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff141561020d57505f5b6001546020828201116102225750505f610228565b01602090035b5f555f60015560b8025ff35b5f5ffd"
+          code: "0x3373fffffffffffffffffffffffffffffffffffffffe1461011c575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146102705760015460088111605257506058565b60089003015b601190600182026001905f5b5f821115607f57810190830284830290049160010191906064565b90939004925050503660b814609f57366102705734610270575f5260205ff35b8034106102705760383567ffffffffffffffff1680633b9aca001161027057633b9aca00029034031061027057600154600101600155600354806006026004015f358155600101602035815560010160403581556001016060358155600101608035815560010160a035905560b85f5f3760b85fa0600101600355005b60035460025480820380604011610131575060405b5f5b8181146101d7578281016006026004018160b8028154815260200181600101548152602001816002015480825260401c67ffffffffffffffff16816010018160381c81600701538160301c81600601538160281c81600501538160201c81600401538160181c81600301538160101c81600201538160081c816001015353602001816003015481526020018160040154815260200190600501549052600101610133565b91018092146101e957906002556101f4565b90505f6002555f6003555b36610242575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461023057600882820111610238575b50505f610264565b0160089003610264565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f60015560b8025ff35b5f5ffd"
         - kind: contract
           name: eip8282-builder-exit-requests
-          address: 0x000014574A74c805590AFF9499fc7A690f008282
+          address: 0x000064D678505ad48F8cCb093BC65613800E8282
           nonce: 1
-          code: "0x3373fffffffffffffffffffffffffffffffffffffffe1460cb5760115f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461018857600182026001905f5b5f82111560685781019083028483029004916001019190604d565b909390049250505036603014608857366101885734610188575f5260205ff35b341061018857600154600101600155600354806003026004013381556001015f35815560010160203590553360601b5f5260305f60143760445fa0600101600355005b6003546002548082038060101160df575060105b5f5b8181146101175782810160030260040181604402815460601b8152601401816001015481526020019060020154905260010160e1565b91018092146101295790600255610134565b90505f6002555f6003555b5f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff141561016157505f5b6001546002828201116101765750505f61017c565b01600290035b5f555f6001556044025ff35b5f5ffd"
+          code: "0x3373fffffffffffffffffffffffffffffffffffffffe1460e1575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101c65760015460028111605157506057565b60029003015b601190600182026001905f5b5f821115607e57810190830284830290049160010191906063565b909390049250505036603014609e57366101c657346101c6575f5260205ff35b34106101c657600154600101600155600354806003026004013381556001015f35815560010160203590553360601b5f5260305f60143760445fa0600101600355005b6003546002548082038060101160f5575060105b5f5b81811461012d5782810160030260040181604402815460601b8152601401816001015481526020019060020154905260010160f7565b910180921461013f579060025561014a565b90505f6002555f6003555b36610198575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101865760028282011161018e575b50505f6101ba565b01600290036101ba565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f6001556044025ff35b5f5ffd"
         - kind: eoa
           name: fill-stateful-seed
           address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
@@ -134,11 +143,20 @@ builder:
       # instance). Declared first so the replay targets below can reference it.
       - name: pre-run-nethermind
         filler_client: nethermind
-        filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-7
         source_dir: ${STATE_DIR}/nethermind
         genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282] }
         output_dir: ${PRERUN_DIR}/nethermind
+        filler_extra_args:
+          - --FlatDb.Enabled=true
+          - --FlatDb.CompactionOffset=0
+          - --FlatDb.MinReorgDepth=1024
+          - --FlatDb.MaxReorgDepth=1024
+          - --JsonRpc.MaxBatchSize=16384 # Default 1024
+          - --Init.AutoDump=None
+          - --Merge.NewPayloadBlockProcessingTimeout=70000
+          - --Blocks.CachePrecompilesOnBlockProcessing=false
       # Replay targets: advance each client's snapshot by replaying nethermind's
       # recorded bundle (replay_from) onto it — no re-fill. This works for
       # non-filler clients (reth/ethrex) too, since replay uses only the engine
@@ -147,23 +165,27 @@ builder:
       # client's boot flags mirror its runner instance below.
       - name: pre-run-geth
         filler_client: geth
-        filler_image: ethpandaops/geth:glamsterdam-devnet-6
+        filler_image: ethpandaops/geth:glamsterdam-devnet-7
         source_dir: ${STATE_DIR}/geth
-        filler_extra_args: [--override.amsterdam=1]
+        filler_extra_args:
+          - --override.amsterdam=1
+          - --rpc.batch-request-limit=16384 # Default 1000
         replay_from: pre-run-nethermind
         output_dir: ${PRERUN_DIR}/geth
       - name: pre-run-besu
         filler_client: besu
-        filler_image: ethpandaops/besu:glamsterdam-devnet-6
+        filler_image: ethpandaops/besu:glamsterdam-devnet-7
         source_dir: ${STATE_DIR}/besu
         genesis: ${STATE_DIR}/besu/besu-chainspec.json
         genesis_fork_override: { amsterdam: 1 }
-        filler_extra_args: [--p2p-enabled=true]
+        filler_extra_args:
+          - --p2p-enabled=true
+          - --rpc-http-max-batch-size=16384 # Default 1024
         replay_from: pre-run-nethermind
         output_dir: ${PRERUN_DIR}/besu
       - name: pre-run-reth
         filler_client: reth
-        filler_image: ethpandaops/reth:glamsterdam-devnet-6
+        filler_image: ethpandaops/reth:glamsterdam-devnet-7
         source_dir: ${STATE_DIR}/reth
         genesis: ${STATE_DIR}/reth/chainspec.json
         genesis_fork_override: { amsterdam: 1 }
@@ -172,7 +194,7 @@ builder:
         output_dir: ${PRERUN_DIR}/reth
       - name: pre-run-ethrex
         filler_client: ethrex
-        filler_image: ethpandaops/ethrex:glamsterdam-devnet-6
+        filler_image: ethpandaops/ethrex:glamsterdam-devnet-7
         source_dir: ${STATE_DIR}/ethrex
         genesis: ${STATE_DIR}/ethrex/ethrex-genesis.json
         genesis_fork_override: { amsterdam: 1 }
@@ -203,17 +225,26 @@ builder:
       # Alternative geth filler — uncomment together with pre-run-geth above.
       # - name: payload-generator-geth-stateful
       #   filler_client: geth
-      #   filler_image: ethpandaops/geth:glamsterdam-devnet-6
+      #   filler_image: ethpandaops/geth:glamsterdam-devnet-7
       #   source_dir: ${PRERUN_DIR}/geth
       #   filler_extra_args: [--override.amsterdam=1]
       #   output_dir: ${EEST_FIXTURES_DIR}/geth
       - name: payload-generator-nethermind-stateful
         filler_client: nethermind
-        filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-7
         source_dir: ${PRERUN_DIR}/nethermind
         genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
         genesis_eip_override: { timestamp: 1, eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282] }
         output_dir: ${EEST_FIXTURES_DIR}/nethermind
+        filler_extra_args:
+          - --FlatDb.Enabled=true
+          - --FlatDb.CompactionOffset=0
+          - --FlatDb.MinReorgDepth=1024
+          - --FlatDb.MaxReorgDepth=1024
+          - --JsonRpc.MaxBatchSize=16384 # Default 1024
+          - --Init.AutoDump=None
+          - --Merge.NewPayloadBlockProcessingTimeout=70000
+          - --Blocks.CachePrecompilesOnBlockProcessing=false
 
 ## Stage 3: run every client on its RAW snapshot; the runner replays the pre-run
 ## bundle first (advancing to the setup head), then the fixtures. Both are taken
@@ -257,16 +288,25 @@ runner:
   instances:
     - id: geth
       client: geth
-      image: ethpandaops/geth:glamsterdam-devnet-6
+      image: ethpandaops/geth:glamsterdam-devnet-7
       extra_args: [--override.amsterdam=1]
     - id: nethermind
       client: nethermind
-      image: ethpandaops/nethermind:glamsterdam-devnet-6
+      image: ethpandaops/nethermind:glamsterdam-devnet-7
       genesis_eip_override: { timestamp: 1, eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282] }
-      extra_args: [--Init.BaseDbPath=/data, --Blocks.ParallelExecution=true, --Blocks.ParallelExecutionBatchRead=true]
+      extra_args:
+        - --Init.BaseDbPath=/data
+        - --FlatDb.Enabled=true
+        - --FlatDb.CompactionOffset=0
+        - --FlatDb.MinReorgDepth=1024
+        - --FlatDb.MaxReorgDepth=1024
+        - --JsonRpc.MaxBatchSize=16384 # Default 1024
+        - --Init.AutoDump=None
+        - --Merge.NewPayloadBlockProcessingTimeout=70000
+        - --Blocks.CachePrecompilesOnBlockProcessing=false
     - id: besu
       client: besu
-      image: ethpandaops/besu:glamsterdam-devnet-6
+      image: ethpandaops/besu:glamsterdam-devnet-7
       genesis_fork_override: { amsterdam: 1 }
       environment: { BESU_OPTS: "-Xms8g -Xmx8g -XX:+AlwaysPreTouch" }
       # --Xbal-processing-timeout / --Xbal-state-root-timeout are not recognised by
@@ -274,12 +314,12 @@ runner:
       extra_args: [--p2p-enabled=true, --Xplugin-rocksdb-high-spec-enabled=true, --Xbal-perfect-parallelization-enabled=true, --Xbal-state-root-enabled=true, --Xbal-prefetch-reading-enabled=true, --Xbal-prefetch-batch-size=8]
     - id: reth
       client: reth
-      image: ethpandaops/reth:glamsterdam-devnet-6
+      image: ethpandaops/reth:glamsterdam-devnet-7
       genesis_fork_override: { amsterdam: 1 }
       extra_args: [--engine.slow-block-threshold=0]
       retry_new_payloads_failed_state: { enabled: true, max_retries: 10, backoff: 1s }
     - id: ethrex
       client: ethrex
-      image: ethpandaops/ethrex:glamsterdam-devnet-6
+      image: ethpandaops/ethrex:glamsterdam-devnet-7
       genesis_fork_override: { amsterdam: 1 }
       extra_args: [--skip-genesis-validation, --no-precompile-cache]
