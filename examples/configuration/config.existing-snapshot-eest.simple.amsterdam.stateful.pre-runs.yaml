@@ -19,9 +19,9 @@
 #                       advances the snapshot IN PLACE on the copy-on-write scratch
 #                       (no copy — see the schelk note below) and records the replay
 #                       bundle there.
-#                       geth REPLAYS that bundle (replay_from) onto its OWN geth
-#                       snapshot (GETH_SNAPSHOT_DIR, same network + same head), so
-#                       it reaches the same setup head without a second fill.
+#                       geth runs the SAME sequence independently on its own geth
+#                       snapshot (GETH_SNAPSHOT_DIR), scheduling amsterdam with
+#                       genesis_fork_override instead of genesis_eip_override.
 #   2.   eest_payloads  fill the benchmark on each client's advanced (amsterdam)
 #                       datadir → one fixture set per client, at the setup head.
 #   3.   runner         nethermind boots from its advanced datadir and runs the
@@ -88,21 +88,28 @@ global:
     # head). If this is below the head ts, the very first block is already amsterdam.
     # The SAME value is used by all three stages so they agree on the fork.
     AMSTERDAM_ACTIVATION_TS: "1800000000"
-    # TODO: an EXISTING geth snapshot to advance alongside the nethermind one.
-    # It MUST be the same network AND the same head block as SNAPSHOT_DIR: the
-    # geth target REPLAYS nethermind's recorded bundle, and replay starts from
-    # the bundle's parent, so a head mismatch fails on the first payload. Point
-    # at geth's chain directory (the one holding chaindata/), e.g.
-    # ".../geth" under an ethpandaops snapshot. Unlike nethermind, geth needs no
-    # chainspec — it reads the chain config from the datadir and takes the
-    # amsterdam schedule from --override.amsterdam below. Like SNAPSHOT_DIR it is
-    # advanced IN PLACE on the schelk scratch (no copy, no output dir) — see the
-    # ORDERING box on the geth pre-run target about not sharing one schelk volume.
-    GETH_SNAPSHOT_DIR: /schelk/snapshots/geth/jochemnet/24402727/geth
-    # TODO: geth-format genesis.json for this network. Required because the geth
-    # pre-run's genesis_fork_override is patched into the filler's genesis FILE
-    # before boot, so there has to be one to patch.
-    GETH_GENESIS: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/master/network-configs/devnet-3/metadata/genesis.json
+    # TODO: an EXISTING geth snapshot of the same network, advanced alongside the
+    # nethermind one. geth runs its OWN pre-run rather than replaying
+    # nethermind's, so the two heads need not match — but they should be close if
+    # you intend to compare the clients' benchmark numbers.
+    #
+    # This is geth's DATADIR: the directory that CONTAINS geth/, NOT the geth/
+    # column dir itself. benchmarkoor boots geth with --datadir=/data and geth
+    # looks for <datadir>/geth/chaindata, so for an ethpandaops snapshot this is
+    # ".../<block>", e.g. "/schelk/snapshots/geth/jochemnet/24402727" — pointing
+    # one level deeper at ".../24402727/geth" boots at GENESIS. Note this is the
+    # opposite nesting from SNAPSHOT_DIR, where nethermind wants the column dir.
+    #
+    # Like SNAPSHOT_DIR it is advanced IN PLACE on the schelk scratch (no copy, no
+    # output dir) — see the ORDERING box on the geth pre-run target about not
+    # sharing one schelk volume.
+    GETH_SNAPSHOT_DIR: /schelk/snapshots/geth/jochemnet/24402727
+    # TODO: geth-format genesis.json for this network — MUST be the genesis of the
+    # chain in GETH_SNAPSHOT_DIR (matching chainId and fork schedule), since
+    # benchmarkoor passes it as geth's --override.genesis. It is needed even
+    # though geth reads its chain config from the datadir, because the pre-run's
+    # genesis_fork_override is patched into this FILE before boot.
+    GETH_GENESIS: https://gist.githubusercontent.com/jochem-brouwer/9cc7e180fbef1c7c388c0a12f7fd778c/raw/3f10decdd1b0cc0604d21901944ffa08bfe94581/gistfile1.json
     # Holds one <client>/ subdir per eest_payloads target (nethermind, geth).
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/existing-snapshot
     EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
