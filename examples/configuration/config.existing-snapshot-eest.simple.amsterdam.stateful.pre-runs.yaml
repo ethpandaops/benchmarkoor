@@ -118,7 +118,7 @@ global:
     # Holds one <client>/ subdir per eest_payloads target (nethermind, geth).
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/existing-snapshot
     EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
-    EEST_REF: full-benchmark-target
+    EEST_REF: feat-deploy-script
 
 builder:
   ## Stage 1.5: pre-run — deploy the 8282 contracts on osaka, cross to amsterdam,
