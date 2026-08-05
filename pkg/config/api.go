@@ -86,9 +86,10 @@ type APIS3PresignedURLConfig struct {
 
 // APIServerConfig contains HTTP server settings.
 type APIServerConfig struct {
-	Listen      string          `yaml:"listen" mapstructure:"listen"`
-	CORSOrigins []string        `yaml:"cors_origins,omitempty" mapstructure:"cors_origins"`
-	RateLimit   RateLimitConfig `yaml:"rate_limit,omitempty" mapstructure:"rate_limit"`
+	Listen         string          `yaml:"listen" mapstructure:"listen"`
+	CORSOrigins    []string        `yaml:"cors_origins,omitempty" mapstructure:"cors_origins"`
+	RateLimit      RateLimitConfig `yaml:"rate_limit,omitempty" mapstructure:"rate_limit"`
+	TrustedProxies []string        `yaml:"trusted_proxies,omitempty" mapstructure:"trusted_proxies"`
 }
 
 // RateLimitConfig configures per-IP rate limiting.

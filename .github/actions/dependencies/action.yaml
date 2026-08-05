@@ -28,8 +28,8 @@ runs:
           # Detect OS
           if [[ "$OSTYPE" == "linux-gnu"* ]]; then
             # Linux - assume Ubuntu/Debian
-            sudo apt update
-            sudo apt install -y zip unzip
+            sudo apt -o DPkg::Lock::Timeout=300 update
+            sudo apt -o DPkg::Lock::Timeout=300 install -y zip unzip
           elif [[ "$OSTYPE" == "darwin"* ]]; then
             # macOS - zip/unzip should be pre-installed, but check with brew if needed
             if command -v brew &> /dev/null; then
@@ -61,14 +61,14 @@ runs:
           # Detect OS
           if [[ "$OSTYPE" == "linux-gnu"* ]]; then
             # Linux - assume Ubuntu/Debian
-            (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
+            (type -p wget >/dev/null || (sudo apt -o DPkg::Lock::Timeout=300 update && sudo apt-get -o DPkg::Lock::Timeout=300 install wget -y)) \
               && mkdir -p -m 755 /etc/apt/keyrings \
-              && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+              && out=$(mktemp) && wget -nv --tries=5 --waitretry=2 --retry-connrefused -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
               && cat $out | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
               && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
               && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-            sudo apt update
-            sudo apt install -y gh
+            sudo apt -o DPkg::Lock::Timeout=300 update
+            sudo apt -o DPkg::Lock::Timeout=300 install -y gh
           elif [[ "$OSTYPE" == "darwin"* ]]; then
             # macOS
             if command -v brew &> /dev/null; then
@@ -97,8 +97,8 @@ runs:
           podman --version
         else
           echo "Installing podman..."
-          sudo apt-get update
-          sudo apt-get install -y podman
+          sudo apt-get -o DPkg::Lock::Timeout=300 update
+          sudo apt-get -o DPkg::Lock::Timeout=300 install -y podman
         fi
 
         # Install CRIU for checkpoint-restore support.
@@ -109,11 +109,11 @@ runs:
             . /etc/os-release
           fi
           if [ "${ID:-}" = "ubuntu" ]; then
-            sudo apt-get install -y software-properties-common
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y software-properties-common
             sudo add-apt-repository -y ppa:criu/ppa
-            sudo apt-get update
+            sudo apt-get -o DPkg::Lock::Timeout=300 update
           fi
-          sudo apt-get install -y criu
+          sudo apt-get -o DPkg::Lock::Timeout=300 install -y criu
           echo "CRIU installed: $(criu --version 2>&1 | head -1)"
         else
           echo "CRIU installation not supported on this OS, skipping"
@@ -125,7 +125,7 @@ runs:
         CRUN_VERSION="1.26"
         CRUN_SHA256="8b37b0f8bfa170a9c338fa869902a33991101264ce0764e776a997a8d787dc83"
         echo "Installing crun ${CRUN_VERSION} with CRIU support..."
-        sudo curl -fsSL -o /usr/bin/crun \
+        sudo curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 120 -o /usr/bin/crun \
           "https://github.com/containers/crun/releases/download/${CRUN_VERSION}/crun-${CRUN_VERSION}-linux-amd64"
         echo "${CRUN_SHA256}  /usr/bin/crun" | sha256sum --check --strict
         sudo chmod +x /usr/bin/crun
@@ -155,7 +155,7 @@ runs:
           echo "yq not found, installing..."
           if [[ "$OSTYPE" == "linux-gnu"* ]]; then
             YQ_VERSION="v4.44.6"
-            sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+            sudo wget -q --tries=5 --waitretry=2 --retry-connrefused -O /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
             sudo chmod +x /usr/local/bin/yq
           elif [[ "$OSTYPE" == "darwin"* ]]; then
             if command -v brew &> /dev/null; then

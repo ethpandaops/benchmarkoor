@@ -346,14 +346,67 @@ func EnsureSchelkMounted(ctx context.Context, log logrus.FieldLogger) error {
 			SchelkStatePath(), state.MountPoint, bin,
 		)
 	case !mounted:
-		output, runErr := RunSchelk(ctx, log, "mount", "-y")
-		if runErr != nil {
-			return fmt.Errorf("`%s mount` failed: %w (output: %s)",
-				bin, runErr, strings.TrimSpace(string(output)))
+		if err := mountWaitingForLock(ctx, log, bin, schelkLockPollWait); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// SchelkLockWait bounds how long EnsureSchelkMounted waits for another schelk
+// process to release the state lock before giving up.
+const (
+	SchelkLockWait     = 10 * time.Minute
+	schelkLockPollWait = 15 * time.Second
+)
+
+// schelkLockHeld reports whether schelk failed only because another process
+// holds the state lock. That is transient and clears on its own, unlike the
+// mount errors we want to surface immediately. Matching is deliberately narrow:
+// naming the lock file is not enough, since an unwritable or missing lock path
+// reports it too and would then be retried for the whole budget instead of
+// surfacing.
+func schelkLockHeld(output []byte) bool {
+	return bytes.Contains(output, []byte("Another schelk process is already running")) ||
+		bytes.Contains(output, []byte("EAGAIN"))
+}
+
+// mountWaitingForLock runs `schelk mount`, retrying while the state lock is
+// held elsewhere. Runners serialise schelk work through a single flock, so a
+// concurrent promote or recover makes mount fail with EAGAIN; treating that as
+// fatal throws away a multi-hour benchmark job over a condition that resolves
+// itself. Every other failure still returns on the first attempt.
+func mountWaitingForLock(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	bin string,
+	poll time.Duration,
+) error {
+	deadline := time.Now().Add(SchelkLockWait)
+
+	for attempt := 1; ; attempt++ {
+		output, err := RunSchelk(ctx, log, "mount", "-y")
+		if err == nil {
+			return nil
+		}
+
+		if !schelkLockHeld(output) || time.Now().After(deadline) {
+			return fmt.Errorf("`%s mount` failed: %w (output: %s)",
+				bin, err, strings.TrimSpace(string(output)))
+		}
+
+		if log != nil {
+			log.WithFields(logrus.Fields{"attempt": attempt, "retry_in": poll}).
+				Warn("schelk state lock held by another process; waiting")
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(poll):
+		}
+	}
 }
 
 // RestoreSchelk restores the schelk scratch volume to the virgin baseline AND

@@ -21,6 +21,28 @@ const (
 	compressedRequestSizeContextKey contextKey = "compressed_request_size"
 )
 
+const (
+	// maxIngestBodyBytes bounds the raw, on-the-wire ingest request body,
+	// before any decompression. Applies whether or not the request is
+	// gzip-encoded. Comfortably above any real live-run report while still
+	// being a hard limit.
+	maxIngestBodyBytes = 10 << 20 // 10 MiB
+
+	// maxIngestDecompressedBytes bounds the decompressed size of a gzipped
+	// ingest body. Without this, a small gzip payload can inflate to an
+	// arbitrary size in memory before any JSON validation ever runs.
+	maxIngestDecompressedBytes = 50 << 20 // 50 MiB
+
+	// maxJSONBodyBytes bounds request bodies on the auth and admin
+	// endpoints, which decode small JSON documents (credentials, a user
+	// record, an org mapping). Without it, json.Decoder happily buffers a
+	// whole multi-hundred-megabyte string value: a 64MiB login body costs
+	// ~320MiB of allocation, and /auth/login is reachable before any
+	// authentication runs. Orders of magnitude above any real payload,
+	// while still bounding the blast radius.
+	maxJSONBodyBytes = 1 << 20 // 1 MiB
+)
+
 // countingReader wraps an io.Reader and tracks total bytes read. Used by
 // gzipRequestBody to surface the on-the-wire (gzipped) request size to
 // handlers via context — the decompressed body size is just len(body)
@@ -257,12 +279,47 @@ func (s *server) requireIngestToken(next http.Handler) http.Handler {
 	})
 }
 
+// limitRequestBody caps the request body at n bytes for every route it is
+// mounted on. Applied per route group rather than globally on purpose: a
+// global wrapper would become the underlying reader for gzipRequestBody's
+// own MaxBytesReader, and the smaller of the two limits would silently win
+// on the ingest path.
+//
+// A body that advertises a Content-Length over the cap is rejected on the
+// headers alone, without reading it. Bodies without a usable
+// Content-Length (chunked) are bounded by the reader instead, and surface
+// to the handler as a decode error.
+func (s *server) limitRequestBody(n int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ContentLength > n {
+				writeJSON(w, http.StatusRequestEntityTooLarge,
+					errorResponse{"request body too large"})
+
+				return
+			}
+
+			r.Body = http.MaxBytesReader(w, r.Body, n)
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // gzipRequestBody transparently inflates gzipped request bodies so
 // downstream handlers can read them as if they were uncompressed. Used on
 // the ingest subrouter where the runner posts large gzipped payloads
 // (per-test heatmap data). A malformed gzip stream is returned as 400.
+//
+// The raw body is capped at maxIngestBodyBytes regardless of encoding, and
+// a gzip-encoded body's decompressed output is separately capped at
+// maxIngestDecompressedBytes - without the second cap, a small compressed
+// payload could inflate to an arbitrary size in memory before the handler
+// gets a chance to reject it.
 func (s *server) gzipRequestBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxIngestBodyBytes)
+
 		if !strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
 			next.ServeHTTP(w, r)
 
@@ -283,11 +340,12 @@ func (s *server) gzipRequestBody(next http.Handler) http.Handler {
 		}
 		defer func() { _ = gz.Close() }()
 
-		// Replace the body with the decompressed reader. Strip the header
-		// so handlers can rely on Content-Length being absent rather than
-		// stale. ContentLength is also reset because it referred to the
-		// compressed size.
-		r.Body = gz
+		// Replace the body with the decompressed reader, capped
+		// independently of the compressed-size limit above. Strip the
+		// header so handlers can rely on Content-Length being absent
+		// rather than stale. ContentLength is also reset because it
+		// referred to the compressed size.
+		r.Body = http.MaxBytesReader(w, gz, maxIngestDecompressedBytes)
 		r.Header.Del("Content-Encoding")
 		r.Header.Del("Content-Length")
 		r.ContentLength = -1

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -156,4 +157,77 @@ func TestRunSchelk_KilledWhenGraceExpires(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "did not complete within")
 	assert.Less(t, elapsed, 2*time.Second, "should return shortly after grace window")
+}
+
+func TestSchelkLockHeld(t *testing.T) {
+	lockErr := "Error:\n   0: Another schelk process is already running " +
+		"(flock on /var/lib/schelk/schelk.lock): EAGAIN: Try again"
+
+	assert.True(t, schelkLockHeld([]byte(lockErr)))
+	assert.False(t, schelkLockHeld([]byte("Volume is already mounted")))
+	assert.False(t, schelkLockHeld([]byte("no such device")))
+
+	// Naming the lock file is not contention: an unwritable or missing lock
+	// path must surface immediately rather than burn the whole retry budget.
+	assert.False(t, schelkLockHeld(
+		[]byte("failed to open /var/lib/schelk/schelk.lock: permission denied")))
+}
+
+func TestMountWaitingForLock_NilLoggerDoesNotPanic(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "attempts")
+	installFakeSchelk(t, fmt.Sprintf(`
+n=$(cat %[1]s 2>/dev/null || echo 0)
+n=$((n+1)); echo $n > %[1]s
+if [ "$n" -lt 2 ]; then
+  echo "Another schelk process is already running (flock on /var/lib/schelk/schelk.lock): EAGAIN"
+  exit 1
+fi
+exit 0
+`, counter))
+
+	// config.go calls EnsureSchelkMounted with a nil logger, and RunSchelk
+	// documents that log may be nil — the retry path must honour that.
+	require.NotPanics(t, func() {
+		err := mountWaitingForLock(context.Background(), nil, "schelk", time.Millisecond)
+		require.NoError(t, err)
+	})
+}
+
+func TestMountWaitingForLock_RetriesUntilLockClears(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "attempts")
+	// Fail with the flock error for the first two attempts, then succeed.
+	installFakeSchelk(t, fmt.Sprintf(`
+n=$(cat %[1]s 2>/dev/null || echo 0)
+n=$((n+1)); echo $n > %[1]s
+if [ "$n" -lt 3 ]; then
+  echo "Another schelk process is already running (flock on /var/lib/schelk/schelk.lock): EAGAIN"
+  exit 1
+fi
+exit 0
+`, counter))
+
+	err := mountWaitingForLock(context.Background(), logrus.New(), "schelk", time.Millisecond)
+	require.NoError(t, err)
+
+	data, readErr := os.ReadFile(counter)
+	require.NoError(t, readErr)
+	assert.Equal(t, "3\n", string(data), "should retry until the lock clears")
+}
+
+func TestMountWaitingForLock_NonLockErrorFailsImmediately(t *testing.T) {
+	counter := filepath.Join(t.TempDir(), "attempts")
+	installFakeSchelk(t, fmt.Sprintf(`
+n=$(cat %[1]s 2>/dev/null || echo 0)
+echo $((n+1)) > %[1]s
+echo "Volume is already mounted"
+exit 1
+`, counter))
+
+	err := mountWaitingForLock(context.Background(), logrus.New(), "schelk", time.Millisecond)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Volume is already mounted")
+
+	data, readErr := os.ReadFile(counter)
+	require.NoError(t, readErr)
+	assert.Equal(t, "1\n", string(data), "non-lock errors must not retry")
 }

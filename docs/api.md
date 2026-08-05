@@ -37,6 +37,8 @@ api:
         requests_per_minute: 60
       authenticated:
         requests_per_minute: 120
+    trusted_proxies:
+      - 10.0.0.0/8
 ```
 
 | Option | Type | Default | Description |
@@ -47,6 +49,11 @@ api:
 | `rate_limit.auth.requests_per_minute` | int | `10` | Rate limit for auth endpoints (login/logout) |
 | `rate_limit.public.requests_per_minute` | int | `60` | Rate limit for public endpoints (health/config) |
 | `rate_limit.authenticated.requests_per_minute` | int | `120` | Rate limit for authenticated endpoints (admin) |
+| `trusted_proxies` | []string | none | IPs or CIDR ranges (e.g. `10.0.0.0/8`) of reverse proxies/load balancers in front of the API. When the direct connection comes from one of these, rate limiting keys on the client address taken from `X-Forwarded-For` instead of the connection's address. Leave unset if the API is reachable directly — an unset or empty list means `X-Forwarded-For` is never trusted, since honoring it from an arbitrary client lets every request claim a different IP and bypass rate limiting entirely |
+
+**List every proxy in the chain.** `X-Forwarded-For` is read right-to-left and the first entry that is *not* itself a trusted proxy is used as the client address. With a chain (say a CDN in front of a load balancer), the right-most entries are hops your own infrastructure appended, so both the load balancer and the CDN egress ranges belong in `trusted_proxies` — otherwise every client is keyed on the CDN's address and shares a single rate limit bucket. Entries that don't parse as an IP or CIDR range are skipped with a warning at startup, and a hop that doesn't parse as an IP is never used as a rate limit key.
+
+If the API sits behind a proxy and `trusted_proxies` is left unset, rate limiting keys every request on the proxy's address, so all clients behind it share one bucket. The server logs a warning once when it sees `X-Forwarded-For` on a request with no trusted proxies configured.
 
 ## Authentication
 
@@ -320,9 +327,20 @@ api:
 
 A background goroutine on the API scans every 30s and deletes live rows whose `last_reported_at` is older than `stale_threshold`. When the on-disk indexer later picks up a real run with the same `(discovery_path, run_id)`, the live row is removed immediately so the UI doesn't show duplicate rows.
 
+The endpoint caps the raw request body at 10 MiB, and the decompressed size of a gzip-encoded body at 50 MiB. A report exceeding either limit is rejected with `413 Payload Too Large`.
+
 ## API Endpoints
 
 All endpoints are under the `/api/v1` prefix.
+
+### Request body limits
+
+| Endpoints | Limit |
+|-----------|-------|
+| `/auth/*`, `/admin/*` | 1 MiB |
+| `/ingest/*` | 10 MiB raw, 50 MiB decompressed (gzip) |
+
+A request whose `Content-Length` exceeds the limit is rejected with `413 Payload Too Large` before the body is read. The limits are not configurable.
 
 ### Public
 
