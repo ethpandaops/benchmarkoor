@@ -285,11 +285,12 @@ builder:
       fork: amsterdam
       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
       # Per-benchmark gas budget (Mgas). EEST sizes each benchmark's workload
-      # (tx count / per-tx gas_limit) to this, NOT the block gas limit. 300 Mgas
-      # makes the benchmarks representative; it also drives the sender-pool size
-      # above — a bigger value fans out to more distinct senders, so raise
-      # funding_pools.count to match (300 Mgas -> ~25000).
-      gas_benchmark_values: [300]
+      # (tx count / per-tx gas_limit) to this, NOT the block gas limit. It also
+      # drives how many distinct senders the ether-transfer benchmarks fan out
+      # to, so funding_pools.count above must cover the largest variant: ~25000
+      # at 300 Mgas, proportionally fewer here (the pool is sized for 300, so it
+      # is over-provisioned at 100 — raise it if you raise this).
+      gas_benchmark_values: [100]
       # source_dir here is the schelk scratch the pre-run just advanced (SNAPSHOT_DIR).
       # Boot the filler DIRECTLY on it (no copy), continuing from the pre-run head.
       # method: direct only mounts the schelk source (never recovers), so it does
@@ -316,9 +317,11 @@ builder:
         bloated_eoa_10GB:
           addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
           pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
-      # Exclude the 11 repricing variants that fail at 300 Mgas. NOTE: this list
-      # was established against the glamsterdam-devnet-6 nethermind build and has
-      # NOT been re-verified on devnet-7 — re-check it before trusting the count.
+      # DISABLED: run every repricing variant and see what actually fails here.
+      # The exclusion list below is kept for reference only — it was established
+      # at 300 Mgas against a glamsterdam-devnet-6 nethermind build, so neither
+      # its membership nor its count is expected to hold at 100 Mgas on devnet-7
+      # geth. Re-enable (and re-derive) it only if the failures reproduce.
       # EEST's per-op gas model under-predicts
       # what the client charges for value-bearing calls to CONTRACT accounts, so the
       # tightly-budgeted txs run out of gas (receipt status 0, gas_used == gas_limit).
@@ -331,7 +334,7 @@ builder:
       #     diff_to_delegated_contract_diff + diff_to_unique_code_jumpdest_contract
       #     both amounts).
       # "opcode_CALL and not CALLCODE" isolates CALL, since -k matches substrings.
-      filter: "not ( (test_account_access and opcode_CALL and not CALLCODE and value_sent_1 and overhead_baseline_False and EXISTING_CONTRACT) or (transfer_amount_1 and diff_to_contract_minimal) or (transfer_amount_1 and diff_to_contract_same_max) or (transfer_amount_1 and diff_to_contract_diff_max) or diff_to_delegated_contract_diff or diff_to_unique_code_jumpdest_contract )"
+      # filter: "not ( (test_account_access and opcode_CALL and not CALLCODE and value_sent_1 and overhead_baseline_False and EXISTING_CONTRACT) or (transfer_amount_1 and diff_to_contract_minimal) or (transfer_amount_1 and diff_to_contract_same_max) or (transfer_amount_1 and diff_to_contract_diff_max) or diff_to_delegated_contract_diff or diff_to_unique_code_jumpdest_contract )"
     targets:
       - name: payload-generator-nethermind-stateful
         filler_client: nethermind
