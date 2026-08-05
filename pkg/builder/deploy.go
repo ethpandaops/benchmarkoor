@@ -147,12 +147,18 @@ func deployGas(runtimeLen int) uint64 {
 }
 
 // deployContracts deploys each runtime bytecode as its own contract-creation
-// transaction from key (nonces 0..n-1) in a single block, and returns the
-// CREATE-derived addresses. The deployer must already be funded (e.g. via the
-// pre-run funding block). It prices the txs above the current base fee, builds
-// one block carrying them (pre-fork, since forkAt selects the fork by
-// timestamp), then verifies each address received code — failing loudly if a
-// deploy reverted or the deployer was under-funded.
+// transaction from key, consecutively from the deployer's current on-chain
+// nonce, in a single block, and returns the CREATE-derived addresses. The
+// deployer must already be funded (e.g. via the pre-run funding block). It
+// prices the txs above the current base fee, builds one block carrying them
+// (pre-fork, since forkAt selects the fork by timestamp), then verifies each
+// address received code — failing loudly if a deploy reverted or the deployer
+// was under-funded.
+//
+// The nonce is read from the chain rather than assumed to be zero: on a
+// synthetic snapshot the deployer is fresh, but on a snapshot of a real network
+// the key may already have history (a well-known test key almost certainly
+// does), and starting at zero fails the whole block with "nonce too low".
 func (c *engineClient) deployContracts(
 	ctx context.Context, key *ecdsa.PrivateKey, chainID *big.Int, runtimes [][]byte, log logrus.FieldLogger,
 ) ([]common.Address, error) {
@@ -173,12 +179,17 @@ func (c *engineClient) deployContracts(
 
 	from := crypto.PubkeyToAddress(key.PublicKey)
 
+	startNonce, err := c.nonce(ctx, from.Hex())
+	if err != nil {
+		return nil, fmt.Errorf("fetching deployer nonce for %s: %w", from.Hex(), err)
+	}
+
 	rawTxs := make([][]byte, 0, len(runtimes))
 	addrs := make([]common.Address, 0, len(runtimes))
 
 	for i, runtime := range runtimes {
 		raw, addr, signErr := signDeployTx(
-			key, chainID, uint64(i), deployGas(len(runtime)), feeCap, deployTipCap, runtime,
+			key, chainID, startNonce+uint64(i), deployGas(len(runtime)), feeCap, deployTipCap, runtime,
 		)
 		if signErr != nil {
 			return nil, fmt.Errorf("signing deploy tx %d: %w", i, signErr)
@@ -189,7 +200,8 @@ func (c *engineClient) deployContracts(
 	}
 
 	log.WithFields(logrus.Fields{
-		"deployer": from.Hex(), "contracts": len(runtimes), "addresses": addrs,
+		"deployer": from.Hex(), "contracts": len(runtimes),
+		"start_nonce": startNonce, "addresses": addrs,
 	}).Info("Deploying contracts before fork activation")
 
 	if _, _, err := c.buildBlock(ctx, nil, rawTxs); err != nil {

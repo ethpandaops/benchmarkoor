@@ -299,6 +299,29 @@ func (c *engineClient) latestBaseFee(ctx context.Context) (*big.Int, error) {
 	return fee, nil
 }
 
+// nonce returns addr's transaction count on the current head via
+// eth_getTransactionCount. A deployer on an existing-network snapshot is rarely
+// a fresh account, so its deploy txs have to continue from the nonce the chain
+// already recorded rather than from zero.
+func (c *engineClient) nonce(ctx context.Context, addr string) (uint64, error) {
+	res, err := c.call(ctx, c.rpcURL, false, "eth_getTransactionCount", []any{addr, "latest"})
+	if err != nil {
+		return 0, err
+	}
+
+	var s string
+	if err := json.Unmarshal(res, &s); err != nil {
+		return 0, fmt.Errorf("parsing eth_getTransactionCount: %w", err)
+	}
+
+	n, err := strconv.ParseUint(strings.TrimPrefix(s, "0x"), 16, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parsing nonce %q: %w", s, err)
+	}
+
+	return n, nil
+}
+
 // code returns the deployed bytecode at addr on the current head via eth_getCode.
 func (c *engineClient) code(ctx context.Context, addr string) ([]byte, error) {
 	res, err := c.call(ctx, c.rpcURL, false, "eth_getCode", []any{addr, "latest"})
