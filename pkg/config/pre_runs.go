@@ -642,8 +642,8 @@ func validatePredeploy(t *PreRunTarget, prefix string) error {
 	}
 
 	for j := range p.Contracts {
-		if err := validateHexBytecode(p.Contracts[j].Code); err != nil {
-			return fmt.Errorf("%s.predeploy.contracts[%d].code: %w", prefix, j, err)
+		if err := validatePredeployContract(&p.Contracts[j], fmt.Sprintf("%s.predeploy.contracts[%d]", prefix, j)); err != nil {
+			return err
 		}
 	}
 
@@ -658,6 +658,67 @@ func validatePredeploy(t *PreRunTarget, prefix string) error {
 
 	if p.DeployerFundGwei != nil && *p.DeployerFundGwei == 0 {
 		return fmt.Errorf("%s.predeploy.deployer_fund_gwei must be > 0 when set", prefix)
+	}
+
+	return nil
+}
+
+// validatePredeployContract enforces that a predeploy entry uses exactly one of
+// its two forms: `code` (plain CREATE of runtime bytecode) or `to` + `data` +
+// `address` (a call to a deployer contract, e.g. a CREATE2 factory). The call
+// form requires `address` because, unlike CREATE, benchmarkoor cannot derive
+// where the code will land without knowing the callee's deployment scheme — it
+// is what the post-block code check verifies against.
+func validatePredeployContract(c *PreRunPredeployContract, prefix string) error {
+	if c.IsCall() {
+		if c.Code != "" {
+			return fmt.Errorf(
+				"%s: set either code (plain CREATE) or to+data (deployer call), not both", prefix,
+			)
+		}
+
+		if err := validateHexAddress(c.To); err != nil {
+			return fmt.Errorf("%s.to: %w", prefix, err)
+		}
+
+		if err := validateHexBytecode(c.Data); err != nil {
+			return fmt.Errorf("%s.data: %w", prefix, err)
+		}
+
+		if c.Address == "" {
+			return fmt.Errorf(
+				"%s.address is required with to+data (the address the deployed code is "+
+					"verified at; it cannot be derived from the call)", prefix,
+			)
+		}
+
+		if err := validateHexAddress(c.Address); err != nil {
+			return fmt.Errorf("%s.address: %w", prefix, err)
+		}
+
+		return nil
+	}
+
+	if c.Data != "" || c.Address != "" {
+		return fmt.Errorf("%s: data/address require to (the deployer contract to call)", prefix)
+	}
+
+	if err := validateHexBytecode(c.Code); err != nil {
+		return fmt.Errorf("%s.code: %w", prefix, err)
+	}
+
+	return nil
+}
+
+// validateHexAddress checks s is a 0x-prefixed 20-byte hex address.
+func validateHexAddress(s string) error {
+	h := strings.TrimPrefix(s, "0x")
+	if len(h) != 40 {
+		return fmt.Errorf("expected a 20-byte (40 hex char) address, got %d hex chars", len(h))
+	}
+
+	if _, err := hex.DecodeString(h); err != nil {
+		return fmt.Errorf("not valid hex: %w", err)
 	}
 
 	return nil

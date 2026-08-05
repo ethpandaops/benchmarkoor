@@ -409,12 +409,7 @@ func (b *PreRunsBuilder) buildPredeployBlocks(
 		return fmt.Errorf("fetching chain id for deploy txs: %w", err)
 	}
 
-	runtimes := make([][]byte, len(p.Contracts))
-	for i := range p.Contracts {
-		runtimes[i] = runtimeBytecode(p.Contracts[i].Code)
-	}
-
-	if _, err := bf.ec.deployContracts(ctx, key, chainID, runtimes, log); err != nil {
+	if _, err := bf.ec.deployContracts(ctx, key, chainID, p.Contracts, log); err != nil {
 		return err
 	}
 

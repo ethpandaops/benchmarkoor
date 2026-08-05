@@ -11,6 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sirupsen/logrus"
+
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 )
 
 // parseDeployerKey parses a 0x-optional hex private key and returns it plus its
@@ -136,6 +138,42 @@ func signDeployTx(
 	return rawTx, crypto.CreateAddress(from, nonce), nil
 }
 
+// signCallTx builds and signs an EIP-1559 call to `to` carrying data. It is the
+// counterpart of signDeployTx for predeploys performed by an existing contract
+// (a CREATE2 factory), where the deployed address follows the callee's scheme
+// rather than this sender's nonce and so cannot be derived here.
+func signCallTx(
+	key *ecdsa.PrivateKey,
+	chainID *big.Int,
+	nonce, gas uint64,
+	gasFeeCap, gasTipCap *big.Int,
+	to common.Address,
+	data []byte,
+) ([]byte, error) {
+	tx := types.NewTx(&types.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     nonce,
+		GasTipCap: gasTipCap,
+		GasFeeCap: gasFeeCap,
+		Gas:       gas,
+		To:        &to,
+		Value:     big.NewInt(0),
+		Data:      data,
+	})
+
+	signed, err := types.SignTx(tx, types.LatestSignerForChainID(chainID), key)
+	if err != nil {
+		return nil, fmt.Errorf("signing deploy call tx: %w", err)
+	}
+
+	rawTx, err := signed.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("encoding deploy call tx: %w", err)
+	}
+
+	return rawTx, nil
+}
+
 // deployTipCap is the priority fee (1 gwei) deploy transactions pay.
 var deployTipCap = big.NewInt(1_000_000_000)
 
@@ -146,23 +184,30 @@ func deployGas(runtimeLen int) uint64 {
 	return 200_000 + 350*uint64(runtimeLen)
 }
 
-// deployContracts deploys each runtime bytecode as its own contract-creation
-// transaction from key, consecutively from the deployer's current on-chain
-// nonce, in a single block, and returns the CREATE-derived addresses. The
-// deployer must already be funded (e.g. via the pre-run funding block). It
-// prices the txs above the current base fee, builds one block carrying them
-// (pre-fork, since forkAt selects the fork by timestamp), then verifies each
-// address received code — failing loudly if a deploy reverted or the deployer
-// was under-funded.
+// deployContracts deploys each configured contract as its own transaction from
+// key, consecutively from the deployer's current on-chain nonce, in a single
+// block, and returns the addresses the code now occupies. Each entry is either a
+// plain CREATE of runtime bytecode (address derived from deployer and nonce) or
+// a call to a deployer contract such as a CREATE2 factory (address declared in
+// config, since it follows the callee's scheme) — see
+// config.PreRunPredeployContract. The deployer must already be funded (e.g. via
+// the pre-run funding block). It prices the txs above the current base fee,
+// builds one block carrying them (pre-fork, since forkAt selects the fork by
+// timestamp), then verifies each address received code — failing loudly if a
+// deploy reverted, landed elsewhere, or the deployer was under-funded.
 //
 // The nonce is read from the chain rather than assumed to be zero: on a
 // synthetic snapshot the deployer is fresh, but on a snapshot of a real network
 // the key may already have history (a well-known test key almost certainly
 // does), and starting at zero fails the whole block with "nonce too low".
 func (c *engineClient) deployContracts(
-	ctx context.Context, key *ecdsa.PrivateKey, chainID *big.Int, runtimes [][]byte, log logrus.FieldLogger,
+	ctx context.Context,
+	key *ecdsa.PrivateKey,
+	chainID *big.Int,
+	contracts []config.PreRunPredeployContract,
+	log logrus.FieldLogger,
 ) ([]common.Address, error) {
-	if len(runtimes) == 0 {
+	if len(contracts) == 0 {
 		return nil, nil
 	}
 
@@ -184,13 +229,37 @@ func (c *engineClient) deployContracts(
 		return nil, fmt.Errorf("fetching deployer nonce for %s: %w", from.Hex(), err)
 	}
 
-	rawTxs := make([][]byte, 0, len(runtimes))
-	addrs := make([]common.Address, 0, len(runtimes))
+	rawTxs := make([][]byte, 0, len(contracts))
+	addrs := make([]common.Address, 0, len(contracts))
 
-	for i, runtime := range runtimes {
-		raw, addr, signErr := signDeployTx(
-			key, chainID, startNonce+uint64(i), deployGas(len(runtime)), feeCap, deployTipCap, runtime,
+	for i := range contracts {
+		ct := &contracts[i]
+		nonce := startNonce + uint64(i)
+
+		var (
+			raw     []byte
+			addr    common.Address
+			signErr error
 		)
+
+		if ct.IsCall() {
+			// Deployment performed by an existing contract (e.g. a CREATE2
+			// factory), so the resulting address is fixed by the callee's scheme
+			// rather than by this sender — config supplies it and the check below
+			// verifies it.
+			data := runtimeBytecode(ct.Data)
+			to := common.HexToAddress(ct.To)
+			addr = common.HexToAddress(ct.Address)
+			raw, signErr = signCallTx(
+				key, chainID, nonce, deployGas(len(data)), feeCap, deployTipCap, to, data,
+			)
+		} else {
+			runtime := runtimeBytecode(ct.Code)
+			raw, addr, signErr = signDeployTx(
+				key, chainID, nonce, deployGas(len(runtime)), feeCap, deployTipCap, runtime,
+			)
+		}
+
 		if signErr != nil {
 			return nil, fmt.Errorf("signing deploy tx %d: %w", i, signErr)
 		}
@@ -200,7 +269,7 @@ func (c *engineClient) deployContracts(
 	}
 
 	log.WithFields(logrus.Fields{
-		"deployer": from.Hex(), "contracts": len(runtimes),
+		"deployer": from.Hex(), "contracts": len(contracts),
 		"start_nonce": startNonce, "addresses": addrs,
 	}).Info("Deploying contracts before fork activation")
 

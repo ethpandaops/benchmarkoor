@@ -1,5 +1,5 @@
 # PRE-RUN payload bundle + EEST STATEFUL payloads on an EXISTING (OSAKA) snapshot
-# dir — nethermind fills, geth replays, crossing OSAKA → AMSTERDAM at build time.
+# dir — nethermind and geth each advance their own, crossing OSAKA → AMSTERDAM.
 #
 # Sibling of config.state-actor-eest.simple.amsterdam.stateful.pre-runs.yaml, but
 # with NO state_actor stage: instead of synthesising a snapshot, this advances an
@@ -12,7 +12,7 @@
 #   1.5  pre_runs       nethermind boots on SNAPSHOT_DIR (still OSAKA). On osaka it
 #                       (a) builds a funding block crediting the fill seed AND the
 #                       deployer, then (b) deploys the EIP-8282 request contracts
-#                       via CREATE txs from the deployer. It then gas-bumps to
+#                       through the CREATE2 factory. It then gas-bumps to
 #                       1 TGas and fills test_setup_contracts — those blocks cross
 #                       into AMSTERDAM once their timestamp reaches
 #                       AMSTERDAM_ACTIVATION_TS. With datadir_method: schelk it
@@ -29,24 +29,29 @@
 #                       geth's fixtures are built but nothing consumes them until
 #                       you add a geth instance + point local_fixtures_dir at them.
 #
-# ┌─ IMPORTANT: EIP-8282 fixed-address system-call check ───────────────────────┐
-# │ nethermind HARDCODES the EIP-8282 request-contract addresses (they are NOT a │
-# │ chainspec param, unlike EIP-7002/7251), so the deploy below lands the        │
-# │ bytecode at the DEPLOYER's CREATE addresses, NOT at the hardcoded ones. On   │
-# │ amsterdam, nethermind's end-of-block 8282 system call targets the hardcoded  │
-# │ addresses and INVALIDATES any block whose target has no code — so every      │
-# │ amsterdam block here (gas-bump, fill) is rejected UNLESS you run a nethermind │
-# │ build that relaxes/skips that fixed-address check (feature flag TBD with the  │
-# │ client teams). The osaka funding + deploy blocks succeed regardless; the      │
-# │ amsterdam stages depend on that relaxed build.                                │
+# ┌─ EIP-8282: predeployed at the CANONICAL addresses via CREATE2 ──────────────┐
+# │ Clients HARDCODE the EIP-8282 request-contract addresses (they are NOT a     │
+# │ chainspec param, unlike EIP-7002/7251), and a strict client invalidates any   │
+# │ amsterdam block whose end-of-block system-call target has no code. A plain    │
+# │ CREATE from our deployer would land the code at the deployer's CREATE         │
+# │ addresses instead — the wrong place.                                          │
 # │                                                                              │
-# │ devnet-7 MOVED both predeploys — EIP-8282 derives each address from a         │
-# │ presigned Nick's-method deploy tx, so new runtime bytecode means a new        │
-# │ address. The hardcoded pair a devnet-7 nethermind system-calls is             │
+# │ So the predeploy below REPLAYS glamsterdam-devnet-7's own deployment          │
+# │ calldata against the deterministic-deployment proxy (CREATE2) at              │
+# │ 0x4e59b448…c0B4956C. A CREATE2 address is                                     │
+# │   keccak256(0xff ++ factory ++ salt ++ keccak256(initcode))[12:]              │
+# │ with no msg.sender in the preimage, so ANY funded sender reproduces the       │
+# │ canonical pair devnet-7 clients system-call:                                  │
 # │   deposit 0x0000bFF46984e3725691FA540a8C7589300D8282                          │
 # │   exit    0x000064D678505ad48F8cCb093BC65613800E8282                          │
-# │ (devnet-6 used 0x0000884d…D9008282 / 0x000014574A…0f008282). The bytecode     │
-# │ deployed below is devnet-7's; do not pair it with a devnet-6 image.           │
+# │ (devnet-6 used 0x0000884d…D9008282 / 0x000014574A…0f008282 — a different      │
+# │ salt+initcode, so do not pair this calldata with a devnet-6 image.)           │
+# │                                                                              │
+# │ This is why no relaxed/patched client build is needed here. It does require   │
+# │ the CREATE2 factory to already exist on the chain: it is not in the mainnet   │
+# │ genesis alloc but has been deployed on mainnet since 2020, so a mainnet-fork  │
+# │ snapshot has it. A synthetic chain must predeploy it (state_actor's           │
+# │ create2_factory template, as in the state-actor sibling config).              │
 # └─────────────────────────────────────────────────────────────────────────────┘
 #
 # Each client schedules amsterdam in ITS OWN genesis format: nethermind via
@@ -195,14 +200,26 @@ builder:
         pre_fork: osaka
         deployer_key: "0x0000000000000000000000000000000000000000000000000000000000000002"
         contracts:
-          # eip8282-builder-deposit-requests (devnet-7 bytecode, read off the
-          # code live at BUILDER_DEPOSIT_CONTRACT_ADDRESS on
-          # glamsterdam-devnet-7). Its init sets excess = EXCESS_INHIBITOR;
-          # deploying the runtime code directly leaves slot 0 at 0, which the
-          # system call treats the same (queue empty -> empty request_data).
-          - code: "0x3373fffffffffffffffffffffffffffffffffffffffe1461011c575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146102705760015460088111605257506058565b60089003015b601190600182026001905f5b5f821115607f57810190830284830290049160010191906064565b90939004925050503660b814609f57366102705734610270575f5260205ff35b8034106102705760383567ffffffffffffffff1680633b9aca001161027057633b9aca00029034031061027057600154600101600155600354806006026004015f358155600101602035815560010160403581556001016060358155600101608035815560010160a035905560b85f5f3760b85fa0600101600355005b60035460025480820380604011610131575060405b5f5b8181146101d7578281016006026004018160b8028154815260200181600101548152602001816002015480825260401c67ffffffffffffffff16816010018160381c81600701538160301c81600601538160281c81600501538160201c81600401538160181c81600301538160101c81600201538160081c816001015353602001816003015481526020018160040154815260200190600501549052600101610133565b91018092146101e957906002556101f4565b90505f6002555f6003555b36610242575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461023057600882820111610238575b50505f610264565b0160089003610264565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f60015560b8025ff35b5f5ffd"
-          # eip8282-builder-exit-requests (devnet-7 bytecode, same provenance).
-          - code: "0x3373fffffffffffffffffffffffffffffffffffffffe1460e1575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101c65760015460028111605157506057565b60029003015b601190600182026001905f5b5f821115607e57810190830284830290049160010191906063565b909390049250505036603014609e57366101c657346101c6575f5260205ff35b34106101c657600154600101600155600354806003026004013381556001015f35815560010160203590553360601b5f5260305f60143760445fa0600101600355005b6003546002548082038060101160f5575060105b5f5b81811461012d5782810160030260040181604402815460601b8152601401816001015481526020019060020154905260010160f7565b910180921461013f579060025561014a565b90505f6002555f6003555b36610198575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101865760028282011161018e575b50505f6101ba565b01600290036101ba565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f6001556044025ff35b5f5ffd"
+          # Replay of glamsterdam-devnet-7's OWN EIP-8282 deployment txs, sent to
+          # the deterministic-deployment proxy (CREATE2) at 0x4e59b448…c0B4956C.
+          # data is the factory's calldata: 32-byte mined salt then initcode.
+          # Because a CREATE2 address is
+          #   keccak256(0xff ++ factory ++ salt ++ keccak256(initcode))[12:]
+          # and never involves msg.sender, re-sending this from OUR deployer lands
+          # the contracts on the canonical addresses the clients hardcode — which
+          # is what makes the fixed-address problem go away. Running the real
+          # initcode also sets the constructor storage (excess = EXCESS_INHIBITOR)
+          # rather than installing runtime code over empty storage.
+          # Source txs on devnet-7:
+          #   deposit 0x89703ec01488d08c9bf6a29a623396c88152f7df6f6cf06b1d7c9e4805c781dd
+          #   exit    0xeb17df81c87dfae5ab110feeac385d296245a9983ecdb1c301c6caed2f0b9770
+          # address is verified against the deployed code after the block builds.
+          - to: "0x4e59b44847b379578588920cA78FbF26c0B4956C"
+            address: "0x0000bFF46984e3725691FA540a8C7589300D8282" # BUILDER_DEPOSIT_CONTRACT_ADDRESS
+            data: "0x1f4f2c41c28e816e259b621c58b94b37309c8dec42c8f6e400001a46c9d96bf761027480600a5f395ff33373fffffffffffffffffffffffffffffffffffffffe1461011c575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146102705760015460088111605257506058565b60089003015b601190600182026001905f5b5f821115607f57810190830284830290049160010191906064565b90939004925050503660b814609f57366102705734610270575f5260205ff35b8034106102705760383567ffffffffffffffff1680633b9aca001161027057633b9aca00029034031061027057600154600101600155600354806006026004015f358155600101602035815560010160403581556001016060358155600101608035815560010160a035905560b85f5f3760b85fa0600101600355005b60035460025480820380604011610131575060405b5f5b8181146101d7578281016006026004018160b8028154815260200181600101548152602001816002015480825260401c67ffffffffffffffff16816010018160381c81600701538160301c81600601538160281c81600501538160201c81600401538160181c81600301538160101c81600201538160081c816001015353602001816003015481526020018160040154815260200190600501549052600101610133565b91018092146101e957906002556101f4565b90505f6002555f6003555b36610242575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461023057600882820111610238575b50505f610264565b0160089003610264565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f60015560b8025ff35b5f5ffd"
+          - to: "0x4e59b44847b379578588920cA78FbF26c0B4956C"
+            address: "0x000064D678505ad48F8cCb093BC65613800E8282" # BUILDER_EXIT_CONTRACT_ADDRESS
+            data: "0x89abb1878437213f971f849327423ed1d9c5cdb03970cd8f0000318b3ff101197fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5f556101ca80602d5f395ff33373fffffffffffffffffffffffffffffffffffffffe1460e1575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101c65760015460028111605157506057565b60029003015b601190600182026001905f5b5f821115607e57810190830284830290049160010191906063565b909390049250505036603014609e57366101c657346101c6575f5260205ff35b34106101c657600154600101600155600354806003026004013381556001015f35815560010160203590553360601b5f5260305f60143760445fa0600101600355005b6003546002548082038060101160f5575060105b5f5b81811461012d5782810160030260040181604402815460601b8152601401816001015481526020019060020154905260010160f7565b910180921461013f579060025561014a565b90505f6002555f6003555b36610198575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101865760028282011161018e575b50505f6101ba565b01600290036101ba565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f6001556044025ff35b5f5ffd"
     targets:
       - name: pre-run-nethermind
         filler_client: nethermind
@@ -236,9 +253,9 @@ builder:
       # │ on separate schelk hosts/volumes, or run them as two separate configs.  │
       # └────────────────────────────────────────────────────────────────────────┘
       #
-      # NOTE: geth hardcodes the EIP-8282 addresses too, so the fixed-address
-      # caveat in the header applies here as much as to nethermind — the deployed
-      # contracts land at the deployer's CREATE addresses, not the hardcoded ones.
+      # The stage-level predeploy applies here too: geth hardcodes the same
+      # EIP-8282 addresses, and the CREATE2 factory replay puts the contracts
+      # exactly there, so geth needs no patched build either.
       - name: pre-run-geth
         filler_client: geth
         filler_image: ethpandaops/geth:glamsterdam-devnet-7

@@ -1105,11 +1105,43 @@ type PreRunPredeploy struct {
 	Contracts []PreRunPredeployContract `yaml:"contracts" mapstructure:"contracts"`
 }
 
-// PreRunPredeployContract is one contract deployed by a PreRunPredeploy: Code is
-// the 0x-prefixed runtime bytecode (what ends up as the deployed account's code;
-// benchmarkoor wraps it in the minimal returning init code).
+// PreRunPredeployContract is one contract deployed by a PreRunPredeploy, in one
+// of two mutually exclusive forms.
+//
+// Code is 0x-prefixed RUNTIME bytecode. benchmarkoor wraps it in the minimal
+// returning init code and sends a plain CREATE from the deployer, so the
+// contract lands at a CREATE address derived from the deployer and its nonce.
+// That is fine when the fork's system-contract addresses are chainspec params,
+// but not when a client hardcodes them — the code never appears where the client
+// looks.
+//
+// To + Data + Address instead send a CALL: To is a contract that performs the
+// deployment (typically a CREATE2 factory such as the deterministic-deployment
+// proxy at 0x4e59b448…c0B4956C), Data is its calldata (for that factory,
+// 32-byte salt ‖ initcode), and Address is where the code must end up, verified
+// after the block is built. A CREATE2 address is
+// keccak256(0xff ‖ factory ‖ salt ‖ keccak256(initcode)) and does not involve
+// msg.sender, so replaying a network's own deployment calldata from any funded
+// sender reproduces the canonical predeploy address — which is what lets a
+// pre-run put e.g. the EIP-8282 request contracts exactly where clients
+// hardcode them. It also runs the real constructor, so constructor-initialised
+// storage (EIP-8282 sets excess = EXCESS_INHIBITOR) is set up as on the real
+// chain, unlike the Code form which installs runtime bytecode over empty
+// storage.
+//
+// The factory itself must already exist on the chain; a synthetic snapshot has
+// to predeploy it (state_actor's create2_factory template does).
 type PreRunPredeployContract struct {
-	Code string `yaml:"code" mapstructure:"code"`
+	Code    string `yaml:"code,omitempty" mapstructure:"code"`
+	To      string `yaml:"to,omitempty" mapstructure:"to"`
+	Data    string `yaml:"data,omitempty" mapstructure:"data"`
+	Address string `yaml:"address,omitempty" mapstructure:"address"`
+}
+
+// IsCall reports whether the contract is deployed by calling To (the CREATE2
+// factory form) rather than by a plain CREATE of Code.
+func (c *PreRunPredeployContract) IsCall() bool {
+	return c.To != ""
 }
 
 // DataDirConfig configures a pre-populated data directory for a client.

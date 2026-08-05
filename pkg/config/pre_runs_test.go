@@ -315,6 +315,63 @@ func TestValidatePreRuns(t *testing.T) {
 		require.ErrorContains(t, c.validatePreRuns(), "code")
 	})
 
+	// The to+data form deploys through an existing contract (a CREATE2 factory),
+	// so the address follows the callee's scheme and must be declared.
+	t.Run("predeploy via deployer call accepted", func(t *testing.T) {
+		c := withPredeploy(func(p *PreRunPredeploy, _ *PreRunTarget) {
+			p.Contracts = []PreRunPredeployContract{{
+				To:      "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+				Data:    "0x" + strings.Repeat("ab", 64),
+				Address: "0x0000bFF46984e3725691FA540a8C7589300D8282",
+			}}
+		})
+		require.NoError(t, c.validatePreRuns())
+		assert.True(t, c.Builder.PreRuns.Targets[0].Predeploy.Contracts[0].IsCall())
+	})
+
+	t.Run("predeploy deployer call without address rejected", func(t *testing.T) {
+		c := withPredeploy(func(p *PreRunPredeploy, _ *PreRunTarget) {
+			p.Contracts = []PreRunPredeployContract{{
+				To:   "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+				Data: "0x" + strings.Repeat("ab", 64),
+			}}
+		})
+		require.ErrorContains(t, c.validatePreRuns(), "address is required")
+	})
+
+	t.Run("predeploy mixing code and to rejected", func(t *testing.T) {
+		c := withPredeploy(func(p *PreRunPredeploy, _ *PreRunTarget) {
+			p.Contracts = []PreRunPredeployContract{{
+				Code:    "0x60006000fd",
+				To:      "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+				Data:    "0xab",
+				Address: "0x0000bFF46984e3725691FA540a8C7589300D8282",
+			}}
+		})
+		require.ErrorContains(t, c.validatePreRuns(), "not both")
+	})
+
+	t.Run("predeploy with address but no to rejected", func(t *testing.T) {
+		c := withPredeploy(func(p *PreRunPredeploy, _ *PreRunTarget) {
+			p.Contracts = []PreRunPredeployContract{{
+				Code:    "0x60006000fd",
+				Address: "0x0000bFF46984e3725691FA540a8C7589300D8282",
+			}}
+		})
+		require.ErrorContains(t, c.validatePreRuns(), "require to")
+	})
+
+	t.Run("predeploy deployer call with malformed address rejected", func(t *testing.T) {
+		c := withPredeploy(func(p *PreRunPredeploy, _ *PreRunTarget) {
+			p.Contracts = []PreRunPredeployContract{{
+				To:      "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+				Data:    "0xab",
+				Address: "0xdeadbeef",
+			}}
+		})
+		require.ErrorContains(t, c.validatePreRuns(), "40 hex char")
+	})
+
 	t.Run("predeploy without any genesis override rejected", func(t *testing.T) {
 		c := withPredeploy(func(_ *PreRunPredeploy, tgt *PreRunTarget) { tgt.GenesisEIPOverride = nil })
 		require.ErrorContains(t, c.validatePreRuns(), "genesis_eip_override")
