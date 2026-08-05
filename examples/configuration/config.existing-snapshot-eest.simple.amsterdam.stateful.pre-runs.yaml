@@ -1,5 +1,5 @@
 # PRE-RUN payload bundle + EEST STATEFUL payloads on an EXISTING (OSAKA) snapshot
-# dir — nethermind only, crossing OSAKA → AMSTERDAM at build time.
+# dir — nethermind fills, geth replays, crossing OSAKA → AMSTERDAM at build time.
 #
 # Sibling of config.state-actor-eest.simple.amsterdam.stateful.pre-runs.yaml, but
 # with NO state_actor stage: instead of synthesising a snapshot, this advances an
@@ -19,10 +19,15 @@
 #                       advances the snapshot IN PLACE on the copy-on-write scratch
 #                       (no copy — see the schelk note below) and records the replay
 #                       bundle there.
-#   2.   eest_payloads  fill the benchmark (test_account_access) on nethermind's
-#                       advanced (amsterdam) datadir → fixtures at the setup head.
-#   3.   runner         nethermind boots from that same advanced datadir and runs
-#                       the benchmark fixtures.
+#                       geth REPLAYS that bundle (replay_from) onto its OWN geth
+#                       snapshot (GETH_SNAPSHOT_DIR, same network + same head), so
+#                       it reaches the same setup head without a second fill.
+#   2.   eest_payloads  fill the benchmark on each client's advanced (amsterdam)
+#                       datadir → one fixture set per client, at the setup head.
+#   3.   runner         nethermind boots from its advanced datadir and runs the
+#                       benchmark fixtures. NOTE: the runner is nethermind-only —
+#                       geth's fixtures are built but nothing consumes them until
+#                       you add a geth instance + point local_fixtures_dir at them.
 #
 # ┌─ IMPORTANT: EIP-8282 fixed-address system-call check ───────────────────────┐
 # │ nethermind HARDCODES the EIP-8282 request-contract addresses (they are NOT a │
@@ -34,7 +39,21 @@
 # │ build that relaxes/skips that fixed-address check (feature flag TBD with the  │
 # │ client teams). The osaka funding + deploy blocks succeed regardless; the      │
 # │ amsterdam stages depend on that relaxed build.                                │
+# │                                                                              │
+# │ devnet-7 MOVED both predeploys — EIP-8282 derives each address from a         │
+# │ presigned Nick's-method deploy tx, so new runtime bytecode means a new        │
+# │ address. The hardcoded pair a devnet-7 nethermind system-calls is             │
+# │   deposit 0x0000bFF46984e3725691FA540a8C7589300D8282                          │
+# │   exit    0x000064D678505ad48F8cCb093BC65613800E8282                          │
+# │ (devnet-6 used 0x0000884d…D9008282 / 0x000014574A…0f008282). The bytecode     │
+# │ deployed below is devnet-7's; do not pair it with a devnet-6 image.           │
 # └─────────────────────────────────────────────────────────────────────────────┘
+#
+# Each client schedules amsterdam in ITS OWN genesis format: nethermind via
+# genesis_eip_override (per-EIP transitions in a parity chainspec), geth via
+# genesis_fork_override (config.amsterdamTime in a geth genesis). Both satisfy
+# `predeploy`, which needs the target fork scheduled at a positive timestamp its
+# pre-fork deploy blocks can precede.
 #
 # Set the TODO values below for your network + snapshot before running on the
 # server that holds SNAPSHOT_DIR.
@@ -69,7 +88,23 @@ global:
     # head). If this is below the head ts, the very first block is already amsterdam.
     # The SAME value is used by all three stages so they agree on the fork.
     AMSTERDAM_ACTIVATION_TS: "1800000000"
-    EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/nethermind-existing-snapshot
+    # TODO: an EXISTING geth snapshot to advance alongside the nethermind one.
+    # It MUST be the same network AND the same head block as SNAPSHOT_DIR: the
+    # geth target REPLAYS nethermind's recorded bundle, and replay starts from
+    # the bundle's parent, so a head mismatch fails on the first payload. Point
+    # at geth's chain directory (the one holding chaindata/), e.g.
+    # ".../geth" under an ethpandaops snapshot. Unlike nethermind, geth needs no
+    # chainspec — it reads the chain config from the datadir and takes the
+    # amsterdam schedule from --override.amsterdam below. Like SNAPSHOT_DIR it is
+    # advanced IN PLACE on the schelk scratch (no copy, no output dir) — see the
+    # ORDERING box on the geth pre-run target about not sharing one schelk volume.
+    GETH_SNAPSHOT_DIR: /schelk/snapshots/geth/jochemnet/24402727/geth
+    # TODO: geth-format genesis.json for this network. Required because the geth
+    # pre-run's genesis_fork_override is patched into the filler's genesis FILE
+    # before boot, so there has to be one to patch.
+    GETH_GENESIS: https://raw.githubusercontent.com/ethpandaops/perf-devnets/refs/heads/master/network-configs/devnet-3/metadata/genesis.json
+    # Holds one <client>/ subdir per eest_payloads target (nethermind, geth).
+    EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/existing-snapshot
     EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
     EEST_REF: full-benchmark-target
 
@@ -110,6 +145,9 @@ builder:
       filler_extra_args:
         - --FlatDb.Enabled=true
         - --FlatDb.CompactionOffset=0
+        - --FlatDb.MinReorgDepth=1024
+        - --FlatDb.MaxReorgDepth=1024
+        - --JsonRpc.MaxBatchSize=16384 # Default 1024
         - --Init.AutoDump=None
         - --Merge.NewPayloadBlockProcessingTimeout=70000
         - --Blocks.CachePrecompilesOnBlockProcessing=false
@@ -138,10 +176,30 @@ builder:
         BLOATNET_RECEIVER_CONTRACT_COUNT: "1000"
       tests:
         - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
+      # Deploy the EIP-8282 builder-execution-request contracts on OSAKA, before
+      # amsterdam activates (a strict client rejects amsterdam blocks whose 8282
+      # system contracts have no code). The deployer is funded in the funding
+      # block; its contracts land at CREATE(deployer, 0) and CREATE(deployer, 1)
+      # (logged at build time). See the fixed-address caveat in the header.
+      # Hoisted to the stage config so BOTH clients deploy the identical pair —
+      # each still needs its own genesis_eip_override (target-only field) to
+      # schedule the activation the deploy blocks must precede.
+      predeploy:
+        pre_fork: osaka
+        deployer_key: "0x0000000000000000000000000000000000000000000000000000000000000002"
+        contracts:
+          # eip8282-builder-deposit-requests (devnet-7 bytecode, read off the
+          # code live at BUILDER_DEPOSIT_CONTRACT_ADDRESS on
+          # glamsterdam-devnet-7). Its init sets excess = EXCESS_INHIBITOR;
+          # deploying the runtime code directly leaves slot 0 at 0, which the
+          # system call treats the same (queue empty -> empty request_data).
+          - code: "0x3373fffffffffffffffffffffffffffffffffffffffe1461011c575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146102705760015460088111605257506058565b60089003015b601190600182026001905f5b5f821115607f57810190830284830290049160010191906064565b90939004925050503660b814609f57366102705734610270575f5260205ff35b8034106102705760383567ffffffffffffffff1680633b9aca001161027057633b9aca00029034031061027057600154600101600155600354806006026004015f358155600101602035815560010160403581556001016060358155600101608035815560010160a035905560b85f5f3760b85fa0600101600355005b60035460025480820380604011610131575060405b5f5b8181146101d7578281016006026004018160b8028154815260200181600101548152602001816002015480825260401c67ffffffffffffffff16816010018160381c81600701538160301c81600601538160281c81600501538160201c81600401538160181c81600301538160101c81600201538160081c816001015353602001816003015481526020018160040154815260200190600501549052600101610133565b91018092146101e957906002556101f4565b90505f6002555f6003555b36610242575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461023057600882820111610238575b50505f610264565b0160089003610264565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f60015560b8025ff35b5f5ffd"
+          # eip8282-builder-exit-requests (devnet-7 bytecode, same provenance).
+          - code: "0x3373fffffffffffffffffffffffffffffffffffffffe1460e1575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101c65760015460028111605157506057565b60029003015b601190600182026001905f5b5f821115607e57810190830284830290049160010191906063565b909390049250505036603014609e57366101c657346101c6575f5260205ff35b34106101c657600154600101600155600354806003026004013381556001015f35815560010160203590553360601b5f5260305f60143760445fa0600101600355005b6003546002548082038060101160f5575060105b5f5b81811461012d5782810160030260040181604402815460601b8152601401816001015481526020019060020154905260010160f7565b910180921461013f579060025561014a565b90505f6002555f6003555b36610198575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101865760028282011161018e575b50505f6101ba565b01600290036101ba565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f6001556044025ff35b5f5ffd"
     targets:
       - name: pre-run-nethermind
         filler_client: nethermind
-        filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-7
         source_dir: ${SNAPSHOT_DIR}
         genesis: ${NETHERMIND_CHAINSPEC}
         # No output_dir: schelk advances source_dir in place (see the note above).
@@ -151,19 +209,48 @@ builder:
         genesis_eip_override:
           timestamp: ${AMSTERDAM_ACTIVATION_TS}
           eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282]
-        # Deploy the EIP-8282 builder-execution-request contracts on OSAKA, before
-        # amsterdam activates (a strict client rejects amsterdam blocks whose 8282
-        # system contracts have no code). The deployer is funded in the funding
-        # block; its contracts land at CREATE(deployer, 0) and CREATE(deployer, 1)
-        # (logged at build time). See the fixed-address caveat in the header.
-        predeploy:
-          pre_fork: osaka
-          deployer_key: "0x0000000000000000000000000000000000000000000000000000000000000002"
-          contracts:
-            # eip8282-builder-deposit-requests (devnet-6 bytecode).
-            - code: "0x3373fffffffffffffffffffffffffffffffffffffffe146101065760115f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461023457600182026001905f5b5f82111560695781019083028483029004916001019190604e565b90939004925050503660b814608957366102345734610234575f5260205ff35b8034106102345760383567ffffffffffffffff1680633b9aca001161023457633b9aca00029034031061023457600154600101600155600354806006026004015f358155600101602035815560010160403581556001016060358155600101608035815560010160a035905560b85f5f3760b85fa0600101600355005b600354600254808203806101001161011d57506101005b5f5b8181146101c3578281016006026004018160b8028154815260200181600101548152602001816002015480825260401c67ffffffffffffffff16816010018160381c81600701538160301c81600601538160281c81600501538160201c81600401538160181c81600301538160101c81600201538160081c81600101535360200181600301548152602001816004015481526020019060050154905260010161011f565b91018092146101d557906002556101e0565b90505f6002555f6003555b5f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff141561020d57505f5b6001546020828201116102225750505f610228565b01602090035b5f555f60015560b8025ff35b5f5ffd"
-            # eip8282-builder-exit-requests (devnet-6 bytecode).
-            - code: "0x3373fffffffffffffffffffffffffffffffffffffffe1460cb5760115f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461018857600182026001905f5b5f82111560685781019083028483029004916001019190604d565b909390049250505036603014608857366101885734610188575f5260205ff35b341061018857600154600101600155600354806003026004013381556001015f35815560010160203590553360601b5f5260305f60143760445fa0600101600355005b6003546002548082038060101160df575060105b5f5b8181146101175782810160030260040181604402815460601b8152601401816001015481526020019060020154905260010160e1565b91018092146101295790600255610134565b90505f6002555f6003555b5f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff141561016157505f5b6001546002828201116101765750505f61017c565b01600290035b5f555f6001556044025ff35b5f5ffd"
+
+      # geth runs its OWN pre-run on its OWN snapshot: funding block + 8282 deploy
+      # on osaka, gas-bump, then fill test_setup_contracts crossing into amsterdam
+      # — the same sequence as nethermind, not a replay of it. The two chains are
+      # therefore independent; each client's eest_payloads stage fills against its
+      # own advanced head.
+      #
+      # Inherits datadir_method: schelk, so like nethermind it advances its
+      # snapshot IN PLACE on the scratch — no copy, and no output_dir (source_dir
+      # IS the advanced datadir that eest_payloads then reads).
+      #
+      # ┌─ ORDERING: the two snapshots must NOT share one schelk volume ─────────┐
+      # │ `schelk restore` recovers THE scratch (one mount point per state file), │
+      # │ not just source_dir, and every schelk target restores before it boots.  │
+      # │ Targets run in declaration order, so if GETH_SNAPSHOT_DIR sits under the │
+      # │ same schelk mount as SNAPSHOT_DIR, this restore rolls nethermind's      │
+      # │ just-advanced snapshot back to the virgin baseline. Keep the two clients │
+      # │ on separate schelk hosts/volumes, or run them as two separate configs.  │
+      # └────────────────────────────────────────────────────────────────────────┘
+      #
+      # NOTE: geth hardcodes the EIP-8282 addresses too, so the fixed-address
+      # caveat in the header applies here as much as to nethermind — the deployed
+      # contracts land at the deployer's CREATE addresses, not the hardcoded ones.
+      - name: pre-run-geth
+        filler_client: geth
+        filler_image: ethpandaops/geth:glamsterdam-devnet-7
+        source_dir: ${GETH_SNAPSHOT_DIR}
+        genesis: ${GETH_GENESIS}
+        # genesis_fork_override is the geth-format counterpart of the nethermind
+        # target's genesis_eip_override: a geth genesis schedules forks by name
+        # (config.amsterdamTime), not per-EIP, and genesis_eip_override only
+        # understands parity chainspecs. It schedules amsterdam for the pre-run's
+        # fork-crossing logic at the same timestamp geth itself is given below, so
+        # the osaka funding + deploy blocks precede activation on both sides.
+        genesis_fork_override:
+          amsterdam: ${AMSTERDAM_ACTIVATION_TS}
+        # These args REPLACE the stage-level filler_extra_args (per-target wins
+        # outright, it does not merge), which is what we want: those are
+        # nethermind FlatDb flags geth would reject.
+        filler_extra_args:
+          - --override.amsterdam=${AMSTERDAM_ACTIVATION_TS}
+          - --rpc.batch-request-limit=16384 # Default 1000
 
   ## Stage 2: fill the benchmark on nethermind's advanced (amsterdam) datadir.
   eest_payloads:
@@ -190,6 +277,9 @@ builder:
       filler_extra_args:
         - --FlatDb.Enabled=true
         - --FlatDb.CompactionOffset=0
+        - --FlatDb.MinReorgDepth=1024
+        - --FlatDb.MaxReorgDepth=1024
+        - --JsonRpc.MaxBatchSize=16384 # Default 1024
         - --Init.AutoDump=None
         - --Merge.NewPayloadBlockProcessingTimeout=70000
         - --Blocks.CachePrecompilesOnBlockProcessing=false
@@ -202,8 +292,10 @@ builder:
         bloated_eoa_10GB:
           addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
           pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
-      # Exclude the 11 repricing variants that fail on this nethermind build
-      # (glamsterdam-devnet-6) at 300 Mgas: EEST's per-op gas model under-predicts
+      # Exclude the 11 repricing variants that fail at 300 Mgas. NOTE: this list
+      # was established against the glamsterdam-devnet-6 nethermind build and has
+      # NOT been re-verified on devnet-7 — re-check it before trusting the count.
+      # EEST's per-op gas model under-predicts
       # what the client charges for value-bearing calls to CONTRACT accounts, so the
       # tightly-budgeted txs run out of gas (receipt status 0, gas_used == gas_limit).
       # EOA-target and CALLCODE variants fill cleanly. See
@@ -219,7 +311,7 @@ builder:
     targets:
       - name: payload-generator-nethermind-stateful
         filler_client: nethermind
-        filler_image: ethpandaops/nethermind:glamsterdam-devnet-6
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-7
         source_dir: ${SNAPSHOT_DIR}
         genesis: ${NETHERMIND_CHAINSPEC}
         output_dir: ${EEST_FIXTURES_DIR}/nethermind
@@ -228,6 +320,22 @@ builder:
         genesis_eip_override:
           timestamp: ${AMSTERDAM_ACTIVATION_TS}
           eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282]
+
+      # geth fills the same benchmark on ITS advanced datadir, producing a second,
+      # independent fixture set. source_dir is GETH_SNAPSHOT_DIR — the same dir the
+      # pre-run advanced in place — booted with method: direct, which only mounts
+      # the schelk source and never recovers, so it does NOT wipe that advancement
+      # (exactly as for the nethermind target above). Own filler_extra_args for the
+      # same reason as the pre-run target: the stage-level ones are nethermind
+      # FlatDb flags geth would reject.
+      - name: payload-generator-geth-stateful
+        filler_client: geth
+        filler_image: ethpandaops/geth:glamsterdam-devnet-7
+        source_dir: ${GETH_SNAPSHOT_DIR}
+        output_dir: ${EEST_FIXTURES_DIR}/geth
+        filler_extra_args:
+          - --override.amsterdam=${AMSTERDAM_ACTIVATION_TS}
+          - --rpc.batch-request-limit=16384 # Default 1000
 
 ## Stage 3: run nethermind from its advanced datadir (already at the setup head).
 runner:
@@ -259,10 +367,24 @@ runner:
   instances:
     - id: nethermind
       client: nethermind
-      image: ethpandaops/nethermind:glamsterdam-devnet-6
+      image: ethpandaops/nethermind:glamsterdam-devnet-7
       # Same amsterdam schedule as the build stages so the datadir head is
       # recognised as amsterdam at run time.
       genesis_eip_override:
         timestamp: ${AMSTERDAM_ACTIVATION_TS}
         eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282]
-      extra_args: [--Init.BaseDbPath=/data, --Blocks.ParallelExecution=true, --Blocks.ParallelExecutionBatchRead=true]
+      # The runner boots on the SAME FlatDb snapshot the build stages advanced, so
+      # it needs the same FlatDb flags — without them nethermind reads the
+      # hash-trie and every state node looks missing on boot.
+      extra_args:
+        - --Init.BaseDbPath=/data
+        - --FlatDb.Enabled=true
+        - --FlatDb.CompactionOffset=0
+        - --FlatDb.MinReorgDepth=1024
+        - --FlatDb.MaxReorgDepth=1024
+        - --JsonRpc.MaxBatchSize=16384 # Default 1024
+        - --Init.AutoDump=None
+        - --Merge.NewPayloadBlockProcessingTimeout=70000
+        - --Blocks.CachePrecompilesOnBlockProcessing=false
+        - --Blocks.ParallelExecution=true
+        - --Blocks.ParallelExecutionBatchRead=true
