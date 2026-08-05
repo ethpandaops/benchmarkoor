@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -214,4 +215,75 @@ exit 1
 	data, readErr := os.ReadFile(counter)
 	require.NoError(t, readErr)
 	assert.Equal(t, "1\n", string(data), "non-lock errors must not retry")
+}
+
+func TestSchelkStaleDevice(t *testing.T) {
+	assert.True(t, schelkStaleDevice([]byte("dm-era device 'bench_era' already exists.")))
+	assert.False(t, schelkStaleDevice([]byte("Another schelk process is already running")))
+	assert.False(t, schelkStaleDevice([]byte("Volume is already mounted")))
+}
+
+// installFakeDmsetup puts a dmsetup shim on PATH reporting the given open count.
+func installFakeDmsetup(t *testing.T, openCount string, removeLog string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	script := fmt.Sprintf(`#!/bin/sh
+case "$*" in
+  *info*) echo "%s" ;;
+  *remove*) echo "$*" >> %s ;;
+esac
+exit 0
+`, openCount, removeLog)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "dmsetup"), []byte(script), 0o755))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestRepairStaleEraDevice_RemovesWhenUnused(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	require.NoError(t, os.WriteFile(statePath, []byte(`{"mount_point":"/schelk"}`), 0o600))
+	t.Setenv("SCHELK_STATE", statePath)
+
+	removeLog := filepath.Join(t.TempDir(), "removed")
+	installFakeDmsetup(t, "0", removeLog)
+
+	require.NoError(t, repairStaleEraDevice(context.Background(), logrus.New(), "bench_era"))
+
+	data, err := os.ReadFile(removeLog)
+	require.NoError(t, err, "dmsetup remove should have been called")
+	assert.Contains(t, string(data), "bench_era")
+}
+
+func TestRepairStaleEraDevice_RefusesWhenDeviceInUse(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	require.NoError(t, os.WriteFile(statePath, []byte(`{"mount_point":"/schelk"}`), 0o600))
+	t.Setenv("SCHELK_STATE", statePath)
+
+	removeLog := filepath.Join(t.TempDir(), "removed")
+	installFakeDmsetup(t, "1", removeLog)
+
+	err := repairStaleEraDevice(context.Background(), logrus.New(), "bench_era")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "open handle")
+	assert.NoFileExists(t, removeLog, "must not remove a device that is in use")
+}
+
+func TestRepairStaleEraDevice_RefusesWhileSchelkLockHeld(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	require.NoError(t, os.WriteFile(statePath, []byte(`{"mount_point":"/schelk"}`), 0o600))
+	t.Setenv("SCHELK_STATE", statePath)
+
+	removeLog := filepath.Join(t.TempDir(), "removed")
+	installFakeDmsetup(t, "0", removeLog)
+
+	// Hold the lock as a concurrent schelk process would.
+	held, err := os.OpenFile(SchelkLockPath(), os.O_RDWR|os.O_CREATE, 0o600)
+	require.NoError(t, err)
+	defer func() { _ = held.Close() }()
+	require.NoError(t, syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
+
+	repairErr := repairStaleEraDevice(context.Background(), logrus.New(), "bench_era")
+	require.Error(t, repairErr)
+	assert.Contains(t, repairErr.Error(), "lock is held")
+	assert.NoFileExists(t, removeLog, "must not remove while schelk may be running")
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -150,6 +151,7 @@ func NewSchelkProvider(log logrus.FieldLogger) SchelkProvider {
 type SchelkState struct {
 	MountPoint string `json:"mount_point"`
 	IsMounted  bool   `json:"is_mounted"`
+	DMEraName  string `json:"dm_era_name"`
 }
 
 type schelkProvider struct {
@@ -268,6 +270,12 @@ func SchelkStatePath() string {
 	return DefaultSchelkStatePath
 }
 
+// SchelkLockPath returns the path of schelk's state lock. It lives alongside
+// the state file, so it follows SCHELK_STATE for tests.
+func SchelkLockPath() string {
+	return filepath.Join(filepath.Dir(SchelkStatePath()), "schelk.lock")
+}
+
 // ReadSchelkState reads and decodes the schelk JSON state file.
 func ReadSchelkState(path string) (*SchelkState, error) {
 	data, err := os.ReadFile(path)
@@ -346,9 +354,25 @@ func EnsureSchelkMounted(ctx context.Context, log logrus.FieldLogger) error {
 			SchelkStatePath(), state.MountPoint, bin,
 		)
 	case !mounted:
-		if err := mountWaitingForLock(ctx, log, bin, schelkLockPollWait); err != nil {
+		err := mountWaitingForLock(ctx, log, bin, schelkLockPollWait)
+		if err == nil {
+			return nil
+		}
+
+		// A crashed schelk run can exit without tearing down its dm-era
+		// device, leaving `schelk mount` to refuse forever. schelk has no
+		// repair command for this, so every job routed at the host fails in
+		// seconds until someone clears it by hand. Clear it ourselves, but
+		// only when it is provably nobody's device.
+		if !schelkStaleDevice([]byte(err.Error())) {
 			return err
 		}
+
+		if repairErr := repairStaleEraDevice(ctx, log, state.DMEraName); repairErr != nil {
+			return fmt.Errorf("%w (stale dm-era device left in place: %w)", err, repairErr)
+		}
+
+		return mountWaitingForLock(ctx, log, bin, schelkLockPollWait)
 	}
 
 	return nil
@@ -407,6 +431,75 @@ func mountWaitingForLock(
 		case <-time.After(poll):
 		}
 	}
+}
+
+// schelkStaleDevice reports whether `schelk mount` refused because a dm-era
+// device from a crashed run is still present.
+func schelkStaleDevice(output []byte) bool {
+	return bytes.Contains(output, []byte("dm-era device")) &&
+		bytes.Contains(output, []byte("already exists"))
+}
+
+// dmEraOpenCount returns how many handles are open against a device-mapper
+// device. Zero means nothing is using it.
+func dmEraOpenCount(ctx context.Context, name string) (int, error) {
+	//nolint:gosec // name comes from schelk's own state file.
+	out, err := exec.CommandContext(ctx, "dmsetup", "info", "-c", "-o", "open", "--noheadings", name).Output()
+	if err != nil {
+		return 0, fmt.Errorf("dmsetup info %q: %w", name, err)
+	}
+
+	count, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0, fmt.Errorf("parsing open count for %q from %q: %w", name, out, err)
+	}
+
+	return count, nil
+}
+
+// repairStaleEraDevice removes a dm-era device orphaned by a crashed schelk
+// run. It refuses unless the device is provably unused: we hold schelk's own
+// state lock, so no schelk process is mid-operation, and the device reports
+// zero open handles. Either check failing means something may still be using
+// the device, and surfacing the original error beats corrupting a volume.
+func repairStaleEraDevice(ctx context.Context, log logrus.FieldLogger, name string) error {
+	if name == "" {
+		return errors.New("schelk state has no dm_era_name")
+	}
+
+	lock, err := os.OpenFile(SchelkLockPath(), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("opening schelk lock: %w", err)
+	}
+	defer func() { _ = lock.Close() }()
+
+	// Non-blocking: if schelk holds the lock it is still working, and the
+	// device is its own rather than an orphan.
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return fmt.Errorf("schelk lock is held, not treating %q as orphaned: %w", name, err)
+	}
+	defer func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) }()
+
+	open, err := dmEraOpenCount(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	if open != 0 {
+		return fmt.Errorf("dm-era device %q has %d open handle(s); refusing to remove", name, open)
+	}
+
+	if log != nil {
+		log.WithField("dm_era_name", name).
+			Warn("Removing stale dm-era device left by a crashed schelk run")
+	}
+
+	//nolint:gosec // name comes from schelk's own state file.
+	if out, err := exec.CommandContext(ctx, "dmsetup", "remove", name).CombinedOutput(); err != nil {
+		return fmt.Errorf("dmsetup remove %q: %w (output: %s)", name, err, strings.TrimSpace(string(out)))
+	}
+
+	return nil
 }
 
 // SchelkPromote persists the current scratch contents as the new virgin
