@@ -313,6 +313,30 @@ func (t *PreRunTarget) IsInPlace() bool {
 	return t.DataDirMethod == "schelk"
 }
 
+// PredeployActivationTS returns the target-fork activation timestamp that a
+// predeploy's pre-fork blocks must precede, read from whichever genesis override
+// schedules it. The two override forms are genesis-format specific and mutually
+// exclusive in practice: genesis_eip_override schedules per-EIP transitions in a
+// parity/nethermind chainspec, genesis_fork_override sets <fork>Time in a
+// geth-format genesis. Preferring the EIP override matches patchFillerGenesis,
+// which applies fork overrides first — a target setting both is already
+// ambiguous, and validation rejects a zero timestamp either way.
+//
+// ok is false when neither override schedules the target fork, or it does so at
+// timestamp 0 (which would put activation at or before every block, leaving no
+// pre-fork window to deploy in).
+func (t *PreRunTarget) PredeployActivationTS() (timestamp uint64, ok bool) {
+	if t.GenesisEIPOverride != nil && len(t.GenesisEIPOverride.EIPs) > 0 {
+		return t.GenesisEIPOverride.Timestamp, t.GenesisEIPOverride.Timestamp > 0
+	}
+
+	if ts, found := t.GenesisForkOverride[t.Fork]; found {
+		return ts, ts > 0
+	}
+
+	return 0, false
+}
+
 // AdvancedDir returns the directory that holds the advanced datadir and the
 // replay bundle after the pre-run: source_dir for an in-place (schelk) target,
 // output_dir otherwise. Downstream stages (eest_payloads, runner) read from it.
@@ -623,17 +647,12 @@ func validatePredeploy(t *PreRunTarget, prefix string) error {
 		}
 	}
 
-	if t.GenesisEIPOverride == nil || len(t.GenesisEIPOverride.EIPs) == 0 {
+	if _, ok := t.PredeployActivationTS(); !ok {
 		return fmt.Errorf(
-			"%s.predeploy requires genesis_eip_override (the target fork's EIPs, "+
-				"scheduled at the activation timestamp the deploy blocks precede)", prefix,
-		)
-	}
-
-	if t.GenesisEIPOverride.Timestamp == 0 {
-		return fmt.Errorf(
-			"%s.predeploy requires genesis_eip_override.timestamp > 0 "+
-				"(the target-fork activation time; the pre-fork deploy blocks must precede it)", prefix,
+			"%s.predeploy requires the target fork's activation to be scheduled at a "+
+				"positive timestamp the pre-fork deploy blocks precede: set "+
+				"genesis_eip_override (parity/nethermind chainspec) or "+
+				"genesis_fork_override.%s (geth-format genesis)", prefix, t.Fork,
 		)
 	}
 

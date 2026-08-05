@@ -80,6 +80,63 @@ func TestPreRunTargetInPlace(t *testing.T) {
 	assert.Equal(t, "/tmp/out", cp.AdvancedDir(), "copy advances output_dir")
 }
 
+func TestPreRunTargetPredeployActivationTS(t *testing.T) {
+	tests := []struct {
+		name   string
+		target PreRunTarget
+		wantTS uint64
+		wantOK bool
+	}{
+		{
+			name:   "eip override (parity/nethermind chainspec)",
+			target: PreRunTarget{Fork: "amsterdam", GenesisEIPOverride: &GenesisEIPOverride{Timestamp: 100, EIPs: []uint64{8282}}},
+			wantTS: 100, wantOK: true,
+		},
+		{
+			name:   "fork override (geth-format genesis)",
+			target: PreRunTarget{Fork: "amsterdam", GenesisForkOverride: map[string]uint64{"amsterdam": 200}},
+			wantTS: 200, wantOK: true,
+		},
+		{
+			name: "eip override wins when both are set",
+			target: PreRunTarget{
+				Fork:                "amsterdam",
+				GenesisEIPOverride:  &GenesisEIPOverride{Timestamp: 100, EIPs: []uint64{8282}},
+				GenesisForkOverride: map[string]uint64{"amsterdam": 200},
+			},
+			wantTS: 100, wantOK: true,
+		},
+		{
+			name:   "fork override for a different fork does not schedule the target fork",
+			target: PreRunTarget{Fork: "amsterdam", GenesisForkOverride: map[string]uint64{"osaka": 200}},
+			wantTS: 0, wantOK: false,
+		},
+		{
+			name:   "eip override with no eips schedules nothing",
+			target: PreRunTarget{Fork: "amsterdam", GenesisEIPOverride: &GenesisEIPOverride{Timestamp: 100}},
+			wantTS: 0, wantOK: false,
+		},
+		{
+			name:   "zero timestamp leaves no pre-fork window",
+			target: PreRunTarget{Fork: "amsterdam", GenesisForkOverride: map[string]uint64{"amsterdam": 0}},
+			wantTS: 0, wantOK: false,
+		},
+		{
+			name:   "no override at all",
+			target: PreRunTarget{Fork: "amsterdam"},
+			wantTS: 0, wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts, ok := tt.target.PredeployActivationTS()
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantTS, ts)
+		})
+	}
+}
+
 func TestValidatePreRuns(t *testing.T) {
 	base := func() *Config {
 		return &Config{
@@ -258,7 +315,7 @@ func TestValidatePreRuns(t *testing.T) {
 		require.ErrorContains(t, c.validatePreRuns(), "code")
 	})
 
-	t.Run("predeploy without genesis_eip_override rejected", func(t *testing.T) {
+	t.Run("predeploy without any genesis override rejected", func(t *testing.T) {
 		c := withPredeploy(func(_ *PreRunPredeploy, tgt *PreRunTarget) { tgt.GenesisEIPOverride = nil })
 		require.ErrorContains(t, c.validatePreRuns(), "genesis_eip_override")
 	})
@@ -267,7 +324,40 @@ func TestValidatePreRuns(t *testing.T) {
 		c := withPredeploy(func(_ *PreRunPredeploy, tgt *PreRunTarget) {
 			tgt.GenesisEIPOverride = &GenesisEIPOverride{Timestamp: 0, EIPs: []uint64{8282}}
 		})
-		require.ErrorContains(t, c.validatePreRuns(), "timestamp > 0")
+		require.ErrorContains(t, c.validatePreRuns(), "positive timestamp")
+	})
+
+	// genesis_fork_override is the geth-format counterpart of genesis_eip_override
+	// (parity/nethermind only), so it must schedule a predeploy's target fork too.
+	t.Run("predeploy with genesis_fork_override accepted", func(t *testing.T) {
+		c := withPredeploy(func(_ *PreRunPredeploy, tgt *PreRunTarget) {
+			tgt.GenesisEIPOverride = nil
+			tgt.GenesisForkOverride = map[string]uint64{"amsterdam": 1_800_000_000}
+		})
+		require.NoError(t, c.validatePreRuns())
+
+		resolved := c.Builder.PreRuns.ResolveTarget(0)
+		ts, ok := resolved.PredeployActivationTS()
+		assert.True(t, ok)
+		assert.Equal(t, uint64(1_800_000_000), ts)
+	})
+
+	t.Run("predeploy with zero genesis_fork_override timestamp rejected", func(t *testing.T) {
+		c := withPredeploy(func(_ *PreRunPredeploy, tgt *PreRunTarget) {
+			tgt.GenesisEIPOverride = nil
+			tgt.GenesisForkOverride = map[string]uint64{"amsterdam": 0}
+		})
+		require.ErrorContains(t, c.validatePreRuns(), "positive timestamp")
+	})
+
+	t.Run("predeploy with genesis_fork_override for another fork rejected", func(t *testing.T) {
+		// Scheduling osaka says nothing about when the amsterdam target fork
+		// activates, so there is no boundary for the deploy blocks to precede.
+		c := withPredeploy(func(_ *PreRunPredeploy, tgt *PreRunTarget) {
+			tgt.GenesisEIPOverride = nil
+			tgt.GenesisForkOverride = map[string]uint64{"osaka": 1_800_000_000}
+		})
+		require.ErrorContains(t, c.validatePreRuns(), "genesis_fork_override.amsterdam")
 	})
 
 	t.Run("predeploy hoisted from config block", func(t *testing.T) {

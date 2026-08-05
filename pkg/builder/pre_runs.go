@@ -592,10 +592,16 @@ func (b *PreRunsBuilder) bootFiller(
 	}
 
 	// A predeploy target builds a chain that crosses a fork boundary: pre-fork
-	// funding + deploy blocks, then the target fork activates (at the
-	// genesis_eip_override timestamp) for the gas-bump and fill.
-	if t.Predeploy != nil && t.GenesisEIPOverride != nil {
-		ec = ec.withCrossing(t.Predeploy.PreFork, t.GenesisEIPOverride.Timestamp)
+	// funding + deploy blocks, then the target fork activates for the gas-bump and
+	// fill. The activation time comes from whichever genesis override schedules it
+	// — genesis_eip_override for a parity/nethermind chainspec, or
+	// genesis_fork_override for a geth-format genesis. Validation guarantees a
+	// predeploy target has one, so a missing timestamp here means the target has
+	// no predeploy and simply does not cross.
+	if t.Predeploy != nil {
+		if ts, ok := t.PredeployActivationTS(); ok {
+			ec = ec.withCrossing(t.Predeploy.PreFork, ts)
+		}
 	}
 
 	return &bootedFiller{
