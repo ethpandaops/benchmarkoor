@@ -328,11 +328,38 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 	// known by the time an eest_payloads target is reached.
 	preRunsBuilt := false
 
+	// eest_payloads fills against the datadir a pre_runs target advanced, so a
+	// failed pre-run leaves it pointing at an un-advanced snapshot. Building on
+	// that does not fail loudly — it silently fills against the wrong chain and
+	// emits fixtures that look valid — so a pre-run failure blocks every
+	// eest_payloads target instead.
+	var failedPreRuns []string
+
 	for _, sel := range targets {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+
+		if sel.builder.Name() == builder.EESTPayloadsBuilderName && len(failedPreRuns) > 0 {
+			blockErr := fmt.Errorf(
+				"not attempted: builder.pre_runs target(s) failed: %s", strings.Join(failedPreRuns, ", "),
+			)
+
+			log.WithField("target", sel.info.Name).WithError(blockErr).
+				Error("Skipping builder.eest_payloads target")
+
+			results = append(results, buildResult{
+				builder:   sel.builder.Name(),
+				name:      sel.info.Name,
+				client:    sel.info.Client,
+				outputDir: sel.info.OutputDir,
+				bundleDir: sel.info.BundleDir,
+				err:       blockErr,
+			})
+
+			continue
 		}
 
 		force := buildForce
@@ -352,8 +379,13 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 		start := time.Now()
 		skipped, buildErr := sel.builder.Build(ctx, sel.info.Name, builder.BuildOptions{Force: force, RebuildOnDiff: buildRebuildOnDiff})
 
-		if sel.builder.Name() == builder.PreRunsBuilderName && !skipped && buildErr == nil {
-			preRunsBuilt = true
+		if sel.builder.Name() == builder.PreRunsBuilderName {
+			switch {
+			case buildErr != nil:
+				failedPreRuns = append(failedPreRuns, sel.info.Name)
+			case !skipped:
+				preRunsBuilt = true
+			}
 		}
 
 		results = append(results, buildResult{

@@ -340,9 +340,7 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 
 	log.WithField("start_block", snapshotHash).Info("Running fill-stateful on setup tests")
 
-	if err := b.runFill(ctx, log, bf.et, t.FillEnv, bf.ip, bf.spec, bf.jwtPath, snapshotHash, eestRepoPath); err != nil {
-		return err
-	}
+	fillErr := b.runFill(ctx, log, bf.et, t.FillEnv, bf.ip, bf.spec, bf.jwtPath, snapshotHash, eestRepoPath)
 
 	// Export the replayable payload bundle (bump/funding blocks recorded above +
 	// the setup blocks from the fixtures) so replay_from targets and the runner
@@ -350,8 +348,23 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 	// by default (output_dir for a copy target, source_dir for an in-place schelk
 	// one), or in bundle_dir when set — which an in-place target wants, since the
 	// advanced datadir is the schelk scratch and a later restore discards it.
+	//
+	// Written even when the fill FAILED. Everything recorded up to that point is
+	// still a valid prefix of the chain, and a setup fill can run for hours before
+	// dying — discarding the bundle throws that away and leaves nothing to inspect
+	// or resume from. A failed pre-run's bundle is partial by definition, which is
+	// what the recorded block range in its metadata tells the reader.
 	if err := b.writeBundle(log, t.BundleParentDir(), fixturesDir, bf.ec.recorded); err != nil {
-		return fmt.Errorf("writing pre-run bundle: %w", err)
+		if fillErr == nil {
+			return fmt.Errorf("writing pre-run bundle: %w", err)
+		}
+
+		// Never let a bundle-write problem mask why the pre-run actually failed.
+		log.WithError(err).Warn("Could not write the partial pre-run bundle after the fill failed")
+	}
+
+	if fillErr != nil {
+		return fillErr
 	}
 
 	log.Info("Pre-run complete; stopping filler to flush datadir")
@@ -710,9 +723,17 @@ func (b *PreRunsBuilder) resolveReplayBundle(replayFrom string) (string, error) 
 // payloads and the setup fixtures, then writes it (ordered, deduped) to
 // outputDir.
 func (b *PreRunsBuilder) writeBundle(log logrus.FieldLogger, outputDir, fixturesDir string, recorded []recordedPayload) error {
+	// A fill that died early may have written no fixtures at all, or a partial
+	// tree — neither is a reason to lose the blocks we recorded ourselves.
 	fixturePayloads, err := extractFixturePayloads(fixturesDir)
 	if err != nil {
-		return fmt.Errorf("extracting fixture payloads: %w", err)
+		if len(recorded) == 0 {
+			return fmt.Errorf("extracting fixture payloads: %w", err)
+		}
+
+		log.WithError(err).Warn("Could not read fixture payloads; bundling only the recorded blocks")
+
+		fixturePayloads = nil
 	}
 
 	all := append(append([]recordedPayload{}, recorded...), fixturePayloads...)
@@ -720,6 +741,15 @@ func (b *PreRunsBuilder) writeBundle(log logrus.FieldLogger, outputDir, fixtures
 	ordered, err := sortAndDedupPayloads(all)
 	if err != nil {
 		return err
+	}
+
+	// Nothing was ever built (the pre-run died before its first block), so there
+	// is no bundle to write — and an empty one would only be mistaken for a
+	// usable prefix.
+	if len(ordered) == 0 {
+		log.Warn("No payloads recorded; skipping pre-run bundle")
+
+		return nil
 	}
 
 	path, err := writeRequestBundle(outputDir, ordered)

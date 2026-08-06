@@ -34,6 +34,9 @@ type fakeBuilder struct {
 	// forceByTarget, when non-nil, records the Force option Build was called with
 	// per target name.
 	forceByTarget map[string]bool
+	// built records every target name Build was invoked for, so a test can assert
+	// a target was never attempted rather than merely that it reported an error.
+	built []string
 }
 
 func (f *fakeBuilder) Name() string { return f.name }
@@ -41,6 +44,8 @@ func (f *fakeBuilder) Name() string { return f.name }
 func (f *fakeBuilder) Targets() []builder.TargetInfo { return f.targets }
 
 func (f *fakeBuilder) Build(_ context.Context, name string, opts builder.BuildOptions) (bool, error) {
+	f.built = append(f.built, name)
+
 	if f.forceByTarget != nil {
 		f.forceByTarget[name] = opts.Force
 	}
@@ -252,5 +257,52 @@ func TestRunBuilders_ForceEESTAfterPreRuns(t *testing.T) {
 		require.NoError(t, runBuilders(context.Background(), []builder.Builder{preRuns(true), eest}))
 		assert.False(t, force["payload-generator-nethermind"],
 			"eest_payloads should not be forced when pre_runs was skipped")
+	})
+}
+
+// A pre-run that fails leaves its datadir un-advanced, and eest_payloads filling
+// against that produces plausible-looking fixtures for the wrong chain — so the
+// failure has to stop the dependent stage, not just be reported alongside it.
+func TestRunBuilders_FailedPreRunsBlocksEEST(t *testing.T) {
+	buildForce = false
+	buildRebuildOnDiff = false
+	buildTargetFilter = nil
+	buildStateActorTargets = nil
+	buildPreRunTargets = nil
+	buildEESTPayloadTargets = nil
+	buildSummaryJSON = ""
+
+	newEEST := func() *fakeBuilder {
+		return &fakeBuilder{
+			name:    builder.EESTPayloadsBuilderName,
+			targets: []builder.TargetInfo{{Name: "payload-generator-geth", Client: "geth"}},
+		}
+	}
+
+	failingPreRuns := &fakeBuilder{
+		name:     builder.PreRunsBuilderName,
+		targets:  []builder.TargetInfo{{Name: "pre-run-geth", Client: "geth"}},
+		buildErr: errors.New("fill-stateful exploded"),
+	}
+
+	t.Run("eest is never attempted and the build fails", func(t *testing.T) {
+		eest := newEEST()
+		err := runBuilders(context.Background(), []builder.Builder{failingPreRuns, eest})
+
+		require.Error(t, err, "a failed pre-run must fail the build")
+		assert.Empty(t, eest.built, "eest_payloads must not run against an un-advanced datadir")
+		assert.Contains(t, err.Error(), "payload-generator-geth",
+			"the blocked target is reported as failed, not silently dropped")
+	})
+
+	t.Run("a healthy pre-run still lets eest run", func(t *testing.T) {
+		eest := newEEST()
+		okPreRuns := &fakeBuilder{
+			name:    builder.PreRunsBuilderName,
+			targets: []builder.TargetInfo{{Name: "pre-run-geth", Client: "geth"}},
+		}
+
+		require.NoError(t, runBuilders(context.Background(), []builder.Builder{okPreRuns, eest}))
+		assert.Equal(t, []string{"payload-generator-geth"}, eest.built)
 	})
 }
