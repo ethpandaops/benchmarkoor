@@ -117,6 +117,9 @@ global:
     GETH_GENESIS: https://gist.githubusercontent.com/jochem-brouwer/9cc7e180fbef1c7c388c0a12f7fd778c/raw/3f10decdd1b0cc0604d21901944ffa08bfe94581/gistfile1.json
     # Holds one <client>/ subdir per eest_payloads target (nethermind, geth).
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/existing-snapshot
+    # Which client's eest_payloads fixture set the runner replays (see the
+    # runner tests.source block). Only geth's build is exercised today.
+    EEST_FIXTURES_RUNNER_SOURCE: geth
     EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
     EEST_REF: feat-deploy-script
 
@@ -182,10 +185,13 @@ builder:
         - base_key_seed: gas-repricings-private-key
           count: 25000
       gas_benchmark_values: [1000]
-      # test_setup_contracts deploys 100k contracts by default; cap it at 1000 to
-      # keep the pre-run setup fill tractable. Raise or remove for a full-scale run.
+      # Receiver contracts test_setup_contracts deploys (100k is its default).
+      # The EXISTING_CONTRACT / diff_to_contract benchmark variants draw their
+      # targets from this pool, so starving it makes those variants fail rather
+      # than merely shrink. Lower it (e.g. 1000) only for a quick smoke build
+      # that does not exercise those variants.
       fill_env:
-        BLOATNET_RECEIVER_CONTRACT_COUNT: "1000"
+        BLOATNET_RECEIVER_CONTRACT_COUNT: "100000"
       tests:
         - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
       # Deploy the EIP-8282 builder-execution-request contracts on OSAKA, before
@@ -375,14 +381,24 @@ runner:
     tests:
       source:
         eest_fixtures:
-          local_fixtures_dir: ${EEST_FIXTURES_DIR}/nethermind
+          # Which client's fixture set every instance replays. Each eest_payloads
+          # target fills against its OWN advanced chain, so the sets are not
+          # interchangeable beyond the benchmark definitions — pick the one whose
+          # build actually ran. Both instances below replay this single set.
+          local_fixtures_dir: ${EEST_FIXTURES_DIR}/${EEST_FIXTURES_RUNNER_SOURCE}
           fixtures_subdir: blockchain_tests_stateful_engine
+          # No pre_runs block: each client boots on the datadir its own pre-run
+          # already advanced in place, so it is ALREADY at the setup head and
+          # needs no run-time replay. The recorded bundle
+          # (<snapshot>/pre_run_bundle/pre-run.request) is only needed to advance
+          # a DIFFERENT, un-advanced copy of the snapshot.
   client:
     config:
       rollback_strategy: none
       bootstrap_fcu: { enabled: true, max_retries: 20, backoff: 1s }
       genesis:
         nethermind: ${NETHERMIND_CHAINSPEC}
+        geth: ${GETH_GENESIS}
     # nethermind boots on the advanced schelk scratch (SNAPSHOT_DIR), already at
     # the setup head, and replays the benchmark fixtures on it. method: direct
     # boots in place (no copy) and only mounts the schelk source — it does NOT
@@ -391,6 +407,7 @@ runner:
     # recover+mounts a fresh baseline).
     datadirs:
       nethermind: { source_dir: "${SNAPSHOT_DIR}", method: direct }
+      geth: { source_dir: "${GETH_SNAPSHOT_DIR}", method: direct }
   instances:
     - id: nethermind
       client: nethermind
@@ -415,3 +432,16 @@ runner:
         - --Blocks.CachePrecompilesOnBlockProcessing=false
         - --Blocks.ParallelExecution=true
         - --Blocks.ParallelExecutionBatchRead=true
+
+    - id: geth
+      client: geth
+      image: ethpandaops/geth:glamsterdam-devnet-7
+      # geth's counterpart of the nethermind genesis_eip_override above: patch
+      # amsterdam into the geth-format genesis at the SAME timestamp the build
+      # stages used, so this boot recognises the advanced head as amsterdam.
+      # Without it geth would use the genesis file's own amsterdamTime.
+      genesis_fork_override:
+        amsterdam: ${AMSTERDAM_ACTIVATION_TS}
+      extra_args:
+        - --override.amsterdam=${AMSTERDAM_ACTIVATION_TS}
+        - --rpc.batch-request-limit=16384 # Default 1000
