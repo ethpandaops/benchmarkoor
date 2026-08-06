@@ -401,12 +401,22 @@ func writeBuildSummaryJSON(path string, results []buildResult) error {
 			errMsg = r.err.Error()
 		}
 
+		// Describe the replay bundle from the sidecar the pre-run wrote beside it.
+		// Best-effort: a target that records no bundle yields nil, and a summary is
+		// not worth failing a build over.
+		bundleInfo, bundleErr := builder.ReadPreRunBundleInfo(r.bundleDir)
+		if bundleErr != nil {
+			log.WithError(bundleErr).WithField("target", r.name).
+				Warn("Could not read pre-run bundle metadata; omitting it from the summary")
+		}
+
 		targets = append(targets, executor.BuildTargetSummary{
 			Builder:   r.builder,
 			Name:      r.name,
 			Client:    r.client,
 			OutputDir: r.outputDir,
 			BundleDir: r.bundleDir,
+			Bundle:    bundleInfo,
 			Status:    status,
 			Error:     errMsg,
 			ElapsedMs: r.elapsed.Milliseconds(),

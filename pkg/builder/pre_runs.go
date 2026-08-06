@@ -727,8 +727,20 @@ func (b *PreRunsBuilder) writeBundle(log logrus.FieldLogger, outputDir, fixtures
 		return err
 	}
 
+	info, err := summarizeBundle(ordered)
+	if err != nil {
+		return fmt.Errorf("summarizing bundle: %w", err)
+	}
+
+	if err := writeBundleMeta(outputDir, info); err != nil {
+		return err
+	}
+
 	log.WithFields(logrus.Fields{
-		"payloads": len(ordered), "bundle": path,
+		"payloads": info.Payloads, "bundle": path,
+		"start_block": info.StartBlockNumber, "start_hash": info.StartBlockHash,
+		"end_block": info.EndBlockNumber, "end_hash": info.EndBlockHash,
+		"contiguous": info.Contiguous(),
 	}).Info("Wrote pre-run bundle")
 
 	return nil

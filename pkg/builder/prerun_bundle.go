@@ -3,6 +3,7 @@ package builder
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -248,4 +249,134 @@ func sortAndDedupPayloads(payloads []recordedPayload) ([]recordedPayload, error)
 	}
 
 	return out, nil
+}
+
+// preRunBundleMetaFile sits beside the bundle and records what it contains, so
+// consumers (the build summary, the GitHub action) can describe a bundle without
+// re-parsing a multi-hundred-MB request file. Written whenever the bundle is,
+// and left in place by a skipped rebuild — so it always describes the bundle
+// currently on disk.
+const preRunBundleMetaFile = "pre-run.meta.json"
+
+// PreRunBundleInfo describes a recorded replay bundle.
+//
+// StartBlock is the block the bundle attaches TO — the parent of its first
+// payload, i.e. the snapshot head it was recorded against — not its first
+// payload. That is the field that matters when deciding whether a bundle can be
+// replayed onto a given snapshot: a head mismatch there fails on the first
+// payload. EndBlock is the head the chain reaches once the bundle is replayed.
+//
+// Payloads is counted, not derived from EndBlock-StartBlock: the two agree only
+// while the bundle is contiguous, and a disagreement is worth being able to see.
+type PreRunBundleInfo struct {
+	Payloads         int    `json:"payloads"`
+	StartBlockNumber uint64 `json:"start_block_number"`
+	StartBlockHash   string `json:"start_block_hash"`
+	EndBlockNumber   uint64 `json:"end_block_number"`
+	EndBlockHash     string `json:"end_block_hash"`
+}
+
+// Contiguous reports whether the bundle covers an unbroken block range, i.e.
+// every block from StartBlock+1 to EndBlock has exactly one payload.
+func (i *PreRunBundleInfo) Contiguous() bool {
+	return uint64(i.Payloads) == i.EndBlockNumber-i.StartBlockNumber
+}
+
+// summarizeBundle derives a PreRunBundleInfo from block-ordered payloads.
+func summarizeBundle(ordered []recordedPayload) (*PreRunBundleInfo, error) {
+	if len(ordered) == 0 {
+		return nil, fmt.Errorf("bundle has no payloads")
+	}
+
+	first, err := payloadBlockRef(&ordered[0])
+	if err != nil {
+		return nil, fmt.Errorf("parsing first payload: %w", err)
+	}
+
+	last, err := payloadBlockRef(&ordered[len(ordered)-1])
+	if err != nil {
+		return nil, fmt.Errorf("parsing last payload: %w", err)
+	}
+
+	return &PreRunBundleInfo{
+		Payloads: len(ordered),
+		// The parent of the first payload: the snapshot head, one block below it.
+		StartBlockNumber: first.number - 1,
+		StartBlockHash:   first.parentHash,
+		EndBlockNumber:   last.number,
+		EndBlockHash:     last.hash,
+	}, nil
+}
+
+// blockRef is the identity a bundle payload contributes to PreRunBundleInfo.
+type blockRef struct {
+	number     uint64
+	hash       string
+	parentHash string
+}
+
+// payloadBlockRef extracts a payload's block number, hash and parent hash.
+func payloadBlockRef(p *recordedPayload) (blockRef, error) {
+	if len(p.Params) == 0 {
+		return blockRef{}, fmt.Errorf("payload has no params")
+	}
+
+	var ep struct {
+		BlockNumber string `json:"blockNumber"`
+		BlockHash   string `json:"blockHash"`
+		ParentHash  string `json:"parentHash"`
+	}
+	if err := json.Unmarshal(p.Params[0], &ep); err != nil {
+		return blockRef{}, fmt.Errorf("parsing execution payload: %w", err)
+	}
+
+	number, err := strconv.ParseUint(strings.TrimPrefix(ep.BlockNumber, "0x"), 16, 64)
+	if err != nil {
+		return blockRef{}, fmt.Errorf("parsing blockNumber %q: %w", ep.BlockNumber, err)
+	}
+
+	return blockRef{number: number, hash: ep.BlockHash, parentHash: ep.ParentHash}, nil
+}
+
+// writeBundleMeta persists info beside the bundle in dir's PreRunBundleSubdir.
+func writeBundleMeta(dir string, info *PreRunBundleInfo) error {
+	data, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling bundle meta: %w", err)
+	}
+
+	path := filepath.Join(dir, config.PreRunBundleSubdir, preRunBundleMetaFile)
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		return fmt.Errorf("writing bundle meta: %w", err)
+	}
+
+	return nil
+}
+
+// ReadPreRunBundleInfo loads the bundle metadata written beside the bundle in
+// bundleParentDir (a pre_runs target's BundleParentDir). It returns nil without
+// error when there is no bundle there — a replay-only target records none, and a
+// bundle written before this metadata existed has no sidecar.
+func ReadPreRunBundleInfo(bundleParentDir string) (*PreRunBundleInfo, error) {
+	if bundleParentDir == "" {
+		return nil, nil
+	}
+
+	path := filepath.Join(bundleParentDir, config.PreRunBundleSubdir, preRunBundleMetaFile)
+
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("reading bundle meta %q: %w", path, err)
+	}
+
+	var info PreRunBundleInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil, fmt.Errorf("parsing bundle meta %q: %w", path, err)
+	}
+
+	return &info, nil
 }

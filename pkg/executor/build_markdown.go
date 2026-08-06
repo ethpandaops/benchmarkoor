@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/ethpandaops/benchmarkoor/pkg/builder"
 )
 
 // Build-summary artifact filenames (written under each target's output_dir).
@@ -36,9 +38,13 @@ type BuildTargetSummary struct {
 	// pre_run_bundle subdirectory). Defaults to OutputDir but bundle_dir can move
 	// it elsewhere; empty for builders that produce no bundle.
 	BundleDir string `json:"bundle_dir,omitempty"`
-	Status    string `json:"status"` // "OK" | "SKIP" | "ERR"
-	Error     string `json:"error,omitempty"`
-	ElapsedMs int64  `json:"elapsed_ms"`
+	// Bundle describes the replay bundle a pre-runs target recorded: the block it
+	// attaches to, the head it reaches, and how many payloads it carries. Nil for
+	// builders and targets that record none.
+	Bundle    *builder.PreRunBundleInfo `json:"bundle,omitempty"`
+	Status    string                    `json:"status"` // "OK" | "SKIP" | "ERR"
+	Error     string                    `json:"error,omitempty"`
+	ElapsedMs int64                     `json:"elapsed_ms"`
 }
 
 // stateActorManifest mirrors the fields of state-actor-manifest.json we render.
@@ -166,6 +172,8 @@ func writeTargetSection(sb *strings.Builder, t BuildTargetSummary) {
 	switch t.Builder {
 	case "eest-payloads":
 		writeEESTSection(sb, t)
+	case "pre-runs":
+		writePreRunsSection(sb, t)
 	default:
 		writeStateActorSection(sb, t)
 	}
@@ -215,6 +223,38 @@ func writeStateActorSection(sb *strings.Builder, t BuildTargetSummary) {
 			writeField(sb, "Storage slots", formatInt(m.Result.StorageSlots))
 			writeField(sb, "DB size", formatBytes(m.Result.TotalDBSizeBytes))
 		}
+	}
+
+	writeField(sb, "Elapsed", formatDurationNs(t.ElapsedMs*1_000_000))
+}
+
+// writePreRunsSection renders a pre-runs target: where its advanced datadir and
+// replay bundle went, and what the bundle spans. The start block is the one the
+// bundle attaches TO, so it doubles as the answer to "which snapshot can replay
+// this".
+func writePreRunsSection(sb *strings.Builder, t BuildTargetSummary) {
+	writeField(sb, "Client", orDash(t.Client))
+	writeField(sb, "Advanced datadir", code(t.OutputDir))
+
+	if t.BundleDir != "" && t.BundleDir != t.OutputDir {
+		writeField(sb, "Bundle dir", code(t.BundleDir))
+	}
+
+	if b := t.Bundle; b != nil {
+		writeField(sb, "Payloads", formatInt(int64(b.Payloads)))
+		writeField(sb, "Start block",
+			fmt.Sprintf("%s %s", formatInt(int64(b.StartBlockNumber)), code(shortHash(b.StartBlockHash))))
+		writeField(sb, "End block",
+			fmt.Sprintf("%s %s", formatInt(int64(b.EndBlockNumber)), code(shortHash(b.EndBlockHash))))
+
+		if !b.Contiguous() {
+			writeField(sb, "Range", fmt.Sprintf(
+				"⚠️ %d payloads over %d blocks (gaps or duplicates)",
+				b.Payloads, b.EndBlockNumber-b.StartBlockNumber))
+		}
+	} else {
+		// Replay targets consume a bundle instead of recording one.
+		writeField(sb, "Bundle", "— (none recorded)")
 	}
 
 	writeField(sb, "Elapsed", formatDurationNs(t.ElapsedMs*1_000_000))
