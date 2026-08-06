@@ -45,7 +45,7 @@ global:
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/simple-amsterdam-stateful-preruns
     EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
     #EEST_REF: feat-deploy-script
-    EEST_REF: full-benchmark-target
+    EEST_REF: feat-deploy-script
     # EEST_REPO: https://github.com/ethereum/execution-specs.git
     # EEST_REF: benchmarks/amsterdam
     # Which filler's pre-run bundle + fixtures the runner replays against every
@@ -210,7 +210,7 @@ builder:
     config:
       fork: amsterdam
       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
-      gas_benchmark_values: [10]
+      gas_benchmark_values: [50]
       datadir_method: copy
       tests:
         - tests/benchmark/stateful/bloatnet/test_account_query.py
