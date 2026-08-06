@@ -120,6 +120,15 @@ global:
     # Which client's eest_payloads fixture set the runner replays (see the
     # runner tests.source block). Only geth's build is exercised today.
     EEST_FIXTURES_RUNNER_SOURCE: geth
+    # Where the pre-run bundle is STAGED for the runner to replay. The pre-run
+    # writes it to <advanced datadir>/pre_run_bundle/, which for an in-place
+    # (schelk) target is ON the schelk scratch — and the runner's own
+    # `schelk restore` wipes that scratch before it boots. So the bundle must be
+    # copied off the scratch after the build and before the run:
+    #   sudo mkdir -p ${PRERUN_BUNDLE_DIR}/pre_run_bundle
+    #   sudo cp ${GETH_SNAPSHOT_DIR}/pre_run_bundle/*.request \
+    #           ${PRERUN_BUNDLE_DIR}/pre_run_bundle/
+    PRERUN_BUNDLE_DIR: /tmp/benchmarkoor/pre-runs/existing-snapshot/geth
     EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
     EEST_REF: feat-deploy-script
 
@@ -187,11 +196,14 @@ builder:
       gas_benchmark_values: [1000]
       # Receiver contracts test_setup_contracts deploys (100k is its default).
       # The EXISTING_CONTRACT / diff_to_contract benchmark variants draw their
-      # targets from this pool, so starving it makes those variants fail rather
-      # than merely shrink. Lower it (e.g. 1000) only for a quick smoke build
-      # that does not exercise those variants.
+      # targets from this pool, so starving it makes those variants FAIL rather
+      # than merely shrink: measured on this snapshot, 1000 fails 11 variants and
+      # 10000 fixes 8 of them (the remaining 3 are a separate BALANCE issue).
+      # Cost scales with it — the setup fill took ~780 blocks at 10000 and was
+      # still going after 2100 blocks at 100000. 1000 is a fast smoke value that
+      # only suits a filter avoiding those variants, as the one below does.
       fill_env:
-        BLOATNET_RECEIVER_CONTRACT_COUNT: "100000"
+        BLOATNET_RECEIVER_CONTRACT_COUNT: "1000"
       tests:
         - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
       # Deploy the EIP-8282 builder-execution-request contracts on OSAKA, before
@@ -297,6 +309,11 @@ builder:
       # at 300 Mgas, proportionally fewer here (the pool is sized for 300, so it
       # is over-provisioned at 100 — raise it if you raise this).
       gas_benchmark_values: [100]
+      # Smoke filter: two small benchmarks that fill cleanly with the 1000-contract
+      # pool above, so a full pre_runs -> eest_payloads -> runner pass takes
+      # minutes instead of half an hour. Drop it (and raise the pool to >=10000)
+      # for a representative build.
+      filter: "test_ext_account_query_warm or test_sload_same_key_benchmark"
       # source_dir here is the schelk scratch the pre-run just advanced (SNAPSHOT_DIR).
       # Boot the filler DIRECTLY on it (no copy), continuing from the pre-run head.
       # method: direct only mounts the schelk source (never recovers), so it does
@@ -387,11 +404,18 @@ runner:
           # build actually ran. Both instances below replay this single set.
           local_fixtures_dir: ${EEST_FIXTURES_DIR}/${EEST_FIXTURES_RUNNER_SOURCE}
           fixtures_subdir: blockchain_tests_stateful_engine
-          # No pre_runs block: each client boots on the datadir its own pre-run
-          # already advanced in place, so it is ALREADY at the setup head and
-          # needs no run-time replay. The recorded bundle
-          # (<snapshot>/pre_run_bundle/pre-run.request) is only needed to advance
-          # a DIFFERENT, un-advanced copy of the snapshot.
+          # Replay the pre-run bundle before the fixtures. This pairs with
+          # datadirs.geth method: schelk below — that restores the scratch to the
+          # VIRGIN baseline (the raw snapshot head), which is exactly the state
+          # the bundle was recorded against, so the replay reproduces the setup
+          # chain and the fixtures then anchor correctly.
+          #
+          # If you instead leave the datadir at the head the build already
+          # advanced (method: direct), DROP this block: replaying onto a chain
+          # that already contains those blocks fails.
+          pre_runs:
+            local_fixtures_dir: ${PRERUN_BUNDLE_DIR}
+            # fixtures_subdir defaults to "pre_run_bundle".
   client:
     config:
       rollback_strategy: none
@@ -407,7 +431,13 @@ runner:
     # recover+mounts a fresh baseline).
     datadirs:
       nethermind: { source_dir: "${SNAPSHOT_DIR}", method: direct }
-      geth: { source_dir: "${GETH_SNAPSHOT_DIR}", method: direct }
+      # method: schelk (NOT direct) because the runner replays the pre-run
+      # bundle above: `schelk restore` rolls the scratch back to the virgin
+      # baseline, i.e. the raw snapshot head the bundle starts from. It also
+      # makes the run repeatable — every run starts from the same baseline.
+      # Switch to direct (and drop the pre_runs block) to boot straight on the
+      # datadir the build already advanced, skipping the replay.
+      geth: { source_dir: "${GETH_SNAPSHOT_DIR}", method: schelk }
   instances:
     - id: nethermind
       client: nethermind
