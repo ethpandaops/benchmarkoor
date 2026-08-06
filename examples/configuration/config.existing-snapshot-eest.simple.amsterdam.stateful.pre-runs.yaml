@@ -120,14 +120,11 @@ global:
     # Which client's eest_payloads fixture set the runner replays (see the
     # runner tests.source block). Only geth's build is exercised today.
     EEST_FIXTURES_RUNNER_SOURCE: geth
-    # Where the pre-run bundle is STAGED for the runner to replay. The pre-run
-    # writes it to <advanced datadir>/pre_run_bundle/, which for an in-place
-    # (schelk) target is ON the schelk scratch — and the runner's own
-    # `schelk restore` wipes that scratch before it boots. So the bundle must be
-    # copied off the scratch after the build and before the run:
-    #   sudo mkdir -p ${PRERUN_BUNDLE_DIR}/pre_run_bundle
-    #   sudo cp ${GETH_SNAPSHOT_DIR}/pre_run_bundle/*.request \
-    #           ${PRERUN_BUNDLE_DIR}/pre_run_bundle/
+    # Where the pre-run writes its replay bundle (as <dir>/pre_run_bundle/), set
+    # via bundle_dir on the target below. It MUST live outside the schelk mount:
+    # the bundle defaults into the advanced datadir, which for an in-place target
+    # is the schelk scratch, and the runner's own `schelk restore` — the one that
+    # rolls back to the baseline the bundle replays onto — would discard it.
     PRERUN_BUNDLE_DIR: /tmp/benchmarkoor/pre-runs/existing-snapshot/geth
     EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
     EEST_REF: feat-deploy-script
@@ -278,6 +275,10 @@ builder:
         filler_client: geth
         filler_image: ethpandaops/geth:glamsterdam-devnet-7
         source_dir: ${GETH_SNAPSHOT_DIR}
+        # Write the replay bundle off the schelk scratch (see PRERUN_BUNDLE_DIR).
+        # Without this it lands in the advanced datadir — i.e. on the scratch —
+        # and the runner's restore discards it before it can be replayed.
+        bundle_dir: ${PRERUN_BUNDLE_DIR}
         genesis: ${GETH_GENESIS}
         # genesis_fork_override is the geth-format counterpart of the nethermind
         # target's genesis_eip_override: a geth genesis schedules forks by name

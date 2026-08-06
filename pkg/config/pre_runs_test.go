@@ -80,6 +80,31 @@ func TestPreRunTargetInPlace(t *testing.T) {
 	assert.Equal(t, "/tmp/out", cp.AdvancedDir(), "copy advances output_dir")
 }
 
+func TestPreRunTargetBundleParentDir(t *testing.T) {
+	t.Run("defaults to the advanced datadir", func(t *testing.T) {
+		schelk := PreRunTarget{DataDirMethod: "schelk", SourceDir: "/schelk/snap", OutputDir: "/tmp/out"}
+		assert.Equal(t, "/schelk/snap", schelk.BundleParentDir())
+
+		cp := PreRunTarget{DataDirMethod: "copy", SourceDir: "/snap", OutputDir: "/tmp/out"}
+		assert.Equal(t, "/tmp/out", cp.BundleParentDir())
+	})
+
+	// The point of bundle_dir: an in-place target's advanced datadir is the schelk
+	// scratch, so a bundle written there does not survive the next restore.
+	t.Run("bundle_dir overrides it for either method", func(t *testing.T) {
+		schelk := PreRunTarget{
+			DataDirMethod: "schelk", SourceDir: "/schelk/snap", BundleDir: "/var/bundles/geth",
+		}
+		assert.Equal(t, "/var/bundles/geth", schelk.BundleParentDir())
+		assert.Equal(t, "/schelk/snap", schelk.AdvancedDir(), "advanced datadir is unaffected")
+
+		cp := PreRunTarget{
+			DataDirMethod: "copy", SourceDir: "/snap", OutputDir: "/tmp/out", BundleDir: "/var/bundles/geth",
+		}
+		assert.Equal(t, "/var/bundles/geth", cp.BundleParentDir())
+	})
+}
+
 func TestPreRunTargetPredeployActivationTS(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -285,6 +310,21 @@ func TestValidatePreRuns(t *testing.T) {
 		resolved := c.Builder.PreRuns.ResolveTarget(0)
 		assert.True(t, resolved.IsInPlace())
 		assert.Equal(t, "/schelk/snap", resolved.AdvancedDir())
+	})
+
+	t.Run("relative bundle_dir rejected", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].BundleDir = "relative/bundles"
+		require.ErrorContains(t, c.validatePreRuns(), "bundle_dir must be an absolute path")
+	})
+
+	t.Run("absolute bundle_dir accepted", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].BundleDir = "/var/bundles/geth"
+		require.NoError(t, c.validatePreRuns())
+
+		resolved := c.Builder.PreRuns.ResolveTarget(0)
+		assert.Equal(t, "/var/bundles/geth", resolved.BundleParentDir())
 	})
 
 	t.Run("non-schelk target still requires output_dir", func(t *testing.T) {

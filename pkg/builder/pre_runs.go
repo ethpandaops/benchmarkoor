@@ -335,10 +335,12 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 	}
 
 	// Export the replayable payload bundle (bump/funding blocks recorded above +
-	// the setup blocks from the fixtures) so replay_from targets can advance
-	// their own snapshots from it. It lands in the advanced datadir (bootDir):
-	// output_dir for a copy target, source_dir for an in-place schelk target.
-	if err := b.writeBundle(log, bf.bootDir, fixturesDir, bf.ec.recorded); err != nil {
+	// the setup blocks from the fixtures) so replay_from targets and the runner
+	// can advance their own snapshots from it. It lands in the advanced datadir
+	// by default (output_dir for a copy target, source_dir for an in-place schelk
+	// one), or in bundle_dir when set — which an in-place target wants, since the
+	// advanced datadir is the schelk scratch and a later restore discards it.
+	if err := b.writeBundle(log, t.BundleParentDir(), fixturesDir, bf.ec.recorded); err != nil {
 		return fmt.Errorf("writing pre-run bundle: %w", err)
 	}
 
@@ -666,7 +668,7 @@ func (b *PreRunsBuilder) resolveReplayBundle(replayFrom string) (string, error) 
 		if rt.EffectiveName() == replayFrom {
 			// AdvancedDir: output_dir for a copy target, source_dir for an
 			// in-place schelk target — the bundle lands in whichever it is.
-			return filepath.Join(rt.AdvancedDir(), config.PreRunBundleSubdir, preRunBundleFile), nil
+			return filepath.Join(rt.BundleParentDir(), config.PreRunBundleSubdir, preRunBundleFile), nil
 		}
 	}
 

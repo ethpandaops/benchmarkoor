@@ -126,10 +126,15 @@ type PreRunDefaults struct {
 // Identity/locator fields live on the target; the remaining fields mirror
 // PreRunDefaults and are resolved via ResolveTarget.
 type PreRunTarget struct {
-	Name                string              `yaml:"name,omitempty" mapstructure:"name"`
-	FillerClient        string              `yaml:"filler_client" mapstructure:"filler_client"`
-	SourceDir           string              `yaml:"source_dir" mapstructure:"source_dir"`
-	OutputDir           string              `yaml:"output_dir" mapstructure:"output_dir"`
+	Name         string `yaml:"name,omitempty" mapstructure:"name"`
+	FillerClient string `yaml:"filler_client" mapstructure:"filler_client"`
+	SourceDir    string `yaml:"source_dir" mapstructure:"source_dir"`
+	OutputDir    string `yaml:"output_dir" mapstructure:"output_dir"`
+	// BundleDir overrides where the replay bundle is written (see
+	// BundleParentDir). Needed when the advanced datadir is a schelk scratch,
+	// whose contents a later `schelk restore` discards.
+	BundleDir string `yaml:"bundle_dir,omitempty" mapstructure:"bundle_dir"`
+
 	Genesis             string              `yaml:"genesis,omitempty" mapstructure:"genesis"`
 	GenesisForkOverride map[string]uint64   `yaml:"genesis_fork_override,omitempty" mapstructure:"genesis_fork_override"`
 	GenesisEIPOverride  *GenesisEIPOverride `yaml:"genesis_eip_override,omitempty" mapstructure:"genesis_eip_override"`
@@ -337,15 +342,34 @@ func (t *PreRunTarget) PredeployActivationTS() (timestamp uint64, ok bool) {
 	return 0, false
 }
 
-// AdvancedDir returns the directory that holds the advanced datadir and the
-// replay bundle after the pre-run: source_dir for an in-place (schelk) target,
-// output_dir otherwise. Downstream stages (eest_payloads, runner) read from it.
+// AdvancedDir returns the directory that holds the advanced datadir after the
+// pre-run: source_dir for an in-place (schelk) target, output_dir otherwise.
+// Downstream stages (eest_payloads, runner) boot from it.
 func (t *PreRunTarget) AdvancedDir() string {
 	if t.IsInPlace() {
 		return t.SourceDir
 	}
 
 	return t.OutputDir
+}
+
+// BundleParentDir returns the directory the replay bundle is written under (in
+// its PreRunBundleSubdir subdirectory), and that replay_from and the runner's
+// eest_fixtures.pre_runs read it back from. It defaults to AdvancedDir, so the
+// bundle travels with the datadir it describes.
+//
+// bundle_dir overrides that, and an in-place (schelk) target generally needs it
+// to: there the advanced datadir IS the schelk scratch, so the bundle lands on a
+// copy-on-write volume that the next `schelk restore` discards — including the
+// restore the runner itself performs to get back to the baseline the bundle
+// replays onto. Pointing bundle_dir at ordinary storage keeps the bundle alive
+// across that reset.
+func (t *PreRunTarget) BundleParentDir() string {
+	if t.BundleDir != "" {
+		return t.BundleDir
+	}
+
+	return t.AdvancedDir()
 }
 
 // ResolveGasLimit returns the gas-bump target, defaulting to
@@ -806,6 +830,10 @@ func validatePreRunPaths(t *PreRunTarget, prefix string, seenOutputs map[string]
 
 	if !filepath.IsAbs(t.SourceDir) {
 		return fmt.Errorf("%s.source_dir must be an absolute path, got %q", prefix, t.SourceDir)
+	}
+
+	if t.BundleDir != "" && !filepath.IsAbs(t.BundleDir) {
+		return fmt.Errorf("%s.bundle_dir must be an absolute path, got %q", prefix, t.BundleDir)
 	}
 
 	// An in-place (schelk) target advances source_dir directly; output_dir is
