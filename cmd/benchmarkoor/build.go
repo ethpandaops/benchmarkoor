@@ -304,6 +304,7 @@ type buildResult struct {
 	name      string
 	client    string
 	outputDir string
+	bundleDir string
 	skipped   bool
 	err       error
 	elapsed   time.Duration
@@ -360,6 +361,7 @@ func runBuilders(ctx context.Context, builders []builder.Builder) error {
 			name:      sel.info.Name,
 			client:    sel.info.Client,
 			outputDir: sel.info.OutputDir,
+			bundleDir: sel.info.BundleDir,
 			skipped:   skipped,
 			err:       buildErr,
 			elapsed:   time.Since(start),
@@ -404,6 +406,7 @@ func writeBuildSummaryJSON(path string, results []buildResult) error {
 			Name:      r.name,
 			Client:    r.client,
 			OutputDir: r.outputDir,
+			BundleDir: r.bundleDir,
 			Status:    status,
 			Error:     errMsg,
 			ElapsedMs: r.elapsed.Milliseconds(),

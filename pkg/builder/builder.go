@@ -37,6 +37,12 @@ type TargetInfo struct {
 	Name      string
 	Client    string
 	OutputDir string
+	// BundleDir is where a pre_runs target writes its replay bundle (in a
+	// pre_run_bundle subdirectory). It is usually OutputDir, but bundle_dir can
+	// move it off the advanced datadir — so anything collecting the bundle (the
+	// GitHub action's artifact upload) must follow this rather than assume
+	// OutputDir. Empty for builders that produce no bundle.
+	BundleDir string
 }
 
 // BuildOptions controls per-target build behaviour.

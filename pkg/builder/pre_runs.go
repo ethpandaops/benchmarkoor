@@ -82,10 +82,20 @@ func (b *PreRunsBuilder) Targets() []TargetInfo {
 		// and report the advanced datadir — source_dir for an in-place schelk
 		// target, output_dir otherwise.
 		t := b.cfg.ResolveTarget(i)
+
+		// A replay target consumes a bundle rather than recording one, so it
+		// advertises no bundle dir — that is what tells a collector the absence of
+		// a bundle is expected rather than a misconfiguration.
+		bundleDir := ""
+		if !t.IsReplay() {
+			bundleDir = t.BundleParentDir()
+		}
+
 		out = append(out, TargetInfo{
 			Name:      t.EffectiveName(),
 			Client:    t.FillerClient,
 			OutputDir: t.AdvancedDir(),
+			BundleDir: bundleDir,
 		})
 	}
 

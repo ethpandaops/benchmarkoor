@@ -32,6 +32,10 @@ type BuildTargetSummary struct {
 	Name      string `json:"name"`
 	Client    string `json:"client"`
 	OutputDir string `json:"output_dir"`
+	// BundleDir is where a pre-runs target wrote its replay bundle (in a
+	// pre_run_bundle subdirectory). Defaults to OutputDir but bundle_dir can move
+	// it elsewhere; empty for builders that produce no bundle.
+	BundleDir string `json:"bundle_dir,omitempty"`
 	Status    string `json:"status"` // "OK" | "SKIP" | "ERR"
 	Error     string `json:"error,omitempty"`
 	ElapsedMs int64  `json:"elapsed_ms"`
