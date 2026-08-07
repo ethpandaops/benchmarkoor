@@ -722,42 +722,58 @@ func (b *PreRunsBuilder) resolveReplayBundle(replayFrom string) (string, error) 
 // writeBundle assembles the replay bundle from the recorded bump/funding
 // payloads and the setup fixtures, then writes it (ordered, deduped) to
 // outputDir.
+//
+// This streams: the recorded payloads are emitted first (they precede the
+// fill's blocks), then each fixture is decoded incrementally and written as it
+// is read, so only one payload is resident at a time.
+//
+// It used to read every fixture whole (os.ReadFile), unmarshal it (which copies
+// each payload again into json.RawMessage), concatenate into a third slice and
+// sort that. Peak memory was therefore several multiples of the fixture size:
+// a production pre-run with a 10 GB fixture reached 35.5 GB RSS and was
+// OOM-killed part-way through writing, leaving a truncated bundle that still
+// looked plausible — it had a valid prefix and simply stopped mid-pair.
 func (b *PreRunsBuilder) writeBundle(log logrus.FieldLogger, outputDir, fixturesDir string, recorded []recordedPayload) error {
-	// A fill that died early may have written no fixtures at all, or a partial
-	// tree — neither is a reason to lose the blocks we recorded ourselves.
-	fixturePayloads, err := extractFixturePayloads(fixturesDir)
-	if err != nil {
-		if len(recorded) == 0 {
-			return fmt.Errorf("extracting fixture payloads: %w", err)
-		}
-
-		log.WithError(err).Warn("Could not read fixture payloads; bundling only the recorded blocks")
-
-		fixturePayloads = nil
-	}
-
-	all := append(append([]recordedPayload{}, recorded...), fixturePayloads...)
-
-	ordered, err := sortAndDedupPayloads(all)
+	bw, err := newBundleWriter(outputDir)
 	if err != nil {
 		return err
+	}
+
+	for i := range recorded {
+		if emitErr := bw.emit(recorded[i]); emitErr != nil {
+			_ = bw.close()
+
+			return fmt.Errorf("writing recorded payload %d: %w", i, emitErr)
+		}
+	}
+
+	// A fill that died early may have written no fixtures at all, or a partial
+	// tree — neither is a reason to lose the blocks we recorded ourselves, or the
+	// fixture payloads that were readable before the failure.
+	if walkErr := streamFixtureDir(fixturesDir, bw.emit); walkErr != nil {
+		if bw.count == 0 {
+			_ = bw.close()
+
+			return fmt.Errorf("streaming fixture payloads: %w", walkErr)
+		}
+
+		log.WithError(walkErr).Warn("Could not read all fixture payloads; bundling what was readable")
 	}
 
 	// Nothing was ever built (the pre-run died before its first block), so there
 	// is no bundle to write — and an empty one would only be mistaken for a
 	// usable prefix.
-	if len(ordered) == 0 {
+	if bw.count == 0 {
 		log.Warn("No payloads recorded; skipping pre-run bundle")
 
-		return nil
+		return bw.discard()
 	}
 
-	path, err := writeRequestBundle(outputDir, ordered)
-	if err != nil {
+	if err := bw.close(); err != nil {
 		return err
 	}
 
-	info, err := summarizeBundle(ordered)
+	info, err := bw.info()
 	if err != nil {
 		return fmt.Errorf("summarizing bundle: %w", err)
 	}
@@ -767,7 +783,7 @@ func (b *PreRunsBuilder) writeBundle(log logrus.FieldLogger, outputDir, fixtures
 	}
 
 	log.WithFields(logrus.Fields{
-		"payloads": info.Payloads, "bundle": path,
+		"payloads": info.Payloads, "bundle": bw.path,
 		"start_block": info.StartBlockNumber, "start_hash": info.StartBlockHash,
 		"end_block": info.EndBlockNumber, "end_hash": info.EndBlockHash,
 		"contiguous": info.Contiguous(),
