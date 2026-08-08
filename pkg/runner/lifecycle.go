@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/blocklog"
+	"github.com/ethpandaops/benchmarkoor/pkg/builder"
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
@@ -1013,6 +1014,15 @@ func (r *runner) runContainerLifecycle(
 
 	// Log the latest block info.
 	blockNum, blockHash, stateRoot, blkErr := r.getLatestBlock(execCtx, containerIP, spec.RPCPort())
+
+	// The replay skip below is by block NUMBER, so a datadir sitting at the right
+	// height on a different chain would silently skip and benchmark the wrong
+	// state. Check the hash too, against the range the bundle records.
+	if blkErr == nil {
+		if err := r.verifyPreRunBundleHead(log, blockNum, blockHash); err != nil {
+			return err
+		}
+	}
 	if blkErr != nil {
 		log.WithError(blkErr).Warn("Failed to get latest block")
 	} else {
@@ -1518,4 +1528,82 @@ func copyStateActorFiles(
 	}
 
 	log.WithField("count", copied).Debug("Copied state-actor provenance into run output")
+}
+
+// verifyPreRunBundleHead checks the datadir the client booted on against the
+// block range its pre-run bundle records, and fails the run when they disagree.
+//
+// The executor resumes a replay by block NUMBER alone, so without this a datadir
+// sitting at the right height on a different chain — a promoted baseline built
+// from a different bundle, or a re-fill that produced different blocks — skips
+// the replay silently and benchmarks the wrong state. Promoting makes
+// "already applied" the normal case, so this stops being hypothetical.
+//
+// A head at the bundle's end block means the pre-runs are already applied (the
+// replay then skips every line); at its start block means they are about to be.
+// Anything in between is a partially applied bundle, which the replay resumes
+// from. Only a hash mismatch at a block the bundle actually names is an error —
+// that is the case that cannot be anything but the wrong chain.
+func (r *runner) verifyPreRunBundleHead(
+	log logrus.FieldLogger, headNumber uint64, headHash string,
+) error {
+	if r.cfg.FullConfig == nil {
+		return nil
+	}
+
+	src := r.cfg.FullConfig.Runner.Benchmark.Tests.Source.EESTFixtures
+	if src == nil || src.PreRuns == nil || src.PreRuns.LocalFixturesDir == "" {
+		return nil
+	}
+
+	info, err := builder.ReadPreRunBundleInfo(src.PreRuns.LocalFixturesDir)
+	if err != nil {
+		// Metadata is a convenience; an unreadable sidecar must not block a run
+		// that would otherwise replay correctly.
+		log.WithError(err).Warn("Could not read pre-run bundle metadata; skipping head verification")
+
+		return nil
+	}
+
+	if info == nil {
+		return nil
+	}
+
+	expect := func(want string, applied bool) error {
+		if strings.EqualFold(headHash, want) {
+			log.WithFields(logrus.Fields{
+				"block":            headNumber,
+				"pre_runs_applied": applied,
+			}).Info("Datadir head matches the pre-run bundle")
+
+			return nil
+		}
+
+		return fmt.Errorf(
+			"datadir head %d has hash %s but the pre-run bundle expects %s at that block — "+
+				"the datadir is on a different chain than the bundle was recorded against",
+			headNumber, headHash, want,
+		)
+	}
+
+	switch headNumber {
+	case info.EndBlockNumber:
+		return expect(info.EndBlockHash, true)
+	case info.StartBlockNumber:
+		return expect(info.StartBlockHash, false)
+	}
+
+	if headNumber > info.StartBlockNumber && headNumber < info.EndBlockNumber {
+		log.WithFields(logrus.Fields{
+			"block": headNumber, "bundle_start": info.StartBlockNumber, "bundle_end": info.EndBlockNumber,
+		}).Info("Datadir head is inside the pre-run bundle range; the replay will resume from it")
+
+		return nil
+	}
+
+	return fmt.Errorf(
+		"datadir head %d is outside the pre-run bundle range %d..%d — the bundle cannot be "+
+			"replayed onto this datadir",
+		headNumber, info.StartBlockNumber, info.EndBlockNumber,
+	)
 }

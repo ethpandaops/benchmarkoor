@@ -119,6 +119,9 @@ type PreRunDefaults struct {
 	// activates (see PreRunPredeploy). Requires genesis_eip_override to schedule
 	// the target fork's activation timestamp.
 	Predeploy *PreRunPredeploy `yaml:"predeploy,omitempty" mapstructure:"predeploy"`
+	// SchelkOptions configures schelk-specific behaviour; only valid when
+	// datadir_method is "schelk".
+	SchelkOptions *SchelkOptions `yaml:"schelk_options,omitempty" mapstructure:"schelk_options"`
 }
 
 // PreRunTarget is one pre-run: advance a snapshot datadir by gas-bumping,
@@ -168,6 +171,7 @@ type PreRunTarget struct {
 	FundingAccounts    []PreRunFundingAccount       `yaml:"funding_accounts,omitempty" mapstructure:"funding_accounts"`
 	FundingPools       []PreRunFundingPool          `yaml:"funding_pools,omitempty" mapstructure:"funding_pools"`
 	Predeploy          *PreRunPredeploy             `yaml:"predeploy,omitempty" mapstructure:"predeploy"`
+	SchelkOptions      *SchelkOptions               `yaml:"schelk_options,omitempty" mapstructure:"schelk_options"`
 }
 
 // BuildsFillImage reports whether benchmarkoor should build the fill image
@@ -291,6 +295,10 @@ func (p *PreRunsConfig) ResolveTarget(i int) PreRunTarget {
 		t.Predeploy = g.Predeploy
 	}
 
+	if t.SchelkOptions == nil {
+		t.SchelkOptions = g.SchelkOptions
+	}
+
 	return t
 }
 
@@ -351,6 +359,14 @@ func (t *PreRunTarget) AdvancedDir() string {
 	}
 
 	return t.OutputDir
+}
+
+// ShouldPromote reports whether the advanced datadir should replace the schelk
+// virgin baseline once the pre-run's client has stopped. Validation guarantees
+// schelk_options is only set on a schelk target, so the method check here is
+// belt-and-braces against a caller building a target by hand.
+func (t *PreRunTarget) ShouldPromote() bool {
+	return t.SchelkOptions != nil && t.SchelkOptions.Promote && t.IsInPlace()
 }
 
 // BundleParentDir returns the directory the replay bundle is written under (in
@@ -834,6 +850,15 @@ func validatePreRunPaths(t *PreRunTarget, prefix string, seenOutputs map[string]
 
 	if t.BundleDir != "" && !filepath.IsAbs(t.BundleDir) {
 		return fmt.Errorf("%s.bundle_dir must be an absolute path, got %q", prefix, t.BundleDir)
+	}
+
+	// Every schelk_options field manipulates the schelk volumes, so silently
+	// ignoring them under another method would hide a real misconfiguration —
+	// notably a promote that the user believes is persisting their datadir.
+	if t.SchelkOptions != nil && !t.IsInPlace() {
+		return fmt.Errorf(
+			"%s.schelk_options requires datadir_method: schelk, got %q", prefix, t.DataDirMethod,
+		)
 	}
 
 	// An in-place (schelk) target advances source_dir directly; output_dir is

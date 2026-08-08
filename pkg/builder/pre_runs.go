@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
@@ -35,6 +36,72 @@ type PreRunsBuilder struct {
 	log  logrus.FieldLogger
 	cfg  *config.PreRunsConfig
 	eest *EESTPayloadsBuilder
+	// fillerExit records how the last filler client stopped. Only the promote
+	// path reads it, to refuse persisting a datadir the client never flushed.
+	fillerExit fillerExitState
+}
+
+// fillerExitState is how a filler client's container ended.
+type fillerExitState struct {
+	// graceful is true only when the client exited on its own after SIGTERM
+	// within the stop window, i.e. it ran its shutdown and flushed to disk.
+	graceful bool
+	// detail explains a non-graceful exit for the error message.
+	detail string
+}
+
+// fillerFlushStopTimeoutSec is the graceful-stop window used when the datadir is
+// about to be promoted. geth persists its dirty trie on shutdown and a large
+// archive datadir can take minutes; the default 30s window is short enough that
+// a real flush gets SIGKILLed, which is precisely the state that must never
+// become the golden image.
+const fillerFlushStopTimeoutSec = 15 * 60
+
+// stopFillerRecordingExit stops the filler and reports whether it shut down on
+// its own. It watches the container's exit before asking it to stop, so a
+// SIGKILL fallback (exit 137) or an OOM kill is visible rather than indistinct
+// from a clean stop — StopContainer itself returns nil either way.
+func (b *PreRunsBuilder) stopFillerRecordingExit(
+	log logrus.FieldLogger, id string, timeoutSec int,
+) fillerExitState {
+	ctx := context.Background()
+
+	statusCh, errCh := b.eest.mgr.WaitForContainerExit(ctx, id)
+
+	if err := b.eest.mgr.StopContainer(ctx, id, &timeoutSec); err != nil {
+		log.WithError(err).Warn("Failed to stop filler container")
+	}
+
+	state := fillerExitState{}
+
+	select {
+	case info := <-statusCh:
+		switch {
+		case info.OOMKilled:
+			state.detail = "the client was OOM-killed"
+		case info.ExitCode == 137:
+			state.detail = fmt.Sprintf(
+				"the client did not exit within %ds and was SIGKILLed", timeoutSec)
+		case info.ExitCode != 0:
+			state.detail = fmt.Sprintf("the client exited with code %d", info.ExitCode)
+		default:
+			state.graceful = true
+		}
+	case err := <-errCh:
+		state.detail = fmt.Sprintf("could not observe how the client exited: %v", err)
+	case <-time.After(time.Duration(timeoutSec+30) * time.Second):
+		state.detail = "timed out waiting for the client container to exit"
+	}
+
+	if !state.graceful {
+		log.WithField("detail", state.detail).Warn("Filler client did not stop gracefully")
+	}
+
+	if err := b.eest.mgr.RemoveContainer(ctx, id); err != nil {
+		log.WithError(err).Warn("Failed to remove filler container")
+	}
+
+	return state
 }
 
 // NewPreRunsBuilder constructs a pre_runs builder bound to a container manager.
@@ -168,7 +235,48 @@ func (b *PreRunsBuilder) Build(ctx context.Context, name string, opts BuildOptio
 		return false, err
 	}
 
+	// Promote only here, after run's deferred cleanups have stopped and removed
+	// the filler: `schelk promote` unmounts the volume, so it cannot run while a
+	// client holds it, and the client's state is only fully on disk once it has
+	// shut down.
+	if err := b.promoteIfRequested(ctx, log, target); err != nil {
+		return false, err
+	}
+
 	return false, nil
+}
+
+// promoteIfRequested persists the advanced datadir as the new schelk baseline
+// when the target asked for it, so later restores land on the advanced state and
+// no bundle replay is needed. A no-op unless schelk_options.promote is set.
+//
+// It refuses when the filler did not shut down cleanly: promote overwrites the
+// virgin volume irreversibly, and a client that was killed may not have flushed,
+// so persisting that would trade a good golden image for an unusable one.
+func (b *PreRunsBuilder) promoteIfRequested(
+	ctx context.Context, log logrus.FieldLogger, t *config.PreRunTarget,
+) error {
+	if !t.ShouldPromote() {
+		return nil
+	}
+
+	if !b.fillerExit.graceful {
+		return fmt.Errorf(
+			"refusing to `schelk promote`: %s, so its datadir may be incomplete "+
+				"(promote overwrites the virgin baseline irreversibly)", b.fillerExit.detail,
+		)
+	}
+
+	log.WithField("source_dir", t.SourceDir).
+		Info("Persisting the advanced datadir as the new schelk baseline (`schelk promote`)")
+
+	if err := datadir.SchelkPromote(ctx, log); err != nil {
+		return fmt.Errorf("schelk promote: %w", err)
+	}
+
+	log.Info("Promoted: later `schelk restore` now lands on the advanced datadir")
+
+	return nil
 }
 
 // findTargetIndex returns the index of the first target whose EffectiveName
@@ -595,7 +703,18 @@ func (b *PreRunsBuilder) bootFiller(
 		return nil, err
 	}
 
-	cleanups = append(cleanups, configCleanup, func() { b.eest.stopFiller(log, fillerID) })
+	// A promote turns whatever is on disk into the irreversible golden image, so
+	// that path needs the client to finish flushing: give it a far longer window
+	// than the default (a large archive datadir can take minutes to persist) and
+	// record how it exited, so promotion can be refused if it was killed.
+	stopTimeout := fillerStopTimeoutSec
+	if t.ShouldPromote() {
+		stopTimeout = fillerFlushStopTimeoutSec
+	}
+
+	cleanups = append(cleanups, configCleanup, func() {
+		b.fillerExit = b.stopFillerRecordingExit(log, fillerID, stopTimeout)
+	})
 
 	log.Info("Waiting for filler client RPC to become ready")
 

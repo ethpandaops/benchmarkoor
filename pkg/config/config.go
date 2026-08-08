@@ -1082,6 +1082,24 @@ type GenesisEIPOverride struct {
 	EIPs []uint64 `yaml:"eips" mapstructure:"eips"`
 }
 
+// SchelkOptions configures schelk-specific behaviour for a target whose
+// datadir_method is "schelk". It is rejected on any other method, since every
+// option here manipulates the schelk volumes directly.
+type SchelkOptions struct {
+	// Promote persists the advanced datadir as the new schelk VIRGIN baseline
+	// (`schelk promote`) once the pre-run finishes and its client has stopped.
+	//
+	// This is destructive and irreversible: the original snapshot baseline is
+	// overwritten and cannot be recovered without re-fetching it. In exchange,
+	// every later `schelk restore` lands on the advanced state, so downstream
+	// stages and runs need no bundle replay at all.
+	//
+	// It only ever runs after a graceful client shutdown. A client that had to be
+	// killed may not have flushed its state, and promoting a torn datadir would
+	// destroy the golden image in favour of an unusable one.
+	Promote bool `yaml:"promote,omitempty" mapstructure:"promote"`
+}
+
 // PreRunPredeploy configures a pre-run that crosses a fork boundary at build
 // time: it boots the filler at PreFork (the fork the snapshot is at), deploys
 // Contracts via CREATE transactions on that fork, then lets the chain cross into

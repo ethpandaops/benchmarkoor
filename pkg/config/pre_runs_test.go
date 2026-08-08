@@ -312,6 +312,26 @@ func TestValidatePreRuns(t *testing.T) {
 		assert.Equal(t, "/schelk/snap", resolved.AdvancedDir())
 	})
 
+	t.Run("schelk_options under a non-schelk method rejected", func(t *testing.T) {
+		// Silently ignoring it would hide a promote the user believes is running.
+		c := base()
+		c.Builder.PreRuns.Targets[0].SchelkOptions = &SchelkOptions{Promote: true}
+		require.ErrorContains(t, c.validatePreRuns(), "requires datadir_method: schelk")
+	})
+
+	t.Run("schelk_options accepted on a schelk target and hoisted", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Config.DataDirMethod = "schelk"
+		c.Builder.PreRuns.Config.SchelkOptions = &SchelkOptions{Promote: true}
+		tgt := &c.Builder.PreRuns.Targets[0]
+		tgt.SourceDir = "/schelk/snap"
+		tgt.OutputDir = ""
+		require.NoError(t, c.validatePreRuns())
+
+		resolved := c.Builder.PreRuns.ResolveTarget(0)
+		assert.True(t, resolved.ShouldPromote(), "schelk_options hoists from the config block")
+	})
+
 	t.Run("relative bundle_dir rejected", func(t *testing.T) {
 		c := base()
 		c.Builder.PreRuns.Targets[0].BundleDir = "relative/bundles"
@@ -554,4 +574,41 @@ func TestLoad_PreRunsExampleConfig(t *testing.T) {
 	require.NotNil(t, cfg.Builder.EESTPayloads)
 	ep := cfg.Builder.EESTPayloads.ResolveTarget(0)
 	assert.Contains(t, ep.SourceDir, "pre-runs", "eest_payloads source_dir points at the pre-run output")
+}
+
+func TestPreRunTargetShouldPromote(t *testing.T) {
+	tests := []struct {
+		name   string
+		target PreRunTarget
+		want   bool
+	}{
+		{
+			name:   "schelk target opting in",
+			target: PreRunTarget{DataDirMethod: "schelk", SchelkOptions: &SchelkOptions{Promote: true}},
+			want:   true,
+		},
+		{
+			name:   "schelk target opting out",
+			target: PreRunTarget{DataDirMethod: "schelk", SchelkOptions: &SchelkOptions{Promote: false}},
+			want:   false,
+		},
+		{
+			name:   "no schelk_options at all",
+			target: PreRunTarget{DataDirMethod: "schelk"},
+			want:   false,
+		},
+		{
+			// Validation rejects this combination, so this only guards a
+			// hand-built target from promoting a volume schelk does not manage.
+			name:   "promote under another method never fires",
+			target: PreRunTarget{DataDirMethod: "copy", SchelkOptions: &SchelkOptions{Promote: true}},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.target.ShouldPromote())
+		})
+	}
 }
