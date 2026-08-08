@@ -116,6 +116,7 @@ type ExecuteOptions struct {
 	FailFast                      bool                                  // If true, return an error from runStepLines on the first failed RPC call.
 	PreRunStepSleep               time.Duration                         // Sleep between each RPC call within pre-run step files (0 = disabled).
 	SkipUntilBlockNumber          uint64                                // Skip pre-run RPC lines until the first engine_newPayload with blockNumber > this. 0 = no skipping.
+	SkipPreRunSteps               bool                                  // Caller already applied the suite's pre-run steps; do not run them again.
 }
 
 // ExecutionResult contains the overall execution summary.
@@ -461,8 +462,11 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 	dropBetweenSteps := opts.DropMemoryCaches == "steps"
 	dropCachesPath := opts.DropCachesPath
 
-	// Run pre-run steps first (skip when running a test subset, e.g. multi-genesis).
-	if len(e.prepared.PreRunSteps) > 0 && opts.Tests == nil {
+	// Run pre-run steps first (skip when running a test subset, e.g. multi-genesis,
+	// or when the caller already ran them itself — the schelk promote path applies
+	// them before stopping the client, so re-running them here would replay a
+	// bundle the datadir already contains).
+	if len(e.prepared.PreRunSteps) > 0 && opts.Tests == nil && !opts.SkipPreRunSteps {
 		e.log.Info("Running pre-run steps")
 
 		for _, step := range e.prepared.PreRunSteps {
