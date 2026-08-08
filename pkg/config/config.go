@@ -1097,7 +1097,19 @@ type SchelkOptions struct {
 	// It only ever runs after a graceful client shutdown. A client that had to be
 	// killed may not have flushed its state, and promoting a torn datadir would
 	// destroy the golden image in favour of an unusable one.
+	//
+	// Builder-side (builder.pre_runs.targets[].schelk_options) only.
 	Promote bool `yaml:"promote,omitempty" mapstructure:"promote"`
+
+	// PromotePostPreRuns is the runner-side counterpart: once the suite's pre-run
+	// steps have ALL succeeded, stop the client, promote the advanced datadir to
+	// the baseline, and remount. Every later `schelk restore` — including the
+	// per-test one a container-recreate rollback performs — then starts from the
+	// post-pre-run state, so the bundle never has to be replayed again.
+	//
+	// Runner-side (runner.client.config.datadirs.<client>.schelk_options) only.
+	// Carries the same irreversibility and graceful-shutdown caveats as Promote.
+	PromotePostPreRuns bool `yaml:"promote_post_pre_runs,omitempty" mapstructure:"promote_post_pre_runs"`
 }
 
 // PreRunPredeploy configures a pre-run that crosses a fork boundary at build
@@ -1167,6 +1179,16 @@ type DataDirConfig struct {
 	SourceDir    string `yaml:"source_dir" json:"source_dir" mapstructure:"source_dir"`
 	ContainerDir string `yaml:"container_dir,omitempty" json:"container_dir,omitempty" mapstructure:"container_dir"`
 	Method       string `yaml:"method,omitempty" json:"method,omitempty" mapstructure:"method"`
+	// SchelkOptions configures schelk-specific behaviour; only valid when Method
+	// is "schelk".
+	SchelkOptions *SchelkOptions `yaml:"schelk_options,omitempty" json:"schelk_options,omitempty" mapstructure:"schelk_options"`
+}
+
+// ShouldPromotePostPreRuns reports whether this datadir should be promoted to
+// the schelk baseline once the suite's pre-run steps have all succeeded.
+func (d *DataDirConfig) ShouldPromotePostPreRuns() bool {
+	return d != nil && d.SchelkOptions != nil &&
+		d.SchelkOptions.PromotePostPreRuns && d.Method == "schelk"
 }
 
 // RetryNewPayloadsSyncingConfig configures retry behavior when engine_newPayload returns SYNCING.
@@ -3239,13 +3261,51 @@ func (c *Config) validateDataDirMethods(opt ValidateOpts) error {
 
 	var schelkInstances []schelkInstance
 
+	// There is one schelk volume per host, so a promote by one instance replaces
+	// the baseline every other instance restores from. Track who asks for it.
+	promoter := ""
+
 	for _, instance := range c.Runner.Instances {
 		if !opt.isInstanceActive(instance.ID) {
 			continue
 		}
 
 		dd := c.resolveDataDir(&instance)
-		if dd != nil && dd.Method == "schelk" {
+		if dd == nil {
+			continue
+		}
+
+		if dd.SchelkOptions != nil {
+			if dd.Method != "schelk" {
+				return fmt.Errorf(
+					"instance %q: datadir.schelk_options requires method: schelk, got %q",
+					instance.ID, dd.Method,
+				)
+			}
+
+			// `promote` is the builder-side spelling; accepting it here silently
+			// would look like it persists the datadir when nothing runs it.
+			if dd.SchelkOptions.Promote {
+				return fmt.Errorf(
+					"instance %q: datadir.schelk_options.promote is a builder.pre_runs option; "+
+						"the runner spelling is promote_post_pre_runs", instance.ID,
+				)
+			}
+		}
+
+		if dd.ShouldPromotePostPreRuns() {
+			if promoter != "" {
+				return fmt.Errorf(
+					"instance %q: datadir.schelk_options.promote_post_pre_runs is already set on "+
+						"instance %q, and both share the one schelk volume — only one may promote it",
+					instance.ID, promoter,
+				)
+			}
+
+			promoter = instance.ID
+		}
+
+		if dd.Method == "schelk" {
 			schelkInstances = append(schelkInstances, schelkInstance{
 				id:        instance.ID,
 				sourceDir: dd.SourceDir,

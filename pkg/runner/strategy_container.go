@@ -65,6 +65,12 @@ func (r *runner) runTestsWithContainerStrategy(
 	useZFSSnapshot := strategy == config.RollbackStrategyContainerRecreate &&
 		params.DataDirCfg != nil && params.DataDirCfg.Method == "zfs"
 
+	// The schelk analogue: every per-test recreate re-runs `schelk restore`, so
+	// baking the pre-run state into the baseline is what stops each test starting
+	// from the raw snapshot (and needing the bundle replayed again).
+	useSchelkPromote := strategy == config.RollbackStrategyContainerRecreate &&
+		params.DataDirCfg.ShouldPromotePostPreRuns()
+
 	// snapshotRollback holds the rollback/cleanup callbacks for the
 	// ZFS snapshot path. Only populated when useZFSSnapshot is true.
 	type snapshotRollback struct {
@@ -203,6 +209,19 @@ func (r *runner) runTestsWithContainerStrategy(
 		log.WithField("duration", time.Since(rmStart)).Info(
 			"Initial container removed",
 		)
+	}
+
+	if useSchelkPromote {
+		log.Info(
+			"schelk datadir with promote_post_pre_runs: will promote after pre-run steps " +
+				"so every recreated container starts post-pre-run",
+		)
+
+		if err := r.promoteSchelkAfterPreRuns(
+			ctx, params, spec, containerID, containerIP, resultsDir, logCancel, logDone, log,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	combined := &executor.ExecutionResult{}
@@ -1005,6 +1024,104 @@ func (r *runner) runInitForRecreate(
 
 	_, _ = fmt.Fprintf(initFile, "#INIT_CONTAINER:END\n")
 	_ = initFile.Close()
+
+	return nil
+}
+
+// schelkSettleBeforeStop is how long the client is left idle after the pre-run
+// steps before it is asked to stop. It mirrors the ZFS ready-snapshot path: the
+// promote captures whatever is on disk, so stopping too eagerly persists a
+// datadir the client had not finished writing, and a client restored from that
+// comes up syncing.
+const schelkSettleBeforeStop = 20 * time.Second
+
+// promoteSchelkAfterPreRuns applies the suite's pre-run steps, then persists the
+// resulting datadir as the new schelk baseline so every per-test container
+// recreate (which re-runs `schelk restore`) starts from the post-pre-run state
+// instead of the raw snapshot.
+//
+// It is the schelk counterpart of the ZFS ready-snapshot above, and follows the
+// same order for the same reasons: settle, graceful stop, drain the log stream,
+// sync, then persist. `schelk promote` additionally UNMOUNTS the volume, so the
+// mount is re-established afterwards — the per-test recreate binds that path.
+//
+// The promote is skipped unless every pre-run step succeeded: promote overwrites
+// the virgin volume irreversibly, and a baseline built from a half-applied bundle
+// is worse than no baseline at all.
+func (r *runner) promoteSchelkAfterPreRuns(
+	ctx context.Context,
+	params *containerRunParams,
+	spec client.Spec,
+	containerID string,
+	containerIP string,
+	resultsDir string,
+	logCancel *context.CancelFunc,
+	logDone *chan struct{},
+	log logrus.FieldLogger,
+) error {
+	preRunOpts := &executor.ExecuteOptions{
+		EngineEndpoint: fmt.Sprintf(
+			"http://%s:%d", containerIP, spec.EnginePort(),
+		),
+		JWT:                           r.cfg.JWT,
+		ResultsDir:                    resultsDir,
+		FailFast:                      true,
+		PreRunStepSleep:               r.cfg.PreRunStepSleep,
+		RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+		RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+	}
+
+	n, err := r.executor.RunPreRunSteps(ctx, preRunOpts)
+	if err != nil {
+		return fmt.Errorf("running pre-run steps before schelk promote: %w", err)
+	}
+
+	if n == 0 {
+		log.Warn(
+			"promote_post_pre_runs is set but the suite has no pre-run steps; " +
+				"refusing to promote (the baseline would be the raw snapshot)",
+		)
+
+		return nil
+	}
+
+	log.WithField("steps", n).Info("Pre-run steps completed; promoting datadir to the schelk baseline")
+
+	log.WithField("settle", schelkSettleBeforeStop).Info("Waiting for client to settle before stop")
+	time.Sleep(schelkSettleBeforeStop)
+
+	// Default (60s) SIGTERM grace so the client persists its state cleanly. A
+	// client that is killed here may not have flushed, and promoting that datadir
+	// would replace the golden image with an unusable one.
+	log.Info("Stopping container for schelk promote (graceful)")
+
+	if err := r.containerMgr.StopContainer(ctx, containerID, nil); err != nil {
+		return fmt.Errorf("stopping container for schelk promote: %w", err)
+	}
+
+	waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+	if syncErr := exec.Command("sync").Run(); syncErr != nil {
+		log.WithError(syncErr).Warn("Failed to sync before schelk promote")
+	}
+
+	log.Info("Persisting the advanced datadir as the new schelk baseline (`schelk promote`)")
+
+	if err := datadir.SchelkPromote(ctx, r.log); err != nil {
+		return fmt.Errorf("schelk promote: %w", err)
+	}
+
+	// promote leaves the volume unmounted; the per-test recreate binds this path.
+	if err := datadir.EnsureSchelkMounted(ctx, r.log); err != nil {
+		return fmt.Errorf("remounting schelk volume after promote: %w", err)
+	}
+
+	log.Info("Promoted: every recreated container now starts from the post-pre-run datadir")
+
+	// Remove the initial container; fresh ones are created per test.
+	if err := r.containerMgr.RemoveContainer(ctx, containerID); err != nil {
+		log.WithError(err).Warn("Failed to remove initial container after promote")
+	}
 
 	return nil
 }

@@ -4507,3 +4507,37 @@ func TestEESTFixturesSource_UseFixturesURL(t *testing.T) {
 		FixturesURL: "https://x/f.tar.gz", FixturesSubdir: "sub",
 	}).validate())
 }
+
+func TestDataDirShouldPromotePostPreRuns(t *testing.T) {
+	tests := []struct {
+		name string
+		dd   *DataDirConfig
+		want bool
+	}{
+		{
+			name: "schelk opting in",
+			dd:   &DataDirConfig{Method: "schelk", SchelkOptions: &SchelkOptions{PromotePostPreRuns: true}},
+			want: true,
+		},
+		{
+			name: "schelk opting out",
+			dd:   &DataDirConfig{Method: "schelk", SchelkOptions: &SchelkOptions{}},
+			want: false,
+		},
+		{
+			// Validation rejects this; the guard stops a hand-built config from
+			// promoting a volume schelk does not manage.
+			name: "another method never promotes",
+			dd:   &DataDirConfig{Method: "copy", SchelkOptions: &SchelkOptions{PromotePostPreRuns: true}},
+			want: false,
+		},
+		{name: "no options", dd: &DataDirConfig{Method: "schelk"}, want: false},
+		{name: "nil datadir", dd: nil, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.dd.ShouldPromotePostPreRuns())
+		})
+	}
+}

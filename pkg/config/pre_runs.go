@@ -871,10 +871,21 @@ func validatePreRunPaths(t *PreRunTarget, prefix string, seenOutputs map[string]
 	// Every schelk_options field manipulates the schelk volumes, so silently
 	// ignoring them under another method would hide a real misconfiguration —
 	// notably a promote that the user believes is persisting their datadir.
-	if t.SchelkOptions != nil && !t.IsInPlace() {
-		return fmt.Errorf(
-			"%s.schelk_options requires datadir_method: schelk, got %q", prefix, t.DataDirMethod,
-		)
+	if t.SchelkOptions != nil {
+		if !t.IsInPlace() {
+			return fmt.Errorf(
+				"%s.schelk_options requires datadir_method: schelk, got %q", prefix, t.DataDirMethod,
+			)
+		}
+
+		// promote_post_pre_runs is the runner-side spelling; nothing in the builder
+		// reads it, so accepting it here would be a silent no-op.
+		if t.SchelkOptions.PromotePostPreRuns {
+			return fmt.Errorf(
+				"%s.schelk_options.promote_post_pre_runs is a runner datadir option; "+
+					"the builder spelling is promote", prefix,
+			)
+		}
 	}
 
 	// An in-place (schelk) target advances source_dir directly; output_dir is
