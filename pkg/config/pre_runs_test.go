@@ -612,3 +612,40 @@ func TestPreRunTargetShouldPromote(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePreRunsSinglePromoter(t *testing.T) {
+	// Two schelk targets already share one volume; letting both promote would
+	// mean the last one silently redefines the baseline for the other.
+	schelkTarget := func(name, src string, promote bool) PreRunTarget {
+		tgt := PreRunTarget{
+			Name: name, FillerClient: "geth", FillerImage: "geth:latest", SourceDir: src,
+		}
+		if promote {
+			tgt.SchelkOptions = &SchelkOptions{Promote: true}
+		}
+
+		return tgt
+	}
+
+	base := func(targets ...PreRunTarget) *Config {
+		return &Config{Builder: &BuilderConfig{PreRuns: &PreRunsConfig{
+			ContainerRuntime: "docker", PullPolicy: "always",
+			Config: &PreRunDefaults{
+				Fork:          "amsterdam",
+				Tests:         []string{"tests/benchmark/stateful/bloatnet/test_setup_contracts.py"},
+				DataDirMethod: "schelk",
+			},
+			Targets: targets,
+		}}}
+	}
+
+	t.Run("one promoter is fine", func(t *testing.T) {
+		c := base(schelkTarget("a", "/schelk/a", true), schelkTarget("b", "/schelk/b", false))
+		require.NoError(t, c.validatePreRuns())
+	})
+
+	t.Run("two promoters rejected", func(t *testing.T) {
+		c := base(schelkTarget("a", "/schelk/a", true), schelkTarget("b", "/schelk/b", true))
+		require.ErrorContains(t, c.validatePreRuns(), "only one target may promote")
+	})
+}

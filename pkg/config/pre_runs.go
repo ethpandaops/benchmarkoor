@@ -549,6 +549,11 @@ func (c *Config) validatePreRuns() error {
 	seenOutputs := make(map[string]int, len(pr.Targets))
 	seenNames := make(map[string]int, len(pr.Targets))
 
+	// There is ONE schelk volume per host, so a promote by one target replaces the
+	// baseline every other target restores from. Allowing two would mean the last
+	// promote silently wins — and a promote cannot be undone.
+	promoter := -1
+
 	// Pre-collect target names + replay-ness so a replay_from can reference an
 	// earlier non-replay target regardless of loop position.
 	targetIndex := make(map[string]int, len(pr.Targets))
@@ -576,6 +581,17 @@ func (c *Config) validatePreRuns() error {
 
 		if err := validatePreRunPaths(&t, prefix, seenOutputs, i); err != nil {
 			return err
+		}
+
+		if t.ShouldPromote() {
+			if promoter >= 0 {
+				return fmt.Errorf(
+					"%s.schelk_options.promote: targets[%d] already promotes, and both share the "+
+						"one schelk volume — only one target may promote it", prefix, promoter,
+				)
+			}
+
+			promoter = i
 		}
 
 		if t.FillerImage == "" {
