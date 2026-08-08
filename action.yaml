@@ -225,9 +225,9 @@ runs:
 
     - name: Archive build artifacts
       # Collect each built target's artifacts (discovered from build-summary.json):
-      # eest-payloads → the full fixtures directory; pre-runs → only the replay
-      # bundle (pre_run_bundle/pre-run.request, located via the summary's
-      # bundle_dir), NOT the multi-GB datadir;
+      # eest-payloads → the full fixtures directory; pre-runs → the whole
+      # pre_run_bundle directory (the .request bundle plus its metadata sidecar,
+      # located via the summary's bundle_dir), NOT the multi-GB datadir;
       # state-actor → only the state-actor-* metadata files, NOT the multi-GB
       # datadir. sudo because the
       # build artifacts are root-owned; chown the staging copy so the upload (and
@@ -254,25 +254,32 @@ runs:
           if [ "$builder" = "eest-payloads" ]; then
             sudo cp -a "$outdir/." "$dest/"
           elif [ "$builder" = "pre-runs" ]; then
-            # pre-runs: only the replayable bundle (pre-run.request), NOT the
-            # multi-GB advanced datadir. It usually sits under output_dir, but a
-            # target's bundle_dir moves it off the advanced datadir (a schelk
-            # target needs that, since a later restore discards the scratch), so
-            # follow the summary's bundle_dir. An empty bundle_dir means either a
-            # replay-only target, which records nothing, or a summary from before
-            # the field existed — fall back to output_dir and stay quiet. A
-            # declared bundle_dir with no bundle IS worth flagging.
+            # pre-runs: the whole pre_run_bundle directory, NOT the multi-GB
+            # advanced datadir. That means the .request bundle AND the
+            # pre-run.meta.json beside it: the runner uses that metadata to tell
+            # whether a datadir already sits at the bundle's end block, and
+            # skipping the replay outright rather than streaming a multi-GB file
+            # to skip every line is worth minutes per run. Copying the directory
+            # (rather than naming the bundle file) also keeps any future sidecar.
+            #
+            # It usually sits under output_dir, but a target's bundle_dir moves it
+            # off the advanced datadir (a schelk target needs that, since a later
+            # restore discards the scratch), so follow the summary's bundle_dir.
+            # An empty bundle_dir means either a replay-only target, which records
+            # nothing, or a summary from before the field existed — fall back to
+            # output_dir and stay quiet. A declared bundle_dir with no bundle IS
+            # worth flagging.
             if [ -n "$bundledir" ]; then
-              bundlesrc="$bundledir/pre_run_bundle/pre-run.request"
-              if [ -f "$bundlesrc" ]; then
+              bundlesrc="$bundledir/pre_run_bundle"
+              if [ -f "$bundlesrc/pre-run.request" ]; then
                 mkdir -p "$dest/pre_run_bundle"
-                sudo cp -a "$bundlesrc" "$dest/pre_run_bundle/"
+                sudo cp -a "$bundlesrc/." "$dest/pre_run_bundle/"
               else
-                echo "::warning::pre-runs target $name declared bundle_dir but no bundle at $bundlesrc"
+                echo "::warning::pre-runs target $name declared bundle_dir but no bundle at $bundlesrc/pre-run.request"
               fi
             elif [ -f "$outdir/pre_run_bundle/pre-run.request" ]; then
               mkdir -p "$dest/pre_run_bundle"
-              sudo cp -a "$outdir/pre_run_bundle/pre-run.request" "$dest/pre_run_bundle/"
+              sudo cp -a "$outdir/pre_run_bundle/." "$dest/pre_run_bundle/"
             fi
           else
             # state-actor: metadata files only (find runs as root to read the datadir).
