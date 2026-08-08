@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"net/http/httptrace"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -877,6 +879,15 @@ func (e *executor) runStepLines(
 ) error {
 	stepStart := time.Now()
 
+	// A client that answers with a JSON-RPC error is alive and the step carries
+	// on. One that cannot be reached at all may be gone — and a dead endpoint
+	// answers nothing, so every remaining line burns its full dial timeout. Left
+	// unchecked that turns a dead container into a run that grinds on for days
+	// (observed: a stopped client with 1547 payloads left reported eta=128h)
+	// instead of failing in seconds. Count consecutive transport failures and
+	// give up once it is clear nobody is listening.
+	consecutiveUnreachable := 0
+
 	// skipping is true when we're dropping already-applied lines at the
 	// start of the file (resume scenario). Cleared once we encounter the
 	// first engine_newPayload whose blockNumber > SkipUntilBlockNumber.
@@ -970,6 +981,21 @@ func (e *executor) runStepLines(
 				"method": method,
 				"step":   stepName,
 			}).WithError(err).Warn("RPC call failed")
+		}
+
+		if isTransportError(err) {
+			consecutiveUnreachable++
+
+			if consecutiveUnreachable >= unreachableClientThreshold {
+				return fmt.Errorf(
+					"client at %s unreachable for %d consecutive calls (last: %w) — "+
+						"it has most likely exited; abandoning %q at line %d of %d",
+					opts.EngineEndpoint, consecutiveUnreachable, err,
+					stepName, lineNum+1, len(lines),
+				)
+			}
+		} else {
+			consecutiveUnreachable = 0
 		}
 
 		// Validate response AFTER timing, BEFORE storing result. Track the
@@ -1782,4 +1808,25 @@ func (e *executor) dumpPostTestResponse(
 	}
 
 	return nil
+}
+
+// unreachableClientThreshold is how many consecutive transport failures mean the
+// client is gone rather than momentarily unhappy. Small on purpose: the runner
+// waits for RPC readiness before a step starts and after any restart it performs,
+// so a step should never see the endpoint disappear transiently.
+const unreachableClientThreshold = 3
+
+// isTransportError reports whether err is the HTTP request failing to complete —
+// the endpoint could not be dialled, the connection dropped, or it timed out.
+// executeRPC only returns an error in that case (and for request construction);
+// a client that answers with a JSON-RPC error produces a response, not an error.
+// So this distinguishes "nobody is listening" from "the client said no".
+func isTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var urlErr *url.Error
+
+	return errors.As(err, &urlErr)
 }
