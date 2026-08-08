@@ -926,9 +926,7 @@ func (r *runner) runContainerLifecycle(
 	// armContainerMonitor watches id and fails the run if it dies unexpectedly.
 	// It is re-armed after a deliberate stop/start so the restarted client stays
 	// covered for the remainder of the run.
-	var armContainerMonitor func(id string)
-
-	armContainerMonitor = func(id string) {
+	armContainerMonitor := func(id string) {
 		containerExitCh, containerErrCh := r.containerMgr.WaitForContainerExit(ctx, id)
 
 		r.wg.Add(1)
