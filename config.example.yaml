@@ -204,6 +204,18 @@ runner:
     #     #   # fixtures_subdir also works with local directories
     #     #   # fixtures_subdir: fixtures/blockchain_tests_engine_x  # default
     #
+    #     # Optional (any eest_fixtures mode): replay a builder.pre_runs bundle
+    #     # BEFORE the fixtures, advancing a raw snapshot to the setup head at run
+    #     # time. The runner compares the datadir head against the bundle's recorded
+    #     # range (block number AND hash) and skips the replay when it already
+    #     # matches — omit this block entirely when the datadir is already advanced.
+    #     # eest_fixtures:
+    #     #   local_fixtures_dir: /artifacts/eest-payloads/geth
+    #     #   fixtures_subdir: blockchain_tests_stateful_engine
+    #     #   pre_runs:
+    #     #     local_fixtures_dir: /artifacts/pre-runs/geth  # dir CONTAINING pre_run_bundle/
+    #     #     # fixtures_subdir: pre_run_bundle             # default
+    #
     #     # Option 4d: EEST fixtures from local .tar.gz tarballs.
     #     # Extracts tarballs to a cache directory (keyed by content hash, re-extraction skipped
     #     # if already cached). Useful when you have locally-built tarballs but haven't extracted them.
@@ -275,6 +287,71 @@ runner:
 #         # inherits the top-level spec/spec_file and every field from `config`
 #
 #   # Optional: generate stateful EEST benchmark fixtures with fill-stateful.
+#   # ---------------------------------------------------------------------------
+#   # pre_runs: advance an existing snapshot before the benchmark fill.
+#   # ---------------------------------------------------------------------------
+#   # Boots a filler client on a snapshot and, in order: builds a funding block,
+#   # optionally deploys the target fork's system contracts while still on the
+#   # PRE-fork, gas-bumps to gas_limit, then runs fill-stateful on setup tests
+#   # (--no-reset-between-tests, so the deployed state persists). It also records a
+#   # replayable payload bundle the runner can replay via
+#   # tests.source.eest_fixtures.pre_runs. Runs after state_actor, before
+#   # eest_payloads. A FAILED pre_runs target blocks every eest_payloads target.
+#   # Only geth/besu/nethermind can fill; a replay_from target can be any client.
+#   pre_runs:
+#     # eest_repo / eest_ref / fill_image / pull_policy: as in eest_payloads below.
+#     config:                          # shared defaults; targets override when set
+#       fork: amsterdam                # the TARGET fork being filled
+#       datadir_method: schelk         # schelk advances source_dir IN PLACE (no copy)
+#       gas_limit: 1000000000000       # gas-bump target (default 1 TGas)
+#       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+#       funding_accounts:
+#         - address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
+#       # funding_pools:               # credit a derived sender pool (EEST SENDER_BASE_KEY)
+#       #   - base_key_seed: gas-repricings-private-key
+#       #     count: 10000
+#       tests:
+#         - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
+#       # fill_env:                    # extra env for the fill container
+#       #   BLOATNET_RECEIVER_CONTRACT_COUNT: "10000"
+#     targets:
+#       - name: pre-run-geth
+#         filler_client: geth
+#         filler_image: ethpandaops/geth:master
+#         source_dir: /schelk/snapshots/geth/<network>/<block>
+#         # output_dir: /data/pre-runs/geth   # not used (nor required) with method: schelk
+#         # bundle_dir: /var/lib/benchmarkoor/pre-runs/geth
+#         #   Where the replay bundle is written (as <dir>/pre_run_bundle/). A schelk
+#         #   target NEEDS this: the advanced datadir is the CoW scratch, and the next
+#         #   `schelk restore` — including the runner's, right before it replays —
+#         #   discards anything on it, the bundle included.
+#         # genesis: /path/to/geth-genesis.json
+#         # genesis_fork_override: { amsterdam: 1769856769 }   # geth-format genesis
+#         # genesis_eip_override:                              # parity/nethermind chainspec
+#         #   timestamp: 1769856769
+#         #   eips: [7928, 8282]
+#         # schelk_options:
+#         #   promote: true   # persist the advanced datadir as the new schelk baseline.
+#         #                   # DESTRUCTIVE and irreversible: overwrites the virgin
+#         #                   # volume, so the original snapshot needs re-fetching.
+#         #                   # Requires datadir_method: schelk; one promoter per config.
+#         # predeploy:        # deploy the fork's system contracts on the PRE-fork
+#         #   pre_fork: osaka
+#         #   deployer_key: "0x…02"
+#         #   contracts:
+#         #     - code: "0x…"          # plain CREATE of runtime bytecode, OR:
+#         #     - to: "0x4e59b44847b379578588920cA78FbF26c0B4956C"   # CREATE2 factory
+#         #       data: "0x<32-byte salt><initcode>"
+#         #       address: "0x…"       # verified against the deployed code afterwards
+#       # Replay target: advances its own snapshot from another target's bundle.
+#       # - name: pre-run-reth
+#       #   filler_client: reth
+#       #   filler_image: ethpandaops/reth:master
+#       #   source_dir: /data/snapshots/reth
+#       #   output_dir: /data/pre-runs/reth
+#       #   replay_from: pre-run-geth
+#
+#   # ---------------------------------------------------------------------------
 #   # Boots a filler client on a copy of a snapshot datadir (e.g. a state_actor
 #   # output_dir above), records engine-API payloads, and writes fixtures that
 #   # `run` consumes via tests.source.eest_fixtures. Runs after state_actor.
@@ -617,6 +694,12 @@ runner:
     #   # reth:
     #   #   source_dir: /schelk/eth/reth  # Must be under the schelk mount point
     #   #   method: schelk
+    #   #   # Optional: once the suite's pre-run steps have ALL succeeded, persist the
+    #   #   # advanced datadir as the new schelk baseline, so later restores (including
+    #   #   # the per-test one under container-recreate) start post-pre-run and the
+    #   #   # bundle never needs replaying again. DESTRUCTIVE and irreversible.
+    #   #   # schelk_options:
+    #   #   #   promote_post_pre_runs: true
 
   instances:
     - id: geth-latest

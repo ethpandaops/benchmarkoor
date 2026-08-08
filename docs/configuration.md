@@ -24,6 +24,7 @@ This document describes all configuration options for benchmarkoor. The [config.
 - [Resource Limits](#resource-limits)
 - [Post-Test RPC Calls](#post-test-rpc-calls)
 - [Builder](#builder)
+  - [`builder.pre_runs` options](#builderpre_runs-options)
 - [API Server](api.md)
 - [Examples](#examples)
 
@@ -476,6 +477,37 @@ tests:
       fixtures_subdir: benchmarkoor-build-artifacts/eest-payloads/geth/blockchain_tests_stateful_engine
 # runner.github_token (or BENCHMARKOOR_RUNNER_GITHUB_TOKEN) is required for artifact URLs.
 ```
+
+###### Replaying a `builder.pre_runs` bundle
+
+A `pre_runs` build records a replayable payload bundle. Point the runner at it and every instance replays it **before** the fixtures, so a raw snapshot is advanced to the setup head at run time:
+
+```yaml
+tests:
+  source:
+    eest_fixtures:
+      local_fixtures_dir: /artifacts/eest-payloads/geth
+      fixtures_subdir: blockchain_tests_stateful_engine
+      pre_runs:
+        local_fixtures_dir: /artifacts/pre-runs/geth   # the dir CONTAINING pre_run_bundle/
+        # fixtures_subdir: pre_run_bundle              # default
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `local_fixtures_dir` | string | Yes | - | Directory containing the bundle's subdirectory |
+| `fixtures_subdir` | string | No | `pre_run_bundle` | Subdirectory holding the `.request` bundle |
+
+Before replaying, the runner compares the datadir's head against the range recorded in the bundle's `pre-run.meta.json` sidecar — **block number and hash**:
+
+- head **at the bundle's end block** → already applied, the replay is skipped outright (not streamed-and-skipped: on a 10 GB bundle that is the difference between ~2s and ~2m40s)
+- head **at its start block** → replayed in full
+- head **inside the range** → the replay resumes from there
+- **a hash mismatch** at either named block, or a head outside the range → the run fails, rather than benchmarking a datadir that is on a different chain
+
+Bundles written before the sidecar existed still get the fast path: the end block is recovered by scanning the tail of the `.request` file, so no multi-GB read is needed. Only the end-block comparison is available in that case.
+
+**Omit the `pre_runs` block** when the datadir is already advanced — e.g. the `pre_runs` builder ran in place on it, or the schelk baseline was promoted. Replaying onto a chain that already contains those blocks is wasted work at best.
 
 ###### From GitHub Actions Artifacts
 
@@ -1079,6 +1111,17 @@ runner:
 | `source_dir` | string | Required | Path to the source data directory |
 | `container_dir` | string | Client default | Mount path inside the container. If not specified, uses the client's default data directory (e.g., `/var/lib/reth` for reth, `/data` for geth) |
 | `method` | string | `copy` | Method for preparing the data directory |
+| `schelk_options` | object | – | schelk-specific behaviour; only valid with `method: schelk` (see below) |
+
+###### `schelk_options`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `promote_post_pre_runs` | bool | `false` | Once the suite's pre-run steps have **all** succeeded, stop the client, run `schelk promote` so the advanced datadir becomes the new virgin baseline, remount, and bring the client back. Every later `schelk restore` — including the per-test one a `container-recreate` rollback performs — then starts post-pre-run, so the bundle never has to be replayed again. |
+
+Supported on all rollback strategies (`none`, `rpc-debug-setHead`, `container-recreate`, `container-checkpoint-restore`). It is refused when the suite has no pre-run steps (the baseline would just be the raw snapshot), and only one instance may set it — there is one schelk volume per host, so a second promoter would silently redefine the baseline for the first.
+
+> **Irreversible.** `schelk promote` overwrites the virgin volume; the original snapshot cannot be recovered without re-fetching it. Best on a host dedicated to one benchmark campaign. The builder-side equivalent is [`builder.pre_runs` `schelk_options.promote`](#builderpre_runs-options), which is preferable when the pre-run runs on the same machine.
 
 ##### Data Directory Methods
 
@@ -1463,12 +1506,13 @@ runner:
 
 ## Builder
 
-The `builder` section configures tools that pre-populate benchmark inputs on disk. There are two builders:
+The `builder` section configures tools that pre-populate benchmark inputs on disk. There are three builders:
 
 - **`state_actor`** (https://github.com/ethereum/state-actor) writes per-client genesis state directly in each EL's native on-disk format — geth Pebble, reth MDBX, besu/nethermind RocksDB — bypassing the client's normal genesis-replay path.
-- **`eest_payloads`** generates stateful EEST benchmark fixtures by running [`fill-stateful`](https://github.com/ethereum/execution-specs/pull/2637) against a filler client booted on a pre-populated snapshot (typically one produced by `state_actor`). The fixtures are replayed by `benchmarkoor run`.
+- **`pre_runs`** advances an existing snapshot datadir — gas-bump, funding block, optional pre-fork system-contract deploy, then a `fill-stateful` run on *setup* tests — so a later benchmark fill builds on top of that state. It also records a replayable payload bundle. Optional.
+- **`eest_payloads`** generates stateful EEST benchmark fixtures by running [`fill-stateful`](https://github.com/ethereum/execution-specs/pull/2637) against a filler client booted on a pre-populated snapshot (typically one produced by `state_actor` or `pre_runs`). The fixtures are replayed by `benchmarkoor run`.
 
-Builds are **decoupled from `benchmarkoor run`**: invoke `benchmarkoor build` to materialise the artifacts, then run benchmarks against them via the regular `datadir.method: copy|zfs|schelk|…` providers and test-source config. A missing datadir at `run` time is an error — it is never auto-built. When both builders are configured, they run in declaration order (`state_actor` before `eest_payloads`) so a fixture build can consume a datadir produced earlier in the same `benchmarkoor build` invocation.
+Builds are **decoupled from `benchmarkoor run`**: invoke `benchmarkoor build` to materialise the artifacts, then run benchmarks against them via the regular `datadir.method: copy|zfs|schelk|…` providers and test-source config. A missing datadir at `run` time is an error — it is never auto-built. When several builders are configured, they run in stage order (`state_actor` → `pre_runs` → `eest_payloads`) so a fixture build can consume a datadir produced earlier in the same `benchmarkoor build` invocation. **A failed `pre_runs` target blocks every `eest_payloads` target**: `eest_payloads` fills against the datadir the pre-run was supposed to advance, and filling against an un-advanced one does not fail loudly — it emits fixtures that look valid but describe the wrong chain.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
@@ -1669,6 +1713,91 @@ builder:
       - client: geth
         output_dir: /srv/state/geth-spec
 ```
+
+### `builder.pre_runs` options
+
+`pre_runs` advances an existing snapshot datadir so a later benchmark fill starts from pre-deployed state, and records a **replayable payload bundle** describing everything it built. Per target it boots a filler client on the snapshot and, in order:
+
+1. Builds a **funding block** crediting `funding_accounts` (and any `funding_pools`) via beacon withdrawals.
+2. Optionally runs a **`predeploy`**: deploys the target fork's system contracts while the chain is still on the *pre*-fork.
+3. **Gas-bumps** with empty blocks until the head gas limit reaches `gas_limit` (default 1 TGas), capped by `gas_bump_max_blocks`.
+4. Runs `fill-stateful --no-reset-between-tests` on the configured setup `tests`, so deployed state persists across them.
+5. Writes `<bundle_dir>/pre_run_bundle/pre-run.request` plus a `pre-run.meta.json` sidecar describing it.
+
+Only `geth`, `besu` and `nethermind` can act as the filler. A target with `replay_from` set instead *consumes* a bundle: it boots any client (including non-fillers like reth/ethrex, since replay only needs the engine API) and replays the recorded payloads onto its own snapshot.
+
+```yaml
+builder:
+  pre_runs:
+    pull_policy: always
+    eest_repo: https://github.com/ethereum/execution-specs.git
+    eest_ref: forks/amsterdam
+    config:                              # shared per-target defaults; targets override when set
+      fork: amsterdam                    # the TARGET fork being filled
+      datadir_method: schelk             # copy | overlayfs | fuse-overlayfs | zfs | direct | schelk
+      gas_limit: 1000000000000           # gas-bump target (default 1 TGas)
+      rpc_seed_key: "0x…01"
+      funding_accounts:
+        - address: 0x7e5f…5bdf
+      tests:
+        - tests/benchmark/stateful/bloatnet/test_setup_contracts.py
+      fill_env:
+        BLOATNET_RECEIVER_CONTRACT_COUNT: "10000"
+    targets:
+      - name: pre-run-geth
+        filler_client: geth
+        filler_image: ethpandaops/geth:master
+        source_dir: /schelk/snapshots/geth/<network>/<block>
+        bundle_dir: /var/lib/benchmarkoor/pre-runs/geth   # keep the bundle off the schelk scratch
+        genesis: /path/to/geth-genesis.json
+        genesis_fork_override: { amsterdam: 1769856769 }
+        schelk_options:
+          promote: true                  # persist the advanced datadir as the new schelk baseline
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `filler_client` | string | – | `geth`, `besu` or `nethermind`. Replay targets may use any bootable client. |
+| `source_dir` | string | – | Snapshot datadir to advance. Absolute. |
+| `output_dir` | string | – | Where the advanced datadir is written. Not used (and not required) when `datadir_method: schelk`, which advances `source_dir` in place. |
+| `bundle_dir` | string | `output_dir`, else `source_dir` | Where the replay bundle is written (as `<dir>/pre_run_bundle/`). **A schelk target needs this**: the advanced datadir is the copy-on-write scratch, and the next `schelk restore` — including the one the runner performs before replaying — discards anything on it, bundle included. |
+| `replay_from` | string | – | Makes this a *replay* target: instead of filling, it replays another target's bundle (by target name) or a path to a `.request` file / `pre_run_bundle` directory. |
+| `genesis` | string | – | Boot genesis for the filler. Local path or http(s) URL. |
+| `genesis_fork_override` | map | – | Schedules forks by name (`{amsterdam: <ts>}`) in a **geth-format** genesis. |
+| `genesis_eip_override` | object | – | Schedules per-EIP transitions at a timestamp in a **parity/nethermind chainspec**. |
+| `gas_limit` | uint | `1000000000000` | Gas-bump target. |
+| `gas_bump_max_blocks` | int | `20000` | Safety cap on empty gas-bump blocks. |
+| `funding_accounts` | list | – | Addresses credited in the funding block. Empty skips the block. |
+| `funding_pools` | list | – | Credits a derived sender pool (`base_key_seed` + `count`), matching EEST's `SENDER_BASE_KEY` derivation, for benchmarks drawing senders from a pool. |
+| `predeploy` | object | – | See below. Deploys contracts on the pre-fork. |
+| `schelk_options.promote` | bool | `false` | After the pre-run finishes and its client has stopped, run `schelk promote` so the advanced datadir becomes the new **virgin baseline**. Requires `datadir_method: schelk`. |
+| `tests`, `filter`, `marker`, `gas_benchmark_values`, `fill_env`, `filler_extra_args`, `address_stubs`, `rpc_seed_key`, `datadir_method`, `filler_image`, `fork` | | | As in `eest_payloads`; all are hoistable from `config`. Note `filler_extra_args` **replaces** the `config` value rather than merging, so a per-client target must list every flag it needs. |
+
+#### `predeploy`
+
+Deploys a fork's system contracts *before* that fork activates — a strict client rejects post-fork blocks whose system contracts have no code. Requires the target fork to be scheduled at a positive timestamp the deploy blocks precede, via **either** `genesis_eip_override` **or** `genesis_fork_override.<fork>`.
+
+```yaml
+predeploy:
+  pre_fork: osaka                        # the fork the snapshot boots at
+  deployer_key: "0x…02"                  # funded automatically alongside funding_accounts
+  contracts:
+    # Form A — plain CREATE of runtime bytecode. Lands at the deployer's CREATE
+    # address, which is fine only when the fork's addresses are chainspec params.
+    - code: "0x…"
+    # Form B — a call to a deployer contract, typically the CREATE2 factory.
+    # A CREATE2 address is keccak256(0xff ++ factory ++ salt ++ keccak256(initcode))
+    # with no msg.sender in the preimage, so replaying a network's own deployment
+    # calldata reproduces the canonical address from any funded sender. This is what
+    # puts contracts where clients HARDCODE them (e.g. EIP-8282's request contracts).
+    - to: "0x4e59b44847b379578588920cA78FbF26c0B4956C"
+      data: "0x<32-byte salt><initcode>"
+      address: "0x…"                     # verified against the deployed code afterwards
+```
+
+The two forms are mutually exclusive per contract. `address` is required with `to`, since the resulting address follows the callee's scheme and cannot be derived here. The CREATE2 factory must already exist on the chain — it is not in the mainnet genesis alloc but has been deployed on mainnet since 2020, so a mainnet-fork snapshot has it; a synthetic chain must predeploy it (`state_actor`'s `create2_factory` template).
+
+> **`schelk promote` is destructive and irreversible.** It overwrites the virgin volume, and the original snapshot cannot be recovered without re-fetching it. It is refused unless the filler shut down gracefully (a killed client may not have flushed), refused when there are no pre-run steps to bake in, and only one target per config may promote — there is one schelk volume per host, so a second promoter would silently redefine the baseline for the first.
 
 ### `builder.eest_payloads` options
 
