@@ -1650,10 +1650,23 @@ func (r *runner) verifyPreRunBundleHead(
 		)
 	}
 
-	switch headNumber {
-	case info.EndBlockNumber:
+	if headNumber == info.EndBlockNumber {
 		return expect(info.EndBlockHash, true)
-	case info.StartBlockNumber:
+	}
+
+	// Info recovered from the bundle file knows only its end block, so the start
+	// and range checks below have nothing to compare against. The end-block check
+	// above is the one that matters — it is what skips the replay — and the replay
+	// itself still fails loudly if the head cannot be built on.
+	if info.Derived() {
+		log.WithFields(logrus.Fields{
+			"block": headNumber, "bundle_end": info.EndBlockNumber,
+		}).Info("Pre-run bundle has no metadata sidecar; head verified against its end block only")
+
+		return false, nil
+	}
+
+	if headNumber == info.StartBlockNumber {
 		return expect(info.StartBlockHash, false)
 	}
 

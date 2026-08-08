@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -353,23 +354,36 @@ func writeBundleMeta(dir string, info *PreRunBundleInfo) error {
 	return nil
 }
 
-// ReadPreRunBundleInfo loads the bundle metadata written beside the bundle in
-// bundleParentDir (a pre_runs target's BundleParentDir). It returns nil without
-// error when there is no bundle there — a replay-only target records none, and a
-// bundle written before this metadata existed has no sidecar.
+// Derived reports whether the info was recovered from the bundle file rather
+// than read from a sidecar. A derived info knows only its end block: the start
+// block and payload count are not recoverable without reading the whole file,
+// which is the cost the sidecar exists to avoid.
+func (i *PreRunBundleInfo) Derived() bool {
+	return i.StartBlockHash == ""
+}
+
+// ReadPreRunBundleInfo describes the bundle in bundleParentDir (a pre_runs
+// target's BundleParentDir). It prefers the sidecar written beside the bundle
+// and falls back to reading the end block out of the bundle itself, so a bundle
+// produced before the sidecar existed — an older CI artifact, say — still gets
+// the "already applied, skip the replay" fast path.
+//
+// Returns nil without error when there is no bundle at all: a replay-only target
+// records none.
 func ReadPreRunBundleInfo(bundleParentDir string) (*PreRunBundleInfo, error) {
 	if bundleParentDir == "" {
 		return nil, nil
 	}
 
-	path := filepath.Join(bundleParentDir, config.PreRunBundleSubdir, preRunBundleMetaFile)
+	dir := filepath.Join(bundleParentDir, config.PreRunBundleSubdir)
+	path := filepath.Join(dir, preRunBundleMetaFile)
 
 	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
 
-	if err != nil {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return deriveBundleInfo(filepath.Join(dir, preRunBundleFile))
+	case err != nil:
 		return nil, fmt.Errorf("reading bundle meta %q: %w", path, err)
 	}
 
@@ -379,4 +393,101 @@ func ReadPreRunBundleInfo(bundleParentDir string) (*PreRunBundleInfo, error) {
 	}
 
 	return &info, nil
+}
+
+// bundleTailChunk is how much of the bundle's tail is read looking for its last
+// engine_newPayload. A single payload line carries a whole block, so lines run to
+// hundreds of KB on a large-gas chain; the window doubles up to bundleTailMax
+// when one line does not fit.
+const (
+	bundleTailChunk = 1 << 23 // 8 MiB
+	bundleTailMax   = 1 << 29 // 512 MiB
+)
+
+// deriveBundleInfo recovers the bundle's end block by scanning backwards from the
+// end of the file for the last engine_newPayload, so no sidecar is needed and a
+// multi-GB bundle is never streamed in full. Returns nil when the file is absent.
+func deriveBundleInfo(bundlePath string) (*PreRunBundleInfo, error) {
+	f, err := os.Open(bundlePath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("opening bundle %q: %w", bundlePath, err)
+	}
+
+	defer func() { _ = f.Close() }()
+
+	size, err := f.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, fmt.Errorf("sizing bundle %q: %w", bundlePath, err)
+	}
+
+	for window := int64(bundleTailChunk); ; window *= 2 {
+		from := size - window
+		if from < 0 {
+			from = 0
+		}
+
+		buf := make([]byte, size-from)
+		if _, err := f.ReadAt(buf, from); err != nil && !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("reading bundle tail %q: %w", bundlePath, err)
+		}
+
+		lines := strings.Split(string(buf), "\n")
+
+		// The first line is truncated unless the window reached the file start.
+		if from > 0 && len(lines) > 0 {
+			lines = lines[1:]
+		}
+
+		if ref, ok := lastPayloadRef(lines); ok {
+			return &PreRunBundleInfo{
+				EndBlockNumber: ref.number,
+				EndBlockHash:   ref.hash,
+			}, nil
+		}
+
+		if from == 0 {
+			return nil, fmt.Errorf("bundle %q contains no engine_newPayload", bundlePath)
+		}
+
+		if window >= bundleTailMax {
+			return nil, fmt.Errorf(
+				"no engine_newPayload in the last %d bytes of bundle %q", window, bundlePath,
+			)
+		}
+	}
+}
+
+// lastPayloadRef returns the block the last engine_newPayload line refers to.
+func lastPayloadRef(lines []string) (blockRef, bool) {
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		if json.Unmarshal([]byte(line), &req) != nil {
+			continue
+		}
+
+		if !strings.HasPrefix(req.Method, "engine_newPayload") {
+			continue
+		}
+
+		ref, err := payloadBlockRef(&recordedPayload{Method: req.Method, Params: req.Params})
+		if err != nil {
+			continue
+		}
+
+		return ref, true
+	}
+
+	return blockRef{}, false
 }
