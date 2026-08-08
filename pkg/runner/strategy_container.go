@@ -211,13 +211,17 @@ func (r *runner) runTestsWithContainerStrategy(
 		)
 	}
 
+	// preRunsBaked means the datadir every per-test recreate restores from already
+	// contains the pre-run state, so replaying the bundle per test is redundant.
+	preRunsBaked := false
+
 	if useSchelkPromote {
 		log.Info(
 			"schelk datadir with promote_post_pre_runs: will promote after pre-run steps " +
 				"so every recreated container starts post-pre-run",
 		)
 
-		newIP, promoteErr := r.promoteSchelkAfterPreRuns(
+		newIP, promoted, promoteErr := r.promoteSchelkAfterPreRuns(
 			ctx, params, spec, containerID, containerIP, resultsDir,
 			benchmarkoorLog, cleanupFuncs, cleanupStarted, logCancel, logDone, log,
 		)
@@ -228,6 +232,8 @@ func (r *runner) runTestsWithContainerStrategy(
 		if newIP != "" {
 			containerIP = newIP
 		}
+
+		preRunsBaked = promoted
 	}
 
 	combined := &executor.ExecutionResult{}
@@ -755,9 +761,13 @@ func (r *runner) runTestsWithContainerStrategy(
 
 		}
 
-		// Run pre-run steps on fresh containers (non-ZFS paths).
-		// For ZFS, pre-run steps are baked into the snapshot already.
-		if !useZFSSnapshot {
+		// Run pre-run steps on fresh containers, unless the state they would
+		// reproduce is already in whatever each recreate restores from: the ZFS
+		// ready-snapshot, or a promoted schelk baseline. Replaying regardless
+		// costs a full bundle replay PER TEST — on a 1463-test suite with a
+		// ~3-minute bundle that is days of pointless work, and it looks like a
+		// hang rather than a mistake.
+		if !useZFSSnapshot && !preRunsBaked {
 			preRunOpts := &executor.ExecuteOptions{
 				EngineEndpoint: fmt.Sprintf(
 					"http://%s:%d", currentContainerIP, spec.EnginePort(),
@@ -1067,7 +1077,7 @@ func (r *runner) promoteSchelkAfterPreRuns(
 	logCancel *context.CancelFunc,
 	logDone *chan struct{},
 	log logrus.FieldLogger,
-) (string, error) {
+) (newIP string, baked bool, err error) {
 	// Where the datadir already sits decides how much of the bundle to replay. A
 	// promoted baseline is already AT the bundle's end, so replaying from its
 	// first block re-imports thousands of known blocks — minutes of wasted work
@@ -1078,15 +1088,19 @@ func (r *runner) promoteSchelkAfterPreRuns(
 	} else {
 		applied, err := r.verifyPreRunBundleHead(log, headNumber, headHash)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 
 		if applied {
+			// The datadir was restored from the schelk baseline moments ago, so a
+			// head already at the bundle's end means the BASELINE carries the
+			// pre-run state — every per-test restore will land here too, and
+			// replaying per test would be pure waste.
 			log.Info(
 				"Pre-run bundle already applied to this datadir; nothing to promote",
 			)
 
-			return "", nil
+			return "", true, nil
 		}
 	}
 
@@ -1105,7 +1119,7 @@ func (r *runner) promoteSchelkAfterPreRuns(
 
 	n, err := r.executor.RunPreRunSteps(ctx, preRunOpts)
 	if err != nil {
-		return "", fmt.Errorf("running pre-run steps before schelk promote: %w", err)
+		return "", false, fmt.Errorf("running pre-run steps before schelk promote: %w", err)
 	}
 
 	if n == 0 {
@@ -1114,7 +1128,7 @@ func (r *runner) promoteSchelkAfterPreRuns(
 				"refusing to promote (the baseline would be the raw snapshot)",
 		)
 
-		return "", nil
+		return "", false, nil
 	}
 
 	log.WithField("steps", n).Info("Pre-run steps completed; promoting datadir to the schelk baseline")
@@ -1128,7 +1142,7 @@ func (r *runner) promoteSchelkAfterPreRuns(
 	log.Info("Stopping container for schelk promote (graceful)")
 
 	if err := r.containerMgr.StopContainer(ctx, containerID, nil); err != nil {
-		return "", fmt.Errorf("stopping container for schelk promote: %w", err)
+		return "", false, fmt.Errorf("stopping container for schelk promote: %w", err)
 	}
 
 	waitForLogDrain(logDone, logCancel, logDrainTimeout)
@@ -1140,12 +1154,12 @@ func (r *runner) promoteSchelkAfterPreRuns(
 	log.Info("Persisting the advanced datadir as the new schelk baseline (`schelk promote`)")
 
 	if err := datadir.SchelkPromote(ctx, r.log); err != nil {
-		return "", fmt.Errorf("schelk promote: %w", err)
+		return "", false, fmt.Errorf("schelk promote: %w", err)
 	}
 
 	// promote leaves the volume unmounted; the per-test recreate binds this path.
 	if err := datadir.EnsureSchelkMounted(ctx, r.log); err != nil {
-		return "", fmt.Errorf("remounting schelk volume after promote: %w", err)
+		return "", false, fmt.Errorf("remounting schelk volume after promote: %w", err)
 	}
 
 	// Bring the SAME container back rather than removing it. Only the ZFS branch
@@ -1156,12 +1170,12 @@ func (r *runner) promoteSchelkAfterPreRuns(
 	log.Info("Restarting client on the promoted baseline")
 
 	if err := r.containerMgr.StartContainer(ctx, containerID); err != nil {
-		return "", fmt.Errorf("starting container after schelk promote: %w", err)
+		return "", false, fmt.Errorf("starting container after schelk promote: %w", err)
 	}
 
 	newIP, ipErr := r.containerMgr.GetContainerIP(ctx, containerID, r.cfg.ContainerNetwork)
 	if ipErr != nil {
-		return "", fmt.Errorf("getting container IP after schelk promote: %w", ipErr)
+		return "", false, fmt.Errorf("getting container IP after schelk promote: %w", ipErr)
 	}
 
 	if logErr := r.startLogStreaming(
@@ -1176,15 +1190,15 @@ func (r *runner) promoteSchelkAfterPreRuns(
 		params.BlockLogCollector, cleanupStarted,
 		logDone, logCancel, cleanupFuncs,
 	); logErr != nil {
-		return "", fmt.Errorf("log streaming after schelk promote: %w", logErr)
+		return "", false, fmt.Errorf("log streaming after schelk promote: %w", logErr)
 	}
 
 	if _, err := r.waitForRPC(ctx, newIP, spec.RPCPort()); err != nil {
-		return "", fmt.Errorf("waiting for RPC after schelk promote: %w", err)
+		return "", false, fmt.Errorf("waiting for RPC after schelk promote: %w", err)
 	}
 
 	log.Info("Promoted: the client is back up on the new baseline, and every " +
 		"per-test recreate now restores it")
 
-	return newIP, nil
+	return newIP, true, nil
 }
