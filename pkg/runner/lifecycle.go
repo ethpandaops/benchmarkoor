@@ -1219,9 +1219,44 @@ func (r *runner) runContainerLifecycle(
 
 		if datadirCfg.ShouldPromotePostPreRuns() && !isRunnerLevelStrategy(rollbackStrategy) &&
 			!preRunsAlreadyApplied {
+			// The log stream ends with the stopped container, so re-attach it to
+			// the restarted one; otherwise the client's logs for the entire
+			// benchmark phase — everything after the promote — are lost.
+			reattachLogs := func() {
+				logCtx, newLogCancel := context.WithCancel(ctx)
+				logCancel = newLogCancel
+				logDone = make(chan struct{})
+
+				r.wg.Add(1)
+
+				go func() {
+					defer r.wg.Done()
+					defer close(logDone)
+
+					if err := r.streamLogs(
+						logCtx, instance.ID, containerID, logFile, benchmarkoorLogFile,
+						&containerLogInfo{
+							Name:             containerName,
+							ContainerID:      containerID,
+							Image:            imageName,
+							GenesisGroupHash: params.GenesisGroupHash,
+						},
+						blockLogCollector,
+					); err != nil {
+						select {
+						case <-localCleanupStarted:
+							log.WithError(err).Debug("Log streaming stopped")
+						default:
+							log.WithError(err).Warn("Log streaming error")
+						}
+					}
+				}()
+			}
+
 			newIP, err := r.promoteSchelkInPlace(
 				execCtx, ctx, instance, spec, containerID, containerIP, runResultsDir,
-				blockNum, &stoppingOnPurpose, &mu, armContainerMonitor, log,
+				blockNum, &stoppingOnPurpose, &mu, armContainerMonitor, reattachLogs,
+				&logDone, &logCancel, log,
 			)
 			if err != nil {
 				return fmt.Errorf("promoting schelk baseline after pre-run steps: %w", err)
@@ -1715,6 +1750,9 @@ func (r *runner) promoteSchelkInPlace(
 	stoppingOnPurpose *bool,
 	mu *sync.Mutex,
 	armContainerMonitor func(string),
+	reattachLogs func(),
+	logDone *chan struct{},
+	logCancel *context.CancelFunc,
 	log logrus.FieldLogger,
 ) (string, error) {
 	preRunOpts := &executor.ExecuteOptions{
@@ -1768,6 +1806,9 @@ func (r *runner) promoteSchelkInPlace(
 		return "", fmt.Errorf("stopping container: %w", err)
 	}
 
+	// Let the stopped container's logs finish landing before promoting.
+	waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
 	if syncErr := exec.Command("sync").Run(); syncErr != nil {
 		log.WithError(syncErr).Warn("Failed to sync before schelk promote")
 	}
@@ -1794,6 +1835,7 @@ func (r *runner) promoteSchelkInPlace(
 	mu.Unlock()
 
 	armContainerMonitor(containerID)
+	reattachLogs()
 
 	newIP, err := r.containerMgr.GetContainerIP(ctx, containerID, r.cfg.ContainerNetwork)
 	if err != nil {

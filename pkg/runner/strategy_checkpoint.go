@@ -177,19 +177,113 @@ func (r *runner) runTestsWithCheckpointRestore(
 	//    checkpoint so every restored container starts post-pre-run.
 	engineEndpoint := fmt.Sprintf("http://%s:%d", containerIP, spec.EnginePort())
 
+	// Where the datadir already sits decides how much of the bundle to replay: a
+	// promoted baseline is already AT its end block, so replaying from the first
+	// block re-imports thousands of known blocks to land where it started.
+	headNumber, headHash, _, blkErr := r.getLatestBlock(ctx, containerIP, spec.RPCPort())
+	preRunsApplied := false
+
+	if blkErr != nil {
+		log.WithError(blkErr).Warn("Could not read the datadir head; replaying the whole bundle")
+	} else {
+		applied, verifyErr := r.verifyPreRunBundleHead(log, headNumber, headHash)
+		if verifyErr != nil {
+			return nil, verifyErr
+		}
+
+		preRunsApplied = applied
+	}
+
 	preRunOpts := &executor.ExecuteOptions{
 		EngineEndpoint:                engineEndpoint,
 		JWT:                           r.cfg.JWT,
 		ResultsDir:                    resultsDir,
-		PreRunStepSleep:               r.cfg.PreRunStepSleep,
+		SkipUntilBlockNumber:          headNumber,
 		RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
 		RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+		PreRunStepSleep:               r.cfg.PreRunStepSleep,
+		SkipPreRunSteps:               preRunsApplied,
 	}
 
-	if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {
+	preRunSteps, err := r.executor.RunPreRunSteps(ctx, preRunOpts)
+	if err != nil {
 		return nil, fmt.Errorf("running pre-run steps before checkpoint: %w", err)
-	} else if n > 0 {
-		log.WithField("steps", n).Info("Pre-run steps completed before checkpoint")
+	}
+
+	if preRunSteps > 0 {
+		log.WithField("steps", preRunSteps).Info("Pre-run steps completed before checkpoint")
+	}
+
+	// 2b. Persist the advanced datadir as the new schelk baseline, if asked.
+	//
+	//     This has to happen BEFORE the checkpoint: `schelk promote` unmounts the
+	//     volume, so the client cannot be holding it, and the checkpoint must be
+	//     taken of a client already running on the promoted baseline — otherwise
+	//     every restore would come back on a datadir the baseline no longer
+	//     matches. The stop/restart mirrors the pre-checkpoint restart above,
+	//     including re-attaching log streaming.
+	if params.DataDirCfg.ShouldPromotePostPreRuns() && preRunSteps > 0 && !preRunsApplied {
+		log.Info("Promoting the advanced datadir to the schelk baseline before checkpointing")
+
+		log.WithField("settle", schelkSettleBeforeStop).Info(
+			"Waiting for client to settle before stop",
+		)
+		time.Sleep(schelkSettleBeforeStop)
+
+		if err := r.containerMgr.StopContainer(ctx, containerID, nil); err != nil {
+			return nil, fmt.Errorf("stopping container for schelk promote: %w", err)
+		}
+
+		waitForLogDrain(logDone, logCancel, logDrainTimeout)
+
+		if syncErr := exec.Command("sync").Run(); syncErr != nil {
+			log.WithError(syncErr).Warn("Failed to sync before schelk promote")
+		}
+
+		log.Info("Persisting the advanced datadir as the new schelk baseline (`schelk promote`)")
+
+		if err := datadir.SchelkPromote(ctx, r.log); err != nil {
+			return nil, fmt.Errorf("schelk promote: %w", err)
+		}
+
+		// promote leaves the volume unmounted; the restarted client binds this path.
+		if err := datadir.EnsureSchelkMounted(ctx, r.log); err != nil {
+			return nil, fmt.Errorf("remounting schelk volume after promote: %w", err)
+		}
+
+		if err := r.containerMgr.StartContainer(ctx, containerID); err != nil {
+			return nil, fmt.Errorf("starting container after schelk promote: %w", err)
+		}
+
+		newIP, ipErr := r.containerMgr.GetContainerIP(
+			ctx, containerID, r.cfg.ContainerNetwork,
+		)
+		if ipErr != nil {
+			return nil, fmt.Errorf("getting container IP after schelk promote: %w", ipErr)
+		}
+
+		containerIP = newIP
+
+		if logErr := r.startLogStreaming(
+			ctx, resultsDir,
+			params.Instance.ID, containerID,
+			benchmarkoorLog, &containerLogInfo{
+				Name:             params.ContainerSpec.Name,
+				ContainerID:      containerID,
+				Image:            params.ContainerSpec.Image,
+				GenesisGroupHash: params.GenesisGroupHash,
+			},
+			params.BlockLogCollector, cleanupStarted,
+			logDone, logCancel, cleanupFuncs,
+		); logErr != nil {
+			return nil, fmt.Errorf("log streaming after schelk promote: %w", logErr)
+		}
+
+		if _, err := r.waitForRPC(ctx, containerIP, spec.RPCPort()); err != nil {
+			return nil, fmt.Errorf("waiting for RPC after schelk promote: %w", err)
+		}
+
+		log.Info("Promoted; checkpointing the client on the promoted baseline")
 	}
 
 	// 3. Decide checkpoint export path: tmpfs (RAM) or disk.
