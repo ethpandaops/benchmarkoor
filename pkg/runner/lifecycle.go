@@ -1046,10 +1046,23 @@ func (r *runner) runContainerLifecycle(
 	// The replay skip below is by block NUMBER, so a datadir sitting at the right
 	// height on a different chain would silently skip and benchmark the wrong
 	// state. Check the hash too, against the range the bundle records.
+	// preRunsAlreadyApplied short-circuits the replay: the head is already the
+	// bundle's end block, so every line would be skipped anyway — and skipping
+	// them still means streaming the whole file, which for a multi-GB bundle costs
+	// minutes per run.
+	preRunsAlreadyApplied := false
+
 	if blkErr == nil {
-		if err := r.verifyPreRunBundleHead(log, blockNum, blockHash); err != nil {
+		applied, err := r.verifyPreRunBundleHead(log, blockNum, blockHash)
+		if err != nil {
 			return err
 		}
+
+		preRunsAlreadyApplied = applied
+	}
+
+	if preRunsAlreadyApplied {
+		log.Info("Pre-run bundle already applied to this datadir; skipping the replay")
 	}
 	if blkErr != nil {
 		log.WithError(blkErr).Warn("Failed to get latest block")
@@ -1202,12 +1215,13 @@ func (r *runner) runContainerLifecycle(
 		// for the whole run (none, rpc-debug-setHead). The runner-level strategies
 		// below handle it themselves, next to their own snapshot/checkpoint, since
 		// they rebuild the container per test anyway.
-		skipPreRunSteps := false
+		skipPreRunSteps := preRunsAlreadyApplied
 
-		if datadirCfg.ShouldPromotePostPreRuns() && !isRunnerLevelStrategy(rollbackStrategy) {
+		if datadirCfg.ShouldPromotePostPreRuns() && !isRunnerLevelStrategy(rollbackStrategy) &&
+			!preRunsAlreadyApplied {
 			newIP, err := r.promoteSchelkInPlace(
 				execCtx, ctx, instance, spec, containerID, containerIP, runResultsDir,
-				&stoppingOnPurpose, &mu, armContainerMonitor, log,
+				blockNum, &stoppingOnPurpose, &mu, armContainerMonitor, log,
 			)
 			if err != nil {
 				return fmt.Errorf("promoting schelk baseline after pre-run steps: %w", err)
@@ -1596,14 +1610,14 @@ func copyStateActorFiles(
 // that is the case that cannot be anything but the wrong chain.
 func (r *runner) verifyPreRunBundleHead(
 	log logrus.FieldLogger, headNumber uint64, headHash string,
-) error {
+) (bool, error) {
 	if r.cfg.FullConfig == nil {
-		return nil
+		return false, nil
 	}
 
 	src := r.cfg.FullConfig.Runner.Benchmark.Tests.Source.EESTFixtures
 	if src == nil || src.PreRuns == nil || src.PreRuns.LocalFixturesDir == "" {
-		return nil
+		return false, nil
 	}
 
 	info, err := builder.ReadPreRunBundleInfo(src.PreRuns.LocalFixturesDir)
@@ -1612,24 +1626,24 @@ func (r *runner) verifyPreRunBundleHead(
 		// that would otherwise replay correctly.
 		log.WithError(err).Warn("Could not read pre-run bundle metadata; skipping head verification")
 
-		return nil
+		return false, nil
 	}
 
 	if info == nil {
-		return nil
+		return false, nil
 	}
 
-	expect := func(want string, applied bool) error {
+	expect := func(want string, applied bool) (bool, error) {
 		if strings.EqualFold(headHash, want) {
 			log.WithFields(logrus.Fields{
 				"block":            headNumber,
 				"pre_runs_applied": applied,
 			}).Info("Datadir head matches the pre-run bundle")
 
-			return nil
+			return applied, nil
 		}
 
-		return fmt.Errorf(
+		return false, fmt.Errorf(
 			"datadir head %d has hash %s but the pre-run bundle expects %s at that block — "+
 				"the datadir is on a different chain than the bundle was recorded against",
 			headNumber, headHash, want,
@@ -1648,10 +1662,10 @@ func (r *runner) verifyPreRunBundleHead(
 			"block": headNumber, "bundle_start": info.StartBlockNumber, "bundle_end": info.EndBlockNumber,
 		}).Info("Datadir head is inside the pre-run bundle range; the replay will resume from it")
 
-		return nil
+		return false, nil
 	}
 
-	return fmt.Errorf(
+	return false, fmt.Errorf(
 		"datadir head %d is outside the pre-run bundle range %d..%d — the bundle cannot be "+
 			"replayed onto this datadir",
 		headNumber, info.StartBlockNumber, info.EndBlockNumber,
@@ -1684,6 +1698,7 @@ func (r *runner) promoteSchelkInPlace(
 	instance *config.ClientInstance,
 	spec client.Spec,
 	containerID, containerIP, resultsDir string,
+	headNumber uint64,
 	stoppingOnPurpose *bool,
 	mu *sync.Mutex,
 	armContainerMonitor func(string),
@@ -1697,6 +1712,7 @@ func (r *runner) promoteSchelkInPlace(
 		ResultsDir:                    resultsDir,
 		FailFast:                      true,
 		PreRunStepSleep:               r.cfg.PreRunStepSleep,
+		SkipUntilBlockNumber:          headNumber,
 		RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
 		RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
 	}

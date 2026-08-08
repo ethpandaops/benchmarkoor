@@ -1059,6 +1059,28 @@ func (r *runner) promoteSchelkAfterPreRuns(
 	logDone *chan struct{},
 	log logrus.FieldLogger,
 ) error {
+	// Where the datadir already sits decides how much of the bundle to replay. A
+	// promoted baseline is already AT the bundle's end, so replaying from its
+	// first block re-imports thousands of known blocks — minutes of wasted work
+	// that lands on the head it started from.
+	headNumber, headHash, _, blkErr := r.getLatestBlock(ctx, containerIP, spec.RPCPort())
+	if blkErr != nil {
+		log.WithError(blkErr).Warn("Could not read the datadir head; replaying the whole bundle")
+	} else {
+		applied, err := r.verifyPreRunBundleHead(log, headNumber, headHash)
+		if err != nil {
+			return err
+		}
+
+		if applied {
+			log.Info(
+				"Pre-run bundle already applied to this datadir; nothing to promote",
+			)
+
+			return nil
+		}
+	}
+
 	preRunOpts := &executor.ExecuteOptions{
 		EngineEndpoint: fmt.Sprintf(
 			"http://%s:%d", containerIP, spec.EnginePort(),
@@ -1067,6 +1089,7 @@ func (r *runner) promoteSchelkAfterPreRuns(
 		ResultsDir:                    resultsDir,
 		FailFast:                      true,
 		PreRunStepSleep:               r.cfg.PreRunStepSleep,
+		SkipUntilBlockNumber:          headNumber,
 		RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
 		RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
 	}
