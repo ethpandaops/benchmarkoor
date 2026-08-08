@@ -238,10 +238,42 @@ func (r *runner) runTestsWithContainerStrategy(
 
 	combined := &executor.ExecutionResult{}
 	startTime := time.Now()
+
+	// With container-recreate every test gets its own container, so one test
+	// taking the client down says nothing about the rest: a client crash used to
+	// abort the whole suite at that point, and — because `total` is whatever
+	// completed — the crashing test vanished from the results entirely rather
+	// than being reported as the failure it was.
+	//
+	// Record it as a failure and carry on. consecutiveSetupFailures guards the
+	// other reading of the same symptom: a client that cannot boot at all would
+	// otherwise burn a full RPC timeout per test for the whole suite.
+	consecutiveSetupFailures := 0
+
+	failTest := func(idx int, t *executor.TestWithSteps, cause error) {
+		log.WithFields(logrus.Fields{
+			"test":  t.Name,
+			"index": fmt.Sprintf("%d/%d", idx+1, len(tests)),
+		}).WithError(cause).Error("Could not prepare the client for this test; recording it as failed")
+
+		combined.TotalTests++
+		combined.Failed++
+		consecutiveSetupFailures++
+	}
 	currentContainerID := containerID
 	currentContainerIP := containerIP
 
 	for i, test := range tests {
+		if consecutiveSetupFailures >= maxConsecutiveSetupFailures {
+			combined.TotalDuration = time.Since(startTime)
+
+			return combined, fmt.Errorf(
+				"could not prepare the client for %d consecutive tests; the client looks "+
+					"unusable rather than tripped up by one test — stopping at %d/%d",
+				consecutiveSetupFailures, i+1, len(tests),
+			)
+		}
+
 		select {
 		case <-ctx.Done():
 			log.Info("Context cancelled, stopping current container")
@@ -362,9 +394,10 @@ func (r *runner) runTestsWithContainerStrategy(
 			if err := sr.rollback(ctx); err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf(
+				failTest(i, test, fmt.Errorf(
 					"rolling back ZFS snapshot for test %d: %w", i, err,
-				)
+				))
+				continue
 			}
 
 			// Create a new container using the same mount path.
@@ -379,9 +412,10 @@ func (r *runner) runTestsWithContainerStrategy(
 			if err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf(
+				failTest(i, test, fmt.Errorf(
 					"creating container for test %d: %w", i, err,
-				)
+				))
+				continue
 			}
 
 			currentContainerID = newID
@@ -411,9 +445,10 @@ func (r *runner) runTestsWithContainerStrategy(
 			); err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf(
+				failTest(i, test, fmt.Errorf(
 					"log streaming for test %d: %w", i, err,
-				)
+				))
+				continue
 			}
 
 			// Start the new container.
@@ -421,9 +456,10 @@ func (r *runner) runTestsWithContainerStrategy(
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf(
+				failTest(i, test, fmt.Errorf(
 					"starting container for test %d: %w", i, err,
-				)
+				))
+				continue
 			}
 
 			// Get new container IP.
@@ -434,9 +470,10 @@ func (r *runner) runTestsWithContainerStrategy(
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf(
+				failTest(i, test, fmt.Errorf(
 					"getting container IP for test %d: %w", i, err,
-				)
+				))
+				continue
 			}
 
 			currentContainerIP = newIP
@@ -449,9 +486,10 @@ func (r *runner) runTestsWithContainerStrategy(
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf(
+				failTest(i, test, fmt.Errorf(
 					"waiting for RPC on test %d: %w", i, rpcErr,
-				)
+				))
+				continue
 			}
 
 			testLog.WithField("version", clientVersion).Info(
@@ -524,10 +562,11 @@ func (r *runner) runTestsWithContainerStrategy(
 							)
 							combined.TotalDuration = time.Since(startTime)
 
-							return combined, fmt.Errorf(
+							failTest(i, test, fmt.Errorf(
 								"sending bootstrap FCU for test %d: %w",
 								i, fcuErr,
-							)
+							))
+							continue
 						}
 					}
 				}
@@ -581,9 +620,10 @@ func (r *runner) runTestsWithContainerStrategy(
 			if err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf(
+				failTest(i, test, fmt.Errorf(
 					"creating fresh data mount for test %d: %w", i, err,
-				)
+				))
+				continue
 			}
 
 			if mountCleanup != nil {
@@ -607,9 +647,10 @@ func (r *runner) runTestsWithContainerStrategy(
 				); err != nil {
 					combined.TotalDuration = time.Since(startTime)
 
-					return combined, fmt.Errorf(
+					failTest(i, test, fmt.Errorf(
 						"running init container for test %d: %w", i, err,
-					)
+					))
+					continue
 				}
 			}
 
@@ -617,7 +658,8 @@ func (r *runner) runTestsWithContainerStrategy(
 			if err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf("creating container for test %d: %w", i, err)
+				failTest(i, test, fmt.Errorf("creating container for test %d: %w", i, err))
+				continue
 			}
 
 			currentContainerID = newID
@@ -648,9 +690,10 @@ func (r *runner) runTestsWithContainerStrategy(
 			); err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf(
+				failTest(i, test, fmt.Errorf(
 					"log streaming for test %d: %w", i, err,
-				)
+				))
+				continue
 			}
 
 			// Start the new container.
@@ -658,7 +701,8 @@ func (r *runner) runTestsWithContainerStrategy(
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf("starting container for test %d: %w", i, err)
+				failTest(i, test, fmt.Errorf("starting container for test %d: %w", i, err))
+				continue
 			}
 
 			// Get new container IP.
@@ -669,7 +713,8 @@ func (r *runner) runTestsWithContainerStrategy(
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf("getting container IP for test %d: %w", i, err)
+				failTest(i, test, fmt.Errorf("getting container IP for test %d: %w", i, err))
+				continue
 			}
 
 			currentContainerIP = newIP
@@ -682,7 +727,8 @@ func (r *runner) runTestsWithContainerStrategy(
 				waitForLogDrain(logDone, logCancel, logDrainTimeout)
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf("waiting for RPC on test %d: %w", i, rpcErr)
+				failTest(i, test, fmt.Errorf("waiting for RPC on test %d: %w", i, rpcErr))
+				continue
 			}
 
 			testLog.WithField("version", clientVersion).Info(
@@ -750,10 +796,11 @@ func (r *runner) runTestsWithContainerStrategy(
 							waitForLogDrain(logDone, logCancel, logDrainTimeout)
 							combined.TotalDuration = time.Since(startTime)
 
-							return combined, fmt.Errorf(
+							failTest(i, test, fmt.Errorf(
 								"sending bootstrap FCU for test %d: %w",
 								i, fcuErr,
-							)
+							))
+							continue
 						}
 					}
 				}
@@ -782,9 +829,10 @@ func (r *runner) runTestsWithContainerStrategy(
 			if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
-				return combined, fmt.Errorf(
+				failTest(i, test, fmt.Errorf(
 					"running pre-run steps for test %d: %w", i, err,
-				)
+				))
+				continue
 			} else if n > 0 {
 				testLog.WithField("steps", n).Info(
 					"Pre-run steps completed",
@@ -825,6 +873,10 @@ func (r *runner) runTestsWithContainerStrategy(
 
 			continue
 		}
+
+		// The client came up and ran a test, so whatever went wrong before was
+		// specific to those tests rather than the client being unusable.
+		consecutiveSetupFailures = 0
 
 		// Aggregate results.
 		combined.TotalTests += result.TotalTests
@@ -1202,3 +1254,9 @@ func (r *runner) promoteSchelkAfterPreRuns(
 
 	return newIP, true, nil
 }
+
+// maxConsecutiveSetupFailures bounds how many tests in a row may fail to get a
+// working client before the suite gives up. One crash is the client's problem
+// with that test; a run of them means the client cannot start at all, and
+// continuing would spend a full RPC timeout per remaining test.
+const maxConsecutiveSetupFailures = 3
