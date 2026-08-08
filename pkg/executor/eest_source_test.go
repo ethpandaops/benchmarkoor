@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/eest"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,4 +87,99 @@ func TestParseGitHubArtifactURL(t *testing.T) {
 
 	_, _, _, ok = parseGitHubArtifactURL("https://example.com/fixtures.tar.gz")
 	assert.False(t, ok)
+}
+
+func TestLoadPreRunBundleSteps(t *testing.T) {
+	// writeBundle creates <root>/<subdir>/pre-run.request and returns root.
+	writeBundle := func(t *testing.T, subdir string) string {
+		t.Helper()
+
+		root := t.TempDir()
+		dir := filepath.Join(root, subdir)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "pre-run.request"), []byte("{}\n"), 0o644))
+
+		return root
+	}
+
+	t.Run("no pre_runs source is a no-op", func(t *testing.T) {
+		s := &EESTSource{log: logrus.New(), cfg: &config.EESTFixturesSource{}}
+		steps, err := s.loadPreRunBundleSteps()
+		require.NoError(t, err)
+		assert.Nil(t, steps)
+	})
+
+	t.Run("nothing to resolve against is a no-op", func(t *testing.T) {
+		// pre_runs configured, but neither a local dir nor extracted fixtures.
+		s := &EESTSource{
+			log: logrus.New(),
+			cfg: &config.EESTFixturesSource{PreRuns: &config.EESTPreRunsSource{}},
+		}
+		steps, err := s.loadPreRunBundleSteps()
+		require.NoError(t, err)
+		assert.Nil(t, steps)
+	})
+
+	t.Run("local_fixtures_dir wins over the extracted fixtures", func(t *testing.T) {
+		local := writeBundle(t, config.PreRunBundleSubdir)
+		s := &EESTSource{
+			log:         logrus.New(),
+			fixturesDir: t.TempDir(), // no bundle here — must not be consulted
+			cfg: &config.EESTFixturesSource{
+				PreRuns: &config.EESTPreRunsSource{LocalFixturesDir: local},
+			},
+		}
+
+		steps, err := s.loadPreRunBundleSteps()
+		require.NoError(t, err)
+		require.Len(t, steps, 1)
+		assert.Equal(t, filepath.Join(local, config.PreRunBundleSubdir, "pre-run.request"), steps[0].Path)
+	})
+
+	t.Run("falls back to the extracted fixtures artifact", func(t *testing.T) {
+		// The layout a benchmarkoor build ships: fixtures and bundle in one
+		// tarball, the bundle addressed by a subdir under the extract root.
+		subdir := filepath.Join("benchmarkoor-build-artifacts", "pre-runs", "geth", "pre_run_bundle")
+		root := writeBundle(t, subdir)
+		s := &EESTSource{
+			log:         logrus.New(),
+			fixturesDir: root,
+			cfg: &config.EESTFixturesSource{
+				PreRuns: &config.EESTPreRunsSource{FixturesSubdir: subdir},
+			},
+		}
+
+		steps, err := s.loadPreRunBundleSteps()
+		require.NoError(t, err)
+		require.Len(t, steps, 1)
+		assert.Equal(t, filepath.Join(root, subdir, "pre-run.request"), steps[0].Path)
+		assert.Equal(t, "pre_run/pre-run.request", steps[0].Name)
+	})
+
+	t.Run("subdir defaults to the bundle subdir under the artifact", func(t *testing.T) {
+		root := writeBundle(t, config.PreRunBundleSubdir)
+		s := &EESTSource{
+			log:         logrus.New(),
+			fixturesDir: root,
+			cfg:         &config.EESTFixturesSource{PreRuns: &config.EESTPreRunsSource{}},
+		}
+
+		steps, err := s.loadPreRunBundleSteps()
+		require.NoError(t, err)
+		require.Len(t, steps, 1)
+	})
+
+	t.Run("a configured bundle that is missing is an error", func(t *testing.T) {
+		s := &EESTSource{
+			log:         logrus.New(),
+			fixturesDir: t.TempDir(),
+			cfg: &config.EESTFixturesSource{
+				PreRuns: &config.EESTPreRunsSource{FixturesSubdir: "nope"},
+			},
+		}
+
+		_, err := s.loadPreRunBundleSteps()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no pre-run bundle")
+	})
 }

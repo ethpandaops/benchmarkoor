@@ -1004,8 +1004,25 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 // loadPreRunBundleSteps returns the configured builder.pre_runs bundle as
 // pre-run steps (the runner replays them before the fixtures). Returns nil when
 // no pre_runs source is configured.
+//
+// The bundle is read from LocalFixturesDir when set, and otherwise from the
+// already-extracted fixtures artifact — resolved against the same root
+// FixturesSubdir resolves the fixtures against. A build ships the bundle and
+// the fixtures in one tarball, so a release consumer can reach both from a
+// single fixtures_url instead of staging the bundle on every runner host.
 func (s *EESTSource) loadPreRunBundleSteps() ([]*StepFile, error) {
-	if s.cfg.PreRuns == nil || s.cfg.PreRuns.LocalFixturesDir == "" {
+	if s.cfg.PreRuns == nil {
+		return nil, nil
+	}
+
+	base := s.cfg.PreRuns.LocalFixturesDir
+	if base == "" {
+		base = s.fixturesDir
+	}
+
+	// Nothing to resolve against: no local directory configured and no
+	// fixtures extracted for this source.
+	if base == "" {
 		return nil, nil
 	}
 
@@ -1014,7 +1031,7 @@ func (s *EESTSource) loadPreRunBundleSteps() ([]*StepFile, error) {
 		subdir = config.PreRunBundleSubdir
 	}
 
-	bundleDir := filepath.Join(s.cfg.PreRuns.LocalFixturesDir, subdir)
+	bundleDir := filepath.Join(base, subdir)
 
 	entries, err := filepath.Glob(filepath.Join(bundleDir, "*.request"))
 	if err != nil {

@@ -844,6 +844,20 @@ const PreRunBundleSubdir = "pre_run_bundle"
 // EESTPreRunsSource locates a builder.pre_runs payload bundle for the runner to
 // replay before the benchmark fixtures. It mirrors the fixtures source's local
 // layout: FixturesSubdir defaults to PreRunBundleSubdir.
+//
+// LocalFixturesDir is optional. Left empty, the bundle is looked up inside the
+// fixtures artifact this source already extracted, exactly as FixturesSubdir
+// locates the fixtures within it — a build writes both into the same tarball,
+// so a release consumer needs only:
+//
+//	eest_fixtures:
+//	  fixtures_url: https://…/eest-payloads-…-geth.tar.gz
+//	  fixtures_subdir: benchmarkoor-build-artifacts/eest-payloads/geth/blockchain_tests_stateful_engine
+//	  pre_runs:
+//	    fixtures_subdir: benchmarkoor-build-artifacts/pre-runs/geth/pre_run_bundle
+//
+// Set LocalFixturesDir when the bundle lives outside the fixtures artifact, as
+// it does for a target whose bundle_dir moved it off the advanced datadir.
 type EESTPreRunsSource struct {
 	LocalFixturesDir string `yaml:"local_fixtures_dir,omitempty" mapstructure:"local_fixtures_dir"`
 	FixturesSubdir   string `yaml:"fixtures_subdir,omitempty" mapstructure:"fixtures_subdir"`
