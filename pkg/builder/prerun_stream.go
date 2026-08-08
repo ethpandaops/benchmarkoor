@@ -3,6 +3,7 @@ package builder
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -26,6 +27,14 @@ import (
 // fill, and a --no-reset-between-tests fill emits its blocks in order — so
 // rather than buffering everything to sort it, this enforces the invariant and
 // fails loudly if it is ever violated.
+// errPayloadOutOfOrder marks the streaming writer's ordering invariant being
+// broken. It is distinct from a read failure because the two deserve opposite
+// treatment: a fixture that could not be read is salvageable (bundle what was
+// readable), whereas payloads arriving out of order mean the bundle cannot be
+// assembled correctly at all, and continuing would write a plausible-looking
+// prefix that silently omits everything after the break.
+var errPayloadOutOfOrder = errors.New("pre-run payloads out of order")
+
 type bundleWriter struct {
 	path   string
 	file   *os.File
@@ -81,8 +90,10 @@ func (b *bundleWriter) emit(p recordedPayload) error {
 
 	if b.count > 0 && number <= b.last {
 		return fmt.Errorf(
-			"payloads out of order: block %d arrived after %d; the bundle writer "+
-				"streams in order and cannot reorder", number, b.last,
+			"%w: block %d arrived after %d; the bundle writer streams in order and "+
+				"cannot reorder (fixtures are walked in lexical path order, so a fill "+
+				"whose files do not sort by block number needs the buffered path)",
+			errPayloadOutOfOrder, number, b.last,
 		)
 	}
 

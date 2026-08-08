@@ -1,12 +1,14 @@
 package builder
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -173,4 +175,46 @@ func TestStreamFixturePayloadsSkipsNonFixtures(t *testing.T) {
 		return nil
 	}))
 	assert.Zero(t, seen)
+}
+
+// An ordering break must fail the build, not warn. writeBundle tolerates an
+// unreadable fixture (a crashed fill leaves a partial tree) by bundling what it
+// got — but applying that tolerance to an ordering break would emit a plausible
+// prefix that silently omits every later block, which is the exact failure this
+// streaming writer exists to prevent.
+func TestWriteBundleFailsOnOutOfOrderFixtures(t *testing.T) {
+	fixtures, out := t.TempDir(), t.TempDir()
+
+	write := func(name string, blocks []string) {
+		var payloads []any
+
+		for _, b := range blocks {
+			payloads = append(payloads, map[string]any{
+				"newPayloadVersion": "5",
+				"params": []any{map[string]string{
+					"blockNumber": b, "blockHash": "0xh" + b, "parentHash": "0xp" + b,
+				}},
+			})
+		}
+
+		data, err := json.Marshal(map[string]any{
+			"t/" + name: map[string]any{"engineNewPayloads": payloads},
+		})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(fixtures, name), data, 0o644))
+	}
+
+	// WalkDir visits these lexically, so the later blocks arrive first.
+	write("a-high.json", []string{"0x10", "0x11"})
+	write("b-low.json", []string{"0x1", "0x2"})
+
+	b := &PreRunsBuilder{log: logrus.New()}
+
+	err := b.writeBundle(logrus.New(), out, fixtures, nil)
+	require.Error(t, err, "an ordering break must not be reported as success")
+	require.ErrorIs(t, err, errPayloadOutOfOrder)
+
+	// And no half-written bundle is left behind to be consumed as complete.
+	_, statErr := os.Stat(filepath.Join(out, config.PreRunBundleSubdir, preRunBundleFile))
+	assert.True(t, os.IsNotExist(statErr), "the truncated bundle must not survive")
 }

@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -870,6 +871,15 @@ func (b *PreRunsBuilder) writeBundle(log logrus.FieldLogger, outputDir, fixtures
 	// tree — neither is a reason to lose the blocks we recorded ourselves, or the
 	// fixture payloads that were readable before the failure.
 	if walkErr := streamFixtureDir(fixturesDir, bw.emit); walkErr != nil {
+		// An ordering break is not a partial read: everything after it would be
+		// dropped while the bundle still looked complete, so it is fatal even
+		// though payloads were already written.
+		if errors.Is(walkErr, errPayloadOutOfOrder) {
+			_ = bw.discard()
+
+			return fmt.Errorf("streaming fixture payloads: %w", walkErr)
+		}
+
 		if bw.count == 0 {
 			_ = bw.close()
 
