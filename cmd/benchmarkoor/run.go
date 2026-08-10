@@ -149,6 +149,11 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		log.WithField("signal", sig).Fatal("Received second signal, forcing exit")
 	}()
 
+	// A failed instance does not stop the others, but it must not be swallowed
+	// either: CI runs one client per job, so an instance that never benchmarked
+	// anything reported a green job.
+	var failedInstances []string
+
 	if !cfg.Runner.Benchmark.SkipTestRun {
 		// Filter instances if limits are specified (before validation so we
 		// can scope datadir checks to active instances only).
@@ -347,6 +352,8 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			if err := r.RunInstance(ctx, &instance); err != nil {
 				log.WithError(err).WithField("instance", instance.ID).Error("Instance failed")
 
+				failedInstances = append(failedInstances, instance.ID)
+
 				// Continue with next instance on failure.
 				continue
 			}
@@ -371,6 +378,15 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		if err := generateSuiteStats(cmd, cfg, resultsOwner); err != nil {
 			log.WithError(err).Warn("Failed to generate suite stats")
 		}
+	}
+
+	// Reported last so the results index, suite stats and markdown summaries are
+	// still written for whatever did run.
+	if len(failedInstances) > 0 {
+		return fmt.Errorf(
+			"%d instance(s) failed: %s",
+			len(failedInstances), strings.Join(failedInstances, ", "),
+		)
 	}
 
 	return nil

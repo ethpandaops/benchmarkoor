@@ -1465,6 +1465,14 @@ func (r *runner) runContainerLifecycle(
 		return fmt.Errorf("container died during execution")
 	}
 
+	// A run that benchmarked nothing — a pre-run replay that could not be
+	// applied, an RPC that never came up — has already written its results and
+	// logged its status, but returning nil here let the process exit 0 and the
+	// CI job go green on a run that produced no numbers.
+	if runConfig.Status == RunStatusFailed {
+		return fmt.Errorf("run failed: %s", runConfig.TerminationReason)
+	}
+
 	return nil
 }
 
