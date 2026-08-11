@@ -106,6 +106,9 @@ runner:
     #     # Path-style addressing: required for MinIO and Cloudflare R2.
     #     force_path_style: false
     #     # parallel_uploads: 50  # Number of concurrent file uploads
+    #     # Cap on the whole post-run upload (run dir + suite dir). Defaults to
+    #     # 60m; a stateful suite ships its pre-run bundle, which can be tens of GB.
+    #     # timeout: 60m
 
     # Optional test execution configuration.
     # tests:

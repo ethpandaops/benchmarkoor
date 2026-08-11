@@ -789,6 +789,28 @@ type S3UploadConfig struct {
 	ACL             string `yaml:"acl,omitempty" mapstructure:"acl"`
 	ForcePathStyle  bool   `yaml:"force_path_style" mapstructure:"force_path_style"`
 	ParallelUploads int    `yaml:"parallel_uploads,omitempty" mapstructure:"parallel_uploads"`
+	// Timeout caps the whole post-run upload (run directory plus suite
+	// directory), e.g. "60m". Empty uses DefaultUploadTimeout.
+	Timeout string `yaml:"timeout,omitempty" mapstructure:"timeout"`
+}
+
+// DefaultUploadTimeout is the default cap on the post-run upload. Generous
+// because a stateful suite ships its pre-run bundle alongside the fixtures,
+// which together reach tens of GB.
+const DefaultUploadTimeout = 60 * time.Minute
+
+// GetTimeout returns the upload timeout with the default applied.
+func (s *S3UploadConfig) GetTimeout() time.Duration {
+	if s == nil || s.Timeout == "" {
+		return DefaultUploadTimeout
+	}
+
+	d, err := time.ParseDuration(s.Timeout)
+	if err != nil {
+		return DefaultUploadTimeout
+	}
+
+	return d
 }
 
 // TestsConfig contains test execution settings.

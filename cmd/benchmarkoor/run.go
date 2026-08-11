@@ -290,7 +290,10 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create S3 uploader if configured.
-		var resultsUploader upload.Uploader
+		var (
+			resultsUploader upload.Uploader
+			uploadTimeout   time.Duration
+		)
 
 		if cfg.Runner.Benchmark.ResultsUpload != nil &&
 			cfg.Runner.Benchmark.ResultsUpload.S3 != nil &&
@@ -299,6 +302,8 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return fmt.Errorf("creating S3 uploader: %w", err)
 			}
+
+			uploadTimeout = cfg.Runner.Benchmark.ResultsUpload.S3.GetTimeout()
 
 			// Fail fast: verify S3 is reachable and writable before starting benchmarks.
 			if err := resultsUploader.Preflight(ctx); err != nil {
@@ -323,6 +328,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			FullConfig:         cfg,
 			StopAfterPrerun:    stopAfterPrerun,
 			PreRunStepSleep:    preRunStepSleep,
+			UploadTimeout:      uploadTimeout,
 		}
 
 		r := runner.NewRunner(log, runnerCfg, containerMgr, registry, exec, cpufreqMgr, resultsUploader, preRunLogBuffer)

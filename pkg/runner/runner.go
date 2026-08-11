@@ -73,6 +73,10 @@ type Config struct {
 	// within pre-run step files. Useful for pacing replay against the
 	// engine API. 0 disables sleeping.
 	PreRunStepSleep time.Duration
+	// UploadTimeout caps the post-run results + suite upload. A suite carries
+	// its pre-run bundle, which can run to tens of GB, so this has to allow
+	// for far more than a run directory's worth of files. 0 uses the default.
+	UploadTimeout time.Duration
 }
 
 // TestCounts contains test count statistics for a run.
@@ -276,7 +280,7 @@ func (r *runner) Stop() error {
 }
 
 // uploadResults uploads run results to remote storage if an uploader is configured.
-// Uses a fresh context with a 5-minute timeout so uploads complete even if the
+// Uses a fresh context with its own timeout so uploads complete even if the
 // parent context was cancelled. If suiteHash is non-empty, the suite directory
 // is also uploaded.
 func (r *runner) uploadResults(runResultsDir, suiteHash string) {
@@ -286,7 +290,12 @@ func (r *runner) uploadResults(runResultsDir, suiteHash string) {
 
 	r.log.WithField("dir", runResultsDir).Info("Uploading results to S3")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	timeout := r.cfg.UploadTimeout
+	if timeout <= 0 {
+		timeout = config.DefaultUploadTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	if err := r.uploader.Upload(ctx, runResultsDir); err != nil {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
@@ -19,11 +20,25 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// uploadPartSize is the multipart chunk size. S3-compatible stores cap a
+// single PutObject at 5 GiB and a multipart upload at 10000 parts, so 64 MiB
+// parts carry any file the runner produces (640 GiB ceiling) — including the
+// multi-GB pre-run bundles that a bare PutObject rejects with EntityTooLarge.
+const uploadPartSize = 64 * 1024 * 1024
+
+// uploadPartConcurrency is the per-file part concurrency. Files are already
+// fanned out ParallelUploads-wide, so this stays low; it only matters for the
+// few files big enough to be split at all.
+const uploadPartConcurrency = 4
+
 // s3Uploader implements Uploader for S3-compatible storage.
 type s3Uploader struct {
 	log    logrus.FieldLogger
 	cfg    *config.S3UploadConfig
 	client *s3.Client
+	// The successor, feature/s3/transfermanager, is still a v0 preview; stay on
+	// the stable manager until it reaches v1.
+	uploader *manager.Uploader //nolint:staticcheck // SA1019: successor is pre-v1
 }
 
 // Ensure interface compliance.
@@ -63,10 +78,16 @@ func NewS3Uploader(
 	log logrus.FieldLogger,
 	cfg *config.S3UploadConfig,
 ) (Uploader, error) {
+	client := newS3Client(cfg)
+
 	return &s3Uploader{
 		log:    log.WithField("component", "s3-uploader"),
 		cfg:    cfg,
-		client: newS3Client(cfg),
+		client: client,
+		uploader: manager.NewUploader(client, func(u *manager.Uploader) { //nolint:staticcheck // SA1019: successor is pre-v1
+			u.PartSize = uploadPartSize
+			u.Concurrency = uploadPartConcurrency
+		}),
 	}, nil
 }
 
@@ -257,9 +278,12 @@ func (u *s3Uploader) uploadFile(ctx context.Context, localPath, key string) erro
 		"bucket": u.cfg.Bucket,
 	}).Debug("Uploading file")
 
-	_, err = u.client.PutObject(ctx, input)
+	// The manager sends anything under PartSize as a plain PutObject and splits
+	// the rest into a multipart upload. Body is an *os.File, so parts are read
+	// via io.ReaderAt section reads rather than buffered in memory.
+	_, err = u.uploader.Upload(ctx, input) //nolint:staticcheck // SA1019: successor is pre-v1
 	if err != nil {
-		return fmt.Errorf("PutObject: %w", err)
+		return fmt.Errorf("upload: %w", err)
 	}
 
 	return nil

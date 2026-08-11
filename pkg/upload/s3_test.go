@@ -1,10 +1,18 @@
 package upload
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolvePrefix(t *testing.T) {
@@ -79,4 +87,89 @@ func TestDetectContentType(t *testing.T) {
 			assert.Contains(t, got, tt.wantPrefix)
 		})
 	}
+}
+
+// fakeS3 speaks the subset of the S3 API the uploader touches and records
+// which upload path each object took.
+type fakeS3 struct {
+	mu         sync.Mutex
+	singlePuts []string
+	multiparts []string
+	parts      int
+}
+
+func (f *fakeS3) handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		key := r.URL.Path
+
+		f.mu.Lock()
+		defer f.mu.Unlock()
+
+		switch {
+		case r.Method == http.MethodPost && q.Has("uploads"):
+			w.Header().Set("Content-Type", "application/xml")
+			f.multiparts = append(f.multiparts, key)
+			_, _ = w.Write([]byte(`<InitiateMultipartUploadResult>` +
+				`<Bucket>b</Bucket><Key>` + key + `</Key><UploadId>up-1</UploadId>` +
+				`</InitiateMultipartUploadResult>`))
+		case r.Method == http.MethodPut && q.Has("partNumber"):
+			_, _ = io.Copy(io.Discard, r.Body)
+			f.parts++
+			w.Header().Set("ETag", `"etag"`)
+		case r.Method == http.MethodPost && q.Has("uploadId"):
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = w.Write([]byte(`<CompleteMultipartUploadResult>` +
+				`<Bucket>b</Bucket><Key>` + key + `</Key><ETag>"etag"</ETag>` +
+				`</CompleteMultipartUploadResult>`))
+		case r.Method == http.MethodPut:
+			_, _ = io.Copy(io.Discard, r.Body)
+			f.singlePuts = append(f.singlePuts, key)
+			w.Header().Set("ETag", `"etag"`)
+		default:
+			w.WriteHeader(http.StatusNotImplemented)
+		}
+	})
+}
+
+// A file larger than the part size must go out as a multipart upload. A bare
+// PutObject caps at 5 GiB and fails with EntityTooLarge on the multi-GB
+// pre-run bundles a stateful suite carries.
+func TestUploadFileSplitsLargeFiles(t *testing.T) {
+	fake := &fakeS3{}
+	srv := httptest.NewServer(fake.handler())
+
+	defer srv.Close()
+
+	uploader, err := NewS3Uploader(logrus.New(), &config.S3UploadConfig{
+		Bucket:          "b",
+		EndpointURL:     srv.URL,
+		Region:          "us-east-1",
+		AccessKeyID:     "id",
+		SecretAccessKey: "secret",
+		ForcePathStyle:  true,
+		ParallelUploads: 1,
+	})
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+
+	big := filepath.Join(dir, "big.bin")
+	f, err := os.Create(big)
+	require.NoError(t, err)
+	require.NoError(t, f.Truncate(uploadPartSize+1))
+	require.NoError(t, f.Close())
+
+	small := filepath.Join(dir, "small.bin")
+	require.NoError(t, os.WriteFile(small, []byte("small"), 0o600))
+
+	s3u, ok := uploader.(*s3Uploader)
+	require.True(t, ok)
+
+	require.NoError(t, s3u.uploadFile(t.Context(), big, "suites/h/big.bin"))
+	require.NoError(t, s3u.uploadFile(t.Context(), small, "suites/h/small.bin"))
+
+	assert.Equal(t, []string{"/b/suites/h/big.bin"}, fake.multiparts)
+	assert.Equal(t, 2, fake.parts)
+	assert.Equal(t, []string{"/b/suites/h/small.bin"}, fake.singlePuts)
 }
