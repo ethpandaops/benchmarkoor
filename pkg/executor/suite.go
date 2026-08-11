@@ -72,12 +72,10 @@ type SourceStepsGlobs struct {
 // SuiteFile represents a file in the suite output.
 type SuiteFile struct {
 	OgPath string `json:"og_path"` // original relative path
-	// SizeBytes is the size of the source file, recorded even when the file
-	// itself was left out of the suite.
+	// SizeBytes is the source file's size, recorded even when it was omitted.
 	SizeBytes int64 `json:"size_bytes,omitempty"`
-	// Omitted marks a step whose payload was too large to keep in the suite
-	// directory, so it was never uploaded. The UI must not offer it for
-	// viewing; the bytes live in the fixtures artifact the step came from.
+	// Omitted marks a payload too large to keep, so never uploaded. The UI
+	// must not offer it; the bytes stay in the fixtures artifact.
 	Omitted bool `json:"omitted,omitempty"`
 }
 
@@ -166,9 +164,8 @@ func getStepContent(step *StepFile) ([]byte, error) {
 }
 
 // CreateSuiteOutput creates the suite directory structure with copied files and summary.
-// maxPreRunUploadSize caps the pre-run payloads kept in the suite, and so the
-// ones uploaded with it; see config.ResultsUploadConfig.MaxPreRunUploadSize.
-// Zero or less keeps every one.
+// maxPreRunUploadSize caps the pre-run payloads kept, and so uploaded; see
+// config.ResultsUploadConfig.MaxPreRunUploadSize. Zero or less keeps every one.
 func CreateSuiteOutput(
 	log logrus.FieldLogger,
 	resultsDir, hash string,
@@ -430,8 +427,8 @@ func copyTestStepFile(testDir, stepType string, file *StepFile, owner *fsutil.Ow
 
 // copyPreRunStepFile copies a pre-run step file to the suite directory.
 // Files are stored as <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
-// A file over maxSize is described in the summary but not copied, so it never
-// reaches the bucket either; maxSize <= 0 disables the limit.
+// Over maxSize a file is described in the summary but not copied, so never
+// uploaded either; maxSize <= 0 disables the limit.
 func copyPreRunStepFile(
 	log logrus.FieldLogger,
 	suiteDir string,
@@ -444,9 +441,8 @@ func copyPreRunStepFile(
 		return nil, err
 	}
 
-	// Checked before anything is created, so an oversized bundle costs neither
-	// the local write nor the upload — and leaves no empty directory behind to
-	// suggest a file that was never stored.
+	// Checked before anything is created: no wasted write, and no empty
+	// directory implying a file that was never stored.
 	if maxSize > 0 && size > maxSize {
 		log.WithFields(logrus.Fields{
 			"step":  file.Name,

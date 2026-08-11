@@ -106,11 +106,8 @@ runner:
     #     # Path-style addressing: required for MinIO and Cloudflare R2.
     #     force_path_style: false
     #     # parallel_uploads: 50  # Number of concurrent file uploads
-    #   # Cap on pre-run bundles uploaded with a suite. One over the limit is
-    #   # recorded in summary.json with "omitted": true but never stored, so it
-    #   # is never uploaded — it is a replay script for the runner, not
-    #   # something the UI needs, and it stays in the fixtures artifact it came
-    #   # from. Default "512MB"; "0" uploads every bundle.
+    #   # Cap on pre-run bundles uploaded with a suite; over it they are
+    #   # recorded in summary.json but not stored. Default "512MB", "0" = all.
     #   # max_pre_run_upload_size: 512MB
     #     # Cap on the whole post-run upload (run dir + suite dir). Defaults to
     #     # 60m; a stateful suite ships its pre-run bundle, which can be tens of GB.

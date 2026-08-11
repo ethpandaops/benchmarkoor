@@ -143,8 +143,8 @@ type Config struct {
 	ResultsOwner                    *fsutil.OwnerConfig // Optional file ownership for results directory
 	SystemResourceCollectionEnabled bool                // Enable system resource collection (cgroups/Docker Stats)
 	GitHubToken                     string              // Optional GitHub token for API-based artifact downloads
-	// MaxPreRunUploadSize caps the pre-run payloads kept in the suite
-	// directory, and so the ones uploaded with it. Zero or less keeps every one.
+	// MaxPreRunUploadSize caps the pre-run payloads kept in the suite, and so
+	// the ones uploaded with it. Zero or less keeps every one.
 	MaxPreRunUploadSize int64
 }
 

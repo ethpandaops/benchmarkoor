@@ -775,21 +775,15 @@ type BenchmarkConfig struct {
 type ResultsUploadConfig struct {
 	S3 *S3UploadConfig `yaml:"s3,omitempty" mapstructure:"s3"`
 	// MaxPreRunUploadSize caps the pre-run bundles uploaded with a suite, e.g.
-	// "512MB". A bundle over the limit is recorded in summary.json with
-	// "omitted": true but never copied into the suite directory, so it is
-	// never uploaded: it is a replay script for the runner, not something the
-	// UI has any use for, and it stays in the fixtures artifact it came from.
-	// "0" uploads every bundle. Empty uses DefaultMaxPreRunUploadSize.
+	// "512MB". Over it they are recorded in summary.json but not stored.
 	MaxPreRunUploadSize string `yaml:"max_pre_run_upload_size,omitempty" mapstructure:"max_pre_run_upload_size"`
 }
 
-// DefaultMaxPreRunUploadSize is the default cap on uploaded pre-run bundles.
-// Sized to admit ordinary ones while excluding the multi-GB bundles a
-// bloatnet-style setup produces.
+// DefaultMaxPreRunUploadSize admits ordinary pre-run bundles while excluding
+// the multi-GB ones a bloatnet-style setup produces.
 const DefaultMaxPreRunUploadSize = 512 * 1024 * 1024
 
-// GetMaxPreRunUploadSize returns the cap in bytes, with the default applied.
-// A zero value means no limit.
+// GetMaxPreRunUploadSize returns the cap in bytes; zero means no limit.
 func (r *ResultsUploadConfig) GetMaxPreRunUploadSize() int64 {
 	if r == nil || r.MaxPreRunUploadSize == "" {
 		return DefaultMaxPreRunUploadSize

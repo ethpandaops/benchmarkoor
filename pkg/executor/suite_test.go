@@ -264,10 +264,8 @@ func TestCreateSuiteOutput_MergesPayloadSizesOnSecondRun(t *testing.T) {
 	assert.Greater(t, parsed.Tests[0].PayloadSizes.Test.SSZFull[0], uint64(100), "merge path should backfill sizes")
 }
 
-// A pre-run bundle is a replay script for the runner, not something the UI
-// needs — the jochemnet bloatnet one is 9.4 GiB of setup blocks. Over the
-// limit it gets described in the summary but never written, so it is never
-// uploaded either.
+// A pre-run bundle is a runner replay script, not something the UI needs —
+// the jochemnet bloatnet one is 9.4 GiB. Over the limit it is described only.
 func TestCreateSuiteOutput_OmitsOversizedPreRunSteps(t *testing.T) {
 	log := logrus.New()
 	tmp := t.TempDir()
@@ -350,8 +348,7 @@ func TestCreateSuiteOutput_KeepsPreRunStepsWithinLimit(t *testing.T) {
 	}
 }
 
-// An omitted bundle must not leave an empty directory behind, which would
-// imply a file that was never stored.
+// An omitted bundle must leave no empty directory implying a stored file.
 func TestCreateSuiteOutput_OmittedPreRunLeavesNoStepDir(t *testing.T) {
 	tmp := t.TempDir()
 
