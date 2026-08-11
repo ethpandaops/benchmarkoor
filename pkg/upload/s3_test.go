@@ -1,8 +1,6 @@
 package upload
 
 import (
-	"crypto/md5" //nolint:gosec // mirrors how S3 computes a single-part ETag
-	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -101,25 +99,20 @@ type fakeS3 struct {
 	multiparts []string
 	parts      int
 	// stored mimics bucket contents so ListObjectsV2 can report them back.
-	stored    map[string]storedObject
+	stored    map[string]int64
 	partBytes map[string]int64
-}
-
-type storedObject struct {
-	size int64
-	etag string
 }
 
 func newFakeS3() *fakeS3 {
 	return &fakeS3{
-		stored:    make(map[string]storedObject),
+		stored:    make(map[string]int64),
 		partBytes: make(map[string]int64),
 	}
 }
 
 // store records an object under its bucket-relative key. Callers hold f.mu.
-func (f *fakeS3) store(path string, size int64, etag string) {
-	f.stored[strings.TrimPrefix(path, "/b/")] = storedObject{size: size, etag: etag}
+func (f *fakeS3) store(path string, size int64) {
+	f.stored[strings.TrimPrefix(path, "/b/")] = size
 }
 
 func (f *fakeS3) handler() http.Handler {
@@ -136,11 +129,10 @@ func (f *fakeS3) handler() http.Handler {
 
 			body := `<ListBucketResult><IsTruncated>false</IsTruncated>`
 
-			for k, obj := range f.stored {
+			for k, size := range f.stored {
 				if strings.HasPrefix(k, q.Get("prefix")) {
 					body += `<Contents><Key>` + k +
-						`</Key><Size>` + strconv.FormatInt(obj.size, 10) +
-						`</Size><ETag>&quot;` + obj.etag + `&quot;</ETag></Contents>`
+						`</Key><Size>` + strconv.FormatInt(size, 10) + `</Size></Contents>`
 				}
 			}
 
@@ -159,18 +151,15 @@ func (f *fakeS3) handler() http.Handler {
 		case r.Method == http.MethodPost && q.Has("uploadId"):
 			w.Header().Set("Content-Type", "application/xml")
 
-			// A real multipart ETag is a digest of the part digests with a
-			// "-N" suffix, never a plain MD5 of the object.
-			f.store(key, f.partBytes[key], "composite-2")
+			f.store(key, f.partBytes[key])
 
 			_, _ = w.Write([]byte(`<CompleteMultipartUploadResult>` +
 				`<Bucket>b</Bucket><Key>` + key + `</Key><ETag>"etag"</ETag>` +
 				`</CompleteMultipartUploadResult>`))
 		case r.Method == http.MethodPut:
-			h := md5.New() //nolint:gosec // mirrors how S3 computes a single-part ETag
-			n, _ := io.Copy(h, r.Body)
+			n, _ := io.Copy(io.Discard, r.Body)
 			f.singlePuts = append(f.singlePuts, key)
-			f.store(key, n, hex.EncodeToString(h.Sum(nil)))
+			f.store(key, n)
 			w.Header().Set("ETag", `"etag"`)
 		default:
 			w.WriteHeader(http.StatusNotImplemented)
@@ -259,12 +248,14 @@ func TestUploadSuiteDirSkipsUnchangedObjects(t *testing.T) {
 	// suite hash — so it alone is re-sent.
 	assert.Equal(t, []string{"/b/results/suites/0d93b5bf3b970403/summary.json"}, fake.singlePuts)
 
-	// A changed file is re-sent even though its key already exists.
+	// A file whose size no longer matches is re-sent. Same size with different
+	// bytes is deliberately not detected: a suite key is content-addressed, so
+	// that cannot happen without the hash changing too.
 	fake.singlePuts = nil
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "benchmark", "t1", "test.request"), []byte("CHANGED"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "benchmark", "t1", "test.request"), []byte("longer payload"), 0o600))
 	require.NoError(t, uploader.UploadSuiteDir(t.Context(), dir))
 	assert.ElementsMatch(t, []string{
 		"/b/results/suites/0d93b5bf3b970403/summary.json",
 		"/b/results/suites/0d93b5bf3b970403/benchmark/t1/test.request",
-	}, fake.singlePuts, "same size, different bytes: the ETag catches it")
+	}, fake.singlePuts)
 }

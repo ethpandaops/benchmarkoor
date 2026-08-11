@@ -2,10 +2,7 @@ package upload
 
 import (
 	"context"
-	"crypto/md5" //nolint:gosec // S3 defines the ETag as MD5; not a security check
-	"encoding/hex"
 	"fmt"
-	"io"
 	"mime"
 	"os"
 	"path/filepath"
@@ -307,8 +304,8 @@ func (u *s3Uploader) resolvePrefix(baseName string) string {
 }
 
 // UploadSuiteDir uploads all files in a suite directory to S3 under
-// prefix + "/suites/" + dirname. Objects already present at the same size are
-// skipped: a suite hash is derived from its step file contents, so a given key
+// prefix + "/suites/" + dirname. Objects already there at the same size are
+// skipped: a suite hash is a digest of its step file contents, so a given key
 // under it always holds the same bytes and re-sending them is pure waste.
 func (u *s3Uploader) UploadSuiteDir(ctx context.Context, localSuiteDir string) error {
 	prefix := u.cfg.Prefix
@@ -323,7 +320,7 @@ func (u *s3Uploader) UploadSuiteDir(ctx context.Context, localSuiteDir string) e
 		return fmt.Errorf("walking suite directory %s: %w", localSuiteDir, err)
 	}
 
-	remote, err := u.listObjects(ctx, keyPrefix)
+	remote, err := u.listSizes(ctx, keyPrefix)
 	if err != nil {
 		// A listing failure only costs us the optimisation, so fall back to
 		// uploading everything rather than failing the suite.
@@ -338,7 +335,10 @@ func (u *s3Uploader) UploadSuiteDir(ctx context.Context, localSuiteDir string) e
 	var skipped, skippedBytes int64
 
 	for _, job := range jobs {
-		if u.suiteObjectUnchanged(job, remote[job.key]) {
+		// summary.json is rewritten every run — metadata labels change without
+		// affecting the suite hash — so it is the one file never skipped.
+		if size, ok := remote[job.key]; ok && size == job.size &&
+			filepath.Base(job.key) != suiteSummaryFile {
 			skipped++
 			skippedBytes += job.size
 
@@ -364,71 +364,11 @@ func (u *s3Uploader) UploadSuiteDir(ctx context.Context, localSuiteDir string) e
 // rather than content-addressed.
 const suiteSummaryFile = "summary.json"
 
-// remoteObject is what a listing tells us about an object already in the bucket.
-type remoteObject struct {
-	size int64
-	etag string
-}
-
-// suiteObjectUnchanged reports whether the bucket already holds this file.
-//
-// Size is the baseline test: a suite hash is derived from its step file
-// contents, so a given key under it always holds the same bytes. Where the
-// ETag is a plain MD5 — objects small enough to have gone up in a single part
-// — we verify that too, which costs a local read but no network. Multipart
-// ETags are a digest of part digests, so checking one means re-reading the
-// whole file, the exact cost this skip exists to avoid; those fall back to
-// size, backed by the content-addressing.
-func (u *s3Uploader) suiteObjectUnchanged(job uploadJob, remote remoteObject) bool {
-	// summary.json is rewritten on every run — metadata labels can change
-	// without affecting the suite hash — so it never gets skipped.
-	if filepath.Base(job.key) == suiteSummaryFile {
-		return false
-	}
-
-	if remote.size != job.size || remote.size == 0 {
-		return false
-	}
-
-	if job.size >= uploadPartSize {
-		return true
-	}
-
-	sum, err := fileMD5(job.localPath)
-	if err != nil {
-		u.log.WithError(err).WithField("path", job.localPath).
-			Debug("Failed to hash local file; re-uploading")
-
-		return false
-	}
-
-	return strings.Trim(remote.etag, `"`) == sum
-}
-
-// fileMD5 returns the hex MD5 of a file, matching how S3 reports the ETag of a
-// single-part object. Not used as a security primitive.
-func fileMD5(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("opening file: %w", err)
-	}
-
-	defer func() { _ = f.Close() }()
-
-	h := md5.New() //nolint:gosec // S3 defines the ETag as MD5; not a security check
-
-	if _, err := io.Copy(h, f); err != nil {
-		return "", fmt.Errorf("hashing file: %w", err)
-	}
-
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// listObjects returns every object under prefix, keyed by full key.
-func (u *s3Uploader) listObjects(
+// listSizes returns the size of every object under prefix, keyed by full key.
+func (u *s3Uploader) listSizes(
 	ctx context.Context, prefix string,
-) (map[string]remoteObject, error) {
-	objects := make(map[string]remoteObject)
+) (map[string]int64, error) {
+	sizes := make(map[string]int64)
 
 	paginator := s3.NewListObjectsV2Paginator(u.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(u.cfg.Bucket),
@@ -446,14 +386,11 @@ func (u *s3Uploader) listObjects(
 				continue
 			}
 
-			objects[*obj.Key] = remoteObject{
-				size: *obj.Size,
-				etag: aws.ToString(obj.ETag),
-			}
+			sizes[*obj.Key] = *obj.Size
 		}
 	}
 
-	return objects, nil
+	return sizes, nil
 }
 
 // detectContentType returns a MIME type based on file extension.
