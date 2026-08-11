@@ -256,6 +256,7 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 				ResultsOwner:                    resultsOwner,
 				SystemResourceCollectionEnabled: *cfg.Runner.Benchmark.SystemResourceCollectionEnabled,
 				GitHubToken:                     cfg.Runner.GitHubToken,
+				MaxPreRunStepSize:               cfg.Runner.Benchmark.Tests.GetMaxPreRunStepSize(),
 			}
 
 			exec = executor.NewExecutor(log, execCfg)

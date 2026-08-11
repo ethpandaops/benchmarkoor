@@ -227,6 +227,13 @@ runner:
     #     #   local_genesis_tarball: /home/user/eest-output/benchmark_genesis.tar.gz
     #     #   # fixtures_subdir also works with local tarballs
     #
+    #   # Optional: cap on pre-run step files kept in the suite directory, and
+    #   # so on what gets uploaded with it. A bundle over the limit is recorded
+    #   # in summary.json with "omitted": true but not stored — it is a replay
+    #   # script for the runner, not something the UI needs, and it stays in the
+    #   # fixtures artifact it came from. Default "512MB"; "0" keeps every one.
+    #   # max_pre_run_step_size: 512MB
+
     #   # Optional: External opcode metadata for the test suite.
     #   # A JSON file mapping test names to opcode counts: {"test_name": {"OPCODE": count, ...}}
     #   # Two modes:

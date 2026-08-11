@@ -143,6 +143,9 @@ type Config struct {
 	ResultsOwner                    *fsutil.OwnerConfig // Optional file ownership for results directory
 	SystemResourceCollectionEnabled bool                // Enable system resource collection (cgroups/Docker Stats)
 	GitHubToken                     string              // Optional GitHub token for API-based artifact downloads
+	// MaxPreRunStepSize caps the pre-run payloads kept in the suite directory,
+	// and so the ones uploaded with it. Zero or less keeps every one.
+	MaxPreRunStepSize int64
 }
 
 // NewExecutor creates a new executor instance.
@@ -260,7 +263,10 @@ func (e *executor) createSuiteOutput() error {
 	}
 
 	// Create suite output directory.
-	if err := CreateSuiteOutput(e.log, e.cfg.ResultsDir, hash, suiteInfo, e.prepared, e.cfg.ResultsOwner); err != nil {
+	if err := CreateSuiteOutput(
+		e.log, e.cfg.ResultsDir, hash, suiteInfo, e.prepared, e.cfg.ResultsOwner,
+		e.cfg.MaxPreRunStepSize,
+	); err != nil {
 		return fmt.Errorf("creating suite output: %w", err)
 	}
 

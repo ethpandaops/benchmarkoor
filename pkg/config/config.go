@@ -819,6 +819,33 @@ type TestsConfig struct {
 	Metadata     MetadataConfig      `yaml:"metadata,omitempty" mapstructure:"metadata"`
 	Source       SourceConfig        `yaml:"source,omitempty" mapstructure:"source"`
 	OpcodeSource *OpcodeSourceConfig `yaml:"opcode_source,omitempty" mapstructure:"opcode_source"`
+	// MaxPreRunStepSize caps the pre-run step files kept in the suite
+	// directory, e.g. "512MB". A bundle over the limit is recorded in
+	// summary.json but not copied, so it is never uploaded: it is a replay
+	// script for the runner, not something the UI has any use for, and it
+	// remains in the fixtures artifact it came from. "0" keeps every bundle.
+	// Empty uses DefaultMaxPreRunStepSize.
+	MaxPreRunStepSize string `yaml:"max_pre_run_step_size,omitempty" mapstructure:"max_pre_run_step_size"`
+}
+
+// DefaultMaxPreRunStepSize is the default cap on pre-run step files kept in a
+// suite directory. Sized to admit ordinary bundles while excluding the
+// multi-GB ones a bloatnet-style setup produces.
+const DefaultMaxPreRunStepSize = 512 * 1024 * 1024
+
+// GetMaxPreRunStepSize returns the cap in bytes, with the default applied.
+// A zero value means no limit.
+func (t *TestsConfig) GetMaxPreRunStepSize() int64 {
+	if t == nil || t.MaxPreRunStepSize == "" {
+		return DefaultMaxPreRunStepSize
+	}
+
+	size, err := ParseByteSize(t.MaxPreRunStepSize)
+	if err != nil {
+		return DefaultMaxPreRunStepSize
+	}
+
+	return int64(size)
 }
 
 // SourceConfig defines where to find test files.

@@ -44,7 +44,7 @@ func TestCreateSuiteOutput_WritesPayloadSizes(t *testing.T) {
 		Hash: "deadbeef",
 	}
 	log := logrus.New()
-	err := CreateSuiteOutput(log, tmp, "deadbeef", info, prepared, nil)
+	err := CreateSuiteOutput(log, tmp, "deadbeef", info, prepared, nil, 0)
 	require.NoError(t, err)
 
 	summaryPath := filepath.Join(tmp, "suites", "deadbeef", "summary.json")
@@ -84,7 +84,7 @@ func TestCreateSuiteOutput_AggregatesMetadataOpcodeCounts(t *testing.T) {
 		},
 	}
 	info := &SuiteInfo{Hash: "cafe"}
-	err := CreateSuiteOutput(logrus.New(), tmp, "cafe", info, prepared, nil)
+	err := CreateSuiteOutput(logrus.New(), tmp, "cafe", info, prepared, nil, 0)
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(filepath.Join(tmp, "suites", "cafe", "summary.json"))
@@ -167,7 +167,7 @@ func TestCreateSuiteOutput_CopiesEESTMeta(t *testing.T) {
 	}
 	info := &SuiteInfo{Hash: "abc123"}
 
-	require.NoError(t, CreateSuiteOutput(logrus.New(), tmp, "abc123", info, prepared, nil))
+	require.NoError(t, CreateSuiteOutput(logrus.New(), tmp, "abc123", info, prepared, nil, 0))
 
 	suiteMeta := filepath.Join(tmp, "suites", "abc123", ".eest-meta")
 
@@ -203,7 +203,7 @@ func TestCreateSuiteOutput_NoEESTMetaWhenAbsent(t *testing.T) {
 	}
 	info := &SuiteInfo{Hash: "nometa01"}
 
-	require.NoError(t, CreateSuiteOutput(logrus.New(), tmp, "nometa01", info, prepared, nil))
+	require.NoError(t, CreateSuiteOutput(logrus.New(), tmp, "nometa01", info, prepared, nil, 0))
 
 	_, err := os.Stat(filepath.Join(tmp, "suites", "nometa01", ".eest-meta"))
 	assert.True(t, os.IsNotExist(err))
@@ -234,7 +234,7 @@ func TestCreateSuiteOutput_MergesPayloadSizesOnSecondRun(t *testing.T) {
 	// First run — creates the suite and writes initial sizes.
 	log := logrus.New()
 	info1 := &SuiteInfo{Hash: "cafef00d"}
-	require.NoError(t, CreateSuiteOutput(log, tmp, "cafef00d", info1, prepared, nil))
+	require.NoError(t, CreateSuiteOutput(log, tmp, "cafef00d", info1, prepared, nil, 0))
 
 	// Simulate a legacy summary: rewrite the file with payload_sizes cleared.
 	summaryPath := filepath.Join(tmp, "suites", "cafef00d", "summary.json")
@@ -251,7 +251,7 @@ func TestCreateSuiteOutput_MergesPayloadSizesOnSecondRun(t *testing.T) {
 
 	// Second run — should detect suite exists, read on-disk test.request, and merge.
 	info2 := &SuiteInfo{Hash: "cafef00d"}
-	require.NoError(t, CreateSuiteOutput(log, tmp, "cafef00d", info2, prepared, nil))
+	require.NoError(t, CreateSuiteOutput(log, tmp, "cafef00d", info2, prepared, nil, 0))
 
 	final, err := os.ReadFile(summaryPath)
 	require.NoError(t, err)
@@ -262,4 +262,90 @@ func TestCreateSuiteOutput_MergesPayloadSizesOnSecondRun(t *testing.T) {
 	require.NotNil(t, parsed.Tests[0].PayloadSizes.Test)
 	require.Len(t, parsed.Tests[0].PayloadSizes.Test.SSZFull, 1)
 	assert.Greater(t, parsed.Tests[0].PayloadSizes.Test.SSZFull[0], uint64(100), "merge path should backfill sizes")
+}
+
+// A pre-run bundle is a replay script for the runner, not something the UI
+// needs — the jochemnet bloatnet one is 9.4 GiB of setup blocks. Over the
+// limit it gets described in the summary but never written, so it is never
+// uploaded either.
+func TestCreateSuiteOutput_OmitsOversizedPreRunSteps(t *testing.T) {
+	log := logrus.New()
+	tmp := t.TempDir()
+
+	bundle := filepath.Join(t.TempDir(), "pre-run.request")
+	require.NoError(t, os.WriteFile(bundle, []byte("0123456789"), 0o600))
+
+	prepared := &PreparedSource{
+		PreRunSteps: []*StepFile{{Name: "pre_run/pre-run.request", Path: bundle}},
+		Tests: []*TestWithSteps{
+			{
+				Name: "test_with_prerun",
+				Test: &StepFile{
+					Name:     "test_with_prerun",
+					Provider: &inlineProvider{lines: []string{minimalDenebRequest(t)}},
+				},
+			},
+		},
+	}
+
+	info := &SuiteInfo{Hash: "b16b16"}
+	require.NoError(t, CreateSuiteOutput(log, tmp, "b16b16", info, prepared, nil, 5))
+
+	suiteDir := filepath.Join(tmp, "suites", "b16b16")
+	assert.NoFileExists(t, filepath.Join(suiteDir, "pre_run", "pre-run.request", "pre_run.request"))
+
+	var parsed SuiteInfo
+	data, err := os.ReadFile(filepath.Join(suiteDir, "summary.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &parsed))
+
+	// The suite still describes the step, so nothing about the run is lost.
+	require.Len(t, parsed.PreRunSteps, 1)
+	assert.Equal(t, "pre_run/pre-run.request", parsed.PreRunSteps[0].OgPath)
+	assert.True(t, parsed.PreRunSteps[0].Omitted)
+	assert.Equal(t, int64(10), parsed.PreRunSteps[0].SizeBytes)
+
+	// Tests are untouched by the pre-run limit.
+	require.Len(t, parsed.Tests, 1)
+	assert.FileExists(t, filepath.Join(suiteDir, "test_with_prerun", "test.request"))
+}
+
+// Under the limit, and with the limit disabled, the bundle is stored as before.
+func TestCreateSuiteOutput_KeepsPreRunStepsWithinLimit(t *testing.T) {
+	log := logrus.New()
+
+	for name, limit := range map[string]int64{"under limit": 1024, "no limit": 0} {
+		t.Run(name, func(t *testing.T) {
+			tmp := t.TempDir()
+
+			bundle := filepath.Join(t.TempDir(), "pre-run.request")
+			require.NoError(t, os.WriteFile(bundle, []byte("0123456789"), 0o600))
+
+			prepared := &PreparedSource{
+				PreRunSteps: []*StepFile{{Name: "pre_run/pre-run.request", Path: bundle}},
+				Tests: []*TestWithSteps{
+					{
+						Name: "test_with_prerun",
+						Test: &StepFile{
+							Name:     "test_with_prerun",
+							Provider: &inlineProvider{lines: []string{minimalDenebRequest(t)}},
+						},
+					},
+				},
+			}
+
+			info := &SuiteInfo{Hash: "5ma11"}
+			require.NoError(t, CreateSuiteOutput(log, tmp, "5ma11", info, prepared, nil, limit))
+
+			stored := filepath.Join(tmp, "suites", "5ma11", "pre_run", "pre-run.request", "pre_run.request")
+			assert.FileExists(t, stored)
+
+			var parsed SuiteInfo
+			data, err := os.ReadFile(filepath.Join(tmp, "suites", "5ma11", "summary.json"))
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(data, &parsed))
+			require.Len(t, parsed.PreRunSteps, 1)
+			assert.False(t, parsed.PreRunSteps[0].Omitted)
+		})
+	}
 }
