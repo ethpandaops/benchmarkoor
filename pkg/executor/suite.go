@@ -438,6 +438,24 @@ func copyPreRunStepFile(
 	owner *fsutil.OwnerConfig,
 	maxSize int64,
 ) (*SuiteFile, error) {
+	size, err := stepSize(file)
+	if err != nil {
+		return nil, err
+	}
+
+	// Checked before anything is created, so an oversized bundle costs neither
+	// the local write nor the upload — and leaves no empty directory behind to
+	// suggest a file that was never stored.
+	if maxSize > 0 && size > maxSize {
+		log.WithFields(logrus.Fields{
+			"step":  file.Name,
+			"bytes": size,
+			"max":   maxSize,
+		}).Info("Pre-run bundle over the size limit; describing it in the suite without storing it")
+
+		return &SuiteFile{OgPath: file.Name, SizeBytes: size, Omitted: true}, nil
+	}
+
 	// Create step directory using the step name (relative path).
 	stepDir := filepath.Join(suiteDir, file.Name)
 	if err := fsutil.MkdirAll(stepDir, 0755, owner); err != nil {
@@ -448,19 +466,11 @@ func copyPreRunStepFile(
 
 	// Handle provider-based steps.
 	if file.Provider != nil {
-		content := file.Provider.Content()
-
-		if size := int64(len(content)); maxSize > 0 && size > maxSize {
-			logOmittedPreRun(log, file.Name, size, maxSize)
-
-			return &SuiteFile{OgPath: file.Name, SizeBytes: size, Omitted: true}, nil
-		}
-
-		if err := fsutil.WriteFile(dstPath, content, 0644, owner); err != nil {
+		if err := fsutil.WriteFile(dstPath, file.Provider.Content(), 0644, owner); err != nil {
 			return nil, fmt.Errorf("writing content: %w", err)
 		}
 
-		return &SuiteFile{OgPath: file.Name, SizeBytes: int64(len(content))}, nil
+		return &SuiteFile{OgPath: file.Name, SizeBytes: size}, nil
 	}
 
 	// Handle file-based steps.
@@ -470,19 +480,6 @@ func copyPreRunStepFile(
 	}
 
 	defer func() { _ = srcFile.Close() }()
-
-	stat, err := srcFile.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("stating source: %w", err)
-	}
-
-	// Checked before the copy, so an oversized bundle costs neither the local
-	// write nor the upload.
-	if maxSize > 0 && stat.Size() > maxSize {
-		logOmittedPreRun(log, file.Name, stat.Size(), maxSize)
-
-		return &SuiteFile{OgPath: file.Name, SizeBytes: stat.Size(), Omitted: true}, nil
-	}
 
 	dstFile, err := fsutil.Create(dstPath, owner)
 	if err != nil {
@@ -495,17 +492,21 @@ func copyPreRunStepFile(
 		return nil, fmt.Errorf("copying content: %w", err)
 	}
 
-	return &SuiteFile{OgPath: file.Name, SizeBytes: stat.Size()}, nil
+	return &SuiteFile{OgPath: file.Name, SizeBytes: size}, nil
 }
 
-func logOmittedPreRun(log logrus.FieldLogger, name string, size, maxSize int64) {
-	log.WithFields(logrus.Fields{
-		"step":     name,
-		"bytes":    size,
-		"max":      maxSize,
-		"og_path":  name,
-		"artifact": "still available in the fixtures the step came from",
-	}).Info("Pre-run bundle over the size limit; describing it in the suite without storing it")
+// stepSize reports a step's payload size without reading a file-backed one.
+func stepSize(file *StepFile) (int64, error) {
+	if file.Provider != nil {
+		return int64(len(file.Provider.Content())), nil
+	}
+
+	stat, err := os.Stat(file.Path)
+	if err != nil {
+		return 0, fmt.Errorf("stating source: %w", err)
+	}
+
+	return stat.Size(), nil
 }
 
 // GetGitCommitSHA retrieves the current commit SHA from a git repository.

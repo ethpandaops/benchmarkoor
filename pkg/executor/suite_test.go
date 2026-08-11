@@ -349,3 +349,26 @@ func TestCreateSuiteOutput_KeepsPreRunStepsWithinLimit(t *testing.T) {
 		})
 	}
 }
+
+// An omitted bundle must not leave an empty directory behind, which would
+// imply a file that was never stored.
+func TestCreateSuiteOutput_OmittedPreRunLeavesNoStepDir(t *testing.T) {
+	tmp := t.TempDir()
+
+	bundle := filepath.Join(t.TempDir(), "pre-run.request")
+	require.NoError(t, os.WriteFile(bundle, []byte("0123456789"), 0o600))
+
+	prepared := &PreparedSource{
+		PreRunSteps: []*StepFile{{Name: "pre_run/pre-run.request", Path: bundle}},
+		Tests: []*TestWithSteps{
+			{
+				Name: "test_x",
+				Test: &StepFile{Name: "test_x", Provider: &inlineProvider{lines: []string{minimalDenebRequest(t)}}},
+			},
+		},
+	}
+
+	require.NoError(t, CreateSuiteOutput(logrus.New(), tmp, "n0d1r", &SuiteInfo{Hash: "n0d1r"}, prepared, nil, 5))
+
+	assert.NoDirExists(t, filepath.Join(tmp, "suites", "n0d1r", "pre_run"))
+}
