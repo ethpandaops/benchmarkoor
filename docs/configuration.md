@@ -656,6 +656,7 @@ The `runner.benchmark.results_upload` section configures automatic uploading of 
 runner:
   benchmark:
     results_upload:
+      # max_pre_run_upload_size: 512MB
       s3:
         enabled: true
         endpoint_url: https://s3.amazonaws.com
@@ -671,6 +672,12 @@ runner:
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
+| `max_pre_run_upload_size` | string | No | `512MB` | Cap on pre-run bundles uploaded with a suite (see [Pre-Run Upload Size](#pre-run-upload-size)). `0` uploads every bundle |
+
+**`s3` options:**
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
 | `enabled` | bool | Yes | `false` | Enable S3 upload |
 | `bucket` | string | Yes | - | S3 bucket name |
 | `endpoint_url` | string | No | AWS default | S3 endpoint URL — scheme and host only, no path (e.g., `https://<id>.r2.cloudflarestorage.com`) |
@@ -682,6 +689,29 @@ runner:
 | `acl` | string | No | - | Canned ACL (e.g., `private`, `public-read`) |
 | `force_path_style` | bool | No | `false` | Use path-style addressing (required for MinIO and Cloudflare R2) |
 | `parallel_uploads` | int | No | `50` | Number of concurrent file uploads |
+
+#### Pre-Run Upload Size
+
+A suite directory holds a copy of every step file so the UI can display it, and that includes the pre-run bundle. Those bundles can be enormous — a bloatnet-style setup that deploys 100k contracts produces a single `pre-run.request` of around 9.4 GiB — and nothing reads them from there: the runner replays pre-runs from its fixtures cache, not from the suite.
+
+`max_pre_run_upload_size` caps what gets kept, and therefore what gets uploaded. A bundle over the limit is still described in `summary.json`, so the suite stays honest about what the run replayed:
+
+```json
+"pre_run_steps": [
+  { "og_path": "pre_run/pre-run.request", "size_bytes": 10062313486, "omitted": true }
+]
+```
+
+The size is checked before the copy, so an oversized bundle costs neither the local write nor the transfer. The bytes remain in the fixtures artifact the step came from, which is where to look if you need to inspect one.
+
+Set `0` to upload every bundle regardless of size.
+
+```yaml
+runner:
+  benchmark:
+    results_upload:
+      max_pre_run_upload_size: 512MB
+```
 
 **Important:** The `endpoint_url` must be the base URL without any path component. Do not include the bucket name in the URL — the SDK handles that separately via the `bucket` field. For example, use `https://<account_id>.r2.cloudflarestorage.com`, not `https://<account_id>.r2.cloudflarestorage.com/my-bucket`.
 

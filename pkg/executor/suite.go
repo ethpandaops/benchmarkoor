@@ -166,15 +166,16 @@ func getStepContent(step *StepFile) ([]byte, error) {
 }
 
 // CreateSuiteOutput creates the suite directory structure with copied files and summary.
-// maxPreRunStepSize caps the pre-run payloads kept in the suite; see
-// config.TestsConfig.MaxPreRunStepSize. Zero or less keeps every one.
+// maxPreRunUploadSize caps the pre-run payloads kept in the suite, and so the
+// ones uploaded with it; see config.ResultsUploadConfig.MaxPreRunUploadSize.
+// Zero or less keeps every one.
 func CreateSuiteOutput(
 	log logrus.FieldLogger,
 	resultsDir, hash string,
 	info *SuiteInfo,
 	prepared *PreparedSource,
 	owner *fsutil.OwnerConfig,
-	maxPreRunStepSize int64,
+	maxPreRunUploadSize int64,
 ) error {
 	suiteDir := filepath.Join(resultsDir, "suites", hash)
 
@@ -213,7 +214,7 @@ func CreateSuiteOutput(
 		// Copy pre-run steps.
 		// Structure: <suite_dir>/<step_name>/pre_run.request (same pattern as tests).
 		for _, f := range prepared.PreRunSteps {
-			suiteFile, err := copyPreRunStepFile(log, suiteDir, f, owner, maxPreRunStepSize)
+			suiteFile, err := copyPreRunStepFile(log, suiteDir, f, owner, maxPreRunUploadSize)
 			if err != nil {
 				return fmt.Errorf("copying pre-run step: %w", err)
 			}
