@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 )
 
 // bundleAt writes a pre-run bundle sidecar describing blocks 100..181.
@@ -98,6 +99,84 @@ func TestVerifyPreRunBundleHead(t *testing.T) {
 	t.Run("no pre_runs configured is a no-op", func(t *testing.T) {
 		bare := &runner{cfg: &Config{FullConfig: &config.Config{Runner: config.RunnerConfig{}}}}
 		applied, err := bare.verifyPreRunBundleHead(log, 1, "0xany")
+		require.NoError(t, err)
+		assert.False(t, applied)
+	})
+}
+
+// stubLocator is a source that reports where its bundle is, as an EEST source
+// resolving one out of an extracted fixtures artifact does.
+type stubLocator struct {
+	executor.Source
+	dir string
+}
+
+func (s stubLocator) PreRunBundleDir() string { return s.dir }
+
+// stubExecutor hands back a source; nothing else on the interface is exercised.
+type stubExecutor struct {
+	executor.Executor
+	src executor.Source
+}
+
+func (e stubExecutor) GetSource() executor.Source { return e.src }
+
+// The regression behind #305: with the bundle inside the fixtures artifact,
+// pre_runs carries no local_fixtures_dir, so a config-derived lookup finds
+// nothing and the head check silently no-ops — leaving the by-number replay
+// skip free to benchmark a datadir that is on a different chain.
+func TestVerifyPreRunBundleHeadFromFixturesArtifact(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(os.NewFile(0, os.DevNull))
+
+	dir := bundleAt(t)
+	bundleDir := filepath.Join(dir, config.PreRunBundleSubdir)
+
+	// pre_runs configured WITHOUT local_fixtures_dir, as an artifact-resolved
+	// source is.
+	r := &runner{
+		cfg: &Config{FullConfig: &config.Config{
+			Runner: config.RunnerConfig{
+				Benchmark: config.BenchmarkConfig{
+					Tests: config.TestsConfig{
+						Source: config.SourceConfig{
+							EESTFixtures: &config.EESTFixturesSource{
+								PreRuns: &config.EESTPreRunsSource{
+									FixturesSubdir: "does/not/matter",
+								},
+							},
+						},
+					},
+				},
+			},
+		}},
+		executor: stubExecutor{src: stubLocator{dir: bundleDir}},
+	}
+
+	t.Run("right height wrong hash is now rejected", func(t *testing.T) {
+		_, err := r.verifyPreRunBundleHead(log, 181, "0xdifferent")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "different chain")
+	})
+
+	t.Run("matching head still reports already applied", func(t *testing.T) {
+		applied, err := r.verifyPreRunBundleHead(log, 181, "0xend")
+		require.NoError(t, err)
+		assert.True(t, applied)
+	})
+
+	t.Run("no locator and no local dir cannot verify", func(t *testing.T) {
+		bare := &runner{cfg: &Config{FullConfig: &config.Config{
+			Runner: config.RunnerConfig{Benchmark: config.BenchmarkConfig{
+				Tests: config.TestsConfig{Source: config.SourceConfig{
+					EESTFixtures: &config.EESTFixturesSource{
+						PreRuns: &config.EESTPreRunsSource{},
+					},
+				}},
+			}},
+		}}}
+
+		applied, err := bare.verifyPreRunBundleHead(log, 181, "0xend")
 		require.NoError(t, err)
 		assert.False(t, applied)
 	})

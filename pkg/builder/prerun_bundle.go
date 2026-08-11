@@ -375,7 +375,20 @@ func ReadPreRunBundleInfo(bundleParentDir string) (*PreRunBundleInfo, error) {
 		return nil, nil
 	}
 
-	dir := filepath.Join(bundleParentDir, config.PreRunBundleSubdir)
+	return ReadPreRunBundleInfoAt(filepath.Join(bundleParentDir, config.PreRunBundleSubdir))
+}
+
+// ReadPreRunBundleInfoAt is ReadPreRunBundleInfo for a caller that already holds
+// the bundle directory itself rather than its parent. A runner-side pre_runs
+// source names that directory outright (it may sit anywhere inside an extracted
+// fixtures artifact), so it cannot go through the parent + PreRunBundleSubdir
+// form above.
+func ReadPreRunBundleInfoAt(bundleDir string) (*PreRunBundleInfo, error) {
+	if bundleDir == "" {
+		return nil, nil
+	}
+
+	dir := bundleDir
 	path := filepath.Join(dir, preRunBundleMetaFile)
 
 	data, err := os.ReadFile(path)

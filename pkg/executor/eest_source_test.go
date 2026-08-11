@@ -183,3 +183,56 @@ func TestLoadPreRunBundleSteps(t *testing.T) {
 		assert.Contains(t, err.Error(), "no pre-run bundle")
 	})
 }
+
+func TestPreRunBundleDir(t *testing.T) {
+	tests := []struct {
+		name        string
+		preRuns     *config.EESTPreRunsSource
+		fixturesDir string
+		want        func(fixtures string) string
+	}{
+		{
+			name:    "no pre_runs source",
+			preRuns: nil,
+			want:    func(string) string { return "" },
+		},
+		{
+			name:    "nothing to resolve against",
+			preRuns: &config.EESTPreRunsSource{},
+			want:    func(string) string { return "" },
+		},
+		{
+			name:        "local dir wins over the extracted artifact",
+			preRuns:     &config.EESTPreRunsSource{LocalFixturesDir: "/local"},
+			fixturesDir: "/artifact",
+			want:        func(string) string { return filepath.Join("/local", config.PreRunBundleSubdir) },
+		},
+		{
+			name:        "falls back to the extracted artifact",
+			preRuns:     &config.EESTPreRunsSource{FixturesSubdir: "a/b/pre_run_bundle"},
+			fixturesDir: "/artifact",
+			want:        func(string) string { return filepath.Join("/artifact", "a/b/pre_run_bundle") },
+		},
+		{
+			name:        "subdir defaults under the artifact",
+			preRuns:     &config.EESTPreRunsSource{},
+			fixturesDir: "/artifact",
+			want:        func(string) string { return filepath.Join("/artifact", config.PreRunBundleSubdir) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &EESTSource{
+				log:         logrus.New(),
+				fixturesDir: tt.fixturesDir,
+				cfg:         &config.EESTFixturesSource{PreRuns: tt.preRuns},
+			}
+			assert.Equal(t, tt.want(tt.fixturesDir), s.PreRunBundleDir())
+		})
+	}
+
+	// The locator is what lets a caller outside this package find the bundle
+	// without re-deriving it from config.
+	var _ PreRunBundleLocator = (*EESTSource)(nil)
+}

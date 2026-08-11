@@ -73,6 +73,18 @@ type Source interface {
 	GetSourceInfo() (*SuiteSource, error)
 }
 
+// PreRunBundleLocator is an optional interface for sources that resolve a
+// builder.pre_runs bundle. It exists so a caller can read the bundle's metadata
+// without re-deriving the path: the bundle may sit at a configured local
+// directory OR inside the fixtures artifact the source extracted, and only the
+// source knows which. Re-deriving it from config alone silently misses the
+// artifact case.
+type PreRunBundleLocator interface {
+	// PreRunBundleDir returns the directory holding the pre-run bundle, or an
+	// empty string when this source provides none.
+	PreRunBundleDir() string
+}
+
 // GenesisProvider is an optional interface that sources can implement
 // to provide genesis files for clients.
 type GenesisProvider interface {

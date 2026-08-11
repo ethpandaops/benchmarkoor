@@ -178,3 +178,38 @@ func TestReadPreRunBundleInfoNoBundleAtAll(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, info)
 }
+
+func TestReadPreRunBundleInfoAt(t *testing.T) {
+	// A runner-side pre_runs source names the bundle directory outright — it
+	// can sit anywhere inside an extracted fixtures artifact — so it cannot go
+	// through the parent + PreRunBundleSubdir form.
+	parent := t.TempDir()
+	writeBundleFile(t, parent, [][3]string{
+		{"0x17466ef", "0xaaa", "0x111"},
+		{"0x17466f0", "0xbbb", "0xaaa"},
+	}, 4096)
+
+	bundleDir := filepath.Join(parent, config.PreRunBundleSubdir)
+
+	direct, err := ReadPreRunBundleInfoAt(bundleDir)
+	require.NoError(t, err)
+	require.NotNil(t, direct)
+
+	// Same bundle reached the old way: the two must agree.
+	viaParent, err := ReadPreRunBundleInfo(parent)
+	require.NoError(t, err)
+	require.NotNil(t, viaParent)
+	assert.Equal(t, viaParent, direct)
+
+	assert.Equal(t, uint64(0x17466f0), direct.EndBlockNumber)
+	assert.Equal(t, "0xbbb", direct.EndBlockHash)
+
+	// Empty and absent stay non-errors, as for ReadPreRunBundleInfo.
+	got, err := ReadPreRunBundleInfoAt("")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+
+	got, err = ReadPreRunBundleInfoAt(filepath.Join(t.TempDir(), "nope"))
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}

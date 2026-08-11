@@ -1649,6 +1649,38 @@ func copyStateActorFiles(
 // Anything in between is a partially applied bundle, which the replay resumes
 // from. Only a hash mismatch at a block the bundle actually names is an error —
 // that is the case that cannot be anything but the wrong chain.
+// preRunBundleDir locates the pre-run bundle for head verification.
+//
+// The source is asked first: the bundle may sit at a configured
+// local_fixtures_dir OR inside the fixtures artifact the source extracted, and
+// only the source knows which. Deriving the path from config alone resolves the
+// local case and silently misses the artifact one, which leaves the by-number
+// replay skip unguarded — a datadir at the right height on a different chain
+// then replays as a no-op and benchmarks the wrong state.
+//
+// The config-derived path remains as a fallback for callers without a live
+// source.
+func (r *runner) preRunBundleDir(preRuns *config.EESTPreRunsSource) string {
+	if r.executor != nil {
+		if loc, ok := r.executor.GetSource().(executor.PreRunBundleLocator); ok {
+			if dir := loc.PreRunBundleDir(); dir != "" {
+				return dir
+			}
+		}
+	}
+
+	if preRuns.LocalFixturesDir == "" {
+		return ""
+	}
+
+	subdir := preRuns.FixturesSubdir
+	if subdir == "" {
+		subdir = config.PreRunBundleSubdir
+	}
+
+	return filepath.Join(preRuns.LocalFixturesDir, subdir)
+}
+
 func (r *runner) verifyPreRunBundleHead(
 	log logrus.FieldLogger, headNumber uint64, headHash string,
 ) (bool, error) {
@@ -1657,11 +1689,22 @@ func (r *runner) verifyPreRunBundleHead(
 	}
 
 	src := r.cfg.FullConfig.Runner.Benchmark.Tests.Source.EESTFixtures
-	if src == nil || src.PreRuns == nil || src.PreRuns.LocalFixturesDir == "" {
+	if src == nil || src.PreRuns == nil {
 		return false, nil
 	}
 
-	info, err := builder.ReadPreRunBundleInfo(src.PreRuns.LocalFixturesDir)
+	bundleDir := r.preRunBundleDir(src.PreRuns)
+	if bundleDir == "" {
+		log.Warn(
+			"A pre_runs source is configured but its bundle could not be located; " +
+				"skipping head verification — the replay skips by block number alone, " +
+				"so a datadir at the right height on a different chain will not be caught",
+		)
+
+		return false, nil
+	}
+
+	info, err := builder.ReadPreRunBundleInfoAt(bundleDir)
 	if err != nil {
 		// Metadata is a convenience; an unreadable sidecar must not block a run
 		// that would otherwise replay correctly.

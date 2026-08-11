@@ -1001,18 +1001,22 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 	return result, nil
 }
 
-// loadPreRunBundleSteps returns the configured builder.pre_runs bundle as
-// pre-run steps (the runner replays them before the fixtures). Returns nil when
-// no pre_runs source is configured.
+// PreRunBundleDir resolves the directory holding this source's builder.pre_runs
+// bundle, or "" when there is none to resolve.
 //
 // The bundle is read from LocalFixturesDir when set, and otherwise from the
 // already-extracted fixtures artifact — resolved against the same root
 // FixturesSubdir resolves the fixtures against. A build ships the bundle and
 // the fixtures in one tarball, so a release consumer can reach both from a
 // single fixtures_url instead of staging the bundle on every runner host.
-func (s *EESTSource) loadPreRunBundleSteps() ([]*StepFile, error) {
-	if s.cfg.PreRuns == nil {
-		return nil, nil
+//
+// This is the one place that resolution happens: the runner reads the bundle's
+// metadata to check the datadir is on the bundle's chain, and a second copy of
+// this logic derived from config alone would miss the artifact case and skip
+// that check.
+func (s *EESTSource) PreRunBundleDir() string {
+	if s.cfg == nil || s.cfg.PreRuns == nil {
+		return ""
 	}
 
 	base := s.cfg.PreRuns.LocalFixturesDir
@@ -1023,7 +1027,7 @@ func (s *EESTSource) loadPreRunBundleSteps() ([]*StepFile, error) {
 	// Nothing to resolve against: no local directory configured and no
 	// fixtures extracted for this source.
 	if base == "" {
-		return nil, nil
+		return ""
 	}
 
 	subdir := s.cfg.PreRuns.FixturesSubdir
@@ -1031,7 +1035,23 @@ func (s *EESTSource) loadPreRunBundleSteps() ([]*StepFile, error) {
 		subdir = config.PreRunBundleSubdir
 	}
 
-	bundleDir := filepath.Join(base, subdir)
+	return filepath.Join(base, subdir)
+}
+
+// loadPreRunBundleSteps returns the configured builder.pre_runs bundle as
+// pre-run steps (the runner replays them before the fixtures). Returns nil when
+// no pre_runs source is configured.
+//
+// The bundle is read from LocalFixturesDir when set, and otherwise from the
+// already-extracted fixtures artifact — resolved against the same root
+// FixturesSubdir resolves the fixtures against. A build ships the bundle and
+// the fixtures in one tarball, so a release consumer can reach both from a
+// single fixtures_url instead of staging the bundle on every runner host.
+func (s *EESTSource) loadPreRunBundleSteps() ([]*StepFile, error) {
+	bundleDir := s.PreRunBundleDir()
+	if bundleDir == "" {
+		return nil, nil
+	}
 
 	entries, err := filepath.Glob(filepath.Join(bundleDir, "*.request"))
 	if err != nil {
