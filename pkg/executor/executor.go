@@ -904,12 +904,10 @@ func (e *executor) runStepLines(
 	// start of the file (resume scenario). Cleared once we encounter the
 	// first engine_newPayload whose blockNumber > SkipUntilBlockNumber.
 	//
-	// Only the pre-run replay resumes: it is the one step that may already be
-	// partly applied to the datadir. A test's own steps always start from the
-	// replay anchor and must be sent whole. Skipping them silently dropped any
-	// leading line that is not a newPayload — a forkchoiceUpdated placed first
-	// to bring the head back to the anchor never reached the client, which is
-	// exactly the line that keeps a test replaying from the right block.
+	// Only the pre-run replay resumes; it alone may be partly applied. A test's
+	// steps always start from the replay anchor and must be sent whole —
+	// skipping them silently dropped any leading line that is not a newPayload,
+	// such as a forkchoiceUpdated returning the head to the anchor.
 	skipping := opts.SkipUntilBlockNumber > 0 && stepType == StepTypePreRun
 	skippedCount := 0
 
