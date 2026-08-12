@@ -1078,6 +1078,28 @@ func (r *runner) runContainerLifecycle(
 		}
 	}
 
+	// Move safe/finalized below the head before anything replays. Prestates
+	// arrive with their head block already finalized, which would make the
+	// replay anchor permanently unreachable. Best-effort: a client that will
+	// not lower its finalized marker still runs, it just keeps the old
+	// failure mode.
+	if blockHash != "" {
+		var configuredAnchor string
+		if r.cfg.FullConfig != nil {
+			if fcuCfg := r.cfg.FullConfig.GetBootstrapFCU(instance); fcuCfg != nil {
+				configuredAnchor = fcuCfg.RootAnchorBlockHash
+			}
+		}
+
+		if anchorErr := r.resetForkchoiceAnchor(
+			execCtx, log, containerIP, spec.EnginePort(), spec.RPCPort(),
+			blockHash, configuredAnchor,
+		); anchorErr != nil {
+			log.WithError(anchorErr).Warn(
+				"Could not reset safe/finalized; a deep rewind to the replay anchor may fail")
+		}
+	}
+
 	// Send bootstrap FCU if configured.
 	if r.cfg.FullConfig != nil {
 		if fcuCfg := r.cfg.FullConfig.GetBootstrapFCU(instance); fcuCfg != nil && fcuCfg.Enabled {
@@ -1092,7 +1114,7 @@ func (r *runner) runContainerLifecycle(
 
 			if fcuHash != "" {
 				if fcuErr := r.sendBootstrapFCU(
-					execCtx, log, containerIP, spec.EnginePort(), fcuHash, fcuCfg,
+					execCtx, log, containerIP, spec.EnginePort(), fcuHash, "", fcuCfg,
 				); fcuErr != nil {
 					log.WithError(fcuErr).Error("Bootstrap FCU failed")
 

@@ -1282,6 +1282,14 @@ type BootstrapFCUConfig struct {
 	MaxRetries    int    `yaml:"max_retries" mapstructure:"max_retries" json:"max_retries"`
 	Backoff       string `yaml:"backoff" mapstructure:"backoff" json:"backoff"`
 	HeadBlockHash string `yaml:"head_block_hash" mapstructure:"head_block_hash" json:"head_block_hash,omitempty"`
+
+	// RootAnchorBlockHash is the block safe/finalized point at for the run. It
+	// must sit strictly below the block the fixtures replay from (the datadir
+	// head at bootstrap), since a client will not move its head back to a block
+	// at or below the one it considers finalized. Empty lets the runner derive
+	// one. For a datadir built by advancing a snapshot, the snapshot block is
+	// the natural value: far below every anchor and the same for every client.
+	RootAnchorBlockHash string `yaml:"root_anchor_block_hash,omitempty" mapstructure:"root_anchor_block_hash" json:"root_anchor_block_hash,omitempty"`
 }
 
 // DefaultOpcodeExtractionTimeout is the per-block trace timeout applied

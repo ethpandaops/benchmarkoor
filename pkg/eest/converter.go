@@ -68,9 +68,9 @@ func ConvertFixture(name string, fixture *Fixture) (*ConvertedTest, error) {
 // phase is the shared pre_run payloads (snapshot → start block, preRun may be
 // nil) followed by the fixture's own setupEngineNewPayloads (start block →
 // per-test pre-state). The fixture's engineNewPayloads (the benchmark block)
-// become the measured test step. Each payload still emits an
-// engine_newPayload + engine_forkchoiceUpdated pair, so the chain head
-// advances naturally and no separate forkchoice injection is needed.
+// become the measured test step. Each payload emits an engine_newPayload +
+// engine_forkchoiceUpdated pair, preceded by one forkchoiceUpdated returning
+// the head to the block the fixture starts from.
 func ConvertStatefulFixture(name string, fixture *Fixture, preRun *StatefulPreRun) (*ConvertedTest, error) {
 	if fixture == nil {
 		return nil, fmt.Errorf("fixture is nil")
@@ -97,6 +97,21 @@ func ConvertStatefulFixture(name string, fixture *Fixture, preRun *StatefulPreRu
 		GenesisHash:  fixture.SnapshotBlockHash,
 		PayloadCount: len(setupPayloads) + len(fixture.EngineNewPayloads),
 	}
+
+	// Every fixture replays from the same anchor, but the previous test leaves
+	// the head wherever its last payload landed and nothing puts it back. Ask
+	// for the anchor rather than assuming we are on it: otherwise the first
+	// newPayload names a parent whose state the client may no longer hold and
+	// is answered ACCEPTED, orphaning every payload after it.
+	//
+	// Sent unconditionally — when the head already matches, the client says so
+	// for free, which beats tracking the head across tests.
+	anchorLine, err := buildAnchorForkchoiceCall(setupPayloads, fixture.EngineNewPayloads)
+	if err != nil {
+		return nil, fmt.Errorf("building anchor forkchoiceUpdated call: %w", err)
+	}
+
+	result.SetupLines = append(result.SetupLines, anchorLine)
 
 	for i, payload := range setupPayloads {
 		lines, err := convertPayload(payload, i+1)
@@ -217,12 +232,45 @@ func buildNewPayloadCall(payload *EngineNewPayload, id int) (string, error) {
 // ZeroHash is the zero hash used for forkchoice state.
 const ZeroHash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
-// buildForkchoiceUpdatedCall builds an engine_forkchoiceUpdatedVX JSON-RPC call.
-func buildForkchoiceUpdatedCall(payload *EngineNewPayload, id int) (string, error) {
-	// Use the forkchoiceUpdated version from the fixture.
-	method := fmt.Sprintf("engine_forkchoiceUpdatedV%d", payload.ForkchoiceUpdatedVersion)
+// buildAnchorForkchoiceCall returns the chain head to the block this fixture
+// replays from: the parent of its first payload. Taken from the payload rather
+// than startBlockHash so it stays correct when a pre_run is prepended, whose
+// first payload descends from the snapshot block instead.
+func buildAnchorForkchoiceCall(setupPayloads, benchmarkPayloads []*EngineNewPayload) (string, error) {
+	payloads := setupPayloads
+	if len(payloads) == 0 {
+		payloads = benchmarkPayloads
+	}
 
-	blockHash := payload.ExecutionPayload.BlockHash
+	if len(payloads) == 0 || payloads[0].ExecutionPayload == nil {
+		return "", fmt.Errorf("no payload to derive the anchor from")
+	}
+
+	anchor := payloads[0].ExecutionPayload.ParentHash
+	if anchor == "" {
+		return "", fmt.Errorf("first payload has no parentHash")
+	}
+
+	// id 0 keeps the payload calls numbered from 1 as before.
+	return buildForkchoiceUpdatedCallForHash(anchor, payloads[0].ForkchoiceUpdatedVersion, 0)
+}
+
+// buildForkchoiceUpdatedCall builds an engine_forkchoiceUpdatedVX JSON-RPC call
+// setting the head to the payload's own block.
+func buildForkchoiceUpdatedCall(payload *EngineNewPayload, id int) (string, error) {
+	return buildForkchoiceUpdatedCallForHash(
+		payload.ExecutionPayload.BlockHash, payload.ForkchoiceUpdatedVersion, id)
+}
+
+// buildForkchoiceUpdatedCallForHash builds an engine_forkchoiceUpdatedVX call
+// setting the head to blockHash.
+//
+// safe and finalized stay zero, which clients read as "no update" — replaying a
+// payload should not move either marker. Note the engine API only permits the
+// zero hash "unless transition block is finalized", which these mainnet-fork
+// datadirs do not satisfy; sending a real ancestor here is worth revisiting.
+func buildForkchoiceUpdatedCallForHash(blockHash string, version, id int) (string, error) {
+	method := fmt.Sprintf("engine_forkchoiceUpdatedV%d", version)
 
 	forkchoiceState := map[string]string{
 		"headBlockHash":      blockHash,

@@ -285,21 +285,28 @@ func TestConvertStatefulFixture(t *testing.T) {
 	assert.Equal(t, "0xbench", result.FinalHash)
 	// 3 pre_run + 1 setup + 1 benchmark = 5 payloads.
 	assert.Equal(t, 5, result.PayloadCount)
-	// Setup = (3 pre_run + 1 setup) * 2 lines (newPayload + fcU).
-	assert.Len(t, result.SetupLines, 8)
+	// Setup = 1 anchor fcU + (3 pre_run + 1 setup) * 2 lines (newPayload + fcU).
+	assert.Len(t, result.SetupLines, 9)
 	// Test = 1 benchmark * 2 lines.
 	assert.Len(t, result.TestLines, 2)
 
+	// The anchor forkchoiceUpdated leads, pointing at the parent of the first
+	// payload. With a pre_run prepended that is the snapshot block, not the
+	// fixture's startBlockHash.
+	assert.Equal(t, "engine_forkchoiceUpdatedV3", rpcMethod(t, result.SetupLines[0]))
+	assert.Equal(t, "0xsnapshot", forkchoiceHeadHash(t, result.SetupLines[0]),
+		"the anchor must be the parent of the first pre_run block")
+
 	// Ordering by CONTENT (not just method name): the shared pre_run blocks must
-	// precede the fixture's own setup block. SetupLines are (newPayload, fcU)
-	// pairs, so newPayload lines sit at even indices: [0]=pre_run#1, [2]=pre_run#2,
-	// [4]=pre_run#3 (start), [6]=setup.
-	assert.Equal(t, "engine_newPayloadV4", rpcMethod(t, result.SetupLines[0]))
-	assert.Equal(t, "0xb1", newPayloadBlockHash(t, result.SetupLines[0]),
+	// precede the fixture's own setup block. After the anchor line, SetupLines are
+	// (newPayload, fcU) pairs, so newPayload lines sit at odd indices:
+	// [1]=pre_run#1, [3]=pre_run#2, [5]=pre_run#3 (start), [7]=setup.
+	assert.Equal(t, "engine_newPayloadV4", rpcMethod(t, result.SetupLines[1]))
+	assert.Equal(t, "0xb1", newPayloadBlockHash(t, result.SetupLines[1]),
 		"first setup line must replay the first pre_run block, not the fixture's setup")
-	assert.Equal(t, "0xstart", newPayloadBlockHash(t, result.SetupLines[4]),
+	assert.Equal(t, "0xstart", newPayloadBlockHash(t, result.SetupLines[5]),
 		"third newPayload is the last pre_run block (start)")
-	assert.Equal(t, "0xsetup", newPayloadBlockHash(t, result.SetupLines[6]),
+	assert.Equal(t, "0xsetup", newPayloadBlockHash(t, result.SetupLines[7]),
 		"the fixture's own setup block comes AFTER the pre_run blocks")
 
 	// The benchmark newPayload is the test step.
@@ -338,6 +345,25 @@ func newPayloadBlockHash(t *testing.T, line string) string {
 	return hash
 }
 
+// forkchoiceHeadHash decodes a forkchoiceUpdated line and returns its
+// headBlockHash.
+func forkchoiceHeadHash(t *testing.T, line string) string {
+	t.Helper()
+
+	var call map[string]any
+	require.NoError(t, json.Unmarshal([]byte(line), &call))
+
+	params, ok := call["params"].([]any)
+	require.True(t, ok && len(params) > 0, "forkchoiceUpdated line must carry params")
+
+	state, ok := params[0].(map[string]any)
+	require.True(t, ok, "first param must be the forkchoice state object")
+
+	hash, _ := state["headBlockHash"].(string)
+
+	return hash
+}
+
 func TestConvertStatefulFixture_NilPreRun(t *testing.T) {
 	fixture := &Fixture{
 		Info:                   &FixtureInfo{FixtureFormat: SupportedStatefulFixtureFormat},
@@ -349,10 +375,70 @@ func TestConvertStatefulFixture_NilPreRun(t *testing.T) {
 	result, err := ConvertStatefulFixture("test_stateful", fixture, nil)
 	require.NoError(t, err)
 
-	// Without pre_run, only the fixture's own setup payload is replayed.
-	assert.Len(t, result.SetupLines, 2)
+	// Without pre_run: 1 anchor fcU + the fixture's own setup payload's 2 lines.
+	assert.Len(t, result.SetupLines, 3)
 	assert.Len(t, result.TestLines, 2)
 	assert.Equal(t, 2, result.PayloadCount)
+
+	// With no pre_run the anchor is the fixture's start block.
+	assert.Equal(t, "0xstart", forkchoiceHeadHash(t, result.SetupLines[0]))
+}
+
+// Every fixture replays from the same anchor, but nothing rewinds the client
+// between tests, so the replay has to ask for the anchor itself. Without this
+// line the first newPayload names a parent that is not the head, the client
+// answers ACCEPTED, and every later payload is orphaned.
+func TestConvertStatefulFixture_AnchorForkchoicePrecedesReplay(t *testing.T) {
+	fixture := &Fixture{
+		Info:                   &FixtureInfo{FixtureFormat: SupportedStatefulFixtureFormat},
+		SnapshotBlockHash:      "0xsnapshot",
+		StartBlockHash:         "0xstart",
+		SetupEngineNewPayloads: []*EngineNewPayload{statefulPayload("0x4", "0xsetup", "0xstart")},
+		EngineNewPayloads:      []*EngineNewPayload{statefulPayload("0x5", "0xbench", "0xsetup")},
+	}
+
+	result, err := ConvertStatefulFixture("test_stateful", fixture, nil)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, result.SetupLines)
+
+	assert.Equal(t, "engine_forkchoiceUpdatedV3", rpcMethod(t, result.SetupLines[0]),
+		"the replay must open with a forkchoiceUpdated, not a newPayload")
+	assert.Equal(t, "0xstart", forkchoiceHeadHash(t, result.SetupLines[0]),
+		"it must point at the parent of the first payload")
+
+	// safe and finalized stay zero: replaying a payload must not move either
+	// marker.
+	var call map[string]any
+	require.NoError(t, json.Unmarshal([]byte(result.SetupLines[0]), &call))
+	state, _ := call["params"].([]any)[0].(map[string]any)
+	assert.Equal(t, ZeroHash, state["safeBlockHash"])
+	assert.Equal(t, ZeroHash, state["finalizedBlockHash"])
+}
+
+// With a pre_run prepended the anchor must come from the first payload actually
+// replayed, which descends from the snapshot block, not startBlockHash.
+func TestConvertStatefulFixture_AnchorIsFirstPayloadParent(t *testing.T) {
+	preRun := &StatefulPreRun{
+		EngineNewPayloads: []*EngineNewPayload{
+			statefulPayload("0x1", "0xb1", "0xsnapshot"),
+			statefulPayload("0x2", "0xstart", "0xb1"),
+		},
+	}
+
+	fixture := &Fixture{
+		Info:                   &FixtureInfo{FixtureFormat: SupportedStatefulFixtureFormat},
+		SnapshotBlockHash:      "0xsnapshot",
+		StartBlockHash:         "0xstart",
+		SetupEngineNewPayloads: []*EngineNewPayload{statefulPayload("0x4", "0xsetup", "0xstart")},
+		EngineNewPayloads:      []*EngineNewPayload{statefulPayload("0x5", "0xbench", "0xsetup")},
+	}
+
+	result, err := ConvertStatefulFixture("test_stateful", fixture, preRun)
+	require.NoError(t, err)
+
+	assert.Equal(t, "0xsnapshot", forkchoiceHeadHash(t, result.SetupLines[0]),
+		"with a pre_run the anchor is the snapshot block, not startBlockHash")
 }
 
 func TestConvertStatefulFixture_NoBenchmarkPayloads(t *testing.T) {

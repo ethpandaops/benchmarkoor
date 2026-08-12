@@ -395,7 +395,7 @@ func (e *executor) RunPreRunSteps(ctx context.Context, opts *ExecuteOptions) (in
 		log.Info("Running pre-run step")
 
 		preRunResult := NewTestResult(step.Name)
-		if err := e.runStepFile(ctx, opts, step, preRunResult, false, opts.PreRunStepSleep); err != nil {
+		if err := e.runStepFile(ctx, opts, step, preRunResult, false, opts.PreRunStepSleep, StepTypePreRun); err != nil {
 			// FailFast: surface the error to the caller without writing partial results.
 			if opts.FailFast {
 				return 0, fmt.Errorf("pre-run step %q failed: %w", step.Name, err)
@@ -493,7 +493,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			log.Info("Running pre-run step")
 
 			preRunResult := NewTestResult(step.Name)
-			if err := e.runStepFile(ctx, opts, step, preRunResult, false, opts.PreRunStepSleep); err != nil {
+			if err := e.runStepFile(ctx, opts, step, preRunResult, false, opts.PreRunStepSleep, StepTypePreRun); err != nil {
 				log.WithError(err).Warn("Pre-run step failed")
 
 				// Check if the failure was due to context cancellation.
@@ -576,7 +576,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 			setupResult := NewTestResult(test.Name)
 
-			if err := e.runStepFile(ctx, opts, test.Setup, setupResult, false, 0); err != nil {
+			if err := e.runStepFile(ctx, opts, test.Setup, setupResult, false, 0, StepTypeSetup); err != nil {
 				log.WithError(err).Error("Setup step failed")
 				testPassed = false
 
@@ -612,7 +612,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 			testResult := NewTestResult(test.Name)
 
-			if err := e.runStepFile(ctx, opts, test.Test, testResult, true, 0); err != nil {
+			if err := e.runStepFile(ctx, opts, test.Test, testResult, true, 0, StepTypeTest); err != nil {
 				log.WithError(err).Error("Test step failed")
 				testPassed = false
 
@@ -668,7 +668,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 
 			cleanupResult := NewTestResult(test.Name)
 
-			if err := e.runStepFile(ctx, opts, test.Cleanup, cleanupResult, false, 0); err != nil {
+			if err := e.runStepFile(ctx, opts, test.Cleanup, cleanupResult, false, 0, StepTypeCleanup); err != nil {
 				log.WithError(err).Error("Cleanup step failed")
 				testPassed = false
 
@@ -814,6 +814,7 @@ writeResults:
 // runStepFile executes a single step file or provider.
 // If captureBlockLogs is true, blockHashes from engine_newPayload calls are registered for log matching.
 // betweenLineSleep, when > 0, sleeps for that duration between each RPC call.
+// stepType decides whether resume skipping applies; see runStepLines.
 func (e *executor) runStepFile(
 	ctx context.Context,
 	opts *ExecuteOptions,
@@ -821,13 +822,15 @@ func (e *executor) runStepFile(
 	result *TestResult,
 	captureBlockLogs bool,
 	betweenLineSleep time.Duration,
+	stepType StepType,
 ) error {
 	// Use provider if available, otherwise read from file.
 	if step.Provider != nil {
-		return e.runStepLines(ctx, opts, step.Name, step.Provider.Lines(), result, captureBlockLogs, betweenLineSleep)
+		return e.runStepLines(ctx, opts, step.Name, step.Provider.Lines(), result,
+			captureBlockLogs, betweenLineSleep, stepType)
 	}
 
-	return e.runStepFromFile(ctx, opts, step, result, captureBlockLogs, betweenLineSleep)
+	return e.runStepFromFile(ctx, opts, step, result, captureBlockLogs, betweenLineSleep, stepType)
 }
 
 // runStepFromFile reads and executes lines from a file.
@@ -838,6 +841,7 @@ func (e *executor) runStepFromFile(
 	result *TestResult,
 	captureBlockLogs bool,
 	betweenLineSleep time.Duration,
+	stepType StepType,
 ) error {
 	file, err := os.Open(step.Path)
 	if err != nil {
@@ -867,7 +871,8 @@ func (e *executor) runStepFromFile(
 		}
 	}
 
-	return e.runStepLines(ctx, opts, step.Name, lines, result, captureBlockLogs, betweenLineSleep)
+	return e.runStepLines(ctx, opts, step.Name, lines, result, captureBlockLogs,
+		betweenLineSleep, stepType)
 }
 
 // runStepLines executes JSON-RPC lines.
@@ -882,6 +887,7 @@ func (e *executor) runStepLines(
 	result *TestResult,
 	captureBlockLogs bool,
 	betweenLineSleep time.Duration,
+	stepType StepType,
 ) error {
 	stepStart := time.Now()
 
@@ -897,7 +903,14 @@ func (e *executor) runStepLines(
 	// skipping is true when we're dropping already-applied lines at the
 	// start of the file (resume scenario). Cleared once we encounter the
 	// first engine_newPayload whose blockNumber > SkipUntilBlockNumber.
-	skipping := opts.SkipUntilBlockNumber > 0
+	//
+	// Only the pre-run replay resumes: it is the one step that may already be
+	// partly applied to the datadir. A test's own steps always start from the
+	// replay anchor and must be sent whole. Skipping them silently dropped any
+	// leading line that is not a newPayload — a forkchoiceUpdated placed first
+	// to bring the head back to the anchor never reached the client, which is
+	// exactly the line that keeps a test replaying from the right block.
+	skipping := opts.SkipUntilBlockNumber > 0 && stepType == StepTypePreRun
 	skippedCount := 0
 
 	for lineNum, line := range lines {

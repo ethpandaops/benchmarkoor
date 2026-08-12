@@ -550,9 +550,18 @@ func (r *runner) runTestsWithContainerStrategy(
 					}
 
 					if blkHash != "" {
+						rootAnchor, anchorErr := r.resolveRootAnchor(
+							ctx, testLog, currentContainerIP, spec.RPCPort(),
+							fcuCfg.RootAnchorBlockHash,
+						)
+						if anchorErr != nil {
+							testLog.WithError(anchorErr).Warn(
+								"Could not resolve a root anchor; leaving safe/finalized unset")
+						}
+
 						if fcuErr := r.sendBootstrapFCU(
 							ctx, testLog, currentContainerIP,
-							spec.EnginePort(), blkHash, fcuCfg,
+							spec.EnginePort(), blkHash, rootAnchor, fcuCfg,
 						); fcuErr != nil {
 							testLog.WithError(fcuErr).Error(
 								"Bootstrap FCU failed",
@@ -786,9 +795,18 @@ func (r *runner) runTestsWithContainerStrategy(
 					}
 
 					if blkHash != "" {
+						rootAnchor, anchorErr := r.resolveRootAnchor(
+							ctx, testLog, currentContainerIP, spec.RPCPort(),
+							fcuCfg.RootAnchorBlockHash,
+						)
+						if anchorErr != nil {
+							testLog.WithError(anchorErr).Warn(
+								"Could not resolve a root anchor; leaving safe/finalized unset")
+						}
+
 						if fcuErr := r.sendBootstrapFCU(
 							ctx, testLog, currentContainerIP,
-							spec.EnginePort(), blkHash, fcuCfg,
+							spec.EnginePort(), blkHash, rootAnchor, fcuCfg,
 						); fcuErr != nil {
 							testLog.WithError(fcuErr).Error(
 								"Bootstrap FCU failed",
