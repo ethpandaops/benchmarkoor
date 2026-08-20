@@ -303,7 +303,78 @@ runner:
 
 #### Test Sources
 
-Tests can be loaded from a local directory, a git repository, an archive file, or EEST (Ethereum Execution Spec Tests) fixtures. Only one source type can be configured.
+Tests can be loaded from a local directory, a git repository, an archive file,
+EEST (Ethereum Execution Spec Tests) fixtures, or a semantic Tempo Engine suite.
+Only one source type can be configured.
+
+##### Tempo Engine Suite
+
+Tempo disables the standard `engine_*` payload API because its block and
+transaction types extend Ethereum. The `tempo_suite` source reads a
+`tempo-engine-suite/v1` manifest and expands raw block RLP into
+`reth_newPayload` plus `reth_forkchoiceUpdated` calls:
+
+```yaml
+tests:
+  source:
+    tempo_suite:
+      manifest: /bench/suites/tip20-transfer/manifest.json
+```
+
+The manifest owns the reproducible workload data, setup/measurement boundary,
+expected status, block identity, gas usage, transaction counts, tags, and
+generator provenance. Paths are relative to the manifest. The canonical JSON
+Schema is [`schemas/tempo-engine-suite-v1.schema.json`](../schemas/tempo-engine-suite-v1.schema.json):
+
+```yaml
+format: tempo-engine-suite/v1
+name: tip20-transfer
+description: TIP-20 transfers paid in the default fee token
+origin:
+  kind: tempo-native
+  repository: https://github.com/tempoxyz/tempo
+  revision: 0123456789abcdef
+  generator: tempo-xtask generate-benchmark-suite
+  seed: "42"
+chain:
+  name: tempo
+  chain_id: 42431
+  hardfork: presto
+  genesis: genesis.json
+defaults:
+  wait_for_persistence: true
+  wait_for_caches: true
+  expected_status: VALID
+tests:
+  - name: tip20-transfer
+    tags: [tempo-native, tip20, transfer, fee-token]
+    setup:
+      - rlp_file: blocks/1.rlp
+        bal_file: blocks/1.bal
+        block_number: 1
+        block_hash: "0x..."
+        gas_used: 1000000
+        transaction_count: 100
+    test:
+      - rlp_file: blocks/2.rlp
+        bal_file: blocks/2.bal
+        block_number: 2
+        block_hash: "0x..."
+        gas_used: 2000000
+        transaction_count: 200
+```
+
+A call can instead provide an explicit `method` and `params`; this is how
+forkchoice updates and future authenticated RPC extensions are represented.
+Negative suites set `expected_status` (for example `INVALID`) and optionally
+`validation_error_contains` or `expected_rpc_error_code`.
+
+For `reth_newPayload`, result artifacts record both HTTP-observed duration and
+the node's server timing breakdown (`latency_us`, persistence wait, execution
+cache wait, and sparse-trie wait). Gas throughput uses server execution time
+when present and records `gas_used_time_source` so comparisons do not silently
+mix timing definitions. Run Markdown includes provenance and results grouped by
+suite tags.
 
 ##### Local Source
 
@@ -753,6 +824,7 @@ The `runner.client` section configures Ethereum execution clients.
 | Erigon | `erigon` | `ethpandaops/erigon:performance` |
 | Nimbus | `nimbus` | `statusim/nimbus-eth1:performance` |
 | Reth | `reth` | `ethpandaops/reth:performance` |
+| Tempo | `tempo` | `docker.io/tempoxyz/tempo:latest` |
 
 #### Client Defaults
 

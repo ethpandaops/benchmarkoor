@@ -130,6 +130,8 @@ func GenerateRunMarkdown(
 		testsTotal = len(result.Tests)
 	}
 
+	suite := loadMarkdownSuite(runDir, cfg.SuiteHash)
+
 	// Override with config test_counts when available.
 	if cfg.TestCounts != nil {
 		testsTotal = cfg.TestCounts.Total
@@ -144,7 +146,9 @@ func GenerateRunMarkdown(
 
 	writeTitle(&sb, runID)
 	writeOverview(&sb, &cfg)
+	writeSuiteProvenance(&sb, suite)
 	writeTestResults(&sb, testsTotal, testsPassed, testsFailed)
+	writeTagStats(&sb, suite, result)
 	writeStepStats(&sb, steps)
 	writeStartBlock(&sb, cfg.StartBlock)
 	writeSystem(&sb, cfg.System)
@@ -156,6 +160,133 @@ func GenerateRunMarkdown(
 	writeFailedTests(&sb, failed, maxChars)
 
 	return sb.String(), nil
+}
+
+func loadMarkdownSuite(runDir, suiteHash string) *SuiteInfo {
+	if suiteHash == "" {
+		return nil
+	}
+
+	path := filepath.Join(filepath.Dir(filepath.Dir(runDir)), "suites", suiteHash, "summary.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+
+	var suite SuiteInfo
+	if json.Unmarshal(data, &suite) != nil {
+		return nil
+	}
+	return &suite
+}
+
+func writeSuiteProvenance(sb *strings.Builder, suite *SuiteInfo) {
+	if suite == nil || suite.Source == nil || suite.Source.Tempo == nil {
+		return
+	}
+
+	tempo := suite.Source.Tempo
+	sb.WriteString("## Tempo Suite\n\n")
+	sb.WriteString("| Field | Value |\n")
+	sb.WriteString("|---|---|\n")
+	fmt.Fprintf(sb, "| Name | %s |\n", tempo.Name)
+	fmt.Fprintf(sb, "| Format | `%s` |\n", tempo.Format)
+	if tempo.Description != "" {
+		fmt.Fprintf(sb, "| Description | %s |\n", tempo.Description)
+	}
+	if tempo.Origin.Kind != "" {
+		fmt.Fprintf(sb, "| Origin | %s |\n", tempo.Origin.Kind)
+	}
+	if tempo.Origin.Revision != "" {
+		fmt.Fprintf(sb, "| Revision | `%s` |\n", tempo.Origin.Revision)
+	}
+	if tempo.Origin.Seed != "" {
+		fmt.Fprintf(sb, "| Seed | `%s` |\n", tempo.Origin.Seed)
+	}
+	if tempo.Chain.Hardfork != "" {
+		fmt.Fprintf(sb, "| Hardfork | %s |\n", tempo.Chain.Hardfork)
+	}
+	if tempo.Chain.ChainID != 0 {
+		fmt.Fprintf(sb, "| Chain ID | %d |\n", tempo.Chain.ChainID)
+	}
+	sb.WriteByte('\n')
+}
+
+type markdownTagStats struct {
+	tests  int
+	passed int
+	failed int
+	gas    uint64
+	time   int64
+	source string
+}
+
+func writeTagStats(sb *strings.Builder, suite *SuiteInfo, result *RunResult) {
+	if suite == nil || result == nil {
+		return
+	}
+
+	rollups := make(map[string]*markdownTagStats)
+	for _, suiteTest := range suite.Tests {
+		entry := result.Tests[suiteTest.Name]
+		if entry == nil || entry.Steps == nil {
+			continue
+		}
+
+		tags := suiteTest.Tags
+		if len(tags) == 0 {
+			tags = []string{"untagged"}
+		}
+		failed := stepFailed(entry.Steps.Setup) || stepFailed(entry.Steps.Test) ||
+			stepFailed(entry.Steps.Cleanup)
+
+		for _, tag := range tags {
+			stats := rollups[tag]
+			if stats == nil {
+				stats = &markdownTagStats{}
+				rollups[tag] = stats
+			}
+			stats.tests++
+			if failed {
+				stats.failed++
+			} else {
+				stats.passed++
+			}
+			if entry.Steps.Test != nil && entry.Steps.Test.Aggregated != nil {
+				agg := entry.Steps.Test.Aggregated
+				stats.gas += agg.GasUsedTotal
+				stats.time += agg.GasUsedTimeTotal
+				stats.source = mergeTimingSource(stats.source, agg.GasUsedTimeSource)
+			}
+		}
+	}
+
+	if len(rollups) == 0 {
+		return
+	}
+
+	keys := make([]string, 0, len(rollups))
+	for tag := range rollups {
+		keys = append(keys, tag)
+	}
+	sort.Strings(keys)
+
+	sb.WriteString("## Results by Suite Tag\n\n")
+	sb.WriteString("| Tag | Tests | Passed | Failed | Gas Used | Execution Time | Timing Source | MGas/s |\n")
+	sb.WriteString("|---|---|---|---|---|---|---|---|\n")
+	for _, tag := range keys {
+		stats := rollups[tag]
+		fmt.Fprintf(sb, "| %s | %d | %d | %d | %s | %s | %s | %s |\n",
+			tag, stats.tests, stats.passed, stats.failed, formatGas(stats.gas),
+			formatDurationNs(stats.time), stats.source,
+			formatMGasPerSec(stats.gas, stats.time),
+		)
+	}
+	sb.WriteByte('\n')
+}
+
+func stepFailed(step *StepResult) bool {
+	return step != nil && step.Aggregated != nil && step.Aggregated.Failed > 0
 }
 
 func writeTitle(sb *strings.Builder, runID string) {
@@ -379,9 +510,9 @@ func writeStepStats(sb *strings.Builder, steps *IndexStepsStats) {
 	}
 
 	sb.WriteString("## Aggregated Step Stats\n\n")
-	sb.WriteString("| Step | Duration | Gas Used | MGas/s " +
+	sb.WriteString("| Step | HTTP Duration | Execution Time | Timing Source | Gas Used | MGas/s " +
 		"| Success | Fail |\n")
-	sb.WriteString("|---|---|---|---|---|---|\n")
+	sb.WriteString("|---|---|---|---|---|---|---|---|\n")
 
 	writeStepRow(sb, "Setup", steps.Setup)
 	writeStepRow(sb, "Test", steps.Test)
@@ -395,9 +526,11 @@ func writeStepRow(sb *strings.Builder, name string, s *IndexStepStats) {
 		return
 	}
 
-	fmt.Fprintf(sb, "| %s | %s | %s | %s | %d | %d |\n",
+	fmt.Fprintf(sb, "| %s | %s | %s | %s | %s | %s | %d | %d |\n",
 		name,
 		formatDurationNs(s.Duration),
+		formatDurationNs(s.GasUsedDuration),
+		s.GasUsedTimeSource,
 		formatGas(s.GasUsed),
 		formatMGasPerSec(s.GasUsed, s.GasUsedDuration),
 		s.Success,

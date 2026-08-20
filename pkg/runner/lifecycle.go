@@ -1093,7 +1093,7 @@ func (r *runner) runContainerLifecycle(
 
 		if anchorErr := r.resetForkchoiceAnchor(
 			execCtx, log, containerIP, spec.EnginePort(), spec.RPCPort(),
-			blockHash, configuredAnchor,
+			blockHash, configuredAnchor, client.EngineAPIDialectFor(spec),
 		); anchorErr != nil {
 			log.WithError(anchorErr).Warn(
 				"Could not reset safe/finalized; a deep rewind to the replay anchor may fail")
@@ -1115,6 +1115,7 @@ func (r *runner) runContainerLifecycle(
 			if fcuHash != "" {
 				if fcuErr := r.sendBootstrapFCU(
 					execCtx, log, containerIP, spec.EnginePort(), fcuHash, "", fcuCfg,
+					client.EngineAPIDialectFor(spec),
 				); fcuErr != nil {
 					log.WithError(fcuErr).Error("Bootstrap FCU failed")
 

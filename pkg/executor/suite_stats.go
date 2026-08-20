@@ -24,13 +24,14 @@ type TestDurations struct {
 
 // RunDuration contains timing information for a single run of a test.
 type RunDuration struct {
-	ID       string                 `json:"id"`
-	Client   string                 `json:"client"`
-	GasUsed  uint64                 `json:"gas_used"`
-	Time     int64                  `json:"time_ns"`
-	RunStart int64                  `json:"run_start"`
-	RunEnd   int64                  `json:"run_end,omitempty"`
-	Steps    *RunDurationStepsStats `json:"steps,omitempty"`
+	ID         string                 `json:"id"`
+	Client     string                 `json:"client"`
+	GasUsed    uint64                 `json:"gas_used"`
+	Time       int64                  `json:"time_ns"`
+	TimeSource string                 `json:"time_source,omitempty"`
+	RunStart   int64                  `json:"run_start"`
+	RunEnd     int64                  `json:"run_end,omitempty"`
+	Steps      *RunDurationStepsStats `json:"steps,omitempty"`
 }
 
 // RunDurationStepsStats contains per-step gas and time data.
@@ -44,6 +45,7 @@ type RunDurationStepsStats struct {
 type RunDurationStepStats struct {
 	GasUsed        uint64          `json:"gas_used"`
 	Time           int64           `json:"time_ns"`
+	TimeSource     string          `json:"time_source,omitempty"`
 	RPCCallsCount  int             `json:"rpc_calls_count,omitempty"`
 	ResourceTotals *ResourceTotals `json:"resource_totals,omitempty"`
 }
@@ -158,7 +160,9 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 			continue
 		}
 
-		// Aggregate stats from all steps.
+		// The benchmark score is the measured test phase only. Setup and cleanup
+		// remain available in Steps for diagnostics but must not contaminate the
+		// block-execution throughput used for cross-run comparisons.
 		var totalGasUsed uint64
 		var totalGasUsedTime int64
 
@@ -170,11 +174,10 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 			stepsStats.Setup = &RunDurationStepStats{
 				GasUsed:        agg.GasUsedTotal,
 				Time:           agg.GasUsedTimeTotal,
+				TimeSource:     agg.GasUsedTimeSource,
 				RPCCallsCount:  agg.TotalMsgs,
 				ResourceTotals: agg.ResourceTotals,
 			}
-			totalGasUsed += agg.GasUsedTotal
-			totalGasUsedTime += agg.GasUsedTimeTotal
 		}
 
 		if testEntry.Steps.Test != nil && testEntry.Steps.Test.Aggregated != nil {
@@ -182,6 +185,7 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 			stepsStats.Test = &RunDurationStepStats{
 				GasUsed:        agg.GasUsedTotal,
 				Time:           agg.GasUsedTimeTotal,
+				TimeSource:     agg.GasUsedTimeSource,
 				RPCCallsCount:  agg.TotalMsgs,
 				ResourceTotals: agg.ResourceTotals,
 			}
@@ -194,11 +198,10 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 			stepsStats.Cleanup = &RunDurationStepStats{
 				GasUsed:        agg.GasUsedTotal,
 				Time:           agg.GasUsedTimeTotal,
+				TimeSource:     agg.GasUsedTimeSource,
 				RPCCallsCount:  agg.TotalMsgs,
 				ResourceTotals: agg.ResourceTotals,
 			}
-			totalGasUsed += agg.GasUsedTotal
-			totalGasUsedTime += agg.GasUsedTimeTotal
 		}
 
 		if (*stats)[testName] == nil {
@@ -207,14 +210,20 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 			}
 		}
 
+		timeSource := ""
+		if stepsStats.Test != nil {
+			timeSource = stepsStats.Test.TimeSource
+		}
+
 		(*stats)[testName].Durations = append((*stats)[testName].Durations, &RunDuration{
-			ID:       run.RunID,
-			Client:   run.Client,
-			GasUsed:  totalGasUsed,
-			Time:     totalGasUsedTime,
-			RunStart: run.Timestamp,
-			RunEnd:   run.TimestampEnd,
-			Steps:    stepsStats,
+			ID:         run.RunID,
+			Client:     run.Client,
+			GasUsed:    totalGasUsed,
+			Time:       totalGasUsedTime,
+			TimeSource: timeSource,
+			RunStart:   run.Timestamp,
+			RunEnd:     run.TimestampEnd,
+			Steps:      stepsStats,
 		})
 	}
 }

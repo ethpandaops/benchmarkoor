@@ -1,0 +1,49 @@
+services:
+  benchmarkoor:
+    image: ethpandaops/benchmarkoor:tempo-dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-none}
+        DATE: ${DATE:-unknown}
+    environment:
+      - TEMPO_IMAGE=${TEMPO_IMAGE:-docker.io/tempoxyz/tempo:latest}
+      - TEMPO_SUITE_MANIFEST=${TEMPO_SUITE_MANIFEST:-/app/tempo-suite/manifest.json}
+      - TEMPO_ROLLBACK_STRATEGY=${TEMPO_ROLLBACK_STRATEGY:-none}
+      - BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_DATADIR=${PWD}/tmp/data
+      - BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_CACHEDIR=${PWD}/tmp/cache
+      - BENCHMARKOOR_GLOBAL_DIRECTORIES_CACHEDIR=${PWD}/tmp/global-cache
+      - BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_OWNER=${USER_UID:-0}:${USER_GID:-0}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./examples/configuration/config.tempo-suite.yaml:/app/config.yaml:ro
+      - ${TEMPO_SUITE_DIR:-./tmp/tempo-suite}:/app/tempo-suite:ro
+      - type: bind
+        source: ${PWD}/tmp
+        target: ${PWD}/tmp
+      - ./results:/app/results
+    working_dir: /app
+    command: ["run", "--config", "/app/config.yaml"]
+    networks:
+      - benchmarkoor
+
+  ui:
+    image: ethpandaops/benchmarkoor-ui:tempo-dev
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+      args:
+        APP_VERSION: ${VERSION:-dev}
+    ports:
+      - "${UI_PORT:-8080}:80"
+    volumes:
+      - ./results:/usr/share/nginx/html/results:ro
+      - ./ui/public/config.tempo-static.json:/usr/share/nginx/html/config.json:ro
+    networks:
+      - benchmarkoor
+
+networks:
+  benchmarkoor:
+    name: benchmarkoor

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
@@ -17,6 +18,34 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/sirupsen/logrus"
 )
+
+const suiteSegmentStartMetadata = "suite_segment_start"
+
+func usesSuiteSegmentBoundaries(tests []*executor.TestWithSteps) bool {
+	for _, test := range tests {
+		if strings.EqualFold(test.Metadata[suiteSegmentStartMetadata], "true") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func shouldRecreateContainer(
+	strategy string,
+	testIndex int,
+	test *executor.TestWithSteps,
+	segmentBoundaryMode bool,
+) bool {
+	if strategy != config.RollbackStrategyContainerRecreate || testIndex == 0 {
+		return false
+	}
+	if !segmentBoundaryMode {
+		return true
+	}
+
+	return strings.EqualFold(test.Metadata[suiteSegmentStartMetadata], "true")
+}
 
 // runTestsWithContainerStrategy executes tests one at a time, manipulating
 // the container between tests according to the given strategy.
@@ -53,8 +82,12 @@ func (r *runner) runTestsWithContainerStrategy(
 	if len(tests) == 0 {
 		return &executor.ExecutionResult{}, nil
 	}
+	segmentBoundaryMode := usesSuiteSegmentBoundaries(tests)
 
-	log.WithField("tests", len(tests)).Info(
+	log.WithFields(logrus.Fields{
+		"tests":                len(tests),
+		"suite_segment_resets": segmentBoundaryMode,
+	}).Info(
 		"Running tests with container-level rollback strategy",
 	)
 
@@ -562,6 +595,7 @@ func (r *runner) runTestsWithContainerStrategy(
 						if fcuErr := r.sendBootstrapFCU(
 							ctx, testLog, currentContainerIP,
 							spec.EnginePort(), blkHash, rootAnchor, fcuCfg,
+							client.EngineAPIDialectFor(spec),
 						); fcuErr != nil {
 							testLog.WithError(fcuErr).Error(
 								"Bootstrap FCU failed",
@@ -581,8 +615,9 @@ func (r *runner) runTestsWithContainerStrategy(
 				}
 			}
 
-		case strategy == config.RollbackStrategyContainerRecreate && i > 0:
-			testLog.Info("Recreating container for next test")
+		case shouldRecreateContainer(strategy, i, test, segmentBoundaryMode):
+			testLog.WithField("suite_segment_reset", segmentBoundaryMode).
+				Info("Recreating container for next test")
 
 			// Stop container first so Docker flushes remaining logs.
 			testLog.Info("Stopping container for recreate")
@@ -807,6 +842,7 @@ func (r *runner) runTestsWithContainerStrategy(
 						if fcuErr := r.sendBootstrapFCU(
 							ctx, testLog, currentContainerIP,
 							spec.EnginePort(), blkHash, rootAnchor, fcuCfg,
+							client.EngineAPIDialectFor(spec),
 						); fcuErr != nil {
 							testLog.WithError(fcuErr).Error(
 								"Bootstrap FCU failed",

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
@@ -223,21 +224,19 @@ func (r *runner) resetForkchoiceAnchor(
 	rpcPort int,
 	headBlockHash string,
 	configured string,
+	dialect client.EngineAPIDialect,
 ) error {
 	anchor, err := r.resolveRootAnchor(ctx, log, host, rpcPort, configured)
 	if err != nil {
 		return fmt.Errorf("resolving root anchor: %w", err)
 	}
 
-	payload := fmt.Sprintf(
-		`{"jsonrpc":"2.0","method":"engine_forkchoiceUpdatedV3",`+
-			`"params":[{"headBlockHash":"%s","safeBlockHash":"%s",`+
-			`"finalizedBlockHash":"%s"},null],"id":1}`,
-		headBlockHash, anchor, anchor,
-	)
+	payload := forkchoicePayload(dialect, headBlockHash, anchor)
 
 	url := fmt.Sprintf("http://%s:%d", host, enginePort)
-	if err := r.doBootstrapFCURequest(ctx, url, payload); err != nil {
+	if err := r.doBootstrapFCURequest(
+		ctx, url, payload, dialect.ForkchoiceUpdatedMethod,
+	); err != nil {
 		return fmt.Errorf("sending forkchoice anchor reset: %w", err)
 	}
 
@@ -265,6 +264,7 @@ func (r *runner) sendBootstrapFCU(
 	headBlockHash string,
 	rootAnchorBlockHash string,
 	cfg *config.BootstrapFCUConfig,
+	dialect client.EngineAPIDialect,
 ) error {
 	const zeroHash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -280,13 +280,7 @@ func (r *runner) sendBootstrapFCU(
 		anchor = zeroHash
 	}
 
-	// Build the forkchoiceUpdatedV3 payload.
-	payload := fmt.Sprintf(
-		`{"jsonrpc":"2.0","method":"engine_forkchoiceUpdatedV3",`+
-			`"params":[{"headBlockHash":"%s","safeBlockHash":"%s",`+
-			`"finalizedBlockHash":"%s"},null],"id":1}`,
-		headBlockHash, anchor, anchor,
-	)
+	payload := forkchoicePayload(dialect, headBlockHash, anchor)
 
 	url := fmt.Sprintf("http://%s:%d", host, enginePort)
 
@@ -299,7 +293,7 @@ func (r *runner) sendBootstrapFCU(
 	var lastErr error
 
 	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
-		lastErr = r.doBootstrapFCURequest(ctx, url, payload)
+		lastErr = r.doBootstrapFCURequest(ctx, url, payload, dialect.ForkchoiceUpdatedMethod)
 		if lastErr == nil {
 			log.WithField("head_block_hash", headBlockHash).Info(
 				"Bootstrap FCU sent successfully",
@@ -331,6 +325,7 @@ func (r *runner) doBootstrapFCURequest(
 	ctx context.Context,
 	url string,
 	payload string,
+	method string,
 ) error {
 	const requestTimeout = 30 * time.Second
 
@@ -374,9 +369,27 @@ func (r *runner) doBootstrapFCURequest(
 
 	// Validate the response using the FCU validator.
 	validator := &jsonrpc.ForkchoiceUpdatedValidator{}
-	if err := validator.Validate("engine_forkchoiceUpdatedV3", rpcResp); err != nil {
+	if err := validator.Validate(method, rpcResp); err != nil {
 		return fmt.Errorf("validating response: %w", err)
 	}
 
 	return nil
+}
+
+func forkchoicePayload(
+	dialect client.EngineAPIDialect,
+	headBlockHash string,
+	anchor string,
+) string {
+	paramsSuffix := "]"
+	if dialect.ForkchoicePayloadAttrsArg {
+		paramsSuffix = ",null]"
+	}
+
+	return fmt.Sprintf(
+		`{"jsonrpc":"2.0","method":"%s",`+
+			`"params":[{"headBlockHash":"%s","safeBlockHash":"%s",`+
+			`"finalizedBlockHash":"%s"}%s,"id":1}`,
+		dialect.ForkchoiceUpdatedMethod, headBlockHash, anchor, anchor, paramsSuffix,
+	)
 }

@@ -89,6 +89,9 @@ type PayloadSizeBuckets struct {
 	SSZFullSnappy []uint64 `json:"ssz_full_snappy"`
 	JSONFull      []uint64 `json:"json_full"`
 	JSONBAL       []uint64 `json:"json_bal"`
+	RLPFull       []uint64 `json:"rlp_full,omitempty"`
+	RLPBAL        []uint64 `json:"rlp_bal,omitempty"`
+	RLPFullSnappy []uint64 `json:"rlp_full_snappy,omitempty"`
 }
 
 // HasData returns true if any of the slices contain a non-zero entry.
@@ -96,7 +99,10 @@ func (b *PayloadSizeBuckets) HasData() bool {
 	if b == nil {
 		return false
 	}
-	for _, slice := range [][]uint64{b.SSZFull, b.SSZBAL, b.SSZFullSnappy, b.JSONFull, b.JSONBAL} {
+	for _, slice := range [][]uint64{
+		b.SSZFull, b.SSZBAL, b.SSZFullSnappy, b.JSONFull, b.JSONBAL,
+		b.RLPFull, b.RLPBAL, b.RLPFullSnappy,
+	} {
 		for _, v := range slice {
 			if v > 0 {
 				return true
@@ -185,7 +191,48 @@ func ComputePayloadSizeBuckets(log logrus.FieldLogger, testName string, lines []
 		// value (e.g. "0xab..." — chars only, not the surrounding quotes).
 		out.JSONBAL = append(out.JSONBAL, uint64(len(np.Payload.BlockAccessList)))
 	}
+
+	for _, line := range lines {
+		block, bal, ok := extractRethPayloadBytes(line)
+		if !ok {
+			continue
+		}
+		out.RLPFull = append(out.RLPFull, uint64(len(block)))
+		out.RLPBAL = append(out.RLPBAL, uint64(len(bal)))
+		out.RLPFullSnappy = append(out.RLPFullSnappy, uint64(len(snappy.Encode(nil, block))))
+	}
 	return out
+}
+
+func extractRethPayloadBytes(line string) ([]byte, []byte, bool) {
+	var req newPayloadRequest
+	if json.Unmarshal([]byte(line), &req) != nil || req.Method != "reth_newPayload" ||
+		len(req.Params) == 0 {
+		return nil, nil, false
+	}
+
+	var legacy string
+	if json.Unmarshal(req.Params[0], &legacy) == nil {
+		block, err := hex.DecodeString(strings.TrimPrefix(legacy, "0x"))
+		return block, nil, err == nil
+	}
+
+	var input struct {
+		Block string `json:"block"`
+		BAL   string `json:"bal"`
+	}
+	if json.Unmarshal(req.Params[0], &input) != nil || input.Block == "" {
+		return nil, nil, false
+	}
+	block, err := hex.DecodeString(strings.TrimPrefix(input.Block, "0x"))
+	if err != nil {
+		return nil, nil, false
+	}
+	bal, err := hex.DecodeString(strings.TrimPrefix(input.BAL, "0x"))
+	if err != nil {
+		return nil, nil, false
+	}
+	return block, bal, true
 }
 
 // balByteLen returns the byte length of a hex-encoded BlockAccessList. An

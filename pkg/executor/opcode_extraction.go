@@ -74,6 +74,10 @@ func (e *executor) extractTestOpcodes(
 
 		return
 	}
+	var requestMetadata []*RequestMetadata
+	if provider, ok := test.Test.Provider.(RequestMetadataProvider); ok {
+		requestMetadata = provider.RequestMetadata()
+	}
 
 	// Pre-count newPayload* lines so progress logs can show "i/total"
 	// instead of just the absolute line number, which is more useful
@@ -81,7 +85,7 @@ func (e *executor) extractTestOpcodes(
 	totalPayloads := 0
 
 	for _, l := range lines {
-		if m, err := extractMethod(l); err == nil && strings.HasPrefix(m, "engine_newPayload") {
+		if m, err := extractMethod(l); err == nil && isNewPayloadMethod(m) {
 			totalPayloads++
 		}
 	}
@@ -116,11 +120,15 @@ func (e *executor) extractTestOpcodes(
 			continue
 		}
 
-		if !strings.HasPrefix(method, "engine_newPayload") {
+		if !isNewPayloadMethod(method) {
 			continue
 		}
 
 		blockNum, ok := extractBlockNumber(line)
+		if metadata := requestMetadataForLine(requestMetadata, lineNum); metadata != nil &&
+			metadata.BlockNumber != nil {
+			blockNum, ok = *metadata.BlockNumber, true
+		}
 		if !ok {
 			log.WithField("line", lineNum+1).Debug(
 				"opcode_extraction: skipping newPayload without parseable blockNumber",

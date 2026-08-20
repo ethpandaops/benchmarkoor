@@ -706,6 +706,8 @@ func TestSourceConfig_Validate(t *testing.T) {
 	genesisTarball := filepath.Join(tmpDir, "genesis.tar.gz")
 	createTestTarball(t, fixturesTarball)
 	createTestTarball(t, genesisTarball)
+	tempoManifest := filepath.Join(tmpDir, "tempo-suite.yaml")
+	require.NoError(t, os.WriteFile(tempoManifest, []byte("format: tempo-engine-suite/v1"), 0o644))
 
 	tests := []struct {
 		name      string
@@ -717,6 +719,29 @@ func TestSourceConfig_Validate(t *testing.T) {
 			name:    "no source configured is valid",
 			source:  SourceConfig{},
 			wantErr: false,
+		},
+		{
+			name: "valid tempo suite source",
+			source: SourceConfig{
+				TempoSuite: &TempoSuiteSource{Manifest: tempoManifest},
+			},
+			wantErr: false,
+		},
+		{
+			name: "tempo suite manifest is required",
+			source: SourceConfig{
+				TempoSuite: &TempoSuiteSource{},
+			},
+			wantErr:   true,
+			errSubstr: "tempo_suite.manifest is required",
+		},
+		{
+			name: "tempo suite manifest must exist",
+			source: SourceConfig{
+				TempoSuite: &TempoSuiteSource{Manifest: filepath.Join(tmpDir, "missing.yaml")},
+			},
+			wantErr:   true,
+			errSubstr: "does not exist",
 		},
 		{
 			name: "valid git source",

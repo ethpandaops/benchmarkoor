@@ -1,0 +1,41 @@
+global:
+  log_level: info
+
+runner:
+  client_logs_to_stdout: true
+  cleanup_on_start: false
+
+  benchmark:
+    results_dir: ./results
+    generate_results_index: true
+    generate_suite_stats: true
+    system_resource_collection_enabled: true
+    tests:
+      metadata:
+        labels:
+          name: Tempo Engine Suite
+          chain: tempo
+      source:
+        tempo_suite:
+          # Host binary: export TEMPO_SUITE_MANIFEST=/absolute/path/to/manifest.json.
+          # Docker Compose: set TEMPO_SUITE_DIR to the suite directory; it is
+          # mounted at /app/tempo-suite by docker-compose.yaml.
+          manifest: ${TEMPO_SUITE_MANIFEST:-/app/tempo-suite/manifest.json}
+
+  client:
+    config:
+      # Tempo's reth_newPayload response supplies server execution timings.
+      # Keep cache dropping disabled unless the host is configured to allow it.
+      drop_memory_caches: disabled
+      # The example manifests contain one independent test. Use a fresh run for
+      # each manifest instead of trying to rewind Tempo with debug_setHead.
+      # Merged suite bundles set TEMPO_ROLLBACK_STRATEGY=container-recreate;
+      # suite_segment_start metadata then limits recreation to suite boundaries.
+      rollback_strategy: ${TEMPO_ROLLBACK_STRATEGY:-none}
+
+  instances:
+    - id: tempo
+      client: tempo
+      # Export TEMPO_IMAGE=tempo:local to benchmark a locally built branch.
+      image: ${TEMPO_IMAGE:-docker.io/tempoxyz/tempo:latest}
+      pull_policy: missing

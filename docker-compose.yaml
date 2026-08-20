@@ -35,6 +35,9 @@ services:
       - /sys/devices/system/cpu:/host_sys_cpu
       # Config file
       - ./${BENCHMARKOOR_CONFIG:-config.example.docker.yaml}:/app/config.yaml:ro
+      # Optional semantic Tempo suite. Set TEMPO_SUITE_DIR to the host directory
+      # containing manifest.json, genesis.json, and blocks/.
+      - ${TEMPO_SUITE_DIR:-./tmp/tempo-suite}:/app/tempo-suite:ro
       # Temp directory (For fetching temporary files and node data dirs)
       # rshared propagation ensures overlay mounts are visible to sibling containers
       - type: bind

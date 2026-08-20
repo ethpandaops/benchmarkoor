@@ -36,7 +36,7 @@ type NewPayloadValidator struct{}
 
 // Validate checks if engine_newPayload responses have VALID status.
 func (v *NewPayloadValidator) Validate(method string, resp *Response) error {
-	if !strings.HasPrefix(method, "engine_newPayload") {
+	if !strings.HasPrefix(method, "engine_newPayload") && method != "reth_newPayload" {
 		return nil
 	}
 
@@ -66,7 +66,7 @@ type ForkchoiceUpdatedValidator struct{}
 
 // Validate checks if engine_forkchoiceUpdated responses have VALID status.
 func (v *ForkchoiceUpdatedValidator) Validate(method string, resp *Response) error {
-	if !strings.HasPrefix(method, "engine_forkchoiceUpdated") {
+	if !strings.HasPrefix(method, "engine_forkchoiceUpdated") && method != "reth_forkchoiceUpdated" {
 		return nil
 	}
 

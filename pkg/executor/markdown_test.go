@@ -261,6 +261,50 @@ func TestGenerateRunMarkdown(t *testing.T) {
 	})
 }
 
+func TestGenerateTempoRunMarkdownIncludesProvenanceAndTagRollups(t *testing.T) {
+	resultsDir := t.TempDir()
+	runDir := filepath.Join(resultsDir, "runs", "tempo-run")
+	require.NoError(t, os.MkdirAll(runDir, 0o755))
+	writeFixtureConfig(t, runDir)
+
+	result := &RunResult{Tests: map[string]*TestEntry{
+		"passing_test": {
+			Steps: &StepsResult{Test: &StepResult{Aggregated: &AggregatedStats{
+				GasUsedTotal:      50_000_000,
+				GasUsedTimeTotal:  int64(time.Second),
+				GasUsedTimeSource: "server_execution",
+				Succeeded:         1,
+			}}},
+		},
+	}}
+	resultData, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(runDir, "result.json"), resultData, 0o644))
+
+	suiteDir := filepath.Join(resultsDir, "suites", "abc123def456")
+	require.NoError(t, os.MkdirAll(suiteDir, 0o755))
+	suite := &SuiteInfo{
+		Source: &SuiteSource{Tempo: &TempoSourceInfo{
+			Format: "tempo-engine-suite/v1",
+			Name:   "tempo-aa",
+			Origin: TempoSuiteOrigin{Kind: "tempo-native", Revision: "abc123", Seed: "42"},
+			Chain:  TempoSuiteChain{Hardfork: "presto", ChainID: 42431},
+		}},
+		Tests: []SuiteTest{{Name: "passing_test", Tags: []string{"aa", "tip20"}}},
+	}
+	suiteData, err := json.Marshal(suite)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(suiteDir, "summary.json"), suiteData, 0o644))
+
+	md, err := GenerateRunMarkdown(runDir, "tempo-run", 65_000)
+	require.NoError(t, err)
+	assert.Contains(t, md, "## Tempo Suite")
+	assert.Contains(t, md, "| Revision | `abc123` |")
+	assert.Contains(t, md, "## Results by Suite Tag")
+	assert.Contains(t, md, "| aa | 1 | 1 | 0 | 50,000,000 | 1s | server_execution | 50.00 |")
+	assert.Contains(t, md, "| tip20 | 1 | 1 | 0 | 50,000,000 | 1s | server_execution | 50.00 |")
+}
+
 func TestGenerateRunMarkdownCharLimit(t *testing.T) {
 	dir := t.TempDir()
 	writeMinimalConfig(t, dir)

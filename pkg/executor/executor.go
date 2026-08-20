@@ -826,8 +826,12 @@ func (e *executor) runStepFile(
 ) error {
 	// Use provider if available, otherwise read from file.
 	if step.Provider != nil {
+		var metadata []*RequestMetadata
+		if provider, ok := step.Provider.(RequestMetadataProvider); ok {
+			metadata = provider.RequestMetadata()
+		}
 		return e.runStepLines(ctx, opts, step.Name, step.Provider.Lines(), result,
-			captureBlockLogs, betweenLineSleep, stepType)
+			captureBlockLogs, betweenLineSleep, stepType, metadata)
 	}
 
 	return e.runStepFromFile(ctx, opts, step, result, captureBlockLogs, betweenLineSleep, stepType)
@@ -872,7 +876,7 @@ func (e *executor) runStepFromFile(
 	}
 
 	return e.runStepLines(ctx, opts, step.Name, lines, result, captureBlockLogs,
-		betweenLineSleep, stepType)
+		betweenLineSleep, stepType, nil)
 }
 
 // runStepLines executes JSON-RPC lines.
@@ -888,6 +892,7 @@ func (e *executor) runStepLines(
 	captureBlockLogs bool,
 	betweenLineSleep time.Duration,
 	stepType StepType,
+	requestMetadata []*RequestMetadata,
 ) error {
 	stepStart := time.Now()
 
@@ -912,6 +917,7 @@ func (e *executor) runStepLines(
 	skippedCount := 0
 
 	for lineNum, line := range lines {
+		metadata := requestMetadataForLine(requestMetadata, lineNum)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -927,7 +933,7 @@ func (e *executor) runStepLines(
 			}).WithError(err).Warn("Failed to parse JSON-RPC payload")
 
 			if result != nil {
-				result.AddResult("unknown", line, "", 0, false, nil)
+				result.AddResultWithMetadata("unknown", line, "", 0, false, nil, metadata, nil)
 			}
 
 			if opts.FailFast {
@@ -947,8 +953,12 @@ func (e *executor) runStepLines(
 		if skipping {
 			drop := true
 
-			if strings.HasPrefix(method, "engine_newPayload") {
-				if bn, ok := extractBlockNumber(line); ok && bn > opts.SkipUntilBlockNumber {
+			if isNewPayloadMethod(method) {
+				bn, ok := extractBlockNumber(line)
+				if metadata != nil && metadata.BlockNumber != nil {
+					bn, ok = *metadata.BlockNumber, true
+				}
+				if ok && bn > opts.SkipUntilBlockNumber {
 					skipping = false
 					drop = false
 
@@ -970,9 +980,16 @@ func (e *executor) runStepLines(
 		}
 
 		// Register blockHash BEFORE the RPC call for engine_newPayload methods.
-		if captureBlockLogs && strings.HasPrefix(method, "engine_newPayload") &&
+		if captureBlockLogs && isNewPayloadMethod(method) &&
 			opts.BlockLogCollector != nil && result != nil {
-			if blockHash, hashErr := extractBlockHash(line); hashErr == nil {
+			blockHash := ""
+			if metadata != nil {
+				blockHash = metadata.BlockHash
+			}
+			if blockHash == "" {
+				blockHash, _ = extractBlockHash(line)
+			}
+			if blockHash != "" {
 				opts.BlockLogCollector.RegisterBlockHash(result.TestFile, blockHash)
 			}
 		}
@@ -1029,7 +1046,7 @@ func (e *executor) runStepLines(
 				}).WithError(parseErr).Warn("Failed to parse JSON-RPC response")
 
 				succeeded = false
-			} else if validationErr = e.validator.Validate(method, resp); validationErr != nil {
+			} else if validationErr = e.validateEngineResponse(method, resp, metadata); validationErr != nil {
 				succeeded = false
 			}
 		}
@@ -1039,14 +1056,14 @@ func (e *executor) runStepLines(
 		// (RPC/network error, parse error, INVALID/INVALID_BLOCK_HASH,
 		// JSON-RPC error) takes the failed-state retry config when enabled.
 		// Non-newPayload methods are not retried.
-		if !succeeded && strings.HasPrefix(method, "engine_newPayload") {
+		if !succeeded && isNewPayloadMethod(method) {
 			isSyncing := validationErr != nil && jsonrpc.IsSyncingError(validationErr)
 
 			switch {
 			case isSyncing && opts.RetryNewPayloadsSyncingConfig != nil &&
 				opts.RetryNewPayloadsSyncingConfig.Enabled:
 				retrySucceeded, retryResponse, retryDuration := e.retryNewPayloadSyncing(
-					ctx, opts, line, method, stepName, lineNum,
+					ctx, opts, line, method, stepName, lineNum, metadata,
 				)
 				if retrySucceeded {
 					succeeded = true
@@ -1056,7 +1073,7 @@ func (e *executor) runStepLines(
 			case opts.RetryNewPayloadsFailedConfig != nil &&
 				opts.RetryNewPayloadsFailedConfig.Enabled:
 				retrySucceeded, retryResponse, retryDuration := e.retryNewPayloadFailed(
-					ctx, opts, line, method, stepName, lineNum,
+					ctx, opts, line, method, stepName, lineNum, metadata,
 				)
 				if retrySucceeded {
 					succeeded = true
@@ -1082,7 +1099,10 @@ func (e *executor) runStepLines(
 		}
 
 		if result != nil {
-			result.AddResult(method, line, response, duration, succeeded, resourceDelta)
+			result.AddResultWithMetadata(
+				method, line, response, duration, succeeded, resourceDelta, metadata,
+				extractServerTiming(method, response),
+			)
 		}
 
 		if !succeeded && opts.FailFast {
@@ -1128,6 +1148,7 @@ func (e *executor) retryNewPayloadFailed(
 	opts *ExecuteOptions,
 	payload, method, stepName string,
 	lineNum int,
+	metadata *RequestMetadata,
 ) (succeeded bool, response string, duration int64) {
 	cfg := opts.RetryNewPayloadsFailedConfig
 	backoff, _ := time.ParseDuration(cfg.Backoff) // Already validated in config
@@ -1172,7 +1193,7 @@ func (e *executor) retryNewPayloadFailed(
 			continue
 		}
 
-		if validationErr := e.validator.Validate(method, resp); validationErr != nil {
+		if validationErr := e.validateEngineResponse(method, resp, metadata); validationErr != nil {
 			e.log.WithFields(logrus.Fields{
 				"line":    lineNum + 1,
 				"method":  method,
@@ -1210,6 +1231,7 @@ func (e *executor) retryNewPayloadSyncing(
 	opts *ExecuteOptions,
 	payload, method, stepName string,
 	lineNum int,
+	metadata *RequestMetadata,
 ) (succeeded bool, response string, duration int64) {
 	cfg := opts.RetryNewPayloadsSyncingConfig
 	backoff, _ := time.ParseDuration(cfg.Backoff) // Already validated in config
@@ -1257,7 +1279,7 @@ func (e *executor) retryNewPayloadSyncing(
 			continue
 		}
 
-		validationErr := e.validator.Validate(method, resp)
+		validationErr := e.validateEngineResponse(method, resp, metadata)
 		if validationErr == nil {
 			e.log.WithFields(logrus.Fields{
 				"line":    lineNum + 1,
@@ -1303,7 +1325,8 @@ func (e *executor) retryNewPayloadSyncing(
 }
 
 // executeRPC executes a single JSON-RPC call against the Engine API.
-// Returns the response body, duration (server time), full duration (total round-trip),
+// Returns the response body, duration (request-written to body-read HTTP time),
+// full duration (total round-trip),
 // resource delta, and error.
 func (e *executor) executeRPC(
 	ctx context.Context,

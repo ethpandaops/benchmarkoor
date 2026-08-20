@@ -34,6 +34,25 @@ type StepProvider interface {
 	Content() []byte
 }
 
+// RequestMetadata describes one generated JSON-RPC line. File-based Engine API
+// suites can usually recover these fields from an execution payload; raw RLP
+// suites cannot, so semantic sources provide them out-of-band.
+type RequestMetadata struct {
+	BlockNumber             *uint64
+	BlockHash               string
+	GasUsed                 *uint64
+	TransactionCount        *uint64
+	ExpectedStatus          string
+	ValidationErrorContains string
+	ExpectedRPCErrorCode    *int
+}
+
+// RequestMetadataProvider is implemented by semantic step providers whose
+// request attributes cannot be recovered from the JSON-RPC params.
+type RequestMetadataProvider interface {
+	RequestMetadata() []*RequestMetadata
+}
+
 // StepFile represents a single step file.
 type StepFile struct {
 	Path     string       // Full absolute path (empty if using provider)
@@ -50,6 +69,9 @@ type TestWithSteps struct {
 	GenesisHash string            // Genesis hash from pre_alloc (empty if single-genesis)
 	EESTInfo    *eest.FixtureInfo // EEST fixture metadata (nil for non-EEST sources)
 	OpcodeCount map[string]int    // External opcode counts (nil if not provided)
+	Description string            // Human-readable intent for semantic suites
+	Tags        []string          // Stable categories used for report slicing
+	Metadata    map[string]string // Suite-generator-specific labels
 }
 
 // PreparedSource contains the prepared test source with all discovered tests.
@@ -61,6 +83,9 @@ type PreparedSource struct {
 	// suite's output (e.g. an EEST fill's .meta dir with fixtures.ini, the fill
 	// report and index). Empty when the source has no such directory.
 	MetaDir string
+	// IdentityContent adds semantic manifest/provenance bytes to the suite hash.
+	// Raw file sources leave this empty because their step content is sufficient.
+	IdentityContent []byte
 }
 
 // Source provides test files from local or git sources.
@@ -141,6 +166,10 @@ func NewSource(log logrus.FieldLogger, cfg *config.SourceConfig, cacheDir string
 
 	if cfg.EESTFixtures != nil {
 		return NewEESTSource(log, cfg.EESTFixtures, cacheDir, filter, githubToken)
+	}
+
+	if cfg.TempoSuite != nil {
+		return NewTempoSuiteSource(log, cfg.TempoSuite, filter)
 	}
 
 	return nil

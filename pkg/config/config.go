@@ -878,6 +878,14 @@ type SourceConfig struct {
 	Local        *LocalSourceV2       `yaml:"local,omitempty" mapstructure:"local"`
 	Archive      *ArchiveSourceConfig `yaml:"archive,omitempty" mapstructure:"archive"`
 	EESTFixtures *EESTFixturesSource  `yaml:"eest_fixtures,omitempty" mapstructure:"eest_fixtures"`
+	TempoSuite   *TempoSuiteSource    `yaml:"tempo_suite,omitempty" mapstructure:"tempo_suite"`
+}
+
+// TempoSuiteSource points at a tempo-engine-suite/v1 manifest. The manifest is
+// deliberately client-independent: it describes block RLP, expectations, and
+// benchmark metadata; the executor expands it to Reth Engine API calls.
+type TempoSuiteSource struct {
+	Manifest string `yaml:"manifest" mapstructure:"manifest"`
 }
 
 // EESTFixturesSource defines an EEST fixtures source from GitHub releases, artifacts,
@@ -1149,7 +1157,8 @@ type StepsConfig struct {
 
 // IsConfigured returns true if any test source is configured.
 func (s *SourceConfig) IsConfigured() bool {
-	return s.Git != nil || s.Local != nil || s.Archive != nil || s.EESTFixtures != nil
+	return s.Git != nil || s.Local != nil || s.Archive != nil || s.EESTFixtures != nil ||
+		s.TempoSuite != nil
 }
 
 // DefaultContainerDir is the default container mount path for data directories.
@@ -2779,8 +2788,12 @@ func (s *SourceConfig) Validate() error {
 		count++
 	}
 
+	if s.TempoSuite != nil {
+		count++
+	}
+
 	if count > 1 {
-		return fmt.Errorf("cannot specify multiple sources (git, local, archive, eest_fixtures)")
+		return fmt.Errorf("cannot specify multiple sources (git, local, archive, eest_fixtures, tempo_suite)")
 	}
 
 	if s.Git != nil {
@@ -2822,6 +2835,20 @@ func (s *SourceConfig) Validate() error {
 		}
 	}
 
+	if s.TempoSuite != nil {
+		if s.TempoSuite.Manifest == "" {
+			return fmt.Errorf("tempo_suite.manifest is required")
+		}
+
+		if _, err := os.Stat(s.TempoSuite.Manifest); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("tempo_suite.manifest %q does not exist", s.TempoSuite.Manifest)
+			}
+
+			return fmt.Errorf("checking tempo_suite.manifest %q: %w", s.TempoSuite.Manifest, err)
+		}
+	}
+
 	return nil
 }
 
@@ -2833,6 +2860,7 @@ var validClients = map[string]struct{}{
 	"erigon":     {},
 	"nimbus":     {},
 	"reth":       {},
+	"tempo":      {},
 	"ethrex":     {},
 }
 

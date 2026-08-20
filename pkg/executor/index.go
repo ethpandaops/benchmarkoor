@@ -59,12 +59,23 @@ type IndexStepsStats struct {
 
 // IndexStepStats contains statistics for a single step type.
 type IndexStepStats struct {
-	Success         int             `json:"success"`
-	Fail            int             `json:"fail"`
-	Duration        int64           `json:"duration"`
-	GasUsed         uint64          `json:"gas_used"`
-	GasUsedDuration int64           `json:"gas_used_duration"`
-	ResourceTotals  *ResourceTotals `json:"resource_totals,omitempty"`
+	Success           int             `json:"success"`
+	Fail              int             `json:"fail"`
+	Duration          int64           `json:"duration"`
+	GasUsed           uint64          `json:"gas_used"`
+	GasUsedDuration   int64           `json:"gas_used_duration"`
+	GasUsedTimeSource string          `json:"gas_used_time_source,omitempty"`
+	ResourceTotals    *ResourceTotals `json:"resource_totals,omitempty"`
+}
+
+func mergeTimingSource(current, next string) string {
+	if current == "" {
+		return next
+	}
+	if next == "" || current == next {
+		return current
+	}
+	return "mixed"
 }
 
 // runConfigJSON is used to parse config.json files.
@@ -201,6 +212,9 @@ func AggregateStepStats(result *RunResult) (*IndexStepsStats, int, int) {
 			setupStats.Duration += agg.TotalTime
 			setupStats.GasUsed += agg.GasUsedTotal
 			setupStats.GasUsedDuration += agg.GasUsedTimeTotal
+			setupStats.GasUsedTimeSource = mergeTimingSource(
+				setupStats.GasUsedTimeSource, agg.GasUsedTimeSource,
+			)
 
 			if agg.ResourceTotals != nil {
 				hasSetupResources = true
@@ -225,6 +239,9 @@ func AggregateStepStats(result *RunResult) (*IndexStepsStats, int, int) {
 			testStepStats.Duration += agg.TotalTime
 			testStepStats.GasUsed += agg.GasUsedTotal
 			testStepStats.GasUsedDuration += agg.GasUsedTimeTotal
+			testStepStats.GasUsedTimeSource = mergeTimingSource(
+				testStepStats.GasUsedTimeSource, agg.GasUsedTimeSource,
+			)
 
 			if agg.ResourceTotals != nil {
 				hasTestResources = true
@@ -249,6 +266,9 @@ func AggregateStepStats(result *RunResult) (*IndexStepsStats, int, int) {
 			cleanupStats.Duration += agg.TotalTime
 			cleanupStats.GasUsed += agg.GasUsedTotal
 			cleanupStats.GasUsedDuration += agg.GasUsedTimeTotal
+			cleanupStats.GasUsedTimeSource = mergeTimingSource(
+				cleanupStats.GasUsedTimeSource, agg.GasUsedTimeSource,
+			)
 
 			if agg.ResourceTotals != nil {
 				hasCleanupResources = true

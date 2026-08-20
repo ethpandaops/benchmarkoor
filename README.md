@@ -6,12 +6,13 @@
 
 ## Overview
 
-Benchmarkoor is a benchmarking tool for Ethereum execution clients. It runs standardized tests against multiple clients (Geth, Nethermind, Besu, Erigon, Reth, Nimbus) in isolated Docker containers and collects performance metrics.
+Benchmarkoor is a benchmarking tool for execution clients. It runs standardized tests against multiple clients (Geth, Nethermind, Besu, Erigon, Reth, Nimbus, Ethrex, and Tempo) in isolated Docker containers and collects correctness and performance metrics. Tempo suites use the Reth Engine API extensions with semantic raw-block manifests.
 
 ## Documentation
 
 - [Configuration Reference](docs/configuration.md) - All configuration options explained
 - [Docker Guide](docs/docker.md) - Docker setup, requirements, and troubleshooting
+- [Tempo Tutorial](docs/tempo.md) - Run semantic Tempo suites in Docker and interpret the data
 
 ## Docker Quickstart
 

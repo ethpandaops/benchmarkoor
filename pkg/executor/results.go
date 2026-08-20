@@ -192,9 +192,13 @@ type MethodResourceStats struct {
 
 // MethodsAggregated contains aggregated stats for both times and MGas/s.
 type MethodsAggregated struct {
-	Times      map[string]*MethodStats         `json:"times"`
-	MGasPerSec map[string]*MethodStatsFloat    `json:"mgas_s"`
-	Resources  map[string]*MethodResourceStats `json:"resources,omitempty"`
+	Times              map[string]*MethodStats         `json:"times"`
+	ServerExecution    map[string]*MethodStats         `json:"server_execution,omitempty"`
+	PersistenceWait    map[string]*MethodStats         `json:"persistence_wait,omitempty"`
+	ExecutionCacheWait map[string]*MethodStats         `json:"execution_cache_wait,omitempty"`
+	SparseTrieWait     map[string]*MethodStats         `json:"sparse_trie_wait,omitempty"`
+	MGasPerSec         map[string]*MethodStatsFloat    `json:"mgas_s"`
+	Resources          map[string]*MethodResourceStats `json:"resources,omitempty"`
 }
 
 // ResourceTotals contains aggregated resource usage metrics.
@@ -210,14 +214,16 @@ type ResourceTotals struct {
 
 // AggregatedStats contains the full aggregated output.
 type AggregatedStats struct {
-	TotalTime        int64              `json:"time_total"`
-	GasUsedTotal     uint64             `json:"gas_used_total"`
-	GasUsedTimeTotal int64              `json:"gas_used_time_total"`
-	Succeeded        int                `json:"success"`
-	Failed           int                `json:"fail"`
-	TotalMsgs        int                `json:"msg_count"`
-	ResourceTotals   *ResourceTotals    `json:"resource_totals,omitempty"`
-	MethodStats      *MethodsAggregated `json:"method_stats"`
+	TotalTime         int64              `json:"time_total"`
+	ServerTimeTotal   int64              `json:"server_time_total,omitempty"`
+	GasUsedTotal      uint64             `json:"gas_used_total"`
+	GasUsedTimeTotal  int64              `json:"gas_used_time_total"`
+	GasUsedTimeSource string             `json:"gas_used_time_source,omitempty"`
+	Succeeded         int                `json:"success"`
+	Failed            int                `json:"fail"`
+	TotalMsgs         int                `json:"msg_count"`
+	ResourceTotals    *ResourceTotals    `json:"resource_totals,omitempty"`
+	MethodStats       *MethodsAggregated `json:"method_stats"`
 }
 
 // StepResult contains the result for a single step.
@@ -247,31 +253,39 @@ type RunResult struct {
 
 // TestResult contains results for a single test file execution.
 type TestResult struct {
-	TestFile             string
-	Responses            []string
-	Times                []int64
-	Statuses             []int // 0=success, 1=fail
-	MGasPerSec           map[int]float64
-	GasUsed              map[int]uint64
-	Resources            map[int]*ResourceDelta
-	MethodTimes          map[string][]int64
-	MethodMGasPerSec     map[string][]float64
-	MethodCPUUsec        map[string][]int64
-	MethodDiskReadBytes  map[string][]int64
-	MethodDiskWriteBytes map[string][]int64
-	MethodDiskReadOps    map[string][]int64
-	MethodDiskWriteOps   map[string][]int64
-	Succeeded            int
-	Failed               int
+	TestFile                 string
+	Responses                []string
+	Times                    []int64
+	Statuses                 []int // 0=success, 1=fail
+	MGasPerSec               map[int]float64
+	GasUsed                  map[int]uint64
+	GasUsedTimes             map[int]int64
+	ServerTimings            map[int]*ServerTiming
+	Resources                map[int]*ResourceDelta
+	MethodTimes              map[string][]int64
+	MethodServerTimes        map[string][]int64
+	MethodPersistenceWait    map[string][]int64
+	MethodExecutionCacheWait map[string][]int64
+	MethodSparseTrieWait     map[string][]int64
+	MethodMGasPerSec         map[string][]float64
+	MethodCPUUsec            map[string][]int64
+	MethodDiskReadBytes      map[string][]int64
+	MethodDiskWriteBytes     map[string][]int64
+	MethodDiskReadOps        map[string][]int64
+	MethodDiskWriteOps       map[string][]int64
+	Succeeded                int
+	Failed                   int
 }
 
 // ResultDetails contains per-call timing and status for JSON output.
 type ResultDetails struct {
-	DurationNS []int64                `json:"duration_ns"`
-	Status     []int                  `json:"status"`
-	MGasPerSec map[int]float64        `json:"mgas_s"`
-	GasUsed    map[int]uint64         `json:"gas_used"`
-	Resources  map[int]*ResourceDelta `json:"resources,omitempty"`
+	DurationNS        []int64                `json:"duration_ns"`
+	Status            []int                  `json:"status"`
+	MGasPerSec        map[int]float64        `json:"mgas_s"`
+	GasUsed           map[int]uint64         `json:"gas_used"`
+	GasUsedDurationNS map[int]int64          `json:"gas_used_duration_ns,omitempty"`
+	ServerTimings     map[int]*ServerTiming  `json:"server_timings,omitempty"`
+	Resources         map[int]*ResourceDelta `json:"resources,omitempty"`
 	// OriginalTestName stores the original test name when using hashed filenames.
 	OriginalTestName string `json:"original_test_name,omitempty"`
 	// FilenameHash stores the truncated+hash filename when the original was too long.
@@ -281,20 +295,26 @@ type ResultDetails struct {
 // NewTestResult creates a new TestResult.
 func NewTestResult(testFile string) *TestResult {
 	return &TestResult{
-		TestFile:             testFile,
-		Responses:            make([]string, 0),
-		Times:                make([]int64, 0),
-		Statuses:             make([]int, 0),
-		MGasPerSec:           make(map[int]float64),
-		GasUsed:              make(map[int]uint64),
-		Resources:            make(map[int]*ResourceDelta),
-		MethodTimes:          make(map[string][]int64),
-		MethodMGasPerSec:     make(map[string][]float64),
-		MethodCPUUsec:        make(map[string][]int64),
-		MethodDiskReadBytes:  make(map[string][]int64),
-		MethodDiskWriteBytes: make(map[string][]int64),
-		MethodDiskReadOps:    make(map[string][]int64),
-		MethodDiskWriteOps:   make(map[string][]int64),
+		TestFile:                 testFile,
+		Responses:                make([]string, 0),
+		Times:                    make([]int64, 0),
+		Statuses:                 make([]int, 0),
+		MGasPerSec:               make(map[int]float64),
+		GasUsed:                  make(map[int]uint64),
+		GasUsedTimes:             make(map[int]int64),
+		ServerTimings:            make(map[int]*ServerTiming),
+		Resources:                make(map[int]*ResourceDelta),
+		MethodTimes:              make(map[string][]int64),
+		MethodServerTimes:        make(map[string][]int64),
+		MethodPersistenceWait:    make(map[string][]int64),
+		MethodExecutionCacheWait: make(map[string][]int64),
+		MethodSparseTrieWait:     make(map[string][]int64),
+		MethodMGasPerSec:         make(map[string][]float64),
+		MethodCPUUsec:            make(map[string][]int64),
+		MethodDiskReadBytes:      make(map[string][]int64),
+		MethodDiskWriteBytes:     make(map[string][]int64),
+		MethodDiskReadOps:        make(map[string][]int64),
+		MethodDiskWriteOps:       make(map[string][]int64),
 	}
 }
 
@@ -304,6 +324,19 @@ func (r *TestResult) AddResult(
 	elapsed int64,
 	succeeded bool,
 	resources *ResourceDelta,
+) {
+	r.AddResultWithMetadata(method, request, response, elapsed, succeeded, resources, nil, nil)
+}
+
+// AddResultWithMetadata adds a single RPC call result with semantic suite
+// metadata and optional timing data returned by the Engine API server.
+func (r *TestResult) AddResultWithMetadata(
+	method, request, response string,
+	elapsed int64,
+	succeeded bool,
+	resources *ResourceDelta,
+	metadata *RequestMetadata,
+	serverTiming *ServerTiming,
 ) {
 	// Get position before appending.
 	pos := len(r.Times)
@@ -319,6 +352,24 @@ func (r *TestResult) AddResult(
 
 	r.Statuses = append(r.Statuses, status)
 
+	if serverTiming != nil {
+		r.ServerTimings[pos] = serverTiming
+		r.MethodServerTimes[method] = append(r.MethodServerTimes[method], serverTiming.ExecutionNS)
+		r.MethodPersistenceWait[method] = append(
+			r.MethodPersistenceWait[method], serverTiming.PersistenceWaitNS,
+		)
+		if serverTiming.ExecutionCacheWaitNS != nil {
+			r.MethodExecutionCacheWait[method] = append(
+				r.MethodExecutionCacheWait[method], *serverTiming.ExecutionCacheWaitNS,
+			)
+		}
+		if serverTiming.SparseTrieWaitNS != nil {
+			r.MethodSparseTrieWait[method] = append(
+				r.MethodSparseTrieWait[method], *serverTiming.SparseTrieWaitNS,
+			)
+		}
+	}
+
 	// Store resource delta if available.
 	if resources != nil {
 		r.Resources[pos] = resources
@@ -330,10 +381,19 @@ func (r *TestResult) AddResult(
 	}
 
 	// Calculate MGas/s for successful engine_newPayload calls.
-	if succeeded && strings.HasPrefix(method, "engine_newPayload") {
-		if gasUsed, err := extractGasUsed(request); err == nil && elapsed > 0 {
+	if succeeded && isNewPayloadMethod(method) {
+		gasUsed, err := extractGasUsed(request)
+		if metadata != nil && metadata.GasUsed != nil {
+			gasUsed, err = *metadata.GasUsed, nil
+		}
+		gasDuration := elapsed
+		if serverTiming != nil && serverTiming.ExecutionNS > 0 {
+			gasDuration = serverTiming.ExecutionNS
+		}
+		if err == nil && gasDuration > 0 {
 			r.GasUsed[pos] = gasUsed
-			mgasPerSec := float64(gasUsed) * 1000 / float64(elapsed)
+			r.GasUsedTimes[pos] = gasDuration
+			mgasPerSec := float64(gasUsed) * 1000 / float64(gasDuration)
 			r.MGasPerSec[pos] = mgasPerSec
 			r.MethodMGasPerSec[method] = append(r.MethodMGasPerSec[method], mgasPerSec)
 		}
@@ -439,22 +499,43 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 		Failed:    r.Failed,
 		TotalMsgs: len(r.Times),
 		MethodStats: &MethodsAggregated{
-			Times:      make(map[string]*MethodStats, len(r.MethodTimes)),
-			MGasPerSec: make(map[string]*MethodStatsFloat, len(r.MethodMGasPerSec)),
+			Times:              make(map[string]*MethodStats, len(r.MethodTimes)),
+			ServerExecution:    make(map[string]*MethodStats, len(r.MethodServerTimes)),
+			PersistenceWait:    make(map[string]*MethodStats, len(r.MethodPersistenceWait)),
+			ExecutionCacheWait: make(map[string]*MethodStats, len(r.MethodExecutionCacheWait)),
+			SparseTrieWait:     make(map[string]*MethodStats, len(r.MethodSparseTrieWait)),
+			MGasPerSec:         make(map[string]*MethodStatsFloat, len(r.MethodMGasPerSec)),
 		},
 	}
 
 	for _, t := range r.Times {
 		stats.TotalTime += t
 	}
+	for _, timing := range r.ServerTimings {
+		stats.ServerTimeTotal += timing.ExecutionNS
+	}
 
+	serverTimedGasCalls := 0
 	for idx, g := range r.GasUsed {
-		if g == 0 {
-			continue
-		}
-
 		stats.GasUsedTotal += g
-		stats.GasUsedTimeTotal += r.Times[idx]
+		gasDuration := r.GasUsedTimes[idx]
+		if gasDuration == 0 && idx < len(r.Times) {
+			gasDuration = r.Times[idx]
+		}
+		stats.GasUsedTimeTotal += gasDuration
+		if timing := r.ServerTimings[idx]; timing != nil && timing.ExecutionNS > 0 {
+			serverTimedGasCalls++
+		}
+	}
+	if len(r.GasUsed) > 0 {
+		switch {
+		case serverTimedGasCalls == len(r.GasUsed):
+			stats.GasUsedTimeSource = "server_execution"
+		case serverTimedGasCalls > 0:
+			stats.GasUsedTimeSource = "mixed"
+		default:
+			stats.GasUsedTimeSource = "client_http"
+		}
 	}
 
 	// Aggregate resource metrics.
@@ -490,6 +571,18 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 
 	for method, times := range r.MethodTimes {
 		stats.MethodStats.Times[method] = calculateMethodStats(times)
+	}
+	for method, times := range r.MethodServerTimes {
+		stats.MethodStats.ServerExecution[method] = calculateMethodStats(times)
+	}
+	for method, times := range r.MethodPersistenceWait {
+		stats.MethodStats.PersistenceWait[method] = calculateMethodStats(times)
+	}
+	for method, times := range r.MethodExecutionCacheWait {
+		stats.MethodStats.ExecutionCacheWait[method] = calculateMethodStats(times)
+	}
+	for method, times := range r.MethodSparseTrieWait {
+		stats.MethodStats.SparseTrieWait[method] = calculateMethodStats(times)
 	}
 
 	for method, values := range r.MethodMGasPerSec {
@@ -661,11 +754,13 @@ func WriteStepResults(
 	// Write .result-details.json file.
 	detailsPath := basePath + ".result-details.json"
 	details := ResultDetails{
-		DurationNS: result.Times,
-		Status:     result.Statuses,
-		MGasPerSec: result.MGasPerSec,
-		GasUsed:    result.GasUsed,
-		Resources:  result.Resources,
+		DurationNS:        result.Times,
+		Status:            result.Statuses,
+		MGasPerSec:        result.MGasPerSec,
+		GasUsed:           result.GasUsed,
+		GasUsedDurationNS: result.GasUsedTimes,
+		ServerTimings:     result.ServerTimings,
+		Resources:         result.Resources,
 	}
 
 	detailsJSON, err := json.MarshalIndent(details, "", "  ")

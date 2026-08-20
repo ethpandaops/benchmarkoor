@@ -36,6 +36,18 @@ type SuiteSource struct {
 	Local   *LocalSourceInfo   `json:"local,omitempty"`
 	Archive *ArchiveSourceInfo `json:"archive,omitempty"`
 	EEST    *EESTSourceInfo    `json:"eest,omitempty"`
+	Tempo   *TempoSourceInfo   `json:"tempo_suite,omitempty"`
+}
+
+// TempoSourceInfo records the semantic manifest and its generator provenance.
+type TempoSourceInfo struct {
+	Manifest    string            `json:"manifest"`
+	Format      string            `json:"format"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Origin      TempoSuiteOrigin  `json:"origin,omitempty"`
+	Chain       TempoSuiteChain   `json:"chain"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
 // GitSourceInfo contains git repository source information.
@@ -86,13 +98,16 @@ type SuiteTestEEST struct {
 
 // SuiteTest represents a test with its optional steps in the suite output.
 type SuiteTest struct {
-	Name        string         `json:"name"`
-	GenesisHash string         `json:"genesis,omitempty"`
-	Setup       *SuiteFile     `json:"setup,omitempty"`
-	Test        *SuiteFile     `json:"test,omitempty"`
-	Cleanup     *SuiteFile     `json:"cleanup,omitempty"`
-	EEST        *SuiteTestEEST `json:"eest,omitempty"`
-	OpcodeCount map[string]int `json:"opcode_count,omitempty"`
+	Name        string            `json:"name"`
+	GenesisHash string            `json:"genesis,omitempty"`
+	Setup       *SuiteFile        `json:"setup,omitempty"`
+	Test        *SuiteFile        `json:"test,omitempty"`
+	Cleanup     *SuiteFile        `json:"cleanup,omitempty"`
+	EEST        *SuiteTestEEST    `json:"eest,omitempty"`
+	OpcodeCount map[string]int    `json:"opcode_count,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
 
 	// Engine payload sizes per step — computed once per suite, same across
 	// clients. Each populated step exposes per-newPayload byte counts as
@@ -109,6 +124,10 @@ type SuiteTest struct {
 // ComputeSuiteHash computes a hash of all test file contents.
 func ComputeSuiteHash(prepared *PreparedSource) (string, error) {
 	h := sha256.New()
+
+	if len(prepared.IdentityContent) > 0 {
+		h.Write(prepared.IdentityContent)
+	}
 
 	// Hash pre-run steps first.
 	for _, f := range prepared.PreRunSteps {
@@ -225,6 +244,9 @@ func CreateSuiteOutput(
 			suiteTest := SuiteTest{
 				Name:        test.Name,
 				GenesisHash: test.GenesisHash,
+				Description: test.Description,
+				Tags:        test.Tags,
+				Metadata:    test.Metadata,
 			}
 
 			if test.EESTInfo != nil {
@@ -307,7 +329,11 @@ func CreateSuiteOutput(
 					}
 					anyData = true
 				}
-				if counts := ComputeTxCountsForStep(lines); len(counts) > 0 {
+				counts := ComputeTxCountsForStep(lines)
+				if provider, ok := s.file.Provider.(RequestMetadataProvider); ok {
+					counts = transactionCountsFromMetadata(provider.RequestMetadata())
+				}
+				if len(counts) > 0 {
 					switch s.kind {
 					case StepKindSetup:
 						tc.Setup = counts
@@ -387,6 +413,16 @@ func CreateSuiteOutput(
 	}
 
 	return nil
+}
+
+func transactionCountsFromMetadata(metadata []*RequestMetadata) []uint64 {
+	counts := make([]uint64, 0, len(metadata))
+	for _, item := range metadata {
+		if item != nil && item.TransactionCount != nil {
+			counts = append(counts, *item.TransactionCount)
+		}
+	}
+	return counts
 }
 
 // copyTestStepFile copies a test step file to the test directory with a standardized name.

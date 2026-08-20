@@ -15,6 +15,7 @@ const (
 	ClientErigon     ClientType = "erigon"
 	ClientNimbus     ClientType = "nimbus"
 	ClientReth       ClientType = "reth"
+	ClientTempo      ClientType = "tempo"
 	ClientEthrex     ClientType = "ethrex"
 )
 
@@ -36,6 +37,32 @@ const (
 type RPCRollbackSpec struct {
 	Method    RollbackMethodType
 	RPCMethod string // e.g. "debug_setHead", "debug_resetHead"
+}
+
+// EngineAPIDialect describes the authenticated block-import methods exposed by
+// a client. Ethereum clients use the standard Engine API while Tempo exposes
+// the Reth raw-block extensions because its payload type is not an Ethereum
+// ExecutionPayload.
+type EngineAPIDialect struct {
+	NewPayloadMethod          string
+	ForkchoiceUpdatedMethod   string
+	ForkchoicePayloadAttrsArg bool
+}
+
+// EngineAPIDialectFor returns the authenticated RPC dialect for a client.
+func EngineAPIDialectFor(spec Spec) EngineAPIDialect {
+	if spec.Type() == ClientTempo {
+		return EngineAPIDialect{
+			NewPayloadMethod:        "reth_newPayload",
+			ForkchoiceUpdatedMethod: "reth_forkchoiceUpdated",
+		}
+	}
+
+	return EngineAPIDialect{
+		NewPayloadMethod:          "engine_newPayloadV3",
+		ForkchoiceUpdatedMethod:   "engine_forkchoiceUpdatedV3",
+		ForkchoicePayloadAttrsArg: true,
+	}
 }
 
 // Spec provides client-specific container configuration.
@@ -103,7 +130,7 @@ type Registry interface {
 // NewRegistry creates a registry with all supported clients.
 func NewRegistry() Registry {
 	r := &registry{
-		specs: make(map[ClientType]Spec, 7),
+		specs: make(map[ClientType]Spec, 8),
 	}
 
 	// Register all supported clients.
@@ -113,6 +140,7 @@ func NewRegistry() Registry {
 	r.Register(NewErigonSpec())
 	r.Register(NewNimbusSpec())
 	r.Register(NewRethSpec())
+	r.Register(NewTempoSpec())
 	r.Register(NewEthrexSpec())
 
 	return r
