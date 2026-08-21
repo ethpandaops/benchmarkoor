@@ -317,6 +317,7 @@ func (b *EESTPayloadsBuilder) eestFingerprintInputs(target *config.EESTPayloadTa
 		"fixed_opcode_count":     target.FixedOpcodeCount,
 		"max_gas_per_test":       target.MaxGasPerTest,
 		"rpc_seed_key":           target.RPCSeedKey,
+		"eoa_start":              target.ResolveEOAStart(),
 		"datadir_method":         target.DataDirMethod,
 		"genesis_sha256":         genesisHash,
 		"genesis_fork_override":  target.GenesisForkOverride,
@@ -1357,6 +1358,12 @@ func buildFillArgs(
 	if t.RPCSeedKey != "" {
 		args = append(args, "--rpc-seed-key="+t.RPCSeedKey)
 	}
+
+	// --eoa-start pins the first private key of fill-stateful's EOA iterator, the
+	// source of every account a test funds. It is always passed: the upstream
+	// default is a random 256-bit start, which would give a different set of
+	// generated addresses on each fill.
+	args = append(args, fmt.Sprintf("--eoa-start=%d", t.ResolveEOAStart()))
 
 	// besu suggests a zero priority fee on a freshly-booted snapshot; pin a
 	// non-zero tip so fill-stateful's session-fee check passes (see

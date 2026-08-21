@@ -350,6 +350,15 @@ const (
 	// DefaultFillImageTag is the tag applied to a fill image built from
 	// fill_dockerfile when no explicit fill_image tag is given.
 	DefaultFillImageTag = "benchmarkoor-eest-fill:local"
+	// DefaultEOAStart is the fill-stateful --eoa-start value used when a target
+	// (or a config default) leaves eoa_start unset. fill-stateful mints every
+	// account a test funds — pre.fund_eoa(), the nonexistent-account addresses
+	// and, under xdist, the per-worker sender — from the private keys counting
+	// up from this integer, and it otherwise picks a random 256-bit start. A
+	// pinned start makes those addresses identical on every fill, so a pre-run
+	// and the benchmark fill that follows it agree on them. benchmarkoor always
+	// passes the flag; this is the value when the config does not set one.
+	DefaultEOAStart uint64 = 1000
 )
 
 // BuildsFillImage reports whether benchmarkoor should build the fill image
@@ -421,6 +430,7 @@ type EESTPayloadDefaults struct {
 	DataDirMethod      string                       `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
 	MaxGasPerTest      *uint64                      `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
 	RPCSeedKey         string                       `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	EOAStart           *uint64                      `yaml:"eoa_start,omitempty" mapstructure:"eoa_start"`
 	FillerExtraArgs    []string                     `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
 }
 
@@ -478,11 +488,16 @@ type EESTPayloadTarget struct {
 	// with the custom tracer is what makes it slow, so it's opt-in. Works with any
 	// filler exposing debug_traceBlockByHash + JS tracer support (geth is the
 	// validated one).
-	ExtractOpcodeCount *bool    `yaml:"extract_opcode_count,omitempty" mapstructure:"extract_opcode_count"`
-	DataDirMethod      string   `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
-	MaxGasPerTest      *uint64  `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
-	RPCSeedKey         string   `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
-	FillerExtraArgs    []string `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
+	ExtractOpcodeCount *bool   `yaml:"extract_opcode_count,omitempty" mapstructure:"extract_opcode_count"`
+	DataDirMethod      string  `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
+	MaxGasPerTest      *uint64 `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
+	RPCSeedKey         string  `yaml:"rpc_seed_key,omitempty" mapstructure:"rpc_seed_key"`
+	// EOAStart is fill-stateful's --eoa-start: the first private key of the
+	// session EOA iterator, from which the fill mints every account it funds.
+	// Unset means DefaultEOAStart — the flag is always passed, so the addresses
+	// a fill generates are reproducible. See ResolveEOAStart.
+	EOAStart        *uint64  `yaml:"eoa_start,omitempty" mapstructure:"eoa_start"`
+	FillerExtraArgs []string `yaml:"filler_extra_args,omitempty" mapstructure:"filler_extra_args"`
 }
 
 // ResolveTarget returns a copy of the i-th target with any unset hoistable
@@ -549,11 +564,25 @@ func (e *EESTPayloadsConfig) ResolveTarget(i int) EESTPayloadTarget {
 		t.RPCSeedKey = g.RPCSeedKey
 	}
 
+	if t.EOAStart == nil {
+		t.EOAStart = g.EOAStart
+	}
+
 	if len(t.FillerExtraArgs) == 0 {
 		t.FillerExtraArgs = g.FillerExtraArgs
 	}
 
 	return t
+}
+
+// ResolveEOAStart returns the fill-stateful --eoa-start value, defaulting to
+// DefaultEOAStart when the target sets none.
+func (t *EESTPayloadTarget) ResolveEOAStart() uint64 {
+	if t.EOAStart != nil {
+		return *t.EOAStart
+	}
+
+	return DefaultEOAStart
 }
 
 // EffectiveName returns the target's user-facing name, defaulting to the
@@ -2530,6 +2559,10 @@ func (c *Config) validateEESTPayloads() error {
 				"%s: gas_benchmark_values and fixed_opcode_count are mutually exclusive "+
 					"(fill-stateful rejects both)", prefix,
 			)
+		}
+
+		if t.EOAStart != nil && *t.EOAStart == 0 {
+			return fmt.Errorf("%s.eoa_start must be > 0 when set (0 is not a valid key)", prefix)
 		}
 	}
 

@@ -311,6 +311,7 @@ runner:
 #       datadir_method: schelk         # schelk advances source_dir IN PLACE (no copy)
 #       gas_limit: 1000000000000       # gas-bump target (default 1 TGas)
 #       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
+#       # eoa_start: 1000              # first key of fill-stateful's EOA iterator (--eoa-start)
 #       funding_accounts:
 #         - address: 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
 #       # funding_pools:               # credit a derived sender pool (EEST SENDER_BASE_KEY)

@@ -371,6 +371,7 @@ func preRunToEESTTarget(src *config.PreRunTarget, outputDir, fixturesDir string)
 		AddressStubs:        src.AddressStubs,
 		GasBenchmarkValues:  src.GasBenchmarkValues,
 		RPCSeedKey:          src.RPCSeedKey,
+		EOAStart:            src.EOAStart,
 		DataDirMethod:       "direct",
 		FillerExtraArgs:     src.FillerExtraArgs,
 	}

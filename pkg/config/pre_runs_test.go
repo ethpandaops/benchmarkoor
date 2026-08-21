@@ -19,6 +19,7 @@ func TestPreRunsConfig_ResolveTarget_Hoisting(t *testing.T) {
 			FillerImage:        "geth:default",
 			Tests:              []string{"tests/benchmark/stateful/bloatnet/test_setup_contracts.py"},
 			RPCSeedKey:         "0x01",
+			EOAStart:           u64(4242),
 			DataDirMethod:      "copy",
 			GasBenchmarkValues: []int{30000},
 			GasLimit:           u64(999),
@@ -33,6 +34,7 @@ func TestPreRunsConfig_ResolveTarget_Hoisting(t *testing.T) {
 				Fork:     "osaka",
 				GasLimit: u64(123),
 				Tests:    []string{"tests/custom.py"},
+				EOAStart: u64(9),
 			},
 		},
 	}
@@ -45,11 +47,15 @@ func TestPreRunsConfig_ResolveTarget_Hoisting(t *testing.T) {
 	assert.Equal(t, []string{"tests/benchmark/stateful/bloatnet/test_setup_contracts.py"}, got0.Tests)
 	require.Len(t, got0.FundingAccounts, 1)
 	assert.Equal(t, "0xabc", got0.FundingAccounts[0].Address)
+	require.NotNil(t, got0.EOAStart)
+	assert.Equal(t, uint64(4242), *got0.EOAStart, "inherits eoa_start when unset")
 
 	got1 := cfg.ResolveTarget(1)
 	assert.Equal(t, "osaka", got1.Fork, "per-target fork wins")
 	assert.Equal(t, uint64(123), got1.ResolveGasLimit(), "per-target gas_limit wins")
 	assert.Equal(t, []string{"tests/custom.py"}, got1.Tests, "per-target tests win")
+	require.NotNil(t, got1.EOAStart)
+	assert.Equal(t, uint64(9), *got1.EOAStart, "per-target eoa_start wins")
 }
 
 func TestPreRunTarget_Defaults(t *testing.T) {
@@ -221,6 +227,12 @@ func TestValidatePreRuns(t *testing.T) {
 		c := base()
 		c.Builder.PreRuns.Config.GasLimit = u64(0)
 		require.ErrorContains(t, c.validatePreRuns(), "gas_limit must be > 0")
+	})
+
+	t.Run("zero eoa_start rejected", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Config.EOAStart = u64(0)
+		require.ErrorContains(t, c.validatePreRuns(), "eoa_start must be > 0")
 	})
 
 	t.Run("funding account without address rejected", func(t *testing.T) {

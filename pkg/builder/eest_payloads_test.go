@@ -138,6 +138,7 @@ func TestBuildFillArgs(t *testing.T) {
 				"--fork=Osaka",
 				"--snapshot-block=0xabc",
 				"--output=" + fillOutputPath,
+				"--eoa-start=1000",
 				"tests/benchmark/compute",
 			},
 			wantAbsent: []string{
@@ -195,6 +196,7 @@ func TestBuildFillArgs(t *testing.T) {
 				GasBenchmarkValues: []int{10, 30},
 				MaxGasPerTest:      u64(45000000),
 				RPCSeedKey:         "0xdead",
+				EOAStart:           u64(500000),
 				AddressStubsFile:   "/host/stubs.json",
 				Tests:              []string{"tests/benchmark/compute", "tests/benchmark/stateful"},
 				Filter:             "bn128",
@@ -203,6 +205,7 @@ func TestBuildFillArgs(t *testing.T) {
 				"--gas-benchmark-values=10,30",
 				"--max-gas-per-test=45000000",
 				"--rpc-seed-key=0xdead",
+				"--eoa-start=500000",
 				"--address-stubs=" + fillStubsPath,
 				"tests/benchmark/compute",
 				"tests/benchmark/stateful",

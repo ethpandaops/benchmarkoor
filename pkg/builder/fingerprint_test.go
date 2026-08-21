@@ -257,6 +257,7 @@ func TestEESTFingerprint_FieldSensitivity(t *testing.T) {
 		{"fixed_opcode_count", func(t *config.EESTPayloadTarget) { f := []float64{3}; t.FixedOpcodeCount = &f }},
 		{"max_gas_per_test", func(t *config.EESTPayloadTarget) { g := uint64(200); t.MaxGasPerTest = &g }},
 		{"rpc_seed_key", func(t *config.EESTPayloadTarget) { t.RPCSeedKey = "0x2" }},
+		{"eoa_start", func(t *config.EESTPayloadTarget) { e := uint64(42); t.EOAStart = &e }},
 		{"datadir_method", func(t *config.EESTPayloadTarget) { t.DataDirMethod = "overlayfs" }},
 		{"filler_extra_args", func(t *config.EESTPayloadTarget) { t.FillerExtraArgs = []string{"--y"} }},
 		{"genesis_fork_override", func(t *config.EESTPayloadTarget) { t.GenesisForkOverride = map[string]uint64{"osaka": 2} }},

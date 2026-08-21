@@ -4309,6 +4309,17 @@ func TestValidateEESTPayloads(t *testing.T) {
 			errSubstr: "mutually exclusive",
 		},
 		{
+			name: "zero eoa_start rejected",
+			ep: func() *EESTPayloadsConfig {
+				tgt := base(dirA)
+				tgt.EOAStart = u64Cfg(0)
+
+				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
+			}(),
+			wantErr:   true,
+			errSubstr: "eoa_start must be > 0",
+		},
+		{
 			name: "fixed_opcode_count bare (empty list) is valid",
 			ep: func() *EESTPayloadsConfig {
 				tgt := base(dirA)
@@ -4387,6 +4398,7 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 			DataDirMethod:      "zfs",
 			MaxGasPerTest:      u64Cfg(45000000),
 			RPCSeedKey:         "0xseed",
+			EOAStart:           u64Cfg(777),
 			ExtractOpcodeCount: boolCfg(true),
 			FillerExtraArgs:    []string{"--verbosity=3"},
 		},
@@ -4395,7 +4407,8 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 			{Name: "inherit", FillerClient: "geth", SourceDir: "/s", OutputDir: "/o"},
 			// Overrides fork, gas values, and opts out of opcode extraction.
 			{Name: "override", FillerClient: "geth", SourceDir: "/s2", OutputDir: "/o2",
-				Fork: "Prague", GasBenchmarkValues: []int{60}, ExtractOpcodeCount: boolCfg(false)},
+				Fork: "Prague", GasBenchmarkValues: []int{60}, ExtractOpcodeCount: boolCfg(false),
+				EOAStart: u64Cfg(9)},
 		},
 	}
 
@@ -4413,6 +4426,7 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 	require.NotNil(t, inherit.ExtractOpcodeCount)
 	assert.True(t, *inherit.ExtractOpcodeCount, "inherits extract_opcode_count when unset")
 	assert.Equal(t, []string{"--verbosity=3"}, inherit.FillerExtraArgs)
+	assert.Equal(t, uint64(777), inherit.ResolveEOAStart(), "inherits eoa_start when unset")
 
 	override := ep.ResolveTarget(1)
 	assert.Equal(t, "Prague", override.Fork, "per-target fork wins")
@@ -4421,6 +4435,19 @@ func TestEESTPayloadsResolveTarget(t *testing.T) {
 	assert.False(t, *override.ExtractOpcodeCount, "per-target extract_opcode_count=false wins over default")
 	assert.Equal(t, "ethpandaops/geth:master", override.FillerImage, "still inherits unset fields")
 	assert.Equal(t, "not erc20", override.Filter, "inherits filter when unset")
+	assert.Equal(t, uint64(9), override.ResolveEOAStart(), "per-target eoa_start wins")
+}
+
+// TestEESTPayloadsResolveEOAStart pins the fallback: a target that sets no
+// eoa_start (and inherits none) still gets a fixed start, so the addresses a
+// fill generates never depend on fill-stateful's random default.
+func TestEESTPayloadsResolveEOAStart(t *testing.T) {
+	var unset EESTPayloadTarget
+	assert.Equal(t, uint64(1000), unset.ResolveEOAStart())
+	assert.Equal(t, DefaultEOAStart, unset.ResolveEOAStart())
+
+	set := EESTPayloadTarget{EOAStart: u64Cfg(1)}
+	assert.Equal(t, uint64(1), set.ResolveEOAStart())
 }
 
 // TestEESTPayloadsResolveTarget_AddressStubsUnit verifies the address-stubs

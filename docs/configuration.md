@@ -1675,7 +1675,7 @@ By default a populated `output_dir` is skipped regardless of whether the config 
 The fingerprint covers the inputs that actually change the output:
 
 - **state_actor:** client, image, target_size, seed, fork, chain_id, gas_limit, timestamp, extra_data, archive, binary_trie, group_depth, and the spec **content**.
-- **eest_payloads:** filler client + image, fork, tests, filter, marker, gas/opcode values, max gas, rpc seed key, filler extra args, datadir method, the **content** of the genesis / address-stubs / fill Dockerfile, the fork/EIP genesis overrides, and the execution-specs checkout resolved to a **commit SHA** (via `git ls-remote`, so a moving `eest_ref` that advanced is detected). It also folds in the **source snapshot's** fingerprint, so rebuilding a `state_actor` datadir cascades into rebuilding the fixtures generated from it.
+- **eest_payloads:** filler client + image, fork, tests, filter, marker, gas/opcode values, max gas, rpc seed key, eoa start, filler extra args, datadir method, the **content** of the genesis / address-stubs / fill Dockerfile, the fork/EIP genesis overrides, and the execution-specs checkout resolved to a **commit SHA** (via `git ls-remote`, so a moving `eest_ref` that advanced is detected). It also folds in the **source snapshot's** fingerprint, so rebuilding a `state_actor` datadir cascades into rebuilding the fixtures generated from it.
 
 The command exits non-zero if any target fails; successful targets are still left in place on partial failure. A final summary lists each target with `OK ` (built), `SKIP` (output_dir already populated), or `ERR ` (failed).
 
@@ -1801,7 +1801,7 @@ builder:
 | `funding_pools` | list | – | Credits a derived sender pool (`base_key_seed` + `count`), matching EEST's `SENDER_BASE_KEY` derivation, for benchmarks drawing senders from a pool. |
 | `predeploy` | object | – | See below. Deploys contracts on the pre-fork. |
 | `schelk_options.promote` | bool | `false` | After the pre-run finishes and its client has stopped, run `schelk promote` so the advanced datadir becomes the new **virgin baseline**. Requires `datadir_method: schelk`. |
-| `tests`, `filter`, `marker`, `gas_benchmark_values`, `fill_env`, `filler_extra_args`, `address_stubs`, `rpc_seed_key`, `datadir_method`, `filler_image`, `fork` | | | As in `eest_payloads`; all are hoistable from `config`. Note `filler_extra_args` **replaces** the `config` value rather than merging, so a per-client target must list every flag it needs. |
+| `tests`, `filter`, `marker`, `gas_benchmark_values`, `fill_env`, `filler_extra_args`, `address_stubs`, `rpc_seed_key`, `eoa_start`, `datadir_method`, `filler_image`, `fork` | | | As in `eest_payloads`; all are hoistable from `config`. Note `filler_extra_args` **replaces** the `config` value rather than merging, so a per-client target must list every flag it needs. |
 
 #### `predeploy`
 
@@ -1871,6 +1871,7 @@ builder:
         tests:
           - tests/benchmark/compute              # pytest paths inside the fill image
         filter: bn128                            # optional pytest -k expression
+        # eoa_start: 1000                        # first key of the EOA iterator (--eoa-start); 1000 when unset
 ```
 
 | Option | Type | Default | Description |
@@ -1905,6 +1906,7 @@ Every field below is also available per-target; a non-nil/non-empty value on a t
 | `datadir_method` | string | `copy` | How the filler's writable copy of `source_dir` is prepared: `copy`, `overlayfs`, `fuse-overlayfs`, `zfs`, `direct`, `schelk`. Use `zfs`/`overlayfs` to avoid a full copy of a large snapshot. |
 | `max_gas_per_test` | uint64 | – | Overrides the fork's transaction gas-limit cap (`--max-gas-per-test`). |
 | `rpc_seed_key` | string | – | Pin the seed EOA for reproducible fills (`--rpc-seed-key`); otherwise one is generated and funded via CL withdrawal. |
+| `eoa_start` | uint64 | `1000` | First private key of `fill-stateful`'s EOA iterator (`--eoa-start`). The fill mints every account a test funds — `pre.fund_eoa()`, the nonexistent-account addresses, and the per-worker sender under xdist — from the keys that count up from this integer. benchmarkoor **always** passes the flag, because `fill-stateful` otherwise picks a random 256-bit start and the generated addresses change on every fill. Must be > 0. Give two fills that share a datadir different starts if their accounts must not collide. |
 | `filler_extra_args` | []string | – | Extra argv appended to the filler client command. |
 
 > **Address-stubs hoisting:** `address_stubs` / `address_stubs_file` hoist as a *unit* — a target that sets either form inherits neither from `config`, so their mutual exclusion is preserved. An inline `address_stubs` example:
@@ -1929,7 +1931,7 @@ Identity/locator fields are target-only; the rest mirror `config` and are resolv
 | `genesis_eip_override` | object | – | Patch a parity/nethermind `genesis` at filler boot, setting `params.eip<N>TransitionTimestamp` for each listed EIP. Fields: `timestamp` (uint), `eips` ([]uint). For the nethermind filler. Requires `genesis`; mutually exclusive with `genesis_fork_override`. |
 | `output_dir` | string | – | **Absolute** host path for the generated fixtures. Skipped if already populated unless `--force` / `force: true`. Written under `<output_dir>/blockchain_tests_stateful_engine/`. |
 | `force` | bool | `false` | Per-target override of `--force`: wipe `output_dir` before filling. |
-| `filler_image`, `fork`, `tests`, `filter`, `marker`, `address_stubs`, `address_stubs_file`, `gas_benchmark_values`, `fixed_opcode_count`, `extract_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `filler_extra_args` | — | from `config` | Mirror `config` with per-target precedence — see the `config` table above. `tests`, `fork`, and `filler_image` are required after resolution (set on the target or in `config`). |
+| `filler_image`, `fork`, `tests`, `filter`, `marker`, `address_stubs`, `address_stubs_file`, `gas_benchmark_values`, `fixed_opcode_count`, `extract_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `eoa_start`, `filler_extra_args` | — | from `config` | Mirror `config` with per-target precedence — see the `config` table above. `tests`, `fork`, and `filler_image` are required after resolution (set on the target or in `config`). |
 
 ### Replaying generated fixtures
 
