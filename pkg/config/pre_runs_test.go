@@ -62,6 +62,15 @@ func TestPreRunTarget_Defaults(t *testing.T) {
 	var tgt PreRunTarget
 	assert.Equal(t, DefaultPreRunGasLimit, tgt.ResolveGasLimit())
 	assert.Equal(t, DefaultPreRunGasBumpMaxBlocks, tgt.ResolveGasBumpMaxBlocks())
+	assert.Equal(t, DefaultPreRunEOAStart, tgt.ResolveEOAStart())
+	assert.Equal(t, uint64(1_000_000_000), tgt.ResolveEOAStart())
+	// The pre-run advances a datadir the eest_payloads fill then builds on, so
+	// the two stages must not mint their accounts from the same keys.
+	assert.NotEqual(t, DefaultEOAStart, tgt.ResolveEOAStart())
+
+	tgt.EOAStart = u64(77)
+	assert.Equal(t, uint64(77), tgt.ResolveEOAStart())
+	tgt.EOAStart = nil
 
 	var acct PreRunFundingAccount
 	assert.Equal(t, DefaultPreRunFundingAmountGwei, acct.ResolveAmountGwei())

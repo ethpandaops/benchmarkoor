@@ -132,4 +132,10 @@ func TestPreRunToEESTTarget(t *testing.T) {
 	assert.Equal(t, "amsterdam", et.Fork)
 	assert.Equal(t, []string{"tests/benchmark/stateful/bloatnet/test_setup_contracts.py"}, et.Tests)
 	assert.Equal(t, []int{30000}, et.GasBenchmarkValues)
+	// The pre-run's own EOA-start default must reach the fill, so the setup
+	// accounts stay clear of the eest_payloads fill on the same datadir.
+	assert.Equal(t, config.DefaultPreRunEOAStart, et.ResolveEOAStart())
+
+	pinned := preRunToEESTTarget(&config.PreRunTarget{EOAStart: u64(7)}, "/prerun/geth", "/tmp/fixtures")
+	assert.Equal(t, uint64(7), pinned.ResolveEOAStart(), "per-target eoa_start wins")
 }

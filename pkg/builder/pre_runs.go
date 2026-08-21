@@ -354,6 +354,11 @@ func (b *PreRunsBuilder) restoreSchelkSource(ctx context.Context, log logrus.Fie
 // throwaway temp dir — the setup fixtures are not consumed by the benchmark,
 // which recomputes CREATE2 addresses).
 func preRunToEESTTarget(src *config.PreRunTarget, outputDir, fixturesDir string) *config.EESTPayloadTarget {
+	// Resolve the EOA start here: the pre-run's default differs from the
+	// eest_payloads one, so the projected target must carry a concrete value
+	// rather than fall through to EESTPayloadTarget.ResolveEOAStart.
+	eoaStart := src.ResolveEOAStart()
+
 	return &config.EESTPayloadTarget{
 		Name:                src.EffectiveName(),
 		FillerClient:        src.FillerClient,
@@ -371,7 +376,7 @@ func preRunToEESTTarget(src *config.PreRunTarget, outputDir, fixturesDir string)
 		AddressStubs:        src.AddressStubs,
 		GasBenchmarkValues:  src.GasBenchmarkValues,
 		RPCSeedKey:          src.RPCSeedKey,
-		EOAStart:            src.EOAStart,
+		EOAStart:            &eoaStart,
 		DataDirMethod:       "direct",
 		FillerExtraArgs:     src.FillerExtraArgs,
 	}
