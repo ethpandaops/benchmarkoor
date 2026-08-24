@@ -318,7 +318,7 @@ transaction types extend Ethereum. The `tempo_suite` source reads a
 tests:
   source:
     tempo_suite:
-      manifest: /bench/suites/tip20-transfer/manifest.json
+      manifest: /bench/suites/all/manifest.json
 ```
 
 The manifest owns the reproducible workload data, setup/measurement boundary,

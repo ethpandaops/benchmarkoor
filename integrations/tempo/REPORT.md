@@ -40,6 +40,31 @@ Inputs:
 - Tempo version: `tempo/v1.13.0-f557cbb/aarch64-unknown-linux-gnu`
 - Fork/gas parameter: Prague / 10M
 
+## Current shipped suite layout
+
+The repository now ships only the two self-contained aggregate suites:
+
+| Suite directory | Entries | Source segments | Purpose |
+| --- | ---: | ---: | --- |
+| `integrations/tempo/suites/all` | 968 | 22 | Complete selected runnable corpus: 13 EEST-derived batches and nine Tempo-native TIP-20 suites |
+| `integrations/tempo/suites/tip20-full-blocks` | 6 | 6 | Focused bundle of only the high-gas TIP-20 full-block workloads |
+
+Both aggregate manifests keep their required `genesis.json` and block files
+inside their own suite directories. The earlier per-source suite directories
+(`eest`, `tip20`, and `benchmarkoor`) were removed from the checked-in corpus:
+`all` is the canonical broad suite, and `tip20-full-blocks` is a convenience
+subset for the large TIP-20 transfer blocks. The aggregate manifests still retain
+the original `source_suite` metadata on every entry.
+
+The current `all` manifest intentionally retains 34 namespaced Keccak cases from
+both the instruction-core segment and the isolated Keccak segment. Its unique
+semantic coverage is therefore 934 tests after that known overlap is removed.
+The one-case ADD debugging artifact and obsolete 903-case structural import are
+not included in either shipped suite. ADD is already contained in the arithmetic
+batch; the structural import is deliberately non-executable because its signed
+Ethereum transactions use a base fee that cannot be rewritten for Tempo without
+invalidating them.
+
 Verified batch results (correctness and integration evidence; not a stable
 performance baseline):
 
@@ -68,14 +93,14 @@ The aggregate execution rate was 666.45 MGas/s. Run at least five repetitions
 on an idle host before treating throughput as a baseline, and compare only
 identical suite hashes and image digests.
 
-## Full corpus repetition
+## Historical full corpus repetition
 
-A fresh repetition of every production suite completed on the same published
-image after the initial conversion run. It executed 962 suite entries across
-13 EEST-derived suites and three Tempo-native TIP-20 suites: **962 passed, 0
-failed**. De-duplicating the 34 Keccak cases shared by the core and isolated
-Keccak suites gives **928 unique tests, 9.252B gas, 14.331s server execution,
-and 645.62 MGas/s**.
+A fresh repetition of the then-production suite set completed on the same
+published image after the initial conversion run. It executed 962 suite entries
+across 13 EEST-derived suites and three Tempo-native TIP-20 smoke suites:
+**962 passed, 0 failed**. De-duplicating the 34 Keccak cases shared by the core
+and isolated Keccak suites gives **928 unique tests, 9.252B gas, 14.331s server
+execution, and 645.62 MGas/s**.
 
 | Family | Fresh run IDs | Passed | Failed |
 | --- | --- | ---: | ---: |
@@ -87,25 +112,25 @@ and 645.62 MGas/s**.
 | TIP-20 | `1787172709_71fcf87d_tempo`, `1787172713_873b5270_tempo`, `1787172717_8f2f3c65_tempo` | 3 | 0 |
 | **Raw suite executions** | | **962** | **0** |
 
-The one-case ADD debugging artifact and the obsolete 903-case structural import
-were not rerun. ADD is already contained in the arithmetic suite; the structural
-import is deliberately non-executable because its signed Ethereum transactions
-use a base fee that cannot be rewritten for Tempo without invalidating them.
+This historical repetition predates the six TIP-20 full-block suites now
+included in `all`.
 
-## Single merged-suite run
+## Historical merged-suite run
 
-The 16 production manifests were also combined into one boundary-aware
-`tempo-engine-suite/v1` manifest. Benchmarkoor preserved sequential state inside
-each original suite and recreated a fresh published Tempo container at exactly
-15 suite transitions.
+The earlier 16-manifest production set was also combined into one
+boundary-aware `tempo-engine-suite/v1` manifest. Benchmarkoor preserved
+sequential state inside each original suite and recreated a fresh published
+Tempo container at exactly 15 suite transitions.
 
 | Run | Suite entries | Passed | Failed | Gas | Server execution | MGas/s |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `1787173140_0395b56c_tempo` | 962 | 962 | 0 | 9.592B | 13.808s | 694.68 |
 
-The merged run intentionally retains 34 namespaced Keccak cases from both their
-original core segment and the later complete Keccak segment. Its unique semantic
-coverage remains 928 tests after de-duplication.
+That historical merged run intentionally retained 34 namespaced Keccak cases
+from both their original core segment and the later complete Keccak segment. Its
+unique semantic coverage was 928 tests after de-duplication. The current shipped
+`all` suite extends this shape to 22 source segments and 968 raw entries, but it
+has not been separately rerun as one Benchmarkoor job in this report.
 
 ## Precompile coverage
 

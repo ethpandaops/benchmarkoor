@@ -31,7 +31,7 @@ generated EOA need additional Tempo-specific setup handling.
 ```sh
 EEST_REPO=/path/to/execution-specs \
 TEMPO_REPO=/path/to/tempo \
-SUITE_OUT=/path/to/benchmarkoor/integrations/tempo/suites/eest/arithmetic-10m \
+SUITE_OUT=/path/to/generated-tempo-suites/eest/arithmetic-10m \
 SUITE_NAME=eest-prague-arithmetic-10m \
 BLOCK_TIME=100ms \
 ./integrations/tempo/run-batch.sh \
@@ -45,7 +45,7 @@ genesis without resetting the client between tests:
 ```sh
 EEST_REPO=/path/to/execution-specs \
 TEMPO_REPO=/path/to/tempo \
-SUITE_OUT=/path/to/benchmarkoor/integrations/tempo/suites/eest/stack-memory-10m \
+SUITE_OUT=/path/to/generated-tempo-suites/eest/stack-memory-10m \
 SUITE_NAME=eest-prague-stack-memory-10m \
 ./integrations/tempo/run-batch.sh \
   tests/benchmark/compute/instruction/test_stack.py \
@@ -67,27 +67,23 @@ TEMPO_IMAGE=docker.io/tempoxyz/tempo:latest \
 docker compose -f docker-compose.tempo.yaml run --rm benchmarkoor
 ```
 
-## Merge and run every production suite
+## Run the shipped aggregate suites
 
-The production suites are independent canonical chains. `merge-all-suites.sh`
-creates one logical manifest and marks the first test of each source suite as a
-state-reset boundary. It references the existing RLP/BAL files, so it does not
-duplicate roughly 280 MB of block data:
+The checked-in corpus contains only self-contained aggregate suites:
 
-```sh
-./integrations/tempo/merge-all-suites.sh
-```
+- `integrations/tempo/suites/all`: 968 entries across the selected runnable EEST
+  and Tempo-native TIP-20 corpus.
+- `integrations/tempo/suites/tip20-full-blocks`: six high-gas TIP-20 full-block
+  workloads.
 
-Run the merged 968-test suite with the boundary-aware Benchmarkoor runner. Mount
-the common suites directory, select the nested manifest, and enable container
-recreation; boundary metadata limits recreation to the 21 transitions between
-the 22 source suites:
+Run the full 968-entry suite with the boundary-aware Benchmarkoor runner. Select
+the aggregate suite directory and enable container recreation; boundary metadata
+limits recreation to the 21 transitions between the 22 source segments:
 
 ```sh
 cd /path/to/benchmarkoor
 USER_UID=$(id -u) USER_GID=$(id -g) \
-TEMPO_SUITE_DIR=/absolute/path/to/benchmarkoor/integrations/tempo/suites \
-TEMPO_SUITE_MANIFEST=/app/tempo-suite/all/manifest.json \
+TEMPO_SUITE_DIR=/absolute/path/to/benchmarkoor/integrations/tempo/suites/all \
 TEMPO_ROLLBACK_STRATEGY=container-recreate \
 TEMPO_IMAGE=docker.io/tempoxyz/tempo:latest \
 docker compose -f docker-compose.tempo.yaml run --rm benchmarkoor
@@ -98,6 +94,10 @@ from genesis, and its first block is not a child of the preceding suite's head.
 The merged names are prefixed with their source suite so overlapping Keccak
 cases remain independently reportable.
 
+`merge-suites.py`, `merge-all-suites.sh`, and `merge-tip20-full-blocks.sh` are
+maintainer helpers for rebuilding aggregates from regenerated per-source suites.
+Those per-source directories are no longer part of the checked-in corpus.
+
 `run-one.sh` remains useful for debugging a single-test capture. It starts an ephemeral node from
 the published Tempo image, runs EEST in the published `uv` image, finds the
 last transaction-bearing block as the measured workload, exports all earlier
@@ -107,7 +107,7 @@ node image.
 ```sh
 EEST_REPO=/path/to/execution-specs \
 TEMPO_REPO=/path/to/tempo \
-SUITE_OUT=/path/to/benchmarkoor/integrations/tempo/suites/eest/add-10m \
+SUITE_OUT=/path/to/generated-tempo-suites/eest/add-10m \
 EEST_TEST=tests/benchmark/compute/instruction/test_arithmetic.py \
 EEST_FILTER='opcode_ADD and not ADDMOD' \
 GAS_MILLIONS=10 \
@@ -163,7 +163,7 @@ chain prefix and use the first workload block as `--from-block`:
 ./integrations/tempo/export-suite.py \
   --rpc-url http://127.0.0.1:18545 \
   --genesis "$TEMPO_REPO/crates/chainspec/src/genesis/dev.json" \
-  --out integrations/tempo/suites/eest/add-10m \
+  --out /path/to/generated-tempo-suites/eest/add-10m \
   --name eest-add-10m \
   --from-block FIRST_WORKLOAD_BLOCK \
   --to-block LAST_WORKLOAD_BLOCK \

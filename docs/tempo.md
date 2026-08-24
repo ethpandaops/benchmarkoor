@@ -38,18 +38,18 @@ Desktop and Linux.
 
 ## 2. Select and inspect a suite
 
-Benchmarkoor includes the merged suite, EEST-derived cases, and nine TIP-20 examples. The TIP-20
-set includes three small state-shape smoke cases and six 500M-gas full-block cases, including
-protocol and 2D nonce workloads:
+Benchmarkoor ships two self-contained Tempo suites. `all` is the complete selected runnable corpus:
+13 EEST-derived batches plus nine TIP-20 examples. `tip20-full-blocks` is the focused subset of six
+500M-gas TIP-20 full-block workloads:
 
 ```sh
-find "$BENCHMARKOOR_REPO/integrations/tempo/suites/tip20" -name manifest.json -print
+find "$BENCHMARKOOR_REPO/integrations/tempo/suites" -maxdepth 2 -name manifest.json -print
 ```
 
-Start with the new-recipient case:
+Start with the focused full-block bundle, or use `suites/all` for the full corpus:
 
 ```sh
-export TEMPO_SUITE_DIR="$BENCHMARKOOR_REPO/integrations/tempo/suites/tip20/new-recipients"
+export TEMPO_SUITE_DIR="$BENCHMARKOOR_REPO/integrations/tempo/suites/tip20-full-blocks"
 
 jq '{format, name, origin, chain, tests: [.tests[] | {
   name, tags, setup_calls: (.setup | length), measured_calls: (.test | length)
@@ -59,12 +59,12 @@ jq '{format, name, origin, chain, tests: [.tests[] | {
 `TEMPO_SUITE_DIR` must name the directory containing all three parts:
 
 ```text
-new-recipients/
+tip20-full-blocks/
 ├── manifest.json       suite structure, metadata, setup/test boundary, expectations
 ├── genesis.json        exact genesis used to create the blocks
 └── blocks/
-    ├── 1.rlp           raw canonical Tempo block, encoded as 0x-prefixed hex
-    ├── 1.bal           raw block access list, encoded as 0x-prefixed hex
+    ├── <sha>.rlp       raw canonical Tempo block, encoded as 0x-prefixed hex
+    ├── <sha>.bal       raw block access list, encoded as 0x-prefixed hex
     └── ...
 ```
 
@@ -104,18 +104,17 @@ Run completed ... status=completed
 The command exits non-zero if the container fails, an RPC call fails, or a payload/forkchoice status
 does not match the manifest expectation.
 
-### Run every included TIP-20 suite
+### Run both shipped suites
 
-Each invocation gets a fresh container and data volume. Build Benchmarkoor once, then select a new
-mounted suite for every invocation:
+Each invocation gets a fresh container and data volume. Build Benchmarkoor once, then select each
+aggregate suite:
 
 ```sh
 cd "$BENCHMARKOOR_REPO"
 
-export TEMPO_SUITE_DIR="$BENCHMARKOOR_REPO/integrations/tempo/suites/tip20/new-recipients"
 docker compose -f docker-compose.tempo.yaml build benchmarkoor
 
-for suite in "$BENCHMARKOOR_REPO"/integrations/tempo/suites/tip20/*; do
+for suite in "$BENCHMARKOOR_REPO"/integrations/tempo/suites/*; do
   test -f "$suite/manifest.json" || continue
   echo "Running $(basename "$suite")"
   TEMPO_SUITE_DIR="$suite" \
@@ -256,7 +255,7 @@ cd "$BENCHMARKOOR_REPO"
 ./integrations/tempo/export-suite.py \
   --rpc-url http://127.0.0.1:8545 \
   --genesis "$TEMPO_REPO/crates/chainspec/src/genesis/dev.json" \
-  --out integrations/tempo/suites/tip20/my-tip20-case \
+  --out /path/to/generated-tempo-suites/tip20/my-tip20-case \
   --name tip20-my-case \
   --description 'Describe the exact TIP-20 state transition' \
   --from-block 101 \
