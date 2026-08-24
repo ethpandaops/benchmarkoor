@@ -80,9 +80,6 @@ Benchmarkoor then creates and removes a fresh Tempo data volume for the run.
 cd "$BENCHMARKOOR_REPO"
 mkdir -p tmp results
 
-export USER_UID="$(id -u)"
-export USER_GID="$(id -g)"
-
 docker compose -f docker-compose.tempo.yaml run --rm --build benchmarkoor
 ```
 

@@ -18,8 +18,8 @@ runner:
       source:
         tempo_suite:
           # Host binary: export TEMPO_SUITE_MANIFEST=/absolute/path/to/manifest.json.
-          # Docker Compose mounts integrations/tempo/suites at /app/tempo-suite.
-          manifest: ${TEMPO_SUITE_MANIFEST:-/app/tempo-suite/all/manifest.json}
+          # Docker Compose mounts one suite directory at /app/tempo-suite.
+          manifest: ${TEMPO_SUITE_MANIFEST:-/app/tempo-suite/manifest.json}
 
   client:
     config:

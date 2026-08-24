@@ -61,7 +61,6 @@ Replay the generated suite with Benchmarkoor and the published Tempo image:
 
 ```sh
 cd /path/to/benchmarkoor
-USER_UID=$(id -u) USER_GID=$(id -g) \
 TEMPO_SUITE_DIR=/absolute/path/to/generated-suite \
 TEMPO_IMAGE=docker.io/tempoxyz/tempo:latest \
 docker compose -f docker-compose.tempo.yaml run --rm benchmarkoor
@@ -82,7 +81,6 @@ limits recreation to the 21 transitions between the 22 source segments:
 
 ```sh
 cd /path/to/benchmarkoor
-USER_UID=$(id -u) USER_GID=$(id -g) \
 TEMPO_SUITE_DIR=/absolute/path/to/benchmarkoor/integrations/tempo/suites/all \
 TEMPO_ROLLBACK_STRATEGY=container-recreate \
 TEMPO_IMAGE=docker.io/tempoxyz/tempo:latest \

@@ -10,16 +10,15 @@ services:
         DATE: ${DATE:-unknown}
     environment:
       - TEMPO_IMAGE=${TEMPO_IMAGE:-docker.io/tempoxyz/tempo:latest}
-      - TEMPO_SUITE_MANIFEST=${TEMPO_SUITE_MANIFEST:-/app/tempo-suite/all/manifest.json}
+      - TEMPO_SUITE_MANIFEST=${TEMPO_SUITE_MANIFEST:-/app/tempo-suite/manifest.json}
       - TEMPO_ROLLBACK_STRATEGY=${TEMPO_ROLLBACK_STRATEGY:-container-recreate}
       - BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_DATADIR=${PWD}/tmp/data
       - BENCHMARKOOR_RUNNER_DIRECTORIES_TMP_CACHEDIR=${PWD}/tmp/cache
       - BENCHMARKOOR_GLOBAL_DIRECTORIES_CACHEDIR=${PWD}/tmp/global-cache
-      - BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_OWNER=${USER_UID:-0}:${USER_GID:-0}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./examples/configuration/config.tempo-suite.yaml:/app/config.yaml:ro
-      - ${TEMPO_SUITE_DIR:-./integrations/tempo/suites}:/app/tempo-suite:ro
+      - ${TEMPO_SUITE_DIR:-./integrations/tempo/suites/all}:/app/tempo-suite:ro
       - type: bind
         source: ${PWD}/tmp
         target: ${PWD}/tmp
