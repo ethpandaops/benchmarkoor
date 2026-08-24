@@ -18,17 +18,16 @@ through `reth_forkchoiceUpdated`.
 
 ## 1. Prerequisites
 
-You need Docker 20.10 or newer, Git, and the Tempo and Benchmarkoor repositories. `jq` is optional
-but used by the report examples.
+You need Docker 20.10 or newer, Git, and the Benchmarkoor repository. A Tempo source checkout is
+only needed when generating new suites; replay uses the published Tempo image. `jq` is optional but
+used by the report examples.
 
 ```sh
 docker version
 docker info
 
-export TEMPO_REPO=/absolute/path/to/tempo
 export BENCHMARKOOR_REPO=/absolute/path/to/benchmarkoor
 
-test -f "$TEMPO_REPO/Cargo.toml"
 test -f "$BENCHMARKOOR_REPO/go.mod"
 ```
 
@@ -39,16 +38,18 @@ Desktop and Linux.
 
 ## 2. Select and inspect a suite
 
-Tempo includes three small TIP-20 examples:
+Benchmarkoor includes the merged suite, EEST-derived cases, and nine TIP-20 examples. The TIP-20
+set includes three small state-shape smoke cases and six 500M-gas full-block cases, including
+protocol and 2D nonce workloads:
 
 ```sh
-find "$TEMPO_REPO/contrib/bench/suites/tip20" -name manifest.json -print
+find "$BENCHMARKOOR_REPO/integrations/tempo/suites/tip20" -name manifest.json -print
 ```
 
 Start with the new-recipient case:
 
 ```sh
-export TEMPO_SUITE_DIR="$TEMPO_REPO/contrib/bench/suites/tip20/new-recipients"
+export TEMPO_SUITE_DIR="$BENCHMARKOOR_REPO/integrations/tempo/suites/tip20/new-recipients"
 
 jq '{format, name, origin, chain, tests: [.tests[] | {
   name, tags, setup_calls: (.setup | length), measured_calls: (.test | length)
@@ -111,10 +112,10 @@ mounted suite for every invocation:
 ```sh
 cd "$BENCHMARKOOR_REPO"
 
-export TEMPO_SUITE_DIR="$TEMPO_REPO/contrib/bench/suites/tip20/new-recipients"
+export TEMPO_SUITE_DIR="$BENCHMARKOOR_REPO/integrations/tempo/suites/tip20/new-recipients"
 docker compose -f docker-compose.tempo.yaml build benchmarkoor
 
-for suite in "$TEMPO_REPO"/contrib/bench/suites/tip20/*; do
+for suite in "$BENCHMARKOOR_REPO"/integrations/tempo/suites/tip20/*; do
   test -f "$suite/manifest.json" || continue
   echo "Running $(basename "$suite")"
   TEMPO_SUITE_DIR="$suite" \
@@ -185,7 +186,7 @@ A shortened block pair looks like this:
   "origin": {
     "kind": "tempo-native",
     "revision": "a41e3184...",
-    "generator": "tempo-xtask generate-benchmark-suite",
+    "generator": "benchmarkoor integrations/tempo/export-suite.py",
     "seed": "20260819"
   },
   "chain": {
@@ -246,15 +247,16 @@ by the fixture; forkchoice proves that the accepted block can become canonical.
 
 First produce deterministic workload blocks on a Tempo node—using an integration test, txgen, or a
 purpose-built generator. Record the seed and keep setup transactions outside the measured range.
-Then export the canonical range from the still-running node:
+Then export the canonical range from the still-running node with Benchmarkoor's RPC exporter:
 
 ```sh
-cd "$TEMPO_REPO"
+export TEMPO_REPO=/absolute/path/to/tempo
+cd "$BENCHMARKOOR_REPO"
 
-cargo xtask generate-benchmark-suite \
+./integrations/tempo/export-suite.py \
   --rpc-url http://127.0.0.1:8545 \
-  --genesis crates/chainspec/src/genesis/dev.json \
-  --out contrib/bench/suites/tip20/my-tip20-case \
+  --genesis "$TEMPO_REPO/crates/chainspec/src/genesis/dev.json" \
+  --out integrations/tempo/suites/tip20/my-tip20-case \
   --name tip20-my-case \
   --description 'Describe the exact TIP-20 state transition' \
   --from-block 101 \
@@ -263,7 +265,7 @@ cargo xtask generate-benchmark-suite \
   --tag tip20 \
   --tag transfer \
   --seed 42 \
-  --revision "$(git rev-parse HEAD)" \
+  --revision "$(git -C "$TEMPO_REPO" rev-parse HEAD)" \
   --hardfork dev-all \
   --chain-id 1337
 ```
@@ -274,7 +276,7 @@ replaces an existing generated suite and clears stale block files.
 
 Good Tempo-specific dimensions include:
 
-- TIP-20 new, shared, and existing recipient state;
+- TIP-20 new, shared, initialized, and existing recipient state, including full blocks;
 - transfer, approve/transfer-from, mint/burn, and multi-payment paths;
 - fee-token and fee-AMM paths;
 - direct, keychain, and key-authorized accounts;

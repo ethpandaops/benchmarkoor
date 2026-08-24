@@ -1,0 +1,38 @@
+# Generate and mine this workload once as setup, then generate it again with the
+# same seed. The second run uses the identical random recipient sequence with
+# new sender nonces, so every measured recipient is already initialized.
+chain_id: 1337
+
+gas:
+  max_fee_per_gas: 100000000000
+  max_priority_fee_per_gas: 100000000000
+
+accounts:
+  sender:
+    mnemonic: "test test test test test test test test test test test junk"
+    range: [0, 1]
+
+artifacts:
+  TIP20: tip20.abi.json
+
+templates:
+  transfer:
+    type: tempo
+    from:
+      pool: sender
+      select: { index: 0 }
+    gas_limit: 1000000
+    max_fee_per_gas: 100000000000
+    max_priority_fee_per_gas: 100000000000
+    fee_token: "0x20c0000000000000000000000000000000000000"
+    call:
+      to: "0x20c0000000000000000000000000000000000000"
+      abi: TIP20
+      function: transfer
+      args:
+        - random
+        - 1
+
+mix:
+  - template: transfer
+    weight: 100

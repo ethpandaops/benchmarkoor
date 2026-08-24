@@ -18,9 +18,8 @@ runner:
       source:
         tempo_suite:
           # Host binary: export TEMPO_SUITE_MANIFEST=/absolute/path/to/manifest.json.
-          # Docker Compose: set TEMPO_SUITE_DIR to the suite directory; it is
-          # mounted at /app/tempo-suite by docker-compose.yaml.
-          manifest: ${TEMPO_SUITE_MANIFEST:-/app/tempo-suite/manifest.json}
+          # Docker Compose mounts integrations/tempo/suites at /app/tempo-suite.
+          manifest: ${TEMPO_SUITE_MANIFEST:-/app/tempo-suite/all/manifest.json}
 
   client:
     config:
@@ -31,7 +30,7 @@ runner:
       # each manifest instead of trying to rewind Tempo with debug_setHead.
       # Merged suite bundles set TEMPO_ROLLBACK_STRATEGY=container-recreate;
       # suite_segment_start metadata then limits recreation to suite boundaries.
-      rollback_strategy: ${TEMPO_ROLLBACK_STRATEGY:-none}
+      rollback_strategy: ${TEMPO_ROLLBACK_STRATEGY:-container-recreate}
 
   instances:
     - id: tempo

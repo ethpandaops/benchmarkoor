@@ -334,7 +334,7 @@ origin:
   kind: tempo-native
   repository: https://github.com/tempoxyz/tempo
   revision: 0123456789abcdef
-  generator: tempo-xtask generate-benchmark-suite
+  generator: benchmarkoor integrations/tempo/export-suite.py
   seed: "42"
 chain:
   name: tempo

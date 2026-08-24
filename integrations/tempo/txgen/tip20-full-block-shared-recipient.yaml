@@ -1,0 +1,35 @@
+chain_id: 1337
+
+gas:
+  max_fee_per_gas: 100000000000
+  max_priority_fee_per_gas: 100000000000
+
+accounts:
+  users:
+    mnemonic: "test test test test test test test test test test test junk"
+    range: [0, 10]
+
+artifacts:
+  TIP20: tip20.abi.json
+
+templates:
+  transfer:
+    type: tempo
+    from:
+      pool: users
+      select: random
+    gas_limit: 1000000
+    max_fee_per_gas: 100000000000
+    max_priority_fee_per_gas: 100000000000
+    fee_token: "0x20c0000000000000000000000000000000000000"
+    call:
+      to: "0x20c0000000000000000000000000000000000000"
+      abi: TIP20
+      function: transfer
+      args:
+        - "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199"
+        - 1
+
+mix:
+  - template: transfer
+    weight: 100

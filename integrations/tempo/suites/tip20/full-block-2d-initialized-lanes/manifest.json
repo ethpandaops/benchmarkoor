@@ -1,0 +1,1164 @@
+{
+  "format": "tempo-engine-suite/v1",
+  "name": "tip20-full-block-2d-initialized-lanes",
+  "description": "Full 500M-gas Tempo block of direct TIP-20 transfers from one deterministic sender, each on a distinct seeded 2D nonce lane initialized during setup",
+  "origin": {
+    "kind": "tempo-native",
+    "repository": "https://github.com/tempoxyz/tempo",
+    "revision": "1d61c6f3a67d3e3ea8b921d9db003b7fd07189ec",
+    "generator": "tempoxyz/txgen@1cda02e0 + benchmarkoor integrations/tempo/export-suite.py",
+    "seed": "20260824"
+  },
+  "chain": {
+    "name": "tempo",
+    "chain_id": 1337,
+    "hardfork": "dev-all",
+    "genesis": "genesis.json"
+  },
+  "metadata": {
+    "measurement": "server_execution_ns",
+    "source_rpc": "http://127.0.0.1:18545",
+    "workload_spec": "integrations/tempo/txgen/tip20-full-block-2d-random-lanes.yaml",
+    "setup_submitted_transaction_count": "20000",
+    "measured_submitted_transaction_count": "20000",
+    "unique_sender_count": "1",
+    "unique_recipient_count": "1",
+    "initialized_nonce_key_count": "20000",
+    "measured_unique_nonce_key_count": "13730",
+    "measured_nonce_value": "1",
+    "setup_last_transaction_block": "17",
+    "measured_block": "48",
+    "target_block_gas": "500000000"
+  },
+  "defaults": {
+    "wait_for_persistence": true,
+    "wait_for_caches": true,
+    "expected_status": "VALID"
+  },
+  "tests": [
+    {
+      "name": "tip20-full-block-2d-initialized-lanes",
+      "description": "Full 500M-gas Tempo block of direct TIP-20 transfers from one deterministic sender, each on a distinct seeded 2D nonce lane initialized during setup",
+      "tags": [
+        "tempo-native",
+        "tip20",
+        "transfer",
+        "full-block",
+        "single-sender",
+        "2d-nonce",
+        "parallel-nonce-lanes",
+        "initialized-nonce-lane",
+        "state-update"
+      ],
+      "metadata": {},
+      "setup": [
+        {
+          "rlp_file": "blocks/1.rlp",
+          "wait_for_caches": true,
+          "block_number": 1,
+          "block_hash": "0x9dc5c4ee40e3ec768ba424a7665c7689230b52b03655cb9dd82915b17ba6ad7b",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/1.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x9dc5c4ee40e3ec768ba424a7665c7689230b52b03655cb9dd82915b17ba6ad7b",
+              "safeBlockHash": "0x9dc5c4ee40e3ec768ba424a7665c7689230b52b03655cb9dd82915b17ba6ad7b",
+              "finalizedBlockHash": "0x9dc5c4ee40e3ec768ba424a7665c7689230b52b03655cb9dd82915b17ba6ad7b"
+            }
+          ],
+          "block_number": 1,
+          "block_hash": "0x9dc5c4ee40e3ec768ba424a7665c7689230b52b03655cb9dd82915b17ba6ad7b",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/2.rlp",
+          "wait_for_caches": true,
+          "block_number": 2,
+          "block_hash": "0x50596185a04fb62eb1d469ae143272289e7b209793f26e66e3ebcb13bcb86e79",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/2.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x50596185a04fb62eb1d469ae143272289e7b209793f26e66e3ebcb13bcb86e79",
+              "safeBlockHash": "0x50596185a04fb62eb1d469ae143272289e7b209793f26e66e3ebcb13bcb86e79",
+              "finalizedBlockHash": "0x50596185a04fb62eb1d469ae143272289e7b209793f26e66e3ebcb13bcb86e79"
+            }
+          ],
+          "block_number": 2,
+          "block_hash": "0x50596185a04fb62eb1d469ae143272289e7b209793f26e66e3ebcb13bcb86e79",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/3.rlp",
+          "wait_for_caches": true,
+          "block_number": 3,
+          "block_hash": "0xba911f3707bf0481d91a2d9dfd7f20d243dfe4996aaa1c032f968ea167046249",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/3.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xba911f3707bf0481d91a2d9dfd7f20d243dfe4996aaa1c032f968ea167046249",
+              "safeBlockHash": "0xba911f3707bf0481d91a2d9dfd7f20d243dfe4996aaa1c032f968ea167046249",
+              "finalizedBlockHash": "0xba911f3707bf0481d91a2d9dfd7f20d243dfe4996aaa1c032f968ea167046249"
+            }
+          ],
+          "block_number": 3,
+          "block_hash": "0xba911f3707bf0481d91a2d9dfd7f20d243dfe4996aaa1c032f968ea167046249",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/4.rlp",
+          "wait_for_caches": true,
+          "block_number": 4,
+          "block_hash": "0x3c2d95fe108c2bfff83b4f406a9e52314b6ab3db443003e4e298766bc9232b10",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/4.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x3c2d95fe108c2bfff83b4f406a9e52314b6ab3db443003e4e298766bc9232b10",
+              "safeBlockHash": "0x3c2d95fe108c2bfff83b4f406a9e52314b6ab3db443003e4e298766bc9232b10",
+              "finalizedBlockHash": "0x3c2d95fe108c2bfff83b4f406a9e52314b6ab3db443003e4e298766bc9232b10"
+            }
+          ],
+          "block_number": 4,
+          "block_hash": "0x3c2d95fe108c2bfff83b4f406a9e52314b6ab3db443003e4e298766bc9232b10",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/5.rlp",
+          "wait_for_caches": true,
+          "block_number": 5,
+          "block_hash": "0xac1ec5ca077eae75f0dc73fe6064959d1b4df0a7c7299caee268e0be16db8f47",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/5.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xac1ec5ca077eae75f0dc73fe6064959d1b4df0a7c7299caee268e0be16db8f47",
+              "safeBlockHash": "0xac1ec5ca077eae75f0dc73fe6064959d1b4df0a7c7299caee268e0be16db8f47",
+              "finalizedBlockHash": "0xac1ec5ca077eae75f0dc73fe6064959d1b4df0a7c7299caee268e0be16db8f47"
+            }
+          ],
+          "block_number": 5,
+          "block_hash": "0xac1ec5ca077eae75f0dc73fe6064959d1b4df0a7c7299caee268e0be16db8f47",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/6.rlp",
+          "wait_for_caches": true,
+          "block_number": 6,
+          "block_hash": "0xb763770fe9a250465a6e8d1d22711c09f0fd3cfa928bac5553f79c39f5db8a85",
+          "gas_used": 499002304,
+          "transaction_count": 1774,
+          "expected_status": "VALID",
+          "bal_file": "blocks/6.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xb763770fe9a250465a6e8d1d22711c09f0fd3cfa928bac5553f79c39f5db8a85",
+              "safeBlockHash": "0xb763770fe9a250465a6e8d1d22711c09f0fd3cfa928bac5553f79c39f5db8a85",
+              "finalizedBlockHash": "0xb763770fe9a250465a6e8d1d22711c09f0fd3cfa928bac5553f79c39f5db8a85"
+            }
+          ],
+          "block_number": 6,
+          "block_hash": "0xb763770fe9a250465a6e8d1d22711c09f0fd3cfa928bac5553f79c39f5db8a85",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/7.rlp",
+          "wait_for_caches": true,
+          "block_number": 7,
+          "block_hash": "0x54ff81996a89b6e20dc44ce800db721660374f8e85f732e5e74c5daf2fd53fba",
+          "gas_used": 499034150,
+          "transaction_count": 1775,
+          "expected_status": "VALID",
+          "bal_file": "blocks/7.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x54ff81996a89b6e20dc44ce800db721660374f8e85f732e5e74c5daf2fd53fba",
+              "safeBlockHash": "0x54ff81996a89b6e20dc44ce800db721660374f8e85f732e5e74c5daf2fd53fba",
+              "finalizedBlockHash": "0x54ff81996a89b6e20dc44ce800db721660374f8e85f732e5e74c5daf2fd53fba"
+            }
+          ],
+          "block_number": 7,
+          "block_hash": "0x54ff81996a89b6e20dc44ce800db721660374f8e85f732e5e74c5daf2fd53fba",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/8.rlp",
+          "wait_for_caches": true,
+          "block_number": 8,
+          "block_hash": "0x8cb28a8fa337837861227f19b0f9b0544e94ede44b373e98676a7bf0caa65b51",
+          "gas_used": 499034150,
+          "transaction_count": 1775,
+          "expected_status": "VALID",
+          "bal_file": "blocks/8.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x8cb28a8fa337837861227f19b0f9b0544e94ede44b373e98676a7bf0caa65b51",
+              "safeBlockHash": "0x8cb28a8fa337837861227f19b0f9b0544e94ede44b373e98676a7bf0caa65b51",
+              "finalizedBlockHash": "0x8cb28a8fa337837861227f19b0f9b0544e94ede44b373e98676a7bf0caa65b51"
+            }
+          ],
+          "block_number": 8,
+          "block_hash": "0x8cb28a8fa337837861227f19b0f9b0544e94ede44b373e98676a7bf0caa65b51",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/9.rlp",
+          "wait_for_caches": true,
+          "block_number": 9,
+          "block_hash": "0x7be7548c7000c556f1c728ba13957ba8dd76941f1645de55a6b801dfee8a0b93",
+          "gas_used": 499034150,
+          "transaction_count": 1775,
+          "expected_status": "VALID",
+          "bal_file": "blocks/9.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x7be7548c7000c556f1c728ba13957ba8dd76941f1645de55a6b801dfee8a0b93",
+              "safeBlockHash": "0x7be7548c7000c556f1c728ba13957ba8dd76941f1645de55a6b801dfee8a0b93",
+              "finalizedBlockHash": "0x7be7548c7000c556f1c728ba13957ba8dd76941f1645de55a6b801dfee8a0b93"
+            }
+          ],
+          "block_number": 9,
+          "block_hash": "0x7be7548c7000c556f1c728ba13957ba8dd76941f1645de55a6b801dfee8a0b93",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/10.rlp",
+          "wait_for_caches": true,
+          "block_number": 10,
+          "block_hash": "0x8568abe7b28d771fc9da3db3cfb12afb8b4901234333760f5aac5beac2e4dca7",
+          "gas_used": 499034150,
+          "transaction_count": 1775,
+          "expected_status": "VALID",
+          "bal_file": "blocks/10.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x8568abe7b28d771fc9da3db3cfb12afb8b4901234333760f5aac5beac2e4dca7",
+              "safeBlockHash": "0x8568abe7b28d771fc9da3db3cfb12afb8b4901234333760f5aac5beac2e4dca7",
+              "finalizedBlockHash": "0x8568abe7b28d771fc9da3db3cfb12afb8b4901234333760f5aac5beac2e4dca7"
+            }
+          ],
+          "block_number": 10,
+          "block_hash": "0x8568abe7b28d771fc9da3db3cfb12afb8b4901234333760f5aac5beac2e4dca7",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/11.rlp",
+          "wait_for_caches": true,
+          "block_number": 11,
+          "block_hash": "0x2474cbc0fd4577d139769df9c6b7705095dbc03639a774d04ea96af507c8f758",
+          "gas_used": 499034150,
+          "transaction_count": 1775,
+          "expected_status": "VALID",
+          "bal_file": "blocks/11.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x2474cbc0fd4577d139769df9c6b7705095dbc03639a774d04ea96af507c8f758",
+              "safeBlockHash": "0x2474cbc0fd4577d139769df9c6b7705095dbc03639a774d04ea96af507c8f758",
+              "finalizedBlockHash": "0x2474cbc0fd4577d139769df9c6b7705095dbc03639a774d04ea96af507c8f758"
+            }
+          ],
+          "block_number": 11,
+          "block_hash": "0x2474cbc0fd4577d139769df9c6b7705095dbc03639a774d04ea96af507c8f758",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/12.rlp",
+          "wait_for_caches": true,
+          "block_number": 12,
+          "block_hash": "0xc074dbd84bc60540697da848f80a3a376707415797cc71561c58af6a6e3287ae",
+          "gas_used": 499034150,
+          "transaction_count": 1775,
+          "expected_status": "VALID",
+          "bal_file": "blocks/12.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xc074dbd84bc60540697da848f80a3a376707415797cc71561c58af6a6e3287ae",
+              "safeBlockHash": "0xc074dbd84bc60540697da848f80a3a376707415797cc71561c58af6a6e3287ae",
+              "finalizedBlockHash": "0xc074dbd84bc60540697da848f80a3a376707415797cc71561c58af6a6e3287ae"
+            }
+          ],
+          "block_number": 12,
+          "block_hash": "0xc074dbd84bc60540697da848f80a3a376707415797cc71561c58af6a6e3287ae",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/13.rlp",
+          "wait_for_caches": true,
+          "block_number": 13,
+          "block_hash": "0x5da9f98cc35928bdc04cf4684f086374a8f0e19aae1befd1bab753fc23d8ff4b",
+          "gas_used": 499034150,
+          "transaction_count": 1775,
+          "expected_status": "VALID",
+          "bal_file": "blocks/13.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x5da9f98cc35928bdc04cf4684f086374a8f0e19aae1befd1bab753fc23d8ff4b",
+              "safeBlockHash": "0x5da9f98cc35928bdc04cf4684f086374a8f0e19aae1befd1bab753fc23d8ff4b",
+              "finalizedBlockHash": "0x5da9f98cc35928bdc04cf4684f086374a8f0e19aae1befd1bab753fc23d8ff4b"
+            }
+          ],
+          "block_number": 13,
+          "block_hash": "0x5da9f98cc35928bdc04cf4684f086374a8f0e19aae1befd1bab753fc23d8ff4b",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/14.rlp",
+          "wait_for_caches": true,
+          "block_number": 14,
+          "block_hash": "0x97489895807ae04ad16319384e1a8de478a3413cab9f681642f9a0c8be7ba6f3",
+          "gas_used": 499034150,
+          "transaction_count": 1775,
+          "expected_status": "VALID",
+          "bal_file": "blocks/14.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x97489895807ae04ad16319384e1a8de478a3413cab9f681642f9a0c8be7ba6f3",
+              "safeBlockHash": "0x97489895807ae04ad16319384e1a8de478a3413cab9f681642f9a0c8be7ba6f3",
+              "finalizedBlockHash": "0x97489895807ae04ad16319384e1a8de478a3413cab9f681642f9a0c8be7ba6f3"
+            }
+          ],
+          "block_number": 14,
+          "block_hash": "0x97489895807ae04ad16319384e1a8de478a3413cab9f681642f9a0c8be7ba6f3",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/15.rlp",
+          "wait_for_caches": true,
+          "block_number": 15,
+          "block_hash": "0x457c9a7fc74f7c958c9a09e379c91a7b615f271162c073a637557c03226f9cc5",
+          "gas_used": 499034150,
+          "transaction_count": 1775,
+          "expected_status": "VALID",
+          "bal_file": "blocks/15.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x457c9a7fc74f7c958c9a09e379c91a7b615f271162c073a637557c03226f9cc5",
+              "safeBlockHash": "0x457c9a7fc74f7c958c9a09e379c91a7b615f271162c073a637557c03226f9cc5",
+              "finalizedBlockHash": "0x457c9a7fc74f7c958c9a09e379c91a7b615f271162c073a637557c03226f9cc5"
+            }
+          ],
+          "block_number": 15,
+          "block_hash": "0x457c9a7fc74f7c958c9a09e379c91a7b615f271162c073a637557c03226f9cc5",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/16.rlp",
+          "wait_for_caches": true,
+          "block_number": 16,
+          "block_hash": "0x8421211fb8046049c39db7952d8dc8b066b2c7ada3e70b64f8657b680d13b3f2",
+          "gas_used": 499034150,
+          "transaction_count": 1775,
+          "expected_status": "VALID",
+          "bal_file": "blocks/16.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x8421211fb8046049c39db7952d8dc8b066b2c7ada3e70b64f8657b680d13b3f2",
+              "safeBlockHash": "0x8421211fb8046049c39db7952d8dc8b066b2c7ada3e70b64f8657b680d13b3f2",
+              "finalizedBlockHash": "0x8421211fb8046049c39db7952d8dc8b066b2c7ada3e70b64f8657b680d13b3f2"
+            }
+          ],
+          "block_number": 16,
+          "block_hash": "0x8421211fb8046049c39db7952d8dc8b066b2c7ada3e70b64f8657b680d13b3f2",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/17.rlp",
+          "wait_for_caches": true,
+          "block_number": 17,
+          "block_hash": "0x8fcfb222ce4343a952dfb5055713dd9170f812f1bde4660941df70ecce643a49",
+          "gas_used": 133825496,
+          "transaction_count": 476,
+          "expected_status": "VALID",
+          "bal_file": "blocks/17.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x8fcfb222ce4343a952dfb5055713dd9170f812f1bde4660941df70ecce643a49",
+              "safeBlockHash": "0x8fcfb222ce4343a952dfb5055713dd9170f812f1bde4660941df70ecce643a49",
+              "finalizedBlockHash": "0x8fcfb222ce4343a952dfb5055713dd9170f812f1bde4660941df70ecce643a49"
+            }
+          ],
+          "block_number": 17,
+          "block_hash": "0x8fcfb222ce4343a952dfb5055713dd9170f812f1bde4660941df70ecce643a49",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/18.rlp",
+          "wait_for_caches": true,
+          "block_number": 18,
+          "block_hash": "0x01ab18bd60c3531490c2100308f0c37818ea6f4a0d673ffd20e930f65062b353",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/18.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x01ab18bd60c3531490c2100308f0c37818ea6f4a0d673ffd20e930f65062b353",
+              "safeBlockHash": "0x01ab18bd60c3531490c2100308f0c37818ea6f4a0d673ffd20e930f65062b353",
+              "finalizedBlockHash": "0x01ab18bd60c3531490c2100308f0c37818ea6f4a0d673ffd20e930f65062b353"
+            }
+          ],
+          "block_number": 18,
+          "block_hash": "0x01ab18bd60c3531490c2100308f0c37818ea6f4a0d673ffd20e930f65062b353",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/19.rlp",
+          "wait_for_caches": true,
+          "block_number": 19,
+          "block_hash": "0xd4e92f169179461ecafaba372cb2b5898b667badb03492a348a1593b654130ba",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/19.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xd4e92f169179461ecafaba372cb2b5898b667badb03492a348a1593b654130ba",
+              "safeBlockHash": "0xd4e92f169179461ecafaba372cb2b5898b667badb03492a348a1593b654130ba",
+              "finalizedBlockHash": "0xd4e92f169179461ecafaba372cb2b5898b667badb03492a348a1593b654130ba"
+            }
+          ],
+          "block_number": 19,
+          "block_hash": "0xd4e92f169179461ecafaba372cb2b5898b667badb03492a348a1593b654130ba",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/20.rlp",
+          "wait_for_caches": true,
+          "block_number": 20,
+          "block_hash": "0xedd42f219e6c16d9e1204e2bf9848f17c30a899510824b7e48beaf056a2cc6ae",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/20.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xedd42f219e6c16d9e1204e2bf9848f17c30a899510824b7e48beaf056a2cc6ae",
+              "safeBlockHash": "0xedd42f219e6c16d9e1204e2bf9848f17c30a899510824b7e48beaf056a2cc6ae",
+              "finalizedBlockHash": "0xedd42f219e6c16d9e1204e2bf9848f17c30a899510824b7e48beaf056a2cc6ae"
+            }
+          ],
+          "block_number": 20,
+          "block_hash": "0xedd42f219e6c16d9e1204e2bf9848f17c30a899510824b7e48beaf056a2cc6ae",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/21.rlp",
+          "wait_for_caches": true,
+          "block_number": 21,
+          "block_hash": "0x36ae60cb46fb5f5631ae238e553b18fd7c497c407a1dd668784928fc6eff7886",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/21.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x36ae60cb46fb5f5631ae238e553b18fd7c497c407a1dd668784928fc6eff7886",
+              "safeBlockHash": "0x36ae60cb46fb5f5631ae238e553b18fd7c497c407a1dd668784928fc6eff7886",
+              "finalizedBlockHash": "0x36ae60cb46fb5f5631ae238e553b18fd7c497c407a1dd668784928fc6eff7886"
+            }
+          ],
+          "block_number": 21,
+          "block_hash": "0x36ae60cb46fb5f5631ae238e553b18fd7c497c407a1dd668784928fc6eff7886",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/22.rlp",
+          "wait_for_caches": true,
+          "block_number": 22,
+          "block_hash": "0xe7f469663b71e5e7d16e1b2081e07ebb5df6c6c50fbe1fb07100790e45775c07",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/22.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xe7f469663b71e5e7d16e1b2081e07ebb5df6c6c50fbe1fb07100790e45775c07",
+              "safeBlockHash": "0xe7f469663b71e5e7d16e1b2081e07ebb5df6c6c50fbe1fb07100790e45775c07",
+              "finalizedBlockHash": "0xe7f469663b71e5e7d16e1b2081e07ebb5df6c6c50fbe1fb07100790e45775c07"
+            }
+          ],
+          "block_number": 22,
+          "block_hash": "0xe7f469663b71e5e7d16e1b2081e07ebb5df6c6c50fbe1fb07100790e45775c07",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/23.rlp",
+          "wait_for_caches": true,
+          "block_number": 23,
+          "block_hash": "0x81bc97efd866f92440c8efafda935999db9d704013f02efb64c0364566d88d1e",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/23.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x81bc97efd866f92440c8efafda935999db9d704013f02efb64c0364566d88d1e",
+              "safeBlockHash": "0x81bc97efd866f92440c8efafda935999db9d704013f02efb64c0364566d88d1e",
+              "finalizedBlockHash": "0x81bc97efd866f92440c8efafda935999db9d704013f02efb64c0364566d88d1e"
+            }
+          ],
+          "block_number": 23,
+          "block_hash": "0x81bc97efd866f92440c8efafda935999db9d704013f02efb64c0364566d88d1e",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/24.rlp",
+          "wait_for_caches": true,
+          "block_number": 24,
+          "block_hash": "0x79c7cd831c23c92b357848767fd550d4ad3d1c06caffd18dfa8c1e9a6e46304b",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/24.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x79c7cd831c23c92b357848767fd550d4ad3d1c06caffd18dfa8c1e9a6e46304b",
+              "safeBlockHash": "0x79c7cd831c23c92b357848767fd550d4ad3d1c06caffd18dfa8c1e9a6e46304b",
+              "finalizedBlockHash": "0x79c7cd831c23c92b357848767fd550d4ad3d1c06caffd18dfa8c1e9a6e46304b"
+            }
+          ],
+          "block_number": 24,
+          "block_hash": "0x79c7cd831c23c92b357848767fd550d4ad3d1c06caffd18dfa8c1e9a6e46304b",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/25.rlp",
+          "wait_for_caches": true,
+          "block_number": 25,
+          "block_hash": "0xf7ea43cf64983715f9c66bdadbcb4fc33314c409f446ab998e630b7833848c4e",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/25.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xf7ea43cf64983715f9c66bdadbcb4fc33314c409f446ab998e630b7833848c4e",
+              "safeBlockHash": "0xf7ea43cf64983715f9c66bdadbcb4fc33314c409f446ab998e630b7833848c4e",
+              "finalizedBlockHash": "0xf7ea43cf64983715f9c66bdadbcb4fc33314c409f446ab998e630b7833848c4e"
+            }
+          ],
+          "block_number": 25,
+          "block_hash": "0xf7ea43cf64983715f9c66bdadbcb4fc33314c409f446ab998e630b7833848c4e",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/26.rlp",
+          "wait_for_caches": true,
+          "block_number": 26,
+          "block_hash": "0xac61da70903121d74d5cacc5838f966d13afcc060f54224c9c3eb05f1d98d0dc",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/26.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xac61da70903121d74d5cacc5838f966d13afcc060f54224c9c3eb05f1d98d0dc",
+              "safeBlockHash": "0xac61da70903121d74d5cacc5838f966d13afcc060f54224c9c3eb05f1d98d0dc",
+              "finalizedBlockHash": "0xac61da70903121d74d5cacc5838f966d13afcc060f54224c9c3eb05f1d98d0dc"
+            }
+          ],
+          "block_number": 26,
+          "block_hash": "0xac61da70903121d74d5cacc5838f966d13afcc060f54224c9c3eb05f1d98d0dc",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/27.rlp",
+          "wait_for_caches": true,
+          "block_number": 27,
+          "block_hash": "0xbe0e057e547b298ad1b852865598a3ec8d8af86e84d15d7f38fbef6c40c34c97",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/27.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xbe0e057e547b298ad1b852865598a3ec8d8af86e84d15d7f38fbef6c40c34c97",
+              "safeBlockHash": "0xbe0e057e547b298ad1b852865598a3ec8d8af86e84d15d7f38fbef6c40c34c97",
+              "finalizedBlockHash": "0xbe0e057e547b298ad1b852865598a3ec8d8af86e84d15d7f38fbef6c40c34c97"
+            }
+          ],
+          "block_number": 27,
+          "block_hash": "0xbe0e057e547b298ad1b852865598a3ec8d8af86e84d15d7f38fbef6c40c34c97",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/28.rlp",
+          "wait_for_caches": true,
+          "block_number": 28,
+          "block_hash": "0x6bd1f21b44b1564af20b48772c8872829afce0bb8f878908ed6bd60bc9385616",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/28.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x6bd1f21b44b1564af20b48772c8872829afce0bb8f878908ed6bd60bc9385616",
+              "safeBlockHash": "0x6bd1f21b44b1564af20b48772c8872829afce0bb8f878908ed6bd60bc9385616",
+              "finalizedBlockHash": "0x6bd1f21b44b1564af20b48772c8872829afce0bb8f878908ed6bd60bc9385616"
+            }
+          ],
+          "block_number": 28,
+          "block_hash": "0x6bd1f21b44b1564af20b48772c8872829afce0bb8f878908ed6bd60bc9385616",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/29.rlp",
+          "wait_for_caches": true,
+          "block_number": 29,
+          "block_hash": "0x0ad02b709814c0f2373fc1bc2dc553731894a1962c01e68a23d9ccb0ea2be89b",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/29.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x0ad02b709814c0f2373fc1bc2dc553731894a1962c01e68a23d9ccb0ea2be89b",
+              "safeBlockHash": "0x0ad02b709814c0f2373fc1bc2dc553731894a1962c01e68a23d9ccb0ea2be89b",
+              "finalizedBlockHash": "0x0ad02b709814c0f2373fc1bc2dc553731894a1962c01e68a23d9ccb0ea2be89b"
+            }
+          ],
+          "block_number": 29,
+          "block_hash": "0x0ad02b709814c0f2373fc1bc2dc553731894a1962c01e68a23d9ccb0ea2be89b",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/30.rlp",
+          "wait_for_caches": true,
+          "block_number": 30,
+          "block_hash": "0x4bed4421a1937d28b5275fbc3d156c47a22b5d0ce2c6d32a809deb41a902c9d1",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/30.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x4bed4421a1937d28b5275fbc3d156c47a22b5d0ce2c6d32a809deb41a902c9d1",
+              "safeBlockHash": "0x4bed4421a1937d28b5275fbc3d156c47a22b5d0ce2c6d32a809deb41a902c9d1",
+              "finalizedBlockHash": "0x4bed4421a1937d28b5275fbc3d156c47a22b5d0ce2c6d32a809deb41a902c9d1"
+            }
+          ],
+          "block_number": 30,
+          "block_hash": "0x4bed4421a1937d28b5275fbc3d156c47a22b5d0ce2c6d32a809deb41a902c9d1",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/31.rlp",
+          "wait_for_caches": true,
+          "block_number": 31,
+          "block_hash": "0xa78e3af2fc41d29dfc850bf99e046ae06af6f57b60ccb17475f2b4ae782518f2",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/31.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xa78e3af2fc41d29dfc850bf99e046ae06af6f57b60ccb17475f2b4ae782518f2",
+              "safeBlockHash": "0xa78e3af2fc41d29dfc850bf99e046ae06af6f57b60ccb17475f2b4ae782518f2",
+              "finalizedBlockHash": "0xa78e3af2fc41d29dfc850bf99e046ae06af6f57b60ccb17475f2b4ae782518f2"
+            }
+          ],
+          "block_number": 31,
+          "block_hash": "0xa78e3af2fc41d29dfc850bf99e046ae06af6f57b60ccb17475f2b4ae782518f2",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/32.rlp",
+          "wait_for_caches": true,
+          "block_number": 32,
+          "block_hash": "0x019c9d0f617ceedb68da3d9af120783df94db1d0cd18a87f63934dbe52963586",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/32.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x019c9d0f617ceedb68da3d9af120783df94db1d0cd18a87f63934dbe52963586",
+              "safeBlockHash": "0x019c9d0f617ceedb68da3d9af120783df94db1d0cd18a87f63934dbe52963586",
+              "finalizedBlockHash": "0x019c9d0f617ceedb68da3d9af120783df94db1d0cd18a87f63934dbe52963586"
+            }
+          ],
+          "block_number": 32,
+          "block_hash": "0x019c9d0f617ceedb68da3d9af120783df94db1d0cd18a87f63934dbe52963586",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/33.rlp",
+          "wait_for_caches": true,
+          "block_number": 33,
+          "block_hash": "0x574e0c052821e723c54a14d07cecac6cf64067d209126d261377235a6feab2bd",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/33.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x574e0c052821e723c54a14d07cecac6cf64067d209126d261377235a6feab2bd",
+              "safeBlockHash": "0x574e0c052821e723c54a14d07cecac6cf64067d209126d261377235a6feab2bd",
+              "finalizedBlockHash": "0x574e0c052821e723c54a14d07cecac6cf64067d209126d261377235a6feab2bd"
+            }
+          ],
+          "block_number": 33,
+          "block_hash": "0x574e0c052821e723c54a14d07cecac6cf64067d209126d261377235a6feab2bd",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/34.rlp",
+          "wait_for_caches": true,
+          "block_number": 34,
+          "block_hash": "0xd15031b9b2bf0020550dd8d80e0c73b19edd646c4b0e9ad2be07a11b26ca71fb",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/34.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xd15031b9b2bf0020550dd8d80e0c73b19edd646c4b0e9ad2be07a11b26ca71fb",
+              "safeBlockHash": "0xd15031b9b2bf0020550dd8d80e0c73b19edd646c4b0e9ad2be07a11b26ca71fb",
+              "finalizedBlockHash": "0xd15031b9b2bf0020550dd8d80e0c73b19edd646c4b0e9ad2be07a11b26ca71fb"
+            }
+          ],
+          "block_number": 34,
+          "block_hash": "0xd15031b9b2bf0020550dd8d80e0c73b19edd646c4b0e9ad2be07a11b26ca71fb",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/35.rlp",
+          "wait_for_caches": true,
+          "block_number": 35,
+          "block_hash": "0x574ad939130204d606b5982979b299f5d882ec870db191b69d3b3f1528139e4d",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/35.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x574ad939130204d606b5982979b299f5d882ec870db191b69d3b3f1528139e4d",
+              "safeBlockHash": "0x574ad939130204d606b5982979b299f5d882ec870db191b69d3b3f1528139e4d",
+              "finalizedBlockHash": "0x574ad939130204d606b5982979b299f5d882ec870db191b69d3b3f1528139e4d"
+            }
+          ],
+          "block_number": 35,
+          "block_hash": "0x574ad939130204d606b5982979b299f5d882ec870db191b69d3b3f1528139e4d",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/36.rlp",
+          "wait_for_caches": true,
+          "block_number": 36,
+          "block_hash": "0x63abeb65f7e4d05e98b57619407948fbda6f30face40ab6d48f342b2253732d6",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/36.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x63abeb65f7e4d05e98b57619407948fbda6f30face40ab6d48f342b2253732d6",
+              "safeBlockHash": "0x63abeb65f7e4d05e98b57619407948fbda6f30face40ab6d48f342b2253732d6",
+              "finalizedBlockHash": "0x63abeb65f7e4d05e98b57619407948fbda6f30face40ab6d48f342b2253732d6"
+            }
+          ],
+          "block_number": 36,
+          "block_hash": "0x63abeb65f7e4d05e98b57619407948fbda6f30face40ab6d48f342b2253732d6",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/37.rlp",
+          "wait_for_caches": true,
+          "block_number": 37,
+          "block_hash": "0xd95a2ad71698080b514c8600f169fa7a736487bad2b1e15daeee7420308e02d5",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/37.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xd95a2ad71698080b514c8600f169fa7a736487bad2b1e15daeee7420308e02d5",
+              "safeBlockHash": "0xd95a2ad71698080b514c8600f169fa7a736487bad2b1e15daeee7420308e02d5",
+              "finalizedBlockHash": "0xd95a2ad71698080b514c8600f169fa7a736487bad2b1e15daeee7420308e02d5"
+            }
+          ],
+          "block_number": 37,
+          "block_hash": "0xd95a2ad71698080b514c8600f169fa7a736487bad2b1e15daeee7420308e02d5",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/38.rlp",
+          "wait_for_caches": true,
+          "block_number": 38,
+          "block_hash": "0x539316eb212a2214c9b084decbadb6b9a599a5e11c4f2d0f9c6abd5ac091beb2",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/38.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x539316eb212a2214c9b084decbadb6b9a599a5e11c4f2d0f9c6abd5ac091beb2",
+              "safeBlockHash": "0x539316eb212a2214c9b084decbadb6b9a599a5e11c4f2d0f9c6abd5ac091beb2",
+              "finalizedBlockHash": "0x539316eb212a2214c9b084decbadb6b9a599a5e11c4f2d0f9c6abd5ac091beb2"
+            }
+          ],
+          "block_number": 38,
+          "block_hash": "0x539316eb212a2214c9b084decbadb6b9a599a5e11c4f2d0f9c6abd5ac091beb2",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/39.rlp",
+          "wait_for_caches": true,
+          "block_number": 39,
+          "block_hash": "0x84e64e36f80320f6a9dffe0d560fb7e20da5c902785b002483a5cc7c8bc21506",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/39.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x84e64e36f80320f6a9dffe0d560fb7e20da5c902785b002483a5cc7c8bc21506",
+              "safeBlockHash": "0x84e64e36f80320f6a9dffe0d560fb7e20da5c902785b002483a5cc7c8bc21506",
+              "finalizedBlockHash": "0x84e64e36f80320f6a9dffe0d560fb7e20da5c902785b002483a5cc7c8bc21506"
+            }
+          ],
+          "block_number": 39,
+          "block_hash": "0x84e64e36f80320f6a9dffe0d560fb7e20da5c902785b002483a5cc7c8bc21506",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/40.rlp",
+          "wait_for_caches": true,
+          "block_number": 40,
+          "block_hash": "0x6d079146a5b057adafc5f7c18cc4b8815c67befc30e2a6eed402c8e78f5e6499",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/40.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x6d079146a5b057adafc5f7c18cc4b8815c67befc30e2a6eed402c8e78f5e6499",
+              "safeBlockHash": "0x6d079146a5b057adafc5f7c18cc4b8815c67befc30e2a6eed402c8e78f5e6499",
+              "finalizedBlockHash": "0x6d079146a5b057adafc5f7c18cc4b8815c67befc30e2a6eed402c8e78f5e6499"
+            }
+          ],
+          "block_number": 40,
+          "block_hash": "0x6d079146a5b057adafc5f7c18cc4b8815c67befc30e2a6eed402c8e78f5e6499",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/41.rlp",
+          "wait_for_caches": true,
+          "block_number": 41,
+          "block_hash": "0xaf3450fc58708cf06b10086f4c9bf52cd9c7ae51e0c7cca197740d38224b910a",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/41.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xaf3450fc58708cf06b10086f4c9bf52cd9c7ae51e0c7cca197740d38224b910a",
+              "safeBlockHash": "0xaf3450fc58708cf06b10086f4c9bf52cd9c7ae51e0c7cca197740d38224b910a",
+              "finalizedBlockHash": "0xaf3450fc58708cf06b10086f4c9bf52cd9c7ae51e0c7cca197740d38224b910a"
+            }
+          ],
+          "block_number": 41,
+          "block_hash": "0xaf3450fc58708cf06b10086f4c9bf52cd9c7ae51e0c7cca197740d38224b910a",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/42.rlp",
+          "wait_for_caches": true,
+          "block_number": 42,
+          "block_hash": "0xae51b507add49cd2307933ae93ecb80854ecff384998425539e6a1c83d701251",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/42.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xae51b507add49cd2307933ae93ecb80854ecff384998425539e6a1c83d701251",
+              "safeBlockHash": "0xae51b507add49cd2307933ae93ecb80854ecff384998425539e6a1c83d701251",
+              "finalizedBlockHash": "0xae51b507add49cd2307933ae93ecb80854ecff384998425539e6a1c83d701251"
+            }
+          ],
+          "block_number": 42,
+          "block_hash": "0xae51b507add49cd2307933ae93ecb80854ecff384998425539e6a1c83d701251",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/43.rlp",
+          "wait_for_caches": true,
+          "block_number": 43,
+          "block_hash": "0x398af4253a866388df772ce5f810bb772d616b8f031b4c61558fee2d0bfa40fc",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/43.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x398af4253a866388df772ce5f810bb772d616b8f031b4c61558fee2d0bfa40fc",
+              "safeBlockHash": "0x398af4253a866388df772ce5f810bb772d616b8f031b4c61558fee2d0bfa40fc",
+              "finalizedBlockHash": "0x398af4253a866388df772ce5f810bb772d616b8f031b4c61558fee2d0bfa40fc"
+            }
+          ],
+          "block_number": 43,
+          "block_hash": "0x398af4253a866388df772ce5f810bb772d616b8f031b4c61558fee2d0bfa40fc",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/44.rlp",
+          "wait_for_caches": true,
+          "block_number": 44,
+          "block_hash": "0x0158324e8013e1c9b59f258b3132aa2dd37f0fd5569906152e8212a3a26a5b90",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/44.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x0158324e8013e1c9b59f258b3132aa2dd37f0fd5569906152e8212a3a26a5b90",
+              "safeBlockHash": "0x0158324e8013e1c9b59f258b3132aa2dd37f0fd5569906152e8212a3a26a5b90",
+              "finalizedBlockHash": "0x0158324e8013e1c9b59f258b3132aa2dd37f0fd5569906152e8212a3a26a5b90"
+            }
+          ],
+          "block_number": 44,
+          "block_hash": "0x0158324e8013e1c9b59f258b3132aa2dd37f0fd5569906152e8212a3a26a5b90",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/45.rlp",
+          "wait_for_caches": true,
+          "block_number": 45,
+          "block_hash": "0xae7c4db32e6f7b24206b18b33ec4c14ffd447043006e333936d3fc3b107c5f49",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/45.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xae7c4db32e6f7b24206b18b33ec4c14ffd447043006e333936d3fc3b107c5f49",
+              "safeBlockHash": "0xae7c4db32e6f7b24206b18b33ec4c14ffd447043006e333936d3fc3b107c5f49",
+              "finalizedBlockHash": "0xae7c4db32e6f7b24206b18b33ec4c14ffd447043006e333936d3fc3b107c5f49"
+            }
+          ],
+          "block_number": 45,
+          "block_hash": "0xae7c4db32e6f7b24206b18b33ec4c14ffd447043006e333936d3fc3b107c5f49",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/46.rlp",
+          "wait_for_caches": true,
+          "block_number": 46,
+          "block_hash": "0x9d7901112eb69f2ffa4c19e6733ce3c63ca85ec744b70ee3feabcc4b0040287d",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/46.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x9d7901112eb69f2ffa4c19e6733ce3c63ca85ec744b70ee3feabcc4b0040287d",
+              "safeBlockHash": "0x9d7901112eb69f2ffa4c19e6733ce3c63ca85ec744b70ee3feabcc4b0040287d",
+              "finalizedBlockHash": "0x9d7901112eb69f2ffa4c19e6733ce3c63ca85ec744b70ee3feabcc4b0040287d"
+            }
+          ],
+          "block_number": 46,
+          "block_hash": "0x9d7901112eb69f2ffa4c19e6733ce3c63ca85ec744b70ee3feabcc4b0040287d",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/47.rlp",
+          "wait_for_caches": true,
+          "block_number": 47,
+          "block_hash": "0x2f206410d75100d623e7677d3cf52d3d3a0f0f4b0faea2cbd15303472b16e67b",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/47.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x2f206410d75100d623e7677d3cf52d3d3a0f0f4b0faea2cbd15303472b16e67b",
+              "safeBlockHash": "0x2f206410d75100d623e7677d3cf52d3d3a0f0f4b0faea2cbd15303472b16e67b",
+              "finalizedBlockHash": "0x2f206410d75100d623e7677d3cf52d3d3a0f0f4b0faea2cbd15303472b16e67b"
+            }
+          ],
+          "block_number": 47,
+          "block_hash": "0x2f206410d75100d623e7677d3cf52d3d3a0f0f4b0faea2cbd15303472b16e67b",
+          "expected_status": "VALID"
+        }
+      ],
+      "test": [
+        {
+          "rlp_file": "blocks/48.rlp",
+          "wait_for_caches": true,
+          "block_number": 48,
+          "block_hash": "0xff97fba2b89112c072bd36561b3397a02bd130ecc25f3e019553f2d4875f9097",
+          "gas_used": 499030580,
+          "transaction_count": 13730,
+          "expected_status": "VALID",
+          "bal_file": "blocks/48.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xff97fba2b89112c072bd36561b3397a02bd130ecc25f3e019553f2d4875f9097",
+              "safeBlockHash": "0xff97fba2b89112c072bd36561b3397a02bd130ecc25f3e019553f2d4875f9097",
+              "finalizedBlockHash": "0xff97fba2b89112c072bd36561b3397a02bd130ecc25f3e019553f2d4875f9097"
+            }
+          ],
+          "block_number": 48,
+          "block_hash": "0xff97fba2b89112c072bd36561b3397a02bd130ecc25f3e019553f2d4875f9097",
+          "expected_status": "VALID"
+        }
+      ]
+    }
+  ]
+}
