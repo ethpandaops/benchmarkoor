@@ -95,8 +95,8 @@ from genesis, and its first block is not a child of the preceding suite's head.
 The merged names are prefixed with their source suite so overlapping Keccak
 cases remain independently reportable.
 
-`merge-suites.py`, `merge-all-suites.sh`, and `merge-tip20-full-blocks.sh` are
-maintainer helpers for rebuilding aggregates from regenerated per-source suites.
+`merge-suites.py` and `merge-all-suites.sh` are maintainer helpers for
+rebuilding aggregates from regenerated per-source suites.
 Those per-source directories are no longer part of the checked-in corpus.
 
 `run-one.sh` remains useful for debugging a single-test capture. It starts an ephemeral node from

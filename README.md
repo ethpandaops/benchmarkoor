@@ -29,6 +29,28 @@ make docker-run
 make docker-run UI_PORT=3000 API_PORT=9091
 ```
 
+### Start the site without login
+
+For local read-only browsing, keep a basic auth provider configured but enable
+anonymous reads:
+
+```yaml
+api:
+  auth:
+    anonymous_read: true
+```
+
+Then start only the API and UI:
+
+```bash
+cp config.example.docker.yaml config.local.anonymous.yaml
+# Add api.auth.anonymous_read: true to config.local.anonymous.yaml
+BENCHMARKOOR_CONFIG=config.local.anonymous.yaml docker compose up --build --no-deps api ui
+```
+
+Open [http://localhost:8080](http://localhost:8080). Admin and API-key pages
+still require login; results browsing does not.
+
 Next we'll run a benchmark. By default it will use the  [config.example.docker.yaml](config.example.docker.yaml) configuration file. By default, it just runs a subset of tests, via the `filter: bn128`. Have a look at the file and change it as you want. If you're just experimenting, you can leave it as it is.
 
 To run the benchmark we can do the following:
