@@ -16,6 +16,7 @@ fi
   --out "$SUITES_DIR/all/manifest.json" \
   --name tempo-complete-benchmark-suite \
   --copy-files \
+  --exclude-test 'tests/benchmark/compute/precompile/test_point_evaluation.py::test_point_evaluation[fork_Prague-benchmark_test-point_evaluation-benchmark-gas-value_10M]' \
   "$SUITES_DIR/eest/batch-arithmetic-10m/manifest.json" \
   "$SUITES_DIR/eest/batch-bitwise-context-flow-10m/manifest.json" \
   "$SUITES_DIR/eest/batch-stack-memory-10m/manifest.json" \

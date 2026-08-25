@@ -70,7 +70,7 @@ docker compose -f docker-compose.tempo.yaml run --rm benchmarkoor
 
 The checked-in corpus contains these self-contained suites:
 
-- `integrations/tempo/suites/all`: 969 entries across the selected runnable EEST,
+- `integrations/tempo/suites/all`: 968 entries across the selected runnable EEST,
   Tempo-native TIP-20 corpus, and focused warm point-evaluation case.
 - `integrations/tempo/suites/tip20-full-blocks`: six high-gas TIP-20 full-block
   workloads.
@@ -78,7 +78,7 @@ The checked-in corpus contains these self-contained suites:
   warmup benchmark: 10M measured workload with setup precompile warmup plus a
   1M setup workload.
 
-Run the full 969-entry suite with the boundary-aware Benchmarkoor runner. Select
+Run the full 968-entry suite with the boundary-aware Benchmarkoor runner. Select
 the aggregate suite directory and enable container recreation; boundary metadata
 limits recreation to the 22 transitions between the 23 source segments:
 

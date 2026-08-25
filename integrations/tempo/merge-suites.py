@@ -33,6 +33,12 @@ def parse_args() -> argparse.Namespace:
             "instead of leaving relative references to source suites."
         ),
     )
+    parser.add_argument(
+        "--exclude-test",
+        action="append",
+        default=[],
+        help="Exclude a source test name before source-suite namespacing.",
+    )
     parser.add_argument("manifests", nargs="+", type=Path)
     return parser.parse_args()
 
@@ -106,6 +112,8 @@ def main() -> None:
             raise ValueError(f"{manifest_path}: genesis differs from first suite")
 
         for test_index, source_test in enumerate(manifest["tests"]):
+            if source_test["name"] in args.exclude_test:
+                continue
             test = json.loads(json.dumps(source_test))
             test["name"] = f"{source_name}::{source_test['name']}"
             test["tags"] = list(dict.fromkeys([*test.get("tags", []), "merged-suite"]))

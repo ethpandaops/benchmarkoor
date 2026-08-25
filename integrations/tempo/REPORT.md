@@ -46,7 +46,7 @@ The repository now ships three self-contained suites:
 
 | Suite directory | Entries | Source segments | Purpose |
 | --- | ---: | ---: | --- |
-| `integrations/tempo/suites/all` | 969 | 23 | Complete selected runnable corpus: 13 EEST-derived batches, nine Tempo-native TIP-20 suites, and the focused warm point-evaluation case |
+| `integrations/tempo/suites/all` | 968 | 23 | Complete selected runnable corpus: 13 EEST-derived batches, nine Tempo-native TIP-20 suites, and the focused warm point-evaluation case |
 | `integrations/tempo/suites/tip20-full-blocks` | 6 | 6 | Focused bundle of only the high-gas TIP-20 full-block workloads |
 | `integrations/tempo/suites/point-evaluation-warm` | 1 | 1 | KZG point-evaluation 10M benchmark with setup precompile warmup plus a 1M setup workload |
 
@@ -60,7 +60,7 @@ the original `source_suite` metadata on every entry.
 
 The current `all` manifest intentionally retains 34 namespaced Keccak cases from
 both the instruction-core segment and the isolated Keccak segment. Its unique
-semantic coverage is therefore 934 tests after that known overlap is removed.
+semantic coverage is therefore 933 tests after that known overlap is removed.
 The one-case ADD debugging artifact and obsolete 903-case structural import are
 not included in either shipped suite. ADD is already contained in the arithmetic
 batch; the structural import is deliberately non-executable because its signed
