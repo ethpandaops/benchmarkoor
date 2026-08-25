@@ -1,179 +1,68 @@
-# EEST benchmarks on Tempo
+# Tempo integration
 
-This adapter runs Ethereum Execution Spec Tests (EEST) benchmark definitions
-against a published Tempo node and turns the resulting canonical blocks into
-Benchmarkoor replay suites.
+This directory contains Benchmarkoor's Tempo suite tooling and checked-in Tempo
+benchmark suites. Tempo suites are portable `tempo-engine-suite/v1` manifests:
+Benchmarkoor replays raw canonical Tempo blocks through the Reth-compatible
+Engine API surface and reports correctness and performance.
 
-Tempo rejects native-value transfers. EEST normally uses those transfers to
-fund the generated transaction senders, so `tempo_eest_adapter.py` rewrites
-plain `pre.fund_eoa` setup transactions to pathUSD TIP-20 transfers. A new EOA
-has no user token preference, so pathUSD is the protocol fallback used for its
-legacy Ethereum benchmark transaction. The test
-definitions, generated contracts, workload transactions, and assertions remain
-owned by EEST. It also raises generated contract-deployment setup transactions
-to Tempo's 30M per-transaction ceiling because Tempo's state-gas and storage-
-credit accounting is not part of EEST's Ethereum-only deployment estimate.
+## Contents
 
-`run-batch.sh` is the normal path for suite conversion. It executes the source
-tests serially on one fresh Tempo chain, records the canonical block interval
-for every pytest node, and exports each passing case as one Benchmarkoor test.
-The last transaction-bearing block in a case is measured; all earlier blocks
-are replay setup. This recreates the blocks from the EEST-provided bytecode and
-transaction input instead of attempting to mutate already-signed Ethereum
-payloads.
+- `suites/all`: the full checked-in Tempo corpus.
+- `suites/tip20-full-blocks`: focused high-gas TIP-20 full-block workloads.
+- `suites/point-evaluation-warm`: focused KZG point-evaluation warm workload.
+- `export-suite.py`: export canonical blocks from a running Tempo node.
+- `validate-suite.py`: validate suite manifests and referenced block files.
+- `merge-suites.py` and `merge-all-suites.sh`: maintainer helpers for rebuilding
+  aggregate manifests.
+- `tempo_eest_adapter.py`, `run-batch.sh`, and `run-one.sh`: EEST-to-Tempo
+  capture tooling.
 
-The adapter currently supports compute benchmarks which use plain funded EOAs.
-Stateful fixtures and tests which require EIP-7702 delegation or storage on a
-generated EOA need additional Tempo-specific setup handling.
+## Creating Suites
 
-## Generate a batch suite
+- For suites generated directly from a running Tempo node, see
+  `integrations/tempo/CREATE_SUITES.md`.
+- For EEST-derived Tempo suites, see
+  `integrations/tempo/CREATE_SUITES_EEST.md`.
 
-```sh
-EEST_REPO=/path/to/execution-specs \
-TEMPO_REPO=/path/to/tempo \
-SUITE_OUT=/path/to/generated-tempo-suites/eest/arithmetic-10m \
-SUITE_NAME=eest-prague-arithmetic-10m \
-BLOCK_TIME=100ms \
-./integrations/tempo/run-batch.sh \
-  tests/benchmark/compute/instruction/test_arithmetic.py
-```
+## Run The Full Suite
 
-Multiple source files can be passed to one invocation. A single invocation
-uses a single canonical chain, so its generated manifest can be replayed from
-genesis without resetting the client between tests:
+Run the checked-in `all` suite with container recreation at source-suite
+boundaries. This takes around 16 minutes on a typical local Docker setup:
 
 ```sh
-EEST_REPO=/path/to/execution-specs \
-TEMPO_REPO=/path/to/tempo \
-SUITE_OUT=/path/to/generated-tempo-suites/eest/stack-memory-10m \
-SUITE_NAME=eest-prague-stack-memory-10m \
-./integrations/tempo/run-batch.sh \
-  tests/benchmark/compute/instruction/test_stack.py \
-  tests/benchmark/compute/instruction/test_memory.py
-```
-
-The batch command prints EEST pass/fail counts and records them in the suite
-metadata. Only cases which pass EEST post-state checks and contain a workload
-transaction become measured tests. Blocks created by an intervening failed
-case remain setup for the next passing case, preserving canonical ancestry.
-
-Replay the generated suite with Benchmarkoor and the published Tempo image:
-
-```sh
-cd /path/to/benchmarkoor
-TEMPO_SUITE_DIR=/absolute/path/to/generated-suite \
-TEMPO_IMAGE=docker.io/tempoxyz/tempo:latest \
-docker compose -f docker-compose.tempo.yaml run --rm benchmarkoor
-```
-
-## Run the shipped suites
-
-The checked-in corpus contains these self-contained suites:
-
-- `integrations/tempo/suites/all`: 968 entries across the selected runnable EEST,
-  Tempo-native TIP-20 corpus, and focused warm point-evaluation case.
-- `integrations/tempo/suites/tip20-full-blocks`: six high-gas TIP-20 full-block
-  workloads.
-- `integrations/tempo/suites/point-evaluation-warm`: one KZG point-evaluation
-  warmup benchmark: 10M measured workload with setup precompile warmup plus a
-  1M setup workload.
-
-Run the full 968-entry suite with the boundary-aware Benchmarkoor runner. Select
-the aggregate suite directory and enable container recreation; boundary metadata
-limits recreation to the 22 transitions between the 23 source segments:
-
-```sh
-cd /path/to/benchmarkoor
-TEMPO_SUITE_DIR=/absolute/path/to/benchmarkoor/integrations/tempo/suites/all \
+TEMPO_SUITE_DIR="$PWD/integrations/tempo/suites/all" \
 TEMPO_ROLLBACK_STRATEGY=container-recreate \
 TEMPO_IMAGE=docker.io/tempoxyz/tempo:latest \
 docker compose -f docker-compose.tempo.yaml run --rm benchmarkoor
 ```
 
-Do not concatenate manifests without these boundaries: each source suite starts
-from genesis, and its first block is not a child of the preceding suite's head.
-The merged names are prefixed with their source suite so overlapping Keccak
-cases remain independently reportable.
+The compose file mounts `TEMPO_SUITE_DIR` at `/app/tempo-suite`, writes results
+to `./results`, and defaults to `container-recreate` because each merged source
+suite starts from genesis.
 
-`merge-suites.py` and `merge-all-suites.sh` are maintainer helpers for
-rebuilding aggregates from regenerated per-source suites.
-Those per-source directories are no longer part of the checked-in corpus.
-
-`run-one.sh` remains useful for debugging a single-test capture. It starts an ephemeral node from
-the published Tempo image, runs EEST in the published `uv` image, finds the
-last transaction-bearing block as the measured workload, exports all earlier
-blocks as setup, and removes the generator container. It never builds a Tempo
-node image.
+For a much quicker smoke run, execute the smaller `tip20-full-blocks` suite:
 
 ```sh
-EEST_REPO=/path/to/execution-specs \
-TEMPO_REPO=/path/to/tempo \
-SUITE_OUT=/path/to/generated-tempo-suites/eest/add-10m \
-EEST_TEST=tests/benchmark/compute/instruction/test_arithmetic.py \
-EEST_FILTER='opcode_ADD and not ADDMOD' \
-GAS_MILLIONS=10 \
-./integrations/tempo/run-one.sh
+TEMPO_SUITE_DIR="$PWD/integrations/tempo/suites/tip20-full-blocks" \
+TEMPO_ROLLBACK_STRATEGY=container-recreate \
+TEMPO_IMAGE=docker.io/tempoxyz/tempo:latest \
+docker compose -f docker-compose.tempo.yaml run --rm benchmarkoor
 ```
 
-The filter must select exactly one benchmark. Repeat the command with an
-independent output directory for every test/gas dimension; this keeps setup
-state and measured blocks isolated and gives each case a stable suite hash.
-If you override the decimal `EOA_START`, also set the matching
-`EOA_START_HEX` so provenance records the full 256-bit seed without shell
-integer truncation.
+## Run The UI
 
-## Run one benchmark
-
-Start the published Tempo image (no source build):
+After a run, start the static Tempo results UI:
 
 ```sh
-docker run -d --name tempo-eest-generator \
-  -p 18545:8545 -p 18551:8551 \
-  docker.io/tempoxyz/tempo:latest \
-  node --dev --dev.block-time=1s \
-  --datadir=/tmp/tempo-eest \
-  --http --http.addr=0.0.0.0 --http.api=all --http.port=8545 \
-  --authrpc.addr=0.0.0.0 --authrpc.port=8551 \
-  --disable-discovery --no-persist-peers --builder.max-tasks=1
+docker compose -f docker-compose.tempo.yaml up --build ui
 ```
 
-Run EEST from its checkout with the published `uv` image. On macOS,
-`host.docker.internal` reaches the Tempo RPC published on the host:
+Open `http://localhost:8080`. Set `UI_PORT` to use another host port:
 
 ```sh
-docker run --rm \
-  -e PYTHONPATH=/benchmarkoor-tempo \
-  -e PYTEST_PLUGINS=tempo_eest_adapter \
-  -v /path/to/execution-specs:/work \
-  -v /path/to/benchmarkoor/integrations/tempo:/benchmarkoor-tempo:ro \
-  -v tempo-eest-uv-cache:/root/.cache/uv \
-  -w /work ghcr.io/astral-sh/uv:python3.11-bookworm \
-  uv run execute remote -v \
-  --fork=Prague --chain-id=1337 \
-  --rpc-endpoint=http://host.docker.internal:18545 \
-  --rpc-seed-key=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-  --gas-benchmark-values=10 --tx-wait-timeout=30 --skip-cleanup \
-  tests/benchmark/compute/instruction/test_arithmetic.py \
-  -k 'opcode_ADD and not ADDMOD'
+UI_PORT=3000 docker compose -f docker-compose.tempo.yaml up --build ui
 ```
 
-Record the block number immediately before and after the command. Export the
-chain prefix and use the first workload block as `--from-block`:
-
-```sh
-./integrations/tempo/export-suite.py \
-  --rpc-url http://127.0.0.1:18545 \
-  --genesis "$TEMPO_REPO/crates/chainspec/src/genesis/dev.json" \
-  --out /path/to/generated-tempo-suites/eest/add-10m \
-  --name eest-add-10m \
-  --from-block FIRST_WORKLOAD_BLOCK \
-  --to-block LAST_WORKLOAD_BLOCK \
-  --tag eest --tag ethereum-derived --tag tempo-normalized \
-  --seed EEST_EOA_START --revision EEST_GIT_REVISION \
-  --hardfork dev-all --chain-id 1337
-```
-
-The exported `manifest.json`, `genesis.json`, block RLP, and block access lists
-are the portable benchmark data. Benchmarkoor replays setup calls without
-timing them and reports the test-phase Engine API server execution time, HTTP
-round-trip time, gas, transaction count, payload size, and opcode data.
+The Tempo UI compose service serves `./results` read-only and uses
+`ui/public/config.tempo-static.json`, so it does not require the API service or
+login.
