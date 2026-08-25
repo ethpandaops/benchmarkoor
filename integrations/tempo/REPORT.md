@@ -42,23 +42,25 @@ Inputs:
 
 ## Current shipped suite layout
 
-The repository now ships only the two self-contained aggregate suites:
+The repository now ships three self-contained suites:
 
 | Suite directory | Entries | Source segments | Purpose |
 | --- | ---: | ---: | --- |
-| `integrations/tempo/suites/all` | 968 | 22 | Complete selected runnable corpus: 13 EEST-derived batches and nine Tempo-native TIP-20 suites |
+| `integrations/tempo/suites/all` | 973 | 23 | Complete selected runnable corpus: 14 EEST-derived batches and nine Tempo-native TIP-20 suites |
 | `integrations/tempo/suites/tip20-full-blocks` | 6 | 6 | Focused bundle of only the high-gas TIP-20 full-block workloads |
+| `integrations/tempo/suites/point-evaluation-warm` | 5 | 1 | KZG point-evaluation benchmarks with one setup precompile warmup call and 1M, 5M, 10M, 15M, and 30M tx gas limits; the 30M case is two 15M transactions |
 
-Both aggregate manifests keep their required `genesis.json` and block files
+All shipped manifests keep their required `genesis.json` and block files
 inside their own suite directories. The earlier per-source suite directories
 (`eest`, `tip20`, and `benchmarkoor`) were removed from the checked-in corpus:
-`all` is the canonical broad suite, and `tip20-full-blocks` is a convenience
-subset for the large TIP-20 transfer blocks. The aggregate manifests still retain
+`all` is the canonical broad suite, `tip20-full-blocks` is a convenience
+subset for the large TIP-20 transfer blocks, and `point-evaluation-warm`
+isolates the new warmup precompile check. The aggregate manifests still retain
 the original `source_suite` metadata on every entry.
 
 The current `all` manifest intentionally retains 34 namespaced Keccak cases from
 both the instruction-core segment and the isolated Keccak segment. Its unique
-semantic coverage is therefore 934 tests after that known overlap is removed.
+semantic coverage is therefore 938 tests after that known overlap is removed.
 The one-case ADD debugging artifact and obsolete 903-case structural import are
 not included in either shipped suite. ADD is already contained in the arithmetic
 batch; the structural import is deliberately non-executable because its signed
@@ -129,7 +131,7 @@ Tempo container at exactly 15 suite transitions.
 That historical merged run intentionally retained 34 namespaced Keccak cases
 from both their original core segment and the later complete Keccak segment. Its
 unique semantic coverage was 928 tests after de-duplication. The current shipped
-`all` suite extends this shape to 22 source segments and 968 raw entries, but it
+`all` suite extends this shape to 23 source segments and 973 raw entries, but it
 has not been separately rerun as one Benchmarkoor job in this report.
 
 ## Precompile coverage

@@ -37,4 +37,4 @@ runner:
       client: tempo
       # Export TEMPO_IMAGE=tempo:local to benchmark a locally built branch.
       image: ${TEMPO_IMAGE:-docker.io/tempoxyz/tempo:latest}
-      pull_policy: missing
+      pull_policy: if-not-present

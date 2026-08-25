@@ -28,8 +28,9 @@ if (($# == 0)); then
 fi
 SOURCE_TESTS=("$@")
 for source_test in "${SOURCE_TESTS[@]}"; do
-  if [[ ! -f "$EEST_REPO/$source_test" ]]; then
-    echo "EEST source test does not exist: $EEST_REPO/$source_test" >&2
+  source_file=${source_test%%::*}
+  if [[ ! -f "$EEST_REPO/$source_file" ]]; then
+    echo "EEST source test does not exist: $EEST_REPO/$source_file" >&2
     exit 1
   fi
 done

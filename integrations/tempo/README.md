@@ -66,18 +66,21 @@ TEMPO_IMAGE=docker.io/tempoxyz/tempo:latest \
 docker compose -f docker-compose.tempo.yaml run --rm benchmarkoor
 ```
 
-## Run the shipped aggregate suites
+## Run the shipped suites
 
-The checked-in corpus contains only self-contained aggregate suites:
+The checked-in corpus contains these self-contained suites:
 
-- `integrations/tempo/suites/all`: 968 entries across the selected runnable EEST
+- `integrations/tempo/suites/all`: 973 entries across the selected runnable EEST
   and Tempo-native TIP-20 corpus.
 - `integrations/tempo/suites/tip20-full-blocks`: six high-gas TIP-20 full-block
   workloads.
+- `integrations/tempo/suites/point-evaluation-warm`: five KZG point-evaluation
+  warmup benchmarks covering 1M, 5M, 10M, 15M, and 30M tx gas limits; the 30M
+  case is two 15M transactions.
 
-Run the full 968-entry suite with the boundary-aware Benchmarkoor runner. Select
+Run the full 973-entry suite with the boundary-aware Benchmarkoor runner. Select
 the aggregate suite directory and enable container recreation; boundary metadata
-limits recreation to the 21 transitions between the 22 source segments:
+limits recreation to the 22 transitions between the 23 source segments:
 
 ```sh
 cd /path/to/benchmarkoor
