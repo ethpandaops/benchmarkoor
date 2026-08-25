@@ -7,6 +7,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--out", required=True, type=Path, help="Output manifest path")
     parser.add_argument("--name", default="tempo-complete-benchmark-suite")
+    parser.add_argument(
+        "--copy-files",
+        action="store_true",
+        help=(
+            "Copy referenced block files into the output suite's blocks/ directory "
+            "instead of leaving relative references to source suites."
+        ),
+    )
     parser.add_argument("manifests", nargs="+", type=Path)
     return parser.parse_args()
 
@@ -46,7 +56,11 @@ def relative_reference(output_path: Path, referenced_path: Path) -> str:
 
 
 def rewrite_call_files(
-    call: dict[str, Any], manifest_path: Path, output_path: Path
+    call: dict[str, Any],
+    manifest_path: Path,
+    output_path: Path,
+    source_name: str,
+    copy_files: bool,
 ) -> None:
     for field in FILE_FIELDS:
         reference = call.get(field)
@@ -54,7 +68,14 @@ def rewrite_call_files(
             source_path = resolve_reference(manifest_path, reference)
             if not source_path.is_file():
                 raise ValueError(f"{manifest_path}: missing {field} file {source_path}")
-            call[field] = relative_reference(output_path, source_path)
+            if copy_files:
+                source_slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", source_name).strip("-")
+                copied_path = output_path.parent / "blocks" / f"{source_slug}-{source_path.name}"
+                copied_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, copied_path)
+                call[field] = relative_reference(output_path, copied_path)
+            else:
+                call[field] = relative_reference(output_path, source_path)
 
 
 def main() -> None:
@@ -96,7 +117,13 @@ def main() -> None:
             test["metadata"] = metadata
             for phase in ("setup", "test", "cleanup"):
                 for call in test.get(phase, []):
-                    rewrite_call_files(call, manifest_path, output_path)
+                    rewrite_call_files(
+                        call,
+                        manifest_path,
+                        output_path,
+                        source_name,
+                        args.copy_files,
+                    )
             tests.append(test)
 
     output = {

@@ -15,6 +15,7 @@ fi
 "$SCRIPT_DIR/merge-suites.py" \
   --out "$SUITES_DIR/all/manifest.json" \
   --name tempo-complete-benchmark-suite \
+  --copy-files \
   "$SUITES_DIR/eest/batch-arithmetic-10m/manifest.json" \
   "$SUITES_DIR/eest/batch-bitwise-context-flow-10m/manifest.json" \
   "$SUITES_DIR/eest/batch-stack-memory-10m/manifest.json" \
