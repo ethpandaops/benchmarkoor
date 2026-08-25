@@ -28,6 +28,7 @@ fi
   "$SUITES_DIR/eest/batch-precompile-basic-10m/manifest.json" \
   "$SUITES_DIR/eest/batch-precompile-modexp-10m/manifest.json" \
   "$SUITES_DIR/eest/batch-scenarios-small-10m/manifest.json" \
+  "$SUITES_DIR/point-evaluation-warm/manifest.json" \
   "$SUITES_DIR/tip20/existing-recipients/manifest.json" \
   "$SUITES_DIR/tip20/full-block-2d-fresh-lanes/manifest.json" \
   "$SUITES_DIR/tip20/full-block-2d-initialized-lanes/manifest.json" \

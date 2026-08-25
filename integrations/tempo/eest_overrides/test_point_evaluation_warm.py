@@ -38,37 +38,14 @@ POINT_EVALUATION_CALLDATA = PointEvaluationInput(
 
 @pytest.mark.repricing
 @pytest.mark.parametrize(
-    "precompile_address,calldata,tx_gas_limits",
+    "precompile_address,calldata,setup_tx_gas_limits,tx_gas_limits",
     [
         pytest.param(
             BlobsSpec.POINT_EVALUATION_PRECOMPILE_ADDRESS,
             POINT_EVALUATION_CALLDATA,
             [1_000_000],
-            id="point_evaluation_warm_1m",
-        ),
-        pytest.param(
-            BlobsSpec.POINT_EVALUATION_PRECOMPILE_ADDRESS,
-            POINT_EVALUATION_CALLDATA,
-            [5_000_000],
-            id="point_evaluation_warm_5m",
-        ),
-        pytest.param(
-            BlobsSpec.POINT_EVALUATION_PRECOMPILE_ADDRESS,
-            POINT_EVALUATION_CALLDATA,
             [10_000_000],
             id="point_evaluation_warm_10m",
-        ),
-        pytest.param(
-            BlobsSpec.POINT_EVALUATION_PRECOMPILE_ADDRESS,
-            POINT_EVALUATION_CALLDATA,
-            [15_000_000],
-            id="point_evaluation_warm_15m",
-        ),
-        pytest.param(
-            BlobsSpec.POINT_EVALUATION_PRECOMPILE_ADDRESS,
-            POINT_EVALUATION_CALLDATA,
-            [15_000_000, 15_000_000],
-            id="point_evaluation_warm_30m",
         ),
     ],
 )
@@ -79,6 +56,7 @@ def test_point_evaluation_warm(
     gas_benchmark_value: int,
     precompile_address: Address,
     calldata: bytes,
+    setup_tx_gas_limits: list[int],
     tx_gas_limits: list[int],
 ) -> None:
     """Benchmark POINT EVALUATION after one setup precompile call."""
@@ -94,15 +72,20 @@ def test_point_evaluation_warm(
             args_size=Op.CALLDATASIZE,
         ),
     )
-    code_generator = JumpLoopGenerator(
-        setup=Op.CALLDATACOPY(0, 0, Op.CALLDATASIZE),
-        attack_block=attack_block,
-        tx_kwargs={"data": calldata},
-    )
-    contract_address = code_generator.deploy_contracts(
-        pre=pre,
-        fork=fork.fork_at(block_number=0, timestamp=0),
-    )
+    def deploy_code_generator() -> JumpLoopGenerator:
+        code_generator = JumpLoopGenerator(
+            setup=Op.CALLDATACOPY(0, 0, Op.CALLDATASIZE),
+            attack_block=attack_block,
+            tx_kwargs={"data": calldata},
+        )
+        code_generator.deploy_contracts(
+            pre=pre,
+            fork=fork.fork_at(block_number=0, timestamp=0),
+        )
+        return code_generator
+
+    setup_code_generator = deploy_code_generator()
+    execution_code_generator = deploy_code_generator()
 
     blocks: list[Block] = []
     with TestPhaseManager.setup():
@@ -118,12 +101,24 @@ def test_point_evaluation_warm(
                 ]
             )
         )
+        if setup_tx_gas_limits:
+            blocks.append(
+                Block(
+                    txs=[
+                        setup_code_generator.generate_transaction(
+                            pre=pre,
+                            gas_benchmark_value=setup_tx_gas_limit,
+                        )
+                        for setup_tx_gas_limit in setup_tx_gas_limits
+                    ]
+                )
+            )
 
     with TestPhaseManager.execution():
         blocks.append(
             Block(
                 txs=[
-                    code_generator.generate_transaction(
+                    execution_code_generator.generate_transaction(
                         pre=pre,
                         gas_benchmark_value=tx_gas_limit,
                     )
