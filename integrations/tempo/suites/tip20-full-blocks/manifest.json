@@ -31,7 +31,7 @@
   },
   "tests": [
     {
-      "name": "tip20-full-block-shared-recipient::tip20-full-block-shared-recipient",
+      "name": "tempo/test_tip20_recipient.py::test_full_block[layout_single-recipient_shared-block_full-workload_tip20]",
       "description": "Full 500M-gas Tempo block of direct TIP-20 transfers from 10 deterministic senders to one shared existing recipient",
       "tags": [
         "tempo-native",
@@ -76,7 +76,7 @@
       ]
     },
     {
-      "name": "tip20-full-block-random-recipients::tip20-full-block-random-recipients",
+      "name": "tempo/test_tip20_recipient.py::test_full_block[layout_single-recipient_random-block_full-workload_tip20]",
       "description": "Full 500M-gas Tempo block of direct TIP-20 transfers from one deterministic sender to 1,779 distinct seeded random recipients",
       "tags": [
         "tempo-native",
@@ -121,7 +121,7 @@
       ]
     },
     {
-      "name": "tip20-full-block-initialized-recipients::tip20-full-block-initialized-recipients",
+      "name": "tempo/test_tip20_recipient.py::test_full_block[layout_single-recipient_initialized-block_full-workload_tip20]",
       "description": "Full 500M-gas Tempo block of direct TIP-20 transfers from one deterministic sender to 16,022 distinct seeded random recipients initialized during setup",
       "tags": [
         "tempo-native",
@@ -858,7 +858,7 @@
       ]
     },
     {
-      "name": "tip20-full-block-2d-single-lane::tip20-full-block-2d-single-lane",
+      "name": "tempo/test_tip20_2d.py::test_full_block[layout_2d-lane_single-block_full-workload_tip20]",
       "description": "Full 500M-gas Tempo block of direct TIP-20 transfers from one deterministic sender on one ordered 2D nonce lane",
       "tags": [
         "tempo-native",
@@ -904,7 +904,7 @@
       ]
     },
     {
-      "name": "tip20-full-block-2d-fresh-lanes::tip20-full-block-2d-fresh-lanes",
+      "name": "tempo/test_tip20_2d.py::test_full_block[layout_2d-lane_fresh-block_full-workload_tip20]",
       "description": "Full 500M-gas Tempo block of direct TIP-20 transfers from one deterministic sender, each on a distinct fresh seeded 2D nonce lane",
       "tags": [
         "tempo-native",
@@ -1067,7 +1067,7 @@
       ]
     },
     {
-      "name": "tip20-full-block-2d-initialized-lanes::tip20-full-block-2d-initialized-lanes",
+      "name": "tempo/test_tip20_2d.py::test_full_block[layout_2d-lane_initialized-block_full-workload_tip20]",
       "description": "Full 500M-gas Tempo block of direct TIP-20 transfers from one deterministic sender, each on a distinct seeded 2D nonce lane initialized during setup",
       "tags": [
         "tempo-native",

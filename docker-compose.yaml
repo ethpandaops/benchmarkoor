@@ -85,5 +85,3 @@ services:
       - ./results:/usr/share/nginx/html/results:ro
       # Override runtime config to point UI at the API service
       - ./ui/public/config.docker.json:/usr/share/nginx/html/config.json:ro
-    depends_on:
-      - benchmarkoor
