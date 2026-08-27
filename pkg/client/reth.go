@@ -105,3 +105,9 @@ func (s *rethSpec) SnapshotPrepareArgs() []string {
 		"--engine.memory-block-buffer-target=0",
 	}
 }
+
+// DBMaintenanceCommands returns nil; benchmarkoor has no offline
+// compaction command for Reth yet.
+func (s *rethSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
+	return nil
+}

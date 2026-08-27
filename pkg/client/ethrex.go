@@ -97,3 +97,9 @@ func (s *ethrexSpec) DefaultConfigFiles() map[string]string {
 func (s *ethrexSpec) SnapshotPrepareArgs() []string {
 	return nil
 }
+
+// DBMaintenanceCommands returns nil; benchmarkoor has no offline
+// compaction command for Ethrex yet.
+func (s *ethrexSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
+	return nil
+}

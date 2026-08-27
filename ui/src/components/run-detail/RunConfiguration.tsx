@@ -356,6 +356,40 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
                 </div>
               )}
 
+              {instance.db_compaction?.enabled && (
+                <div>
+                  <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+                    Database Compaction
+                  </dt>
+                  <dd className="mt-1 overflow-x-auto rounded-sm bg-gray-100 p-2 dark:bg-gray-900">
+                    <div className="flex flex-col gap-1 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">when: </span>
+                        {(instance.db_compaction.when ?? ['before_benchmarks']).join(', ')}
+                      </div>
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">timeout: </span>
+                        {instance.db_compaction.timeout || '3h'}
+                      </div>
+                      {instance.db_compaction.persist?.enabled && (
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">persist: </span>
+                          {(
+                            instance.db_compaction.persist.phases ??
+                            instance.db_compaction.when ?? ['before_benchmarks']
+                          ).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Compacts the client database with the client's own offline command
+                      before the run measures anything. Reports:{' '}
+                      <code className="font-mono">db-compaction/</code> at the run dir.
+                    </p>
+                  </dd>
+                </div>
+              )}
+
               {instance.retry_new_payloads_syncing_state?.enabled && (
                 <div>
                   <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">

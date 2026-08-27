@@ -106,3 +106,9 @@ func (s *nethermindSpec) DefaultConfigFiles() map[string]string {
 func (s *nethermindSpec) SnapshotPrepareArgs() []string {
 	return nil
 }
+
+// DBMaintenanceCommands returns nil; benchmarkoor has no offline
+// compaction command for Nethermind yet.
+func (s *nethermindSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
+	return nil
+}

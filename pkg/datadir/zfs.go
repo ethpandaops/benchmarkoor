@@ -257,6 +257,30 @@ func (p *zfsProvider) createSnapshot(ctx context.Context, snapshotName string) e
 	return nil
 }
 
+// SnapshotZFSSource snapshots the dataset that holds path, as
+// <dataset>@<suffix>, and returns the full snapshot name.
+//
+// It is the safety net before an in-place change to a SOURCE dataset — the
+// db_compaction persist path compacts the source before it is cloned — since a
+// `zfs rollback` to this snapshot restores the dataset exactly as it was.
+func SnapshotZFSSource(
+	ctx context.Context, log logrus.FieldLogger, path, suffix string,
+) (string, error) {
+	p := &zfsProvider{log: log.WithField("component", "datadir-zfs")}
+
+	dsInfo, err := p.getDatasetFromPath(ctx, path)
+	if err != nil {
+		return "", fmt.Errorf("detecting ZFS dataset for %q: %w", path, err)
+	}
+
+	name := fmt.Sprintf("%s@%s", dsInfo.dataset, suffix)
+	if err := p.createSnapshot(ctx, name); err != nil {
+		return "", err
+	}
+
+	return name, nil
+}
+
 // createClone creates a ZFS clone from a snapshot.
 func (p *zfsProvider) createClone(ctx context.Context, snapshotName, cloneDataset string) error {
 	p.log.WithFields(logrus.Fields{

@@ -3555,6 +3555,509 @@ func TestValidateOpcodeExtraction(t *testing.T) {
 	}
 }
 
+func TestGetDBCompaction(t *testing.T) {
+	global := &DBCompactionConfig{Enabled: true, When: []string{DBCompactionBeforePreRuns}}
+	override := &DBCompactionConfig{Enabled: false}
+
+	cfg := &Config{
+		Runner: RunnerConfig{
+			Client: ClientConfig{Config: ClientDefaults{DBCompaction: global}},
+			Instances: []ClientInstance{
+				{ID: "inherits", Client: "geth"},
+				{ID: "overrides", Client: "geth", DBCompaction: override},
+			},
+		},
+	}
+
+	assert.Same(t, global, cfg.GetDBCompaction(&cfg.Runner.Instances[0]))
+	assert.Same(t, override, cfg.GetDBCompaction(&cfg.Runner.Instances[1]))
+	assert.False(t, cfg.GetDBCompaction(&cfg.Runner.Instances[1]).RunsAt(DBCompactionBeforePreRuns))
+}
+
+func TestDBCompactionConfig_Phases(t *testing.T) {
+	t.Run("nil config runs nowhere", func(t *testing.T) {
+		var cfg *DBCompactionConfig
+
+		assert.Nil(t, cfg.EffectiveWhen())
+		assert.False(t, cfg.RunsAt(DBCompactionBeforeBenchmarks))
+		assert.False(t, cfg.Persists())
+	})
+
+	t.Run("empty when defaults to before_benchmarks", func(t *testing.T) {
+		cfg := &DBCompactionConfig{Enabled: true}
+
+		assert.Equal(t, []string{DBCompactionBeforeBenchmarks}, cfg.EffectiveWhen())
+		assert.True(t, cfg.RunsAt(DBCompactionBeforeBenchmarks))
+		assert.False(t, cfg.RunsAt(DBCompactionBeforePreRuns))
+	})
+
+	t.Run("disabled runs nowhere", func(t *testing.T) {
+		cfg := &DBCompactionConfig{When: []string{DBCompactionBeforePreRuns}}
+
+		assert.False(t, cfg.RunsAt(DBCompactionBeforePreRuns))
+	})
+
+	t.Run("when is returned in lifecycle order", func(t *testing.T) {
+		cfg := &DBCompactionConfig{
+			Enabled: true,
+			When: []string{
+				DBCompactionBeforeBenchmarks,
+				DBCompactionBeforePreRuns,
+				DBCompactionBeforePreRuns,
+			},
+		}
+
+		assert.Equal(
+			t,
+			[]string{DBCompactionBeforePreRuns, DBCompactionBeforeBenchmarks},
+			cfg.EffectiveWhen(),
+		)
+	})
+
+	t.Run("persist defaults to every configured phase", func(t *testing.T) {
+		cfg := &DBCompactionConfig{
+			Enabled: true,
+			When:    []string{DBCompactionBeforePreRuns, DBCompactionBeforeBenchmarks},
+			Persist: &DBCompactionPersistConfig{Enabled: true},
+		}
+
+		assert.True(t, cfg.PersistsAt(DBCompactionBeforePreRuns))
+		assert.True(t, cfg.PersistsAt(DBCompactionBeforeBenchmarks))
+		assert.True(t, cfg.Persists())
+	})
+
+	t.Run("persist can name a subset", func(t *testing.T) {
+		cfg := &DBCompactionConfig{
+			Enabled: true,
+			When:    []string{DBCompactionBeforePreRuns, DBCompactionBeforeBenchmarks},
+			Persist: &DBCompactionPersistConfig{
+				Enabled: true,
+				Phases:  []string{DBCompactionBeforePreRuns},
+			},
+		}
+
+		assert.True(t, cfg.PersistsAt(DBCompactionBeforePreRuns))
+		assert.False(t, cfg.PersistsAt(DBCompactionBeforeBenchmarks))
+	})
+
+	t.Run("a disabled persist block persists nothing", func(t *testing.T) {
+		cfg := &DBCompactionConfig{
+			Enabled: true,
+			Persist: &DBCompactionPersistConfig{Phases: []string{DBCompactionBeforeBenchmarks}},
+		}
+
+		assert.False(t, cfg.Persists())
+	})
+}
+
+func TestDBCompactionConfig_Defaults(t *testing.T) {
+	disabled := false
+	enabled := true
+
+	t.Run("inspect defaults to true", func(t *testing.T) {
+		assert.True(t, (&DBCompactionConfig{}).InspectEnabled())
+		assert.False(t, (&DBCompactionConfig{Inspect: &disabled}).InspectEnabled())
+	})
+
+	t.Run("skip_if_marked follows persist", func(t *testing.T) {
+		assert.False(t, (&DBCompactionConfig{Enabled: true}).SkipIfMarkedEnabled())
+
+		persisting := &DBCompactionConfig{
+			Enabled: true,
+			Persist: &DBCompactionPersistConfig{Enabled: true},
+		}
+		assert.True(t, persisting.SkipIfMarkedEnabled())
+
+		forced := &DBCompactionConfig{
+			Enabled:      true,
+			SkipIfMarked: &disabled,
+			Persist:      &DBCompactionPersistConfig{Enabled: true},
+		}
+		assert.False(t, forced.SkipIfMarkedEnabled())
+
+		assert.True(t, (&DBCompactionConfig{SkipIfMarked: &enabled}).SkipIfMarkedEnabled())
+	})
+
+	t.Run("safety_snapshot defaults to true", func(t *testing.T) {
+		assert.True(t, (&DBCompactionConfig{}).SafetySnapshotEnabled())
+		assert.True(t, (&DBCompactionConfig{
+			Persist: &DBCompactionPersistConfig{Enabled: true},
+		}).SafetySnapshotEnabled())
+		assert.False(t, (&DBCompactionConfig{
+			Persist: &DBCompactionPersistConfig{Enabled: true, SafetySnapshot: &disabled},
+		}).SafetySnapshotEnabled())
+	})
+
+	t.Run("timeout falls back to the default", func(t *testing.T) {
+		want, err := time.ParseDuration(DefaultDBCompactionTimeout)
+		require.NoError(t, err)
+
+		assert.Equal(t, want, (&DBCompactionConfig{}).EffectiveTimeout())
+		assert.Equal(t, want, (&DBCompactionConfig{Timeout: "garbage"}).EffectiveTimeout())
+		assert.Equal(t, 90*time.Minute, (&DBCompactionConfig{Timeout: "90m"}).EffectiveTimeout())
+	})
+}
+
+//nolint:funlen // Table-driven: one case per validation rule.
+func TestValidateDBCompaction(t *testing.T) {
+	dir := t.TempDir()
+
+	schelkPromote := &DataDirConfig{
+		SourceDir:     dir,
+		Method:        "schelk",
+		SchelkOptions: &SchelkOptions{PromotePostPreRuns: true},
+	}
+
+	tests := []struct {
+		name      string
+		client    string
+		cfg       *DBCompactionConfig
+		datadir   *DataDirConfig
+		strategy  string
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:   "disabled is always valid",
+			client: "besu",
+			cfg:    &DBCompactionConfig{When: []string{"nonsense"}},
+		},
+		{
+			name:   "enabled on geth with defaults",
+			client: "geth",
+			cfg:    &DBCompactionConfig{Enabled: true},
+		},
+		{
+			name:      "unsupported client",
+			client:    "besu",
+			cfg:       &DBCompactionConfig{Enabled: true},
+			wantErr:   true,
+			errSubstr: "not supported for client",
+		},
+		{
+			name:      "unknown phase",
+			client:    "geth",
+			cfg:       &DBCompactionConfig{Enabled: true, When: []string{"after_tests"}},
+			wantErr:   true,
+			errSubstr: "invalid db_compaction.when",
+		},
+		{
+			name:   "duplicate phase",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				When: []string{
+					DBCompactionBeforePreRuns, DBCompactionBeforePreRuns,
+				},
+			},
+			datadir:   &DataDirConfig{SourceDir: dir, Method: "copy"},
+			wantErr:   true,
+			errSubstr: "duplicate db_compaction.when",
+		},
+		{
+			name:      "invalid timeout",
+			client:    "geth",
+			cfg:       &DBCompactionConfig{Enabled: true, Timeout: "soon"},
+			wantErr:   true,
+			errSubstr: "invalid db_compaction.timeout",
+		},
+		{
+			name:      "non-positive timeout",
+			client:    "geth",
+			cfg:       &DBCompactionConfig{Enabled: true, Timeout: "0s"},
+			wantErr:   true,
+			errSubstr: "must be positive",
+		},
+		{
+			name:      "before_pre_runs without a datadir",
+			client:    "geth",
+			cfg:       &DBCompactionConfig{Enabled: true, When: []string{DBCompactionBeforePreRuns}},
+			wantErr:   true,
+			errSubstr: "needs a pre-populated datadir",
+		},
+		{
+			name:   "persist phase outside when",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				When:    []string{DBCompactionBeforeBenchmarks},
+				Persist: &DBCompactionPersistConfig{
+					Enabled: true,
+					Phases:  []string{DBCompactionBeforePreRuns},
+				},
+			},
+			datadir:   schelkPromote,
+			wantErr:   true,
+			errSubstr: "which is not in db_compaction.when",
+		},
+		{
+			name:   "persist without a datadir",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				Persist: &DBCompactionPersistConfig{Enabled: true},
+			},
+			wantErr:   true,
+			errSubstr: "needs a datadir with method",
+		},
+		{
+			name:   "persist with method copy",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				Persist: &DBCompactionPersistConfig{Enabled: true},
+			},
+			datadir:   &DataDirConfig{SourceDir: dir, Method: "copy"},
+			wantErr:   true,
+			errSubstr: "not supported for datadir method",
+		},
+		{
+			name:   "persist with method direct",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				Persist: &DBCompactionPersistConfig{Enabled: true},
+			},
+			datadir:   &DataDirConfig{SourceDir: dir, Method: "direct"},
+			wantErr:   true,
+			errSubstr: "redundant for datadir method",
+		},
+		{
+			name:   "zfs persists before the pre-runs",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				When:    []string{DBCompactionBeforePreRuns},
+				Persist: &DBCompactionPersistConfig{Enabled: true},
+			},
+			datadir: &DataDirConfig{SourceDir: dir, Method: "zfs"},
+		},
+		{
+			name:   "zfs cannot persist before the benchmarks",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				When:    []string{DBCompactionBeforeBenchmarks},
+				Persist: &DBCompactionPersistConfig{Enabled: true},
+			},
+			datadir:   &DataDirConfig{SourceDir: dir, Method: "zfs"},
+			wantErr:   true,
+			errSubstr: "cannot be written back to its source dataset",
+		},
+		{
+			name:   "zfs compacts at both phases and persists the first",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				When: []string{
+					DBCompactionBeforePreRuns, DBCompactionBeforeBenchmarks,
+				},
+				Persist: &DBCompactionPersistConfig{
+					Enabled: true,
+					Phases:  []string{DBCompactionBeforePreRuns},
+				},
+			},
+			datadir: &DataDirConfig{SourceDir: dir, Method: "zfs"},
+		},
+		{
+			name:   "schelk persist before the benchmarks needs promote_post_pre_runs",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				When:    []string{DBCompactionBeforeBenchmarks},
+				Persist: &DBCompactionPersistConfig{Enabled: true},
+			},
+			datadir:   &DataDirConfig{SourceDir: dir, Method: "schelk"},
+			wantErr:   true,
+			errSubstr: "promote_post_pre_runs",
+		},
+		{
+			name:   "schelk persist before the benchmarks with promote_post_pre_runs",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				When:    []string{DBCompactionBeforeBenchmarks},
+				Persist: &DBCompactionPersistConfig{Enabled: true},
+			},
+			datadir: schelkPromote,
+		},
+		{
+			name:      "container-recreate without a datadir",
+			client:    "geth",
+			cfg:       &DBCompactionConfig{Enabled: true},
+			strategy:  RollbackStrategyContainerRecreate,
+			wantErr:   true,
+			errSubstr: "needs a datadir",
+		},
+		{
+			name:      "container-recreate with method copy",
+			client:    "geth",
+			cfg:       &DBCompactionConfig{Enabled: true},
+			datadir:   &DataDirConfig{SourceDir: dir, Method: "copy"},
+			strategy:  RollbackStrategyContainerRecreate,
+			wantErr:   true,
+			errSubstr: "discards the compaction at the first recreate",
+		},
+		{
+			name:      "container-recreate with unpersisted schelk",
+			client:    "geth",
+			cfg:       &DBCompactionConfig{Enabled: true},
+			datadir:   &DataDirConfig{SourceDir: dir, Method: "schelk"},
+			strategy:  RollbackStrategyContainerRecreate,
+			wantErr:   true,
+			errSubstr: "needs db_compaction.persist.enabled",
+		},
+		{
+			name:   "container-recreate with persisted schelk",
+			client: "geth",
+			cfg: &DBCompactionConfig{
+				Enabled: true,
+				When:    []string{DBCompactionBeforeBenchmarks},
+				Persist: &DBCompactionPersistConfig{Enabled: true},
+			},
+			datadir:  schelkPromote,
+			strategy: RollbackStrategyContainerRecreate,
+		},
+		{
+			name:     "container-recreate with zfs",
+			client:   "geth",
+			cfg:      &DBCompactionConfig{Enabled: true},
+			datadir:  &DataDirConfig{SourceDir: dir, Method: "zfs"},
+			strategy: RollbackStrategyContainerRecreate,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							DBCompaction:     tt.cfg,
+							RollbackStrategy: tt.strategy,
+						},
+					},
+					Instances: []ClientInstance{
+						{ID: "test", Client: tt.client, DataDir: tt.datadir},
+					},
+				},
+			}
+
+			err := cfg.validateDBCompaction(ValidateOpts{})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestValidateDBCompaction_SkipsInactiveInstances(t *testing.T) {
+	cfg := &Config{
+		Runner: RunnerConfig{
+			Client: ClientConfig{
+				Config: ClientDefaults{DBCompaction: &DBCompactionConfig{Enabled: true}},
+			},
+			Instances: []ClientInstance{{ID: "besu", Client: "besu"}},
+		},
+	}
+
+	require.Error(t, cfg.validateDBCompaction(ValidateOpts{}))
+	require.NoError(t, cfg.validateDBCompaction(ValidateOpts{
+		ActiveInstanceIDs: map[string]struct{}{"geth": {}},
+	}))
+}
+
+func TestLoadDBCompactionFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	require.NoError(t, os.WriteFile(path, []byte(`
+runner:
+  client:
+    config:
+      db_compaction:
+        enabled: true
+        when:
+          - before_benchmarks
+          - before_pre_runs
+        inspect: false
+        timeout: 90m
+        extra_args: ["--cache=16384"]
+        persist:
+          enabled: true
+          phases: [before_pre_runs]
+  instances:
+    - id: geth
+      client: geth
+    - id: geth-scalar
+      client: geth
+      db_compaction:
+        enabled: true
+        when: before_pre_runs
+        skip_if_marked: false
+`), 0644))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	global := cfg.GetDBCompaction(&cfg.Runner.Instances[0])
+	require.NotNil(t, global)
+	assert.True(t, global.Enabled)
+	assert.Equal(
+		t,
+		[]string{DBCompactionBeforePreRuns, DBCompactionBeforeBenchmarks},
+		global.EffectiveWhen(),
+	)
+	assert.False(t, global.InspectEnabled())
+	assert.Equal(t, []string{"--cache=16384"}, global.ExtraArgs)
+	assert.True(t, global.PersistsAt(DBCompactionBeforePreRuns))
+	assert.False(t, global.PersistsAt(DBCompactionBeforeBenchmarks))
+	assert.True(t, global.SkipIfMarkedEnabled())
+
+	// A scalar `when` decodes into the list via the StringToSlice hook.
+	instance := cfg.GetDBCompaction(&cfg.Runner.Instances[1])
+	require.NotNil(t, instance)
+	assert.Equal(t, []string{DBCompactionBeforePreRuns}, instance.EffectiveWhen())
+	assert.True(t, instance.InspectEnabled())
+	assert.False(t, instance.SkipIfMarkedEnabled())
+}
+
+func TestDBCompactionEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	require.NoError(t, os.WriteFile(path, []byte(`
+runner:
+  instances:
+    - id: geth
+      client: geth
+`), 0644))
+
+	t.Setenv("BENCHMARKOOR_RUNNER_CLIENT_CONFIG_DB_COMPACTION_ENABLED", "true")
+	t.Setenv(
+		"BENCHMARKOOR_RUNNER_CLIENT_CONFIG_DB_COMPACTION_WHEN",
+		"before_pre_runs,before_benchmarks",
+	)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	got := cfg.GetDBCompaction(&cfg.Runner.Instances[0])
+	require.NotNil(t, got)
+	assert.True(t, got.Enabled)
+	assert.Equal(
+		t,
+		[]string{DBCompactionBeforePreRuns, DBCompactionBeforeBenchmarks},
+		got.EffectiveWhen(),
+	)
+}
+
 func TestValidateBuilder_PublicScope(t *testing.T) {
 	// `benchmarkoor build` invokes Config.ValidateBuilder(), which must
 	// not require any runner-side configuration (instances, test sources,

@@ -13,6 +13,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
+	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/podman"
 	"github.com/ethpandaops/benchmarkoor/pkg/stats"
@@ -214,7 +215,65 @@ func (r *runner) runTestsWithCheckpointRestore(
 		log.WithField("steps", preRunSteps).Info("Pre-run steps completed before checkpoint")
 	}
 
-	// 2b. Persist the advanced datadir as the new schelk baseline, if asked.
+	// 2a. Compact the database before the checkpoint, so every restored
+	//     container resumes on the compacted datadir. `geth db compact` takes
+	//     the database lock, so the client is stopped for it and started again
+	//     before the checkpoint is taken — a checkpoint of a client that is not
+	//     running on this datadir would restore onto a database it never opened.
+	if r.dbCompactionFor(params.Instance, config.DBCompactionBeforeBenchmarks) != nil {
+		compactionHead := r.dbCompactionHeadFromRPC(ctx, containerIP, spec.RPCPort(), log)
+
+		if err := r.stopClientForDatadirWork(
+			ctx, containerID, logDone, logCancel, log,
+		); err != nil {
+			return nil, fmt.Errorf("stopping container for db compaction: %w", err)
+		}
+
+		if _, err := r.compactDatadirForPhase(
+			ctx, params.Instance, spec, config.DBCompactionBeforeBenchmarks,
+			params.RunID, params.ImageName, resultsDir,
+			docker.Mount{Type: "bind", Source: dataMountSource, Target: containerDir},
+			benchmarkoorLog, compactionHead,
+		); err != nil {
+			return nil, err
+		}
+
+		if err := r.containerMgr.StartContainer(ctx, containerID); err != nil {
+			return nil, fmt.Errorf("starting container after db compaction: %w", err)
+		}
+
+		newIP, ipErr := r.containerMgr.GetContainerIP(
+			ctx, containerID, r.cfg.ContainerNetwork,
+		)
+		if ipErr != nil {
+			return nil, fmt.Errorf("getting container IP after db compaction: %w", ipErr)
+		}
+
+		containerIP = newIP
+
+		if logErr := r.startLogStreaming(
+			ctx, resultsDir,
+			params.Instance.ID, containerID,
+			benchmarkoorLog, &containerLogInfo{
+				Name:             params.ContainerSpec.Name,
+				ContainerID:      containerID,
+				Image:            params.ContainerSpec.Image,
+				GenesisGroupHash: params.GenesisGroupHash,
+			},
+			params.BlockLogCollector, cleanupStarted,
+			logDone, logCancel, cleanupFuncs,
+		); logErr != nil {
+			return nil, fmt.Errorf("log streaming after db compaction: %w", logErr)
+		}
+
+		if _, err := r.waitForRPC(ctx, containerIP, spec.RPCPort()); err != nil {
+			return nil, fmt.Errorf("waiting for RPC after db compaction: %w", err)
+		}
+
+		log.WithField("ip", containerIP).Info("Client back up on the compacted datadir")
+	}
+
+	// 2c. Persist the advanced datadir as the new schelk baseline, if asked.
 	//
 	//     This has to happen BEFORE the checkpoint: `schelk promote` unmounts the
 	//     volume, so the client cannot be holding it, and the checkpoint must be

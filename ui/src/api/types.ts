@@ -319,6 +319,24 @@ export interface OpcodeExtractionConfig {
   timeout?: string
 }
 
+export interface DBCompactionPersistConfig {
+  enabled: boolean
+  phases?: string[]
+  safety_snapshot?: boolean
+}
+
+export interface DBCompactionConfig {
+  enabled: boolean
+  when?: string[]
+  inspect?: boolean
+  timeout?: string
+  image?: string
+  extra_args?: string[]
+  continue_on_error?: boolean
+  skip_if_marked?: boolean
+  persist?: DBCompactionPersistConfig
+}
+
 /**
  * Shape of the per-run `test-opcodes.json` written when
  * `opcode_extraction.enabled` is true. One entry per test name; each
@@ -354,6 +372,7 @@ export interface InstanceConfig {
   post_test_sleep_duration?: string
   checkpoint_restore_strategy_options?: CheckpointRestoreStrategyOptions
   opcode_extraction?: OpcodeExtractionConfig
+  db_compaction?: DBCompactionConfig
 }
 
 // result.json per run

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
+	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/mitchellh/mapstructure"
@@ -1356,6 +1357,264 @@ func (c *OpcodeExtractionConfig) EffectiveTimeout() time.Duration {
 	return d
 }
 
+// Database compaction phases. DBCompactionConfig.When lists the points at
+// which the compaction runs; both may be listed.
+const (
+	// DBCompactionBeforePreRuns compacts before the client boots, so before
+	// the suite pre-run steps replay. No stop and restart is necessary.
+	DBCompactionBeforePreRuns = "before_pre_runs"
+
+	// DBCompactionBeforeBenchmarks compacts after the pre-run steps and
+	// before the first test. The runner stops the client gracefully,
+	// compacts, then starts it again.
+	DBCompactionBeforeBenchmarks = "before_benchmarks"
+
+	// DefaultDBCompactionTimeout caps one phase's compaction work.
+	DefaultDBCompactionTimeout = "3h"
+
+	// DBCompactionMarkerFile records a completed compaction at the root of
+	// the datadir it compacted. A persisted compaction carries it into the
+	// baseline, which is what lets a later run skip the work.
+	DBCompactionMarkerFile = ".benchmarkoor-db-compaction.json"
+
+	// DBCompactionResultsDir is the per-run output directory (under the run
+	// results dir) that holds the inspection reports and the compaction
+	// report, one subdirectory per phase.
+	DBCompactionResultsDir = "db-compaction"
+)
+
+// DBCompactionConfig asks benchmarkoor to compact the client database before
+// the run measures anything. Compaction needs exclusive access to the
+// database, so the client is never running while it happens.
+//
+// Set it on runner.client.config to apply it to every instance, or on a
+// single instance to override the default. The instance block fully replaces
+// the global one; it does not merge field by field.
+//
+// Only clients whose spec returns compaction commands support this. Today
+// that is geth alone.
+type DBCompactionConfig struct {
+	Enabled bool `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
+
+	// When selects the points in the lifecycle at which the compaction runs.
+	// Both phases may be listed; the runner always executes them in lifecycle
+	// order (before_pre_runs first), whatever order they are written in.
+	//
+	// A plain scalar also works: the StringToSliceHookFunc(",") decode hook in
+	// Load turns `when: before_pre_runs` and `when: "a,b"` into a list, so the
+	// BENCHMARKOOR_..._WHEN env override accepts a comma-separated value too.
+	//
+	// Default: ["before_benchmarks"].
+	When []string `yaml:"when,omitempty" mapstructure:"when" json:"when,omitempty"`
+
+	// Inspect runs the client database inspection before and after each
+	// compaction and writes both reports to the run results. Default: true.
+	Inspect *bool `yaml:"inspect,omitempty" mapstructure:"inspect" json:"inspect,omitempty"`
+
+	// Timeout caps one phase's compaction work as a Go duration string: the
+	// compaction and both inspections around it. It applies per phase, not to
+	// the pair. Default: DefaultDBCompactionTimeout.
+	Timeout string `yaml:"timeout,omitempty" mapstructure:"timeout" json:"timeout,omitempty"`
+
+	// Image overrides the image of the compaction container. Empty uses the
+	// instance image, which keeps the tool version and the client version
+	// identical.
+	Image string `yaml:"image,omitempty" mapstructure:"image" json:"image,omitempty"`
+
+	// ExtraArgs appends arguments to the compaction command, e.g.
+	// ["--cache=16384"] for geth.
+	ExtraArgs []string `yaml:"extra_args,omitempty" mapstructure:"extra_args" json:"extra_args,omitempty"`
+
+	// ContinueOnError downgrades a compaction failure to a warning and runs
+	// the benchmark anyway. Default: false, because a failed compaction makes
+	// the results incomparable with a successful one.
+	ContinueOnError bool `yaml:"continue_on_error,omitempty" mapstructure:"continue_on_error" json:"continue_on_error,omitempty"`
+
+	// SkipIfMarked skips a phase when the datadir already carries the marker
+	// a persisted compaction of that phase left behind. Set it to false to
+	// force a compaction. Default: true when Persist is enabled, false
+	// otherwise (nothing survives the run without a persist, so the marker
+	// can only be stale).
+	SkipIfMarked *bool `yaml:"skip_if_marked,omitempty" mapstructure:"skip_if_marked" json:"skip_if_marked,omitempty"`
+
+	// Persist writes the compacted database back to the datadir baseline, so
+	// later runs start from it. Only datadir methods "schelk" and "zfs"
+	// support this.
+	Persist *DBCompactionPersistConfig `yaml:"persist,omitempty" mapstructure:"persist" json:"persist,omitempty"`
+}
+
+// DBCompactionPersistConfig keeps the compacted database after the run.
+//
+// Without it the compaction is run-local: it costs the same time on every
+// run, and the clone, copy or restored volume that holds it is destroyed at
+// the end.
+//
+// The mechanism comes from the resolved datadir config, so there is one knob
+// and no way to pair the wrong mechanism with the wrong method:
+//   - "schelk": `schelk promote` makes the compacted volume the new baseline.
+//   - "zfs": the source dataset is compacted in place, before the snapshot and
+//     the clone are taken. This needs when: "before_pre_runs".
+//
+// Both are destructive and irreversible: they overwrite the golden image.
+type DBCompactionPersistConfig struct {
+	Enabled bool `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
+
+	// Phases restricts the persist to a subset of DBCompactionConfig.When.
+	// Empty means every phase in When. Each listed phase must also appear in
+	// When, and must be legal for the resolved datadir method.
+	Phases []string `yaml:"phases,omitempty" mapstructure:"phases" json:"phases,omitempty"`
+
+	// SafetySnapshot takes a `zfs snapshot <dataset>@benchmarkoor-precompaction-<run-id>`
+	// before it touches the source dataset. ZFS only. Default: true.
+	SafetySnapshot *bool `yaml:"safety_snapshot,omitempty" mapstructure:"safety_snapshot" json:"safety_snapshot,omitempty"`
+}
+
+// dbCompactionPhaseOrder is the lifecycle order of the phases. EffectiveWhen
+// returns its entries in this order, so a config that lists them the other way
+// round still runs them the only way the lifecycle allows.
+var dbCompactionPhaseOrder = []string{
+	DBCompactionBeforePreRuns,
+	DBCompactionBeforeBenchmarks,
+}
+
+// EffectiveWhen returns the phases at which the compaction runs, in lifecycle
+// order and without duplicates. An empty When defaults to
+// DBCompactionBeforeBenchmarks: the pre-run bundle writes blocks that undo
+// most of what an earlier compaction achieved.
+func (c *DBCompactionConfig) EffectiveWhen() []string {
+	if c == nil {
+		return nil
+	}
+
+	if len(c.When) == 0 {
+		return []string{DBCompactionBeforeBenchmarks}
+	}
+
+	return orderDBCompactionPhases(c.When)
+}
+
+// EffectivePersistPhases returns the phases whose result is written back to
+// the datadir baseline, in lifecycle order. An empty Persist.Phases means
+// every phase in EffectiveWhen.
+func (c *DBCompactionConfig) EffectivePersistPhases() []string {
+	if c == nil || c.Persist == nil || !c.Persist.Enabled {
+		return nil
+	}
+
+	if len(c.Persist.Phases) == 0 {
+		return c.EffectiveWhen()
+	}
+
+	return orderDBCompactionPhases(c.Persist.Phases)
+}
+
+// orderDBCompactionPhases returns the known phases in `phases`, in lifecycle
+// order and without duplicates. Unknown values are dropped; validation
+// rejects them before a run gets this far.
+func orderDBCompactionPhases(phases []string) []string {
+	ordered := make([]string, 0, len(dbCompactionPhaseOrder))
+
+	for _, known := range dbCompactionPhaseOrder {
+		for _, p := range phases {
+			if p == known {
+				ordered = append(ordered, known)
+
+				break
+			}
+		}
+	}
+
+	return ordered
+}
+
+// RunsAt reports whether the compaction runs at the given phase.
+func (c *DBCompactionConfig) RunsAt(phase string) bool {
+	if c == nil || !c.Enabled {
+		return false
+	}
+
+	for _, p := range c.EffectiveWhen() {
+		if p == phase {
+			return true
+		}
+	}
+
+	return false
+}
+
+// PersistsAt reports whether the compaction at the given phase is written back
+// to the datadir baseline.
+func (c *DBCompactionConfig) PersistsAt(phase string) bool {
+	if !c.RunsAt(phase) {
+		return false
+	}
+
+	for _, p := range c.EffectivePersistPhases() {
+		if p == phase {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Persists reports whether any phase is written back to the datadir baseline.
+func (c *DBCompactionConfig) Persists() bool {
+	return len(c.EffectivePersistPhases()) > 0
+}
+
+// InspectEnabled reports whether to run the database inspection either side of
+// a compaction. Defaults to true.
+func (c *DBCompactionConfig) InspectEnabled() bool {
+	if c == nil || c.Inspect == nil {
+		return true
+	}
+
+	return *c.Inspect
+}
+
+// SkipIfMarkedEnabled reports whether a phase the datadir marker already names
+// is skipped. Defaults to true when the compaction persists, since only a
+// persisted marker can describe the datadir in front of us.
+func (c *DBCompactionConfig) SkipIfMarkedEnabled() bool {
+	if c == nil {
+		return false
+	}
+
+	if c.SkipIfMarked != nil {
+		return *c.SkipIfMarked
+	}
+
+	return c.Persists()
+}
+
+// SafetySnapshotEnabled reports whether to snapshot a ZFS source dataset
+// before compacting it in place. Defaults to true.
+func (c *DBCompactionConfig) SafetySnapshotEnabled() bool {
+	if c == nil || c.Persist == nil || c.Persist.SafetySnapshot == nil {
+		return true
+	}
+
+	return *c.Persist.SafetySnapshot
+}
+
+// EffectiveTimeout returns the per-phase compaction timeout, defaulting to
+// DefaultDBCompactionTimeout when unset or unparseable.
+func (c *DBCompactionConfig) EffectiveTimeout() time.Duration {
+	fallback, _ := time.ParseDuration(DefaultDBCompactionTimeout)
+
+	if c == nil || c.Timeout == "" {
+		return fallback
+	}
+
+	d, err := time.ParseDuration(c.Timeout)
+	if err != nil {
+		return fallback
+	}
+
+	return d
+}
+
 // PostTestRPCCall defines an arbitrary RPC call to execute after the test step.
 type PostTestRPCCall struct {
 	Method  string     `yaml:"method" mapstructure:"method" json:"method"`
@@ -1586,6 +1845,7 @@ type ClientDefaults struct {
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
 	OpcodeExtraction                 *OpcodeExtractionConfig           `yaml:"opcode_extraction,omitempty" mapstructure:"opcode_extraction"`
+	DBCompaction                     *DBCompactionConfig               `yaml:"db_compaction,omitempty" mapstructure:"db_compaction"`
 	Metadata                         MetadataConfig                    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 }
 
@@ -1616,6 +1876,7 @@ type ClientInstance struct {
 	BootstrapFCU                     *BootstrapFCUConfig               `yaml:"bootstrap_fcu,omitempty" mapstructure:"bootstrap_fcu"`
 	CheckpointRestoreStrategyOptions *CheckpointRestoreStrategyOptions `yaml:"checkpoint_restore_strategy_options,omitempty" mapstructure:"checkpoint_restore_strategy_options"`
 	OpcodeExtraction                 *OpcodeExtractionConfig           `yaml:"opcode_extraction,omitempty" mapstructure:"opcode_extraction"`
+	DBCompaction                     *DBCompactionConfig               `yaml:"db_compaction,omitempty" mapstructure:"db_compaction"`
 	Metadata                         MetadataConfig                    `yaml:"metadata,omitempty" mapstructure:"metadata"`
 }
 
@@ -1822,6 +2083,14 @@ func bindEnvKeys(v *viper.Viper) {
 		"runner.client.config.retry_new_payloads_syncing_state.enabled",
 		"runner.client.config.retry_new_payloads_syncing_state.max_retries",
 		"runner.client.config.retry_new_payloads_syncing_state.backoff",
+		// Runner client db compaction
+		"runner.client.config.db_compaction.enabled",
+		"runner.client.config.db_compaction.when",
+		"runner.client.config.db_compaction.timeout",
+		"runner.client.config.db_compaction.image",
+		"runner.client.config.db_compaction.continue_on_error",
+		"runner.client.config.db_compaction.skip_if_marked",
+		"runner.client.config.db_compaction.persist.enabled",
 		// Runner client bootstrap FCU
 		"runner.client.config.bootstrap_fcu.enabled",
 		"runner.client.config.bootstrap_fcu.max_retries",
@@ -2219,6 +2488,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 
 	// Validate opcode_extraction settings.
 	if err := c.validateOpcodeExtraction(); err != nil {
+		return err
+	}
+
+	// Validate db_compaction settings.
+	if err := c.validateDBCompaction(opt); err != nil {
 		return err
 	}
 
@@ -3113,6 +3387,17 @@ func (c *Config) GetOpcodeExtraction(instance *ClientInstance) *OpcodeExtraction
 	return c.Runner.Client.Config.OpcodeExtraction
 }
 
+// GetDBCompaction returns the db-compaction config for an instance.
+// Instance-level config (when non-nil) fully replaces the global default.
+// Returns nil if not configured at either level.
+func (c *Config) GetDBCompaction(instance *ClientInstance) *DBCompactionConfig {
+	if instance.DBCompaction != nil {
+		return instance.DBCompaction
+	}
+
+	return c.Runner.Client.Config.DBCompaction
+}
+
 // GetCheckpointRestoreStrategyOptions returns the checkpoint-restore strategy
 // options for an instance. Instance-level config (when non-nil) fully replaces
 // the global default. Returns nil if not configured at either level.
@@ -3771,6 +4056,261 @@ func (c *Config) validateOpcodeExtraction() error {
 				instance.ID, cfg.Timeout,
 			)
 		}
+	}
+
+	return nil
+}
+
+// dbCompactionPersistMethods are the datadir methods that can write a
+// compacted database back to the baseline. Every other method throws the
+// compaction away when the run ends.
+var dbCompactionPersistMethods = map[string]bool{
+	"schelk": true,
+	"zfs":    true,
+}
+
+// dbCompactionEphemeralMethods re-prepare the datadir from the pristine source
+// for every test, so a container-recreate run discards the compaction at the
+// first recreate.
+var dbCompactionEphemeralMethods = map[string]bool{
+	"copy":           true,
+	"overlayfs":      true,
+	"fuse-overlayfs": true,
+}
+
+// validateDBCompaction validates db_compaction settings for active instances.
+//
+// It rejects the combinations that would silently do nothing (or do the work
+// once per test), rather than letting a run spend hours compacting a datadir
+// that is thrown away before the first benchmark.
+//
+//nolint:gocognit,cyclop // One rule per combination; splitting hides the matrix.
+func (c *Config) validateDBCompaction(opt ValidateOpts) error {
+	for i := range c.Runner.Instances {
+		instance := &c.Runner.Instances[i]
+
+		if !opt.isInstanceActive(instance.ID) {
+			continue
+		}
+
+		cfg := c.GetDBCompaction(instance)
+		if cfg == nil || !cfg.Enabled {
+			continue
+		}
+
+		if !client.SupportsDBCompaction(client.ClientType(instance.Client)) {
+			return fmt.Errorf(
+				"instance %q: db_compaction is not supported for client %q"+
+					" (no offline compaction command)",
+				instance.ID, instance.Client,
+			)
+		}
+
+		if err := validateDBCompactionPhases(instance.ID, cfg); err != nil {
+			return err
+		}
+
+		if cfg.Timeout != "" {
+			d, err := time.ParseDuration(cfg.Timeout)
+			if err != nil {
+				return fmt.Errorf(
+					"instance %q: invalid db_compaction.timeout %q: %w",
+					instance.ID, cfg.Timeout, err,
+				)
+			}
+
+			if d <= 0 {
+				return fmt.Errorf(
+					"instance %q: db_compaction.timeout must be positive, got %q",
+					instance.ID, cfg.Timeout,
+				)
+			}
+		}
+
+		dd := c.resolveDataDir(instance)
+		strategy := c.GetRollbackStrategy(instance)
+
+		// before_pre_runs compacts before the client has ever booted. Without a
+		// pre-populated datadir there is no database yet to compact.
+		if dd == nil && cfg.RunsAt(DBCompactionBeforePreRuns) {
+			return fmt.Errorf(
+				"instance %q: db_compaction.when %q needs a pre-populated datadir"+
+					" (without one the database is created when the client boots);"+
+					" use %q instead",
+				instance.ID, DBCompactionBeforePreRuns, DBCompactionBeforeBenchmarks,
+			)
+		}
+
+		if err := validateDBCompactionPersist(instance.ID, cfg, dd); err != nil {
+			return err
+		}
+
+		if err := validateDBCompactionStrategy(instance.ID, cfg, dd, strategy); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateDBCompactionPhases checks the `when` and `persist.phases` lists.
+func validateDBCompactionPhases(id string, cfg *DBCompactionConfig) error {
+	seen := make(map[string]struct{}, len(cfg.When))
+
+	for _, phase := range cfg.When {
+		if phase != DBCompactionBeforePreRuns && phase != DBCompactionBeforeBenchmarks {
+			return fmt.Errorf(
+				"instance %q: invalid db_compaction.when value %q (must be %q or %q)",
+				id, phase, DBCompactionBeforePreRuns, DBCompactionBeforeBenchmarks,
+			)
+		}
+
+		if _, dup := seen[phase]; dup {
+			return fmt.Errorf(
+				"instance %q: duplicate db_compaction.when value %q", id, phase,
+			)
+		}
+
+		seen[phase] = struct{}{}
+	}
+
+	if cfg.Persist == nil {
+		return nil
+	}
+
+	when := make(map[string]struct{}, len(cfg.EffectiveWhen()))
+	for _, phase := range cfg.EffectiveWhen() {
+		when[phase] = struct{}{}
+	}
+
+	for _, phase := range cfg.Persist.Phases {
+		if phase != DBCompactionBeforePreRuns && phase != DBCompactionBeforeBenchmarks {
+			return fmt.Errorf(
+				"instance %q: invalid db_compaction.persist.phases value %q"+
+					" (must be %q or %q)",
+				id, phase, DBCompactionBeforePreRuns, DBCompactionBeforeBenchmarks,
+			)
+		}
+
+		if _, ok := when[phase]; !ok {
+			return fmt.Errorf(
+				"instance %q: db_compaction.persist.phases lists %q,"+
+					" which is not in db_compaction.when",
+				id, phase,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateDBCompactionPersist checks the persist block against the resolved
+// datadir. Each supported method persists in exactly one way, and only one of
+// them can do it at both phases.
+func validateDBCompactionPersist(id string, cfg *DBCompactionConfig, dd *DataDirConfig) error {
+	persistPhases := cfg.EffectivePersistPhases()
+	if len(persistPhases) == 0 {
+		return nil
+	}
+
+	if dd == nil {
+		return fmt.Errorf(
+			"instance %q: db_compaction.persist needs a datadir with method"+
+				" \"schelk\" or \"zfs\"; this instance has none",
+			id,
+		)
+	}
+
+	if dd.Method == "direct" {
+		return fmt.Errorf(
+			"instance %q: db_compaction.persist is redundant for datadir method"+
+				" \"direct\": the client writes to source_dir itself, so the"+
+				" compaction is already permanent",
+			id,
+		)
+	}
+
+	if !dbCompactionPersistMethods[dd.Method] {
+		return fmt.Errorf(
+			"instance %q: db_compaction.persist is not supported for datadir"+
+				" method %q (use \"schelk\" or \"zfs\")",
+			id, dd.Method,
+		)
+	}
+
+	for _, phase := range persistPhases {
+		if phase != DBCompactionBeforeBenchmarks {
+			continue
+		}
+
+		// A ZFS clone is a CHILD of its source dataset, so there is no rename
+		// or promote that puts the compacted clone at the source path. The
+		// source is compacted in place instead, which can only happen before
+		// it is cloned.
+		if dd.Method == "zfs" {
+			return fmt.Errorf(
+				"instance %q: db_compaction.persist at %q is not supported for"+
+					" datadir method \"zfs\" (the clone cannot be written back"+
+					" to its source dataset); persist at %q instead",
+				id, DBCompactionBeforeBenchmarks, DBCompactionBeforePreRuns,
+			)
+		}
+
+		// Persisting here moves the baseline head past the pre-run bundle,
+		// which is exactly what promote_post_pre_runs does. Requiring it keeps
+		// that decision explicit, and lets the runner persist both with a
+		// single promote.
+		if !dd.ShouldPromotePostPreRuns() {
+			return fmt.Errorf(
+				"instance %q: db_compaction.persist at %q also moves the schelk"+
+					" baseline past the pre-run bundle; set"+
+					" datadir.schelk_options.promote_post_pre_runs: true to"+
+					" confirm, or persist at %q instead",
+				id, DBCompactionBeforeBenchmarks, DBCompactionBeforePreRuns,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateDBCompactionStrategy rejects a compaction that the rollback strategy
+// would throw away before (or between) the tests it is meant to speed up.
+func validateDBCompactionStrategy(
+	id string, cfg *DBCompactionConfig, dd *DataDirConfig, strategy string,
+) error {
+	if strategy != RollbackStrategyContainerRecreate {
+		return nil
+	}
+
+	// Every recreate re-prepares the datadir. Only a persisted compaction (or
+	// a datadir the client writes to directly) survives to the next test.
+	if dd == nil {
+		return fmt.Errorf(
+			"instance %q: db_compaction with rollback_strategy %q needs a"+
+				" datadir; a fresh volume per test discards the compaction",
+			id, RollbackStrategyContainerRecreate,
+		)
+	}
+
+	if dbCompactionEphemeralMethods[dd.Method] {
+		return fmt.Errorf(
+			"instance %q: db_compaction with rollback_strategy %q and datadir"+
+				" method %q discards the compaction at the first recreate"+
+				" (the datadir is re-prepared from source per test); use"+
+				" method \"zfs\", or \"schelk\" with db_compaction.persist",
+			id, RollbackStrategyContainerRecreate, dd.Method,
+		)
+	}
+
+	if dd.Method == "schelk" && !cfg.Persists() {
+		return fmt.Errorf(
+			"instance %q: db_compaction with rollback_strategy %q and datadir"+
+				" method \"schelk\" needs db_compaction.persist.enabled: true;"+
+				" every recreate runs `schelk restore`, which discards an"+
+				" unpersisted compaction",
+			id, RollbackStrategyContainerRecreate,
+		)
 	}
 
 	return nil

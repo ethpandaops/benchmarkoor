@@ -113,3 +113,16 @@ IdleTimeout = 120000000000 # 120s
 func (s *gethSpec) SnapshotPrepareArgs() []string {
 	return nil
 }
+
+// DBMaintenanceCommands returns geth's offline database commands.
+//
+// Both run against a STOPPED client: `geth db compact` takes the database
+// lock, so a running node makes it fail. The commands take --datadir rather
+// than inheriting the one in DefaultCommand, since a datadir config may mount
+// the data somewhere other than /data.
+func (s *gethSpec) DBMaintenanceCommands(dataDir string) *DBMaintenanceCommands {
+	return &DBMaintenanceCommands{
+		Compact: []string{"db", "compact", "--datadir=" + dataDir},
+		Inspect: []string{"db", "inspect", "--datadir=" + dataDir},
+	}
+}

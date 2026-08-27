@@ -38,6 +38,20 @@ type RPCRollbackSpec struct {
 	RPCMethod string // e.g. "debug_setHead", "debug_resetHead"
 }
 
+// DBMaintenanceCommands holds the client argv for offline database
+// maintenance, run in a one-shot container against the datadir.
+//
+// The client must NOT be running: both commands need exclusive access to the
+// database, and a second process holding the lock makes them fail.
+type DBMaintenanceCommands struct {
+	// Compact rewrites the database to reclaim space and restore key locality.
+	Compact []string
+
+	// Inspect prints a report of the database contents. Optional: a client
+	// that can compact but not inspect leaves it nil.
+	Inspect []string
+}
+
 // Spec provides client-specific container configuration.
 type Spec interface {
 	// Type returns the client type.
@@ -91,6 +105,12 @@ type Spec interface {
 
 	// SnapshotPrepareArgs returns args for the ZFS snapshot-prep container only (not per-test measurement); nil if none.
 	SnapshotPrepareArgs() []string
+
+	// DBMaintenanceCommands returns the argv for offline database inspection
+	// and compaction against dataDir. Returns nil when the client ships no
+	// such command, which is what makes runner.client.config.db_compaction
+	// unavailable for it.
+	DBMaintenanceCommands(dataDir string) *DBMaintenanceCommands
 }
 
 // Registry manages client specifications.
@@ -121,6 +141,20 @@ func NewRegistry() Registry {
 type registry struct {
 	mu    sync.RWMutex
 	specs map[ClientType]Spec
+}
+
+// SupportsDBCompaction reports whether the client ships an offline compaction
+// command. It is the single source of truth for whether
+// runner.client.config.db_compaction can be enabled for a client.
+func SupportsDBCompaction(clientType ClientType) bool {
+	spec, err := NewRegistry().Get(clientType)
+	if err != nil {
+		return false
+	}
+
+	cmds := spec.DBMaintenanceCommands("/data")
+
+	return cmds != nil && len(cmds.Compact) > 0
 }
 
 // Ensure interface compliance.

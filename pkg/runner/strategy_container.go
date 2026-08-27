@@ -110,6 +110,16 @@ func (r *runner) runTestsWithContainerStrategy(
 			)
 		}
 
+		// The head is exact here and free: the client is still up, and this is
+		// the last moment before it stops. Only the compaction report uses it.
+		var compactionHead *dbCompactionHead
+
+		if r.dbCompactionFor(params.Instance, config.DBCompactionBeforeBenchmarks) != nil {
+			compactionHead = r.dbCompactionHeadFromRPC(
+				ctx, containerIP, spec.RPCPort(), log,
+			)
+		}
+
 		// Settle time so the client finishes any in-flight
 		// initialisation and flushes its DB before we send SIGTERM.
 		// Too short here (e.g. reth/MDBX) snapshots a dirty datadir,
@@ -163,6 +173,18 @@ func (r *runner) runTestsWithContainerStrategy(
 				"could not find data mount for %s in container spec",
 				containerDir,
 			)
+		}
+
+		// Compact before the ready-state snapshot is taken, so every per-test
+		// rollback lands on the compacted database instead of redoing the work.
+		// The client is stopped and its writes are flushed already.
+		if _, err := r.compactDatadirForPhase(
+			ctx, params.Instance, spec, config.DBCompactionBeforeBenchmarks,
+			params.RunID, params.ImageName, resultsDir,
+			docker.Mount{Type: "bind", Source: dataMountSource, Target: containerDir},
+			benchmarkoorLog, compactionHead,
+		); err != nil {
+			return nil, err
 		}
 
 		// Take the ready-state ZFS snapshot.
@@ -1203,6 +1225,14 @@ func (r *runner) promoteSchelkAfterPreRuns(
 
 	log.WithField("steps", n).Info("Pre-run steps completed; promoting datadir to the schelk baseline")
 
+	// The head is exact here and free: the client is still up, and this is the
+	// last moment before it stops. Only the compaction report uses it.
+	var compactionHead *dbCompactionHead
+
+	if r.dbCompactionFor(params.Instance, config.DBCompactionBeforeBenchmarks) != nil {
+		compactionHead = r.dbCompactionHeadFromRPC(ctx, containerIP, spec.RPCPort(), log)
+	}
+
 	log.WithField("settle", schelkSettleBeforeStop).Info("Waiting for client to settle before stop")
 	time.Sleep(schelkSettleBeforeStop)
 
@@ -1219,6 +1249,18 @@ func (r *runner) promoteSchelkAfterPreRuns(
 
 	if syncErr := exec.Command("sync").Run(); syncErr != nil {
 		log.WithError(syncErr).Warn("Failed to sync before schelk promote")
+	}
+
+	// Compact before the promote, so the baseline every per-test recreate
+	// restores from carries the compacted database. One stop, one promote.
+	if mount, ok := datadirMountFor(params.ContainerSpec, spec, params.DataDirCfg); ok {
+		if _, err := r.compactDatadirForPhase(
+			ctx, params.Instance, spec, config.DBCompactionBeforeBenchmarks,
+			params.RunID, params.ImageName, resultsDir, mount,
+			benchmarkoorLog, compactionHead,
+		); err != nil {
+			return "", false, err
+		}
 	}
 
 	log.Info("Persisting the advanced datadir as the new schelk baseline (`schelk promote`)")

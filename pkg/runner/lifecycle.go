@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -84,6 +83,16 @@ func (r *runner) runContainerLifecycle(
 			"method": datadirCfg.Method,
 		}).Info("Using pre-populated data directory")
 
+		// A ZFS datadir that persists its compaction compacts the SOURCE
+		// dataset, before it is snapshotted and cloned below. Nothing else can
+		// write a compacted clone back to the source it was cloned from.
+		if err := r.compactZFSSourceForPersist(
+			ctx, instance, spec, datadirCfg, runID, params.ImageName,
+			runResultsDir, benchmarkoorLogFile,
+		); err != nil {
+			return fmt.Errorf("compacting the ZFS source dataset: %w", err)
+		}
+
 		provider, err := datadir.NewProvider(log, datadirCfg.Method)
 		if err != nil {
 			return fmt.Errorf("creating datadir provider: %w", err)
@@ -113,6 +122,34 @@ func (r *runner) runContainerLifecycle(
 			Type:   "bind",
 			Source: prepared.MountPath,
 			Target: containerDir,
+		}
+
+		// Compact before the client boots, so before the pre-run steps replay.
+		// No client holds the database yet, so this needs no stop and restart.
+		//
+		// A ZFS persist already compacted the source above, and the clone
+		// inherits it — compacting again here would redo hours of work on a
+		// database that is already compact.
+		if datadirCfg.Method != "zfs" ||
+			!r.dbCompactionPersistsAt(instance, config.DBCompactionBeforePreRuns) {
+			compacted, err := r.compactDatadirForPhase(
+				ctx, instance, spec, config.DBCompactionBeforePreRuns,
+				runID, params.ImageName, runResultsDir, dataMount,
+				benchmarkoorLogFile, nil,
+			)
+			if err != nil {
+				return err
+			}
+
+			// schelk persists by making the compacted volume the new baseline.
+			// It happens here, before the container exists, so no client is
+			// holding the volume the promote has to unmount.
+			if compacted && datadirCfg.Method == "schelk" &&
+				r.dbCompactionPersistsAt(instance, config.DBCompactionBeforePreRuns) {
+				if err := r.persistCompactedSchelk(ctx, log); err != nil {
+					return fmt.Errorf("persisting the compacted datadir: %w", err)
+				}
+			}
 		}
 
 		// Surface any state-actor provenance dropped at the snapshot root
@@ -700,6 +737,12 @@ func (r *runner) runContainerLifecycle(
 				}
 				return nil
 			}(),
+			DBCompaction: func() *config.DBCompactionConfig {
+				if r.cfg.FullConfig != nil {
+					return r.cfg.FullConfig.GetDBCompaction(instance)
+				}
+				return nil
+			}(),
 		},
 	}
 
@@ -1231,14 +1274,19 @@ func (r *runner) runContainerLifecycle(
 			}
 		}
 
-		// Promote the schelk baseline for the strategies that keep this one client
-		// for the whole run (none, rpc-debug-setHead). The runner-level strategies
-		// below handle it themselves, next to their own snapshot/checkpoint, since
-		// they rebuild the container per test anyway.
+		// Prepare the datadir for the strategies that keep this one client for the
+		// whole run (none, rpc-debug-setHead): compact the database, promote the
+		// schelk baseline, or both. The runner-level strategies below handle it
+		// themselves, next to their own snapshot/checkpoint, since they rebuild
+		// the container per test anyway.
 		skipPreRunSteps := preRunsAlreadyApplied
 
-		if datadirCfg.ShouldPromotePostPreRuns() && !isRunnerLevelStrategy(rollbackStrategy) &&
-			!preRunsAlreadyApplied {
+		wantsPromote := datadirCfg.ShouldPromotePostPreRuns() && !preRunsAlreadyApplied
+		wantsCompaction := r.dbCompactionFor(
+			instance, config.DBCompactionBeforeBenchmarks,
+		) != nil
+
+		if (wantsPromote || wantsCompaction) && !isRunnerLevelStrategy(rollbackStrategy) {
 			// The log stream ends with the stopped container, so re-attach it to
 			// the restarted one; otherwise the client's logs for the entire
 			// benchmark phase — everything after the promote — are lost.
@@ -1273,17 +1321,37 @@ func (r *runner) runContainerLifecycle(
 				}()
 			}
 
-			newIP, err := r.promoteSchelkInPlace(
-				execCtx, ctx, instance, spec, containerID, containerIP, runResultsDir,
-				blockNum, &stoppingOnPurpose, &mu, armContainerMonitor, reattachLogs,
-				&logDone, &logCancel, log,
+			newIP, preRunsRan, err := r.prepareDatadirBeforeBenchmarks(
+				execCtx, ctx, &preBenchmarkDatadirParams{
+					Instance:            instance,
+					Spec:                spec,
+					DataMount:           dataMount,
+					RunID:               runID,
+					ImageName:           imageName,
+					ContainerID:         containerID,
+					ContainerIP:         containerIP,
+					ResultsDir:          runResultsDir,
+					HeadNumber:          blockNum,
+					SkipPreRuns:         preRunsAlreadyApplied,
+					Promote:             wantsPromote,
+					BenchmarkoorLog:     benchmarkoorLogFile,
+					StoppingOnPurpose:   &stoppingOnPurpose,
+					Mu:                  &mu,
+					ArmContainerMonitor: armContainerMonitor,
+					ReattachLogs:        reattachLogs,
+					LogDone:             &logDone,
+					LogCancel:           &logCancel,
+				}, log,
 			)
 			if err != nil {
-				return fmt.Errorf("promoting schelk baseline after pre-run steps: %w", err)
+				return fmt.Errorf("preparing the datadir before the benchmarks: %w", err)
 			}
 
 			if newIP != "" {
 				containerIP = newIP
+			}
+
+			if preRunsRan {
 				skipPreRunSteps = true
 			}
 		}
@@ -1800,124 +1868,170 @@ func isRunnerLevelStrategy(strategy string) bool {
 		strategy == config.RollbackStrategyCheckpointRestore
 }
 
-// promoteSchelkInPlace applies the suite's pre-run steps, then persists the
-// resulting datadir as the new schelk baseline, for the strategies that keep one
-// client for the whole run (none, rpc-debug-setHead).
+// preBenchmarkDatadirParams carries the state
+// prepareDatadirBeforeBenchmarks needs to stop the client, work on its
+// datadir, and bring the same container back up.
+type preBenchmarkDatadirParams struct {
+	Instance    *config.ClientInstance
+	Spec        client.Spec
+	DataMount   docker.Mount
+	RunID       string
+	ImageName   string
+	ContainerID string
+	ContainerIP string
+	ResultsDir  string
+
+	// HeadNumber is the datadir head before the pre-run steps; the replay
+	// resumes from it instead of re-importing the whole bundle.
+	HeadNumber uint64
+
+	// SkipPreRuns is set when the caller already established that the bundle
+	// is applied, so the replay would be a no-op.
+	SkipPreRuns bool
+
+	// Promote persists the datadir as the new schelk baseline.
+	Promote bool
+
+	BenchmarkoorLog *os.File
+
+	StoppingOnPurpose   *bool
+	Mu                  *sync.Mutex
+	ArmContainerMonitor func(string)
+	ReattachLogs        func()
+	LogDone             *chan struct{}
+	LogCancel           *context.CancelFunc
+}
+
+// prepareDatadirBeforeBenchmarks applies the suite's pre-run steps, then does
+// the offline datadir work that has to happen before the first test: a
+// database compaction, a schelk promote, or both.
 //
-// `schelk promote` unmounts the volume, so the client cannot hold it: the client
-// is stopped, promoted, the volume remounted, and the SAME container started
-// again — restarting re-binds the mount from the host path, which now resolves to
-// the promoted volume. The container monitor is told the stop is deliberate and
-// re-armed afterwards, so a mid-run stop is not mistaken for a crash.
+// It serves the strategies that keep one client for the whole run (none,
+// rpc-debug-setHead). Both steps need the client stopped — `geth db compact`
+// takes the database lock, and `schelk promote` unmounts the volume — so they
+// share a single stop and restart: settle, graceful stop, drain the logs,
+// sync, work, start the SAME container again (restarting re-binds the mount
+// from the host path, which now resolves to the promoted volume). The
+// container monitor is told the stop is deliberate and re-armed afterwards, so
+// a mid-run stop is not mistaken for a crash.
 //
-// Returns the restarted container's IP, or "" when nothing was promoted (so the
-// caller leaves the executor to run the pre-run steps as usual).
-func (r *runner) promoteSchelkInPlace(
+// A promote only ever runs after a graceful client shutdown. A client that had
+// to be killed may not have flushed its state, and promoting a torn datadir
+// would destroy the golden image in favour of an unusable one.
+//
+// Returns the restarted container's IP (empty when nothing needed doing) and
+// whether the pre-run steps have been applied, which the caller passes to the
+// executor so it does not replay them a second time.
+func (r *runner) prepareDatadirBeforeBenchmarks(
 	execCtx, ctx context.Context,
-	instance *config.ClientInstance,
-	spec client.Spec,
-	containerID, containerIP, resultsDir string,
-	headNumber uint64,
-	stoppingOnPurpose *bool,
-	mu *sync.Mutex,
-	armContainerMonitor func(string),
-	reattachLogs func(),
-	logDone *chan struct{},
-	logCancel *context.CancelFunc,
+	p *preBenchmarkDatadirParams,
 	log logrus.FieldLogger,
-) (string, error) {
-	preRunOpts := &executor.ExecuteOptions{
-		EngineEndpoint: fmt.Sprintf(
-			"http://%s:%d", containerIP, spec.EnginePort(),
-		),
-		JWT:                           r.cfg.JWT,
-		ResultsDir:                    resultsDir,
-		FailFast:                      true,
-		PreRunStepSleep:               r.cfg.PreRunStepSleep,
-		SkipUntilBlockNumber:          headNumber,
-		RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
-		RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
+) (newIP string, preRunsRan bool, err error) {
+	instance, spec := p.Instance, p.Spec
+	promote := p.Promote
+
+	compaction := r.dbCompactionFor(instance, config.DBCompactionBeforeBenchmarks)
+
+	if !p.SkipPreRuns {
+		preRunOpts := &executor.ExecuteOptions{
+			EngineEndpoint: fmt.Sprintf(
+				"http://%s:%d", p.ContainerIP, spec.EnginePort(),
+			),
+			JWT:                           r.cfg.JWT,
+			ResultsDir:                    p.ResultsDir,
+			FailFast:                      true,
+			PreRunStepSleep:               r.cfg.PreRunStepSleep,
+			SkipUntilBlockNumber:          p.HeadNumber,
+			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
+			RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
+		}
+
+		n, runErr := r.executor.RunPreRunSteps(execCtx, preRunOpts)
+		if runErr != nil {
+			return "", false, fmt.Errorf("running pre-run steps: %w", runErr)
+		}
+
+		preRunsRan = true
+
+		if promote && n == 0 {
+			log.Warn(
+				"promote_post_pre_runs is set but the suite has no pre-run steps; " +
+					"refusing to promote (the baseline would be the raw snapshot)",
+			)
+
+			promote = false
+		}
+
+		if n > 0 {
+			log.WithField("steps", n).Info("Pre-run steps completed")
+		}
 	}
 
-	n, err := r.executor.RunPreRunSteps(execCtx, preRunOpts)
-	if err != nil {
-		return "", fmt.Errorf("running pre-run steps: %w", err)
+	if !promote && compaction == nil {
+		return "", preRunsRan, nil
 	}
 
-	if n == 0 {
-		log.Warn(
-			"promote_post_pre_runs is set but the suite has no pre-run steps; " +
-				"refusing to promote (the baseline would be the raw snapshot)",
-		)
-
-		return "", nil
+	// The head is exact here and free: the client is still up, and this is the
+	// last moment before it stops. Only the report uses it.
+	var head *dbCompactionHead
+	if compaction != nil {
+		head = r.dbCompactionHeadFromRPC(execCtx, p.ContainerIP, spec.RPCPort(), log)
 	}
 
-	log.WithField("steps", n).Info("Pre-run steps completed; promoting datadir to the schelk baseline")
-
-	log.WithField("settle", schelkSettleBeforeStop).Info("Waiting for client to settle before stop")
-	time.Sleep(schelkSettleBeforeStop)
-
-	mu.Lock()
-	*stoppingOnPurpose = true
-	mu.Unlock()
+	p.Mu.Lock()
+	*p.StoppingOnPurpose = true
+	p.Mu.Unlock()
 
 	defer func() {
-		mu.Lock()
-		*stoppingOnPurpose = false
-		mu.Unlock()
+		p.Mu.Lock()
+		*p.StoppingOnPurpose = false
+		p.Mu.Unlock()
 	}()
 
-	// Default (60s) SIGTERM grace so the client persists its state cleanly; a
-	// killed client may not have flushed, and that datadir must not become the
-	// irreversible golden image.
-	log.Info("Stopping client for schelk promote (graceful)")
-
-	if err := r.containerMgr.StopContainer(ctx, containerID, nil); err != nil {
-		return "", fmt.Errorf("stopping container: %w", err)
+	if err := r.stopClientForDatadirWork(
+		ctx, p.ContainerID, p.LogDone, p.LogCancel, log,
+	); err != nil {
+		return "", preRunsRan, err
 	}
 
-	// Let the stopped container's logs finish landing before promoting.
-	waitForLogDrain(logDone, logCancel, logDrainTimeout)
-
-	if syncErr := exec.Command("sync").Run(); syncErr != nil {
-		log.WithError(syncErr).Warn("Failed to sync before schelk promote")
+	if compaction != nil {
+		if _, err := r.compactDatadirForPhase(
+			ctx, instance, spec, config.DBCompactionBeforeBenchmarks,
+			p.RunID, p.ImageName, p.ResultsDir, p.DataMount, p.BenchmarkoorLog, head,
+		); err != nil {
+			return "", preRunsRan, err
+		}
 	}
 
-	log.Info("Persisting the advanced datadir as the new schelk baseline (`schelk promote`)")
-
-	if err := datadir.SchelkPromote(ctx, r.log); err != nil {
-		return "", fmt.Errorf("schelk promote: %w", err)
+	if promote {
+		if err := r.persistCompactedSchelk(ctx, log); err != nil {
+			return "", preRunsRan, err
+		}
 	}
 
-	// promote leaves the volume unmounted; the restarted container binds this path.
-	if err := datadir.EnsureSchelkMounted(ctx, r.log); err != nil {
-		return "", fmt.Errorf("remounting schelk volume after promote: %w", err)
+	log.Info("Restarting client on the prepared datadir")
+
+	if err := r.containerMgr.StartContainer(ctx, p.ContainerID); err != nil {
+		return "", preRunsRan, fmt.Errorf("restarting container: %w", err)
 	}
 
-	log.Info("Restarting client on the promoted baseline")
+	p.Mu.Lock()
+	*p.StoppingOnPurpose = false
+	p.Mu.Unlock()
 
-	if err := r.containerMgr.StartContainer(ctx, containerID); err != nil {
-		return "", fmt.Errorf("restarting container after promote: %w", err)
-	}
+	p.ArmContainerMonitor(p.ContainerID)
+	p.ReattachLogs()
 
-	mu.Lock()
-	*stoppingOnPurpose = false
-	mu.Unlock()
-
-	armContainerMonitor(containerID)
-	reattachLogs()
-
-	newIP, err := r.containerMgr.GetContainerIP(ctx, containerID, r.cfg.ContainerNetwork)
+	newIP, err = r.containerMgr.GetContainerIP(ctx, p.ContainerID, r.cfg.ContainerNetwork)
 	if err != nil {
-		return "", fmt.Errorf("getting container IP after promote: %w", err)
+		return "", preRunsRan, fmt.Errorf("getting container IP after restart: %w", err)
 	}
 
 	if _, err := r.waitForRPC(execCtx, newIP, spec.RPCPort()); err != nil {
-		return "", fmt.Errorf("waiting for RPC after promote: %w", err)
+		return "", preRunsRan, fmt.Errorf("waiting for RPC after restart: %w", err)
 	}
 
-	log.WithField("ip", newIP).Info("Client back up on the promoted baseline")
+	log.WithField("ip", newIP).Info("Client back up on the prepared datadir")
 
-	return newIP, nil
+	return newIP, preRunsRan, nil
 }

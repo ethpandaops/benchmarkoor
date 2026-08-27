@@ -590,6 +590,25 @@ runner:
       # opcode_extraction:
       #   enabled: true
       #   timeout: 2m   # per-block trace timeout; default 2m
+      # Optional: Compact the client database before the run measures anything.
+      # The client is stopped for it (compaction needs the database lock), so the
+      # runner runs the client's own offline command in a one-shot container.
+      # Only geth ships one today (`geth db compact`). Per-instance override allowed.
+      # db_compaction:
+      #   enabled: true
+      #   # Both phases may be listed; they always run in lifecycle order.
+      #   #   before_pre_runs   - before the client boots (needs a datadir)
+      #   #   before_benchmarks - after the pre-run steps, before the first test
+      #   when: [before_benchmarks]
+      #   inspect: true        # `geth db inspect` before and after; default true
+      #   timeout: 3h          # per phase; default 3h
+      #   # extra_args: ["--cache=16384"]
+      #   # Keep the compacted database for later runs. Only datadir methods
+      #   # "schelk" and "zfs" support it, and both overwrite the baseline
+      #   # irreversibly. zfs persists at before_pre_runs only.
+      #   # persist:
+      #   #   enabled: true
+      #   #   phases: [before_pre_runs]
       # Optional: Container resource limits (applied to all instances by default).
       # resource_limits:
       #   # CPU pinning - use ONE of the following:

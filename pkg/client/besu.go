@@ -116,3 +116,19 @@ func (s *besuSpec) DefaultConfigFiles() map[string]string {
 func (s *besuSpec) SnapshotPrepareArgs() []string {
 	return nil
 }
+
+// DBMaintenanceCommands returns nil: Besu ships no offline compaction command.
+//
+// Checked against Besu 26.6.1. `besu storage` offers revert-variables,
+// rocksdb {usage, x-stats}, trie-log {count, prune, export, import},
+// revert-metadata and prune-pre-merge-blocks, and no --Xplugin-rocksdb-*
+// option compacts either. `trie-log prune` is the nearest thing operators
+// reach for, but it DELETES trie logs below the retention limit rather than
+// rewriting the SSTs — a different operation, and one that takes away the
+// history the Bonsai rollback needs between tests.
+//
+// `besu --data-path=<dir> storage rocksdb usage` would serve as the Inspect
+// side, but Compact is what makes a client supported, so this stays nil.
+func (s *besuSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
+	return nil
+}

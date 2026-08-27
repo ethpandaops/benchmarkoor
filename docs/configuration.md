@@ -789,6 +789,7 @@ runner:
 | `post_test_sleep_duration` | string | - | Sleep duration after each test, e.g. `200ms`, `1s` (see below) |
 | `bootstrap_fcu` | bool/object | - | Send an `engine_forkchoiceUpdatedV3` after RPC is ready to confirm the client is fully synced (see [Bootstrap FCU](#bootstrap-fcu)) |
 | `opcode_extraction` | object | - | Extract per-test opcode counts via `debug_traceBlockByNumber` after each test step (see [Opcode Extraction](#opcode-extraction)) |
+| `db_compaction` | object | - | Compact the client database before the run measures anything (see [Database Compaction](#database-compaction)) |
 | `genesis` | map | - | Genesis file URLs keyed by client type |
 
 ##### Drop Memory Caches
@@ -1118,6 +1119,151 @@ runner:
 - When you want a ground-truth opcode profile of every benchmarked test (instead of relying on `opcode_source` JSON shipped from a separate pipeline)
 - When investigating client-vs-client divergence in EVM execution paths
 
+##### Database Compaction
+
+The `db_compaction` option compacts the client database before the run measures anything. Compaction needs exclusive access to the database, so the client is never running while it happens: the runner runs the client's own offline command in a one-shot container against the datadir.
+
+Only clients that ship an offline compaction command support this. Today that is **geth** alone (`geth db compact`); every other client fails validation with a clear message.
+
+Besu was checked and cannot be supported yet: as of Besu 26.6.1, `besu storage` has no compaction subcommand. `trie-log prune` deletes trie logs below the retention limit instead of rewriting the database, which is a different operation and removes history the Bonsai rollback needs.
+
+```yaml
+runner:
+  client:
+    config:
+      db_compaction:
+        enabled: true
+        when: [before_benchmarks]   # or [before_pre_runs], or both
+        inspect: true               # `geth db inspect` before and after
+        timeout: 3h
+        extra_args: ["--cache=16384"]
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | bool | Yes | `false` | Enable the compaction |
+| `when` | []string | No | `[before_benchmarks]` | The lifecycle points at which to compact (see below). A plain string also works |
+| `inspect` | bool | No | `true` | Run the client database inspection before and after each compaction. A failed inspection is logged and never fails the run |
+| `timeout` | string | No | `3h` | Cap for one phase's work — the compaction and both inspections (Go duration). Applies per phase |
+| `image` | string | No | the instance image | Image of the compaction container. The default keeps the tool version and the client version identical |
+| `extra_args` | []string | No | - | Extra arguments for the compaction command, e.g. `--cache=16384` |
+| `continue_on_error` | bool | No | `false` | Downgrade a compaction failure to a warning. A failed compaction makes the results incomparable, so the run fails by default |
+| `skip_if_marked` | bool | No | `true` with `persist`, else `false` | Skip a phase the datadir marker already names (see below) |
+| `persist` | object | No | - | Write the compacted database back to the datadir baseline (see below) |
+
+`db_compaction` can be set globally under `runner.client.config` and/or per-instance under `runner.instances[]`. Instance-level config (when non-nil) fully replaces the global default.
+
+###### Phases
+
+| `when` value | When it runs | Client |
+|--------------|--------------|--------|
+| `before_pre_runs` | After the datadir is prepared, before the client boots — so before the suite pre-run steps replay | Not yet started. No stop and restart |
+| `before_benchmarks` | After the pre-run steps, before the first test | Stopped gracefully, then started again |
+
+Both phases may be listed. The runner always executes them in lifecycle order, whatever order they are written in:
+
+```yaml
+db_compaction:
+  enabled: true
+  when: [before_pre_runs, before_benchmarks]
+```
+
+`before_benchmarks` is the default because the pre-run bundle writes blocks that undo most of what an earlier compaction achieved. It also lands before the state-baking step of every runner-level rollback strategy, so the compacted database goes into the ZFS ready-snapshot, the CRIU checkpoint, or the schelk promote for free.
+
+`before_pre_runs` needs a pre-populated datadir: without one the database is created when the client boots.
+
+###### Persisting the compacted database
+
+Without `persist`, the compaction is run-local: it costs the same time on every run, and the clone, copy, or restored volume that holds it is destroyed at the end. `persist` writes it back to the baseline instead.
+
+```yaml
+db_compaction:
+  enabled: true
+  when: [before_pre_runs]
+  persist:
+    enabled: true
+    safety_snapshot: true   # ZFS only
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | bool | Yes | `false` | Persist the compacted database |
+| `phases` | []string | No | every phase in `when` | Restrict the persist to a subset of `when` |
+| `safety_snapshot` | bool | No | `true` | Snapshot the ZFS source dataset before it is compacted in place. ZFS only |
+
+The mechanism comes from `datadir.method`, so there is one knob and no way to pair the wrong mechanism with the wrong method:
+
+| `datadir.method` | `before_pre_runs` | `before_benchmarks` |
+|------------------|-------------------|---------------------|
+| `schelk` | `schelk promote` makes the compacted volume the new baseline | Same, folded into the existing promote |
+| `zfs` | The source dataset is compacted in place, before the snapshot and the clone | Not supported |
+| `direct` | Already permanent: the client writes to `source_dir` itself | Same |
+| `copy`, `overlayfs`, `fuse-overlayfs` | Not supported | Not supported |
+
+Two rules follow from the mechanisms:
+
+- **ZFS persists only at `before_pre_runs`.** The clone is a child of its source dataset, so no promote or rename puts the compacted clone back at the source path. Compacting the source first also keeps the clone small, since a compaction inside a copy-on-write clone rewrites the whole database into it.
+- **A schelk persist at `before_benchmarks` needs `promote_post_pre_runs: true`.** Persisting there moves the baseline head past the pre-run bundle, which is exactly what that option does. Requiring it keeps the decision explicit, and lets the runner persist both with a single promote.
+
+> **A persist is destructive and irreversible.** It overwrites the golden image. On ZFS, `safety_snapshot` leaves a `<dataset>@benchmarkoor-precompaction-<run-id>` snapshot that a `zfs rollback` restores exactly.
+
+###### The datadir marker
+
+A finished compaction writes `.benchmarkoor-db-compaction.json` at the root of the datadir it compacted, so a persisted baseline says what has already been done to it:
+
+```json
+{
+  "version": 1,
+  "phases": {
+    "before_pre_runs": {
+      "client": "geth",
+      "image": "ethereum/client-go:stable",
+      "run_id": "20260827-101203-abcd",
+      "completed_at": "2026-08-27T10:12:03Z",
+      "duration_ms": 812345,
+      "datadir_bytes": { "before": 812000000000, "after": 640000000000 }
+    }
+  }
+}
+```
+
+It holds only what is known the moment the compaction finishes, so it is written once and never patched. With `persist` enabled, `skip_if_marked` defaults to true and a later run skips a phase the marker already names — which is what stops every run paying the compaction cost again.
+
+The marker cannot tell that a datadir advanced after it was written. If you point a longer pre-run bundle at a baseline persisted at `before_benchmarks`, set `skip_if_marked: false` to force the compaction.
+
+###### Rollback strategy
+
+`container-recreate` re-prepares the datadir for every test, so the runner rejects a compaction it would discard at the first recreate:
+
+| `datadir.method` | `container-recreate` |
+|------------------|----------------------|
+| `zfs` | Supported. The ready-snapshot carries the compaction |
+| `schelk` | Needs `db_compaction.persist.enabled: true` |
+| `copy`, `overlayfs`, `fuse-overlayfs` | Rejected |
+| none (fresh volume per test) | Rejected |
+
+###### Output
+
+Each phase writes its reports to the run results directory:
+
+```
+<run-results>/db-compaction/
+  before_pre_runs/inspect-before.txt
+  before_pre_runs/compact.log
+  before_pre_runs/inspect-after.txt
+  before_pre_runs/compaction.json
+  before_benchmarks/...
+```
+
+`compaction.json` records the command, the duration, the datadir size either side, and — at `before_benchmarks` only, where the runner reads it from the client it is about to stop — the datadir head.
+
+The inspection is a report, so a failure is logged and the compaction still runs. geth 1.17.5 exits 1 on `db inspect` against a datadir whose freezer is empty, which a freshly-initialised datadir has.
+
+**When to use:**
+- When benchmarking on a snapshot whose database has poor key locality after a long fill or replay
+- When you want every client to start from a database in the same shape, rather than one that reflects how the snapshot was built
+- With `persist`, when you want to pay the compaction cost once and have every later run start from the compacted baseline
+
 #### Data Directories
 
 The `runner.client.datadirs` section configures pre-populated data directories per client type. When configured, the init container is skipped and data is mounted directly.
@@ -1286,6 +1432,7 @@ runner:
 | `post_test_sleep_duration` | string | No | From `runner.client.config` | Instance-specific post-test sleep duration |
 | `bootstrap_fcu` | bool/object | No | From `runner.client.config` | Instance-specific bootstrap FCU setting |
 | `opcode_extraction` | object | No | From `runner.client.config` | Instance-specific opcode extraction setting (replaces global) |
+| `db_compaction` | object | No | From `runner.client.config` | Instance-specific database compaction setting (replaces global) |
 
 #### Genesis Fork & EIP Overrides
 

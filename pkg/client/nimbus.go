@@ -98,3 +98,9 @@ func (s *nimbusSpec) DefaultConfigFiles() map[string]string {
 func (s *nimbusSpec) SnapshotPrepareArgs() []string {
 	return nil
 }
+
+// DBMaintenanceCommands returns nil; benchmarkoor has no offline
+// compaction command for Nimbus yet.
+func (s *nimbusSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
+	return nil
+}

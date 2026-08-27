@@ -114,3 +114,9 @@ func (s *erigonSpec) DefaultConfigFiles() map[string]string {
 func (s *erigonSpec) SnapshotPrepareArgs() []string {
 	return nil
 }
+
+// DBMaintenanceCommands returns nil; benchmarkoor has no offline
+// compaction command for Erigon yet.
+func (s *erigonSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
+	return nil
+}

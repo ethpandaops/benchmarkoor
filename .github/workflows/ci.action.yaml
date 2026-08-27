@@ -277,7 +277,7 @@ jobs:
   # no amsterdam system-contract predeploys are needed.
   pre-runs:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -308,6 +308,7 @@ jobs:
               state_actor:
                 images:
                   besu: ghcr.io/ethereum/state-actor-besu:main
+                  geth: ghcr.io/ethereum/state-actor:main
                 pull_policy: always
                 config:
                   seed: 1234
@@ -333,6 +334,11 @@ jobs:
                 targets:
                   - client: besu
                     output_dir: /tmp/benchmarkoor/state-actor/besu
+                  # Same seed + spec, so geth's snapshot carries the same state as
+                  # besu's. The db-compaction step below boots geth on it and
+                  # replays besu's pre-run bundle to reach the same setup head.
+                  - client: geth
+                    output_dir: /tmp/benchmarkoor/state-actor/geth
               # Advance the snapshot: boot besu, run a tiny setup fill (with
               # fill-stateful --no-reset-between-tests, so the deployed contracts
               # persist), and record a replay bundle under the output_dir.
@@ -419,3 +425,56 @@ jobs:
                   client: besu
                   image: ethpandaops/besu:bal-devnet-7
                   extra_args: [--p2p-enabled=true]
+
+      # Same fixtures and the same pre-run bundle as the besu step above, on
+      # geth with runner.client.config.db_compaction enabled. geth cannot boot
+      # besu's datadir, so it boots its OWN raw snapshot and replays besu's
+      # recorded bundle to reach the setup head. Both compaction phases run:
+      # before_pre_runs (before the client boots, so before the replay) and
+      # before_benchmarks (a graceful stop, compact, and restart after it).
+      - name: Run benchmarks with db compaction (geth)
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-ref: ${{ github.event.pull_request.head.sha }}
+          git-repo: ${{ github.event.pull_request.head.repo.clone_url }}
+          mode: run
+          run-config-urls: >-
+            https://raw.githubusercontent.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-cleanup.yaml,
+            https://raw.githubusercontent.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-clientstdout.yaml
+          run-config: |
+            runner:
+              benchmark:
+                tests:
+                  source:
+                    eest_fixtures:
+                      local_fixtures_dir: /tmp/benchmarkoor/eest-fixtures/besu
+                      fixtures_subdir: blockchain_tests_stateful_engine
+                      # Replay besu's recorded pre-run bundle on geth's raw
+                      # snapshot; fixtures_subdir defaults to "pre_run_bundle".
+                      pre_runs:
+                        local_fixtures_dir: /tmp/benchmarkoor/pre-runs/besu
+              client:
+                config:
+                  bootstrap_fcu:
+                    enabled: true
+                    max_retries: 10
+                    backoff: 1s
+                  # `geth db compact`, with `geth db inspect` either side of it.
+                  # No persist: datadir_method is copy, so the compaction is
+                  # run-local, which is what CI wants.
+                  db_compaction:
+                    enabled: true
+                    when: [before_pre_runs, before_benchmarks]
+                    inspect: true
+                    timeout: 20m
+                # No genesis entry for geth: state-actor bakes the genesis into
+                # the snapshot datadir it builds.
+                datadirs:
+                  geth:
+                    source_dir: /tmp/benchmarkoor/state-actor/geth
+                    method: copy
+              instances:
+                - id: geth
+                  client: geth
+                  image: ethpandaops/geth:master
