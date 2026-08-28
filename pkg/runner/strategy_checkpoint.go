@@ -220,7 +220,22 @@ func (r *runner) runTestsWithCheckpointRestore(
 	//     the database lock, so the client is stopped for it and started again
 	//     before the checkpoint is taken — a checkpoint of a client that is not
 	//     running on this datadir would restore onto a database it never opened.
-	if r.dbCompactionFor(params.Instance, config.DBCompactionBeforeBenchmarks) != nil {
+	compactionMount := docker.Mount{
+		Type: "bind", Source: dataMountSource, Target: containerDir,
+	}
+
+	// As in prepareDatadirBeforeBenchmarks: settle the marker question before
+	// the stop, so a datadir that is already compacted does not cost a client
+	// recycle on every run.
+	compactionSkip := r.dbCompactionSkipEntry(
+		params.Instance, config.DBCompactionBeforeBenchmarks, compactionMount,
+	)
+	if compactionSkip != nil {
+		logDBCompactionSkip(log, compactionSkip)
+	}
+
+	if compactionSkip == nil &&
+		r.dbCompactionFor(params.Instance, config.DBCompactionBeforeBenchmarks) != nil {
 		compactionHead := r.dbCompactionHeadFromRPC(ctx, containerIP, spec.RPCPort(), log)
 
 		if err := r.stopClientForDatadirWork(
@@ -231,8 +246,7 @@ func (r *runner) runTestsWithCheckpointRestore(
 
 		if _, err := r.compactDatadirForPhase(
 			ctx, params.Instance, spec, config.DBCompactionBeforeBenchmarks,
-			params.RunID, params.ImageName, resultsDir,
-			docker.Mount{Type: "bind", Source: dataMountSource, Target: containerDir},
+			params.RunID, params.ImageName, resultsDir, compactionMount,
 			benchmarkoorLog, compactionHead,
 		); err != nil {
 			return nil, err

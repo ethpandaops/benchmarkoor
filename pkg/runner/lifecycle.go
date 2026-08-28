@@ -1932,6 +1932,22 @@ func (r *runner) prepareDatadirBeforeBenchmarks(
 
 	compaction := r.dbCompactionFor(instance, config.DBCompactionBeforeBenchmarks)
 
+	// Whether the compaction has anything to do is settled BEFORE the client
+	// stops. A persisted baseline carries this phase's marker into every later
+	// run, and those runs also skip the promote (their head already sits at the
+	// bundle's end). Deciding inside runDBCompaction instead would stop the
+	// client, skip the work, and start it again — every run, for nothing, on a
+	// restart that can fail.
+	if compaction != nil {
+		if entry := r.dbCompactionSkipEntry(
+			instance, config.DBCompactionBeforeBenchmarks, p.DataMount,
+		); entry != nil {
+			logDBCompactionSkip(log, entry)
+
+			compaction = nil
+		}
+	}
+
 	if !p.SkipPreRuns {
 		preRunOpts := &executor.ExecuteOptions{
 			EngineEndpoint: fmt.Sprintf(

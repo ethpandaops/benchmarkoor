@@ -152,20 +152,10 @@ func (r *runner) runDBCompaction(
 
 	hostPath := req.hostPath()
 
-	if req.Cfg.SkipIfMarkedEnabled() && hostPath != "" {
-		if marker := readDBCompactionMarker(hostPath); marker != nil {
-			if entry, ok := marker.Phases[req.Phase]; ok {
-				log.WithFields(logrus.Fields{
-					"compacted_at": entry.CompletedAt,
-					"run_id":       entry.RunID,
-				}).Info(
-					"Datadir already carries a compaction marker for this phase; skipping" +
-						" (set db_compaction.skip_if_marked: false to force)",
-				)
+	if entry := r.dbCompactionSkipEntry(req.Instance, req.Phase, req.Mount); entry != nil {
+		logDBCompactionSkip(log, entry)
 
-				return false, nil
-			}
-		}
+		return false, nil
 	}
 
 	phaseDir := filepath.Join(req.ResultsDir, config.DBCompactionResultsDir, req.Phase)
@@ -476,6 +466,54 @@ func (r *runner) dbCompactionFor(
 	}
 
 	return cfg
+}
+
+// dbCompactionSkipEntry returns the datadir marker entry that makes a
+// compaction at this phase a no-op, or nil when the compaction should run.
+//
+// It answers the question runDBCompaction asks itself, but without a container
+// and without the client having to stop first. A caller that must stop the
+// client to compact uses it to find out whether the stop is worth making at
+// all: a persisted baseline carries the marker for every later run, and
+// stopping and restarting a client to skip the work costs a settle, a graceful
+// shutdown, and a boot, every run, for nothing.
+func (r *runner) dbCompactionSkipEntry(
+	instance *config.ClientInstance, phase string, mount docker.Mount,
+) *dbCompactionMarkerEntry {
+	cfg := r.dbCompactionFor(instance, phase)
+	if cfg == nil || !cfg.SkipIfMarkedEnabled() {
+		return nil
+	}
+
+	req := &dbCompactionRequest{Mount: mount}
+
+	hostPath := req.hostPath()
+	if hostPath == "" {
+		return nil
+	}
+
+	marker := readDBCompactionMarker(hostPath)
+	if marker == nil {
+		return nil
+	}
+
+	entry, ok := marker.Phases[phase]
+	if !ok {
+		return nil
+	}
+
+	return &entry
+}
+
+// logDBCompactionSkip reports a phase the datadir marker already covers.
+func logDBCompactionSkip(log logrus.FieldLogger, entry *dbCompactionMarkerEntry) {
+	log.WithFields(logrus.Fields{
+		"compacted_at": entry.CompletedAt,
+		"run_id":       entry.RunID,
+	}).Info(
+		"Datadir already carries a compaction marker for this phase; skipping" +
+			" (set db_compaction.skip_if_marked: false to force)",
+	)
 }
 
 // dbCompactionPersistsAt reports whether the instance writes the result of the

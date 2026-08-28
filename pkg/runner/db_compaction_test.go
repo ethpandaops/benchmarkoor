@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -166,4 +167,127 @@ func TestDirSize(t *testing.T) {
 
 	assert.Equal(t, int64(8), dirSize(dir))
 	assert.Equal(t, int64(0), dirSize(filepath.Join(dir, "missing")))
+}
+
+// runnerWithDBCompaction builds a runner whose global db_compaction config is
+// cfg, for the marker-skip tests below.
+func runnerWithDBCompaction(cfg *config.DBCompactionConfig) *runner {
+	return &runner{cfg: &Config{FullConfig: &config.Config{
+		Runner: config.RunnerConfig{
+			Client: config.ClientConfig{
+				Config: config.ClientDefaults{DBCompaction: cfg},
+			},
+		},
+	}}}
+}
+
+// writeMarkerFor drops a marker naming phase at the root of dir.
+func writeMarkerFor(t *testing.T, dir, phase string) {
+	t.Helper()
+
+	marker := dbCompactionMarker{
+		Version: dbCompactionMarkerVersion,
+		Phases: map[string]dbCompactionMarkerEntry{
+			phase: {Client: "geth", RunID: "earlier-run", CompletedAt: "2026-08-27T10:12:03Z"},
+		},
+	}
+
+	data, err := json.Marshal(marker)
+	require.NoError(t, err)
+	require.NoError(
+		t, os.WriteFile(filepath.Join(dir, config.DBCompactionMarkerFile), data, 0644),
+	)
+}
+
+// A persisted baseline carries this phase's marker into every later run. The
+// skip has to be decided from the marker alone, because the callers that must
+// stop the client to compact consult it BEFORE stopping — see
+// prepareDatadirBeforeBenchmarks. Deciding later would recycle the client on
+// every run for a compaction that does nothing.
+func TestDBCompactionSkipEntry(t *testing.T) {
+	phase := config.DBCompactionBeforeBenchmarks
+	instance := &config.ClientInstance{ID: "geth", Client: "geth"}
+
+	persisting := func() *config.DBCompactionConfig {
+		return &config.DBCompactionConfig{
+			Enabled: true,
+			When:    []string{phase},
+			Persist: &config.DBCompactionPersistConfig{Enabled: true},
+		}
+	}
+
+	t.Run("marked phase on a persisting config skips", func(t *testing.T) {
+		dir := t.TempDir()
+		writeMarkerFor(t, dir, phase)
+
+		r := runnerWithDBCompaction(persisting())
+		mount := docker.Mount{Type: "bind", Source: dir, Target: "/data"}
+
+		entry := r.dbCompactionSkipEntry(instance, phase, mount)
+		require.NotNil(t, entry)
+		assert.Equal(t, "earlier-run", entry.RunID)
+	})
+
+	t.Run("no marker runs the compaction", func(t *testing.T) {
+		r := runnerWithDBCompaction(persisting())
+		mount := docker.Mount{Type: "bind", Source: t.TempDir(), Target: "/data"}
+
+		assert.Nil(t, r.dbCompactionSkipEntry(instance, phase, mount))
+	})
+
+	t.Run("a marker for another phase runs the compaction", func(t *testing.T) {
+		dir := t.TempDir()
+		writeMarkerFor(t, dir, config.DBCompactionBeforePreRuns)
+
+		r := runnerWithDBCompaction(persisting())
+		mount := docker.Mount{Type: "bind", Source: dir, Target: "/data"}
+
+		assert.Nil(t, r.dbCompactionSkipEntry(instance, phase, mount))
+	})
+
+	t.Run("without persist the marker cannot describe this datadir", func(t *testing.T) {
+		dir := t.TempDir()
+		writeMarkerFor(t, dir, phase)
+
+		r := runnerWithDBCompaction(&config.DBCompactionConfig{
+			Enabled: true,
+			When:    []string{phase},
+		})
+		mount := docker.Mount{Type: "bind", Source: dir, Target: "/data"}
+
+		assert.Nil(t, r.dbCompactionSkipEntry(instance, phase, mount))
+	})
+
+	t.Run("skip_if_marked false forces the compaction", func(t *testing.T) {
+		dir := t.TempDir()
+		writeMarkerFor(t, dir, phase)
+
+		force := false
+		cfg := persisting()
+		cfg.SkipIfMarked = &force
+
+		r := runnerWithDBCompaction(cfg)
+		mount := docker.Mount{Type: "bind", Source: dir, Target: "/data"}
+
+		assert.Nil(t, r.dbCompactionSkipEntry(instance, phase, mount))
+	})
+
+	t.Run("a volume datadir has no marker to read", func(t *testing.T) {
+		r := runnerWithDBCompaction(persisting())
+		mount := docker.Mount{Type: "volume", Source: "benchmarkoor-vol", Target: "/data"}
+
+		assert.Nil(t, r.dbCompactionSkipEntry(instance, phase, mount))
+	})
+
+	t.Run("a phase that is not configured never skips", func(t *testing.T) {
+		dir := t.TempDir()
+		writeMarkerFor(t, dir, config.DBCompactionBeforePreRuns)
+
+		r := runnerWithDBCompaction(persisting())
+		mount := docker.Mount{Type: "bind", Source: dir, Target: "/data"}
+
+		assert.Nil(
+			t, r.dbCompactionSkipEntry(instance, config.DBCompactionBeforePreRuns, mount),
+		)
+	})
 }
