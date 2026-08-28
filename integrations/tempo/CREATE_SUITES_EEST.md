@@ -19,6 +19,9 @@ Optional but commonly set:
 - `SUITE_DESCRIPTION`: human-readable suite description.
 - `TEMPO_IMAGE`: Docker image used for generation, default
   `docker.io/tempoxyz/tempo:latest`.
+- `TEMPO_GENESIS`: genesis used by the generation node and exported suite,
+  default `TEMPO_REPO/crates/chainspec/src/genesis/dev.json`. Set this to an
+  existing aggregate's genesis when adding cases to that aggregate.
 - `UV_IMAGE`: EEST runner image, default
   `ghcr.io/astral-sh/uv:python3.11-bookworm`.
 - `EEST_FORK`: EEST fork, default `Prague`.

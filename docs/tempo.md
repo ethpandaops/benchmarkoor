@@ -38,9 +38,10 @@ Desktop and Linux.
 
 ## 2. Select and inspect a suite
 
-Benchmarkoor ships two self-contained Tempo suites. `all` is the complete selected runnable corpus:
-13 EEST-derived batches plus nine TIP-20 examples. `tip20-full-blocks` is the focused subset of six
-500M-gas TIP-20 full-block workloads:
+Benchmarkoor ships self-contained Tempo suites. `all` is the complete selected runnable corpus:
+18 EEST-derived source segments plus nine TIP-20 examples. Focused suites include the six 500M-gas
+`tip20-full-blocks` workloads, the KZG `point-evaluation-warm` workload, and four Osaka
+`p256verify` workloads:
 
 ```sh
 find "$BENCHMARKOOR_REPO/integrations/tempo/suites" -maxdepth 2 -name manifest.json -print

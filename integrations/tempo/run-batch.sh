@@ -10,6 +10,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 TEMPO_IMAGE=${TEMPO_IMAGE:-docker.io/tempoxyz/tempo:latest}
 UV_IMAGE=${UV_IMAGE:-ghcr.io/astral-sh/uv:python3.11-bookworm}
+TEMPO_GENESIS=${TEMPO_GENESIS:-$TEMPO_REPO/crates/chainspec/src/genesis/dev.json}
 EEST_FORK=${EEST_FORK:-Prague}
 GAS_MILLIONS=${GAS_MILLIONS:-10}
 CHAIN_ID=${CHAIN_ID:-1337}
@@ -22,6 +23,12 @@ DEV_SEED_KEY=${DEV_SEED_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efca
 EOA_START=${EOA_START:-103835740027347086785932208981225044632444623980288738833340492242305523519088}
 EOA_START_HEX=${EOA_START_HEX:-0xe590f237b4c6d4872b2003046ea885cad5bbb2b107f558ae5d387a9aad960e70}
 CONTAINER_NAME=tempo-eest-batch-$$
+
+if [[ ! -f "$TEMPO_GENESIS" ]]; then
+  echo "Tempo genesis does not exist: $TEMPO_GENESIS" >&2
+  exit 1
+fi
+TEMPO_GENESIS=$(cd -- "$(dirname -- "$TEMPO_GENESIS")" && pwd)/$(basename -- "$TEMPO_GENESIS")
 
 if (($# == 0)); then
   set -- tests/benchmark/compute/instruction/test_arithmetic.py
@@ -55,8 +62,9 @@ rpc() {
 
 docker run -d --name "$CONTAINER_NAME" \
   -p "${RPC_PORT}:8545" -p "${ENGINE_PORT}:8551" \
+  -v "$TEMPO_GENESIS:/tmp/tempo-genesis.json:ro" \
   "$TEMPO_IMAGE" \
-  node --dev --dev.block-time="$BLOCK_TIME" \
+  node --dev --chain=/tmp/tempo-genesis.json --dev.block-time="$BLOCK_TIME" \
   --datadir=/tmp/tempo-eest \
   --http --http.addr=0.0.0.0 --http.api=all --http.port=8545 \
   --authrpc.addr=0.0.0.0 --authrpc.port=8551 \
@@ -105,7 +113,7 @@ revision=$(git -C "$EEST_REPO" rev-parse HEAD)
 source_test_list=$(IFS=,; echo "${SOURCE_TESTS[*]}")
 export_args=(
   --rpc-url "http://127.0.0.1:${RPC_PORT}"
-  --genesis "$TEMPO_REPO/crates/chainspec/src/genesis/dev.json"
+  --genesis "$TEMPO_GENESIS"
   --out "$SUITE_OUT"
   --name "$SUITE_NAME"
   --capture-file "$capture_file"

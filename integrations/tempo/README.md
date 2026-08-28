@@ -10,6 +10,8 @@ Engine API surface and reports correctness and performance.
 - `suites/all`: the full checked-in Tempo corpus.
 - `suites/tip20-full-blocks`: focused high-gas TIP-20 full-block workloads.
 - `suites/point-evaluation-warm`: focused KZG point-evaluation warm workload.
+- `suites/p256verify`: focused Osaka P-256 verification workloads, with each
+  case independently replayable from genesis.
 - `export-suite.py`: export canonical blocks from a running Tempo node.
 - `validate-suite.py`: validate suite manifests and referenced block files.
 - `merge-suites.py` and `merge-all-suites.sh`: maintainer helpers for rebuilding

@@ -1,0 +1,1044 @@
+{
+  "format": "tempo-engine-suite/v1",
+  "name": "eest-osaka-p256verify-10m",
+  "description": "EEST Osaka P-256 verify 10M workloads regenerated independently on Tempo",
+  "origin": {
+    "kind": "eest",
+    "repository": "https://github.com/ethereum/execution-specs",
+    "revision": "ce0509a90bdf7bdff68a90ba00b4ce956144e450",
+    "generator": "EEST execute remote + Benchmarkoor Tempo adapter/exporter; independently generated cases bundled by integrations/tempo/merge-suites.py",
+    "seed": "0xe590f237b4c6d4872b2003046ea885cad5bbb2b107f558ae5d387a9aad960e70"
+  },
+  "chain": {
+    "name": "tempo",
+    "chain_id": 1337,
+    "hardfork": "dev-all",
+    "genesis": "genesis.json"
+  },
+  "metadata": {
+    "measurement": "server_execution_ns",
+    "source_suites": "eest-osaka-p256verify-10m-valid,eest-osaka-p256verify-10m-wrong-endianness,eest-osaka-p256verify-10m-modular-comparison,eest-osaka-p256verify-10m-uncachable",
+    "segment_count": "4",
+    "test_count": "4",
+    "requires_rollback_strategy": "container-recreate",
+    "segment_boundary_metadata": "suite_segment_start",
+    "source_fork": "Osaka",
+    "gas_target_millions": "10",
+    "self_contained": "true"
+  },
+  "defaults": {
+    "wait_for_persistence": true,
+    "wait_for_caches": true,
+    "expected_status": "VALID"
+  },
+  "tests": [
+    {
+      "name": "tests/benchmark/compute/precompile/test_p256verify.py::test_p256verify[fork_Osaka-benchmark_test-p256verify-benchmark-gas-value_10M]",
+      "description": "EEST Osaka P-256 verify 10M valid workload regenerated on Tempo",
+      "tags": [
+        "eest",
+        "ethereum-derived",
+        "tempo-normalized",
+        "merged-suite"
+      ],
+      "metadata": {
+        "capture_before_block": "4",
+        "capture_after_block": "12",
+        "measured_block": "10",
+        "source_suite": "eest-osaka-p256verify-10m-valid",
+        "suite_segment": "0",
+        "suite_segment_start": "true"
+      },
+      "setup": [
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-valid-1.rlp",
+          "wait_for_caches": true,
+          "block_number": 1,
+          "block_hash": "0x191d7d44d7635e30bc8d9833e1d6e6eb982c6068a489fb6275b0f25544ea80a0",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-valid-1.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x191d7d44d7635e30bc8d9833e1d6e6eb982c6068a489fb6275b0f25544ea80a0",
+              "safeBlockHash": "0x191d7d44d7635e30bc8d9833e1d6e6eb982c6068a489fb6275b0f25544ea80a0",
+              "finalizedBlockHash": "0x191d7d44d7635e30bc8d9833e1d6e6eb982c6068a489fb6275b0f25544ea80a0"
+            }
+          ],
+          "block_number": 1,
+          "block_hash": "0x191d7d44d7635e30bc8d9833e1d6e6eb982c6068a489fb6275b0f25544ea80a0",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-valid-2.rlp",
+          "wait_for_caches": true,
+          "block_number": 2,
+          "block_hash": "0x63789cbf474bf20d17f86bcecd2575fcc2a4bc31ea22c757cc30fab000223c3f",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-valid-2.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x63789cbf474bf20d17f86bcecd2575fcc2a4bc31ea22c757cc30fab000223c3f",
+              "safeBlockHash": "0x63789cbf474bf20d17f86bcecd2575fcc2a4bc31ea22c757cc30fab000223c3f",
+              "finalizedBlockHash": "0x63789cbf474bf20d17f86bcecd2575fcc2a4bc31ea22c757cc30fab000223c3f"
+            }
+          ],
+          "block_number": 2,
+          "block_hash": "0x63789cbf474bf20d17f86bcecd2575fcc2a4bc31ea22c757cc30fab000223c3f",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-valid-3.rlp",
+          "wait_for_caches": true,
+          "block_number": 3,
+          "block_hash": "0x524373748d1851647d8c87a34ddb9f48453f991615f49e0efa2720ab7f1da48a",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-valid-3.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x524373748d1851647d8c87a34ddb9f48453f991615f49e0efa2720ab7f1da48a",
+              "safeBlockHash": "0x524373748d1851647d8c87a34ddb9f48453f991615f49e0efa2720ab7f1da48a",
+              "finalizedBlockHash": "0x524373748d1851647d8c87a34ddb9f48453f991615f49e0efa2720ab7f1da48a"
+            }
+          ],
+          "block_number": 3,
+          "block_hash": "0x524373748d1851647d8c87a34ddb9f48453f991615f49e0efa2720ab7f1da48a",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-valid-4.rlp",
+          "wait_for_caches": true,
+          "block_number": 4,
+          "block_hash": "0x26a56e0ce7dfdfd0d69b885aa33da4e89dd6c6a38be4af4ce5773a9e1aa4e42c",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-valid-4.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x26a56e0ce7dfdfd0d69b885aa33da4e89dd6c6a38be4af4ce5773a9e1aa4e42c",
+              "safeBlockHash": "0x26a56e0ce7dfdfd0d69b885aa33da4e89dd6c6a38be4af4ce5773a9e1aa4e42c",
+              "finalizedBlockHash": "0x26a56e0ce7dfdfd0d69b885aa33da4e89dd6c6a38be4af4ce5773a9e1aa4e42c"
+            }
+          ],
+          "block_number": 4,
+          "block_hash": "0x26a56e0ce7dfdfd0d69b885aa33da4e89dd6c6a38be4af4ce5773a9e1aa4e42c",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-valid-5.rlp",
+          "wait_for_caches": true,
+          "block_number": 5,
+          "block_hash": "0x8882a8ce0f930ecc866e9170c70f809523d1d8b8da55d28ebed2875fcc21fa0f",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-valid-5.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x8882a8ce0f930ecc866e9170c70f809523d1d8b8da55d28ebed2875fcc21fa0f",
+              "safeBlockHash": "0x8882a8ce0f930ecc866e9170c70f809523d1d8b8da55d28ebed2875fcc21fa0f",
+              "finalizedBlockHash": "0x8882a8ce0f930ecc866e9170c70f809523d1d8b8da55d28ebed2875fcc21fa0f"
+            }
+          ],
+          "block_number": 5,
+          "block_hash": "0x8882a8ce0f930ecc866e9170c70f809523d1d8b8da55d28ebed2875fcc21fa0f",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-valid-6.rlp",
+          "wait_for_caches": true,
+          "block_number": 6,
+          "block_hash": "0x3df9f129a8132ffb1fffc081b693dd0980c0cda1b641edc5e8fe2fe514520d15",
+          "gas_used": 25939174,
+          "transaction_count": 2,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-valid-6.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x3df9f129a8132ffb1fffc081b693dd0980c0cda1b641edc5e8fe2fe514520d15",
+              "safeBlockHash": "0x3df9f129a8132ffb1fffc081b693dd0980c0cda1b641edc5e8fe2fe514520d15",
+              "finalizedBlockHash": "0x3df9f129a8132ffb1fffc081b693dd0980c0cda1b641edc5e8fe2fe514520d15"
+            }
+          ],
+          "block_number": 6,
+          "block_hash": "0x3df9f129a8132ffb1fffc081b693dd0980c0cda1b641edc5e8fe2fe514520d15",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-valid-7.rlp",
+          "wait_for_caches": true,
+          "block_number": 7,
+          "block_hash": "0x476ea0f0d33a91c657d7c8ec5b6ca1cb8d43252312aed984af6d9fee6f6e5b22",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-valid-7.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x476ea0f0d33a91c657d7c8ec5b6ca1cb8d43252312aed984af6d9fee6f6e5b22",
+              "safeBlockHash": "0x476ea0f0d33a91c657d7c8ec5b6ca1cb8d43252312aed984af6d9fee6f6e5b22",
+              "finalizedBlockHash": "0x476ea0f0d33a91c657d7c8ec5b6ca1cb8d43252312aed984af6d9fee6f6e5b22"
+            }
+          ],
+          "block_number": 7,
+          "block_hash": "0x476ea0f0d33a91c657d7c8ec5b6ca1cb8d43252312aed984af6d9fee6f6e5b22",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-valid-8.rlp",
+          "wait_for_caches": true,
+          "block_number": 8,
+          "block_hash": "0x8d8fa5bd2b95386a54b2bf1da822153f9fe5e26d11f301232d824176550194d2",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-valid-8.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x8d8fa5bd2b95386a54b2bf1da822153f9fe5e26d11f301232d824176550194d2",
+              "safeBlockHash": "0x8d8fa5bd2b95386a54b2bf1da822153f9fe5e26d11f301232d824176550194d2",
+              "finalizedBlockHash": "0x8d8fa5bd2b95386a54b2bf1da822153f9fe5e26d11f301232d824176550194d2"
+            }
+          ],
+          "block_number": 8,
+          "block_hash": "0x8d8fa5bd2b95386a54b2bf1da822153f9fe5e26d11f301232d824176550194d2",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-valid-9.rlp",
+          "wait_for_caches": true,
+          "block_number": 9,
+          "block_hash": "0x9a114e70e21e646d03f1242c49ce9ed1660e0cc0a6d140ff494f899602dfab3c",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-valid-9.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x9a114e70e21e646d03f1242c49ce9ed1660e0cc0a6d140ff494f899602dfab3c",
+              "safeBlockHash": "0x9a114e70e21e646d03f1242c49ce9ed1660e0cc0a6d140ff494f899602dfab3c",
+              "finalizedBlockHash": "0x9a114e70e21e646d03f1242c49ce9ed1660e0cc0a6d140ff494f899602dfab3c"
+            }
+          ],
+          "block_number": 9,
+          "block_hash": "0x9a114e70e21e646d03f1242c49ce9ed1660e0cc0a6d140ff494f899602dfab3c",
+          "expected_status": "VALID"
+        }
+      ],
+      "test": [
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-valid-10.rlp",
+          "wait_for_caches": true,
+          "block_number": 10,
+          "block_hash": "0xf8be1c0fcd18b569ded5a1672ec2d4324df671a140f96d3257d9921d5bd3ce05",
+          "gas_used": 10000000,
+          "transaction_count": 1,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-valid-10.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xf8be1c0fcd18b569ded5a1672ec2d4324df671a140f96d3257d9921d5bd3ce05",
+              "safeBlockHash": "0xf8be1c0fcd18b569ded5a1672ec2d4324df671a140f96d3257d9921d5bd3ce05",
+              "finalizedBlockHash": "0xf8be1c0fcd18b569ded5a1672ec2d4324df671a140f96d3257d9921d5bd3ce05"
+            }
+          ],
+          "block_number": 10,
+          "block_hash": "0xf8be1c0fcd18b569ded5a1672ec2d4324df671a140f96d3257d9921d5bd3ce05",
+          "expected_status": "VALID"
+        }
+      ]
+    },
+    {
+      "name": "tests/benchmark/compute/precompile/test_p256verify.py::test_p256verify[fork_Osaka-benchmark_test-p256verify_wrong_endianness-benchmark-gas-value_10M]",
+      "description": "EEST Osaka P-256 verify 10M wrong-endianness workload regenerated on Tempo",
+      "tags": [
+        "eest",
+        "ethereum-derived",
+        "tempo-normalized",
+        "merged-suite"
+      ],
+      "metadata": {
+        "capture_before_block": "4",
+        "capture_after_block": "12",
+        "measured_block": "10",
+        "source_suite": "eest-osaka-p256verify-10m-wrong-endianness",
+        "suite_segment": "1",
+        "suite_segment_start": "true"
+      },
+      "setup": [
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-1.rlp",
+          "wait_for_caches": true,
+          "block_number": 1,
+          "block_hash": "0x14b7433da80ccfef96b0147472ca7179ab964f23d9638864769d029cb49ab7e2",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-1.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x14b7433da80ccfef96b0147472ca7179ab964f23d9638864769d029cb49ab7e2",
+              "safeBlockHash": "0x14b7433da80ccfef96b0147472ca7179ab964f23d9638864769d029cb49ab7e2",
+              "finalizedBlockHash": "0x14b7433da80ccfef96b0147472ca7179ab964f23d9638864769d029cb49ab7e2"
+            }
+          ],
+          "block_number": 1,
+          "block_hash": "0x14b7433da80ccfef96b0147472ca7179ab964f23d9638864769d029cb49ab7e2",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-2.rlp",
+          "wait_for_caches": true,
+          "block_number": 2,
+          "block_hash": "0xee6f056e7d45a151f05d75723573ba434c4057309c2e4a2cdd0012fd46162505",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-2.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xee6f056e7d45a151f05d75723573ba434c4057309c2e4a2cdd0012fd46162505",
+              "safeBlockHash": "0xee6f056e7d45a151f05d75723573ba434c4057309c2e4a2cdd0012fd46162505",
+              "finalizedBlockHash": "0xee6f056e7d45a151f05d75723573ba434c4057309c2e4a2cdd0012fd46162505"
+            }
+          ],
+          "block_number": 2,
+          "block_hash": "0xee6f056e7d45a151f05d75723573ba434c4057309c2e4a2cdd0012fd46162505",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-3.rlp",
+          "wait_for_caches": true,
+          "block_number": 3,
+          "block_hash": "0xe50eeefb069bea72ccb5450fc5fcf238acd6b8865e0ed7a1c7f5f46d4dda8419",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-3.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xe50eeefb069bea72ccb5450fc5fcf238acd6b8865e0ed7a1c7f5f46d4dda8419",
+              "safeBlockHash": "0xe50eeefb069bea72ccb5450fc5fcf238acd6b8865e0ed7a1c7f5f46d4dda8419",
+              "finalizedBlockHash": "0xe50eeefb069bea72ccb5450fc5fcf238acd6b8865e0ed7a1c7f5f46d4dda8419"
+            }
+          ],
+          "block_number": 3,
+          "block_hash": "0xe50eeefb069bea72ccb5450fc5fcf238acd6b8865e0ed7a1c7f5f46d4dda8419",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-4.rlp",
+          "wait_for_caches": true,
+          "block_number": 4,
+          "block_hash": "0x70b0d8fd112cd5204c5dbfaa45ce4f170a55a11d921fe0e52170d975fce7d313",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-4.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x70b0d8fd112cd5204c5dbfaa45ce4f170a55a11d921fe0e52170d975fce7d313",
+              "safeBlockHash": "0x70b0d8fd112cd5204c5dbfaa45ce4f170a55a11d921fe0e52170d975fce7d313",
+              "finalizedBlockHash": "0x70b0d8fd112cd5204c5dbfaa45ce4f170a55a11d921fe0e52170d975fce7d313"
+            }
+          ],
+          "block_number": 4,
+          "block_hash": "0x70b0d8fd112cd5204c5dbfaa45ce4f170a55a11d921fe0e52170d975fce7d313",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-5.rlp",
+          "wait_for_caches": true,
+          "block_number": 5,
+          "block_hash": "0xeb8e52ee5fd1cc22b10f6113e0a146ad9630496fa0a04587b565a1a4a0f7d3e8",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-5.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xeb8e52ee5fd1cc22b10f6113e0a146ad9630496fa0a04587b565a1a4a0f7d3e8",
+              "safeBlockHash": "0xeb8e52ee5fd1cc22b10f6113e0a146ad9630496fa0a04587b565a1a4a0f7d3e8",
+              "finalizedBlockHash": "0xeb8e52ee5fd1cc22b10f6113e0a146ad9630496fa0a04587b565a1a4a0f7d3e8"
+            }
+          ],
+          "block_number": 5,
+          "block_hash": "0xeb8e52ee5fd1cc22b10f6113e0a146ad9630496fa0a04587b565a1a4a0f7d3e8",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-6.rlp",
+          "wait_for_caches": true,
+          "block_number": 6,
+          "block_hash": "0xa61740c5f72dfe1362c4da2cb92b9319f55e970fcdde60a5185b96c537ec99ab",
+          "gas_used": 25939174,
+          "transaction_count": 2,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-6.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xa61740c5f72dfe1362c4da2cb92b9319f55e970fcdde60a5185b96c537ec99ab",
+              "safeBlockHash": "0xa61740c5f72dfe1362c4da2cb92b9319f55e970fcdde60a5185b96c537ec99ab",
+              "finalizedBlockHash": "0xa61740c5f72dfe1362c4da2cb92b9319f55e970fcdde60a5185b96c537ec99ab"
+            }
+          ],
+          "block_number": 6,
+          "block_hash": "0xa61740c5f72dfe1362c4da2cb92b9319f55e970fcdde60a5185b96c537ec99ab",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-7.rlp",
+          "wait_for_caches": true,
+          "block_number": 7,
+          "block_hash": "0xff2db39321fd2a095c6ac4cf96b1ef344c18f675bb5aa783063face6b01a7060",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-7.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xff2db39321fd2a095c6ac4cf96b1ef344c18f675bb5aa783063face6b01a7060",
+              "safeBlockHash": "0xff2db39321fd2a095c6ac4cf96b1ef344c18f675bb5aa783063face6b01a7060",
+              "finalizedBlockHash": "0xff2db39321fd2a095c6ac4cf96b1ef344c18f675bb5aa783063face6b01a7060"
+            }
+          ],
+          "block_number": 7,
+          "block_hash": "0xff2db39321fd2a095c6ac4cf96b1ef344c18f675bb5aa783063face6b01a7060",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-8.rlp",
+          "wait_for_caches": true,
+          "block_number": 8,
+          "block_hash": "0xec1c7d1609ae6350836247a3e09929171b82191c4713591e79bc9dc4c2f898b0",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-8.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xec1c7d1609ae6350836247a3e09929171b82191c4713591e79bc9dc4c2f898b0",
+              "safeBlockHash": "0xec1c7d1609ae6350836247a3e09929171b82191c4713591e79bc9dc4c2f898b0",
+              "finalizedBlockHash": "0xec1c7d1609ae6350836247a3e09929171b82191c4713591e79bc9dc4c2f898b0"
+            }
+          ],
+          "block_number": 8,
+          "block_hash": "0xec1c7d1609ae6350836247a3e09929171b82191c4713591e79bc9dc4c2f898b0",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-9.rlp",
+          "wait_for_caches": true,
+          "block_number": 9,
+          "block_hash": "0x0b26e7878a61120fa2b8263c493d7fece6dd387d322a48bb3ed0d68301390c1c",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-9.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x0b26e7878a61120fa2b8263c493d7fece6dd387d322a48bb3ed0d68301390c1c",
+              "safeBlockHash": "0x0b26e7878a61120fa2b8263c493d7fece6dd387d322a48bb3ed0d68301390c1c",
+              "finalizedBlockHash": "0x0b26e7878a61120fa2b8263c493d7fece6dd387d322a48bb3ed0d68301390c1c"
+            }
+          ],
+          "block_number": 9,
+          "block_hash": "0x0b26e7878a61120fa2b8263c493d7fece6dd387d322a48bb3ed0d68301390c1c",
+          "expected_status": "VALID"
+        }
+      ],
+      "test": [
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-10.rlp",
+          "wait_for_caches": true,
+          "block_number": 10,
+          "block_hash": "0x5df6876a5277333eed9ab44a4fdf6e75aa0cfda38391807785d958e76b73f099",
+          "gas_used": 10000000,
+          "transaction_count": 1,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-wrong-endianness-10.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x5df6876a5277333eed9ab44a4fdf6e75aa0cfda38391807785d958e76b73f099",
+              "safeBlockHash": "0x5df6876a5277333eed9ab44a4fdf6e75aa0cfda38391807785d958e76b73f099",
+              "finalizedBlockHash": "0x5df6876a5277333eed9ab44a4fdf6e75aa0cfda38391807785d958e76b73f099"
+            }
+          ],
+          "block_number": 10,
+          "block_hash": "0x5df6876a5277333eed9ab44a4fdf6e75aa0cfda38391807785d958e76b73f099",
+          "expected_status": "VALID"
+        }
+      ]
+    },
+    {
+      "name": "tests/benchmark/compute/precompile/test_p256verify.py::test_p256verify[fork_Osaka-benchmark_test-p256verify_modular_comp_x_coordinate_exceeds_n-benchmark-gas-value_10M]",
+      "description": "EEST Osaka P-256 verify 10M modular-comparison workload regenerated on Tempo",
+      "tags": [
+        "eest",
+        "ethereum-derived",
+        "tempo-normalized",
+        "merged-suite"
+      ],
+      "metadata": {
+        "capture_before_block": "4",
+        "capture_after_block": "12",
+        "measured_block": "10",
+        "source_suite": "eest-osaka-p256verify-10m-modular-comparison",
+        "suite_segment": "2",
+        "suite_segment_start": "true"
+      },
+      "setup": [
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-1.rlp",
+          "wait_for_caches": true,
+          "block_number": 1,
+          "block_hash": "0xd6f4c42f6b5a3d429cd5fc4f39b914c3c7b468b831d29f351875e4f9043e476f",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-1.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xd6f4c42f6b5a3d429cd5fc4f39b914c3c7b468b831d29f351875e4f9043e476f",
+              "safeBlockHash": "0xd6f4c42f6b5a3d429cd5fc4f39b914c3c7b468b831d29f351875e4f9043e476f",
+              "finalizedBlockHash": "0xd6f4c42f6b5a3d429cd5fc4f39b914c3c7b468b831d29f351875e4f9043e476f"
+            }
+          ],
+          "block_number": 1,
+          "block_hash": "0xd6f4c42f6b5a3d429cd5fc4f39b914c3c7b468b831d29f351875e4f9043e476f",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-2.rlp",
+          "wait_for_caches": true,
+          "block_number": 2,
+          "block_hash": "0xcf003fd944843664d89f0cd4477ce3ae5b339543070b90cb414d30859bdf1e04",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-2.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xcf003fd944843664d89f0cd4477ce3ae5b339543070b90cb414d30859bdf1e04",
+              "safeBlockHash": "0xcf003fd944843664d89f0cd4477ce3ae5b339543070b90cb414d30859bdf1e04",
+              "finalizedBlockHash": "0xcf003fd944843664d89f0cd4477ce3ae5b339543070b90cb414d30859bdf1e04"
+            }
+          ],
+          "block_number": 2,
+          "block_hash": "0xcf003fd944843664d89f0cd4477ce3ae5b339543070b90cb414d30859bdf1e04",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-3.rlp",
+          "wait_for_caches": true,
+          "block_number": 3,
+          "block_hash": "0x970e634b925ee7fec07ccf15c146f0811124ccdfbda577f8e27e314d5e1c81c0",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-3.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x970e634b925ee7fec07ccf15c146f0811124ccdfbda577f8e27e314d5e1c81c0",
+              "safeBlockHash": "0x970e634b925ee7fec07ccf15c146f0811124ccdfbda577f8e27e314d5e1c81c0",
+              "finalizedBlockHash": "0x970e634b925ee7fec07ccf15c146f0811124ccdfbda577f8e27e314d5e1c81c0"
+            }
+          ],
+          "block_number": 3,
+          "block_hash": "0x970e634b925ee7fec07ccf15c146f0811124ccdfbda577f8e27e314d5e1c81c0",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-4.rlp",
+          "wait_for_caches": true,
+          "block_number": 4,
+          "block_hash": "0x2b62789bbb35f0c60baa0ee53925d5ebf0c8961101497c6dbf710a062b366b7b",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-4.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x2b62789bbb35f0c60baa0ee53925d5ebf0c8961101497c6dbf710a062b366b7b",
+              "safeBlockHash": "0x2b62789bbb35f0c60baa0ee53925d5ebf0c8961101497c6dbf710a062b366b7b",
+              "finalizedBlockHash": "0x2b62789bbb35f0c60baa0ee53925d5ebf0c8961101497c6dbf710a062b366b7b"
+            }
+          ],
+          "block_number": 4,
+          "block_hash": "0x2b62789bbb35f0c60baa0ee53925d5ebf0c8961101497c6dbf710a062b366b7b",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-5.rlp",
+          "wait_for_caches": true,
+          "block_number": 5,
+          "block_hash": "0x8f1b1deef1af6ce38cb9ad68cb8366befb6ea1335494d58a86fbe6f7df0e12f5",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-5.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x8f1b1deef1af6ce38cb9ad68cb8366befb6ea1335494d58a86fbe6f7df0e12f5",
+              "safeBlockHash": "0x8f1b1deef1af6ce38cb9ad68cb8366befb6ea1335494d58a86fbe6f7df0e12f5",
+              "finalizedBlockHash": "0x8f1b1deef1af6ce38cb9ad68cb8366befb6ea1335494d58a86fbe6f7df0e12f5"
+            }
+          ],
+          "block_number": 5,
+          "block_hash": "0x8f1b1deef1af6ce38cb9ad68cb8366befb6ea1335494d58a86fbe6f7df0e12f5",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-6.rlp",
+          "wait_for_caches": true,
+          "block_number": 6,
+          "block_hash": "0x481d8c27b4b703cdeaca56aec14793d1aee3cd612d2d3d2dfd7258980e49672e",
+          "gas_used": 25939174,
+          "transaction_count": 2,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-6.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x481d8c27b4b703cdeaca56aec14793d1aee3cd612d2d3d2dfd7258980e49672e",
+              "safeBlockHash": "0x481d8c27b4b703cdeaca56aec14793d1aee3cd612d2d3d2dfd7258980e49672e",
+              "finalizedBlockHash": "0x481d8c27b4b703cdeaca56aec14793d1aee3cd612d2d3d2dfd7258980e49672e"
+            }
+          ],
+          "block_number": 6,
+          "block_hash": "0x481d8c27b4b703cdeaca56aec14793d1aee3cd612d2d3d2dfd7258980e49672e",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-7.rlp",
+          "wait_for_caches": true,
+          "block_number": 7,
+          "block_hash": "0xe66286117865f3718c78d012fdc494697b665de5c4a2751399ee3fc7f9070b60",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-7.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xe66286117865f3718c78d012fdc494697b665de5c4a2751399ee3fc7f9070b60",
+              "safeBlockHash": "0xe66286117865f3718c78d012fdc494697b665de5c4a2751399ee3fc7f9070b60",
+              "finalizedBlockHash": "0xe66286117865f3718c78d012fdc494697b665de5c4a2751399ee3fc7f9070b60"
+            }
+          ],
+          "block_number": 7,
+          "block_hash": "0xe66286117865f3718c78d012fdc494697b665de5c4a2751399ee3fc7f9070b60",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-8.rlp",
+          "wait_for_caches": true,
+          "block_number": 8,
+          "block_hash": "0xe0632c0c886369fc31755c4aea4290059dc96795d8856452f2a097e95592fce0",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-8.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xe0632c0c886369fc31755c4aea4290059dc96795d8856452f2a097e95592fce0",
+              "safeBlockHash": "0xe0632c0c886369fc31755c4aea4290059dc96795d8856452f2a097e95592fce0",
+              "finalizedBlockHash": "0xe0632c0c886369fc31755c4aea4290059dc96795d8856452f2a097e95592fce0"
+            }
+          ],
+          "block_number": 8,
+          "block_hash": "0xe0632c0c886369fc31755c4aea4290059dc96795d8856452f2a097e95592fce0",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-9.rlp",
+          "wait_for_caches": true,
+          "block_number": 9,
+          "block_hash": "0xa30adff849b6819443f30426662f61651e78b6852d076f8466dd290427088184",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-9.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xa30adff849b6819443f30426662f61651e78b6852d076f8466dd290427088184",
+              "safeBlockHash": "0xa30adff849b6819443f30426662f61651e78b6852d076f8466dd290427088184",
+              "finalizedBlockHash": "0xa30adff849b6819443f30426662f61651e78b6852d076f8466dd290427088184"
+            }
+          ],
+          "block_number": 9,
+          "block_hash": "0xa30adff849b6819443f30426662f61651e78b6852d076f8466dd290427088184",
+          "expected_status": "VALID"
+        }
+      ],
+      "test": [
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-10.rlp",
+          "wait_for_caches": true,
+          "block_number": 10,
+          "block_hash": "0xed7be58fe9c7fb70cddc837e5be9ca933ced2cc114d06820c02a9dc61fd15ffe",
+          "gas_used": 10000000,
+          "transaction_count": 1,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-modular-comparison-10.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xed7be58fe9c7fb70cddc837e5be9ca933ced2cc114d06820c02a9dc61fd15ffe",
+              "safeBlockHash": "0xed7be58fe9c7fb70cddc837e5be9ca933ced2cc114d06820c02a9dc61fd15ffe",
+              "finalizedBlockHash": "0xed7be58fe9c7fb70cddc837e5be9ca933ced2cc114d06820c02a9dc61fd15ffe"
+            }
+          ],
+          "block_number": 10,
+          "block_hash": "0xed7be58fe9c7fb70cddc837e5be9ca933ced2cc114d06820c02a9dc61fd15ffe",
+          "expected_status": "VALID"
+        }
+      ]
+    },
+    {
+      "name": "tests/benchmark/compute/precompile/test_p256verify.py::test_p256verify_uncachable[fork_Osaka-benchmark_test-p256verify-benchmark-gas-value_10M]",
+      "description": "EEST Osaka P-256 verify 10M uncachable workload regenerated on Tempo",
+      "tags": [
+        "eest",
+        "ethereum-derived",
+        "tempo-normalized",
+        "merged-suite"
+      ],
+      "metadata": {
+        "capture_before_block": "4",
+        "capture_after_block": "12",
+        "measured_block": "10",
+        "source_suite": "eest-osaka-p256verify-10m-uncachable",
+        "suite_segment": "3",
+        "suite_segment_start": "true"
+      },
+      "setup": [
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-uncachable-1.rlp",
+          "wait_for_caches": true,
+          "block_number": 1,
+          "block_hash": "0xe7ff3d901707d7f72f944db6b7670a41859fbbe540e9681483a8ad4012c4558e",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-uncachable-1.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xe7ff3d901707d7f72f944db6b7670a41859fbbe540e9681483a8ad4012c4558e",
+              "safeBlockHash": "0xe7ff3d901707d7f72f944db6b7670a41859fbbe540e9681483a8ad4012c4558e",
+              "finalizedBlockHash": "0xe7ff3d901707d7f72f944db6b7670a41859fbbe540e9681483a8ad4012c4558e"
+            }
+          ],
+          "block_number": 1,
+          "block_hash": "0xe7ff3d901707d7f72f944db6b7670a41859fbbe540e9681483a8ad4012c4558e",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-uncachable-2.rlp",
+          "wait_for_caches": true,
+          "block_number": 2,
+          "block_hash": "0xc73c4cbd061a09402eb2a0972041ce7c0b8139f2bc3088b65b0082bf315678a7",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-uncachable-2.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xc73c4cbd061a09402eb2a0972041ce7c0b8139f2bc3088b65b0082bf315678a7",
+              "safeBlockHash": "0xc73c4cbd061a09402eb2a0972041ce7c0b8139f2bc3088b65b0082bf315678a7",
+              "finalizedBlockHash": "0xc73c4cbd061a09402eb2a0972041ce7c0b8139f2bc3088b65b0082bf315678a7"
+            }
+          ],
+          "block_number": 2,
+          "block_hash": "0xc73c4cbd061a09402eb2a0972041ce7c0b8139f2bc3088b65b0082bf315678a7",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-uncachable-3.rlp",
+          "wait_for_caches": true,
+          "block_number": 3,
+          "block_hash": "0xca0795a14ce7a9003e47bb520891be5b80496602bdb6bcca1f08a39186eb79f6",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-uncachable-3.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xca0795a14ce7a9003e47bb520891be5b80496602bdb6bcca1f08a39186eb79f6",
+              "safeBlockHash": "0xca0795a14ce7a9003e47bb520891be5b80496602bdb6bcca1f08a39186eb79f6",
+              "finalizedBlockHash": "0xca0795a14ce7a9003e47bb520891be5b80496602bdb6bcca1f08a39186eb79f6"
+            }
+          ],
+          "block_number": 3,
+          "block_hash": "0xca0795a14ce7a9003e47bb520891be5b80496602bdb6bcca1f08a39186eb79f6",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-uncachable-4.rlp",
+          "wait_for_caches": true,
+          "block_number": 4,
+          "block_hash": "0x99992a5f3ac37c639999b60414c9a210548486bb43e6d93772cf00d7e6c88f26",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-uncachable-4.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x99992a5f3ac37c639999b60414c9a210548486bb43e6d93772cf00d7e6c88f26",
+              "safeBlockHash": "0x99992a5f3ac37c639999b60414c9a210548486bb43e6d93772cf00d7e6c88f26",
+              "finalizedBlockHash": "0x99992a5f3ac37c639999b60414c9a210548486bb43e6d93772cf00d7e6c88f26"
+            }
+          ],
+          "block_number": 4,
+          "block_hash": "0x99992a5f3ac37c639999b60414c9a210548486bb43e6d93772cf00d7e6c88f26",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-uncachable-5.rlp",
+          "wait_for_caches": true,
+          "block_number": 5,
+          "block_hash": "0x0602485034951ee72fc154aacd99e8eeae716fe71a57e299029926efe90b152c",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-uncachable-5.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x0602485034951ee72fc154aacd99e8eeae716fe71a57e299029926efe90b152c",
+              "safeBlockHash": "0x0602485034951ee72fc154aacd99e8eeae716fe71a57e299029926efe90b152c",
+              "finalizedBlockHash": "0x0602485034951ee72fc154aacd99e8eeae716fe71a57e299029926efe90b152c"
+            }
+          ],
+          "block_number": 5,
+          "block_hash": "0x0602485034951ee72fc154aacd99e8eeae716fe71a57e299029926efe90b152c",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-uncachable-6.rlp",
+          "wait_for_caches": true,
+          "block_number": 6,
+          "block_hash": "0xadb88aad7df9e009101012a4b2e059ca88111126abac34ffc221536bdc44b6c6",
+          "gas_used": 1103012,
+          "transaction_count": 2,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-uncachable-6.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xadb88aad7df9e009101012a4b2e059ca88111126abac34ffc221536bdc44b6c6",
+              "safeBlockHash": "0xadb88aad7df9e009101012a4b2e059ca88111126abac34ffc221536bdc44b6c6",
+              "finalizedBlockHash": "0xadb88aad7df9e009101012a4b2e059ca88111126abac34ffc221536bdc44b6c6"
+            }
+          ],
+          "block_number": 6,
+          "block_hash": "0xadb88aad7df9e009101012a4b2e059ca88111126abac34ffc221536bdc44b6c6",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-uncachable-7.rlp",
+          "wait_for_caches": true,
+          "block_number": 7,
+          "block_hash": "0x3846201c18dc498b781794380c0a834eef4205924bfe5d0fad2352e29083f051",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-uncachable-7.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0x3846201c18dc498b781794380c0a834eef4205924bfe5d0fad2352e29083f051",
+              "safeBlockHash": "0x3846201c18dc498b781794380c0a834eef4205924bfe5d0fad2352e29083f051",
+              "finalizedBlockHash": "0x3846201c18dc498b781794380c0a834eef4205924bfe5d0fad2352e29083f051"
+            }
+          ],
+          "block_number": 7,
+          "block_hash": "0x3846201c18dc498b781794380c0a834eef4205924bfe5d0fad2352e29083f051",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-uncachable-8.rlp",
+          "wait_for_caches": true,
+          "block_number": 8,
+          "block_hash": "0xbd420b3378febb47292b6b023c47021f7723a5288ac15c31e78c82aaffb426f6",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-uncachable-8.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xbd420b3378febb47292b6b023c47021f7723a5288ac15c31e78c82aaffb426f6",
+              "safeBlockHash": "0xbd420b3378febb47292b6b023c47021f7723a5288ac15c31e78c82aaffb426f6",
+              "finalizedBlockHash": "0xbd420b3378febb47292b6b023c47021f7723a5288ac15c31e78c82aaffb426f6"
+            }
+          ],
+          "block_number": 8,
+          "block_hash": "0xbd420b3378febb47292b6b023c47021f7723a5288ac15c31e78c82aaffb426f6",
+          "expected_status": "VALID"
+        },
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-uncachable-9.rlp",
+          "wait_for_caches": true,
+          "block_number": 9,
+          "block_hash": "0xe2be62e8385a761e9080e131c325e69dc94dca92c1f4219504bbfd7ad0b65f14",
+          "gas_used": 0,
+          "transaction_count": 0,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-uncachable-9.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xe2be62e8385a761e9080e131c325e69dc94dca92c1f4219504bbfd7ad0b65f14",
+              "safeBlockHash": "0xe2be62e8385a761e9080e131c325e69dc94dca92c1f4219504bbfd7ad0b65f14",
+              "finalizedBlockHash": "0xe2be62e8385a761e9080e131c325e69dc94dca92c1f4219504bbfd7ad0b65f14"
+            }
+          ],
+          "block_number": 9,
+          "block_hash": "0xe2be62e8385a761e9080e131c325e69dc94dca92c1f4219504bbfd7ad0b65f14",
+          "expected_status": "VALID"
+        }
+      ],
+      "test": [
+        {
+          "rlp_file": "blocks/eest-osaka-p256verify-10m-uncachable-10.rlp",
+          "wait_for_caches": true,
+          "block_number": 10,
+          "block_hash": "0xac80118b13eded5eae6bce95de26c58cf10cfe9952d03bfbcee223e76d38ed36",
+          "gas_used": 9991069,
+          "transaction_count": 1,
+          "expected_status": "VALID",
+          "bal_file": "blocks/eest-osaka-p256verify-10m-uncachable-10.bal"
+        },
+        {
+          "method": "reth_forkchoiceUpdated",
+          "params": [
+            {
+              "headBlockHash": "0xac80118b13eded5eae6bce95de26c58cf10cfe9952d03bfbcee223e76d38ed36",
+              "safeBlockHash": "0xac80118b13eded5eae6bce95de26c58cf10cfe9952d03bfbcee223e76d38ed36",
+              "finalizedBlockHash": "0xac80118b13eded5eae6bce95de26c58cf10cfe9952d03bfbcee223e76d38ed36"
+            }
+          ],
+          "block_number": 10,
+          "block_hash": "0xac80118b13eded5eae6bce95de26c58cf10cfe9952d03bfbcee223e76d38ed36",
+          "expected_status": "VALID"
+        }
+      ]
+    }
+  ]
+}

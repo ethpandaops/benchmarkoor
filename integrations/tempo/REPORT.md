@@ -42,25 +42,27 @@ Inputs:
 
 ## Current shipped suite layout
 
-The repository now ships three self-contained suites:
+The repository now ships four self-contained suites:
 
 | Suite directory | Entries | Source segments | Purpose |
 | --- | ---: | ---: | --- |
-| `integrations/tempo/suites/all` | 968 | 23 | Complete selected runnable corpus: 13 EEST-derived batches, nine Tempo-native TIP-20 suites, and the focused warm point-evaluation case |
+| `integrations/tempo/suites/all` | 972 | 27 | Complete selected runnable corpus, including four independently replayable Osaka P-256 segments |
 | `integrations/tempo/suites/tip20-full-blocks` | 6 | 6 | Focused bundle of only the high-gas TIP-20 full-block workloads |
 | `integrations/tempo/suites/point-evaluation-warm` | 1 | 1 | KZG point-evaluation 10M benchmark with setup precompile warmup plus a 1M setup workload |
+| `integrations/tempo/suites/p256verify` | 4 | 4 | Osaka P-256 verification benchmarks, independently generated from the aggregate genesis |
 
 All shipped manifests keep their required `genesis.json` and block files
 inside their own suite directories. The earlier per-source suite directories
 (`eest`, `tip20`, and `benchmarkoor`) were removed from the checked-in corpus:
 `all` is the canonical broad suite, `tip20-full-blocks` is a convenience
-subset for the large TIP-20 transfer blocks, and `point-evaluation-warm`
-isolates the new warmup precompile check. The aggregate manifests still retain
-the original `source_suite` metadata on every entry.
+subset for the large TIP-20 transfer blocks, `point-evaluation-warm` isolates
+the warmup precompile check, and `p256verify` isolates the Osaka P-256 cases.
+The aggregate manifests still retain the original `source_suite` metadata on
+every entry.
 
 The current `all` manifest intentionally retains 34 namespaced Keccak cases from
 both the instruction-core segment and the isolated Keccak segment. Its unique
-semantic coverage is therefore 933 tests after that known overlap is removed.
+semantic coverage is therefore 937 tests after that known overlap is removed.
 The one-case ADD debugging artifact and obsolete 903-case structural import are
 not included in either shipped suite. ADD is already contained in the arithmetic
 batch; the structural import is deliberately non-executable because its signed

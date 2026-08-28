@@ -61,6 +61,20 @@ def relative_reference(output_path: Path, referenced_path: Path) -> str:
     return os.path.relpath(referenced_path, output_path.parent)
 
 
+def bundled_segment_count(manifest: dict[str, Any]) -> int | None:
+    metadata = manifest.get("metadata", {})
+    if metadata.get("segment_boundary_metadata") != "suite_segment_start":
+        return None
+    raw_count = metadata.get("segment_count")
+    try:
+        count = int(raw_count)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"invalid bundled segment_count {raw_count!r}") from error
+    if count < 1:
+        raise ValueError(f"invalid bundled segment_count {raw_count!r}")
+    return count
+
+
 def rewrite_call_files(
     call: dict[str, Any],
     manifest_path: Path,
@@ -98,9 +112,16 @@ def main() -> None:
 
     tests: list[dict[str, Any]] = []
     source_names: list[str] = []
-    for segment_index, (manifest_path, manifest) in enumerate(loaded):
+    segment_offset = 0
+    for manifest_path, manifest in loaded:
         source_name = manifest["name"]
-        source_names.append(source_name)
+        bundled_segments = bundled_segment_count(manifest)
+        if bundled_segments is None:
+            source_names.append(source_name)
+        else:
+            bundled_names = manifest.get("metadata", {}).get("source_suites", "")
+            names = [name for name in bundled_names.split(",") if name]
+            source_names.extend(names or [source_name])
         if manifest["chain"] != first_chain:
             raise ValueError(f"{manifest_path}: chain configuration differs from first suite")
         if manifest.get("defaults", {}) != first_defaults:
@@ -118,9 +139,23 @@ def main() -> None:
             test["name"] = f"{source_name}::{source_test['name']}"
             test["tags"] = list(dict.fromkeys([*test.get("tags", []), "merged-suite"]))
             metadata = dict(test.get("metadata", {}))
-            metadata["source_suite"] = source_name
-            metadata["suite_segment"] = str(segment_index)
-            if test_index == 0:
+            if bundled_segments is None:
+                metadata["source_suite"] = source_name
+                metadata["suite_segment"] = str(segment_offset)
+            else:
+                try:
+                    bundled_index = int(metadata["suite_segment"])
+                except (KeyError, TypeError, ValueError) as error:
+                    raise ValueError(
+                        f"{manifest_path}: bundled test is missing a valid suite_segment"
+                    ) from error
+                if not 0 <= bundled_index < bundled_segments:
+                    raise ValueError(
+                        f"{manifest_path}: bundled suite_segment {bundled_index} "
+                        f"is outside 0..{bundled_segments - 1}"
+                    )
+                metadata["suite_segment"] = str(segment_offset + bundled_index)
+            if test_index == 0 or metadata.get("suite_segment_start") == "true":
                 metadata["suite_segment_start"] = "true"
             test["metadata"] = metadata
             for phase in ("setup", "test", "cleanup"):
@@ -133,6 +168,7 @@ def main() -> None:
                         args.copy_files,
                     )
             tests.append(test)
+        segment_offset += bundled_segments or 1
 
     output = {
         "format": "tempo-engine-suite/v1",
@@ -153,7 +189,7 @@ def main() -> None:
         "metadata": {
             "measurement": "server_execution_ns",
             "source_suites": ",".join(source_names),
-            "segment_count": str(len(loaded)),
+            "segment_count": str(segment_offset),
             "test_count": str(len(tests)),
             "requires_rollback_strategy": "container-recreate",
             "segment_boundary_metadata": "suite_segment_start",
@@ -168,7 +204,7 @@ def main() -> None:
         json.dumps(
             {
                 "manifest": str(output_path),
-                "segments": len(loaded),
+                "segments": segment_offset,
                 "tests": len(tests),
                 "genesis_sha256": genesis_digest,
             },
