@@ -410,8 +410,18 @@ jobs:
                   datadir_method: copy
                   tests:
                     - tests/benchmark/stateful/bloatnet/test_account_query.py
-                  # Keep the fixture set small for CI (CALLCODE variants only).
-                  filter: test_account_access and CALLCODE
+                  # Keep the fixture set small for CI, and select only the
+                  # variants whose targets this job actually deploys.
+                  #
+                  # A 10 Mgas benchmark walks ~3300 receivers, and the setup
+                  # fill above deploys 10 per mode. At amsterdam each max-size
+                  # deployment costs 40-107 Mgas (create_state_gas), so a
+                  # receiver set that large is not affordable here — the fill
+                  # fails the EXISTING_* variants with
+                  # DeployedAccountVerificationError. The NON_EXISTING_ACCOUNT
+                  # variants need no predeployed state at all, so they fill on
+                  # the advanced datadir and still exercise the whole pipeline.
+                  filter: test_account_access and CALLCODE and NON_EXISTING
                 targets:
                   - name: payload-generator-besu
                     filler_client: besu
