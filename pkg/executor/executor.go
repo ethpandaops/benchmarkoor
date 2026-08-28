@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -826,14 +825,18 @@ func (e *executor) runStepFile(
 ) error {
 	// Use provider if available, otherwise read from file.
 	if step.Provider != nil {
-		return e.runStepLines(ctx, opts, step.Name, step.Provider.Lines(), result,
+		return e.runStepLines(ctx, opts, step.Name, newSliceLineSource(step.Provider.Lines()), result,
 			captureBlockLogs, betweenLineSleep, stepType)
 	}
 
 	return e.runStepFromFile(ctx, opts, step, result, captureBlockLogs, betweenLineSleep, stepType)
 }
 
-// runStepFromFile reads and executes lines from a file.
+// runStepFromFile streams and executes lines from a file.
+//
+// The lines are replayed as they are read. A stateful pre-run bundle can be
+// tens of GB, and collecting one into a []string first cost the runner 56 GiB
+// of RSS on a 46 GiB bundle before the kernel killed it.
 func (e *executor) runStepFromFile(
 	ctx context.Context,
 	opts *ExecuteOptions,
@@ -843,35 +846,14 @@ func (e *executor) runStepFromFile(
 	betweenLineSleep time.Duration,
 	stepType StepType,
 ) error {
-	file, err := os.Open(step.Path)
+	src, err := newFileLineSource(step.Path)
 	if err != nil {
-		return fmt.Errorf("opening step file: %w", err)
+		return err
 	}
 
-	defer func() { _ = file.Close() }()
+	defer func() { _ = src.Close() }()
 
-	reader := bufio.NewReader(file)
-
-	var lines []string
-
-	for {
-		line, err := reader.ReadString('\n')
-		if len(line) > 0 {
-			if trimmed := strings.TrimSpace(line); trimmed != "" {
-				lines = append(lines, trimmed)
-			}
-		}
-
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-
-			return fmt.Errorf("reading step file: %w", err)
-		}
-	}
-
-	return e.runStepLines(ctx, opts, step.Name, lines, result, captureBlockLogs,
+	return e.runStepLines(ctx, opts, step.Name, src, result, captureBlockLogs,
 		betweenLineSleep, stepType)
 }
 
@@ -883,7 +865,7 @@ func (e *executor) runStepLines(
 	ctx context.Context,
 	opts *ExecuteOptions,
 	stepName string,
-	lines []string,
+	src lineSource,
 	result *TestResult,
 	captureBlockLogs bool,
 	betweenLineSleep time.Duration,
@@ -911,7 +893,18 @@ func (e *executor) runStepLines(
 	skipping := opts.SkipUntilBlockNumber > 0 && stepType == StepTypePreRun
 	skippedCount := 0
 
-	for lineNum, line := range lines {
+	total := src.Total()
+
+	for lineNum := 0; ; lineNum++ {
+		line, ok, err := src.Next()
+		if err != nil {
+			return err
+		}
+
+		if !ok {
+			break
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -983,9 +976,9 @@ func (e *executor) runStepLines(
 
 		e.log.WithFields(logrus.Fields{
 			"step":          stepName,
-			"pos":           fmt.Sprintf("%d/%d", lineNum+1, len(lines)),
-			"progress":      fmt.Sprintf("%.1f%%", float64(lineNum+1)*100/float64(len(lines))),
-			"eta":           estimateETA(stepStart, lineNum+1, len(lines)),
+			"pos":           fmt.Sprintf("%d/%d", lineNum+1, total),
+			"progress":      fmt.Sprintf("%.1f%%", float64(lineNum+1)*100/float64(total)),
+			"eta":           estimateETA(stepStart, lineNum+1, total),
 			"method":        method,
 			"duration":      time.Duration(duration),
 			"full_duration": time.Duration(fullDuration),
@@ -1008,7 +1001,7 @@ func (e *executor) runStepLines(
 					"client at %s unreachable for %d consecutive calls (last: %w) — "+
 						"it has most likely exited; abandoning %q at line %d of %d",
 					opts.EngineEndpoint, consecutiveUnreachable, err,
-					stepName, lineNum+1, len(lines),
+					stepName, lineNum+1, total,
 				)
 			}
 		} else {
@@ -1093,7 +1086,7 @@ func (e *executor) runStepLines(
 		}
 
 		// Pace the replay if requested. Skip the wait after the final call.
-		if betweenLineSleep > 0 && lineNum < len(lines)-1 {
+		if betweenLineSleep > 0 && lineNum < total-1 {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
