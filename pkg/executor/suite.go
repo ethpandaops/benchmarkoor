@@ -112,41 +112,29 @@ func ComputeSuiteHash(prepared *PreparedSource) (string, error) {
 
 	// Hash pre-run steps first.
 	for _, f := range prepared.PreRunSteps {
-		content, err := getStepContent(f)
-		if err != nil {
+		if err := hashStepContent(h, f); err != nil {
 			return "", fmt.Errorf("reading pre-run step %s: %w", f.Name, err)
 		}
-
-		h.Write(content)
 	}
 
 	// Hash all test step files.
 	for _, test := range prepared.Tests {
 		if test.Setup != nil {
-			content, err := getStepContent(test.Setup)
-			if err != nil {
+			if err := hashStepContent(h, test.Setup); err != nil {
 				return "", fmt.Errorf("reading setup file %s: %w", test.Setup.Name, err)
 			}
-
-			h.Write(content)
 		}
 
 		if test.Test != nil {
-			content, err := getStepContent(test.Test)
-			if err != nil {
+			if err := hashStepContent(h, test.Test); err != nil {
 				return "", fmt.Errorf("reading test file %s: %w", test.Test.Name, err)
 			}
-
-			h.Write(content)
 		}
 
 		if test.Cleanup != nil {
-			content, err := getStepContent(test.Cleanup)
-			if err != nil {
+			if err := hashStepContent(h, test.Cleanup); err != nil {
 				return "", fmt.Errorf("reading cleanup file %s: %w", test.Cleanup.Name, err)
 			}
-
-			h.Write(content)
 		}
 	}
 
@@ -155,12 +143,32 @@ func ComputeSuiteHash(prepared *PreparedSource) (string, error) {
 }
 
 // getStepContent returns the content of a step, either from provider or file.
-func getStepContent(step *StepFile) ([]byte, error) {
+// hashStepContent streams a step's bytes into h.
+//
+// Reading a step whole is fine for a test fixture and fatal for a pre-run
+// bundle: a stateful build now produces bundles of tens of GB, and a 46 GiB
+// one made this single allocation take the runner to 56 GiB RSS before the
+// kernel killed it. io.Copy feeds the hash the same bytes in the same order,
+// so the digest is unchanged — suites keep their existing hashes.
+func hashStepContent(h io.Writer, step *StepFile) error {
 	if step.Provider != nil {
-		return step.Provider.Content(), nil
+		_, err := h.Write(step.Provider.Content())
+
+		return err
 	}
 
-	return os.ReadFile(step.Path)
+	file, err := os.Open(step.Path)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = file.Close() }()
+
+	if _, err := io.Copy(h, file); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // CreateSuiteOutput creates the suite directory structure with copied files and summary.
