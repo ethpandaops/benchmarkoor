@@ -219,7 +219,7 @@ jobs:
                   - name: payload-generator-besu
                     filler_client: besu
                     # besu image carrying testing_buildBlockV1 (drives fill-stateful).
-                    filler_image: ethpandaops/besu:bal-devnet-7
+                    filler_image: ethpandaops/besu:glamsterdam-devnet-8
                     source_dir: /tmp/benchmarkoor/state-actor/besu
                     genesis: /tmp/benchmarkoor/state-actor/besu/besu-chainspec.json
                     output_dir: /tmp/benchmarkoor/eest-fixtures/besu
@@ -265,7 +265,7 @@ jobs:
                   extra_args: [--Init.BaseDbPath=/data]
                 - id: besu
                   client: besu
-                  image: ethpandaops/besu:bal-devnet-7
+                  image: ethpandaops/besu:glamsterdam-devnet-8
                   extra_args: [--p2p-enabled=true]
 
   # Exercises the pre_runs builder end-to-end: state-actor builds an OSAKA besu
@@ -363,7 +363,7 @@ jobs:
                   - name: pre-run-besu
                     filler_client: besu
                     # besu image carrying testing_buildBlockV1 (drives fill-stateful).
-                    filler_image: ethpandaops/besu:bal-devnet-7
+                    filler_image: ethpandaops/besu:glamsterdam-devnet-8
                     source_dir: /tmp/benchmarkoor/state-actor/besu
                     genesis: /tmp/benchmarkoor/state-actor/besu/besu-chainspec.json
                     output_dir: /tmp/benchmarkoor/pre-runs/besu
@@ -383,7 +383,7 @@ jobs:
                 targets:
                   - name: payload-generator-besu
                     filler_client: besu
-                    filler_image: ethpandaops/besu:bal-devnet-7
+                    filler_image: ethpandaops/besu:glamsterdam-devnet-8
                     # Fill on the pre-run OUTPUT (the advanced datadir), not the raw snapshot.
                     source_dir: /tmp/benchmarkoor/pre-runs/besu
                     genesis: /tmp/benchmarkoor/state-actor/besu/besu-chainspec.json
@@ -423,7 +423,7 @@ jobs:
               instances:
                 - id: besu
                   client: besu
-                  image: ethpandaops/besu:bal-devnet-7
+                  image: ethpandaops/besu:glamsterdam-devnet-8
                   extra_args: [--p2p-enabled=true]
 
       # Same fixtures and the same pre-run bundle as the besu step above, on
@@ -477,4 +477,4 @@ jobs:
               instances:
                 - id: geth
                   client: geth
-                  image: ethpandaops/geth:master
+                  image: ethpandaops/geth:glamsterdam-devnet-8
