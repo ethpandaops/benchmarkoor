@@ -23,6 +23,7 @@ Engine API surface and reports correctness and performance.
   `integrations/tempo/CREATE_SUITES.md`.
 - For EEST-derived Tempo suites, see
   `integrations/tempo/CREATE_SUITES_EEST.md`.
+- For TIP-20 run commands, see `integrations/tempo/RUN_TIP20.md`.
 
 ## Run The Full Suite
 
