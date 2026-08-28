@@ -1599,7 +1599,7 @@ func (c *DBCompactionConfig) SafetySnapshotEnabled() bool {
 }
 
 // EffectiveTimeout returns the per-phase compaction timeout, defaulting to
-// DefaultDBCompactionTimeout when unset or unparseable.
+// DefaultDBCompactionTimeout when unset or unparsable.
 func (c *DBCompactionConfig) EffectiveTimeout() time.Duration {
 	fallback, _ := time.ParseDuration(DefaultDBCompactionTimeout)
 

@@ -890,7 +890,7 @@ func (b *EESTPayloadsBuilder) backfillFillSidecarIfMissing(log logrus.FieldLogge
 }
 
 // eestSHAFromFingerprint recovers the EEST commit recorded in the build
-// fingerprint sidecar, if present ("" when absent/unparseable).
+// fingerprint sidecar, if present ("" when absent/unparsable).
 func eestSHAFromFingerprint(outputDir string) string {
 	data, err := os.ReadFile(filepath.Join(outputDir, buildSidecarFile))
 	if err != nil {
@@ -915,7 +915,7 @@ func eestSHAFromFingerprint(outputDir string) string {
 // failed/errored count from the pytest json report. It is written even after a
 // failed fill (fill-stateful continues through failures and still writes both the
 // fixtures and the reports), so a failed target is still fully described.
-// Best-effort: missing/unparseable reports yield zero counts rather than an error.
+// Best-effort: missing/unparsable reports yield zero counts rather than an error.
 func recordEESTFillResult(t *config.EESTPayloadTarget, eestSHA string) error {
 	result := struct {
 		SourceDir    string `json:"source_dir"`
