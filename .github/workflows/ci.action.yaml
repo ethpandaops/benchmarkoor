@@ -376,7 +376,12 @@ jobs:
                   datadir_method: copy
                   # The snapshot is already at gas_limit, so the gas-bump is a no-op.
                   gas_limit: 300000000
-                  gas_benchmark_values: [10]
+                  # The benchmark value is the block gas limit the fill packs
+                  # transactions into. One amsterdam max-code-size deployment
+                  # costs ~107 Mgas (create_state_gas dominates), so 10 Mgas
+                  # cannot hold a single one. 150 clears it and still fits the
+                  # chain's own 300 Mgas block limit, so no gas-bump ramp runs.
+                  gas_benchmark_values: [150]
                   # Deploy only a handful of receiver contracts so the setup fill
                   # stays tiny for CI (default is 100k).
                   fill_env:
