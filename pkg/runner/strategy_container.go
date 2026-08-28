@@ -1253,7 +1253,22 @@ func (r *runner) promoteSchelkAfterPreRuns(
 
 	// Compact before the promote, so the baseline every per-test recreate
 	// restores from carries the compacted database. One stop, one promote.
-	if mount, ok := datadirMountFor(params.ContainerSpec, spec, params.DataDirCfg); ok {
+	//
+	// A missing datadir mount is an error rather than a skip, matching the ZFS
+	// ready-snapshot path above: the container spec and the datadir config that
+	// name the same target are built together, so a miss means they disagree —
+	// and silently dropping a configured compaction would promote a baseline
+	// the operator believes is compacted.
+	if r.dbCompactionFor(params.Instance, config.DBCompactionBeforeBenchmarks) != nil {
+		mount, ok := datadirMountFor(params.ContainerSpec, spec, params.DataDirCfg)
+		if !ok {
+			return "", false, fmt.Errorf(
+				"db_compaction is configured at %s but the container spec has no"+
+					" datadir mount to compact",
+				config.DBCompactionBeforeBenchmarks,
+			)
+		}
+
 		if _, err := r.compactDatadirForPhase(
 			ctx, params.Instance, spec, config.DBCompactionBeforeBenchmarks,
 			params.RunID, params.ImageName, resultsDir, mount,
