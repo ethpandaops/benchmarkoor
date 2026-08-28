@@ -344,8 +344,8 @@ jobs:
               # persist), and record a replay bundle under the output_dir.
               pre_runs:
                 pull_policy: always
-                eest_repo: https://github.com/LouisTsai-Csie/execution-specs.git
-                eest_ref: full-benchmark-target
+                eest_repo: https://github.com/skylenet/execution-specs.git
+                eest_ref: fix/no-reset-reanchor-start-block
                 config:
                   fork: osaka
                   rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
@@ -369,8 +369,8 @@ jobs:
                     output_dir: /tmp/benchmarkoor/pre-runs/besu
               eest_payloads:
                 pull_policy: always
-                eest_repo: https://github.com/LouisTsai-Csie/execution-specs.git
-                eest_ref: full-benchmark-target
+                eest_repo: https://github.com/skylenet/execution-specs.git
+                eest_ref: fix/no-reset-reanchor-start-block
                 config:
                   fork: osaka
                   rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
