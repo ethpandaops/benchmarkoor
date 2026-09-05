@@ -47,7 +47,6 @@ func (s *nethermindSpec) DefaultCommand() []string {
 		"--Init.AutoDump=None",
 		"--Merge.NewPayloadBlockProcessingTimeout=70000",
 		"--Merge.TerminalTotalDifficulty=0",
-		"--Blocks.CachePrecompilesOnBlockProcessing=false",
 	}
 }
 
