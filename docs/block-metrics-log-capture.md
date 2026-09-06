@@ -31,6 +31,7 @@ For more details on the specification and motivation, see:
 | Client | PR |
 |--------|-----|
 | Geth | [#33655](https://github.com/ethereum/go-ethereum/pull/33655) |
+| Erigon | [#23764](https://github.com/erigontech/erigon/pull/23764) |
 | Reth | [#21237](https://github.com/paradigmxyz/reth/pull/21237) |
 | Besu | [#9660](https://github.com/hyperledger/besu/pull/9660) |
 | Nethermind | [#10288](https://github.com/NethermindEth/nethermind/pull/10288) |
@@ -43,10 +44,10 @@ For more details on the specification and motivation, see:
 | Reth | Stub (pending) |
 | Besu | Stub (pending) |
 | Nethermind | Stub (pending) |
-| Erigon | Stub (pending) |
+| Erigon | Fully supported |
 | Nimbus | Stub (pending) |
 
-The parsing infrastructure (`pkg/blocklog`) supports all clients via the `Parser` interface. Currently only Geth's log format parser is implemented. Other client parsers return no matches until their specific log formats are implemented.
+The parsing infrastructure (`pkg/blocklog`) supports all clients via the `Parser` interface. Parsers marked as stubs return no matches until their specific log formats are implemented.
 
 ## Configuration
 
@@ -55,7 +56,7 @@ To enable block metrics capture, add the appropriate flag to the client's `extra
 ### Geth
 
 ```yaml
-client:
+runner:
   instances:
     - id: geth
       client: geth
@@ -65,6 +66,34 @@ client:
 ```
 
 The `--debug.logslowblock=0` flag sets the threshold to 0 milliseconds, meaning every block execution will emit metrics. Higher values (e.g., `--debug.logslowblock=100`) only log blocks taking longer than that threshold.
+
+### Erigon
+
+Requires an Erigon build that carries the slow block record (see the PR in the
+table above); earlier releases reject the flag and the container will not start.
+
+```yaml
+runner:
+  instances:
+    - id: erigon
+      client: erigon
+      image: erigontech/erigon:main-latest
+      extra_args:
+        - --debug.slow-block-threshold=0
+```
+
+`--debug.slow-block-threshold` takes a duration: `0` emits a record for every
+block, a positive value (e.g. `100ms`) only for blocks at or over it, and the
+default of `-1ns` disables the feature. Setting it also switches on Erigon's
+per-domain read counters, so no separate environment variable is needed.
+
+Without the flag no record is emitted at all. With it, every documented field is
+captured except `state_reads.code_bytes` and `state_writes.code_bytes`, which
+Erigon has no per-block source for and omits rather than reporting as zero.
+
+Both of Erigon's log formats are parsed: the default console line, and
+`--log.json`, which carries the record escaped inside the log entry's own
+`msg` field.
 
 ### Other Clients
 
