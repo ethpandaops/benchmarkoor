@@ -379,6 +379,38 @@ func TestEESTPayloadsBuilder_BuildSkipsPopulatedDir(t *testing.T) {
 	assert.FileExists(t, filepath.Join(dir, eestFillResultFile))
 }
 
+// A build that failed before producing any fixture still leaves its sidecars
+// behind (the fingerprint is now written even when the fill errors). Those must
+// not make the next build skip the target as "already populated".
+func TestEESTPayloadsBuilder_BuildDoesNotSkipSidecarOnlyDir(t *testing.T) {
+	t.Setenv("SCHELK_STATE", filepath.Join(t.TempDir(), "absent.json"))
+
+	dir := t.TempDir()
+	for _, name := range []string{buildSidecarFile, eestFillResultFile} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("{}"), 0o600))
+	}
+
+	cfg := &config.EESTPayloadsConfig{
+		FillImage: "fill:latest",
+		// A local, non-existent repo path keeps the lazy EEST SHA resolution
+		// offline: `git ls-remote` fails immediately instead of hitting the network.
+		EESTRepo: filepath.Join(t.TempDir(), "no-such-repo"),
+		Targets: []config.EESTPayloadTarget{{
+			Name: "compute", FillerClient: "geth", SourceDir: filepath.Join(t.TempDir(), "missing"),
+			OutputDir: dir, Fork: "Osaka", FillerImage: "geth:master",
+			Tests: []string{"tests/benchmark/compute"},
+		}},
+	}
+
+	b := NewEESTPayloadsBuilder(noopLogger(), cfg, "docker", &fakeMgr{}, t.TempDir())
+
+	// Not skipped: it proceeds into the build and fails on the absent source_dir.
+	skipped, err := b.Build(context.Background(), "compute", BuildOptions{})
+	require.Error(t, err)
+	assert.False(t, skipped, "a sidecar-only output_dir must not count as built")
+	assert.Contains(t, err.Error(), "source_dir")
+}
+
 func TestMaterializeAddressStubs(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 
