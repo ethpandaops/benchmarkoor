@@ -43,8 +43,12 @@ type Store interface {
 	ListTestStatsBySuite(
 		ctx context.Context, suiteHash string,
 	) ([]TestStat, error)
+	// ListTestStatsBySuiteRecent returns the per-test stats of each client's
+	// most recent runs. Baseline calibration rows are excluded unless
+	// includeBaseline is set (see IsBaselineTest).
 	ListTestStatsBySuiteRecent(
 		ctx context.Context, suiteHash string, maxRunsPerClient int,
+		includeBaseline bool,
 	) ([]TestStat, error)
 	DeleteTestStatsForRun(ctx context.Context, runID string) error
 
@@ -155,6 +159,18 @@ func (s *store) Start(ctx context.Context) error {
 		if err := s.db.Migrator().DropColumn(&TestStat{}, "steps_json"); err != nil {
 			s.log.WithError(err).Warn("Failed to drop steps_json column")
 		}
+	}
+
+	// Backfill the baseline flag for rows indexed before the column existed.
+	// Idempotent — only rewrites rows still unflagged; new rows are stamped by
+	// the indexer. LOWER() keeps the match aligned with IsBaselineTest on both
+	// SQLite and Postgres.
+	if err := s.db.WithContext(ctx).
+		Model(&TestStat{}).
+		Where("baseline = ? AND LOWER(test_name) LIKE ?",
+			false, "%overhead_baseline_true%").
+		Update("baseline", true).Error; err != nil {
+		s.log.WithError(err).Warn("Failed to backfill test_stats.baseline")
 	}
 
 	s.log.WithField("driver", s.cfg.Driver).
@@ -674,6 +690,7 @@ type clientRunRow struct {
 // which can be millions of rows for large suites.
 func (s *store) ListTestStatsBySuiteRecent(
 	ctx context.Context, suiteHash string, maxRunsPerClient int,
+	includeBaseline bool,
 ) ([]TestStat, error) {
 	// Step 1: lightweight query to get one row per client/run combo. We group by
 	// client and run_id (rather than SELECT DISTINCT over run_start too) so that
@@ -725,11 +742,15 @@ func (s *store) ListTestStatsBySuiteRecent(
 		end := min(i+batchSize, len(runIDs))
 		batch := runIDs[i:end]
 
-		var batchStats []TestStat
-		if err := s.readDB.WithContext(ctx).
+		q := s.readDB.WithContext(ctx).
 			Where("suite_hash = ? AND run_id IN ?",
-				suiteHash, batch).
-			Find(&batchStats).Error; err != nil {
+				suiteHash, batch)
+		if !includeBaseline {
+			q = q.Where("baseline = ?", false)
+		}
+
+		var batchStats []TestStat
+		if err := q.Find(&batchStats).Error; err != nil {
 			return nil, fmt.Errorf(
 				"listing test stats for recent runs: %w", err,
 			)

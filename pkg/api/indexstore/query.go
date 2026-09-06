@@ -62,6 +62,7 @@ var allowedTestStatColumns = map[string]bool{
 	"test_name":      true,
 	"run_id":         true,
 	"client":         true,
+	"baseline":       true,
 	"total_gas_used": true,
 	"total_time_ns":  true,
 	"total_mgas_s":   true,

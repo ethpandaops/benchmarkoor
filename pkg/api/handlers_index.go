@@ -175,8 +175,12 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 
 	maxRuns = max(1, min(200, maxRuns))
 
+	// Baseline calibration tests are excluded from stats by default;
+	// pass include_baseline=true for the raw view.
+	includeBaseline := r.URL.Query().Get("include_baseline") == "true"
+
 	durations, err := s.indexStore.ListTestStatsBySuiteRecent(
-		r.Context(), suiteHash, maxRuns,
+		r.Context(), suiteHash, maxRuns, includeBaseline,
 	)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError,

@@ -3,10 +3,11 @@ import clsx from 'clsx'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
-import type { BlockLogs, RunConfig, RunResult } from '@/api/types'
+import type { BlockLogs, RunConfig } from '@/api/types'
 import { fetchData } from '@/api/client'
 import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { useSuite } from '@/api/hooks/useSuite'
+import { fetchRunResult } from '@/api/hooks/useRunResult'
 import { LoadingState } from '@/components/shared/Spinner'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
@@ -88,10 +89,7 @@ export function ComparePage() {
   const resultQueries = useQueries({
     queries: runIds.map((runId) => ({
       queryKey: ['run', runId, 'result'],
-      queryFn: async () => {
-        const { data } = await fetchData<RunResult>(`runs/${runId}/result.json`)
-        return data ?? null
-      },
+      queryFn: () => fetchRunResult(runId),
       enabled: !!runId,
     })),
   })

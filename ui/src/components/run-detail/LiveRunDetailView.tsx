@@ -14,6 +14,7 @@ import { LiveRunLogPanel } from '@/components/run-detail/LiveRunLogPanel'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useIndex } from '@/api/hooks/useIndex'
 import { formatTimestamp } from '@/utils/date'
+import { withoutBaselineTests } from '@/utils/baselineTests'
 import { formatNumber } from '@/utils/format'
 import { computeLiveEta, formatEtaShort, formatEtaTooltip, formatHoursMinutes, formatClockHoursMinutes } from '@/components/runs/liveEta'
 import { DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
@@ -73,7 +74,7 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
   // been processed yet, so we render it as soon as we have *either* the
   // suite or some completed tests.
   const heatmapTests = useMemo(
-    () => (run.tests ? liveTestsToHeatmapEntries(run.tests) : {}),
+    () => (run.tests ? liveTestsToHeatmapEntries(withoutBaselineTests(run.tests)) : {}),
     [run.tests],
   )
   const showHeatmap =
