@@ -915,6 +915,7 @@ Options for the `container-checkpoint-restore` rollback strategy, nested under `
 | `tmpfs_max_size` | string | 2× `tmpfs_threshold` | Maximum size of the tmpfs mount for checkpoint storage. Same format as `tmpfs_threshold` (e.g., `"16g"`, `"1024m"`). When not set, defaults to twice the `tmpfs_threshold` value. |
 | `wait_after_tcp_drop_connections` | string | `10s` | How long to wait after dropping TCP connections before checkpointing, giving the process time to close file descriptors (Go duration string). |
 | `restart_container` | bool | `false` | Whether to restart the container before taking a CRIU checkpoint. Restarting ensures a clean process state (cold caches, clean DB shutdown). |
+| `restore_in_place` | bool | `false` | Restore the checkpointed container in place between tests instead of importing the checkpoint archive into a fresh container. The checkpoint data is kept in the container's storage directory and the same container (same name, mounts, and IP) is restored repeatedly. This skips the per-test archive extraction and container creation of the export/import path, cutting the restore latency roughly to CRIU's page-restore time (e.g. ~15s → ~3s for an ~8g checkpoint). `tmpfs_threshold` / `tmpfs_max_size` do not apply in this mode. |
 
 ```yaml
 runner:

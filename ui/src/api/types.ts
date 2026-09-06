@@ -312,6 +312,7 @@ export interface CheckpointRestoreStrategyOptions {
   tmpfs_max_size?: string
   wait_after_tcp_drop_connections?: string
   restart_container?: boolean
+  restore_in_place?: boolean
 }
 
 export interface OpcodeExtractionConfig {
