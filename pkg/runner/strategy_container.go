@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
@@ -1221,6 +1222,31 @@ func (r *runner) promoteSchelkAfterPreRuns(
 		log.WithError(syncErr).Warn("Failed to sync before schelk promote")
 	}
 
+	// Optional operator hook between the pre-run and the promote: the client is
+	// stopped, logs are drained and the filesystem is synced, so the datadir is
+	// quiescent. Used for baseline surgery that must be baked into the promoted
+	// virgin - e.g. draining the pathdb journal into the disk layer so no test
+	// inherits journal-resident (RAM-served) state. Gated on an env var rather
+	// than a config key: like BENCHMARKOOR_COMPACT_BETWEEN_STEPS this is a
+	// deliberate methodology switch for the state-DB divergence work, not
+	// upstream behaviour. Failure aborts before the promote - a half-treated
+	// baseline must never replace the golden image.
+	if hookCmd := os.Getenv("BENCHMARKOOR_POST_PRERUN_CMD"); hookCmd != "" {
+		log.WithField("cmd", hookCmd).Warn("BENCHMARKOOR_POST_PRERUN_CMD is set; running it before schelk promote")
+
+		hookStart := time.Now()
+
+		out, hookErr := exec.CommandContext(ctx, "sh", "-c", hookCmd).CombinedOutput()
+		if hookErr != nil {
+			return "", false, fmt.Errorf("post-pre-run hook failed: %w (output: %s)", hookErr, string(out))
+		}
+
+		log.WithFields(logrus.Fields{
+			"elapsed": time.Since(hookStart).Round(time.Millisecond),
+			"output":  lastLines(string(out), 5),
+		}).Info("Post-pre-run hook completed; proceeding to schelk promote")
+	}
+
 	log.Info("Persisting the advanced datadir as the new schelk baseline (`schelk promote`)")
 
 	if err := datadir.SchelkPromote(ctx, r.log); err != nil {
@@ -1278,3 +1304,21 @@ func (r *runner) promoteSchelkAfterPreRuns(
 // with that test; a run of them means the client cannot start at all, and
 // continuing would spend a full RPC timeout per remaining test.
 const maxConsecutiveSetupFailures = 3
+
+// lastLines returns at most n trailing non-empty lines of s joined by " | ",
+// keeping hook output in the run log without flooding it.
+func lastLines(s string, n int) string {
+	var kept []string
+
+	for _, line := range strings.Split(s, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			kept = append(kept, trimmed)
+		}
+	}
+
+	if len(kept) > n {
+		kept = kept[len(kept)-n:]
+	}
+
+	return strings.Join(kept, " | ")
+}
