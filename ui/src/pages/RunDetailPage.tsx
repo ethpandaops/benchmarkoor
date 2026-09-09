@@ -16,7 +16,7 @@ import { FilesPanel } from '@/components/run-detail/FilesPanel'
 import { ResourceUsageCharts } from '@/components/run-detail/ResourceUsageCharts'
 import { TestsTable, type TestSortColumn, type TestSortDirection, type TestStatusFilter } from '@/components/run-detail/TestsTable'
 import { PreRunStepsTable } from '@/components/run-detail/PreRunStepsTable'
-import { TestHeatmap, type SortMode, type GroupMode } from '@/components/run-detail/TestHeatmap'
+import { TestHeatmap, type SortMode, type GroupMode, type ColorMode } from '@/components/run-detail/TestHeatmap'
 import { OpcodeHeatmap } from '@/components/suite-detail/OpcodeHeatmap'
 import { OpcodeDiffPanel, type OpcodeDiffRow } from '@/components/run-detail/OpcodeDiffPanel'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -29,7 +29,16 @@ import { FilterInput } from '@/components/shared/FilterInput'
 import { FacetPanel } from '@/components/shared/FacetPanel'
 import { DimensionInsights } from '@/components/run-detail/DimensionInsights'
 import { TEST_FILTER_HINT, toggleSearchTerm } from '@/utils/eestNameFilter'
-import { DEFAULT_THRESHOLD, MAX_THRESHOLD, MIN_THRESHOLD } from '@/utils/perfThreshold'
+import {
+  DEFAULT_SLOW_MS,
+  DEFAULT_THRESHOLD,
+  MAX_SLOW_MS,
+  MAX_THRESHOLD,
+  MIN_SLOW_MS,
+  MIN_THRESHOLD,
+  SLOW_STEP_MS,
+  formatSlowMs,
+} from '@/utils/perfThreshold'
 import { formatTimestamp, formatDurationSeconds } from '@/utils/date'
 import { formatNumber, formatBytes } from '@/utils/format'
 import { useIndex, useLiveRuns } from '@/api/hooks/useIndex'
@@ -146,7 +155,9 @@ export function RunDetailPage() {
     preRunModal?: string
     heatmapSort?: SortMode
     heatmapGroup?: GroupMode
+    heatmapColor?: ColorMode
     heatmapThreshold?: number
+    slowMs?: number
     steps?: string
     ohFs?: boolean // Opcode Heatmap fullscreen
     blFs?: boolean // Block Logs fullscreen
@@ -158,8 +169,9 @@ export function RunDetailPage() {
   const page = Number(search.page) || 1
   const pageSize = Number(search.pageSize) || 20
   const heatmapThreshold = search.heatmapThreshold ? Number(search.heatmapThreshold) : undefined
+  const slowMs = search.slowMs ? Number(search.slowMs) : undefined
   const stepFilter = parseStepFilter(search.steps)
-  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, preRunModal, heatmapGroup, heatmapSort, ohFs = false, blFs = false, dlModal = false, dlFmt, testStep, testExec } = search
+  const { sortBy = 'order', sortDir = 'asc', q = '', status = 'all', testModal, preRunModal, heatmapGroup, heatmapSort, heatmapColor, ohFs = false, blFs = false, dlModal = false, dlFmt, testStep, testExec } = search
   const activeStepTab = (testStep === 'setup' || testStep === 'cleanup') ? testStep : testStep === 'test' ? testStep : undefined
   const expandedExecRows = testExec ? new Set(testExec.split(',').map(Number).filter(n => !isNaN(n))) : undefined
 
@@ -310,7 +322,9 @@ export function RunDetailPage() {
         testModal,
         preRunModal,
         heatmapSort,
+        heatmapColor,
         heatmapThreshold,
+        slowMs,
         steps: serializeStepFilter(stepFilter),
         ohFs: ohFs || undefined,
         blFs: blFs || undefined,
@@ -368,7 +382,18 @@ export function RunDetailPage() {
   }
 
   const handleHeatmapThresholdChange = (threshold: number) => {
-    updateSearch({ heatmapThreshold: threshold !== 60 ? threshold : undefined })
+    updateSearch({ heatmapThreshold: threshold !== DEFAULT_THRESHOLD ? threshold : undefined })
+  }
+
+  const handleHeatmapColorModeChange = (mode: ColorMode) => {
+    updateSearch({ heatmapColor: mode !== 'mgas' ? mode : undefined })
+  }
+
+  const handleSlowMsChange = (ms: number) => {
+    // Ignore an empty or invalid entry so the control keeps a usable value.
+    if (!Number.isFinite(ms) || ms <= 0) return
+    const rounded = Math.min(MAX_SLOW_MS, Math.round(ms))
+    updateSearch({ slowMs: rounded !== DEFAULT_SLOW_MS ? rounded : undefined })
   }
 
   const handleStepFilterChange = (steps: StepTypeOption[]) => {
@@ -788,6 +813,38 @@ export function RunDetailPage() {
                 </button>
               )}
             </div>
+            <div className="flex shrink-0 items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
+              <span title={`Mark every test with an engine_newPayload call above ${formatSlowMs(slowMs ?? DEFAULT_SLOW_MS)}`}>
+                Slow payload:
+              </span>
+              <input
+                type="range"
+                min={MIN_SLOW_MS}
+                max={MAX_SLOW_MS}
+                step={SLOW_STEP_MS}
+                value={slowMs ?? DEFAULT_SLOW_MS}
+                onChange={(e) => handleSlowMsChange(Number(e.target.value))}
+                className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-fuchsia-500 dark:bg-gray-700"
+              />
+              <input
+                type="number"
+                min={MIN_SLOW_MS / 1000}
+                max={MAX_SLOW_MS / 1000}
+                step={SLOW_STEP_MS / 1000}
+                value={(slowMs ?? DEFAULT_SLOW_MS) / 1000}
+                onChange={(e) => handleSlowMsChange(Number(e.target.value) * 1000)}
+                className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              />
+              <span>s</span>
+              {(slowMs ?? DEFAULT_SLOW_MS) !== DEFAULT_SLOW_MS && (
+                <button
+                  onClick={() => handleSlowMsChange(DEFAULT_SLOW_MS)}
+                  className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
           <div className="overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800">
             <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
@@ -807,13 +864,16 @@ export function RunDetailPage() {
               statusFilter={status}
               searchQuery={q}
               sortMode={heatmapSort}
+              colorMode={heatmapColor}
               threshold={heatmapThreshold}
+              slowMs={slowMs}
               stepFilter={stepFilter}
               postTestRPCCalls={config.instance.post_test_rpc_calls}
               onSelectedTestChange={handleTestModalChange}
               onSortModeChange={handleHeatmapSortChange}
               groupMode={heatmapGroup}
               onGroupModeChange={handleHeatmapGroupChange}
+              onColorModeChange={handleHeatmapColorModeChange}
               onSearchChange={handleSearchChange}
               activeStepTab={activeStepTab}
               onActiveStepTabChange={handleStepTabChange}

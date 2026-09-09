@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Flame, Loader } from 'lucide-react'
-import { DEFAULT_THRESHOLD, MAX_THRESHOLD, MIN_THRESHOLD } from '@/utils/perfThreshold'
+import {
+  DEFAULT_SLOW_MS,
+  DEFAULT_THRESHOLD,
+  MAX_SLOW_MS,
+  MAX_THRESHOLD,
+  MIN_SLOW_MS,
+  MIN_THRESHOLD,
+  SLOW_STEP_MS,
+} from '@/utils/perfThreshold'
 import type { LiveRun, LiveTestStats, TestEntry, AggregatedStats } from '@/api/types'
 import { ClientStat } from '@/components/shared/ClientStat'
 import { JDenticon } from '@/components/shared/JDenticon'
@@ -9,7 +17,7 @@ import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
 import { MetadataLabels } from '@/components/run-detail/MetadataLabels'
 import { GitHubSection } from '@/components/run-detail/GitHubSection'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
-import { TestHeatmap, type SortMode, type GroupMode } from '@/components/run-detail/TestHeatmap'
+import { TestHeatmap, type SortMode, type GroupMode, type ColorMode } from '@/components/run-detail/TestHeatmap'
 import { LiveRunLogPanel } from '@/components/run-detail/LiveRunLogPanel'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useIndex } from '@/api/hooks/useIndex'
@@ -98,6 +106,8 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
   const [heatmapSort, setHeatmapSort] = useState<SortMode>('order')
   const [heatmapGroup, setHeatmapGroup] = useState<GroupMode>('none')
   const [heatmapThreshold, setHeatmapThreshold] = useState<number | undefined>(undefined)
+  const [heatmapColor, setHeatmapColor] = useState<ColorMode>('mgas')
+  const [slowMs, setSlowMs] = useState<number | undefined>(undefined)
 
   // Smoothly tween the live counters between snapshots so users see
   // numbers ticking up rather than jumping. Integer counters are
@@ -326,6 +336,39 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
                 </button>
               )}
             </div>
+            <div className="flex items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
+              <span>Slow payload:</span>
+              <input
+                type="range"
+                min={MIN_SLOW_MS}
+                max={MAX_SLOW_MS}
+                step={SLOW_STEP_MS}
+                value={slowMs ?? DEFAULT_SLOW_MS}
+                onChange={(e) => setSlowMs(Number(e.target.value))}
+                className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-fuchsia-500 dark:bg-gray-700"
+              />
+              <input
+                type="number"
+                min={MIN_SLOW_MS / 1000}
+                max={MAX_SLOW_MS / 1000}
+                step={SLOW_STEP_MS / 1000}
+                value={(slowMs ?? DEFAULT_SLOW_MS) / 1000}
+                onChange={(e) => {
+                  const ms = Number(e.target.value) * 1000
+                  if (Number.isFinite(ms) && ms > 0) setSlowMs(Math.min(MAX_SLOW_MS, Math.round(ms)))
+                }}
+                className="w-16 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              />
+              <span>s</span>
+              {(slowMs ?? DEFAULT_SLOW_MS) !== DEFAULT_SLOW_MS && (
+                <button
+                  onClick={() => setSlowMs(DEFAULT_SLOW_MS)}
+                  className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
           <div className="p-4">
             <TestHeatmap
@@ -336,10 +379,13 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
               stepFilter={DEFAULT_INDEX_STEP_FILTER}
               sortMode={heatmapSort}
               groupMode={heatmapGroup}
+              colorMode={heatmapColor}
               threshold={heatmapThreshold}
+              slowMs={slowMs}
               inProgressTestKey={inProgressKey}
               onSortModeChange={setHeatmapSort}
               onGroupModeChange={setHeatmapGroup}
+              onColorModeChange={setHeatmapColor}
             />
           </div>
         </div>

@@ -17,7 +17,17 @@ import { formatDuration, formatBytes } from '@/utils/format'
 import { EESTInfoContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { OpcodeDiffPanel, type OpcodeDiffRow } from './OpcodeDiffPanel'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
-import { DEFAULT_THRESHOLD, THRESHOLD_COLORS, getColorByThreshold } from '@/utils/perfThreshold'
+import {
+  DEFAULT_SLOW_MS,
+  DEFAULT_THRESHOLD,
+  SLOW_COLOR,
+  THRESHOLD_COLORS,
+  formatSlowMs,
+  getColorByDuration,
+  getColorByThreshold,
+  isSlowPayload,
+} from '@/utils/perfThreshold'
+import { getPayloadTimes } from '@/utils/payloadTime'
 
 // Aggregate stats from selected steps of a test entry
 function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
@@ -88,8 +98,18 @@ function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL
   }
 }
 
-export type SortMode = 'order' | 'mgas' | 'gas'
+export type SortMode = 'order' | 'mgas' | 'gas' | 'duration'
 export type GroupMode = 'none' | 'gas'
+// ColorMode selects the metric behind the tile colours and the
+// distribution histogram: throughput or payload duration.
+export type ColorMode = 'mgas' | 'duration'
+
+const SORT_CAPTIONS: Record<SortMode, string> = {
+  order: '(by execution order)',
+  mgas: '(by MGas/s, slowest first)',
+  gas: '(by gas used, most first)',
+  duration: '(by slowest payload, longest first)',
+}
 
 const GAS_GROUP_STEP = 30_000_000 // 30M gas per group
 
@@ -118,7 +138,10 @@ interface TestHeatmapProps {
   searchQuery?: string
   sortMode?: SortMode
   groupMode?: GroupMode
+  colorMode?: ColorMode
   threshold?: number
+  /** Slow-payload limit in milliseconds. Marks the tiles above it. */
+  slowMs?: number
   stepFilter?: StepTypeOption[]
   postTestRPCCalls?: PostTestRPCCallConfig[]
   // inProgressTestKey, when set, marks one tile to pulse blue
@@ -129,6 +152,7 @@ interface TestHeatmapProps {
   onSelectedTestChange?: (testName: string | undefined) => void
   onSortModeChange?: (mode: SortMode) => void
   onGroupModeChange?: (mode: GroupMode) => void
+  onColorModeChange?: (mode: ColorMode) => void
   onSearchChange?: (query: string) => void
   activeStepTab?: 'test' | 'setup' | 'cleanup'
   onActiveStepTabChange?: (tab: 'test' | 'setup' | 'cleanup') => void
@@ -168,6 +192,13 @@ interface TestData {
   mgasPerSec: number
   gasUsedTotal: number
   gasUsedTimeTotal: number
+  // Duration of the slowest engine_newPayload call of the test, and the
+  // number of payloads it aggregates. maxPayloadNs equals
+  // gasUsedTimeTotal when the test has a single payload.
+  maxPayloadNs: number
+  payloadCount: number
+  // isSlow is true when maxPayloadNs is above the slow-payload limit.
+  isSlow: boolean
   hasFail: boolean
   noData: boolean
   // notProcessed is true when the test is part of the suite but no
@@ -256,6 +287,8 @@ function PostTestDumps({ runId, testName, calls }: { runId: string; testName: st
 function HeatmapCell({
   test,
   threshold,
+  slowMs,
+  colorMode,
   statusFilter,
   searchQuery,
   popDelayMs,
@@ -266,6 +299,8 @@ function HeatmapCell({
 }: {
   test: TestData
   threshold: number
+  slowMs: number
+  colorMode: ColorMode
   statusFilter: TestStatusFilter
   searchQuery: string
   // popDelayMs is set when this tile just transitioned from
@@ -296,6 +331,8 @@ function HeatmapCell({
     baseStyle = NOT_PROCESSED_STYLE
   } else if (test.noData) {
     baseStyle = NO_DATA_STYLE
+  } else if (colorMode === 'duration') {
+    baseStyle = { backgroundColor: getColorByDuration(test.maxPayloadNs, slowMs) }
   } else {
     baseStyle = { backgroundColor: getColorByThreshold(test.mgasPerSec, threshold) }
   }
@@ -303,6 +340,13 @@ function HeatmapCell({
     ...baseStyle,
     transition: 'background-color 0.4s ease-out',
     ...(matchesFilter ? {} : { opacity: 0.2 }),
+  }
+
+  // Slow payloads get an inset outline. It sits inside the tile, so it
+  // stays readable next to the red failure ring on a failed test.
+  if (test.isSlow) {
+    style.outline = `2px solid ${SLOW_COLOR}`
+    style.outlineOffset = '-2px'
   }
 
   // Animation precedence: a freshly-popping tile takes priority over
@@ -330,6 +374,43 @@ function HeatmapCell({
   )
 }
 
+// ModeGroup is one labelled pill group of the heatmap controls (sort by,
+// color by, group by).
+function ModeGroup<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: T
+  options: { value: T; label: string; title?: string }[]
+  onChange: (value: T) => void
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs/5 text-gray-500 dark:text-gray-400">{label}</span>
+      <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            title={option.title}
+            className={clsx(
+              'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+              value === option.value
+                ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function TooltipFilename({ name }: { name: string }) {
   return (
     <div className="w-96 max-w-[80vw]">
@@ -349,7 +430,9 @@ export function TestHeatmap({
   searchQuery = '',
   sortMode: sortModeProp,
   groupMode: groupModeProp,
+  colorMode: colorModeProp,
   threshold: thresholdProp,
+  slowMs: slowMsProp,
   stepFilter = ALL_STEP_TYPES,
   postTestRPCCalls,
   inProgressTestKey,
@@ -357,6 +440,7 @@ export function TestHeatmap({
   onSearchChange,
   onSortModeChange,
   onGroupModeChange,
+  onColorModeChange,
   activeStepTab: activeStepTabProp,
   onActiveStepTabChange,
   expandedExecRows,
@@ -364,7 +448,9 @@ export function TestHeatmap({
 }: TestHeatmapProps) {
   const sortMode = sortModeProp ?? 'order'
   const groupMode = groupModeProp ?? 'none'
+  const colorMode = colorModeProp ?? 'mgas'
   const threshold = thresholdProp ?? DEFAULT_THRESHOLD
+  const slowMs = slowMsProp ?? DEFAULT_SLOW_MS
   const [tooltip, setTooltip] = useState<{ test: TestData; x: number; y: number } | null>(null)
   const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
   const [activeStepTabLocal, setActiveStepTabLocal] = useState<'test' | 'setup' | 'cleanup'>('test')
@@ -390,6 +476,10 @@ export function TestHeatmap({
     onGroupModeChange?.(mode)
   }
 
+  const handleColorModeChange = (mode: ColorMode) => {
+    onColorModeChange?.(mode)
+  }
+
   const executionOrder = useMemo(() => {
     if (!suiteTests) return new Map<string, number>()
     return new Map(suiteTests.map((test, index) => [test.name, index + 1]))
@@ -404,10 +494,13 @@ export function TestHeatmap({
     return m
   }, [suiteTests])
 
-  const { testData, minMgas, maxMgas } = useMemo(() => {
+  const { testData, minMgas, maxMgas, minPayloadNs, maxPayloadNs, slowTestCount } = useMemo(() => {
     const data: TestData[] = []
     let minMgas = Infinity
     let maxMgas = -Infinity
+    let minPayloadNs = Infinity
+    let maxPayloadNs = -Infinity
+    let slowTestCount = 0
 
     // Union of suite tests and tests with results, so the heatmap always
     // shows a tile for every planned test in the suite — even if the run
@@ -432,6 +525,9 @@ export function TestHeatmap({
           mgasPerSec: 0,
           gasUsedTotal: 0,
           gasUsedTimeTotal: 0,
+          maxPayloadNs: 0,
+          payloadCount: 0,
+          isSlow: false,
           hasFail: false,
           noData: true,
           notProcessed: true,
@@ -446,10 +542,18 @@ export function TestHeatmap({
       const statsAll = getAggregatedStats(entry, ALL_STEP_TYPES)
       const mgasPerSec = statsFiltered ? calculateMGasPerSec(statsFiltered.gas_used_total, statsFiltered.gas_used_time_total) : undefined
       const noData = mgasPerSec === undefined
+      // Per-payload durations, so a test with several blocks is marked
+      // slow only when a single block is above the limit.
+      const payloads = getPayloadTimes(entry, stepFilter)
+
+      const isSlow = !noData && isSlowPayload(payloads.maxNs, slowMs)
 
       if (!noData) {
         minMgas = Math.min(minMgas, mgasPerSec)
         maxMgas = Math.max(maxMgas, mgasPerSec)
+        minPayloadNs = Math.min(minPayloadNs, payloads.maxNs)
+        maxPayloadNs = Math.max(maxPayloadNs, payloads.maxNs)
+        if (isSlow) slowTestCount++
       }
 
       data.push({
@@ -459,6 +563,9 @@ export function TestHeatmap({
         mgasPerSec: mgasPerSec ?? 0,
         gasUsedTotal: statsFiltered?.gas_used_total ?? 0,
         gasUsedTimeTotal: statsFiltered?.gas_used_time_total ?? 0,
+        maxPayloadNs: payloads.maxNs,
+        payloadCount: payloads.count,
+        isSlow,
         hasFail: statsAll ? statsAll.fail > 0 : false,
         noData,
         notProcessed: false,
@@ -467,9 +574,11 @@ export function TestHeatmap({
 
     if (minMgas === Infinity) minMgas = 0
     if (maxMgas === -Infinity) maxMgas = 0
+    if (minPayloadNs === Infinity) minPayloadNs = 0
+    if (maxPayloadNs === -Infinity) maxPayloadNs = 0
 
-    return { testData: data, minMgas, maxMgas }
-  }, [tests, suiteTests, executionOrder, stepFilter])
+    return { testData: data, minMgas, maxMgas, minPayloadNs, maxPayloadNs, slowTestCount }
+  }, [tests, suiteTests, executionOrder, stepFilter, slowMs])
 
   // Animate tiles that just transitioned from "not processed" to having
   // a result by giving each one a staggered pop-in. We diff against the
@@ -529,6 +638,8 @@ export function TestHeatmap({
       sorted.sort((a, b) => a.order - b.order)
     } else if (sortMode === 'gas') {
       sorted.sort((a, b) => b.gasUsedTotal - a.gasUsedTotal) // most gas first
+    } else if (sortMode === 'duration') {
+      sorted.sort((a, b) => b.maxPayloadNs - a.maxPayloadNs) // slowest payload first
     } else {
       sorted.sort((a, b) => a.mgasPerSec - b.mgasPerSec) // slowest first
     }
@@ -575,16 +686,22 @@ export function TestHeatmap({
     })
   }, [testData, statusFilter, searchQuery])
 
+  // Distribution bins for the active colour mode. Both metrics use the
+  // same multiples of their limit, so the chart keeps its shape: in
+  // MGas/s mode the slow tests sit on the left, in Duration mode on the
+  // right, because a long payload is a bad one.
   const histogramData = useMemo(() => {
     const testsWithData = filteredTestData.filter((t) => !t.noData)
     if (testsWithData.length === 0) return []
 
-    // Create bins based on threshold: 0, 0.25x, 0.5x, 0.75x, 1x, 1.25x, 1.5x, 1.75x, 2x, 2.5x, 3x+
+    // Create bins based on the limit: 0, 0.25x, 0.5x, 0.75x, 1x, 1.25x, 1.5x, 1.75x, 2x, 2.5x, 3x+
     const binMultipliers = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
     const bins = Array(binMultipliers.length).fill(0)
+    const limit = colorMode === 'duration' ? slowMs * 1_000_000 : threshold
 
     for (const test of testsWithData) {
-      const ratio = test.mgasPerSec / threshold
+      const value = colorMode === 'duration' ? test.maxPayloadNs : test.mgasPerSec
+      const ratio = value / limit
       let binIndex = binMultipliers.findIndex((_, i) => {
         const next = binMultipliers[i + 1]
         return next === undefined ? true : ratio < next
@@ -596,23 +713,35 @@ export function TestHeatmap({
     const maxCount = Math.max(...bins)
     const logMax = Math.log10(maxCount + 1)
     return bins.map((count, i) => {
-      const rangeStart = binMultipliers[i] * threshold
-      const rangeEnd = binMultipliers[i + 1] !== undefined ? binMultipliers[i + 1] * threshold : Infinity
+      const rangeStart = binMultipliers[i] * limit
+      const rangeEnd = binMultipliers[i + 1] !== undefined ? binMultipliers[i + 1] * limit : Infinity
       const midpoint = binMultipliers[i + 1] !== undefined
-        ? (binMultipliers[i] + binMultipliers[i + 1]) / 2 * threshold
-        : binMultipliers[i] * 1.25 * threshold
+        ? (binMultipliers[i] + binMultipliers[i + 1]) / 2 * limit
+        : binMultipliers[i] * 1.25 * limit
+      const isLast = binMultipliers[i + 1] === undefined
+      const format = (v: number) => (colorMode === 'duration' ? formatDuration(v) : v.toFixed(0))
       return {
         count,
         height: maxCount > 0 ? (Math.log10(count + 1) / logMax) * 100 : 0,
         rangeStart,
         rangeEnd,
-        label: binMultipliers[i + 1] !== undefined
-          ? `${rangeStart.toFixed(0)}-${rangeEnd.toFixed(0)}`
-          : `${rangeStart.toFixed(0)}+`,
-        color: getColorByThreshold(midpoint, threshold),
+        label: isLast ? `${format(rangeStart)}+` : `${format(rangeStart)}-${format(rangeEnd)}`,
+        color: colorMode === 'duration'
+          ? getColorByDuration(midpoint, slowMs)
+          : getColorByThreshold(midpoint, threshold),
       }
     })
-  }, [filteredTestData, threshold])
+  }, [filteredTestData, threshold, colorMode, slowMs])
+
+  // Slow / fast split for the counters next to the histogram, in the
+  // unit of the active colour mode.
+  const { slowCount, fastCount } = useMemo(() => {
+    const withData = filteredTestData.filter((t) => !t.noData)
+    const slow = colorMode === 'duration'
+      ? withData.filter((t) => t.isSlow).length
+      : withData.filter((t) => t.mgasPerSec < threshold).length
+    return { slowCount: slow, fastCount: withData.length - slow }
+  }, [filteredTestData, colorMode, threshold])
 
   const handleMouseEnter = (test: TestData, event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -643,6 +772,10 @@ export function TestHeatmap({
     onSelectedTestChange?.(testKey)
   }
 
+  const isDurationMode = colorMode === 'duration'
+  // Label of the limit the colours and the histogram scale against.
+  const limitLabel = isDurationMode ? formatSlowMs(slowMs) : `${threshold} MGas/s`
+
   if (testData.length === 0) {
     return (
       <div className="flex h-32 items-center justify-center text-sm/6 text-gray-500 dark:text-gray-400">
@@ -656,87 +789,65 @@ export function TestHeatmap({
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Sort by:</span>
-            <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
-              <button
-                onClick={() => handleSortModeChange('order')}
-                className={clsx(
-                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                  sortMode === 'order'
-                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-                )}
-              >
-                Test #
-              </button>
-              <button
-                onClick={() => handleSortModeChange('mgas')}
-                className={clsx(
-                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                  sortMode === 'mgas'
-                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-                )}
-              >
-                MGas/s
-              </button>
-              <button
-                onClick={() => handleSortModeChange('gas')}
-                className={clsx(
-                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                  sortMode === 'gas'
-                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-                )}
-              >
-                Gas Used
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">Group by:</span>
-            <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
-              <button
-                onClick={() => handleGroupModeChange('none')}
-                className={clsx(
-                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                  groupMode === 'none'
-                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-                )}
-              >
-                None
-              </button>
-              <button
-                onClick={() => handleGroupModeChange('gas')}
-                className={clsx(
-                  'rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
-                  groupMode === 'gas'
-                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
-                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
-                )}
-              >
-                Gas Used
-              </button>
-            </div>
-          </div>
+          <ModeGroup
+            label="Sort by:"
+            value={sortMode}
+            onChange={handleSortModeChange}
+            options={[
+              { value: 'order', label: 'Test #' },
+              { value: 'mgas', label: 'MGas/s' },
+              { value: 'gas', label: 'Gas Used' },
+              { value: 'duration', label: 'Duration', title: 'Slowest engine_newPayload call of the test' },
+            ]}
+          />
+          <ModeGroup
+            label="Color by:"
+            value={colorMode}
+            onChange={handleColorModeChange}
+            options={[
+              { value: 'mgas', label: 'MGas/s', title: `Color against the ${threshold} MGas/s threshold` },
+              { value: 'duration', label: 'Duration', title: `Color against the ${formatSlowMs(slowMs)} slow-payload limit` },
+            ]}
+          />
+          <ModeGroup
+            label="Group by:"
+            value={groupMode}
+            onChange={handleGroupModeChange}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'gas', label: 'Gas Used' },
+            ]}
+          />
         </div>
-        <div className="text-xs/5 text-gray-500 dark:text-gray-400">
-          {(() => {
-            const notProcessed = testData.filter((t) => t.notProcessed).length
-            if (notProcessed > 0) {
-              return `${testData.length - notProcessed}/${testData.length} tests processed | ${minMgas.toFixed(1)} - ${maxMgas.toFixed(1)} MGas/s`
-            }
-            return `${testData.length} tests | ${minMgas.toFixed(1)} - ${maxMgas.toFixed(1)} MGas/s`
-          })()}
+        <div className="flex flex-wrap items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
+          <span>
+            {(() => {
+              const notProcessed = testData.filter((t) => t.notProcessed).length
+              const counts = notProcessed > 0
+                ? `${testData.length - notProcessed}/${testData.length} tests processed`
+                : `${testData.length} tests`
+              const range = colorMode === 'duration'
+                ? `${formatDuration(minPayloadNs)} - ${formatDuration(maxPayloadNs)} per payload`
+                : `${minMgas.toFixed(1)} - ${maxMgas.toFixed(1)} MGas/s`
+              return `${counts} | ${range}`
+            })()}
+          </span>
+          {slowTestCount > 0 && (
+            <span
+              className="rounded-xs px-1.5 py-0.5 font-medium"
+              style={{ backgroundColor: `${SLOW_COLOR}26`, color: SLOW_COLOR }}
+              title={`Tests with an engine_newPayload call above ${formatSlowMs(slowMs)}`}
+            >
+              {slowTestCount} slow
+            </span>
+          )}
         </div>
       </div>
 
       {/* Heatmap Grid */}
       <div className="flex flex-col gap-1">
         <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
-          Tests {sortMode === 'order' ? '(by execution order)' : sortMode === 'gas' ? '(by gas used, most first)' : '(by MGas/s, slowest first)'}
+          Tests {SORT_CAPTIONS[sortMode]}
           {groupMode !== 'none' && ' — grouped by gas used (30M steps)'}
         </div>
         {groupedData ? (
@@ -753,6 +864,8 @@ export function TestHeatmap({
                       key={test.testKey}
                       test={test}
                       threshold={threshold}
+                      slowMs={slowMs}
+                      colorMode={colorMode}
                       statusFilter={statusFilter}
                       searchQuery={searchQuery}
                       popDelayMs={popDelays.get(test.testKey)}
@@ -773,6 +886,8 @@ export function TestHeatmap({
                 key={test.testKey}
                 test={test}
                 threshold={threshold}
+                slowMs={slowMs}
+                colorMode={colorMode}
                 statusFilter={statusFilter}
                 searchQuery={searchQuery}
                 popDelayMs={popDelays.get(test.testKey)}
@@ -788,13 +903,20 @@ export function TestHeatmap({
 
       {/* Histogram */}
       <div className="flex flex-col gap-1">
-        <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">Distribution (by threshold multiples)</div>
+        <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
+          Distribution (by {isDurationMode ? 'slow-limit' : 'threshold'} multiples)
+        </div>
         <div className="flex items-end gap-1">
           <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
-            <span className="text-xs/5 font-medium text-red-600 dark:text-red-400">
-              {filteredTestData.filter((t) => !t.noData && t.mgasPerSec < threshold).length}
+            <span
+              className={clsx(
+                'text-xs/5 font-medium',
+                isDurationMode ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400',
+              )}
+            >
+              {isDurationMode ? fastCount : slowCount}
             </span>
-            <span className="text-xs/5 text-gray-400 dark:text-gray-500">slow</span>
+            <span className="text-xs/5 text-gray-400 dark:text-gray-500">{isDurationMode ? 'fast' : 'slow'}</span>
           </div>
           <div className="relative flex h-16 flex-1 items-end gap-1">
             {histogramData.map((bin, i) => (
@@ -806,42 +928,49 @@ export function TestHeatmap({
                   backgroundColor: bin.color,
                   minHeight: bin.count > 0 ? '2px' : '0',
                 }}
-                title={`${bin.label} MGas/s: ${bin.count} tests`}
+                title={`${bin.label}${isDurationMode ? '' : ' MGas/s'}: ${bin.count} tests`}
               />
             ))}
-            {/* Threshold line - positioned at bin index 4 (1x threshold) */}
+            {/* Limit line - positioned at bin index 4 (1x the limit) */}
             <div
               className="absolute bottom-0 top-0 w-0.5 bg-black dark:bg-white"
               style={{ left: `${(4 / 11) * 100}%` }}
-              title={`Threshold: ${threshold} MGas/s`}
+              title={`${isDurationMode ? 'Slow payload limit' : 'Threshold'}: ${limitLabel}`}
             />
           </div>
           <div className="flex h-16 w-8 shrink-0 flex-col items-center justify-end">
-            <span className="text-xs/5 font-medium text-green-600 dark:text-green-400">
-              {filteredTestData.filter((t) => !t.noData && t.mgasPerSec >= threshold).length}
+            <span
+              className={clsx(
+                'text-xs/5 font-medium',
+                isDurationMode ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400',
+              )}
+            >
+              {isDurationMode ? slowCount : fastCount}
             </span>
-            <span className="text-xs/5 text-gray-400 dark:text-gray-500">fast</span>
+            <span className="text-xs/5 text-gray-400 dark:text-gray-500">{isDurationMode ? 'slow' : 'fast'}</span>
           </div>
         </div>
         <div className="flex justify-between px-9 text-xs/5 text-gray-400 dark:text-gray-500">
           <span>0</span>
-          <span className="font-medium text-yellow-600 dark:text-yellow-400">{threshold} MGas/s (threshold)</span>
-          <span>{threshold * 3}+</span>
+          <span className="font-medium text-yellow-600 dark:text-yellow-400">
+            {limitLabel} ({isDurationMode ? 'limit' : 'threshold'})
+          </span>
+          <span>{isDurationMode ? `${formatSlowMs(slowMs * 3)}+` : `${threshold * 3}+`}</span>
         </div>
       </div>
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
         <span className="flex items-center gap-1">
-          <span>&gt;{threshold * 2}</span>
+          <span>{isDurationMode ? `<${formatSlowMs(slowMs / 2)}` : `>${threshold * 2}`}</span>
           <span className="flex gap-0.5">
             {THRESHOLD_COLORS.map((color, i) => (
               <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
             ))}
           </span>
-          <span>&lt;{threshold / 2}</span>
+          <span>{isDurationMode ? `>${formatSlowMs(slowMs * 2)}` : `<${threshold / 2}`}</span>
         </span>
-        <span className="text-gray-400 dark:text-gray-500">({threshold} MGas/s = yellow)</span>
+        <span className="text-gray-400 dark:text-gray-500">({limitLabel} = yellow)</span>
         <span>
           <span className="mr-1 inline-block size-3 rounded-xs" style={NO_DATA_STYLE} />
           No data
@@ -853,6 +982,13 @@ export function TestHeatmap({
         <span>
           <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-red-500" style={{ backgroundColor: THRESHOLD_COLORS[2] }} />
           Has failures
+        </span>
+        <span title={`A single engine_newPayload call above ${formatSlowMs(slowMs)}`}>
+          <span
+            className="mr-1 inline-block size-3 rounded-xs"
+            style={{ backgroundColor: THRESHOLD_COLORS[2], outline: `2px solid ${SLOW_COLOR}`, outlineOffset: '-2px' }}
+          />
+          Slow payload (&gt;{formatSlowMs(slowMs)})
         </span>
       </div>
 
@@ -882,8 +1018,19 @@ export function TestHeatmap({
             {!tooltip.test.noData && (
               <>
                 <div>Gas used: {(tooltip.test.gasUsedTotal / 1_000_000).toFixed(2)} MGas</div>
-                <div>Gas time: {formatDuration(tooltip.test.gasUsedTimeTotal)}</div>
+                <div>
+                  Gas time: {formatDuration(tooltip.test.gasUsedTimeTotal)}
+                  {tooltip.test.payloadCount > 1 && ` (${tooltip.test.payloadCount} payloads)`}
+                </div>
+                {tooltip.test.payloadCount > 1 && (
+                  <div>Slowest payload: {formatDuration(tooltip.test.maxPayloadNs)}</div>
+                )}
               </>
+            )}
+            {tooltip.test.isSlow && (
+              <div className="font-medium" style={{ color: SLOW_COLOR }}>
+                Slow payload (&gt;{formatSlowMs(slowMs)})
+              </div>
             )}
             <div className="text-gray-500 dark:text-gray-400">Based on steps: {stepFilter.join(', ')}</div>
             <TooltipFilename name={tooltip.test.filename} />
