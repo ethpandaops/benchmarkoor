@@ -8,6 +8,16 @@ import { Pagination } from '@/components/shared/Pagination'
 import { TestName } from '@/components/shared/TestName'
 import { compileQuery, toggleSearchTerm } from '@/utils/eestNameFilter'
 import { type StepTypeOption, ALL_STEP_TYPES } from '@/pages/RunDetailPage'
+import { getPayloadTimes } from '@/utils/payloadTime'
+import { formatDuration } from '@/utils/format'
+import {
+  DEFAULT_SLOW_MS,
+  DEFAULT_THRESHOLD,
+  formatSlowMs,
+  getTextClassByDuration,
+  getTextClassByThreshold,
+  isSlowPayload,
+} from '@/utils/perfThreshold'
 
 export type TestSortColumn = 'order' | 'name' | 'genesis' | 'time' | 'mgas' | 'passed' | 'failed'
 export type TestSortDirection = 'asc' | 'desc'
@@ -71,6 +81,10 @@ interface TestsTableProps {
   searchQuery?: string
   statusFilter?: TestStatusFilter
   stepFilter?: StepTypeOption[]
+  /** Slow-threshold MGas/s (shared with the Performance Heatmap). */
+  threshold?: number
+  /** Slow-payload limit in milliseconds (shared with the Performance Heatmap). */
+  slowMs?: number
   onPageChange?: (page: number) => void
   onPageSizeChange?: (size: number) => void
   onSortChange?: (column: TestSortColumn, direction: TestSortDirection) => void
@@ -138,6 +152,8 @@ export function TestsTable({
   searchQuery = '',
   statusFilter = 'all',
   stepFilter = ALL_STEP_TYPES,
+  threshold = DEFAULT_THRESHOLD,
+  slowMs = DEFAULT_SLOW_MS,
   onPageChange,
   onPageSizeChange,
   onSortChange,
@@ -234,6 +250,13 @@ export function TestsTable({
     })
   }, [tests, searchQuery, statusFilter, genesisFilter, stepFilter, executionOrder, genesisMap, sortBy, sortDir])
 
+  // Tests with a payload above the limit, over the filtered set — the
+  // count explains the tinted rows.
+  const slowCount = useMemo(
+    () => sortedTests.filter(([, entry]) => isSlowPayload(getPayloadTimes(entry, stepFilter).maxNs, slowMs)).length,
+    [sortedTests, stepFilter, slowMs],
+  )
+
   const totalPages = Math.ceil(sortedTests.length / pageSize)
   const paginatedTests = sortedTests.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
@@ -270,6 +293,14 @@ export function TestsTable({
         <h2 className="flex items-center gap-2 text-lg/7 font-semibold text-gray-900 dark:text-gray-100">
           <FlaskConical className="size-5 text-gray-400 dark:text-gray-500" />
           Tests ({sortedTests.length})
+          {slowCount > 0 && (
+            <span
+              className="rounded-xs bg-fuchsia-100 px-1.5 py-0.5 text-xs/5 font-medium text-fuchsia-700 dark:bg-fuchsia-950/50 dark:text-fuchsia-300"
+              title={`Tests with an engine_newPayload call above ${formatSlowMs(slowMs)}`}
+            >
+              {slowCount} slow
+            </span>
+          )}
         </h2>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
@@ -335,12 +366,22 @@ export function TestsTable({
               const statsFiltered = getAggregatedStats(entry, stepFilter)
               // Use all steps for passed/failed columns
               const statsAll = getAggregatedStats(entry, ALL_STEP_TYPES)
+              // Payload times drive the slow marker. The Total Time
+              // column sums every RPC call of the step, so the colour
+              // is a magnitude read and the marker is the exact fact.
+              const payloads = getPayloadTimes(entry, stepFilter)
+              const isSlow = !!statsFiltered && isSlowPayload(payloads.maxNs, slowMs)
 
               return (
                 <tr
                   key={testName}
                   onClick={() => onTestClick?.(testName)}
-                  className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                  className={clsx(
+                    'cursor-pointer transition-colors',
+                    isSlow
+                      ? 'bg-fuchsia-50 hover:bg-fuchsia-100 dark:bg-fuchsia-950/30 dark:hover:bg-fuchsia-950/50'
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
+                  )}
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-sm/6 font-medium text-gray-500 dark:text-gray-400">
                     {executionOrder.get(testName) ?? '-'}
@@ -367,21 +408,38 @@ export function TestsTable({
                     </td>
                   )}
                   <td
-                    className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400"
-                    title={`Based on steps: ${stepFilter.join(', ')}`}
+                    className={clsx(
+                      'whitespace-nowrap px-4 py-3 text-right text-sm/6',
+                      statsFiltered
+                        ? getTextClassByDuration(statsFiltered.time_total, slowMs)
+                        : 'text-gray-500 dark:text-gray-400',
+                    )}
+                    title={statsFiltered
+                      ? `Every RPC call of steps: ${stepFilter.join(', ')} — coloured against the ${formatSlowMs(slowMs)} limit. Slowest payload: ${formatDuration(payloads.maxNs)}${payloads.count > 1 ? ` of ${payloads.count}` : ''}`
+                      : `Based on steps: ${stepFilter.join(', ')}`}
                   >
                     {statsFiltered ? <Duration nanoseconds={statsFiltered.time_total} /> : '-'}
                   </td>
-                  <td
-                    className="whitespace-nowrap px-4 py-3 text-right text-sm/6 text-gray-500 dark:text-gray-400"
-                    title={`Based on steps: ${stepFilter.join(', ')}`}
-                  >
-                    {(() => {
-                      if (!statsFiltered) return '-'
-                      const mgas = calculateMGasPerSec(statsFiltered.gas_used_total, statsFiltered.gas_used_time_total)
-                      return mgas !== undefined ? mgas.toFixed(2) : '-'
-                    })()}
-                  </td>
+                  {(() => {
+                    const mgas = statsFiltered
+                      ? calculateMGasPerSec(statsFiltered.gas_used_total, statsFiltered.gas_used_time_total)
+                      : undefined
+                    return (
+                      <td
+                        className={clsx(
+                          'whitespace-nowrap px-4 py-3 text-right text-sm/6',
+                          mgas !== undefined
+                            ? getTextClassByThreshold(mgas, threshold)
+                            : 'text-gray-500 dark:text-gray-400',
+                        )}
+                        title={mgas !== undefined
+                          ? `Based on steps: ${stepFilter.join(', ')} — coloured against ${threshold} MGas/s`
+                          : `Based on steps: ${stepFilter.join(', ')}`}
+                      >
+                        {mgas !== undefined ? mgas.toFixed(2) : '-'}
+                      </td>
+                    )
+                  })()}
                   <td className="whitespace-nowrap px-4 py-3 text-center">
                     {statsAll && statsAll.fail > 0 && <Badge variant="error">{statsAll.fail}</Badge>}
                   </td>

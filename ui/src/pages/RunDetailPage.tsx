@@ -995,6 +995,8 @@ export function RunDetailPage() {
             searchQuery={q}
             statusFilter={status}
             stepFilter={stepFilter}
+            threshold={heatmapThreshold}
+            slowMs={slowMs}
             onPageChange={handlePageChange}
             onPageSizeChange={handlePageSizeChange}
             onSortChange={handleSortChange}
