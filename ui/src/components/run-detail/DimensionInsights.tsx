@@ -6,7 +6,9 @@ import { parseEESTName } from '@/utils/eestName'
 import { compileQuery, queryTermDimension, searchQueryContains, splitQuery } from '@/utils/eestNameFilter'
 import { type StepTypeOption, ALL_STEP_TYPES, getAggregatedStats } from '@/pages/RunDetailPage'
 import { percentile } from './block-logs-dashboard/utils/statistics'
-import { DEFAULT_THRESHOLD, getColorByThreshold } from '@/utils/perfThreshold'
+import { DEFAULT_SLOW_MS, DEFAULT_THRESHOLD, getColorByDuration, getColorByThreshold } from '@/utils/perfThreshold'
+import { getPayloadTimes } from '@/utils/payloadTime'
+import { formatDuration } from '@/utils/format'
 
 interface DimensionInsightsProps {
   tests: Record<string, TestEntry>
@@ -19,6 +21,8 @@ interface DimensionInsightsProps {
   query: string
   /** Slow-threshold MGas/s (shared with the Performance Heatmap). */
   threshold?: number
+  /** Slow-payload limit in milliseconds (shared with the Performance Heatmap). */
+  slowMs?: number
   /**
    * Open the test detail modal for a specific test. When provided and the
    * user clicks a not-yet-active value with only one matching test, the
@@ -46,13 +50,24 @@ const TRAILING_DIMENSIONS: DimensionDef[] = [
 // they're filtering by.
 const BARS_PREVIEW_KEYS = new Set(['file', 'benchmark'])
 
-interface ValueAgg {
-  value: string
-  count: number
+// Metric selects the number behind the bars and the table: throughput,
+// or the duration of the slowest payload of a test.
+type Metric = 'mgas' | 'duration'
+
+interface MetricAgg {
   mean: number
   p50: number
   p95: number
   p99: number
+}
+
+interface ValueAgg {
+  value: string
+  count: number
+  /** MGas/s stats. */
+  mgas: MetricAgg
+  /** Slowest-payload stats, in nanoseconds. */
+  duration: MetricAgg
   /** When count === 1, the single test's name. Used for "click to open". */
   singleTestName?: string
 }
@@ -67,6 +82,17 @@ function calculateMGasPerSec(gas: number, timeNs: number): number | undefined {
   return (gas * 1000) / timeNs
 }
 
+// aggregate rolls one metric's samples into mean and percentiles.
+function aggregate(samples: number[]): MetricAgg {
+  const sorted = [...samples].sort((a, b) => a - b)
+  return {
+    mean: sorted.reduce((sum, v) => sum + v, 0) / sorted.length,
+    p50: percentile(sorted, 50),
+    p95: percentile(sorted, 95),
+    p99: percentile(sorted, 99),
+  }
+}
+
 function compareNumeric(a: string, b: string): number {
   const na = parseInt(a, 10)
   const nb = parseInt(b, 10)
@@ -76,7 +102,7 @@ function compareNumeric(a: string, b: string): number {
   return a.localeCompare(b)
 }
 
-type SortColumn = 'value' | 'count' | 'mean' | 'p50' | 'p95' | 'p99'
+type SortColumn = 'value' | 'count' | keyof MetricAgg
 
 export function DimensionInsights({
   tests,
@@ -86,18 +112,22 @@ export function DimensionInsights({
   onToggle,
   query,
   threshold = DEFAULT_THRESHOLD,
+  slowMs = DEFAULT_SLOW_MS,
   onTestClick,
 }: DimensionInsightsProps) {
   const [view, setView] = useState<'bars' | 'table'>('bars')
+  const [metric, setMetric] = useState<Metric>('mgas')
   const [barsDir, setBarsDir] = useState<'desc' | 'asc'>('asc')
   const [showAllBars, setShowAllBars] = useState(false)
   const [groupByKey, setGroupByKey] = useState<string | null>(null)
   const [tableSort, setTableSort] = useState<{ col: SortColumn; dir: 'asc' | 'desc' }>({ col: 'mean', dir: 'desc' })
 
   const dimensions = useMemo<DimensionAgg[]>(() => {
-    // 1. Compute mgas per test, applying the same filter as the heatmap.
+    // 1. Compute the metrics per test, applying the same filter as the
+    //    heatmap. Both are collected in one pass, so the metric toggle
+    //    only picks which set of numbers to render.
     const matchesQuery = searchQuery ? compileQuery(searchQuery) : null
-    const samples: { name: string; mgas: number }[] = []
+    const samples: { name: string; mgas: number; durationNs: number }[] = []
     for (const [name, entry] of Object.entries(tests)) {
       if (matchesQuery && !matchesQuery(name)) continue
       const stats = getAggregatedStats(entry, stepFilter)
@@ -110,15 +140,15 @@ export function DimensionInsights({
       }
       const mgas = calculateMGasPerSec(stats.gas_used_total, stats.gas_used_time_total)
       if (mgas === undefined) continue
-      samples.push({ name, mgas })
+      samples.push({ name, mgas, durationNs: getPayloadTimes(entry, stepFilter).maxNs })
     }
 
-    // 2. Bucket samples by (dimension, value), keeping both the mgas array
+    // 2. Bucket samples by (dimension, value), keeping both metric arrays
     //    and the source test names so a 1-test bucket can deep-link to the
     //    test detail modal on click.
-    type Bucket = { mgas: number[]; names: string[] }
+    type Bucket = { mgas: number[]; durationNs: number[]; names: string[] }
     const byDim = new Map<string, Map<string, Bucket>>()
-    const bump = (dim: string, value: string | undefined, name: string, mgas: number) => {
+    const bump = (dim: string, value: string | undefined, sample: (typeof samples)[number]) => {
       if (!value) return
       let inner = byDim.get(dim)
       if (!inner) {
@@ -127,22 +157,23 @@ export function DimensionInsights({
       }
       let bucket = inner.get(value)
       if (!bucket) {
-        bucket = { mgas: [], names: [] }
+        bucket = { mgas: [], durationNs: [], names: [] }
         inner.set(value, bucket)
       }
-      bucket.mgas.push(mgas)
-      bucket.names.push(name)
+      bucket.mgas.push(sample.mgas)
+      bucket.durationNs.push(sample.durationNs)
+      bucket.names.push(sample.name)
     }
     for (const s of samples) {
       const p = parseEESTName(s.name)
       if (!p.isEEST) continue
-      bump('file', p.file, s.name, s.mgas)
-      bump('fn', p.fn, s.name, s.mgas)
-      bump('benchmark', p.benchmark, s.name, s.mgas)
-      bump('opcode', p.opcode, s.name, s.mgas)
-      bump('fork', p.fork, s.name, s.mgas)
-      for (const { key, value } of p.params) bump(key, value, s.name, s.mgas)
-      for (const label of p.labels) bump('label', label, s.name, s.mgas)
+      bump('file', p.file, s)
+      bump('fn', p.fn, s)
+      bump('benchmark', p.benchmark, s)
+      bump('opcode', p.opcode, s)
+      bump('fork', p.fork, s)
+      for (const { key, value } of p.params) bump(key, value, s)
+      for (const label of p.labels) bump('label', label, s)
     }
 
     // 3. Order dimensions: canonical primary + discovered params (alpha) + trailing.
@@ -166,15 +197,11 @@ export function DimensionInsights({
 
       const values: ValueAgg[] = []
       for (const [value, bucket] of inner) {
-        const sorted = [...bucket.mgas].sort((a, b) => a - b)
-        const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length
         values.push({
           value,
-          count: sorted.length,
-          mean,
-          p50: percentile(sorted, 50),
-          p95: percentile(sorted, 95),
-          p99: percentile(sorted, 99),
+          count: bucket.names.length,
+          mgas: aggregate(bucket.mgas),
+          duration: aggregate(bucket.durationNs),
           singleTestName: bucket.names.length === 1 ? bucket.names[0] : undefined,
         })
       }
@@ -194,9 +221,10 @@ export function DimensionInsights({
     const sign = dir === 'asc' ? 1 : -1
     return [...tableDim.values].sort((a, b) => {
       if (col === 'value') return sign * compareNumeric(a.value, b.value)
-      return sign * (a[col] - b[col])
+      if (col === 'count') return sign * (a.count - b.count)
+      return sign * (a[metric][col] - b[metric][col])
     })
-  }, [tableDim, tableSort])
+  }, [tableDim, tableSort, metric])
 
   const handleSort = (col: SortColumn) => {
     setTableSort((prev) => {
@@ -208,6 +236,13 @@ export function DimensionInsights({
   // The page filter terms feeding this breakdown. Free-text terms (no `:`
   // or `=`) are kept too — they also affect what's counted.
   const activeTerms = splitQuery(query)
+
+  const isDuration = metric === 'duration'
+  // Render one metric value: a duration carries its own unit, MGas/s
+  // does not, so the unit goes in the labels around it.
+  const formatValue = (v: number) => (isDuration ? formatDuration(v) : v.toFixed(1))
+  const metricColor = (v: number) => (isDuration ? getColorByDuration(v, slowMs) : getColorByThreshold(v, threshold))
+  const unitSuffix = isDuration ? '' : ' MGas/s'
 
   return (
     <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
@@ -261,16 +296,38 @@ export function DimensionInsights({
                   </button>
                 ))}
               </div>
+              <div className="flex items-center gap-1 rounded-xs bg-gray-100 p-0.5 dark:bg-gray-700">
+                {(['mgas', 'duration'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMetric(m)}
+                    title={
+                      m === 'mgas'
+                        ? 'Break down the MGas/s of each test'
+                        : 'Break down the duration of the slowest payload of each test'
+                    }
+                    className={clsx(
+                      'cursor-pointer rounded-xs px-2 py-1 text-xs/5 font-medium transition-colors',
+                      metric === m
+                        ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                    )}
+                  >
+                    {m === 'mgas' ? 'MGas/s' : 'Duration'}
+                  </button>
+                ))}
+              </div>
               {view === 'bars' && (
                 <button
                   type="button"
                   onClick={() => setBarsDir(barsDir === 'desc' ? 'asc' : 'desc')}
-                  title={barsDir === 'desc' ? 'Click to sort slowest first' : 'Click to sort fastest first'}
+                  title={`Click to sort ${barsDir === 'desc' ? (isDuration ? 'fastest' : 'slowest') : (isDuration ? 'slowest' : 'fastest')} first`}
                   className="flex cursor-pointer items-center gap-1 rounded-xs border border-gray-300 bg-white px-2 py-1 text-xs/5 font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-gray-100"
                 >
                   {barsDir === 'desc'
-                    ? <><ChevronDown className="size-3.5" /> Fastest first</>
-                    : <><ChevronUp className="size-3.5" /> Slowest first</>}
+                    ? <><ChevronDown className="size-3.5" /> {isDuration ? 'Slowest first' : 'Fastest first'}</>
+                    : <><ChevronUp className="size-3.5" /> {isDuration ? 'Fastest first' : 'Slowest first'}</>}
                 </button>
               )}
             </div>
@@ -317,9 +374,9 @@ export function DimensionInsights({
             const visibleDims = showAllBars ? dimensions : previewDims
 
             const renderDim = ({ def, values }: DimensionAgg) => {
-              const max = Math.max(...values.map((v) => v.mean))
+              const max = Math.max(...values.map((v) => v[metric].mean))
               const sign = barsDir === 'desc' ? -1 : 1
-              const sorted = [...values].sort((a, b) => sign * (a.mean - b.mean))
+              const sorted = [...values].sort((a, b) => sign * (a[metric].mean - b[metric].mean))
               return (
                 <div key={def.key} className="flex flex-col gap-1">
                   <div className="text-[10px]/4 font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
@@ -330,7 +387,8 @@ export function DimensionInsights({
                     {sorted.map((v) => {
                       const term = `${def.emitKey}=${v.value}`
                       const active = searchQueryContains(query, term)
-                      const widthPct = max > 0 ? (v.mean / max) * 100 : 0
+                      const mean = v[metric].mean
+                      const widthPct = max > 0 ? (mean / max) * 100 : 0
                       return (
                         <button
                           key={v.value}
@@ -349,8 +407,8 @@ export function DimensionInsights({
                           }}
                           title={
                             !active && v.singleTestName
-                              ? `${def.label}: ${v.value} — open the only matching test (${v.mean.toFixed(1)} MGas/s)`
-                              : `${def.label}: ${v.value} — mean ${v.mean.toFixed(1)} MGas/s, ${v.count} test${v.count === 1 ? '' : 's'}`
+                              ? `${def.label}: ${v.value} — open the only matching test (${formatValue(mean)}${unitSuffix})`
+                              : `${def.label}: ${v.value} — mean ${formatValue(mean)}${unitSuffix}, ${v.count} test${v.count === 1 ? '' : 's'}`
                           }
                           className={clsx(
                             'group grid cursor-pointer grid-cols-[minmax(7rem,12rem)_1fr_auto] items-center gap-2 rounded-xs px-1 py-0.5 text-left text-xs/5 transition-colors',
@@ -365,14 +423,14 @@ export function DimensionInsights({
                               className="absolute inset-y-0 left-0 rounded-xs"
                               style={{
                                 width: `${widthPct}%`,
-                                backgroundColor: getColorByThreshold(v.mean, threshold),
+                                backgroundColor: metricColor(mean),
                                 outline: active ? '1.5px solid #3b82f6' : 'none',
                                 outlineOffset: '0px',
                               }}
                             />
                           </span>
                           <span className="flex shrink-0 items-baseline gap-1.5 font-mono tabular-nums text-gray-600 dark:text-gray-300">
-                            <span>{v.mean.toFixed(1)}</span>
+                            <span>{formatValue(mean)}</span>
                             <span className="text-[10px]/4 text-gray-400 dark:text-gray-500">×{v.count}</span>
                           </span>
                         </button>
@@ -440,10 +498,10 @@ export function DimensionInsights({
                       >
                         <td className="px-2 py-1 font-mono text-gray-700 dark:text-gray-200">{v.value}</td>
                         <td className="px-2 py-1 text-right font-mono tabular-nums text-gray-500 dark:text-gray-400">{v.count}</td>
-                        <td className="px-2 py-1 text-right font-mono tabular-nums text-gray-700 dark:text-gray-200">{v.mean.toFixed(1)}</td>
-                        <td className="px-2 py-1 text-right font-mono tabular-nums text-gray-500 dark:text-gray-400">{v.p50.toFixed(1)}</td>
-                        <td className="px-2 py-1 text-right font-mono tabular-nums text-gray-500 dark:text-gray-400">{v.p95.toFixed(1)}</td>
-                        <td className="px-2 py-1 text-right font-mono tabular-nums text-gray-500 dark:text-gray-400">{v.p99.toFixed(1)}</td>
+                        <td className="px-2 py-1 text-right font-mono tabular-nums text-gray-700 dark:text-gray-200">{formatValue(v[metric].mean)}</td>
+                        <td className="px-2 py-1 text-right font-mono tabular-nums text-gray-500 dark:text-gray-400">{formatValue(v[metric].p50)}</td>
+                        <td className="px-2 py-1 text-right font-mono tabular-nums text-gray-500 dark:text-gray-400">{formatValue(v[metric].p95)}</td>
+                        <td className="px-2 py-1 text-right font-mono tabular-nums text-gray-500 dark:text-gray-400">{formatValue(v[metric].p99)}</td>
                       </tr>
                     )
                   })}

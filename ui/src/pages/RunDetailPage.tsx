@@ -896,6 +896,7 @@ export function RunDetailPage() {
             onToggle={(term) => handleSearchChange(toggleSearchTerm(q, term))}
             onTestClick={handleTestModalChange}
             threshold={heatmapThreshold}
+            slowMs={slowMs}
           />
 
           {mergedSuiteTests && mergedSuiteTests.length > 0 && (
