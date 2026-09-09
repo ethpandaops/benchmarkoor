@@ -2,6 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { BlockLogEntry } from '@/api/types'
 import { formatBytes } from '@/utils/format'
+import {
+  DEFAULT_SLOW_MS,
+  DEFAULT_THRESHOLD,
+  formatSlowMs,
+  getTextClassByDuration,
+  getTextClassByThreshold,
+} from '@/utils/perfThreshold'
 
 function useDarkMode() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
@@ -33,12 +40,15 @@ interface MetricCardProps {
   label: string
   value: string
   subValue?: string
+  /** Colour class for the value. Defaults to the plain text colour. */
+  valueClassName?: string
+  title?: string
 }
 
-function MetricCard({ label, value, subValue }: MetricCardProps) {
+function MetricCard({ label, value, subValue, valueClassName, title }: MetricCardProps) {
   return (
-    <div className="flex flex-col rounded-xs bg-gray-50 px-3 py-2 dark:bg-gray-700/50">
-      <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">{value}</span>
+    <div className="flex flex-col rounded-xs bg-gray-50 px-3 py-2 dark:bg-gray-700/50" title={title}>
+      <span className={valueClassName ?? 'text-lg font-semibold text-gray-900 dark:text-gray-100'}>{value}</span>
       <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
       {subValue && <span className="text-xs text-gray-400 dark:text-gray-500">{subValue}</span>}
     </div>
@@ -71,9 +81,13 @@ function pct(value: number | undefined, total: number | undefined): number {
 
 interface BlockLogDetailsProps {
   blockLog: BlockLogEntry
+  /** Slow-threshold MGas/s the throughput card colours against. */
+  threshold?: number
+  /** Slow-payload limit in milliseconds the total-time card colours against. */
+  slowMs?: number
 }
 
-export function BlockLogDetails({ blockLog }: BlockLogDetailsProps) {
+export function BlockLogDetails({ blockLog, threshold = DEFAULT_THRESHOLD, slowMs = DEFAULT_SLOW_MS }: BlockLogDetailsProps) {
   const isDark = useDarkMode()
 
   const textColor = isDark ? '#e5e7eb' : '#374151'
@@ -391,10 +405,18 @@ export function BlockLogDetails({ blockLog }: BlockLogDetailsProps) {
         <MetricCard
           label="MGas/s"
           value={fmt(throughput?.mgas_per_sec, 1)}
+          valueClassName={throughput?.mgas_per_sec != null
+            ? `text-lg font-semibold ${getTextClassByThreshold(throughput.mgas_per_sec, threshold)}`
+            : undefined}
+          title={throughput?.mgas_per_sec != null ? `Threshold ${threshold} MGas/s` : undefined}
         />
         <MetricCard
           label="Total Time"
           value={timing?.total_ms != null ? `${timing.total_ms.toFixed(1)}ms` : 'N/A'}
+          valueClassName={timing?.total_ms != null
+            ? `text-lg font-semibold ${getTextClassByDuration(timing.total_ms * 1_000_000, slowMs)}`
+            : undefined}
+          title={timing?.total_ms != null ? `Slow-payload limit ${formatSlowMs(slowMs)}` : undefined}
         />
         <MetricCard
           label="Gas Used"

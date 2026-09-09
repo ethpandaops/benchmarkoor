@@ -1,25 +1,45 @@
+import clsx from 'clsx'
 import type { MethodStatsFloat } from '@/api/types'
 import { formatNumber } from '@/utils/format'
+import { DEFAULT_THRESHOLD, getTextClassByThreshold } from '@/utils/perfThreshold'
 
 interface MGasBreakdownProps {
   methods: Record<string, MethodStatsFloat>
+  /** Slow-threshold MGas/s the values colour against. */
+  threshold?: number
 }
 
 function formatMGas(value: number): string {
   return value.toFixed(2)
 }
 
-export function MGasBreakdown({ methods }: MGasBreakdownProps) {
+export function MGasBreakdown({ methods, threshold = DEFAULT_THRESHOLD }: MGasBreakdownProps) {
   const methodEntries = Object.entries(methods).sort(([a], [b]) => a.localeCompare(b))
 
   if (methodEntries.length === 0) {
     return null
   }
 
+  // Each value carries the colour of the step it falls in, so a slow
+  // call stands out without reading the number.
+  const cell = (value: number) => (
+    <td
+      className={clsx('whitespace-nowrap px-3 py-2 text-right text-sm/6', getTextClassByThreshold(value, threshold))}
+      title={`${formatMGas(value)} MGas/s — threshold ${threshold} MGas/s`}
+    >
+      {formatMGas(value)}
+    </td>
+  )
+
   return (
     <div className="overflow-hidden rounded-sm border border-gray-200 dark:border-gray-700">
       <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 dark:border-gray-700 dark:bg-gray-800/50">
-        <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">MGas/s Breakdown</h4>
+        <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+          MGas/s Breakdown
+          <span className="ml-2 text-xs/5 font-normal text-gray-500 dark:text-gray-400">
+            coloured against {threshold} MGas/s
+          </span>
+        </h4>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full">
@@ -71,33 +91,19 @@ export function MGasBreakdown({ methods }: MGasBreakdownProps) {
                 <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-gray-500 dark:text-gray-400">
                   {formatNumber(stats.count)}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-blue-600 dark:text-blue-400">
-                  {formatMGas(stats.last)}
-                </td>
+                {cell(stats.last)}
                 {stats.min !== undefined && (
                   <>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-blue-600 dark:text-blue-400">
-                      {formatMGas(stats.min)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-blue-600 dark:text-blue-400">
-                      {formatMGas(stats.max!)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-blue-600 dark:text-blue-400">
-                      {formatMGas(stats.mean!)}
-                    </td>
+                    {cell(stats.min)}
+                    {cell(stats.max!)}
+                    {cell(stats.mean!)}
                   </>
                 )}
                 {stats.p50 !== undefined && (
                   <>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-blue-600 dark:text-blue-400">
-                      {formatMGas(stats.p50)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-blue-600 dark:text-blue-400">
-                      {formatMGas(stats.p95!)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-blue-600 dark:text-blue-400">
-                      {formatMGas(stats.p99!)}
-                    </td>
+                    {cell(stats.p50)}
+                    {cell(stats.p95!)}
+                    {cell(stats.p99!)}
                   </>
                 )}
               </tr>

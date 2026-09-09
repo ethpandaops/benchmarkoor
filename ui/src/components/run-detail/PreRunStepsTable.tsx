@@ -8,6 +8,7 @@ import { Modal } from '@/components/shared/Modal'
 import { TimeBreakdown } from './TimeBreakdown'
 import { MGasBreakdown } from './MGasBreakdown'
 import { ExecutionsList } from './ExecutionsList'
+import { DEFAULT_SLOW_MS, DEFAULT_THRESHOLD } from '@/utils/perfThreshold'
 
 export type PreRunSortColumn = 'order' | 'name' | 'time' | 'passed' | 'failed'
 export type PreRunSortDirection = 'asc' | 'desc'
@@ -19,6 +20,10 @@ interface PreRunStepsTableProps {
   suiteHash?: string
   selectedStep?: string
   onSelectedStepChange?: (stepName: string | undefined) => void
+  /** Slow-threshold MGas/s (shared with the Performance Heatmap). */
+  threshold?: number
+  /** Slow-payload limit in milliseconds (shared with the Performance Heatmap). */
+  slowMs?: number
 }
 
 function SortIcon({ direction, active }: { direction: PreRunSortDirection; active: boolean }) {
@@ -90,6 +95,8 @@ export function PreRunStepsTable({
   suiteHash,
   selectedStep,
   onSelectedStepChange,
+  threshold = DEFAULT_THRESHOLD,
+  slowMs = DEFAULT_SLOW_MS,
 }: PreRunStepsTableProps) {
   const [sortBy, setSortBy] = useState<PreRunSortColumn>('order')
   const [sortDir, setSortDir] = useState<PreRunSortDirection>('asc')
@@ -219,8 +226,8 @@ export function PreRunStepsTable({
 
             {selectedStepData.aggregated && (
               <>
-                <TimeBreakdown methods={selectedStepData.aggregated.method_stats.times} />
-                <MGasBreakdown methods={selectedStepData.aggregated.method_stats.mgas_s} />
+                <TimeBreakdown methods={selectedStepData.aggregated.method_stats.times} slowMs={slowMs} />
+                <MGasBreakdown methods={selectedStepData.aggregated.method_stats.mgas_s} threshold={threshold} />
               </>
             )}
 
@@ -232,6 +239,8 @@ export function PreRunStepsTable({
                   suiteHash={suiteHash}
                   testName={selectedStep}
                   stepType="pre_run"
+                  threshold={threshold}
+                  slowMs={slowMs}
                 />
               </div>
             )}

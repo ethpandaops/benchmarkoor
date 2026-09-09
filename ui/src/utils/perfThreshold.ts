@@ -14,21 +14,46 @@ export const THRESHOLD_COLORS = [
   '#ef4444', // very slow — red
 ] as const
 
+// Text classes for the same five steps. The tile colours are fills and
+// are too light for small text, so a value rendered as text uses these.
+export const THRESHOLD_TEXT_CLASSES = [
+  'text-green-600 dark:text-green-400',
+  'text-lime-600 dark:text-lime-400',
+  'text-yellow-600 dark:text-yellow-400',
+  'text-orange-600 dark:text-orange-400',
+  'text-red-600 dark:text-red-400',
+] as const
+
 /**
- * Map a MGas/s value to a colour, scaled relative to the threshold:
- *   ratio >= 2     → green   (very fast)
- *   ratio >= 1.5   → lime    (fast)
- *   ratio >= 1     → yellow  (at threshold)
- *   ratio >= 0.5   → orange  (slow)
- *   ratio <  0.5   → red     (very slow)
+ * Step of the scale a "higher is better" ratio falls in:
+ *   ratio >= 2     → 0  very fast
+ *   ratio >= 1.5   → 1  fast
+ *   ratio >= 1     → 2  at the limit
+ *   ratio >= 0.5   → 3  slow
+ *   ratio <  0.5   → 4  very slow
  */
+function thresholdStep(ratio: number): number {
+  if (ratio >= 2) return 0
+  if (ratio >= 1.5) return 1
+  if (ratio >= 1) return 2
+  if (ratio >= 0.5) return 3
+  return 4
+}
+
+// A duration is better when it is shorter, so the ratio inverts.
+function durationRatio(nanoseconds: number, slowMs: number): number {
+  if (nanoseconds <= 0) return Infinity
+  return (slowMs * 1_000_000) / nanoseconds
+}
+
+/** Map a MGas/s value to a colour, scaled relative to the threshold. */
 export function getColorByThreshold(value: number, threshold: number): string {
-  const ratio = value / threshold
-  if (ratio >= 2) return THRESHOLD_COLORS[0]
-  if (ratio >= 1.5) return THRESHOLD_COLORS[1]
-  if (ratio >= 1) return THRESHOLD_COLORS[2]
-  if (ratio >= 0.5) return THRESHOLD_COLORS[3]
-  return THRESHOLD_COLORS[4]
+  return THRESHOLD_COLORS[thresholdStep(value / threshold)]
+}
+
+/** Map a MGas/s value to a text class, scaled relative to the threshold. */
+export function getTextClassByThreshold(value: number, threshold: number): string {
+  return THRESHOLD_TEXT_CLASSES[thresholdStep(value / threshold)]
 }
 
 // Slow-payload model. The user picks a duration limit on the run-detail
@@ -45,9 +70,7 @@ export const DEFAULT_SLOW_MS = 3_000
 export const SLOW_COLOR = '#d946ef' // fuchsia-500
 
 /**
- * Map a payload duration to a colour, scaled against the slow limit.
- * Short is good, so the ratio is inverted before it goes through the
- * same five steps as the MGas/s scale:
+ * Map a payload duration to a colour, scaled against the slow limit:
  *   duration <= limit/2   → green   (very fast)
  *   duration <= limit/1.5 → lime    (fast)
  *   duration <= limit     → yellow  (at the limit)
@@ -55,8 +78,12 @@ export const SLOW_COLOR = '#d946ef' // fuchsia-500
  *   duration >  limit*2   → red     (very slow)
  */
 export function getColorByDuration(nanoseconds: number, slowMs: number): string {
-  if (nanoseconds <= 0) return THRESHOLD_COLORS[0]
-  return getColorByThreshold((slowMs * 1_000_000) / nanoseconds, 1)
+  return THRESHOLD_COLORS[thresholdStep(durationRatio(nanoseconds, slowMs))]
+}
+
+/** Map a payload duration to a text class, scaled against the slow limit. */
+export function getTextClassByDuration(nanoseconds: number, slowMs: number): string {
+  return THRESHOLD_TEXT_CLASSES[thresholdStep(durationRatio(nanoseconds, slowMs))]
 }
 
 /** Report if a payload duration in nanoseconds is above the limit. */

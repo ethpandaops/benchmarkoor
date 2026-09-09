@@ -7,6 +7,13 @@ import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/pris
 import { useTestRequests, useTestResponses, useTestResultDetails, useTestRequestSummaries, useTestResponseSummaries, type StepType } from '@/api/hooks/useTestDetails'
 import { fetchPartialText } from '@/api/client'
 import { Duration } from '@/components/shared/Duration'
+import {
+  DEFAULT_SLOW_MS,
+  DEFAULT_THRESHOLD,
+  formatSlowMs,
+  getTextClassByDuration,
+  getTextClassByThreshold,
+} from '@/utils/perfThreshold'
 
 function useDarkMode() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
@@ -75,6 +82,10 @@ interface ExecutionsListProps {
    * row position — non-newPayload methods consume no slot.
    */
   txCounts?: number[]
+  /** Slow-threshold MGas/s the per-call values colour against. */
+  threshold?: number
+  /** Slow-payload limit in milliseconds the payload times colour against. */
+  slowMs?: number
 }
 
 function parseMethod(request: string): string {
@@ -129,6 +140,10 @@ interface ExecutionRowProps {
   responseViewerUrl?: string
   /** File viewer link for the request file at this line. */
   requestViewerUrl?: string
+  /** Slow-threshold MGas/s the call's MGas/s colours against. */
+  threshold: number
+  /** Slow-payload limit in milliseconds the call's time colours against. */
+  slowMs: number
 }
 
 function StatusIndicator({ status }: { status?: number }) {
@@ -152,7 +167,7 @@ function StatusIndicator({ status }: { status?: number }) {
 
 const MAX_LAZY_LINE_SIZE = 1_000_000 // 1MB — lazy-load lines up to this size
 
-function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, txCount, responseViewerUrl, requestViewerUrl, expanded: expandedProp, onExpandedChange }: ExecutionRowProps & { expanded?: boolean; onExpandedChange?: (index: number, expanded: boolean) => void }) {
+function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, txCount, responseViewerUrl, requestViewerUrl, threshold, slowMs, expanded: expandedProp, onExpandedChange }: ExecutionRowProps & { expanded?: boolean; onExpandedChange?: (index: number, expanded: boolean) => void }) {
   const [expandedLocal, setExpandedLocal] = useState(false)
   const expanded = expandedProp ?? expandedLocal
   const setExpanded = (v: boolean) => {
@@ -178,6 +193,8 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
   const effectiveResponseSize = responseSize ?? (response ? new Blob([response]).size : undefined)
   const canExpand = !!effectiveRequest || !!response || !!responseViewerUrl || !!requestViewerUrl || canLazyLoad
   const isFail = status !== undefined && status !== 0
+  // A call that reports gas is a payload submission.
+  const isPayload = mgasPerSec !== undefined
 
   return (
     <div className={clsx(
@@ -217,7 +234,13 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
             </span>
           )}
         </span>
-        <span className="w-44 shrink-0 text-right text-sm/6 font-medium text-blue-600 dark:text-blue-400">
+        <span
+          className={clsx(
+            'w-44 shrink-0 text-right text-sm/6 font-medium',
+            mgasPerSec !== undefined ? getTextClassByThreshold(mgasPerSec, threshold) : '',
+          )}
+          title={mgasPerSec !== undefined ? `Threshold ${threshold} MGas/s` : undefined}
+        >
           {mgasPerSec !== undefined ? (
             <>
               {mgasPerSec.toFixed(2)} MGas/s
@@ -229,7 +252,17 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
             </>
           ) : ''}
         </span>
-        <span className="w-16 shrink-0 text-right text-sm/6 text-gray-500 dark:text-gray-400">
+        <span
+          className={clsx(
+            'w-16 shrink-0 text-right text-sm/6',
+            // Only a call that executed gas is a payload, so only it
+            // colours against the slow-payload limit.
+            time !== undefined && isPayload
+              ? getTextClassByDuration(time, slowMs)
+              : 'text-gray-500 dark:text-gray-400',
+          )}
+          title={time !== undefined && isPayload ? `Slow-payload limit ${formatSlowMs(slowMs)}` : undefined}
+        >
           {time !== undefined ? <Duration nanoseconds={time} /> : ''}
         </span>
         <span className="w-28 shrink-0 text-right text-xs text-gray-400 dark:text-gray-500">
@@ -339,7 +372,7 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
 
 const EXECUTIONS_PAGE_SIZE = 100
 
-export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedRows, onExpandedRowsChange, txCounts }: ExecutionsListProps) {
+export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedRows, onExpandedRowsChange, txCounts, threshold = DEFAULT_THRESHOLD, slowMs = DEFAULT_SLOW_MS }: ExecutionsListProps) {
   const { data: requests, isLoading: requestsLoading, error: requestsError } = useTestRequests(suiteHash, testName, stepType)
   const { data: responses, error: responsesError } = useTestResponses(runId, testName, stepType)
   const { data: resultDetails, isLoading: detailsLoading, error: detailsError } = useTestResultDetails(runId, testName, stepType)
@@ -456,6 +489,8 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedR
               mgasPerSec={safeDetails?.mgas_s[String(index)]}
               gasUsed={safeDetails?.gas_used[String(index)]}
               txCount={txCountByRow.get(index)}
+              threshold={threshold}
+              slowMs={slowMs}
               responseViewerUrl={!safeResponses?.[index] && responseSummaries?.[index] && responseSummaries[index].size > 1_000_000
                 ? `/runs/${runId}/fileviewer?file=${encodeURIComponent(`${testName}/${stepType}.response`)}&lines=${index + 1}`
                 : undefined}

@@ -1117,7 +1117,7 @@ export function TestHeatmap({
                 )
               })()}
               {blockLogs?.[selectedTest] && (
-                <BlockLogDetails blockLog={blockLogs[selectedTest]} />
+                <BlockLogDetails blockLog={blockLogs[selectedTest]} threshold={threshold} slowMs={slowMs} />
               )}
               {suiteHash && entry.steps && (() => {
                 const steps = [
@@ -1171,8 +1171,8 @@ export function TestHeatmap({
                       <div>
                         {activeStep.step?.aggregated && (
                           <div className="flex flex-col gap-4">
-                            <TimeBreakdown methods={activeStep.step.aggregated.method_stats.times} />
-                            <MGasBreakdown methods={activeStep.step.aggregated.method_stats.mgas_s} />
+                            <TimeBreakdown methods={activeStep.step.aggregated.method_stats.times} slowMs={slowMs} />
+                            <MGasBreakdown methods={activeStep.step.aggregated.method_stats.mgas_s} threshold={threshold} />
                           </div>
                         )}
                         <ExecutionsList
@@ -1183,6 +1183,8 @@ export function TestHeatmap({
                           expandedRows={expandedExecRows}
                           onExpandedRowsChange={onExpandedExecRowsChange}
                           txCounts={matchingSuiteTest?.tx_counts?.[activeStep.key]}
+                          threshold={threshold}
+                          slowMs={slowMs}
                         />
                       </div>
                     )}

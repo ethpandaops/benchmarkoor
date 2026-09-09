@@ -980,6 +980,8 @@ export function RunDetailPage() {
               suiteHash={config.suite_hash}
               selectedStep={preRunModal}
               onSelectedStepChange={handlePreRunModalChange}
+              threshold={heatmapThreshold}
+              slowMs={slowMs}
             />
           )}
 
