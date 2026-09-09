@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1634,11 +1635,63 @@ type ResourceLimits struct {
 	CpusetCount   *int         `yaml:"cpuset_count,omitempty" mapstructure:"cpuset_count" json:"cpuset_count,omitempty"`
 	Cpuset        []int        `yaml:"cpuset,omitempty" mapstructure:"cpuset" json:"cpuset,omitempty"`
 	Memory        string       `yaml:"memory,omitempty" mapstructure:"memory" json:"memory,omitempty"`
-	SwapDisabled  bool         `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
+	SwapDisabled  *bool        `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
 	BlkioConfig   *BlkioConfig `yaml:"blkio_config,omitempty" mapstructure:"blkio_config" json:"blkio_config,omitempty"`
 	CPUFreq       string       `yaml:"cpu_freq,omitempty" mapstructure:"cpu_freq" json:"cpu_freq,omitempty"`
 	CPUTurboBoost *bool        `yaml:"cpu_turboboost,omitempty" mapstructure:"cpu_turboboost" json:"cpu_turboboost,omitempty"`
 	CPUGovernor   string       `yaml:"cpu_freq_governor,omitempty" mapstructure:"cpu_freq_governor" json:"cpu_freq_governor,omitempty"`
+}
+
+// Merge returns a copy of r with the set fields of override on top of it.
+// The merge is field by field, so an instance can change one limit and keep the
+// other global defaults. Both sides accept a nil value.
+func (r *ResourceLimits) Merge(override *ResourceLimits) *ResourceLimits {
+	if r == nil {
+		return override
+	}
+
+	if override == nil {
+		return r
+	}
+
+	merged := *r
+	merged.Cpuset = slices.Clone(r.Cpuset)
+
+	// cpuset_count and cpuset are mutually exclusive, so a CPU selection in the
+	// override replaces both fields of the base.
+	if override.CpusetCount != nil || len(override.Cpuset) > 0 {
+		merged.CpusetCount = override.CpusetCount
+		merged.Cpuset = slices.Clone(override.Cpuset)
+	}
+
+	if override.Memory != "" {
+		merged.Memory = override.Memory
+	}
+
+	if override.SwapDisabled != nil {
+		merged.SwapDisabled = override.SwapDisabled
+	}
+
+	if override.CPUFreq != "" {
+		merged.CPUFreq = override.CPUFreq
+	}
+
+	if override.CPUTurboBoost != nil {
+		merged.CPUTurboBoost = override.CPUTurboBoost
+	}
+
+	if override.CPUGovernor != "" {
+		merged.CPUGovernor = override.CPUGovernor
+	}
+
+	merged.BlkioConfig = r.BlkioConfig.Merge(override.BlkioConfig)
+
+	return &merged
+}
+
+// IsSwapDisabled reports if the limits disable swap.
+func (r *ResourceLimits) IsSwapDisabled() bool {
+	return r != nil && r.SwapDisabled != nil && *r.SwapDisabled
 }
 
 // BlkioConfig configures container block I/O limits.
@@ -1647,6 +1700,43 @@ type BlkioConfig struct {
 	DeviceReadIOps  []ThrottleDevice `yaml:"device_read_iops,omitempty" mapstructure:"device_read_iops" json:"device_read_iops,omitempty"`
 	DeviceWriteBps  []ThrottleDevice `yaml:"device_write_bps,omitempty" mapstructure:"device_write_bps" json:"device_write_bps,omitempty"`
 	DeviceWriteIOps []ThrottleDevice `yaml:"device_write_iops,omitempty" mapstructure:"device_write_iops" json:"device_write_iops,omitempty"`
+}
+
+// Merge returns a copy of b with the set device lists of override on top of it.
+// Each device list is replaced as a whole. Both sides accept a nil value.
+func (b *BlkioConfig) Merge(override *BlkioConfig) *BlkioConfig {
+	if b == nil {
+		return override
+	}
+
+	if override == nil {
+		return b
+	}
+
+	merged := &BlkioConfig{
+		DeviceReadBps:   slices.Clone(b.DeviceReadBps),
+		DeviceReadIOps:  slices.Clone(b.DeviceReadIOps),
+		DeviceWriteBps:  slices.Clone(b.DeviceWriteBps),
+		DeviceWriteIOps: slices.Clone(b.DeviceWriteIOps),
+	}
+
+	if len(override.DeviceReadBps) > 0 {
+		merged.DeviceReadBps = slices.Clone(override.DeviceReadBps)
+	}
+
+	if len(override.DeviceReadIOps) > 0 {
+		merged.DeviceReadIOps = slices.Clone(override.DeviceReadIOps)
+	}
+
+	if len(override.DeviceWriteBps) > 0 {
+		merged.DeviceWriteBps = slices.Clone(override.DeviceWriteBps)
+	}
+
+	if len(override.DeviceWriteIOps) > 0 {
+		merged.DeviceWriteIOps = slices.Clone(override.DeviceWriteIOps)
+	}
+
+	return merged
 }
 
 // ThrottleDevice defines a device throttle setting.
@@ -3221,14 +3311,11 @@ func (c *Config) GetCPUSysfsPath() string {
 }
 
 // GetResourceLimits returns the resource limits for an instance.
-// Instance-level limits take precedence over global defaults.
+// Instance-level limits merge over the global defaults field by field, so a
+// field that the instance does not set keeps the global value.
 // Returns nil if no limits are configured.
 func (c *Config) GetResourceLimits(instance *ClientInstance) *ResourceLimits {
-	if instance.ResourceLimits != nil {
-		return instance.ResourceLimits
-	}
-
-	return c.Runner.Client.Config.ResourceLimits
+	return c.Runner.Client.Config.ResourceLimits.Merge(instance.ResourceLimits)
 }
 
 // GetRetryNewPayloadsSyncingState returns the retry config for an instance.

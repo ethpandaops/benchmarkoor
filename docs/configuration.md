@@ -1427,7 +1427,7 @@ runner:
 | `run_timeout` | string | No | From `runner.client.config` | Instance-specific run timeout duration |
 | `retry_new_payloads_syncing_state` | object | No | From `runner.client.config` | Instance-specific retry config for SYNCING responses |
 | `retry_new_payloads_failed_state` | object | No | From `runner.client.config` | Instance-specific retry config for non-SYNCING failures |
-| `resource_limits` | object | No | From `runner.client.config` | Instance-specific resource limits |
+| `resource_limits` | object | No | From `runner.client.config` | Instance-specific resource limits (merged field by field with the global limits) |
 | `post_test_rpc_calls` | []object | No | From `runner.client.config` | Instance-specific post-test RPC calls (replaces global) |
 | `post_test_sleep_duration` | string | No | From `runner.client.config` | Instance-specific post-test sleep duration |
 | `bootstrap_fcu` | bool/object | No | From `runner.client.config` | Instance-specific bootstrap FCU setting |
@@ -1475,7 +1475,33 @@ Applying an override to the wrong genesis format is an error (a geth-format over
 
 ## Resource Limits
 
-Resource limits can be configured globally (`runner.client.config.resource_limits`) or per-instance (`runner.instances[].resource_limits`). Instance-level settings override global defaults.
+Resource limits can be configured globally (`runner.client.config.resource_limits`) or per-instance (`runner.instances[].resource_limits`). The two levels merge field by field: an instance keeps every global value that it does not set.
+
+```yaml
+runner:
+  client:
+    config:
+      resource_limits:
+        cpuset: [6, 7, 8, 9, 10, 11]
+        cpu_freq: "3600MHz"
+        cpu_turboboost: false
+        cpu_freq_governor: performance
+        memory: "32g"
+        swap_disabled: true
+  instances:
+    - id: geth-1
+      client: geth
+      resource_limits:
+        memory: "16g" # Only the memory limit changes. The CPU and swap
+                      # settings stay at the global values.
+```
+
+Merge rules:
+
+- A field that the instance omits keeps the global value.
+- `cpuset` and `cpuset_count` are one setting. An instance that sets either one replaces both global fields.
+- Each `blkio_config` device list is replaced as a whole. An instance `device_read_bps` list does not change the global `device_write_bps` list.
+- Set `swap_disabled: false` on the instance to turn swap on again when the global config disables it.
 
 ```yaml
 resource_limits:

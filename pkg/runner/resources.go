@@ -89,7 +89,7 @@ func buildContainerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceL
 		resolved.MemoryBytes = memBytes
 
 		// Handle swap.
-		if cfg.SwapDisabled {
+		if cfg.IsSwapDisabled() {
 			// Set memory-swap equal to memory to disable swap.
 			containerLimits.MemorySwapBytes = memBytes
 			// Set swappiness to 0.

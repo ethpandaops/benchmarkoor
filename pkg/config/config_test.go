@@ -5071,3 +5071,114 @@ func TestDataDirShouldPromotePostPreRuns(t *testing.T) {
 		})
 	}
 }
+
+func intCfg(v int) *int { return &v }
+
+func TestGetResourceLimits(t *testing.T) {
+	global := &ResourceLimits{
+		Cpuset:        []int{6, 7, 8},
+		CPUFreq:       "3600MHz",
+		CPUTurboBoost: boolCfg(false),
+		CPUGovernor:   "performance",
+		Memory:        "32g",
+		SwapDisabled:  boolCfg(true),
+		BlkioConfig: &BlkioConfig{
+			DeviceReadBps:  []ThrottleDevice{{Path: "/dev/sdb", Rate: "12mb"}},
+			DeviceWriteBps: []ThrottleDevice{{Path: "/dev/sdb", Rate: "1024k"}},
+		},
+	}
+
+	t.Run("instance memory keeps the global defaults", func(t *testing.T) {
+		cfg := &Config{Runner: RunnerConfig{
+			Client: ClientConfig{Config: ClientDefaults{ResourceLimits: global}},
+		}}
+
+		got := cfg.GetResourceLimits(&ClientInstance{
+			ID:             "geth-1",
+			ResourceLimits: &ResourceLimits{Memory: "16g"},
+		})
+
+		require.NotNil(t, got)
+		assert.Equal(t, "16g", got.Memory)
+		assert.Equal(t, []int{6, 7, 8}, got.Cpuset)
+		assert.Equal(t, "3600MHz", got.CPUFreq)
+		assert.Equal(t, "performance", got.CPUGovernor)
+		assert.Equal(t, boolCfg(false), got.CPUTurboBoost)
+		assert.True(t, got.IsSwapDisabled())
+		assert.Equal(t, global.BlkioConfig, got.BlkioConfig)
+
+		// The global limits stay untouched.
+		assert.Equal(t, "32g", global.Memory)
+	})
+
+	t.Run("instance cpuset_count replaces the global cpuset", func(t *testing.T) {
+		cfg := &Config{Runner: RunnerConfig{
+			Client: ClientConfig{Config: ClientDefaults{ResourceLimits: global}},
+		}}
+
+		got := cfg.GetResourceLimits(&ClientInstance{
+			ID:             "geth-1",
+			ResourceLimits: &ResourceLimits{CpusetCount: intCfg(4)},
+		})
+
+		require.NotNil(t, got)
+		assert.Equal(t, intCfg(4), got.CpusetCount)
+		assert.Empty(t, got.Cpuset)
+		assert.Equal(t, "32g", got.Memory)
+		require.NoError(t, got.Validate("merged"))
+	})
+
+	t.Run("instance can enable swap again", func(t *testing.T) {
+		cfg := &Config{Runner: RunnerConfig{
+			Client: ClientConfig{Config: ClientDefaults{ResourceLimits: global}},
+		}}
+
+		got := cfg.GetResourceLimits(&ClientInstance{
+			ID:             "geth-1",
+			ResourceLimits: &ResourceLimits{SwapDisabled: boolCfg(false)},
+		})
+
+		require.NotNil(t, got)
+		assert.False(t, got.IsSwapDisabled())
+	})
+
+	t.Run("no instance limits returns the global limits", func(t *testing.T) {
+		cfg := &Config{Runner: RunnerConfig{
+			Client: ClientConfig{Config: ClientDefaults{ResourceLimits: global}},
+		}}
+
+		assert.Equal(t, global, cfg.GetResourceLimits(&ClientInstance{ID: "geth-1"}))
+	})
+
+	t.Run("no global limits returns the instance limits", func(t *testing.T) {
+		cfg := &Config{}
+		instance := &ClientInstance{ID: "geth-1", ResourceLimits: &ResourceLimits{Memory: "16g"}}
+
+		assert.Equal(t, instance.ResourceLimits, cfg.GetResourceLimits(instance))
+	})
+
+	t.Run("no limits at all returns nil", func(t *testing.T) {
+		cfg := &Config{}
+
+		assert.Nil(t, cfg.GetResourceLimits(&ClientInstance{ID: "geth-1"}))
+	})
+}
+
+func TestBlkioConfigMerge(t *testing.T) {
+	base := &BlkioConfig{
+		DeviceReadBps:   []ThrottleDevice{{Path: "/dev/sdb", Rate: "12mb"}},
+		DeviceWriteIOps: []ThrottleDevice{{Path: "/dev/sdb", Rate: "30"}},
+	}
+
+	got := base.Merge(&BlkioConfig{
+		DeviceReadBps: []ThrottleDevice{{Path: "/dev/nvme0n1", Rate: "50mb"}},
+	})
+
+	require.NotNil(t, got)
+	assert.Equal(t, []ThrottleDevice{{Path: "/dev/nvme0n1", Rate: "50mb"}}, got.DeviceReadBps)
+	assert.Equal(t, []ThrottleDevice{{Path: "/dev/sdb", Rate: "30"}}, got.DeviceWriteIOps)
+	assert.Empty(t, got.DeviceWriteBps)
+
+	// The base stays untouched.
+	assert.Equal(t, []ThrottleDevice{{Path: "/dev/sdb", Rate: "12mb"}}, base.DeviceReadBps)
+}

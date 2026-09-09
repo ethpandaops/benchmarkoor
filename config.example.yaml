@@ -758,9 +758,9 @@ runner:
       #   enabled: true
       #   max_retries: 10
       #   backoff: 1s
-      # resource_limits:  # Instance-level override (optional)
-      #   cpuset_count: 2  # Override global with fewer CPUs
-      #   memory: "8g"     # Override global memory limit
+      # resource_limits:  # Instance-level override (optional, merged field by field with the global limits)
+      #   cpuset_count: 2  # Override global with fewer CPUs (replaces a global cpuset)
+      #   memory: "8g"     # Override global memory limit, keep the other global limits
       # post_test_rpc_calls:  # Instance-level override (optional, replaces global)
       #   - method: debug_traceBlockByNumber
       #     params: ["{{.BlockNumberHex}}"]
