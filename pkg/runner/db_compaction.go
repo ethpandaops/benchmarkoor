@@ -24,8 +24,8 @@ import (
 const dbCompactionMarkerVersion = 1
 
 // dbCompactionRequest describes one compaction phase against a datadir whose
-// client is NOT running. The caller owns the client lifecycle: `geth db
-// compact` takes the database lock, so a live node makes it fail.
+// client is NOT running. The caller owns the client lifecycle: the client's
+// compaction command takes the database lock, so a live node makes it fail.
 type dbCompactionRequest struct {
 	Instance  *config.ClientInstance
 	Spec      client.Spec
@@ -74,6 +74,13 @@ type dbCompactionSizes struct {
 	After  int64 `json:"after"`
 }
 
+// dbCompactionStep is one preparation command of a compaction phase, as the run
+// report records it.
+type dbCompactionStep struct {
+	Name    string   `json:"name"`
+	Command []string `json:"command"`
+}
+
 // dbCompactionReport is the per-run record of one compaction phase, written to
 // <results>/db-compaction/<phase>/compaction.json.
 type dbCompactionReport struct {
@@ -85,6 +92,7 @@ type dbCompactionReport struct {
 	CompletedAt  string             `json:"completed_at,omitempty"`
 	DurationMS   int64              `json:"duration_ms"`
 	Persisted    bool               `json:"persisted"`
+	Prepare      []dbCompactionStep `json:"prepare,omitempty"`
 	Command      []string           `json:"command"`
 	DatadirBytes *dbCompactionSizes `json:"datadir_bytes,omitempty"`
 	Head         *dbCompactionHead  `json:"head,omitempty"`
@@ -150,6 +158,11 @@ func (r *runner) runDBCompaction(
 		)
 	}
 
+	steps, err := dbCompactionSelectedSteps(cmds, req.Cfg)
+	if err != nil {
+		return false, err
+	}
+
 	hostPath := req.hostPath()
 
 	if entry := r.dbCompactionSkipEntry(req.Instance, req.Phase, req.Mount); entry != nil {
@@ -172,7 +185,8 @@ func (r *runner) runDBCompaction(
 		RunID:     req.RunID,
 		StartedAt: started.UTC().Format(time.RFC3339),
 		Persisted: req.Persisting,
-		Command:   append(append([]string{}, cmds.Compact...), req.Cfg.ExtraArgs...),
+		Prepare:   dbCompactionPrepareReport(steps),
+		Command:   dbCompactionCommand(cmds, req.Cfg),
 		Head:      req.Head,
 	}
 
@@ -180,7 +194,7 @@ func (r *runner) runDBCompaction(
 		report.DatadirBytes = &dbCompactionSizes{Before: dirSize(hostPath)}
 	}
 
-	runErr := r.runDBCompactionContainers(ctx, req, cmds, phaseDir, log)
+	runErr := r.runDBCompactionContainers(ctx, req, cmds, steps, phaseDir, log)
 
 	if hostPath != "" {
 		report.DatadirBytes.After = dirSize(hostPath)
@@ -225,8 +239,70 @@ func (r *runner) runDBCompaction(
 	return true, nil
 }
 
-// runDBCompactionContainers runs the inspection either side of the compaction
-// and the compaction itself, each in its own one-shot container.
+// dbCompactionSelectedSteps resolves db_compaction.prepare against the steps
+// the client offers, in the order the config names them.
+//
+// Validation already rejects an unknown name, so reaching one here means the
+// config was never validated. Refusing beats silently skipping the step the
+// user asked for.
+func dbCompactionSelectedSteps(
+	cmds *client.DBMaintenanceCommands, cfg *config.DBCompactionConfig,
+) ([]client.DBMaintenanceStep, error) {
+	if len(cfg.Prepare) == 0 {
+		return nil, nil
+	}
+
+	byName := make(map[string]client.DBMaintenanceStep, len(cmds.Prepare))
+	for _, step := range cmds.Prepare {
+		byName[step.Name] = step
+	}
+
+	steps := make([]client.DBMaintenanceStep, 0, len(cfg.Prepare))
+
+	for _, name := range cfg.Prepare {
+		step, ok := byName[name]
+		if !ok {
+			return nil, fmt.Errorf("unknown db_compaction.prepare step %q", name)
+		}
+
+		steps = append(steps, step)
+	}
+
+	return steps, nil
+}
+
+// dbCompactionPrepareReport records the steps that run, for the run report.
+func dbCompactionPrepareReport(steps []client.DBMaintenanceStep) []dbCompactionStep {
+	if len(steps) == 0 {
+		return nil
+	}
+
+	out := make([]dbCompactionStep, 0, len(steps))
+	for _, step := range steps {
+		out = append(out, dbCompactionStep{
+			Name:    step.Name,
+			Command: append([]string{}, step.Args...),
+		})
+	}
+
+	return out
+}
+
+// dbCompactionCommand returns the compaction argv with the configured extra
+// arguments appended, without mutating the client's own slice.
+func dbCompactionCommand(
+	cmds *client.DBMaintenanceCommands, cfg *config.DBCompactionConfig,
+) []string {
+	return append(append([]string{}, cmds.Compact...), cfg.ExtraArgs...)
+}
+
+// runDBCompactionContainers runs the inspection either side of the compaction,
+// the selected preparation steps, and the compaction itself, each in its own
+// one-shot container.
+//
+// A preparation step is one the user asked for by name, so its failure fails the
+// phase: the compaction that follows would not be the operation they configured.
+// continue_on_error still downgrades it.
 //
 // An inspection failure is never fatal: it is a report, and losing it must not
 // cost the run its compaction. geth 1.17.5 exits 1 on `db inspect` against a
@@ -236,6 +312,7 @@ func (r *runner) runDBCompactionContainers(
 	ctx context.Context,
 	req *dbCompactionRequest,
 	cmds *client.DBMaintenanceCommands,
+	steps []client.DBMaintenanceStep,
 	phaseDir string,
 	log logrus.FieldLogger,
 ) error {
@@ -253,12 +330,30 @@ func (r *runner) runDBCompactionContainers(
 		}
 	}
 
-	log.WithField("timeout", req.Cfg.EffectiveTimeout()).Info("Compacting the database")
+	// The timeout covers the whole sequence, so every step logs it: a step the
+	// timeout kills names the budget it ran out of.
+	timeout := req.Cfg.EffectiveTimeout()
 
-	compactCmd := append(append([]string{}, cmds.Compact...), req.Cfg.ExtraArgs...)
+	for i, step := range steps {
+		log.WithFields(logrus.Fields{
+			"step":    step.Name,
+			"index":   fmt.Sprintf("%d/%d", i+1, len(steps)),
+			"timeout": timeout,
+		}).Info("Preparing the database for compaction")
+
+		if err := r.runDBMaintenanceContainer(
+			ctx, req, step.Name, step.Args,
+			filepath.Join(phaseDir, step.Name+".log"),
+		); err != nil {
+			return fmt.Errorf("preparation step %q: %w", step.Name, err)
+		}
+	}
+
+	log.WithField("timeout", timeout).Info("Compacting the database")
 
 	if err := r.runDBMaintenanceContainer(
-		ctx, req, "compact", compactCmd, filepath.Join(phaseDir, "compact.log"),
+		ctx, req, "compact", dbCompactionCommand(cmds, req.Cfg),
+		filepath.Join(phaseDir, "compact.log"),
 	); err != nil {
 		return err
 	}

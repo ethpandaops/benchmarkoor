@@ -329,6 +329,7 @@ export interface DBCompactionConfig {
   enabled: boolean
   when?: string[]
   inspect?: boolean
+  prepare?: string[]
   timeout?: string
   image?: string
   extra_args?: string[]

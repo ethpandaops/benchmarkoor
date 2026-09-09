@@ -1123,7 +1123,34 @@ runner:
 
 The `db_compaction` option compacts the client database before the run measures anything. Compaction needs exclusive access to the database, so the client is never running while it happens: the runner runs the client's own offline command in a one-shot container against the datadir.
 
-Only clients that ship an offline compaction command support this. Today that is **geth** alone (`geth db compact`); every other client fails validation with a clear message.
+Only clients that ship an offline compaction command support this. Today that is **geth** and **erigon**; every other client fails validation with a clear message.
+
+| Client | Compaction | Inspection |
+|--------|------------|------------|
+| geth | `geth db compact` | `geth db inspect` |
+| erigon | `erigon db compact` | `erigon seg du --verbose` |
+
+`erigon db compact` rewrites every mdbx database of the datadir without its free pages. It needs **Erigon 3.7.0-dev or newer** (September 2026); an older binary, including every pinned glamsterdam-devnet image, fails the step with `command db not found`.
+
+> **On erigon, `before_benchmarks` needs `--exec.no-prune` on the instance.** That phase stops and restarts the client, and erigon refuses to reopen a datadir whose receipt domain it pruned past the snapshot files: `[snapshots] gap between snapshot files and DB for domain receipt: files end at txNum 0 but the DB was pruned up to 390625`. A synthetic snapshot has no snapshot files, so the client's own pruning is enough to create the gap. `--exec.no-prune` disables the state-aggregator pruning that advances the marker. Erigon documents the flag for diagnostic and perf-comparison use, which is what a benchmark is, and it removes housekeeping the benchmark does not want anyway. `before_pre_runs` needs no flag: it compacts before the client ever boots, so nothing restarts.
+
+###### Preparation steps (`prepare`)
+
+A client can offer steps that run before the compaction to make it reclaim more. None run unless `prepare` names them, because a step that helps one datadir can ruin another.
+
+| Client | Step | What it does | Needs |
+|--------|------|--------------|-------|
+| erigon | `seg-retire` | `erigon seg retire` — freezes block and history ranges into segment files under `<datadir>/snapshots` and prunes what it froze, which is what leaves free pages for the compaction | A datadir whose history spans whole steps (390,625 blocks) |
+
+```yaml
+db_compaction:
+  enabled: true
+  prepare: [seg-retire]   # erigon, real synced datadir only
+```
+
+On a **real synced erigon datadir** this is the pairing erigon documents, and it is where the compaction reclaims most of its space. A step you name is one you asked for, so its failure fails the phase unless `continue_on_error` is set. Naming a step the client does not offer fails validation, which lists the alternatives and what each one needs.
+
+> **Do not enable `seg-retire` for a state-actor or otherwise synthetic snapshot.** Its history is far shorter than one step, so the retire finds nothing to freeze but prunes anyway, and erigon then refuses to reopen its own datadir with the gap error above. Verified in CI on a snapshot advanced to block 39: `retiring blocks from=0 to=39`, `Build state history snapshots` (nothing to build), `Prune state history` (marker advances regardless). The compaction alone is worth running there — it took that datadir's `chaindata` from 2.0GB to 32MB.
 
 Besu was checked and cannot be supported yet: as of Besu 26.6.1, `besu storage` has no compaction subcommand. `trie-log prune` deletes trie logs below the retention limit instead of rewriting the database, which is a different operation and removes history the Bonsai rollback needs.
 
@@ -1134,7 +1161,7 @@ runner:
       db_compaction:
         enabled: true
         when: [before_benchmarks]   # or [before_pre_runs], or both
-        inspect: true               # `geth db inspect` before and after
+        inspect: true               # the client inspection before and after
         timeout: 3h
         extra_args: ["--cache=16384"]
 ```
@@ -1144,7 +1171,8 @@ runner:
 | `enabled` | bool | Yes | `false` | Enable the compaction |
 | `when` | []string | No | `[before_benchmarks]` | The lifecycle points at which to compact (see below). A plain string also works |
 | `inspect` | bool | No | `true` | Run the client database inspection before and after each compaction. A failed inspection is logged and never fails the run |
-| `timeout` | string | No | `3h` | Cap for one phase's work — the compaction and both inspections (Go duration). Applies per phase |
+| `prepare` | []string | No | - | Client preparation steps to run before each compaction, in order (see [Preparation steps](#preparation-steps-prepare)) |
+| `timeout` | string | No | `3h` | Cap for one phase's work — every preparation step, the compaction, and both inspections (Go duration). Applies per phase |
 | `image` | string | No | the instance image | Image of the compaction container. The default keeps the tool version and the client version identical |
 | `extra_args` | []string | No | - | Extra arguments for the compaction command, e.g. `--cache=16384` |
 | `continue_on_error` | bool | No | `false` | Downgrade a compaction failure to a warning. A failed compaction makes the results incomparable, so the run fails by default |
@@ -1249,13 +1277,14 @@ Each phase writes its reports to the run results directory:
 ```
 <run-results>/db-compaction/
   before_pre_runs/inspect-before.txt
+  before_pre_runs/seg-retire.log        # one per selected preparation step
   before_pre_runs/compact.log
   before_pre_runs/inspect-after.txt
   before_pre_runs/compaction.json
   before_benchmarks/...
 ```
 
-`compaction.json` records the command, the duration, the datadir size either side, and — at `before_benchmarks` only, where the runner reads it from the client it is about to stop — the datadir head.
+`compaction.json` records the command, the duration, the datadir size either side, and — at `before_benchmarks` only, where the runner reads it from the client it is about to stop — the datadir head. Each selected preparation step gets its own log, named after the step, and a `prepare[]` entry.
 
 The inspection is a report, so a failure is logged and the compaction still runs. geth 1.17.5 exits 1 on `db inspect` against a datadir whose freezer is empty, which a freshly-initialised datadir has.
 

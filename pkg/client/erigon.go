@@ -115,8 +115,58 @@ func (s *erigonSpec) SnapshotPrepareArgs() []string {
 	return nil
 }
 
-// DBMaintenanceCommands returns nil; benchmarkoor has no offline
-// compaction command for Erigon yet.
-func (s *erigonSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
-	return nil
+// DBMaintenanceCommands returns Erigon's offline database commands.
+//
+// `erigon db compact` rewrites every mdbx database of the datadir without its
+// free pages. On a state-actor snapshot it takes chaindata from 2.0GB to 32MB.
+//
+// `erigon seg du` is the inspection: it reports the datadir disk usage by
+// category.
+//
+// `erigon seg retire` is offered as an OPT-IN preparation step, named
+// "seg-retire". It freezes the block and history ranges out of the mdbx
+// databases into segment files under <datadir>/snapshots and prunes what it
+// froze, which is what leaves free pages for the compaction to reclaim. On a
+// real synced datadir that is the pairing erigon documents, and it is where the
+// compaction earns most of its space.
+//
+// It is opt-in because it needs a datadir whose history spans whole steps. On a
+// short synthetic chain it finds nothing to freeze but prunes anyway, and erigon
+// then refuses to reopen its own datadir. Verified in CI on a state-actor
+// snapshot advanced to block 39:
+//
+//	retiring blocks from=0 to=39
+//	Build state history snapshots      <- nothing to build, a step is 390625
+//	Prune state history                <- advances the DB prune marker anyway
+//
+// and the next boot fails with
+//
+//	[snapshots] gap between snapshot files and DB for domain receipt:
+//	files end at txNum 0 but the DB was pruned up to 390625
+//
+// So do not enable it for a state-actor or otherwise synthetic snapshot. The
+// compaction alone is worth running there.
+//
+// Every command runs against a STOPPED client: `db compact` takes the datadir
+// lock and opens each database exclusively, so a running node makes it fail.
+// They take --datadir rather than inheriting the one in DefaultCommand, since a
+// datadir config may mount the data somewhere other than /data.
+//
+// `erigon db compact` landed in Erigon 3.7.0-dev (erigon PR #23677, September
+// 2026). An older binary fails the step with "command db not found".
+func (s *erigonSpec) DBMaintenanceCommands(dataDir string) *DBMaintenanceCommands {
+	return &DBMaintenanceCommands{
+		Prepare: []DBMaintenanceStep{
+			{
+				Name: "seg-retire",
+				Args: []string{"seg", "retire", "--datadir=" + dataDir},
+				Why: "freezes block and history ranges into segment files so the" +
+					" compaction can reclaim the pages they used; needs a datadir" +
+					" whose history spans whole steps (390625 blocks), and RUINS a" +
+					" synthetic snapshot that has less",
+			},
+		},
+		Compact: []string{"db", "compact", "--datadir=" + dataDir},
+		Inspect: []string{"seg", "du", "--datadir=" + dataDir, "--verbose"},
+	}
 }

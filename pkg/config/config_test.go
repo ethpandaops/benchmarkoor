@@ -3728,6 +3728,39 @@ func TestValidateDBCompaction(t *testing.T) {
 			cfg:    &DBCompactionConfig{Enabled: true},
 		},
 		{
+			name:   "enabled on erigon with defaults",
+			client: "erigon",
+			cfg:    &DBCompactionConfig{Enabled: true},
+		},
+		{
+			name:   "erigon with the opt-in seg-retire step",
+			client: "erigon",
+			cfg:    &DBCompactionConfig{Enabled: true, Prepare: []string{"seg-retire"}},
+		},
+		{
+			name:      "unknown prepare step names the alternatives",
+			client:    "erigon",
+			cfg:       &DBCompactionConfig{Enabled: true, Prepare: []string{"retire"}},
+			wantErr:   true,
+			errSubstr: "unknown db_compaction.prepare step",
+		},
+		{
+			name:   "duplicate prepare step",
+			client: "erigon",
+			cfg: &DBCompactionConfig{
+				Enabled: true, Prepare: []string{"seg-retire", "seg-retire"},
+			},
+			wantErr:   true,
+			errSubstr: "duplicate db_compaction.prepare step",
+		},
+		{
+			name:      "prepare step on a client that offers none",
+			client:    "geth",
+			cfg:       &DBCompactionConfig{Enabled: true, Prepare: []string{"seg-retire"}},
+			wantErr:   true,
+			errSubstr: "offers no preparation steps",
+		},
+		{
 			name:      "unsupported client",
 			client:    "besu",
 			cfg:       &DBCompactionConfig{Enabled: true},

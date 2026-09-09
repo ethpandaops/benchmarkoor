@@ -592,16 +592,24 @@ runner:
       #   timeout: 2m   # per-block trace timeout; default 2m
       # Optional: Compact the client database before the run measures anything.
       # The client is stopped for it (compaction needs the database lock), so the
-      # runner runs the client's own offline command in a one-shot container.
-      # Only geth ships one today (`geth db compact`). Per-instance override allowed.
+      # runner runs the client's own offline commands in one-shot containers.
+      # Supported on geth (`geth db compact`) and erigon (`erigon db compact`,
+      # which needs erigon >= 3.7.0-dev). On erigon, before_benchmarks also
+      # needs --exec.no-prune on the instance, so the client leaves a datadir it
+      # can reopen after the restart. Per-instance override allowed.
       # db_compaction:
       #   enabled: true
       #   # Both phases may be listed; they always run in lifecycle order.
       #   #   before_pre_runs   - before the client boots (needs a datadir)
       #   #   before_benchmarks - after the pre-run steps, before the first test
       #   when: [before_benchmarks]
-      #   inspect: true        # `geth db inspect` before and after; default true
-      #   timeout: 3h          # per phase; default 3h
+      #   inspect: true        # client inspection before and after; default true
+      #   timeout: 3h          # per phase, covers every step; default 3h
+      #   # Optional client steps run before the compaction, so it reclaims more.
+      #   # None run unless named here. erigon offers "seg-retire"
+      #   # (`erigon seg retire`), which needs a datadir whose history spans
+      #   # whole steps (390625 blocks) — it RUINS a synthetic snapshot.
+      #   # prepare: [seg-retire]
       #   # extra_args: ["--cache=16384"]
       #   # Keep the compacted database for later runs. Only datadir methods
       #   # "schelk" and "zfs" support it, and both overwrite the baseline

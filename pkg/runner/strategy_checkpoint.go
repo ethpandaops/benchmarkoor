@@ -216,8 +216,8 @@ func (r *runner) runTestsWithCheckpointRestore(
 	}
 
 	// 2a. Compact the database before the checkpoint, so every restored
-	//     container resumes on the compacted datadir. `geth db compact` takes
-	//     the database lock, so the client is stopped for it and started again
+	//     container resumes on the compacted datadir. The compaction takes the
+	//     database lock, so the client is stopped for it and started again
 	//     before the checkpoint is taken — a checkpoint of a client that is not
 	//     running on this datadir would restore onto a database it never opened.
 	compactionMount := docker.Mount{

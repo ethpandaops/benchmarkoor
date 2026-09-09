@@ -371,6 +371,12 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
                         <span className="text-gray-500 dark:text-gray-400">timeout: </span>
                         {instance.db_compaction.timeout || '3h'}
                       </div>
+                      {instance.db_compaction.prepare?.length ? (
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">prepare: </span>
+                          {instance.db_compaction.prepare.join(', ')}
+                        </div>
+                      ) : null}
                       {instance.db_compaction.persist?.enabled && (
                         <div>
                           <span className="text-gray-500 dark:text-gray-400">persist: </span>

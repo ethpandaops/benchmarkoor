@@ -38,17 +38,43 @@ type RPCRollbackSpec struct {
 	RPCMethod string // e.g. "debug_setHead", "debug_resetHead"
 }
 
-// DBMaintenanceCommands holds the client argv for offline database
-// maintenance, run in a one-shot container against the datadir.
+// DBMaintenanceStep is one named command a client can run before the
+// compaction, to make it reclaim more.
 //
-// The client must NOT be running: both commands need exclusive access to the
+// A step is never run unless db_compaction.prepare names it: a step that helps
+// one datadir can ruin another, so the choice belongs to whoever knows what the
+// datadir holds. See the erigon spec for the case that made this opt-in.
+type DBMaintenanceStep struct {
+	// Name is how db_compaction.prepare selects the step, and how the runner
+	// names its log file. Keep it lower-case with hyphens.
+	Name string
+
+	// Args is the client argv for the step.
+	Args []string
+
+	// Why explains, in one line, what the step buys and what it needs from the
+	// datadir. Validation prints it when it lists the available steps, so the
+	// user sees the trade-off at the point of choosing.
+	Why string
+}
+
+// DBMaintenanceCommands holds the client argv for offline database
+// maintenance, run in one-shot containers against the datadir.
+//
+// The client must NOT be running: every command needs exclusive access to the
 // database, and a second process holding the lock makes them fail.
 type DBMaintenanceCommands struct {
+	// Prepare holds the optional steps that can run before the compaction, in
+	// the order given. Each is opt-in through db_compaction.prepare.
+	Prepare []DBMaintenanceStep
+
 	// Compact rewrites the database to reclaim space and restore key locality.
+	// It is the command db_compaction.extra_args are appended to.
 	Compact []string
 
-	// Inspect prints a report of the database contents. Optional: a client
-	// that can compact but not inspect leaves it nil.
+	// Inspect prints a report of the database contents, before and after the
+	// compaction. Optional: a client that can compact but not inspect leaves
+	// it nil.
 	Inspect []string
 }
 
@@ -155,6 +181,22 @@ func SupportsDBCompaction(clientType ClientType) bool {
 	cmds := spec.DBMaintenanceCommands("/data")
 
 	return cmds != nil && len(cmds.Compact) > 0
+}
+
+// DBMaintenancePrepareSteps returns the optional preparation steps the client
+// offers for db_compaction.prepare, or nil when it offers none.
+func DBMaintenancePrepareSteps(clientType ClientType) []DBMaintenanceStep {
+	spec, err := NewRegistry().Get(clientType)
+	if err != nil {
+		return nil
+	}
+
+	cmds := spec.DBMaintenanceCommands("/data")
+	if cmds == nil {
+		return nil
+	}
+
+	return cmds.Prepare
 }
 
 // Ensure interface compliance.

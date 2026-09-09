@@ -1907,8 +1907,8 @@ type preBenchmarkDatadirParams struct {
 // database compaction, a schelk promote, or both.
 //
 // It serves the strategies that keep one client for the whole run (none,
-// rpc-debug-setHead). Both steps need the client stopped — `geth db compact`
-// takes the database lock, and `schelk promote` unmounts the volume — so they
+// rpc-debug-setHead). Both steps need the client stopped — the compaction takes
+// the database lock, and `schelk promote` unmounts the volume — so they
 // share a single stop and restart: settle, graceful stop, drain the logs,
 // sync, work, start the SAME container again (restarting re-binds the mount
 // from the host path, which now resolves to the promoted volume). The

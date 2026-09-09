@@ -1393,7 +1393,7 @@ const (
 // the global one; it does not merge field by field.
 //
 // Only clients whose spec returns compaction commands support this. Today
-// that is geth alone.
+// that is geth and erigon.
 type DBCompactionConfig struct {
 	Enabled bool `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
 
@@ -1411,6 +1411,19 @@ type DBCompactionConfig struct {
 	// Inspect runs the client database inspection before and after each
 	// compaction and writes both reports to the run results. Default: true.
 	Inspect *bool `yaml:"inspect,omitempty" mapstructure:"inspect" json:"inspect,omitempty"`
+
+	// Prepare names the client's optional preparation steps to run, in the
+	// order given, before each compaction. Empty runs none, which is the safe
+	// default: a step that reclaims more on one datadir can ruin another.
+	//
+	// Erigon offers "seg-retire" (`erigon seg retire`). Enable it for a datadir
+	// whose history spans whole steps, where it is what leaves free pages for
+	// the compaction. Do NOT enable it for a state-actor or otherwise synthetic
+	// snapshot: it prunes without freezing there and leaves a datadir erigon
+	// refuses to reopen.
+	//
+	// Validation lists the steps a client offers, with what each one needs.
+	Prepare []string `yaml:"prepare,omitempty" mapstructure:"prepare" json:"prepare,omitempty"`
 
 	// Timeout caps one phase's compaction work as a Go duration string: the
 	// compaction and both inspections around it. It applies per phase, not to
@@ -4197,6 +4210,10 @@ func (c *Config) validateDBCompaction(opt ValidateOpts) error {
 			return err
 		}
 
+		if err := validateDBCompactionPrepare(instance.ID, instance.Client, cfg); err != nil {
+			return err
+		}
+
 		if cfg.Timeout != "" {
 			d, err := time.ParseDuration(cfg.Timeout)
 			if err != nil {
@@ -4286,6 +4303,60 @@ func validateDBCompactionPhases(id string, cfg *DBCompactionConfig) error {
 				id, phase,
 			)
 		}
+	}
+
+	return nil
+}
+
+// validateDBCompactionPrepare checks that every name in db_compaction.prepare
+// is a step the client actually offers, and reports the alternatives when it is
+// not. The message carries each step's trade-off, since choosing one wrongly can
+// leave a datadir the client cannot reopen.
+func validateDBCompactionPrepare(id, clientName string, cfg *DBCompactionConfig) error {
+	if len(cfg.Prepare) == 0 {
+		return nil
+	}
+
+	steps := client.DBMaintenancePrepareSteps(client.ClientType(clientName))
+
+	available := make(map[string]string, len(steps))
+	for _, step := range steps {
+		available[step.Name] = step.Why
+	}
+
+	seen := make(map[string]struct{}, len(cfg.Prepare))
+
+	for _, name := range cfg.Prepare {
+		if _, dup := seen[name]; dup {
+			return fmt.Errorf(
+				"instance %q: duplicate db_compaction.prepare step %q", id, name,
+			)
+		}
+
+		seen[name] = struct{}{}
+
+		if _, ok := available[name]; ok {
+			continue
+		}
+
+		if len(steps) == 0 {
+			return fmt.Errorf(
+				"instance %q: db_compaction.prepare names %q, but client %q offers"+
+					" no preparation steps",
+				id, name, clientName,
+			)
+		}
+
+		offered := make([]string, 0, len(steps))
+		for _, step := range steps {
+			offered = append(offered, fmt.Sprintf("%q (%s)", step.Name, step.Why))
+		}
+
+		return fmt.Errorf(
+			"instance %q: unknown db_compaction.prepare step %q for client %q;"+
+				" available: %s",
+			id, name, clientName, strings.Join(offered, ", "),
+		)
 	}
 
 	return nil
