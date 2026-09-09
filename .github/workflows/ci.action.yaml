@@ -284,7 +284,7 @@ jobs:
   # code.
   pre-runs:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -316,6 +316,7 @@ jobs:
                 images:
                   besu: ghcr.io/ethereum/state-actor-besu:main
                   geth: ghcr.io/ethereum/state-actor:main
+                  erigon: ghcr.io/ethereum/state-actor-erigon:main
                 pull_policy: always
                 config:
                   seed: 1234
@@ -356,11 +357,14 @@ jobs:
                 targets:
                   - client: besu
                     output_dir: /tmp/benchmarkoor/state-actor/besu
-                  # Same seed + spec, so geth's snapshot carries the same state as
-                  # besu's. The db-compaction step below boots geth on it and
-                  # replays besu's pre-run bundle to reach the same setup head.
+                  # Same seed + spec, so geth's and erigon's snapshots carry the
+                  # same state as besu's. The db-compaction steps below boot each
+                  # on its own snapshot and replay besu's pre-run bundle to reach
+                  # the same setup head.
                   - client: geth
                     output_dir: /tmp/benchmarkoor/state-actor/geth
+                  - client: erigon
+                    output_dir: /tmp/benchmarkoor/state-actor/erigon
               # Advance the snapshot: boot besu, run a tiny setup fill (with
               # fill-stateful --no-reset-between-tests, so the deployed contracts
               # persist), and record a replay bundle under the output_dir.
@@ -472,6 +476,85 @@ jobs:
                   # Same amsterdam schedule the fills used.
                   genesis_fork_override: { amsterdam: 1 }
                   extra_args: [--p2p-enabled=true]
+
+      # Same fixtures and the same pre-run bundle as the besu step above, on
+      # ERIGON with runner.client.config.db_compaction enabled. Erigon cannot
+      # boot besu's datadir, so it boots its OWN raw snapshot and replays besu's
+      # recorded bundle to reach the setup head.
+      #
+      # before_benchmarks is the phase worth testing: it lands after the
+      # pre-run bundle, which writes blocks that undo most of what an earlier
+      # compaction achieved, so it is the compacted database that the tests
+      # actually measure. On this datadir the compaction takes chaindata from
+      # 2.0GB to 32MB.
+      #
+      # It needs --exec.no-prune on the client (below). Erigon refuses to reopen
+      # a datadir whose receipt domain it pruned past the snapshot files, and a
+      # synthetic snapshot has no such files, so the client's own pruning during
+      # the replay is enough to leave a datadir that cannot be restarted:
+      #
+      #   [snapshots] gap between snapshot files and DB for domain receipt:
+      #   files end at txNum 0 but the DB was pruned up to 390625
+      #
+      - name: Run benchmarks with db compaction (erigon)
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-ref: ${{ github.event.pull_request.head.sha }}
+          git-repo: ${{ github.event.pull_request.head.repo.clone_url }}
+          mode: run
+          run-config-urls: >-
+            https://raw.githubusercontent.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-cleanup.yaml,
+            https://raw.githubusercontent.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/.github/workflows/config/benchmarkoor-global-clientstdout.yaml
+          run-config: |
+            runner:
+              benchmark:
+                tests:
+                  source:
+                    eest_fixtures:
+                      local_fixtures_dir: /tmp/benchmarkoor/eest-fixtures/besu
+                      fixtures_subdir: blockchain_tests_stateful_engine
+                      # Replay besu's recorded pre-run bundle on erigon's raw
+                      # snapshot; fixtures_subdir defaults to "pre_run_bundle".
+                      pre_runs:
+                        local_fixtures_dir: /tmp/benchmarkoor/pre-runs/besu
+              client:
+                config:
+                  bootstrap_fcu:
+                    enabled: true
+                    max_retries: 10
+                    backoff: 1s
+                  # `erigon db compact`, with `erigon seg du` either side of
+                  # it. No persist: datadir_method is copy, so the compaction is
+                  # run-local, which is what CI wants.
+                  db_compaction:
+                    enabled: true
+                    when: [before_benchmarks]
+                    inspect: true
+                    timeout: 20m
+                # No genesis entry for erigon: state-actor bakes the genesis into
+                # the snapshot datadir it builds.
+                datadirs:
+                  erigon:
+                    source_dir: /tmp/benchmarkoor/state-actor/erigon
+                    method: copy
+              instances:
+                - id: erigon
+                  client: erigon
+                  image: ethpandaops/erigon:main
+                  extra_args:
+                    # Erigon reads the chain config from the datadir, so the
+                    # fork schedule comes from the flag rather than a genesis
+                    # override.
+                    - --override.amsterdam=1
+                    # Keep the datadir reopenable across the compaction's stop
+                    # and restart, by disabling the state-aggregator
+                    # (Domain/InvertedIndex) pruning that otherwise advances the
+                    # DB's prune marker past the snapshot files. Erigon documents
+                    # it for exactly this kind of use ("Diagnostic /
+                    # perf-comparison use only"), and a benchmark wants the
+                    # housekeeping off anyway.
+                    - --exec.no-prune
 
       # Same fixtures and the same pre-run bundle as the besu step above, on
       # geth with runner.client.config.db_compaction enabled. geth cannot boot
