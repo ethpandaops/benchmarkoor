@@ -261,7 +261,7 @@ export function SuitesPage() {
     inactiveDays?: string
   }
   const { page = 1, sortBy = 'lastRun', sortDir = 'desc' } = search
-  const hideInactive = search.hideInactive === '1'
+  const hideInactive = search.hideInactive !== '0'
   const inactiveDays = Number(search.inactiveDays) || DEFAULT_INACTIVE_DAYS
   const inactiveThresholdMs = inactiveDays * DAY_MS
   const [now] = useState(() => Date.now())
@@ -354,12 +354,18 @@ export function SuitesPage() {
     })
   }, [suites, suiteInfoMap, labelFilters])
 
-  // Group filtered suites by the selected label keys
+  // Drop the inactive suites so empty groups and pages do not appear
+  const visibleSuites = useMemo(() => {
+    if (!hideInactive) return filteredSuites
+    return filteredSuites.filter((suite) => (now - suite.lastRun * 1000) <= inactiveThresholdMs)
+  }, [filteredSuites, hideInactive, now, inactiveThresholdMs])
+
+  // Group the visible suites by the selected label keys
   const groups = useMemo((): GroupEntry[] | null => {
     if (groupByKeys.length === 0) return null
 
     const grouped = new Map<string, GroupEntry>()
-    for (const suite of filteredSuites) {
+    for (const suite of visibleSuites) {
       const info = suiteInfoMap.get(suite.hash)
       const labels: Record<string, string> = {}
       for (const key of groupByKeys) {
@@ -392,7 +398,7 @@ export function SuitesPage() {
       }
       return 0
     })
-  }, [groupByKeys, filteredSuites, suiteInfoMap, now, inactiveThresholdMs])
+  }, [groupByKeys, visibleSuites, suiteInfoMap, now, inactiveThresholdMs])
 
   const updateSearch = useCallback(
     (patch: Record<string, string | number | undefined>) => {
@@ -442,14 +448,14 @@ export function SuitesPage() {
     return <EmptyState title="No suites found" message="No test suites have been used yet." />
   }
 
-  const totalPages = groups ? 0 : Math.ceil(filteredSuites.length / PAGE_SIZE)
-  const paginatedSuites = groups ? [] : filteredSuites.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const totalPages = groups ? 0 : Math.ceil(visibleSuites.length / PAGE_SIZE)
+  const paginatedSuites = groups ? [] : visibleSuites.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl/8 font-bold text-gray-900 dark:text-gray-100">
-          Test Suites ({filteredSuites.length}{labelFilters.size > 0 && ` / ${suites.length}`})
+          Test Suites ({visibleSuites.length}{visibleSuites.length !== suites.length && ` / ${suites.length}`})
         </h1>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-sm/6 text-gray-600 dark:text-gray-400">
@@ -458,7 +464,7 @@ export function SuitesPage() {
               {INACTIVE_OPTIONS.map((opt) => (
                 <button
                   key={opt.days}
-                  onClick={() => updateSearch({ inactiveDays: opt.days === DEFAULT_INACTIVE_DAYS ? undefined : String(opt.days) })}
+                  onClick={() => { updateSearch({ inactiveDays: opt.days === DEFAULT_INACTIVE_DAYS ? undefined : String(opt.days), page: 1 }); setCurrentPage(1) }}
                   className={clsx(
                     'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
                     inactiveDays === opt.days
@@ -471,7 +477,7 @@ export function SuitesPage() {
               ))}
             </div>
             <button
-              onClick={() => updateSearch({ hideInactive: hideInactive ? undefined : '1' })}
+              onClick={() => { updateSearch({ hideInactive: hideInactive ? '0' : undefined, page: 1 }); setCurrentPage(1) }}
               className={clsx(
                 'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
                 hideInactive
@@ -515,7 +521,12 @@ export function SuitesPage() {
         />
       )}
 
-      {groups ? (
+      {visibleSuites.length === 0 ? (
+        <EmptyState
+          title="No active suites"
+          message={`No suite ran in the last ${inactiveDays} days. Turn off "Hide" to see the inactive suites.`}
+        />
+      ) : groups ? (
         <div className="flex flex-col gap-8">
           {groups.map((group) => {
             const groupKey = groupByKeys.map((k) => `${k}=${group.labels[k]}`).join(', ')
@@ -535,14 +546,14 @@ export function SuitesPage() {
                     ({group.suites.length}{inactiveCount > 0 && `, ${inactiveCount} inactive`})
                   </span>
                 </h2>
-                <SuitesTable suites={group.suites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} hideInactive={hideInactive} inactiveThresholdMs={inactiveThresholdMs} />
+                <SuitesTable suites={group.suites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} inactiveThresholdMs={inactiveThresholdMs} />
               </div>
             )
           })}
         </div>
       ) : (
         <>
-          <SuitesTable suites={paginatedSuites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} hideInactive={hideInactive} inactiveThresholdMs={inactiveThresholdMs} />
+          <SuitesTable suites={paginatedSuites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} inactiveThresholdMs={inactiveThresholdMs} />
 
           {totalPages > 1 && (
             <div className="flex justify-center">

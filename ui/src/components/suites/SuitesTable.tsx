@@ -21,7 +21,6 @@ interface SuitesTableProps {
   sortBy?: SuiteSortColumn
   sortDir?: SuiteSortDirection
   onSortChange?: (column: SuiteSortColumn, direction: SuiteSortDirection) => void
-  hideInactive?: boolean
   inactiveThresholdMs?: number
 }
 
@@ -74,11 +73,9 @@ function StaticHeader({ label }: { label: string }) {
   )
 }
 
-function SuiteRow({ suite, isInactive, hidden }: { suite: SuiteEntry; isInactive?: boolean; hidden?: boolean }) {
+function SuiteRow({ suite, isInactive }: { suite: SuiteEntry; isInactive?: boolean }) {
   const navigate = useNavigate()
   const { data: suiteInfo } = useSuite(suite.hash)
-
-  if (hidden) return null
 
   return (
     <tr
@@ -170,7 +167,6 @@ export function SuitesTable({
   sortBy = 'lastRun',
   sortDir = 'desc',
   onSortChange,
-  hideInactive,
   inactiveThresholdMs = DEFAULT_INACTIVE_THRESHOLD_MS,
 }: SuitesTableProps) {
   const now = useNow()
@@ -219,7 +215,6 @@ export function SuitesTable({
               key={suite.hash}
               suite={suite}
               isInactive={(now - suite.lastRun * 1000) > inactiveThresholdMs}
-              hidden={hideInactive && (now - suite.lastRun * 1000) > inactiveThresholdMs}
             />
           ))}
         </tbody>
