@@ -1232,6 +1232,7 @@ Two rules follow from the mechanisms:
 
 - **ZFS persists only at `before_pre_runs`.** The clone is a child of its source dataset, so no promote or rename puts the compacted clone back at the source path. Compacting the source first also keeps the clone small, since a compaction inside a copy-on-write clone rewrites the whole database into it.
 - **A schelk persist at `before_benchmarks` needs `promote_post_pre_runs: true`.** Persisting there moves the baseline head past the pre-run bundle, which is exactly what that option does. Requiring it keeps the decision explicit, and lets the runner persist both with a single promote.
+- **A baseline that already carries the pre-run state is still compacted.** The promote has nothing of its own left to do there, so the runner does the stop, the compaction and the promote for the compaction alone. It happens once: the marker the compaction writes goes into the promoted baseline, and every later run skips both.
 
 > **A persist is destructive and irreversible.** It overwrites the golden image. On ZFS, `safety_snapshot` leaves a `<dataset>@benchmarkoor-precompaction-<run-id>` snapshot that a `zfs rollback` restores exactly.
 

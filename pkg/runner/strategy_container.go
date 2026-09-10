@@ -1141,7 +1141,9 @@ func (r *runner) runInitForRecreate(
 // promote captures whatever is on disk, so stopping too eagerly persists a
 // datadir the client had not finished writing, and a client restored from that
 // comes up syncing.
-const schelkSettleBeforeStop = 20 * time.Second
+//
+// var (not const) so tests can shorten it.
+var schelkSettleBeforeStop = 20 * time.Second
 
 // promoteSchelkAfterPreRuns applies the suite's pre-run steps, then persists the
 // resulting datadir as the new schelk baseline so every per-test container
@@ -1156,6 +1158,13 @@ const schelkSettleBeforeStop = 20 * time.Second
 // The promote is skipped unless every pre-run step succeeded: promote overwrites
 // the virgin volume irreversibly, and a baseline built from a half-applied bundle
 // is worse than no baseline at all.
+//
+// It also owns the ONLY before_benchmarks compaction this strategy has, so a
+// datadir that needs no promote still comes through here to be compacted. The
+// two share one stop, one promote and one restart: `schelk promote` is what
+// writes the compacted database into the baseline, and every per-test recreate
+// runs `schelk restore`, so a compaction the baseline does not carry is
+// discarded at the first test.
 func (r *runner) promoteSchelkAfterPreRuns(
 	ctx context.Context,
 	params *containerRunParams,
@@ -1170,66 +1179,144 @@ func (r *runner) promoteSchelkAfterPreRuns(
 	logDone *chan struct{},
 	log logrus.FieldLogger,
 ) (newIP string, baked bool, err error) {
+	// Whether the compaction has anything to do is settled FIRST, before the
+	// head check that can return early. The compaction used to hang off the
+	// promote, so a datadir whose baseline already carried the pre-run state
+	// returned early and took a configured compaction with it — silently, since
+	// the code that logs a skip had not run either.
+	//
+	// The marker question is settled here too, as prepareDatadirBeforeBenchmarks
+	// does it: a persisted baseline carries the marker into every later run, and
+	// stopping and restarting the client to skip the work costs a settle, a
+	// graceful shutdown and a boot, every run, for nothing.
+	compaction := r.dbCompactionFor(params.Instance, config.DBCompactionBeforeBenchmarks)
+
+	var compactionMount docker.Mount
+
+	if compaction != nil {
+		// A missing datadir mount is an error rather than a skip: the container
+		// spec and the datadir config that name the same target are built
+		// together, so a miss means they disagree — and silently dropping a
+		// configured compaction would promote a baseline the operator believes
+		// is compacted.
+		mount, ok := datadirMountFor(params.ContainerSpec, spec, params.DataDirCfg)
+		if !ok {
+			return "", false, fmt.Errorf(
+				"db_compaction is configured at %s but the container spec has no"+
+					" datadir mount to compact",
+				config.DBCompactionBeforeBenchmarks,
+			)
+		}
+
+		compactionMount = mount
+
+		if entry := r.dbCompactionSkipEntry(
+			params.Instance, config.DBCompactionBeforeBenchmarks, mount,
+		); entry != nil {
+			logDBCompactionSkip(log, entry, compaction)
+
+			compaction = nil
+		}
+	}
+
 	// Where the datadir already sits decides how much of the bundle to replay. A
 	// promoted baseline is already AT the bundle's end, so replaying from its
 	// first block re-imports thousands of known blocks — minutes of wasted work
 	// that lands on the head it started from.
+	preRunsApplied := false
+
 	headNumber, headHash, _, blkErr := r.getLatestBlock(ctx, containerIP, spec.RPCPort())
 	if blkErr != nil {
 		log.WithError(blkErr).Warn("Could not read the datadir head; replaying the whole bundle")
 	} else {
-		applied, err := r.verifyPreRunBundleHead(log, headNumber, headHash)
-		if err != nil {
-			return "", false, err
+		applied, verifyErr := r.verifyPreRunBundleHead(log, headNumber, headHash)
+		if verifyErr != nil {
+			return "", false, verifyErr
 		}
 
-		if applied {
-			// The datadir was restored from the schelk baseline moments ago, so a
-			// head already at the bundle's end means the BASELINE carries the
-			// pre-run state — every per-test restore will land here too, and
-			// replaying per test would be pure waste.
-			log.Info(
-				"Pre-run bundle already applied to this datadir; nothing to promote",
+		preRunsApplied = applied
+	}
+
+	if preRunsApplied {
+		// The datadir was restored from the schelk baseline moments ago, so a
+		// head already at the bundle's end means the BASELINE carries the
+		// pre-run state — every per-test restore will land here too, and
+		// replaying per test would be pure waste.
+		log.Info(
+			"Pre-run bundle already applied to this datadir; nothing to promote",
+		)
+
+		if compaction == nil {
+			return "", true, nil
+		}
+
+		// The promote has nothing of its own left to persist, but the compaction
+		// does, and this is the only place that can persist it. The marker the
+		// compaction leaves in the promoted baseline makes every later run skip
+		// both again.
+		if !compaction.PersistsAt(config.DBCompactionBeforeBenchmarks) {
+			log.Warn(
+				"db_compaction runs at " + config.DBCompactionBeforeBenchmarks +
+					" without persist, and the datadir needs no promote; skipping" +
+					" the compaction (every per-test `schelk restore` would" +
+					" discard it before the second test)",
 			)
 
 			return "", true, nil
 		}
-	}
 
-	preRunOpts := &executor.ExecuteOptions{
-		EngineEndpoint: fmt.Sprintf(
-			"http://%s:%d", containerIP, spec.EnginePort(),
-		),
-		JWT:                           r.cfg.JWT,
-		ResultsDir:                    resultsDir,
-		FailFast:                      true,
-		PreRunStepSleep:               r.cfg.PreRunStepSleep,
-		SkipUntilBlockNumber:          headNumber,
-		RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
-		RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
-	}
-
-	n, err := r.executor.RunPreRunSteps(ctx, preRunOpts)
-	if err != nil {
-		return "", false, fmt.Errorf("running pre-run steps before schelk promote: %w", err)
-	}
-
-	if n == 0 {
-		log.Warn(
-			"promote_post_pre_runs is set but the suite has no pre-run steps; " +
-				"refusing to promote (the baseline would be the raw snapshot)",
+		log.Info(
+			"Compacting the datadir anyway, and promoting the compacted result " +
+				"to the schelk baseline",
 		)
+	} else {
+		preRunOpts := &executor.ExecuteOptions{
+			EngineEndpoint: fmt.Sprintf(
+				"http://%s:%d", containerIP, spec.EnginePort(),
+			),
+			JWT:                           r.cfg.JWT,
+			ResultsDir:                    resultsDir,
+			FailFast:                      true,
+			PreRunStepSleep:               r.cfg.PreRunStepSleep,
+			SkipUntilBlockNumber:          headNumber,
+			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+			RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+		}
 
-		return "", false, nil
+		n, runErr := r.executor.RunPreRunSteps(ctx, preRunOpts)
+		if runErr != nil {
+			return "", false, fmt.Errorf("running pre-run steps before schelk promote: %w", runErr)
+		}
+
+		if n == 0 {
+			log.Warn(
+				"promote_post_pre_runs is set but the suite has no pre-run steps; " +
+					"refusing to promote (the baseline would be the raw snapshot)",
+			)
+
+			// The compaction goes with the promote here. Without a promote the
+			// baseline keeps the uncompacted database, and the first per-test
+			// `schelk restore` throws the compacted one away.
+			if compaction != nil {
+				log.Warn(
+					"db_compaction at " + config.DBCompactionBeforeBenchmarks +
+						" is skipped with the promote (a compaction the baseline" +
+						" does not carry would not survive the first per-test" +
+						" `schelk restore`)",
+				)
+			}
+
+			return "", false, nil
+		}
+
+		log.WithField("steps", n).Info("Pre-run steps completed; promoting datadir to the schelk baseline")
 	}
-
-	log.WithField("steps", n).Info("Pre-run steps completed; promoting datadir to the schelk baseline")
 
 	// The head is exact here and free: the client is still up, and this is the
 	// last moment before it stops. Only the compaction report uses it.
 	var compactionHead *dbCompactionHead
 
-	if r.dbCompactionFor(params.Instance, config.DBCompactionBeforeBenchmarks) != nil {
+	if compaction != nil {
 		compactionHead = r.dbCompactionHeadFromRPC(ctx, containerIP, spec.RPCPort(), log)
 	}
 
@@ -1253,25 +1340,10 @@ func (r *runner) promoteSchelkAfterPreRuns(
 
 	// Compact before the promote, so the baseline every per-test recreate
 	// restores from carries the compacted database. One stop, one promote.
-	//
-	// A missing datadir mount is an error rather than a skip, matching the ZFS
-	// ready-snapshot path above: the container spec and the datadir config that
-	// name the same target are built together, so a miss means they disagree —
-	// and silently dropping a configured compaction would promote a baseline
-	// the operator believes is compacted.
-	if r.dbCompactionFor(params.Instance, config.DBCompactionBeforeBenchmarks) != nil {
-		mount, ok := datadirMountFor(params.ContainerSpec, spec, params.DataDirCfg)
-		if !ok {
-			return "", false, fmt.Errorf(
-				"db_compaction is configured at %s but the container spec has no"+
-					" datadir mount to compact",
-				config.DBCompactionBeforeBenchmarks,
-			)
-		}
-
+	if compaction != nil {
 		if _, err := r.compactDatadirForPhase(
 			ctx, params.Instance, spec, config.DBCompactionBeforeBenchmarks,
-			params.RunID, params.ImageName, resultsDir, mount,
+			params.RunID, params.ImageName, resultsDir, compactionMount,
 			benchmarkoorLog, compactionHead,
 		); err != nil {
 			return "", false, err
