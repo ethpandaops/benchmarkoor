@@ -26,6 +26,7 @@ func TestDBCompactionMarker_RoundTrip(t *testing.T) {
 
 	req := &dbCompactionRequest{
 		Instance: &config.ClientInstance{ID: "geth", Client: "geth"},
+		Cfg:      &config.DBCompactionConfig{ExtraArgs: []string{"--cache=16384"}},
 		Phase:    config.DBCompactionBeforePreRuns,
 		RunID:    "run-1",
 	}
@@ -52,9 +53,10 @@ func TestDBCompactionMarker_RoundTrip(t *testing.T) {
 	require.NotNil(t, entry.DatadirBytes)
 	assert.Equal(t, int64(100), entry.DatadirBytes.After)
 
-	// The steps that ran are recorded, so a later run that skips this phase can
-	// say how the datadir was compacted.
+	// The settings that decided what the compaction did are recorded, so a later
+	// run that skips this phase can say how the datadir was compacted.
 	assert.Equal(t, []string{"seg-retire"}, entry.Prepare)
+	assert.Equal(t, []string{"--cache=16384"}, entry.ExtraArgs)
 
 	// A second phase is added, never replacing the first.
 	req.Phase = config.DBCompactionBeforeBenchmarks
@@ -550,8 +552,8 @@ func TestDBCompactionPrepareReport(t *testing.T) {
 }
 
 // TestLogDBCompactionSkip covers the two shapes of the skip line: an INFO that
-// says how the datadir was compacted, and a WARNING when the configured prepare
-// steps differ from the ones the marker names and are therefore not going to run.
+// says how the datadir was compacted, and a WARNING naming the settings this run
+// configured that are therefore not going to take effect.
 func TestLogDBCompactionSkip(t *testing.T) {
 	entry := &dbCompactionMarkerEntry{
 		Client:      "erigon",
@@ -559,48 +561,90 @@ func TestLogDBCompactionSkip(t *testing.T) {
 		RunID:       "run-1",
 		CompletedAt: "2026-09-09T20:21:21Z",
 		Prepare:     []string{"seg-retire"},
+		ExtraArgs:   []string{"--cache=16384"},
 	}
 
-	capture := func(cfg *config.DBCompactionConfig) *logrus.Entry {
+	capture := func(e *dbCompactionMarkerEntry, cfg *config.DBCompactionConfig) *logrus.Entry {
 		log := logrus.New()
 		log.SetOutput(io.Discard)
 
 		hook := &captureHook{}
 		log.AddHook(hook)
 
-		logDBCompactionSkip(logrus.NewEntry(log), entry, cfg)
+		logDBCompactionSkip(logrus.NewEntry(log), e, cfg)
 
 		require.Len(t, hook.entries, 1)
 
 		return hook.entries[0]
 	}
 
-	t.Run("same prepare config reports how it ran", func(t *testing.T) {
-		got := capture(&config.DBCompactionConfig{Prepare: []string{"seg-retire"}})
+	t.Run("matching config reports how it ran", func(t *testing.T) {
+		got := capture(entry, &config.DBCompactionConfig{
+			Prepare:   []string{"seg-retire"},
+			ExtraArgs: []string{"--cache=16384"},
+		})
 
 		assert.Equal(t, logrus.InfoLevel, got.Level)
 		assert.Equal(t, "seg-retire", got.Data["prepare"])
+		assert.Equal(t, "--cache=16384", got.Data["extra_args"])
 		assert.Equal(t, "run-1", got.Data["run_id"])
 		assert.Equal(t, "ethpandaops/erigon:main", got.Data["image"])
-		assert.NotContains(t, got.Data, "configured_prepare")
+		assert.NotContains(t, got.Data, "changed")
 	})
 
-	t.Run("a changed prepare config warns that it is ignored", func(t *testing.T) {
-		got := capture(&config.DBCompactionConfig{})
+	t.Run("a changed prepare warns", func(t *testing.T) {
+		got := capture(entry, &config.DBCompactionConfig{
+			ExtraArgs: []string{"--cache=16384"},
+		})
 
 		assert.Equal(t, logrus.WarnLevel, got.Level)
-		assert.Equal(t, "seg-retire", got.Data["prepare"], "what the datadir had")
-		assert.Equal(t, "none", got.Data["configured_prepare"], "what this run wanted")
-		assert.Contains(t, got.Message, "do NOT")
+		assert.Equal(t, "prepare: seg-retire -> none", got.Data["changed"])
+		assert.Contains(t, got.Message, "do NOT take effect")
 	})
 
-	t.Run("a marker with no steps reads as none", func(t *testing.T) {
-		entry = &dbCompactionMarkerEntry{RunID: "run-0", CompletedAt: "2026-09-09T00:00:00Z"}
+	t.Run("changed extra_args warn", func(t *testing.T) {
+		got := capture(entry, &config.DBCompactionConfig{
+			Prepare:   []string{"seg-retire"},
+			ExtraArgs: []string{"--cache=32768"},
+		})
 
-		got := capture(&config.DBCompactionConfig{})
+		assert.Equal(t, logrus.WarnLevel, got.Level)
+		assert.Equal(t, "extra_args: --cache=16384 -> --cache=32768", got.Data["changed"])
+	})
+
+	t.Run("both changed are reported together", func(t *testing.T) {
+		got := capture(entry, &config.DBCompactionConfig{})
+
+		assert.Equal(t, logrus.WarnLevel, got.Level)
+		assert.Equal(
+			t,
+			"prepare: seg-retire -> none; extra_args: --cache=16384 -> none",
+			got.Data["changed"],
+		)
+	})
+
+	t.Run("a settings-only change does not warn", func(t *testing.T) {
+		// timeout, inspect, continue_on_error and friends govern the run, not
+		// the bytes, so they must not read as a stale datadir.
+		got := capture(entry, &config.DBCompactionConfig{
+			Prepare:         []string{"seg-retire"},
+			ExtraArgs:       []string{"--cache=16384"},
+			Timeout:         "9h",
+			ContinueOnError: true,
+		})
+
+		assert.Equal(t, logrus.InfoLevel, got.Level)
+	})
+
+	t.Run("an older marker with no settings reads as none", func(t *testing.T) {
+		got := capture(
+			&dbCompactionMarkerEntry{RunID: "run-0", CompletedAt: "2026-09-09T00:00:00Z"},
+			&config.DBCompactionConfig{},
+		)
 
 		assert.Equal(t, logrus.InfoLevel, got.Level)
 		assert.Equal(t, "none", got.Data["prepare"])
+		assert.Equal(t, "none", got.Data["extra_args"])
 	})
 }
 

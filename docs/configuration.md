@@ -1248,6 +1248,7 @@ A finished compaction writes `.benchmarkoor-db-compaction.json` at the root of t
       "image": "ethpandaops/erigon:main",
       "run_id": "20260827-101203-abcd",
       "prepare": ["seg-retire"],
+      "extra_args": ["--cache=16384"],
       "completed_at": "2026-08-27T10:12:03Z",
       "duration_ms": 812345,
       "datadir_bytes": { "before": 812000000000, "after": 640000000000 }
@@ -1256,7 +1257,9 @@ A finished compaction writes `.benchmarkoor-db-compaction.json` at the root of t
 }
 ```
 
-`prepare` names the steps that ran. Absent means none did — a marker written before `prepare` existed cannot have had one either, so the two cases coincide.
+`prepare` and `extra_args` record the settings that decided what the compaction did to the database, alongside the `image` that ran it. An absent list means the setting was empty — a marker written before these fields existed cannot have had a value either, so the two cases coincide.
+
+The rest of `db_compaction` is deliberately not recorded. `timeout`, `inspect`, `continue_on_error`, `when`, `persist` and `skip_if_marked` govern the run rather than the bytes the compaction leaves behind, so recording them would only produce mismatches that mean nothing.
 
 It holds only what is known the moment the compaction finishes, so it is written once and never patched. With `persist` enabled, `skip_if_marked` defaults to true and a later run skips a phase the marker already names — which is what stops every run paying the compaction cost again.
 
@@ -1265,19 +1268,20 @@ A skipped phase logs how the datadir was compacted, so a run that compacts nothi
 ```
 Datadir already carries a compaction marker for this phase; skipping
   compacted_at=2026-08-27T10:12:03Z run_id=20260827-101203-abcd
-  image=ethpandaops/erigon:main prepare=seg-retire
+  image=ethpandaops/erigon:main prepare=seg-retire extra_args=--cache=16384
 ```
 
-**Changing `prepare` on a persisted datadir does not recompact it.** The marker skips the whole phase, so new steps never run. That case logs a WARNING naming both lists, rather than passing silently:
+**`skip_if_marked` skips by phase, not by config.** Changing `prepare` or `extra_args` on a persisted datadir does not recompact it, so the new settings never take effect. That case logs a WARNING naming what differs, rather than passing silently:
 
 ```
-Datadir already carries a compaction marker for this phase, so it is skipped and the
-configured db_compaction.prepare steps do NOT run; the datadir keeps the preparation
-the marker names (set db_compaction.skip_if_marked: false to recompact)
-  prepare=none configured_prepare=seg-retire
+Datadir already carries a compaction marker for this phase, so it is skipped and this
+run's db_compaction settings do NOT take effect; the datadir keeps the compaction the
+marker describes (set db_compaction.skip_if_marked: false to recompact)
+  prepare=seg-retire extra_args=--cache=16384
+  changed=prepare: seg-retire -> none; extra_args: --cache=16384 -> --cache=32768
 ```
 
-The same is true of any other change to the compaction config, `extra_args` included: the marker records that a phase ran, and `skip_if_marked` takes it at its word.
+The `image` is reported but not compared. Client images change routinely, and the marker cannot tell whether a new one compacts differently, so warning on every bump would teach you to ignore the warning — the recorded image is in the line either way.
 
 The marker also cannot tell that a datadir advanced after it was written. If you point a longer pre-run bundle at a baseline persisted at `before_benchmarks`, set `skip_if_marked: false` to force the compaction.
 

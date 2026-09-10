@@ -120,26 +120,37 @@ type dbCompactionMarkerEntry struct {
 	Image  string `json:"image"`
 	RunID  string `json:"run_id"`
 
-	// Prepare names the db_compaction.prepare steps that ran, so a later run
-	// that skips this phase can say HOW it was compacted, and notice that its
-	// own prepare config would have done something else.
+	// Prepare names the db_compaction.prepare steps that ran, and ExtraArgs the
+	// arguments the compaction command carried. They are what a later run
+	// compares against its own config, so a phase it skips can say HOW the
+	// datadir was compacted and whether that is what this run asks for. Image is
+	// recorded and reported beside them, but not compared: see
+	// dbCompactionMarkerDiff.
 	//
-	// Absent means no step ran: a marker written before prepare existed cannot
-	// have had one either, so the two cases coincide.
-	Prepare []string `json:"prepare,omitempty"`
+	// The rest of db_compaction is deliberately absent. timeout, inspect,
+	// continue_on_error, when, persist and skip_if_marked govern the run, not
+	// the bytes the compaction leaves behind, so recording them would only
+	// produce mismatches that mean nothing.
+	//
+	// An absent list means the setting was empty. A marker written before these
+	// fields existed cannot have had a value either, so the two cases coincide
+	// and no schema version bump is needed.
+	Prepare   []string `json:"prepare,omitempty"`
+	ExtraArgs []string `json:"extra_args,omitempty"`
 
 	CompletedAt  string             `json:"completed_at"`
 	DurationMS   int64              `json:"duration_ms"`
 	DatadirBytes *dbCompactionSizes `json:"datadir_bytes,omitempty"`
 }
 
-// prepareSummary renders the entry's steps for a log line.
-func (e *dbCompactionMarkerEntry) prepareSummary() string {
-	if len(e.Prepare) == 0 {
+// dbCompactionListSummary renders a setting's value for a log line, so an empty
+// one reads as a deliberate "none" rather than a blank field.
+func dbCompactionListSummary(values []string) string {
+	if len(values) == 0 {
 		return "none"
 	}
 
-	return strings.Join(e.Prepare, ",")
+	return strings.Join(values, ",")
 }
 
 // hostPath returns the host path of the datadir mount, or "" when
@@ -525,6 +536,7 @@ func (r *runner) writeDBCompactionMarker(
 		Image:        report.Image,
 		RunID:        req.RunID,
 		Prepare:      dbCompactionStepNames(report.Prepare),
+		ExtraArgs:    append([]string{}, dbCompactionConfiguredExtraArgs(req.Cfg)...),
 		CompletedAt:  report.CompletedAt,
 		DurationMS:   report.DurationMS,
 		DatadirBytes: report.DatadirBytes,
@@ -640,14 +652,14 @@ func (r *runner) dbCompactionSkipEntry(
 // says how that earlier compaction ran.
 //
 // The marker is the only record of what the persisted baseline had done to it,
-// so the skip line carries the earlier run's id, image and prepare steps: a run
-// that compacts nothing itself should still be able to say how its datadir got
-// that way.
+// so the skip line carries the earlier run's id, image and settings: a run that
+// compacts nothing itself should still be able to say how its datadir got that
+// way.
 //
-// When the current prepare config would do something else, the line is a
-// WARNING instead. That is the case the marker used to hide: the whole point of
-// prepare is to change what the compaction does, so a changed setting that is
-// being ignored has to say so.
+// When this run's settings would do something else, the line is a WARNING
+// naming what differs. `skip_if_marked` skips by PHASE, not by config, so a
+// changed setting is silently without effect on a persisted baseline unless the
+// skip says so.
 func logDBCompactionSkip(
 	log logrus.FieldLogger, entry *dbCompactionMarkerEntry, cfg *config.DBCompactionConfig,
 ) {
@@ -655,17 +667,17 @@ func logDBCompactionSkip(
 		"compacted_at": entry.CompletedAt,
 		"run_id":       entry.RunID,
 		"image":        entry.Image,
-		"prepare":      entry.prepareSummary(),
+		"prepare":      dbCompactionListSummary(entry.Prepare),
+		"extra_args":   dbCompactionListSummary(entry.ExtraArgs),
 	}
 
-	wanted := cfg.PrepareSteps()
-	if !slices.Equal(wanted, entry.Prepare) {
-		fields["configured_prepare"] = dbCompactionPrepareSummary(wanted)
+	if diff := dbCompactionMarkerDiff(entry, cfg); len(diff) > 0 {
+		fields["changed"] = strings.Join(diff, "; ")
 
 		log.WithFields(fields).Warn(
 			"Datadir already carries a compaction marker for this phase, so it is" +
-				" skipped and the configured db_compaction.prepare steps do NOT" +
-				" run; the datadir keeps the preparation the marker names" +
+				" skipped and this run's db_compaction settings do NOT take effect;" +
+				" the datadir keeps the compaction the marker describes" +
 				" (set db_compaction.skip_if_marked: false to recompact)",
 		)
 
@@ -678,13 +690,47 @@ func logDBCompactionSkip(
 	)
 }
 
-// dbCompactionPrepareSummary renders a configured step list for a log line.
-func dbCompactionPrepareSummary(steps []string) string {
-	if len(steps) == 0 {
-		return "none"
+// dbCompactionMarkerDiff lists the recorded settings that differ from the ones
+// this run is configured with, each as "name: recorded -> configured".
+//
+// Only the settings that decide what the compaction does to the database are
+// compared. timeout, inspect, continue_on_error, when, persist and
+// skip_if_marked govern the run rather than the bytes, so a change there is not
+// a reason to tell anyone their datadir is stale.
+//
+// The image is reported but NOT compared. Client images change routinely here,
+// and the marker cannot tell whether a new one compacts differently, so warning
+// on every bump would teach people to ignore the warning.
+func dbCompactionMarkerDiff(
+	entry *dbCompactionMarkerEntry, cfg *config.DBCompactionConfig,
+) []string {
+	var diff []string
+
+	if want := cfg.PrepareSteps(); !slices.Equal(want, entry.Prepare) {
+		diff = append(diff, fmt.Sprintf(
+			"prepare: %s -> %s",
+			dbCompactionListSummary(entry.Prepare), dbCompactionListSummary(want),
+		))
 	}
 
-	return strings.Join(steps, ",")
+	if want := dbCompactionConfiguredExtraArgs(cfg); !slices.Equal(want, entry.ExtraArgs) {
+		diff = append(diff, fmt.Sprintf(
+			"extra_args: %s -> %s",
+			dbCompactionListSummary(entry.ExtraArgs), dbCompactionListSummary(want),
+		))
+	}
+
+	return diff
+}
+
+// dbCompactionConfiguredExtraArgs returns the configured compaction arguments,
+// tolerating a nil config the way the config's own accessors do.
+func dbCompactionConfiguredExtraArgs(cfg *config.DBCompactionConfig) []string {
+	if cfg == nil {
+		return nil
+	}
+
+	return cfg.ExtraArgs
 }
 
 // dbCompactionPersistsAt reports whether the instance writes the result of the
