@@ -68,6 +68,22 @@ describe('createColorScale', () => {
     expect(scale.color(30)).toBe(WORST)
   })
 
+  it('ignores in-flight runs that report a zero duration', () => {
+    // A live run is merged in with `steps: {}`, so its duration is 0. It
+    // sorts to the fast end, where it used to drag the reference down:
+    // three of them sent every finished run to the red half.
+    const finished = Array.from({ length: 27 }, (_, i) => 100 + (i % 5))
+    const clean = createColorScale(finished, false)
+    const polluted = createColorScale([0, 0, 0, ...finished], false)
+    expect(polluted.top).toBe(clean.top)
+    expect(finished.map((v) => polluted.color(v))).toEqual(finished.map((v) => clean.color(v)))
+  })
+
+  it('survives a set of nothing but in-flight runs', () => {
+    const scale = createColorScale([0, 0, 0, 0], false)
+    expect(scale.hasData).toBe(false)
+  })
+
   it('falls back to the neutral colour with no data', () => {
     const scale = createColorScale([], true)
     expect(scale.hasData).toBe(false)

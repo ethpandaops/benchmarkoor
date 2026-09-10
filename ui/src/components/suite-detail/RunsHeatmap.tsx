@@ -50,6 +50,14 @@ function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number |
   return (gasUsed * 1000) / gasUsedDuration
 }
 
+// A run that has not finished reports no steps, so its duration is 0.
+// Such a run must stay out of the scale and out of the stats, the same
+// way calculateMGasPerSec keeps it out of the MGas/s ones.
+function calculateDuration(duration: number): number | undefined {
+  if (duration <= 0) return undefined
+  return duration
+}
+
 interface ClientStats {
   min?: number
   max?: number
@@ -182,18 +190,25 @@ export function RunsHeatmap({
       clientRuns[client] = sorted.slice(0, MAX_RUNS_PER_CLIENT)
 
       // Calculate duration stats
-      const durations = clientRuns[client].map((r) => getIndexAggregatedStats(r, stepFilter).duration)
-      const sortedDurations = [...durations].sort((a, b) => a - b)
-      const durationSum = durations.reduce((acc, d) => acc + d, 0)
+      const durations = clientRuns[client]
+        .map((r) => calculateDuration(getIndexAggregatedStats(r, stepFilter).duration))
+        .filter((v): v is number => v !== undefined)
       allDurations.push(...durations)
 
-      clientDurationStats[client] = {
-        min: sortedDurations[0],
-        max: sortedDurations[sortedDurations.length - 1],
-        mean: durationSum / durations.length,
-        p95: calculatePercentile(sortedDurations, 95),
-        p99: calculatePercentile(sortedDurations, 99),
-        last: durations[0],
+      if (durations.length > 0) {
+        const sortedDurations = [...durations].sort((a, b) => a - b)
+        const durationSum = durations.reduce((acc, d) => acc + d, 0)
+
+        clientDurationStats[client] = {
+          min: sortedDurations[0],
+          max: sortedDurations[sortedDurations.length - 1],
+          mean: durationSum / durations.length,
+          p95: calculatePercentile(sortedDurations, 95),
+          p99: calculatePercentile(sortedDurations, 99),
+          last: durations[0],
+        }
+      } else {
+        clientDurationStats[client] = {}
       }
 
       clientDurationScales[client] = createColorScale(durations, false)
@@ -278,14 +293,20 @@ export function RunsHeatmap({
         const sorted = [...cRuns].sort((a, b) => b.timestamp - a.timestamp)
         sectionClientRuns[c] = sorted.slice(0, MAX_RUNS_PER_CLIENT)
 
-        const durations = sectionClientRuns[c].map((r) => getIndexAggregatedStats(r, stepFilter).duration)
-        const sortedD = [...durations].sort((a, b) => a - b)
-        const dSum = durations.reduce((acc, d) => acc + d, 0)
-        sectionDurationStats[c] = {
-          min: sortedD[0], max: sortedD[sortedD.length - 1],
-          mean: dSum / durations.length,
-          p95: calculatePercentile(sortedD, 95), p99: calculatePercentile(sortedD, 99),
-          last: durations[0],
+        const durations = sectionClientRuns[c]
+          .map((r) => calculateDuration(getIndexAggregatedStats(r, stepFilter).duration))
+          .filter((v): v is number => v !== undefined)
+        if (durations.length > 0) {
+          const sortedD = [...durations].sort((a, b) => a - b)
+          const dSum = durations.reduce((acc, d) => acc + d, 0)
+          sectionDurationStats[c] = {
+            min: sortedD[0], max: sortedD[sortedD.length - 1],
+            mean: dSum / durations.length,
+            p95: calculatePercentile(sortedD, 95), p99: calculatePercentile(sortedD, 99),
+            last: durations[0],
+          }
+        } else {
+          sectionDurationStats[c] = {}
         }
         sectionDurationScales[c] = createColorScale(durations, false)
 

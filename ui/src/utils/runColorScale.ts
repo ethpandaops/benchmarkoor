@@ -57,9 +57,14 @@ export function calculatePercentile(sortedValues: number[], percentile: number):
  * one flukey run cannot compress the scale for every other run.
  */
 export function createColorScale(values: number[], higherIsBetter: boolean): ColorScale {
-  if (values.length === 0) return EMPTY_SCALE
+  // A run that has not finished carries no throughput and no duration.
+  // Callers filter those out, but drop them here too: a placeholder zero
+  // at the good end of the scale drags the reference towards it and
+  // paints every finished run red.
+  const usable = values.filter((value) => value > 0)
+  if (usable.length === 0) return EMPTY_SCALE
 
-  const sorted = [...values].sort((a, b) => a - b)
+  const sorted = [...usable].sort((a, b) => a - b)
   const top = calculatePercentile(sorted, higherIsBetter ? 90 : 10)
   const low = calculatePercentile(sorted, higherIsBetter ? 10 : 90)
   if (top <= 0) return EMPTY_SCALE
