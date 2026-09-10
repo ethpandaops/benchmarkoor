@@ -6,7 +6,16 @@ import { type IndexEntry, type IndexStepType, getIndexAggregatedStats, ALL_INDEX
 import { formatTimestamp } from '@/utils/date'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { ColorScaleLegend } from '@/components/shared/ColorScaleLegend'
-import { THRESHOLD_COLORS } from '@/utils/perfThreshold'
+import {
+  COLORS,
+  LEVELS,
+  MIN_DROP,
+  NEUTRAL_COLOR,
+  type ColorScale,
+  calculatePercentile,
+  createColorScale,
+  formatShortfall,
+} from '@/utils/runColorScale'
 
 // Check if run completed successfully (no status = completed for backward compat)
 function isRunCompleted(run: IndexEntry): boolean {
@@ -19,58 +28,6 @@ function isRunLive(run: IndexEntry): boolean {
 }
 
 const MAX_RUNS_PER_CLIENT = 30
-
-// Discrete color scale (green to red for duration, reversed for MGas/s).
-// Shared with the run-detail heatmaps so every heatmap reads the same way.
-const COLORS = THRESHOLD_COLORS
-const LEVELS = COLORS.length
-
-// Colour of a cell whose value is unknown — the middle of the scale.
-const NEUTRAL_COLOR = COLORS[Math.floor(LEVELS / 2)]
-
-// Observed value range of one colour step. null when no run fell in it.
-type ScaleBound = { lo: number; hi: number } | null
-
-interface ColorScale {
-  color: (value: number) => string
-  /** Value range of each step, best first. Empty when there is no data. */
-  bounds: ScaleBound[]
-}
-
-/**
- * Create a percentile-based color mapper. Values are split into
- * equal-sized bands so the color spread is balanced regardless of
- * outliers. The bounds report the values each band actually holds, so
- * the legend can name the ranges.
- */
-function createColorScale(values: number[], higherIsBetter: boolean): ColorScale {
-  const bounds: ScaleBound[] = Array(LEVELS).fill(null)
-  if (values.length === 0) return { color: () => NEUTRAL_COLOR, bounds }
-
-  const sorted = [...values].sort((a, b) => a - b)
-  const level = (value: number) => {
-    // Binary search for rank position
-    let lo = 0
-    let hi = sorted.length
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1
-      if (sorted[mid] < value) lo = mid + 1
-      else hi = mid
-    }
-    let percentile = lo / sorted.length
-    if (higherIsBetter) percentile = 1 - percentile
-    return Math.min(LEVELS - 1, Math.floor(percentile * LEVELS))
-  }
-
-  for (const value of sorted) {
-    const step = level(value)
-    const bound = bounds[step]
-    if (bound === null) bounds[step] = { lo: value, hi: value }
-    else bounds[step] = { lo: Math.min(bound.lo, value), hi: Math.max(bound.hi, value) }
-  }
-
-  return { color: (value: number) => COLORS[level(value)], bounds }
-}
 
 function formatDurationMinSec(nanoseconds: number): string {
   const seconds = nanoseconds / 1_000_000_000
@@ -91,15 +48,6 @@ function formatDurationCompact(nanoseconds: number): string {
 function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number | undefined {
   if (gasUsedDuration <= 0 || gasUsed <= 0) return undefined
   return (gasUsed * 1000) / gasUsedDuration
-}
-
-function calculatePercentile(sortedValues: number[], percentile: number): number {
-  if (sortedValues.length === 0) return 0
-  const index = (percentile / 100) * (sortedValues.length - 1)
-  const lower = Math.floor(index)
-  const upper = Math.ceil(index)
-  if (lower === upper) return sortedValues[lower]
-  return sortedValues[lower] + (sortedValues[upper] - sortedValues[lower]) * (index - lower)
 }
 
 interface ClientStats {
@@ -431,30 +379,44 @@ export function RunsHeatmap({
     setTooltip(null)
   }
 
-  // Legend ranges. The suite scale colours every tile in 'suite' mode,
-  // so its bounds are the real ones. In 'client' mode each client has
-  // its own scale, so the legend names the percentile band instead.
+  // Legend ranges. In 'suite' mode one scale colours every tile, so the
+  // legend can name the real values. In 'client' mode each client has
+  // its own scale, so it names the shortfall band alone.
   const legendScale = metricMode === 'mgas' ? suiteMgasScale : suiteDurationScale
-  const bandLabel = (step: number) => {
-    const from = Math.round((step / LEVELS) * 100)
-    const to = Math.round(((step + 1) / LEVELS) * 100)
-    return `Fastest ${from}–${to}%`
-  }
+  const showValues = colorNormalization === 'suite' && legendScale.hasData
+  const stepWidth = showValues ? legendScale.step : MIN_DROP / LEVELS
+
   const legendStepRange = (step: number) => {
-    const band = bandLabel(step)
-    if (colorNormalization === 'client') return band
+    const from = step * stepWidth
+    const to = (step + 1) * stepWidth
+    const band =
+      step === 0
+        ? `within ${formatShortfall(to)} of best`
+        : step === LEVELS - 1
+          ? `over ${formatShortfall(from)} off`
+          : `${formatShortfall(from)} – ${formatShortfall(to)} off`
+    if (!showValues) return band
 
-    const bound = legendScale.bounds[step]
-    if (!bound) return `${band} — no runs`
+    const { top } = legendScale
+    if (metricMode === 'mgas') {
+      const fmt = (value: number) => value.toFixed(1)
+      if (step === 0) return `≥ ${fmt(top * (1 - to))} MGas/s · ${band}`
+      if (step === LEVELS - 1) return `< ${fmt(Math.max(0, top * (1 - from)))} MGas/s · ${band}`
 
-    const fmt = (value: number) => (metricMode === 'mgas' ? value.toFixed(1) : formatDurationCompact(value))
-    const range = bound.lo === bound.hi ? fmt(bound.lo) : `${fmt(bound.lo)} – ${fmt(bound.hi)}`
-    return `${band}: ${range}${metricMode === 'mgas' ? ' MGas/s' : ''}`
+      return `${fmt(Math.max(0, top * (1 - to)))} – ${fmt(top * (1 - from))} MGas/s · ${band}`
+    }
+
+    const fmt = formatDurationCompact
+    if (step === 0) return `≤ ${fmt(top * (1 + to))} · ${band}`
+    if (step === LEVELS - 1) return `> ${fmt(top * (1 + from))} · ${band}`
+
+    return `${fmt(top * (1 + from))} – ${fmt(top * (1 + to))} · ${band}`
   }
+
   const legendNote =
     colorNormalization === 'client'
-      ? 'Each client is ranked against its own runs'
-      : 'All runs of the suite are ranked together'
+      ? 'Each client is measured against its own best run. A client whose runs spread wider than 15% gets a wider scale.'
+      : 'Every run of the suite is measured against the best one.'
 
   if (runs.length === 0) {
     return null
