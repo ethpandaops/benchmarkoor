@@ -10,6 +10,8 @@ import { Spinner } from '@/components/shared/Spinner'
 import { TestName } from '@/components/shared/TestName'
 import { testNameMatches, toggleSearchTerm } from '@/utils/eestNameFilter'
 import { formatTimestamp } from '@/utils/date'
+import { THRESHOLD_COLORS, THRESHOLD_LIMIT_STEP, getColorByThreshold, thresholdStepRange } from '@/utils/perfThreshold'
+import { ColorScaleLegend } from '@/components/shared/ColorScaleLegend'
 
 const DEFAULT_PAGE_SIZE = 20
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
@@ -24,33 +26,18 @@ const MIN_THRESHOLD = 10
 const MAX_THRESHOLD = 1000
 const DEFAULT_THRESHOLD = 60
 
-// 5-level discrete color scale (green to red)
-const COLORS = [
-  '#22c55e', // green - fast (high MGas/s)
-  '#84cc16', // lime
-  '#eab308', // yellow
-  '#f97316', // orange
-  '#ef4444', // red - slow (low MGas/s)
-]
+// Discrete color scale (green to red), shared with the run-detail
+// heatmaps so every heatmap in the UI reads the same way.
+const COLORS = THRESHOLD_COLORS
+const LEVELS = COLORS.length
 
 // For per-test normalization (border color)
 function getColorByNormalizedValue(value: number, min: number, max: number): string {
-  if (max === min) return COLORS[2] // middle color if all same
+  if (max === min) return COLORS[THRESHOLD_LIMIT_STEP] // middle color if all same
   // Reverse: high values (fast) get green, low values (slow) get red
   const normalized = 1 - (value - min) / (max - min)
-  const level = Math.min(4, Math.floor(normalized * 5))
+  const level = Math.min(LEVELS - 1, Math.floor(normalized * LEVELS))
   return COLORS[level]
-}
-
-// For global threshold-based coloring (fill color)
-function getColorByThreshold(value: number, threshold: number): string {
-  // Scale: threshold = yellow, >threshold = green, <threshold = red
-  const ratio = value / threshold
-  if (ratio >= 2) return COLORS[0] // Very fast - green
-  if (ratio >= 1.5) return COLORS[1] // Fast - lime
-  if (ratio >= 1) return COLORS[2] // At threshold - yellow
-  if (ratio >= 0.5) return COLORS[3] // Slow - orange
-  return COLORS[4] // Very slow - red
 }
 
 function calculateMGasPerSec(gasUsed: number, timeNs: number): number | undefined {
@@ -925,13 +912,14 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
         <span className="flex items-center gap-1">
-          <span>&gt;{threshold * 2}</span>
-          <span className="flex gap-0.5">
-            {COLORS.map((color, i) => (
-              <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
-            ))}
-          </span>
-          <span>&lt;{threshold / 2}</span>
+          <ColorScaleLegend
+            colors={COLORS}
+            startLabel={`>${threshold * 3}`}
+            endLabel={`<${Math.round(threshold / 3)}`}
+            title="MGas/s buckets"
+            stepRange={(step) => `${thresholdStepRange(step, threshold)} MGas/s`}
+            note={`Each bucket is a multiple of the threshold (${threshold} MGas/s)`}
+          />
           <span className="text-gray-400 dark:text-gray-500">(fill: threshold, border: per-test)</span>
         </span>
         <span>

@@ -5,6 +5,8 @@ import { AlertTriangle, GitCompareArrows, Layers } from 'lucide-react'
 import { type IndexEntry, type IndexStepType, getIndexAggregatedStats, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { formatTimestamp } from '@/utils/date'
 import { ClientBadge } from '@/components/shared/ClientBadge'
+import { ColorScaleLegend } from '@/components/shared/ColorScaleLegend'
+import { THRESHOLD_COLORS } from '@/utils/perfThreshold'
 
 // Check if run completed successfully (no status = completed for backward compat)
 function isRunCompleted(run: IndexEntry): boolean {
@@ -18,23 +20,35 @@ function isRunLive(run: IndexEntry): boolean {
 
 const MAX_RUNS_PER_CLIENT = 30
 
-// 5-level discrete color scale (green to red for duration, reversed for MGas/s)
-const COLORS = [
-  '#22c55e', // green - best
-  '#84cc16', // lime
-  '#eab308', // yellow
-  '#f97316', // orange
-  '#ef4444', // red - worst
-]
+// Discrete color scale (green to red for duration, reversed for MGas/s).
+// Shared with the run-detail heatmaps so every heatmap reads the same way.
+const COLORS = THRESHOLD_COLORS
+const LEVELS = COLORS.length
+
+// Colour of a cell whose value is unknown — the middle of the scale.
+const NEUTRAL_COLOR = COLORS[Math.floor(LEVELS / 2)]
+
+// Observed value range of one colour step. null when no run fell in it.
+type ScaleBound = { lo: number; hi: number } | null
+
+interface ColorScale {
+  color: (value: number) => string
+  /** Value range of each step, best first. Empty when there is no data. */
+  bounds: ScaleBound[]
+}
 
 /**
- * Create a percentile-based color mapper. Values are split into equal-sized
- * quintiles so the color spread is balanced regardless of outliers.
+ * Create a percentile-based color mapper. Values are split into
+ * equal-sized bands so the color spread is balanced regardless of
+ * outliers. The bounds report the values each band actually holds, so
+ * the legend can name the ranges.
  */
-function createColorScale(values: number[], higherIsBetter: boolean): (value: number) => string {
-  if (values.length === 0) return () => COLORS[2]
+function createColorScale(values: number[], higherIsBetter: boolean): ColorScale {
+  const bounds: ScaleBound[] = Array(LEVELS).fill(null)
+  if (values.length === 0) return { color: () => NEUTRAL_COLOR, bounds }
+
   const sorted = [...values].sort((a, b) => a - b)
-  return (value: number) => {
+  const level = (value: number) => {
     // Binary search for rank position
     let lo = 0
     let hi = sorted.length
@@ -45,9 +59,17 @@ function createColorScale(values: number[], higherIsBetter: boolean): (value: nu
     }
     let percentile = lo / sorted.length
     if (higherIsBetter) percentile = 1 - percentile
-    const level = Math.min(4, Math.floor(percentile * 5))
-    return COLORS[level]
+    return Math.min(LEVELS - 1, Math.floor(percentile * LEVELS))
   }
+
+  for (const value of sorted) {
+    const step = level(value)
+    const bound = bounds[step]
+    if (bound === null) bounds[step] = { lo: value, hi: value }
+    else bounds[step] = { lo: Math.min(bound.lo, value), hi: Math.max(bound.hi, value) }
+  }
+
+  return { color: (value: number) => COLORS[level(value)], bounds }
 }
 
 function formatDurationMinSec(nanoseconds: number): string {
@@ -124,8 +146,8 @@ interface GroupSection {
   clientRuns: Record<string, IndexEntry[]>
   clientDurationStats: Record<string, ClientStats>
   clientMgasStats: Record<string, ClientStats>
-  clientDurationScales: Record<string, (v: number) => string>
-  clientMgasScales: Record<string, (v: number) => string>
+  clientDurationScales: Record<string, ColorScale>
+  clientMgasScales: Record<string, ColorScale>
 }
 
 interface TooltipData {
@@ -201,8 +223,8 @@ export function RunsHeatmap({
     const clientRuns: Record<string, IndexEntry[]> = {}
     const clientDurationStats: Record<string, ClientStats> = {}
     const clientMgasStats: Record<string, ClientStats> = {}
-    const clientDurationScales: Record<string, (v: number) => string> = {}
-    const clientMgasScales: Record<string, (v: number) => string> = {}
+    const clientDurationScales: Record<string, ColorScale> = {}
+    const clientMgasScales: Record<string, ColorScale> = {}
 
     const allDurations: number[] = []
     const allMgas: number[] = []
@@ -301,8 +323,8 @@ export function RunsHeatmap({
       const sectionClientRuns: Record<string, IndexEntry[]> = {}
       const sectionDurationStats: Record<string, ClientStats> = {}
       const sectionMgasStats: Record<string, ClientStats> = {}
-      const sectionDurationScales: Record<string, (v: number) => string> = {}
-      const sectionMgasScales: Record<string, (v: number) => string> = {}
+      const sectionDurationScales: Record<string, ColorScale> = {}
+      const sectionMgasScales: Record<string, ColorScale> = {}
 
       for (const [c, cRuns] of Object.entries(byClient)) {
         const sorted = [...cRuns].sort((a, b) => b.timestamp - a.timestamp)
@@ -355,26 +377,26 @@ export function RunsHeatmap({
   const getColorForRun = (
     run: IndexEntry,
     overrides?: {
-      mgasScales: Record<string, (v: number) => string>
-      durationScales: Record<string, (v: number) => string>
+      mgasScales: Record<string, ColorScale>
+      durationScales: Record<string, ColorScale>
     },
   ) => {
     const stats = getIndexAggregatedStats(run, stepFilter)
     if (metricMode === 'mgas') {
       const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
-      if (mgas === undefined) return COLORS[2]
+      if (mgas === undefined) return NEUTRAL_COLOR
 
       if (colorNormalization === 'client') {
         const scales = overrides?.mgasScales ?? clientMgasScales
-        return scales[run.instance.client]?.(mgas) ?? COLORS[2]
+        return scales[run.instance.client]?.color(mgas) ?? NEUTRAL_COLOR
       }
-      return suiteMgasScale(mgas)
+      return suiteMgasScale.color(mgas)
     } else {
       if (colorNormalization === 'client') {
         const scales = overrides?.durationScales ?? clientDurationScales
-        return scales[run.instance.client]?.(stats.duration) ?? COLORS[2]
+        return scales[run.instance.client]?.color(stats.duration) ?? NEUTRAL_COLOR
       }
-      return suiteDurationScale(stats.duration)
+      return suiteDurationScale.color(stats.duration)
     }
   }
 
@@ -408,6 +430,31 @@ export function RunsHeatmap({
   const handleMouseLeave = () => {
     setTooltip(null)
   }
+
+  // Legend ranges. The suite scale colours every tile in 'suite' mode,
+  // so its bounds are the real ones. In 'client' mode each client has
+  // its own scale, so the legend names the percentile band instead.
+  const legendScale = metricMode === 'mgas' ? suiteMgasScale : suiteDurationScale
+  const bandLabel = (step: number) => {
+    const from = Math.round((step / LEVELS) * 100)
+    const to = Math.round(((step + 1) / LEVELS) * 100)
+    return `Fastest ${from}–${to}%`
+  }
+  const legendStepRange = (step: number) => {
+    const band = bandLabel(step)
+    if (colorNormalization === 'client') return band
+
+    const bound = legendScale.bounds[step]
+    if (!bound) return `${band} — no runs`
+
+    const fmt = (value: number) => (metricMode === 'mgas' ? value.toFixed(1) : formatDurationCompact(value))
+    const range = bound.lo === bound.hi ? fmt(bound.lo) : `${fmt(bound.lo)} – ${fmt(bound.hi)}`
+    return `${band}: ${range}${metricMode === 'mgas' ? ' MGas/s' : ''}`
+  }
+  const legendNote =
+    colorNormalization === 'client'
+      ? 'Each client is ranked against its own runs'
+      : 'All runs of the suite are ranked together'
 
   if (runs.length === 0) {
     return null
@@ -675,17 +722,16 @@ export function RunsHeatmap({
       {/* Legend */}
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
         <span>Recent → Older</span>
-        <span className="flex items-center gap-1">
-          <span>Fast</span>
-          <span className="flex gap-0.5">
-            {COLORS.map((color, i) => (
-              <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
-            ))}
-          </span>
-          <span>Slow</span>
-        </span>
+        <ColorScaleLegend
+          colors={COLORS}
+          startLabel="Fast"
+          endLabel="Slow"
+          title={`${metricMode === 'mgas' ? 'MGas/s' : 'Duration'} buckets`}
+          stepRange={legendStepRange}
+          note={legendNote}
+        />
         <span>
-          <span className="relative mr-1 inline-block size-3 rounded-xs ring-2 ring-inset ring-orange-500" style={{ backgroundColor: COLORS[2] }}>
+          <span className="relative mr-1 inline-block size-3 rounded-xs ring-2 ring-inset ring-orange-500" style={{ backgroundColor: NEUTRAL_COLOR }}>
             <svg className="absolute inset-0 size-3" viewBox="0 0 12 12" fill="none">
               <text x="6" y="9.5" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold" fontFamily="system-ui">!</text>
             </svg>

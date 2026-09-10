@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { Check, Copy, Download } from 'lucide-react'
 import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated, StepResult, PostTestRPCCallConfig } from '@/api/types'
 import { fetchHead } from '@/api/client'
+import { ColorScaleLegend } from '@/components/shared/ColorScaleLegend'
 import { Modal } from '@/components/shared/Modal'
 import { TestName } from '@/components/shared/TestName'
 import { compileQuery, testNameMatches, toggleSearchTerm } from '@/utils/eestNameFilter'
@@ -22,10 +23,13 @@ import {
   DEFAULT_THRESHOLD,
   SLOW_COLOR,
   THRESHOLD_COLORS,
+  THRESHOLD_LIMIT_STEP,
+  durationStepRange,
   formatSlowMs,
   getColorByDuration,
   getColorByThreshold,
   isSlowPayload,
+  thresholdStepRange,
 } from '@/utils/perfThreshold'
 import { getPayloadTimes } from '@/utils/payloadTime'
 
@@ -961,15 +965,16 @@ export function TestHeatmap({
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
-        <span className="flex items-center gap-1">
-          <span>{isDurationMode ? `<${formatSlowMs(slowMs / 2)}` : `>${threshold * 2}`}</span>
-          <span className="flex gap-0.5">
-            {THRESHOLD_COLORS.map((color, i) => (
-              <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
-            ))}
-          </span>
-          <span>{isDurationMode ? `>${formatSlowMs(slowMs * 2)}` : `<${threshold / 2}`}</span>
-        </span>
+        <ColorScaleLegend
+          colors={THRESHOLD_COLORS}
+          startLabel={isDurationMode ? `<${formatSlowMs(slowMs / 3)}` : `>${threshold * 3}`}
+          endLabel={isDurationMode ? `>${formatSlowMs(slowMs * 3)}` : `<${Math.round(threshold / 3)}`}
+          title={isDurationMode ? 'Payload time buckets' : 'MGas/s buckets'}
+          stepRange={(step) =>
+            isDurationMode ? durationStepRange(step, slowMs) : `${thresholdStepRange(step, threshold)} MGas/s`
+          }
+          note={`Each bucket is a multiple of the ${isDurationMode ? 'limit' : 'threshold'} (${limitLabel})`}
+        />
         <span className="text-gray-400 dark:text-gray-500">({limitLabel} = yellow)</span>
         <span>
           <span className="mr-1 inline-block size-3 rounded-xs" style={NO_DATA_STYLE} />
@@ -980,13 +985,13 @@ export function TestHeatmap({
           Not processed
         </span>
         <span>
-          <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-red-500" style={{ backgroundColor: THRESHOLD_COLORS[2] }} />
+          <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-red-500" style={{ backgroundColor: THRESHOLD_COLORS[THRESHOLD_LIMIT_STEP] }} />
           Has failures
         </span>
         <span title={`A single engine_newPayload call above ${formatSlowMs(slowMs)}`}>
           <span
             className="mr-1 inline-block size-3 rounded-xs"
-            style={{ backgroundColor: THRESHOLD_COLORS[2], outline: `2px solid ${SLOW_COLOR}`, outlineOffset: '-2px' }}
+            style={{ backgroundColor: THRESHOLD_COLORS[THRESHOLD_LIMIT_STEP], outline: `2px solid ${SLOW_COLOR}`, outlineOffset: '-2px' }}
           />
           Slow payload (&gt;{formatSlowMs(slowMs)})
         </span>
