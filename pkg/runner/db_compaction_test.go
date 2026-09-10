@@ -670,3 +670,46 @@ func TestDBCompactionStepNames(t *testing.T) {
 		{Name: "a"}, {Name: "b"},
 	}))
 }
+
+// TestDBCompactionRequestImage pins what the report and the marker record: the
+// image that actually ran the compaction, which db_compaction.image overrides.
+// Recording the instance image there would name a build that never ran.
+func TestDBCompactionRequestImage(t *testing.T) {
+	req := &dbCompactionRequest{
+		ImageName: "ethpandaops/erigon:main",
+		Cfg:       &config.DBCompactionConfig{},
+	}
+	assert.Equal(t, "ethpandaops/erigon:main", req.image())
+
+	req.Cfg.Image = "erigontech/erigon:v3.7.0"
+	assert.Equal(t, "erigontech/erigon:v3.7.0", req.image())
+
+	req.Cfg = nil
+	assert.Equal(t, "ethpandaops/erigon:main", req.image())
+}
+
+// TestDBCompactionMarkerRecordsTheOverriddenImage is the same fact end to end:
+// the datadir marker names the image that compacted it.
+func TestDBCompactionMarkerRecordsTheOverriddenImage(t *testing.T) {
+	dir := t.TempDir()
+
+	r := &runner{log: logrus.New(), cfg: &Config{}}
+
+	req := &dbCompactionRequest{
+		Instance:  &config.ClientInstance{ID: "erigon", Client: "erigon"},
+		ImageName: "ethpandaops/erigon:main",
+		Cfg:       &config.DBCompactionConfig{Image: "erigontech/erigon:v3.7.0"},
+		Phase:     config.DBCompactionBeforePreRuns,
+		RunID:     "run-1",
+	}
+
+	r.writeDBCompactionMarker(
+		dir, req, &dbCompactionReport{Image: req.image()}, r.log,
+	)
+
+	marker := readDBCompactionMarker(dir)
+	require.NotNil(t, marker)
+
+	entry := marker.Phases[config.DBCompactionBeforePreRuns]
+	assert.Equal(t, "erigontech/erigon:v3.7.0", entry.Image)
+}

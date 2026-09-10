@@ -1257,7 +1257,7 @@ A finished compaction writes `.benchmarkoor-db-compaction.json` at the root of t
 }
 ```
 
-`prepare` and `extra_args` record the settings that decided what the compaction did to the database, alongside the `image` that ran it. An absent list means the setting was empty — a marker written before these fields existed cannot have had a value either, so the two cases coincide.
+`prepare` and `extra_args` record the settings that decided what the compaction did to the database, alongside the `image` that ran it — the compaction container's image, which is `db_compaction.image` when set and the instance image otherwise. An absent list means the setting was empty — a marker written before these fields existed cannot have had a value either, so the two cases coincide.
 
 The rest of `db_compaction` is deliberately not recorded. `timeout`, `inspect`, `continue_on_error`, `when`, `persist` and `skip_if_marked` govern the run rather than the bytes the compaction leaves behind, so recording them would only produce mismatches that mean nothing.
 
@@ -1281,7 +1281,7 @@ marker describes (set db_compaction.skip_if_marked: false to recompact)
   changed=prepare: seg-retire -> none; extra_args: --cache=16384 -> --cache=32768
 ```
 
-The `image` is reported but not compared. Client images change routinely, and the marker cannot tell whether a new one compacts differently, so warning on every bump would teach you to ignore the warning — the recorded image is in the line either way.
+The `image` is reported but not compared. Client images change routinely, and the marker cannot tell whether a new one compacts differently, so warning on every bump would teach you to ignore the warning — the recorded image is in the line either way, so a datadir compacted by an older build stays visible.
 
 The marker also cannot tell that a datadir advanced after it was written. If you point a longer pre-run bundle at a baseline persisted at `before_benchmarks`, set `skip_if_marked: false` to force the compaction.
 

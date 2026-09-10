@@ -153,6 +153,21 @@ func dbCompactionListSummary(values []string) string {
 	return strings.Join(values, ",")
 }
 
+// image returns the image the maintenance containers actually run: the
+// compaction's own image when db_compaction.image is set, and the instance
+// image otherwise.
+//
+// The run report and the datadir marker record this rather than the instance
+// image, so "which build compacted this datadir" stays answerable when the two
+// differ — which is the whole reason db_compaction.image exists.
+func (req *dbCompactionRequest) image() string {
+	if req.Cfg != nil && req.Cfg.Image != "" {
+		return req.Cfg.Image
+	}
+
+	return req.ImageName
+}
+
 // hostPath returns the host path of the datadir mount, or "" when
 // the datadir is a container volume. The marker and the size measurements need
 // a path the runner can read.
@@ -212,7 +227,7 @@ func (r *runner) runDBCompaction(
 	report := &dbCompactionReport{
 		Phase:     req.Phase,
 		Client:    req.Instance.Client,
-		Image:     req.ImageName,
+		Image:     req.image(),
 		RunID:     req.RunID,
 		StartedAt: started.UTC().Format(time.RFC3339),
 		Persisted: req.Persisting,
@@ -434,14 +449,9 @@ func (r *runner) runDBMaintenanceContainer(
 		"benchmarkoor-%s-%s-dbc-%s-%s", req.RunID, req.Instance.ID, req.Phase, step,
 	)
 
-	image := req.ImageName
-	if req.Cfg.Image != "" {
-		image = req.Cfg.Image
-	}
-
 	spec := &docker.ContainerSpec{
 		Name:        name,
-		Image:       image,
+		Image:       req.image(),
 		Entrypoint:  req.Instance.Entrypoint,
 		Command:     command,
 		Mounts:      []docker.Mount{req.Mount},
@@ -466,7 +476,7 @@ func (r *runner) runDBMaintenanceContainer(
 	}()
 
 	_, _ = fmt.Fprintf(
-		out, "# %s %s\n# %v\n\n", image, step, command,
+		out, "# %s %s\n# %v\n\n", req.image(), step, command,
 	)
 
 	var stdout, stderr io.Writer = out, out
