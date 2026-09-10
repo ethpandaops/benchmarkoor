@@ -34,6 +34,7 @@ func TestDBCompactionMarker_RoundTrip(t *testing.T) {
 		CompletedAt:  "2026-08-27T10:12:03Z",
 		DurationMS:   4200,
 		DatadirBytes: &dbCompactionSizes{Before: 200, After: 100},
+		Prepare:      []dbCompactionStep{{Name: "seg-retire"}},
 	}
 
 	r.writeDBCompactionMarker(dir, req, report, log)
@@ -50,6 +51,10 @@ func TestDBCompactionMarker_RoundTrip(t *testing.T) {
 	assert.Equal(t, int64(4200), entry.DurationMS)
 	require.NotNil(t, entry.DatadirBytes)
 	assert.Equal(t, int64(100), entry.DatadirBytes.After)
+
+	// The steps that ran are recorded, so a later run that skips this phase can
+	// say how the datadir was compacted.
+	assert.Equal(t, []string{"seg-retire"}, entry.Prepare)
 
 	// A second phase is added, never replacing the first.
 	req.Phase = config.DBCompactionBeforeBenchmarks
@@ -542,4 +547,82 @@ func TestDBCompactionPrepareReport(t *testing.T) {
 	assert.Equal(t, []dbCompactionStep{
 		{Name: "seg-retire", Command: []string{"seg", "retire"}},
 	}, got)
+}
+
+// TestLogDBCompactionSkip covers the two shapes of the skip line: an INFO that
+// says how the datadir was compacted, and a WARNING when the configured prepare
+// steps differ from the ones the marker names and are therefore not going to run.
+func TestLogDBCompactionSkip(t *testing.T) {
+	entry := &dbCompactionMarkerEntry{
+		Client:      "erigon",
+		Image:       "ethpandaops/erigon:main",
+		RunID:       "run-1",
+		CompletedAt: "2026-09-09T20:21:21Z",
+		Prepare:     []string{"seg-retire"},
+	}
+
+	capture := func(cfg *config.DBCompactionConfig) *logrus.Entry {
+		log := logrus.New()
+		log.SetOutput(io.Discard)
+
+		hook := &captureHook{}
+		log.AddHook(hook)
+
+		logDBCompactionSkip(logrus.NewEntry(log), entry, cfg)
+
+		require.Len(t, hook.entries, 1)
+
+		return hook.entries[0]
+	}
+
+	t.Run("same prepare config reports how it ran", func(t *testing.T) {
+		got := capture(&config.DBCompactionConfig{Prepare: []string{"seg-retire"}})
+
+		assert.Equal(t, logrus.InfoLevel, got.Level)
+		assert.Equal(t, "seg-retire", got.Data["prepare"])
+		assert.Equal(t, "run-1", got.Data["run_id"])
+		assert.Equal(t, "ethpandaops/erigon:main", got.Data["image"])
+		assert.NotContains(t, got.Data, "configured_prepare")
+	})
+
+	t.Run("a changed prepare config warns that it is ignored", func(t *testing.T) {
+		got := capture(&config.DBCompactionConfig{})
+
+		assert.Equal(t, logrus.WarnLevel, got.Level)
+		assert.Equal(t, "seg-retire", got.Data["prepare"], "what the datadir had")
+		assert.Equal(t, "none", got.Data["configured_prepare"], "what this run wanted")
+		assert.Contains(t, got.Message, "do NOT")
+	})
+
+	t.Run("a marker with no steps reads as none", func(t *testing.T) {
+		entry = &dbCompactionMarkerEntry{RunID: "run-0", CompletedAt: "2026-09-09T00:00:00Z"}
+
+		got := capture(&config.DBCompactionConfig{})
+
+		assert.Equal(t, logrus.InfoLevel, got.Level)
+		assert.Equal(t, "none", got.Data["prepare"])
+	})
+}
+
+// captureHook collects the entries a logrus logger emits, so a test can assert
+// on the level and fields of a single log line.
+type captureHook struct {
+	entries []*logrus.Entry
+}
+
+func (h *captureHook) Levels() []logrus.Level {
+	return logrus.AllLevels
+}
+
+func (h *captureHook) Fire(e *logrus.Entry) error {
+	h.entries = append(h.entries, e)
+
+	return nil
+}
+
+func TestDBCompactionStepNames(t *testing.T) {
+	assert.Nil(t, dbCompactionStepNames(nil))
+	assert.Equal(t, []string{"a", "b"}, dbCompactionStepNames([]dbCompactionStep{
+		{Name: "a"}, {Name: "b"},
+	}))
 }

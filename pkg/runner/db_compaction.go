@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
@@ -114,12 +116,30 @@ type dbCompactionMarker struct {
 
 // dbCompactionMarkerEntry is one phase's entry in the marker file.
 type dbCompactionMarkerEntry struct {
-	Client       string             `json:"client"`
-	Image        string             `json:"image"`
-	RunID        string             `json:"run_id"`
+	Client string `json:"client"`
+	Image  string `json:"image"`
+	RunID  string `json:"run_id"`
+
+	// Prepare names the db_compaction.prepare steps that ran, so a later run
+	// that skips this phase can say HOW it was compacted, and notice that its
+	// own prepare config would have done something else.
+	//
+	// Absent means no step ran: a marker written before prepare existed cannot
+	// have had one either, so the two cases coincide.
+	Prepare []string `json:"prepare,omitempty"`
+
 	CompletedAt  string             `json:"completed_at"`
 	DurationMS   int64              `json:"duration_ms"`
 	DatadirBytes *dbCompactionSizes `json:"datadir_bytes,omitempty"`
+}
+
+// prepareSummary renders the entry's steps for a log line.
+func (e *dbCompactionMarkerEntry) prepareSummary() string {
+	if len(e.Prepare) == 0 {
+		return "none"
+	}
+
+	return strings.Join(e.Prepare, ",")
 }
 
 // hostPath returns the host path of the datadir mount, or "" when
@@ -166,7 +186,7 @@ func (r *runner) runDBCompaction(
 	hostPath := req.hostPath()
 
 	if entry := r.dbCompactionSkipEntry(req.Instance, req.Phase, req.Mount); entry != nil {
-		logDBCompactionSkip(log, entry)
+		logDBCompactionSkip(log, entry, req.Cfg)
 
 		return false, nil
 	}
@@ -269,6 +289,21 @@ func dbCompactionSelectedSteps(
 	}
 
 	return steps, nil
+}
+
+// dbCompactionStepNames returns the step names of a report's prepare list, in
+// order, for the datadir marker.
+func dbCompactionStepNames(steps []dbCompactionStep) []string {
+	if len(steps) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(steps))
+	for _, step := range steps {
+		names = append(names, step.Name)
+	}
+
+	return names
 }
 
 // dbCompactionPrepareReport records the steps that run, for the run report.
@@ -489,6 +524,7 @@ func (r *runner) writeDBCompactionMarker(
 		Client:       req.Instance.Client,
 		Image:        report.Image,
 		RunID:        req.RunID,
+		Prepare:      dbCompactionStepNames(report.Prepare),
 		CompletedAt:  report.CompletedAt,
 		DurationMS:   report.DurationMS,
 		DatadirBytes: report.DatadirBytes,
@@ -600,15 +636,55 @@ func (r *runner) dbCompactionSkipEntry(
 	return &entry
 }
 
-// logDBCompactionSkip reports a phase the datadir marker already covers.
-func logDBCompactionSkip(log logrus.FieldLogger, entry *dbCompactionMarkerEntry) {
-	log.WithFields(logrus.Fields{
+// logDBCompactionSkip reports a phase the datadir marker already covers, and
+// says how that earlier compaction ran.
+//
+// The marker is the only record of what the persisted baseline had done to it,
+// so the skip line carries the earlier run's id, image and prepare steps: a run
+// that compacts nothing itself should still be able to say how its datadir got
+// that way.
+//
+// When the current prepare config would do something else, the line is a
+// WARNING instead. That is the case the marker used to hide: the whole point of
+// prepare is to change what the compaction does, so a changed setting that is
+// being ignored has to say so.
+func logDBCompactionSkip(
+	log logrus.FieldLogger, entry *dbCompactionMarkerEntry, cfg *config.DBCompactionConfig,
+) {
+	fields := logrus.Fields{
 		"compacted_at": entry.CompletedAt,
 		"run_id":       entry.RunID,
-	}).Info(
+		"image":        entry.Image,
+		"prepare":      entry.prepareSummary(),
+	}
+
+	wanted := cfg.PrepareSteps()
+	if !slices.Equal(wanted, entry.Prepare) {
+		fields["configured_prepare"] = dbCompactionPrepareSummary(wanted)
+
+		log.WithFields(fields).Warn(
+			"Datadir already carries a compaction marker for this phase, so it is" +
+				" skipped and the configured db_compaction.prepare steps do NOT" +
+				" run; the datadir keeps the preparation the marker names" +
+				" (set db_compaction.skip_if_marked: false to recompact)",
+		)
+
+		return
+	}
+
+	log.WithFields(fields).Info(
 		"Datadir already carries a compaction marker for this phase; skipping" +
 			" (set db_compaction.skip_if_marked: false to force)",
 	)
+}
+
+// dbCompactionPrepareSummary renders a configured step list for a log line.
+func dbCompactionPrepareSummary(steps []string) string {
+	if len(steps) == 0 {
+		return "none"
+	}
+
+	return strings.Join(steps, ",")
 }
 
 // dbCompactionPersistsAt reports whether the instance writes the result of the

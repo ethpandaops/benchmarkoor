@@ -1942,7 +1942,7 @@ func (r *runner) prepareDatadirBeforeBenchmarks(
 		if entry := r.dbCompactionSkipEntry(
 			instance, config.DBCompactionBeforeBenchmarks, p.DataMount,
 		); entry != nil {
-			logDBCompactionSkip(log, entry)
+			logDBCompactionSkip(log, entry, compaction)
 
 			compaction = nil
 		}

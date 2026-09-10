@@ -231,7 +231,10 @@ func (r *runner) runTestsWithCheckpointRestore(
 		params.Instance, config.DBCompactionBeforeBenchmarks, compactionMount,
 	)
 	if compactionSkip != nil {
-		logDBCompactionSkip(log, compactionSkip)
+		logDBCompactionSkip(
+			log, compactionSkip,
+			r.dbCompactionFor(params.Instance, config.DBCompactionBeforeBenchmarks),
+		)
 	}
 
 	if compactionSkip == nil &&

@@ -1587,6 +1587,16 @@ func (c *DBCompactionConfig) InspectEnabled() bool {
 	return *c.Inspect
 }
 
+// PrepareSteps returns the preparation steps to run before each compaction, in
+// the configured order. Nil means none, which is the default.
+func (c *DBCompactionConfig) PrepareSteps() []string {
+	if c == nil || len(c.Prepare) == 0 {
+		return nil
+	}
+
+	return c.Prepare
+}
+
 // SkipIfMarkedEnabled reports whether a phase the datadir marker already names
 // is skipped. Defaults to true when the compaction persists, since only a
 // persisted marker can describe the datadir in front of us.
