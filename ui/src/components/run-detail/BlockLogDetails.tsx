@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { BlockLogEntry } from '@/api/types'
+import type { BlockLogCacheEntry, BlockLogEntry } from '@/api/types'
 import { formatBytes } from '@/utils/format'
 import {
   DEFAULT_SLOW_MS,
@@ -96,7 +96,7 @@ export function BlockLogDetails({ blockLog, threshold = DEFAULT_THRESHOLD, slowM
   const { timing, throughput, state_reads, state_writes, cache } = blockLog
   const hasTiming = timing != null && timing.total_ms != null
   const hasOverhead = hasTiming && timing.state_read_ms != null && timing.state_hash_ms != null && timing.commit_ms != null
-  const hasCache = cache != null && cache.account != null && cache.storage != null && cache.code != null
+  const hasCache = cache != null && cache.account != null && cache.storage != null
   const hasStateOps = state_reads != null && state_writes != null
 
   // Calculate overhead time (non-execution time)
@@ -223,10 +223,12 @@ export function BlockLogDetails({ blockLog, threshold = DEFAULT_THRESHOLD, slowM
   // Cache performance stacked bar chart
   const cacheBarOption = useMemo(() => {
     if (!hasCache) return null
-    const categories = ['Account', 'Storage', 'Code']
-    const hits = [cache.account.hits, cache.storage.hits, cache.code.hits]
-    const misses = [cache.account.misses, cache.storage.misses, cache.code.misses]
-    const hitRates = [cache.account.hit_rate, cache.storage.hit_rate, cache.code.hit_rate]
+    const entries: Array<[string, BlockLogCacheEntry]> = [['Account', cache.account], ['Storage', cache.storage]]
+    if (cache.code != null) entries.push(['Code', cache.code])
+    const categories = entries.map(([name]) => name)
+    const hits = entries.map(([, c]) => c.hits)
+    const misses = entries.map(([, c]) => c.misses)
+    const hitRates = entries.map(([, c]) => c.hit_rate)
 
     return {
       tooltip: {
@@ -305,9 +307,9 @@ export function BlockLogDetails({ blockLog, threshold = DEFAULT_THRESHOLD, slowM
   const stateOpsOption = useMemo(() => {
     if (!hasStateOps) return null
     const categories = ['Accounts', 'Storage', 'Code']
-    const reads = [state_reads.accounts, state_reads.storage_slots, state_reads.code]
-    const writes = [state_writes.accounts, state_writes.storage_slots, state_writes.code]
-    const deleted = [state_writes.accounts_deleted, state_writes.storage_slots_deleted, 0]
+    const reads = [state_reads.accounts, state_reads.storage_slots, state_reads.code ?? 0]
+    const writes = [state_writes.accounts, state_writes.storage_slots, state_writes.code ?? 0]
+    const deleted = [state_writes.accounts_deleted ?? 0, state_writes.storage_slots_deleted ?? 0, 0]
 
     return {
       tooltip: {

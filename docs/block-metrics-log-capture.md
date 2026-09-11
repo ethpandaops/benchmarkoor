@@ -24,13 +24,14 @@ This feature correlates these metrics with specific benchmark tests using block 
 This feature implements the unified "slowblock" metrics specification developed across Ethereum execution clients. The specification standardizes how clients report detailed block execution metrics.
 
 For more details on the specification and motivation, see:
-- [ethresear.ch: Unified slowblock metrics specification](https://ethresear.ch/t/unifying-execution-layer-execution-metrics/22089)
+- [ethresear.ch: Unified slowblock metrics specification](https://ethresear.ch/t/a-small-step-towards-data-driven-protocol-decisions-unified-slowblock-metrics-across-clients/23907)
 
 ### Client Implementation PRs
 
 | Client | PR |
 |--------|-----|
 | Geth | [#33655](https://github.com/ethereum/go-ethereum/pull/33655) |
+| Erigon | [#23764](https://github.com/erigontech/erigon/pull/23764) |
 | Reth | [#21237](https://github.com/paradigmxyz/reth/pull/21237) |
 | Besu | [#9660](https://github.com/hyperledger/besu/pull/9660) |
 | Nethermind | [#10288](https://github.com/NethermindEth/nethermind/pull/10288) |
@@ -40,13 +41,14 @@ For more details on the specification and motivation, see:
 | Client | Parser Status |
 |--------|---------------|
 | Geth | Fully supported |
-| Reth | Stub (pending) |
-| Besu | Stub (pending) |
-| Nethermind | Stub (pending) |
-| Erigon | Stub (pending) |
+| Reth | Fully supported |
+| Besu | Fully supported |
+| Nethermind | Fully supported |
+| Erigon | Fully supported |
+| Ethrex | Fully supported |
 | Nimbus | Stub (pending) |
 
-The parsing infrastructure (`pkg/blocklog`) supports all clients via the `Parser` interface. Currently only Geth's log format parser is implemented. Other client parsers return no matches until their specific log formats are implemented.
+The parsing infrastructure (`pkg/blocklog`) supports all clients via the `Parser` interface. Parsers marked as stubs return no matches until their specific log formats are implemented.
 
 ## Configuration
 
@@ -55,7 +57,7 @@ To enable block metrics capture, add the appropriate flag to the client's `extra
 ### Geth
 
 ```yaml
-client:
+runner:
   instances:
     - id: geth
       client: geth
@@ -66,9 +68,53 @@ client:
 
 The `--debug.logslowblock=0` flag sets the threshold to 0 milliseconds, meaning every block execution will emit metrics. Higher values (e.g., `--debug.logslowblock=100`) only log blocks taking longer than that threshold.
 
+### Erigon
+
+`--debug.slow-block-threshold` landed in the PR in the table above, so
+`erigontech/erigon:main-latest` carries it from the first image built after that
+merge. The release tag `erigontech/erigon:latest` will not until the next
+release, and a build without the flag rejects it as unknown, so the container
+exits at startup rather than ignoring it.
+
+```yaml
+runner:
+  instances:
+    - id: erigon
+      client: erigon
+      image: erigontech/erigon:main-latest
+      extra_args:
+        - --debug.slow-block-threshold=0
+```
+
+`--debug.slow-block-threshold` takes a duration: `0` emits a record for every
+block, a positive value (e.g. `100ms`) only for blocks at or over it, and the
+default of `-1ns` disables the feature. Setting it also switches on Erigon's
+per-domain read counters, so no separate environment variable is needed.
+
+Without the flag no record is emitted at all. With it, every documented field is
+captured except six, which Erigon has no per-block source for and omits rather
+than reporting as zero: `state_reads.code`, `state_reads.code_bytes`,
+`state_writes.accounts_deleted`, `state_writes.storage_slots_deleted`,
+`state_writes.code_bytes` and the whole `cache.code` object. `state_writes.code`
+is counted and is emitted.
+
+Two Erigon values do not mean quite what the tables above say. `total_ms` is
+measured end-to-end and covers the header, body and sender stages that sit
+outside the phase breakdown, so it exceeds `execution_ms + state_hash_ms +
+commit_ms` rather than balancing against it. `state_read_ms` sums each execution
+worker's own accumulator, so under the parallel executor it is CPU time across
+workers and can exceed the wall-clock `execution_ms`; do not subtract it from
+`execution_ms`.
+
+Every envelope Erigon can produce is parsed: the default console line, the
+colourised form it uses on a TTY, the timestamp-less form under
+`ERIGON_LOG_NO_TIMESTAMPS`, and `--log.json`, which carries the record escaped
+inside the log entry's own `msg` field.
+
 ### Other Clients
 
-Configuration flags for other clients will be documented as their parsers are implemented.
+Reth, Besu, Nethermind and Ethrex have parsers, but the flag that makes each of
+them emit the record is not documented here yet.
 
 ## Metrics Captured
 

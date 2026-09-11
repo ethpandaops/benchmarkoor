@@ -29,13 +29,13 @@ export interface ProcessedTestData {
   commitMs: number
   accountCacheHitRate: number
   storageCacheHitRate: number
-  codeCacheHitRate: number
+  codeCacheHitRate: number | undefined
   accountCacheHits: number
   accountCacheMisses: number
   storageCacheHits: number
   storageCacheMisses: number
-  codeCacheHits: number
-  codeCacheMisses: number
+  codeCacheHits: number | undefined
+  codeCacheMisses: number | undefined
   gasUsed: number
   txCount: number
   // Normalized 0-100 for radar chart

@@ -34,11 +34,11 @@ export function CacheTab({ data, isDark, useLogScale, onTestClick }: CacheTabPro
 
     const accountRates = data.map((d) => d.accountCacheHitRate)
     const storageRates = data.map((d) => d.storageCacheHitRate)
-    const codeRates = data.map((d) => d.codeCacheHitRate)
+    const codeRates = data.map((d) => d.codeCacheHitRate).filter((r): r is number => r != null)
 
     const avgAccount = accountRates.reduce((a, b) => a + b, 0) / accountRates.length
     const avgStorage = storageRates.reduce((a, b) => a + b, 0) / storageRates.length
-    const avgCode = codeRates.reduce((a, b) => a + b, 0) / codeRates.length
+    const avgCode = codeRates.length > 0 ? codeRates.reduce((a, b) => a + b, 0) / codeRates.length : null
 
     const poorAccountCount = accountRates.filter((r) => r < 80).length
     const poorStorageCount = storageRates.filter((r) => r < 80).length
@@ -79,8 +79,8 @@ export function CacheTab({ data, isDark, useLogScale, onTestClick }: CacheTabPro
         />
         <CacheStatCard
           label="Avg Code Cache"
-          value={`${cacheStats.avgCode.toFixed(1)}%`}
-          isGood={cacheStats.avgCode >= 80}
+          value={cacheStats.avgCode != null ? `${cacheStats.avgCode.toFixed(1)}%` : '-'}
+          isGood={cacheStats.avgCode != null && cacheStats.avgCode >= 80}
         />
         <CacheStatCard
           label="Poor Account (<80%)"

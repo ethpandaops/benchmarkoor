@@ -57,14 +57,14 @@ const BLOCK_LOG_METRICS: MetricTab[] = [
   { id: 'bl-code-cache', label: 'Code Cache HR', unit: '%', higherIsBetter: true, format: (v) => v.toFixed(1) },
 ]
 
-function extractBlockLogMetric(entry: BlockLogEntry, metricId: string): number {
+function extractBlockLogMetric(entry: BlockLogEntry, metricId: string): number | undefined {
   switch (metricId) {
     case 'bl-throughput': return entry.throughput?.mgas_per_sec ?? 0
     case 'bl-execution': return entry.timing?.execution_ms ?? 0
     case 'bl-overhead': return (entry.timing?.state_read_ms ?? 0) + (entry.timing?.state_hash_ms ?? 0) + (entry.timing?.commit_ms ?? 0)
     case 'bl-account-cache': return entry.cache?.account?.hit_rate ?? 0
     case 'bl-storage-cache': return entry.cache?.storage?.hit_rate ?? 0
-    case 'bl-code-cache': return entry.cache?.code?.hit_rate ?? 0
+    case 'bl-code-cache': return entry.cache?.code?.hit_rate
     default: return 0
   }
 }

@@ -28,7 +28,7 @@ interface BlockLogDataPoint {
   overheadMs: number
   accountCacheHitRate: number
   storageCacheHitRate: number
-  codeCacheHitRate: number
+  codeCacheHitRate: number | undefined
 }
 
 /** Build a unified, sorted list of test names across all runs. */
@@ -76,7 +76,7 @@ function buildBlockLogDataPoints(
       overheadMs: (entry.timing?.state_read_ms ?? 0) + (entry.timing?.state_hash_ms ?? 0) + (entry.timing?.commit_ms ?? 0),
       accountCacheHitRate: entry.cache?.account?.hit_rate ?? 0,
       storageCacheHitRate: entry.cache?.storage?.hit_rate ?? 0,
-      codeCacheHitRate: entry.cache?.code?.hit_rate ?? 0,
+      codeCacheHitRate: entry.cache?.code?.hit_rate,
     })
   })
   return points

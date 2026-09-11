@@ -5,6 +5,13 @@ import { parseCategory } from '../utils/categoryParser'
 import { percentile, removeOutliers, countOutliers, normalizeValue, emptyCategoryBreakdown } from '../utils/statistics'
 import { compileQuery } from '@/utils/eestNameFilter'
 
+export function compareOptional(a: number | undefined, b: number | undefined): number {
+  if (a == null && b == null) return 0
+  if (a == null) return 1
+  if (b == null) return -1
+  return a - b
+}
+
 export function useProcessedData(
   blockLogs: BlockLogs | null | undefined,
   state: DashboardState,
@@ -40,13 +47,13 @@ export function useProcessedData(
         commitMs,
         accountCacheHitRate: entry.cache?.account?.hit_rate ?? 0,
         storageCacheHitRate: entry.cache?.storage?.hit_rate ?? 0,
-        codeCacheHitRate: entry.cache?.code?.hit_rate ?? 0,
+        codeCacheHitRate: entry.cache?.code?.hit_rate,
         accountCacheHits: entry.cache?.account?.hits ?? 0,
         accountCacheMisses: entry.cache?.account?.misses ?? 0,
         storageCacheHits: entry.cache?.storage?.hits ?? 0,
         storageCacheMisses: entry.cache?.storage?.misses ?? 0,
-        codeCacheHits: entry.cache?.code?.hits ?? 0,
-        codeCacheMisses: entry.cache?.code?.misses ?? 0,
+        codeCacheHits: entry.cache?.code?.hits,
+        codeCacheMisses: entry.cache?.code?.misses,
         gasUsed: entry.block.gas_used,
         txCount: entry.block.tx_count,
         // Normalized values will be calculated after filtering
@@ -98,7 +105,7 @@ export function useProcessedData(
       const executions = data.map((d) => d.executionMs)
       const overheads = data.map((d) => d.overheadMs)
       const accountCaches = data.map((d) => d.accountCacheHitRate)
-      const codeCaches = data.map((d) => d.codeCacheHitRate)
+      const codeCaches = data.map((d) => d.codeCacheHitRate).filter((v): v is number => v != null)
 
       const minThroughput = Math.min(...throughputs)
       const maxThroughput = Math.max(...throughputs)
@@ -108,8 +115,8 @@ export function useProcessedData(
       const maxOverhead = Math.max(...overheads)
       const minAccountCache = Math.min(...accountCaches)
       const maxAccountCache = Math.max(...accountCaches)
-      const minCodeCache = Math.min(...codeCaches)
-      const maxCodeCache = Math.max(...codeCaches)
+      const minCodeCache = codeCaches.length > 0 ? Math.min(...codeCaches) : 0
+      const maxCodeCache = codeCaches.length > 0 ? Math.max(...codeCaches) : 0
 
       // Update normalized values
       data = data.map((d) => ({
@@ -118,7 +125,7 @@ export function useProcessedData(
         normalizedSpeed: normalizeValue(d.executionMs, minExecution, maxExecution, true), // Lower is better
         normalizedLowOverhead: normalizeValue(d.overheadMs, minOverhead, maxOverhead, true), // Lower is better
         normalizedAccountCache: normalizeValue(d.accountCacheHitRate, minAccountCache, maxAccountCache),
-        normalizedCodeCache: normalizeValue(d.codeCacheHitRate, minCodeCache, maxCodeCache),
+        normalizedCodeCache: d.codeCacheHitRate != null ? normalizeValue(d.codeCacheHitRate, minCodeCache, maxCodeCache) : 0,
       }))
     }
 
@@ -151,7 +158,7 @@ export function useProcessedData(
           comparison = a.storageCacheHitRate - b.storageCacheHitRate
           break
         case 'codeCache':
-          comparison = a.codeCacheHitRate - b.codeCacheHitRate
+          comparison = compareOptional(a.codeCacheHitRate, b.codeCacheHitRate)
           break
         case 'gas':
           comparison = a.gasUsed - b.gasUsed

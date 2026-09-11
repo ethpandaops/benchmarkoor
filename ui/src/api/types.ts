@@ -670,17 +670,17 @@ export interface BlockLogThroughput {
 export interface BlockLogStateReads {
   accounts: number
   storage_slots: number
-  code: number
-  code_bytes: number
+  code?: number
+  code_bytes?: number
 }
 
 export interface BlockLogStateWrites {
   accounts: number
-  accounts_deleted: number
+  accounts_deleted?: number
   storage_slots: number
-  storage_slots_deleted: number
-  code: number
-  code_bytes: number
+  storage_slots_deleted?: number
+  code?: number
+  code_bytes?: number
 }
 
 export interface BlockLogCacheEntry {
@@ -697,7 +697,7 @@ export interface BlockLogCodeCache extends BlockLogCacheEntry {
 export interface BlockLogCache {
   account: BlockLogCacheEntry
   storage: BlockLogCacheEntry
-  code: BlockLogCodeCache
+  code?: BlockLogCodeCache
 }
 
 export interface BlockLogEntry {

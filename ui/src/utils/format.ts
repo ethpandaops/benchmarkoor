@@ -31,7 +31,8 @@ export function formatNumber(num: number): string {
   return new Intl.NumberFormat().format(num)
 }
 
-export function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes)) return '-'
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`

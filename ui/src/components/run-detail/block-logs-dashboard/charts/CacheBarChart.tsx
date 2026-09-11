@@ -22,26 +22,20 @@ const CACHE_TYPE_LABELS: Record<CacheType, string> = {
   code: 'Code Cache',
 }
 
-function getCacheData(item: ProcessedTestData, cacheType: CacheType) {
+type CacheCounts = { hitRate: number; hits: number; misses: number }
+
+function getCacheData(item: ProcessedTestData, cacheType: CacheType): CacheCounts | null {
   switch (cacheType) {
     case 'account':
-      return {
-        hitRate: item.accountCacheHitRate,
-        hits: item.accountCacheHits,
-        misses: item.accountCacheMisses,
-      }
+      return { hitRate: item.accountCacheHitRate, hits: item.accountCacheHits, misses: item.accountCacheMisses }
     case 'storage':
-      return {
-        hitRate: item.storageCacheHitRate,
-        hits: item.storageCacheHits,
-        misses: item.storageCacheMisses,
-      }
+      return { hitRate: item.storageCacheHitRate, hits: item.storageCacheHits, misses: item.storageCacheMisses }
     case 'code':
-      return {
-        hitRate: item.codeCacheHitRate,
-        hits: item.codeCacheHits,
-        misses: item.codeCacheMisses,
+      if (item.codeCacheHitRate == null || item.codeCacheHits == null || item.codeCacheMisses == null) {
+        return null
       }
+
+      return { hitRate: item.codeCacheHitRate, hits: item.codeCacheHits, misses: item.codeCacheMisses }
   }
 }
 
@@ -62,17 +56,19 @@ export function CacheBarChart({
   const tooltipBorder = isDark ? '#374151' : '#e5e7eb'
 
   const chartData = useMemo(() => {
-    return [...data].sort((a, b) => {
-      if (sortMode === 'order') {
-        return a.testOrder - b.testOrder
-      }
-      const aCache = getCacheData(a, cacheType)
-      const bCache = getCacheData(b, cacheType)
-      if (sortMode === 'total') {
-        return (aCache.hits + aCache.misses) - (bCache.hits + bCache.misses)
-      }
-      return aCache.hitRate - bCache.hitRate
-    })
+    return data
+      .filter((d) => getCacheData(d, cacheType) != null)
+      .sort((a, b) => {
+        if (sortMode === 'order') {
+          return a.testOrder - b.testOrder
+        }
+        const aCache = getCacheData(a, cacheType)!
+        const bCache = getCacheData(b, cacheType)!
+        if (sortMode === 'total') {
+          return (aCache.hits + aCache.misses) - (bCache.hits + bCache.misses)
+        }
+        return aCache.hitRate - bCache.hitRate
+      })
   }, [data, sortMode, cacheType])
 
   const option = useMemo(() => {
@@ -91,7 +87,7 @@ export function CacheBarChart({
         formatter: (params: { name: string; value: number; dataIndex: number }[]) => {
           const param = params[0]
           const item = chartData[param.dataIndex]
-          const cache = getCacheData(item, cacheType)
+          const cache = getCacheData(item, cacheType)!
           const testLabel = item.testOrder === Infinity ? '-' : `#${item.testOrder}`
           const total = cache.hits + cache.misses
           return `
@@ -203,10 +199,7 @@ export function CacheBarChart({
           type: 'bar' as const,
           stack: 'cache',
           yAxisIndex: 0,
-          data: chartData.map((d) => {
-            const cache = getCacheData(d, cacheType)
-            return cache.hits
-          }),
+          data: chartData.map((d) => getCacheData(d, cacheType)!.hits),
           itemStyle: { color: CACHE_COLORS.hit },
           barMaxWidth: 30,
         },
@@ -215,10 +208,7 @@ export function CacheBarChart({
           type: 'bar' as const,
           stack: 'cache',
           yAxisIndex: 0,
-          data: chartData.map((d) => {
-            const cache = getCacheData(d, cacheType)
-            return cache.misses
-          }),
+          data: chartData.map((d) => getCacheData(d, cacheType)!.misses),
           itemStyle: { color: CACHE_COLORS.miss },
           barMaxWidth: 30,
         },
@@ -226,10 +216,7 @@ export function CacheBarChart({
           name: 'Hit Rate %',
           type: 'line' as const,
           yAxisIndex: 1,
-          data: chartData.map((d) => {
-            const cache = getCacheData(d, cacheType)
-            return cache.hitRate
-          }),
+          data: chartData.map((d) => getCacheData(d, cacheType)!.hitRate),
           itemStyle: { color: '#3b82f6' },
           lineStyle: { color: '#3b82f6', width: 2 },
           symbol: 'circle',

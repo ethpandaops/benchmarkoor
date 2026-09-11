@@ -284,10 +284,12 @@ export function BlockLogsTable({ data, state, onUpdate, onTestClick }: BlockLogs
                   <td className="px-3 py-2 text-right font-mono text-sm">
                     <span
                       className={clsx(
-                        row.codeCacheHitRate >= 80 ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'
+                        row.codeCacheHitRate == null
+                          ? 'text-gray-400 dark:text-gray-500'
+                          : row.codeCacheHitRate >= 80 ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'
                       )}
                     >
-                      {formatPercent(row.codeCacheHitRate)}
+                      {row.codeCacheHitRate != null ? formatPercent(row.codeCacheHitRate) : '-'}
                     </span>
                   </td>
                 </tr>
