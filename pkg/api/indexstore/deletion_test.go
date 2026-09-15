@@ -53,6 +53,18 @@ func TestStore_MarkRunForDeletion(t *testing.T) {
 	err = s.MarkRunForDeletion(ctx, "nope")
 	require.ErrorIs(t, err, indexstore.ErrRunNotFound)
 
+	// Running runs are refused and stay out of the queue.
+	require.NoError(t, s.UpsertRun(ctx, &indexstore.Run{
+		DiscoveryPath: "dp/del", RunID: "run-live",
+		Timestamp: time.Now().Unix(), Status: indexstore.RunStatusRunning,
+	}))
+	require.ErrorIs(t, s.MarkRunForDeletion(ctx, "run-live"), indexstore.ErrRunInProgress)
+
+	queued, err = s.ListRunsPendingDeletion(ctx)
+	require.NoError(t, err)
+	require.Len(t, queued, 1)
+	assert.Equal(t, "run-a", queued[0].RunID)
+
 	// The mark survives a re-index of the run.
 	require.NoError(t, s.UpsertRun(ctx, &indexstore.Run{
 		DiscoveryPath: "dp/del", RunID: "run-a",
@@ -132,10 +144,12 @@ func TestStore_ListIncompleteRunIDs_SkipsQueued(t *testing.T) {
 
 	dp := "dp/incomplete-queued"
 
+	// "pending" is incomplete (non-terminal) but not running, so it can
+	// still be queued for deletion.
 	for _, id := range []string{"r-keep", "r-queued"} {
 		require.NoError(t, s.UpsertRun(ctx, &indexstore.Run{
 			DiscoveryPath: dp, RunID: id,
-			Status: "running", HasResult: false,
+			Status: "pending", HasResult: false,
 		}))
 	}
 

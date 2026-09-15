@@ -325,7 +325,7 @@ While a run is queued, it stays visible:
 - `GET /admin/runs/deletion-queue` lists the queued runs in deletion order.
 - The UI marks the run as queued for deletion and does not let you select it again.
 
-Queuing a run that is already queued is a no-op. Deletion needs a storage backend that supports deletion (both S3 and local do).
+Queuing a run that is already queued is a no-op. A run whose status is `running` is refused with a per-run error, because deleting it would race with the active runner. Deletion needs a storage backend that supports deletion (both S3 and local do).
 
 To take a run out of the queue, call `POST /admin/runs/delete/cancel` with the same `run_ids` body. This clears the mark and the recorded error. Use it when a run fails to delete again and again, for example when its discovery path was removed from the storage config. The cancel is best-effort: a run the worker is deleting at that moment is still removed.
 

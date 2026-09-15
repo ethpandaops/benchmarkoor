@@ -84,12 +84,19 @@ func TestHandleDeleteRuns_QueuesAndReportsMissing(t *testing.T) {
 
 	seedRun(t, s, "run-1")
 	seedRun(t, s, "run-2")
+	require.NoError(t, s.indexStore.UpsertRun(context.Background(), &indexstore.Run{
+		DiscoveryPath: "dp/test", RunID: "run-live",
+		Timestamp: time.Now().Unix(), Status: indexstore.RunStatusRunning,
+	}))
 
-	code, resp := postDeleteRuns(t, s, []string{"run-1", "missing", "run-2"})
+	code, resp := postDeleteRuns(t, s, []string{"run-1", "missing", "run-live", "run-2"})
 	require.Equal(t, http.StatusAccepted, code)
 	assert.Equal(t, "ok", resp.Status)
 	assert.Equal(t, 2, resp.Queued)
-	assert.Equal(t, []string{"missing: not found in index"}, resp.Errors)
+	assert.Equal(t, []string{
+		"missing: not found in index",
+		"run-live: still in progress",
+	}, resp.Errors)
 
 	// The deleter was woken up but nothing is deleted until it runs.
 	select {
@@ -104,11 +111,17 @@ func TestHandleDeleteRuns_QueuesAndReportsMissing(t *testing.T) {
 	assert.Equal(t, "run-1", queued[0].RunID)
 	assert.Equal(t, "run-2", queued[1].RunID)
 
-	// /index exposes the mark.
+	// /index exposes the mark; the live run is untouched.
 	_, idx := getIndex(t, s)
-	require.Len(t, idx.Entries, 2)
+	require.Len(t, idx.Entries, 3)
 
 	for _, e := range idx.Entries {
+		if e.RunID == "run-live" {
+			assert.Zero(t, e.DeletionRequestedAt)
+
+			continue
+		}
+
 		assert.NotZero(t, e.DeletionRequestedAt, e.RunID)
 	}
 

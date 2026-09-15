@@ -561,7 +561,8 @@ type deleteRunsResponse struct {
 // handleDeleteRuns queues runs for deletion. The request returns as soon as
 // every run is marked; the run deleter removes them from storage and the
 // index in the background, in the order they were queued. Queuing a run
-// that is already queued is a no-op.
+// that is already queued is a no-op. A run that is still running is
+// refused: deleting it would race with the active runner.
 func (s *server) handleDeleteRuns(
 	w http.ResponseWriter, r *http.Request,
 ) {
@@ -601,6 +602,10 @@ func (s *server) handleDeleteRuns(
 		case errors.Is(err, indexstore.ErrRunNotFound):
 			errs = append(errs, fmt.Sprintf(
 				"%s: not found in index", runID,
+			))
+		case errors.Is(err, indexstore.ErrRunInProgress):
+			errs = append(errs, fmt.Sprintf(
+				"%s: still in progress", runID,
 			))
 		default:
 			s.log.WithError(err).WithField("run_id", runID).

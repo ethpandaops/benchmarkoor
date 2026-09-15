@@ -5,23 +5,35 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"gorm.io/gorm"
 )
 
-// ErrRunNotFound is returned when a run ID does not exist in the index.
-var ErrRunNotFound = errors.New("run not found")
+var (
+	// ErrRunNotFound is returned when a run ID does not exist in the index.
+	ErrRunNotFound = errors.New("run not found")
+
+	// ErrRunInProgress is returned when a run cannot be queued for
+	// deletion because its runner is still reporting.
+	ErrRunInProgress = errors.New("run is still in progress")
+)
 
 // MarkRunForDeletion queues a run for deletion by stamping
 // deletion_requested_at. It is idempotent: a run that is already queued
 // keeps its original position in the queue. Returns ErrRunNotFound when
-// no run with the given ID is indexed.
+// no run with the given ID is indexed and ErrRunInProgress when the run
+// is still running: deleting it would race with the active runner.
 func (s *store) MarkRunForDeletion(
 	ctx context.Context, runID string,
 ) error {
 	now := time.Now().UTC()
 
+	// The status guard lives in the WHERE clause so a run that flips to
+	// running between a check and the update is still refused.
 	res := s.db.WithContext(ctx).
 		Model(&Run{}).
-		Where("run_id = ? AND deletion_requested_at IS NULL", runID).
+		Where("run_id = ? AND deletion_requested_at IS NULL AND status != ?",
+			runID, RunStatusRunning).
 		Updates(map[string]any{
 			"deletion_requested_at": now,
 			"deletion_error":        "",
@@ -36,18 +48,22 @@ func (s *store) MarkRunForDeletion(
 		return nil
 	}
 
-	// Nothing changed: either the run is already queued or it does not
-	// exist. Tell them apart so the caller can report a missing run.
-	var count int64
+	// Nothing changed: the run is already queued, still running, or does
+	// not exist. Tell them apart so the caller can report the reason.
+	var run Run
 	if err := s.db.WithContext(ctx).
-		Model(&Run{}).
+		Select("status", "deletion_requested_at").
 		Where("run_id = ?", runID).
-		Count(&count).Error; err != nil {
+		First(&run).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrRunNotFound
+		}
+
 		return fmt.Errorf("looking up run: %w", err)
 	}
 
-	if count == 0 {
-		return ErrRunNotFound
+	if run.DeletionRequestedAt == nil && run.Status == RunStatusRunning {
+		return ErrRunInProgress
 	}
 
 	return nil

@@ -1149,9 +1149,10 @@ paths:
         the queue, carries the error in `deletion_error`, and is retried. The queue
         is persisted in the index database, so it survives a restart.
 
-        Queuing a run that is already queued is a no-op. Partial success is
-        possible — the response includes a count of queued runs and any per-run
-        errors.
+        Queuing a run that is already queued is a no-op. A run whose status is
+        `running` is refused, because deleting it would race with the active
+        runner. Partial success is possible — the response includes a count of
+        queued runs and any per-run errors.
       security:
         - cookieAuth: []
         - bearerAuth: []
