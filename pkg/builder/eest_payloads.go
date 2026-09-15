@@ -269,16 +269,24 @@ func (b *EESTPayloadsBuilder) Build(ctx context.Context, name string, opts Build
 		return false, err
 	}
 
-	if err := b.run(ctx, log, target); err != nil {
-		return false, err
-	}
+	runErr := b.run(ctx, log, target)
 
 	// Record the config fingerprint (computed pre-run) for a later
-	// --rebuild-on-diff run. Best-effort; a failure must not fail the build.
+	// --rebuild-on-diff run. Written even when the fill failed: fill-stateful
+	// continues through individual test failures and still writes every fixture
+	// it did produce, so a target where 1 of 100 tests failed to fill must still
+	// be described on disk (the build summary reads this sidecar for the EEST
+	// repo, tests and marker). An output_dir holding only sidecars still counts
+	// as unpopulated, so this can't make a later build skip a target that
+	// produced nothing. Best-effort; a failure here must not mask runErr.
 	if inputsErr != nil {
 		log.WithError(inputsErr).Warn("Failed to compute build fingerprint; sidecar not written")
 	} else if err := writeBuildSidecar(target.OutputDir, EESTPayloadsBuilderName, inputs); err != nil {
 		log.WithError(err).Warn("Failed to write build fingerprint sidecar")
+	}
+
+	if runErr != nil {
+		return false, runErr
 	}
 
 	return false, nil
@@ -846,12 +854,12 @@ func (b *EESTPayloadsBuilder) buildFillImage(ctx context.Context, log logrus.Fie
 const (
 	// eestFillResultFile is the sidecar written next to the fixtures recording
 	// how many tests the fill produced/failed (read by the build markdown summary).
-	eestFillResultFile = ".benchmarkoor-fill.json"
+	eestFillResultFile = sidecarPrefix + "fill.json"
 
 	// pytestReportFile is the pytest-json-report output written under output_dir
 	// (via PYTEST_ADDOPTS --json-report); it carries the authoritative
 	// passed/failed tally. Relative to output_dir (= the fill container's /out).
-	pytestReportFile = ".benchmarkoor-pytest-report.json"
+	pytestReportFile = sidecarPrefix + "pytest-report.json"
 )
 
 // dirSize returns the total size in bytes of all regular files under dir.
