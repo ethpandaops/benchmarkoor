@@ -180,10 +180,14 @@ export function RunsTable({
 
   // Anchor for Shift+click range selection: the last run toggled with a
   // plain click. It is tagged with the selection mode it was set in, so an
-  // anchor from compare mode is ignored once delete mode starts.
+  // anchor from compare mode is ignored once delete mode starts. It is
+  // also ignored while nothing is selected, so leaving a mode (which
+  // clears the selection) and coming back starts from a clean slate.
   const selectionMode = selectable ? selectionVariant : null
   const [anchor, setAnchor] = useState<{ runId: string; mode: typeof selectionMode } | null>(null)
-  const anchorRunId = anchor && anchor.mode === selectionMode ? anchor.runId : null
+  const anchorRunId = anchor && anchor.mode === selectionMode && selectedRunIds?.size
+    ? anchor.runId
+    : null
 
   // Toggles one run, or — with Shift held — every selectable run between
   // the anchor and the clicked run. The range takes the clicked run's new

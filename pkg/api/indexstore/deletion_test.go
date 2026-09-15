@@ -145,3 +145,34 @@ func TestStore_ListIncompleteRunIDs_SkipsQueued(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"r-keep"}, ids)
 }
+
+func TestStore_UnmarkRunForDeletion(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, s.UpsertRun(ctx, &indexstore.Run{
+		DiscoveryPath: "dp/unmark", RunID: "run-u",
+		Timestamp: time.Now().Unix(), Status: "completed",
+	}))
+	require.NoError(t, s.MarkRunForDeletion(ctx, "run-u"))
+	require.NoError(t, s.SetRunDeletionError(ctx, "run-u", "boom"))
+
+	before := s.RunsGeneration()
+	require.NoError(t, s.UnmarkRunForDeletion(ctx, "run-u"))
+	assert.Greater(t, s.RunsGeneration(), before)
+
+	queued, err := s.ListRunsPendingDeletion(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, queued)
+
+	got, err := s.GetRunByRunID(ctx, "run-u")
+	require.NoError(t, err)
+	assert.Nil(t, got.DeletionRequestedAt)
+	assert.Empty(t, got.DeletionError)
+
+	// Not queued: no-op, no generation bump. Unknown: sentinel error.
+	gen := s.RunsGeneration()
+	require.NoError(t, s.UnmarkRunForDeletion(ctx, "run-u"))
+	assert.Equal(t, gen, s.RunsGeneration())
+	require.ErrorIs(t, s.UnmarkRunForDeletion(ctx, "nope"), indexstore.ErrRunNotFound)
+}

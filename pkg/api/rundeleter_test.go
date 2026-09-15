@@ -127,6 +127,43 @@ func TestHandleDeleteRuns_QueuesAndReportsMissing(t *testing.T) {
 	assert.NotEmpty(t, entries[0].RequestedAt)
 }
 
+func TestHandleCancelDeleteRuns_RemovesFromQueue(t *testing.T) {
+	s := newIndexTestServer(t)
+	del := &fakeDeleter{}
+	s.storageDeleter = del
+
+	ctx := context.Background()
+
+	seedRun(t, s, "run-1")
+	seedRun(t, s, "run-2")
+	require.NoError(t, s.indexStore.MarkRunForDeletion(ctx, "run-1"))
+	require.NoError(t, s.indexStore.MarkRunForDeletion(ctx, "run-2"))
+
+	body, err := json.Marshal(deleteRunsRequest{RunIDs: []string{"run-1", "missing"}})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	s.handleCancelDeleteRuns(rec, httptest.NewRequest(
+		http.MethodPost, "/api/v1/admin/runs/delete/cancel", bytes.NewReader(body),
+	))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp cancelDeleteRunsResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, 1, resp.Cancelled)
+	assert.Equal(t, []string{"missing: not found in index"}, resp.Errors)
+
+	// Only run-2 is still queued and only run-2 gets deleted.
+	s.drainDeletionQueue(ctx)
+	assert.Equal(t, []string{"run-2"}, del.calls())
+
+	runs, err := s.indexStore.ListAllRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.Equal(t, "run-1", runs[0].RunID)
+	assert.Nil(t, runs[0].DeletionRequestedAt)
+}
+
 func TestHandleDeleteRuns_RejectsWithoutDeleter(t *testing.T) {
 	s := newIndexTestServer(t)
 	seedRun(t, s, "run-1")

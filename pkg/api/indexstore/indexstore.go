@@ -62,6 +62,7 @@ type Store interface {
 
 	// Run deletion queue. See deletion.go.
 	MarkRunForDeletion(ctx context.Context, runID string) error
+	UnmarkRunForDeletion(ctx context.Context, runID string) error
 	ListRunsPendingDeletion(ctx context.Context) ([]Run, error)
 	SetRunDeletionError(ctx context.Context, runID, msg string) error
 

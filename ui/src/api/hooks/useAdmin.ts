@@ -163,6 +163,24 @@ export function useDeleteRuns() {
   })
 }
 
+interface CancelDeleteRunsResponse {
+  status: string
+  cancelled: number
+  errors?: string[]
+}
+
+export function useCancelDeleteRuns() {
+  const queryClient = useQueryClient()
+  return useMutation<CancelDeleteRunsResponse, Error, string[]>({
+    mutationFn: (runIds: string[]) =>
+      adminFetch('/api/v1/admin/runs/delete/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ run_ids: runIds }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['index'] }),
+  })
+}
+
 // GitHub User Mappings
 export function useUserMappings() {
   return useQuery<GitHubUserMapping[]>({

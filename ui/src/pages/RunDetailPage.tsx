@@ -50,7 +50,7 @@ import { useBlockLogs } from '@/api/hooks/useBlockLogs'
 import { Flame, Download, SquareStack, GitCompareArrows, Trash2 } from 'lucide-react'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 import { useAuth } from '@/hooks/useAuth'
-import { useDeleteRuns } from '@/api/hooks/useAdmin'
+import { useCancelDeleteRuns, useDeleteRuns } from '@/api/hooks/useAdmin'
 
 // Per-test opcode diff between this run and the suite. Only opcodes
 // where suite count != run count are listed.
@@ -144,6 +144,7 @@ export function RunDetailPage() {
   const navigate = useNavigate()
   const { isAdmin } = useAuth()
   const deleteRuns = useDeleteRuns()
+  const cancelDeleteRuns = useCancelDeleteRuns()
   const search = useSearch({ from: '/runs/$runId' }) as {
     page?: number
     pageSize?: number
@@ -485,7 +486,7 @@ export function RunDetailPage() {
           role="status"
         >
           <Trash2 className="mt-0.5 size-4 shrink-0" />
-          <div className="flex flex-col gap-0.5">
+          <div className="flex min-w-0 grow flex-col gap-0.5">
             <span className="font-medium">This run is queued for deletion.</span>
             <span className="text-red-700 dark:text-red-300">
               A background worker deletes queued runs in order. This page stops working once the files are gone.
@@ -496,6 +497,15 @@ export function RunDetailPage() {
               </span>
             )}
           </div>
+          {isAdmin && (
+            <button
+              disabled={cancelDeleteRuns.isPending}
+              onClick={() => cancelDeleteRuns.mutate([runId])}
+              className="shrink-0 rounded-sm px-3 py-1 text-sm/6 font-medium text-red-800 ring-1 ring-inset ring-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-200 dark:ring-red-700 dark:hover:bg-red-900/40"
+            >
+              {cancelDeleteRuns.isPending ? 'Cancelling...' : 'Cancel deletion'}
+            </button>
+          )}
         </div>
       )}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm/6 text-gray-500 dark:text-gray-400">

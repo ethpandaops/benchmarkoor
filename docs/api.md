@@ -327,6 +327,8 @@ While a run is queued, it stays visible:
 
 Queuing a run that is already queued is a no-op. Deletion needs a storage backend that supports deletion (both S3 and local do).
 
+To take a run out of the queue, call `POST /admin/runs/delete/cancel` with the same `run_ids` body. This clears the mark and the recorded error. Use it when a run fails to delete again and again, for example when its discovery path was removed from the storage config. The cancel is best-effort: a run the worker is deleting at that moment is still removed.
+
 ## Ingest (live run reporting)
 
 The optional `api.ingest` section enables an authenticated endpoint that benchmarkoor runners use to stream live run-status snapshots to the API. Live entries land in a separate `live_runs` table so they never interfere with the canonical `runs` table populated by the indexer; the UI merges both views.
@@ -395,6 +397,7 @@ A request whose `Content-Length` exceeds the limit is rejected with `413 Payload
 | `DELETE` | `/admin/github/user-mappings/{id}` | Delete user mapping |
 | `POST` | `/admin/indexer/run` | Trigger an immediate indexing pass. Returns 409 if already running. Requires [indexing](#indexing) to be enabled |
 | `POST` | `/admin/runs/delete` | Queue runs for deletion. Returns 202 as soon as the runs are marked. Requires [indexing](#indexing) to be enabled. See [Run deletion](#run-deletion) |
+| `POST` | `/admin/runs/delete/cancel` | Take runs out of the deletion queue. Requires [indexing](#indexing) to be enabled |
 | `GET` | `/admin/runs/deletion-queue` | List the runs queued for deletion, in deletion order. Requires [indexing](#indexing) to be enabled |
 
 ### Index (requires authentication unless `anonymous_read` is enabled)

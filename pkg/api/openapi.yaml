@@ -1215,6 +1215,69 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /admin/runs/delete/cancel:
+    post:
+      operationId: cancelDeleteRuns
+      tags: [admin]
+      summary: Take runs out of the deletion queue
+      description: |
+        Clears the deletion mark (and any recorded error) on the given runs so the
+        worker skips them. This is best-effort: a run the worker is deleting at this
+        moment is still removed. A run that is not queued counts as cancelled.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [run_ids]
+              properties:
+                run_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of run IDs to take out of the queue
+      responses:
+        "200":
+          description: Cancel operation completed (may include partial errors)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  cancelled:
+                    type: integer
+                    description: Number of runs taken out of the queue
+                  errors:
+                    type: array
+                    items:
+                      type: string
+                    description: Per-run error messages (omitted when empty)
+        "400":
+          description: Invalid request body or empty run_ids
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /admin/runs/deletion-queue:
     get:
       operationId: listDeletionQueue

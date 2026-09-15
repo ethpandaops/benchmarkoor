@@ -86,3 +86,41 @@ func (s *store) SetRunDeletionError(
 
 	return nil
 }
+
+// UnmarkRunForDeletion takes a run out of the deletion queue and clears
+// any recorded error. Returns ErrRunNotFound when no run with the given
+// ID is indexed; a run that is not queued is a no-op.
+func (s *store) UnmarkRunForDeletion(
+	ctx context.Context, runID string,
+) error {
+	res := s.db.WithContext(ctx).
+		Model(&Run{}).
+		Where("run_id = ? AND deletion_requested_at IS NOT NULL", runID).
+		Updates(map[string]any{
+			"deletion_requested_at": nil,
+			"deletion_error":        "",
+		})
+	if res.Error != nil {
+		return fmt.Errorf("unmarking run for deletion: %w", res.Error)
+	}
+
+	if res.RowsAffected > 0 {
+		s.runsGen.Add(1)
+
+		return nil
+	}
+
+	var count int64
+	if err := s.db.WithContext(ctx).
+		Model(&Run{}).
+		Where("run_id = ?", runID).
+		Count(&count).Error; err != nil {
+		return fmt.Errorf("looking up run: %w", err)
+	}
+
+	if count == 0 {
+		return ErrRunNotFound
+	}
+
+	return nil
+}

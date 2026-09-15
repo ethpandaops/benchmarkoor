@@ -622,6 +622,64 @@ func (s *server) handleDeleteRuns(
 	})
 }
 
+type cancelDeleteRunsResponse struct {
+	Status    string   `json:"status"`
+	Cancelled int      `json:"cancelled"`
+	Errors    []string `json:"errors,omitempty"`
+}
+
+// handleCancelDeleteRuns takes runs out of the deletion queue. It is
+// best-effort: a run the worker is deleting at this moment is still
+// removed. A run that is not queued counts as cancelled.
+func (s *server) handleCancelDeleteRuns(
+	w http.ResponseWriter, r *http.Request,
+) {
+	var req deleteRunsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"invalid request body"})
+
+		return
+	}
+
+	if len(req.RunIDs) == 0 {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"run_ids is required"})
+
+		return
+	}
+
+	var (
+		cancelled int
+		errs      []string
+	)
+
+	for _, runID := range req.RunIDs {
+		err := s.indexStore.UnmarkRunForDeletion(r.Context(), runID)
+
+		switch {
+		case err == nil:
+			cancelled++
+		case errors.Is(err, indexstore.ErrRunNotFound):
+			errs = append(errs, fmt.Sprintf(
+				"%s: not found in index", runID,
+			))
+		default:
+			s.log.WithError(err).WithField("run_id", runID).
+				Error("Failed to cancel run deletion")
+			errs = append(errs, fmt.Sprintf(
+				"%s: cancel failed: %v", runID, err,
+			))
+		}
+	}
+
+	writeJSON(w, http.StatusOK, cancelDeleteRunsResponse{
+		Status:    "ok",
+		Cancelled: cancelled,
+		Errors:    errs,
+	})
+}
+
 // deletionQueueEntry is one queued run in the /admin/runs/deletion-queue
 // response.
 type deletionQueueEntry struct {
