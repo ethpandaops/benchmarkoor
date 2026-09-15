@@ -309,6 +309,24 @@ api:
 - You want the UI to always show up-to-date data without manual regeneration
 - You are running the API server as a long-lived service
 
+### Run deletion
+
+Admins delete runs through `POST /admin/runs/delete`. The endpoint does not delete anything itself. It marks each run as queued for deletion and returns `202 Accepted` at once. A background worker in the API server then drains the queue:
+
+1. The worker takes the runs in the order they were queued.
+2. For each run, it deletes the files from storage (S3 or local) first.
+3. Then it deletes the index rows (`test_stats`, `test_stats_block_logs`, `runs`, and the suite if no other run uses it) in one transaction.
+
+The queue is stored in the index database, so it survives a restart of the API server. A run whose deletion fails keeps its place in the queue and is retried on the next pass (every 30 seconds). The last error is stored on the run.
+
+While a run is queued, it stays visible:
+
+- `GET /index` and `GET /index/query/runs` set `deletion_requested_at` (and `deletion_error` after a failed attempt) on the entry.
+- `GET /admin/runs/deletion-queue` lists the queued runs in deletion order.
+- The UI marks the run as queued for deletion and does not let you select it again.
+
+Queuing a run that is already queued is a no-op. Deletion needs a storage backend that supports deletion (both S3 and local do).
+
 ## Ingest (live run reporting)
 
 The optional `api.ingest` section enables an authenticated endpoint that benchmarkoor runners use to stream live run-status snapshots to the API. Live entries land in a separate `live_runs` table so they never interfere with the canonical `runs` table populated by the indexer; the UI merges both views.
@@ -376,7 +394,8 @@ A request whose `Content-Length` exceeds the limit is rejected with `413 Payload
 | `POST` | `/admin/github/user-mappings` | Create/update user mapping |
 | `DELETE` | `/admin/github/user-mappings/{id}` | Delete user mapping |
 | `POST` | `/admin/indexer/run` | Trigger an immediate indexing pass. Returns 409 if already running. Requires [indexing](#indexing) to be enabled |
-| `POST` | `/admin/runs/delete` | Bulk-delete runs from storage and index. Requires [indexing](#indexing) to be enabled |
+| `POST` | `/admin/runs/delete` | Queue runs for deletion. Returns 202 as soon as the runs are marked. Requires [indexing](#indexing) to be enabled. See [Run deletion](#run-deletion) |
+| `GET` | `/admin/runs/deletion-queue` | List the runs queued for deletion, in deletion order. Requires [indexing](#indexing) to be enabled |
 
 ### Index (requires authentication unless `anonymous_read` is enabled)
 

@@ -403,7 +403,7 @@ paths:
         **Filter columns:** id, discovery_path, run_id, timestamp, timestamp_end,
         suite_hash, status, termination_reason, has_result, instance_id, client,
         image, rollback_strategy, tests_total, tests_passed, tests_failed,
-        indexed_at, reindexed_at
+        indexed_at, reindexed_at, deletion_requested_at, deletion_error
 
         **Filter format:** `column=operator.value` (e.g. `client=eq.geth`)
       security:
@@ -1137,13 +1137,21 @@ paths:
     post:
       operationId: deleteRuns
       tags: [admin]
-      summary: Bulk-delete runs
+      summary: Queue runs for deletion
       description: |
-        Deletes one or more runs from both storage (S3/local) and the index database.
-        Each run is looked up in the index to determine its discovery path, then removed
-        from storage and all related index tables (test_stats, block_logs, runs).
-        Partial success is possible — the response includes a count of deleted runs
-        and any per-run errors.
+        Queues one or more runs for deletion. The request returns as soon as every
+        run is marked. A background worker then deletes the runs one at a time, in
+        the order they were queued: first from storage (S3/local), then from all
+        related index tables (test_stats, block_logs, runs).
+
+        While a run sits in the queue it stays visible in `GET /index` with
+        `deletion_requested_at` set. A run that fails to delete keeps its place in
+        the queue, carries the error in `deletion_error`, and is retried. The queue
+        is persisted in the index database, so it survives a restart.
+
+        Queuing a run that is already queued is a no-op. Partial success is
+        possible — the response includes a count of queued runs and any per-run
+        errors.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -1162,8 +1170,8 @@ paths:
                   description: List of run IDs to delete
                   example: ["abc123", "def456"]
       responses:
-        "200":
-          description: Delete operation completed (may include partial errors)
+        "202":
+          description: Runs queued for deletion (may include partial errors)
           content:
             application/json:
               schema:
@@ -1172,9 +1180,9 @@ paths:
                   status:
                     type: string
                     example: ok
-                  deleted:
+                  queued:
                     type: integer
-                    description: Number of runs successfully deleted
+                    description: Number of runs queued for deletion
                     example: 2
                   errors:
                     type: array
@@ -1202,6 +1210,53 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: Storage backend does not support deletion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/runs/deletion-queue:
+    get:
+      operationId: listDeletionQueue
+      tags: [admin]
+      summary: List runs queued for deletion
+      description: |
+        Returns every run that is queued for deletion, in the order the worker
+        will delete them. A run with a non-empty `error` failed its last attempt
+        and will be retried.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Queued runs in deletion order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [run_id, discovery_path, requested_at]
+                  properties:
+                    run_id:
+                      type: string
+                    discovery_path:
+                      type: string
+                    requested_at:
+                      type: string
+                      format: date-time
+                      description: When the run was queued
+                    error:
+                      type: string
+                      description: Last deletion error (omitted when empty)
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Insufficient permissions
           content:
             application/json:
               schema:
@@ -1479,6 +1534,15 @@ components:
           additionalProperties:
             type: string
           description: Run metadata labels (key-value pairs)
+        deletion_requested_at:
+          type: integer
+          format: int64
+          description: |
+            Unix timestamp (seconds) of when the run was queued for deletion.
+            Omitted when the run is not queued.
+        deletion_error:
+          type: string
+          description: Last deletion error for a queued run (omitted when empty)
         instance:
           type: object
           properties:
@@ -1665,6 +1729,14 @@ components:
           type: string
           format: date-time
           nullable: true
+        deletion_requested_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set while the run is queued for deletion
+        deletion_error:
+          type: string
+          description: Last deletion error for a queued run (omitted when empty)
 
     QueryResultTestStats:
       type: object

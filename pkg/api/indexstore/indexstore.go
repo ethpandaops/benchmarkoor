@@ -60,6 +60,11 @@ type Store interface {
 	DeleteRunCascade(ctx context.Context, runID string) error
 	DeleteOrphanedSuite(ctx context.Context, suiteHash string) error
 
+	// Run deletion queue. See deletion.go.
+	MarkRunForDeletion(ctx context.Context, runID string) error
+	ListRunsPendingDeletion(ctx context.Context) ([]Run, error)
+	SetRunDeletionError(ctx context.Context, runID, msg string) error
+
 	UpsertSuite(ctx context.Context, suite *Suite) error
 
 	BulkInsertTestStatsBlockLogs(
@@ -589,13 +594,15 @@ var terminalStatuses = []string{
 // and the run is still potentially in progress. A run is considered
 // incomplete only when it has a non-empty, non-terminal status — empty
 // status means the run was abandoned and will never produce a result.
+// Runs queued for deletion are skipped: re-indexing them is wasted work.
 func (s *store) ListIncompleteRunIDs(
 	ctx context.Context, discoveryPath string,
 ) ([]string, error) {
 	var ids []string
 	if err := s.readDB.WithContext(ctx).
 		Model(&Run{}).
-		Where("discovery_path = ? AND has_result = ? AND status != '' AND status NOT IN ?",
+		Where("discovery_path = ? AND has_result = ? AND status != '' AND status NOT IN ?"+
+			" AND deletion_requested_at IS NULL",
 			discoveryPath, false, terminalStatuses).
 		Pluck("run_id", &ids).Error; err != nil {
 		return nil, fmt.Errorf("listing incomplete run ids: %w", err)

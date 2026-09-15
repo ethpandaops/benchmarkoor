@@ -35,6 +35,11 @@ type indexEntry struct {
 	Status            string                  `json:"status,omitempty"`
 	TerminationReason string                  `json:"termination_reason,omitempty"`
 	Metadata          json.RawMessage         `json:"metadata,omitempty"`
+
+	// DeletionRequestedAt (unix seconds) is set while the run sits in the
+	// deletion queue. DeletionError carries the last failed attempt.
+	DeletionRequestedAt int64  `json:"deletion_requested_at,omitempty"`
+	DeletionError       string `json:"deletion_error,omitempty"`
 }
 
 type indexTestStats struct {
@@ -88,6 +93,11 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			metadata = json.RawMessage(run.MetadataJSON)
 		}
 
+		var deletionRequestedAt int64
+		if run.DeletionRequestedAt != nil {
+			deletionRequestedAt = run.DeletionRequestedAt.Unix()
+		}
+
 		entries = append(entries, indexEntry{
 			DiscoveryPath:     run.DiscoveryPath,
 			RunID:             run.RunID,
@@ -108,7 +118,9 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 				TestsFailed: run.TestsFailed,
 				Steps:       steps,
 			},
-			Metadata: metadata,
+			Metadata:            metadata,
+			DeletionRequestedAt: deletionRequestedAt,
+			DeletionError:       run.DeletionError,
 		})
 	}
 

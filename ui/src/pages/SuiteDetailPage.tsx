@@ -328,26 +328,32 @@ export function SuiteDetailPage() {
   const [deleteMode, setDeleteMode] = useState(false)
   const [deleteSelectedIds, setDeleteSelectedIds] = useState<Set<string>>(new Set())
 
-  const handleSelectionChange = useCallback((runId: string, selected: boolean) => {
+  // A Shift+click range may pass several runs at once. Compare stops
+  // adding at the cap and keeps what fit.
+  const handleSelectionChange = useCallback((runIds: string[], selected: boolean) => {
     setSelectedRunIds((prev) => {
       const next = new Set(prev)
-      if (selected) {
-        if (next.size >= MAX_COMPARE_RUNS) return prev
-        next.add(runId)
-      } else {
-        next.delete(runId)
+      for (const runId of runIds) {
+        if (selected) {
+          if (next.size >= MAX_COMPARE_RUNS) break
+          next.add(runId)
+        } else {
+          next.delete(runId)
+        }
       }
       return next
     })
   }, [])
 
-  const handleDeleteSelectionChange = useCallback((runId: string, selected: boolean) => {
+  const handleDeleteSelectionChange = useCallback((runIds: string[], selected: boolean) => {
     setDeleteSelectedIds((prev) => {
       const next = new Set(prev)
-      if (selected) {
-        next.add(runId)
-      } else {
-        next.delete(runId)
+      for (const runId of runIds) {
+        if (selected) {
+          next.add(runId)
+        } else {
+          next.delete(runId)
+        }
       }
       return next
     })
@@ -377,7 +383,7 @@ export function SuiteDetailPage() {
 
   const handleDeleteConfirm = useCallback(() => {
     if (deleteSelectedIds.size === 0) return
-    if (!window.confirm(`Delete ${deleteSelectedIds.size} run(s)? This cannot be undone.`)) return
+    if (!window.confirm(`Queue ${deleteSelectedIds.size} run(s) for deletion? This cannot be undone.`)) return
     deleteRuns.mutate(Array.from(deleteSelectedIds), {
       onSuccess: () => {
         handleExitDeleteMode()
@@ -1211,7 +1217,7 @@ export function SuiteDetailPage() {
                         stepFilter={stepFilter}
                         selectable={compareMode}
                         selectedRunIds={selectedRunIds}
-                        onSelectionChange={handleSelectionChange}
+                        onSelectionChange={(runId, selected) => handleSelectionChange([runId], selected)}
                       />
                     </div>
                   )}
@@ -1615,9 +1621,14 @@ export function SuiteDetailPage() {
       {deleteMode && (
         <div className="fixed inset-x-0 bottom-0 z-50 border-t border-red-200 bg-white px-6 py-3 shadow-sm dark:border-red-800 dark:bg-gray-800">
           <div className="mx-auto flex max-w-7xl items-center justify-between">
-            <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
-              {deleteSelectedIds.size} selected for deletion
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+                {deleteSelectedIds.size} selected for deletion
+              </span>
+              <span className="hidden text-xs/5 text-gray-500 sm:inline dark:text-gray-400">
+                Shift+click selects a range
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleExitDeleteMode}
@@ -1630,7 +1641,7 @@ export function SuiteDetailPage() {
                 onClick={handleDeleteConfirm}
                 className="rounded-sm bg-red-600 px-4 py-1.5 text-sm/6 font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {deleteRuns.isPending ? 'Deleting...' : 'Delete'}
+                {deleteRuns.isPending ? 'Queuing...' : 'Delete'}
               </button>
             </div>
           </div>

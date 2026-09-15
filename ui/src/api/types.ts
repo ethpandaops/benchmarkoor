@@ -72,6 +72,16 @@ export interface IndexEntry {
   status?: RunStatus
   termination_reason?: string
   metadata?: Record<string, string>
+  // Unix seconds. Set while the run sits in the deletion queue.
+  deletion_requested_at?: number
+  // Last failed deletion attempt, if any. The run stays queued.
+  deletion_error?: string
+}
+
+// True when an admin queued the run for deletion and the worker has not
+// removed it yet.
+export function isPendingDeletion(entry: Pick<IndexEntry, 'deletion_requested_at'>): boolean {
+  return !!entry.deletion_requested_at
 }
 
 export interface IndexStepStats {

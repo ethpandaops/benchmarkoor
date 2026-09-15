@@ -34,24 +34,26 @@ var validOperators = map[string]string{
 // on the runs table. StepsJSON is excluded from filtering/sorting but
 // included in the response DTO.
 var allowedRunColumns = map[string]bool{
-	"id":                 true,
-	"discovery_path":     true,
-	"run_id":             true,
-	"timestamp":          true,
-	"timestamp_end":      true,
-	"suite_hash":         true,
-	"status":             true,
-	"termination_reason": true,
-	"has_result":         true,
-	"instance_id":        true,
-	"client":             true,
-	"image":              true,
-	"rollback_strategy":  true,
-	"tests_total":        true,
-	"tests_passed":       true,
-	"tests_failed":       true,
-	"indexed_at":         true,
-	"reindexed_at":       true,
+	"id":                    true,
+	"discovery_path":        true,
+	"run_id":                true,
+	"timestamp":             true,
+	"timestamp_end":         true,
+	"suite_hash":            true,
+	"status":                true,
+	"termination_reason":    true,
+	"has_result":            true,
+	"instance_id":           true,
+	"client":                true,
+	"image":                 true,
+	"rollback_strategy":     true,
+	"tests_total":           true,
+	"tests_passed":          true,
+	"tests_failed":          true,
+	"indexed_at":            true,
+	"reindexed_at":          true,
+	"deletion_requested_at": true,
+	"deletion_error":        true,
 }
 
 // allowedTestStatColumns lists columns that may be filtered, sorted, or
@@ -197,6 +199,10 @@ type RunResponse struct {
 	StepsJSON         json.RawMessage `json:"steps_json,omitempty"`
 	IndexedAt         string          `json:"indexed_at"`
 	ReindexedAt       *string         `json:"reindexed_at,omitempty"`
+
+	// DeletionRequestedAt is set while the run sits in the deletion queue.
+	DeletionRequestedAt *string `json:"deletion_requested_at,omitempty"`
+	DeletionError       string  `json:"deletion_error,omitempty"`
 }
 
 // TestStatResponse is the JSON DTO for a test_stats row.
@@ -539,6 +545,12 @@ func toRunResponse(r *Run) RunResponse {
 	if r.ReindexedAt != nil {
 		s := r.ReindexedAt.UTC().Format("2006-01-02T15:04:05Z")
 		resp.ReindexedAt = &s
+	}
+
+	if r.DeletionRequestedAt != nil {
+		s := r.DeletionRequestedAt.UTC().Format("2006-01-02T15:04:05Z")
+		resp.DeletionRequestedAt = &s
+		resp.DeletionError = r.DeletionError
 	}
 
 	if r.StepsJSON != "" {

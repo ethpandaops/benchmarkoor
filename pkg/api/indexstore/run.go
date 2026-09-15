@@ -44,4 +44,14 @@ type Run struct {
 
 	IndexedAt   time.Time
 	ReindexedAt *time.Time
+
+	// DeletionRequestedAt is set when an admin queues the run for deletion.
+	// The run deleter drains the queue in ascending order of this column.
+	// It is excluded from runUpsertColumns so a re-index cannot clear it.
+	DeletionRequestedAt *time.Time `gorm:"index"`
+
+	// DeletionError holds the last error from a failed deletion attempt.
+	// Empty while no attempt has failed. The run stays queued and is
+	// retried on the next deleter pass.
+	DeletionError string `gorm:"type:text"`
 }

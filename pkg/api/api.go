@@ -45,6 +45,10 @@ type server struct {
 	wg             sync.WaitGroup
 	done           chan struct{}
 
+	// runDeleterKick wakes the run deleter after a delete request queued
+	// new runs. See startRunDeleter.
+	runDeleterKick chan struct{}
+
 	// trustedProxies holds the parsed api.server.trusted_proxies networks.
 	// Parsed once here rather than per middleware tier so the config is
 	// validated (and complained about) a single time at construction, and
@@ -71,6 +75,7 @@ func NewServer(
 		log:            componentLog,
 		cfg:            cfg,
 		done:           make(chan struct{}),
+		runDeleterKick: make(chan struct{}, 1),
 		wsHub:          newWsHub(componentLog),
 		trustedProxies: parseTrustedProxies(componentLog, cfg.Server.TrustedProxies),
 	}
@@ -199,6 +204,9 @@ func (s *server) Start(ctx context.Context) error {
 
 	// Start the stale live-runs watcher (no-op when ingest is unconfigured).
 	s.startStaleLiveRunsWatcher(ctx)
+
+	// Start the run deleter (no-op when storage cannot delete).
+	s.startRunDeleter(ctx)
 
 	return nil
 }

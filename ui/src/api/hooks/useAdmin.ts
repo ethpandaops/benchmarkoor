@@ -143,10 +143,11 @@ export function useRunIndexer() {
   })
 }
 
-// Run deletion
+// Run deletion. The API queues the runs and a background worker deletes
+// them in order, so the response only reports how many were queued.
 interface DeleteRunsResponse {
   status: string
-  deleted: number
+  queued: number
   errors?: string[]
 }
 

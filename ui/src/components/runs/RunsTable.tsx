@@ -1,14 +1,14 @@
 import { Fragment, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, getIndexAggregatedStats } from '@/api/types'
+import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, getIndexAggregatedStats, isPendingDeletion } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { StrategyIcon } from '@/components/shared/StrategyIcon'
-import { Tag } from 'lucide-react'
+import { Tag, Trash2 } from 'lucide-react'
 import { formatTimestampDate, formatTimestampTime, formatRelativeTime } from '@/utils/date'
 import { formatDuration, formatNumber } from '@/utils/format'
 import { type SortColumn, type SortDirection } from './sortEntries'
@@ -29,8 +29,45 @@ interface RunsTableProps {
   stepFilter?: IndexStepType[]
   selectable?: boolean
   selectedRunIds?: Set<string>
-  onSelectionChange?: (runId: string, selected: boolean) => void
+  // Called with every run whose selection changed. A plain click passes one
+  // run; a Shift+click passes the whole range since the last plain click.
+  onSelectionChange?: (runIds: string[], selected: boolean) => void
   selectionVariant?: 'compare' | 'delete'
+}
+
+// Live (in-progress) runs are not selectable for compare or delete:
+// comparison needs finished per-test results, and deletion mustn't race
+// with the active runner. Runs already queued for deletion are not
+// selectable either.
+function isEntrySelectable(entry: IndexEntry): boolean {
+  return entry.status !== 'running' && !isPendingDeletion(entry)
+}
+
+function selectTooltipFor(entry: IndexEntry, variant: 'compare' | 'delete'): string | undefined {
+  if (isPendingDeletion(entry)) return 'This run is queued for deletion'
+  if (entry.status === 'running') {
+    return variant === 'delete'
+      ? 'Cannot delete a run while it is still in progress'
+      : 'Cannot compare a run while it is still in progress'
+  }
+  return undefined
+}
+
+// Small marker shown next to the run time while the run sits in the
+// deletion queue. A failed attempt shows the error in the tooltip.
+function PendingDeletionMarker({ entry }: { entry: IndexEntry }) {
+  const title = entry.deletion_error
+    ? `Queued for deletion — last attempt failed: ${entry.deletion_error}`
+    : 'Queued for deletion'
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-xs bg-red-100 px-1 text-[10px]/4 font-medium uppercase tracking-wide text-red-700 dark:bg-red-900/40 dark:text-red-300"
+      title={title}
+    >
+      <Trash2 className="size-2.5" />
+      Deleting
+    </span>
+  )
 }
 
 function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
@@ -141,6 +178,34 @@ export function RunsTable({
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const navigate = useNavigate()
 
+  // Anchor for Shift+click range selection: the last run toggled with a
+  // plain click. It is tagged with the selection mode it was set in, so an
+  // anchor from compare mode is ignored once delete mode starts.
+  const selectionMode = selectable ? selectionVariant : null
+  const [anchor, setAnchor] = useState<{ runId: string; mode: typeof selectionMode } | null>(null)
+  const anchorRunId = anchor && anchor.mode === selectionMode ? anchor.runId : null
+
+  // Toggles one run, or — with Shift held — every selectable run between
+  // the anchor and the clicked run. The range takes the clicked run's new
+  // state, so Shift+click on an unselected run selects the range and on a
+  // selected run clears it. The anchor stays put across Shift+clicks so
+  // the range can be extended again.
+  const handleRowSelect = (entry: IndexEntry, shiftKey: boolean) => {
+    const selected = !selectedRunIds?.has(entry.run_id)
+    if (shiftKey && anchorRunId && anchorRunId !== entry.run_id) {
+      const anchorIdx = entries.findIndex((e) => e.run_id === anchorRunId)
+      const targetIdx = entries.findIndex((e) => e.run_id === entry.run_id)
+      if (anchorIdx >= 0 && targetIdx >= 0) {
+        const [from, to] = anchorIdx < targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx]
+        const ids = entries.slice(from, to + 1).filter(isEntrySelectable).map((e) => e.run_id)
+        onSelectionChange?.(ids, selected)
+        return
+      }
+    }
+    onSelectionChange?.([entry.run_id], selected)
+    setAnchor({ runId: entry.run_id, mode: selectionMode })
+  }
+
   const toggleExpanded = (runId: string) => {
     setExpandedRows((prev) => {
       const next = new Set(prev)
@@ -188,29 +253,28 @@ export function RunsTable({
               ? Object.entries(entry.metadata).filter(([k]) => !k.startsWith('github.') && k !== 'name')
               : []
             const colSpan = (selectable ? 1 : 0) + 3 + (showSuite ? 1 : 0) + 6
-            // Live (in-progress) runs are not selectable for compare or
-            // delete: comparison needs finished per-test results, and
-            // deletion mustn't race with the active runner.
-            const isLive = entry.status === 'running'
-            const rowSelectable = selectable && !isLive
-            const selectTooltip = selectable && isLive
-              ? (selectionVariant === 'delete'
-                  ? 'Cannot delete a run while it is still in progress'
-                  : 'Cannot compare a run while it is still in progress')
-              : undefined
+            const pendingDeletion = isPendingDeletion(entry)
+            const rowSelectable = selectable && isEntrySelectable(entry)
+            const selectTooltip = selectable ? selectTooltipFor(entry, selectionVariant) : undefined
             return (
             <Fragment key={entry.run_id}>
             <tr
-              onClick={() => {
+              onClick={(e) => {
                 if (rowSelectable) {
-                  onSelectionChange?.(entry.run_id, !selectedRunIds?.has(entry.run_id))
+                  handleRowSelect(entry, e.shiftKey)
                 } else if (!selectable) {
                   navigate({ to: '/runs/$runId', params: { runId: entry.run_id } })
                 }
               }}
+              // Shift+click would otherwise start a text selection across
+              // the rows in the range.
+              onMouseDown={(e) => {
+                if (selectable && e.shiftKey) e.preventDefault()
+              }}
               className={clsx(
                 'group relative transition-colors hover:z-20 hover:bg-gray-50 dark:hover:bg-gray-700/50',
                 (!selectable || rowSelectable) && 'cursor-pointer',
+                pendingDeletion && 'opacity-60',
                 entry.status === 'running' && 'bg-blue-50/50 dark:bg-blue-900/10',
                 entry.status === 'container_died' && 'bg-red-50/50 dark:bg-red-900/10',
                 entry.status === 'cancelled' && 'bg-yellow-50/50 dark:bg-yellow-900/10',
@@ -228,7 +292,10 @@ export function RunsTable({
                     disabled={!rowSelectable}
                     onChange={(e) => {
                       e.stopPropagation()
-                      if (rowSelectable) onSelectionChange?.(entry.run_id, e.target.checked)
+                      // React backs checkbox onChange with the native click
+                      // event, so the modifier keys are available here.
+                      const shiftKey = (e.nativeEvent as MouseEvent).shiftKey ?? false
+                      if (rowSelectable) handleRowSelect(entry, shiftKey)
                     }}
                     onClick={(e) => e.stopPropagation()}
                     className={clsx(
@@ -264,6 +331,7 @@ export function RunsTable({
                           title="Live — runner is reporting status"
                         />
                       )}
+                      {pendingDeletion && <PendingDeletionMarker entry={entry} />}
                     </span>
                     <span className="text-xs/4 text-gray-400 dark:text-gray-500">{formatTimestampTime(entry.timestamp)}</span>
                   </Link>
@@ -277,6 +345,7 @@ export function RunsTable({
                           title="Live — runner is reporting status"
                         />
                       )}
+                      {pendingDeletion && <PendingDeletionMarker entry={entry} />}
                     </span>
                     <span className="text-xs/4 text-gray-400 dark:text-gray-500">{formatTimestampTime(entry.timestamp)}</span>
                   </span>

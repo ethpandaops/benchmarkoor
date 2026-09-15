@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchHead } from '@/api/client'
-import type { TestEntry, AggregatedStats, StepResult } from '@/api/types'
+import { isPendingDeletion, type TestEntry, type AggregatedStats, type StepResult } from '@/api/types'
 import { useRunConfig } from '@/api/hooks/useRunConfig'
 import { useRunResult } from '@/api/hooks/useRunResult'
 import { useRunOpcodes } from '@/api/hooks/useRunOpcodes'
@@ -224,6 +224,14 @@ export function RunDetailPage() {
     setCompareMode(false)
     setSelectedRunIds(new Set())
   }, [])
+
+  // The index entry for this run, if indexed. Carries the deletion-queue
+  // state that the config/result files do not.
+  const indexEntry = useMemo(
+    () => index?.entries.find((e) => e.run_id === runId),
+    [index, runId],
+  )
+  const pendingDeletion = indexEntry ? isPendingDeletion(indexEntry) : false
 
   // Compute clientRuns and recentRuns before early returns to satisfy hooks rules.
   const clientRuns = useMemo(() => {
@@ -471,6 +479,25 @@ export function RunDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      {pendingDeletion && (
+        <div
+          className="flex items-start gap-3 rounded-xs border border-red-200 bg-red-50 px-4 py-3 text-sm/6 text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200"
+          role="status"
+        >
+          <Trash2 className="mt-0.5 size-4 shrink-0" />
+          <div className="flex flex-col gap-0.5">
+            <span className="font-medium">This run is queued for deletion.</span>
+            <span className="text-red-700 dark:text-red-300">
+              A background worker deletes queued runs in order. This page stops working once the files are gone.
+            </span>
+            {indexEntry?.deletion_error && (
+              <span className="font-mono text-xs/5 text-red-700 dark:text-red-300">
+                Last attempt failed: {indexEntry.deletion_error}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm/6 text-gray-500 dark:text-gray-400">
         <div className="flex min-w-0 items-center gap-2">
           <Link to="/suites" className="shrink-0 hover:text-gray-700 dark:hover:text-gray-300">
@@ -493,15 +520,15 @@ export function RunDetailPage() {
           <span className="truncate text-gray-900 dark:text-gray-100">{runId}</span>
           {isAdmin && (
             <button
-              disabled={deleteRuns.isPending}
+              disabled={deleteRuns.isPending || pendingDeletion}
               onClick={() => {
-                if (!window.confirm('Delete this run? This cannot be undone.')) return
+                if (!window.confirm('Queue this run for deletion? This cannot be undone.')) return
                 deleteRuns.mutate([runId], {
                   onSuccess: () => navigate({ to: '/runs' }),
                 })
               }}
-              className="ml-1 flex shrink-0 items-center justify-center rounded-xs p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:text-gray-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-              title="Delete this run"
+              className="ml-1 flex shrink-0 items-center justify-center rounded-xs p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-500 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+              title={pendingDeletion ? 'This run is already queued for deletion' : 'Delete this run'}
             >
               <Trash2 className="size-3.5" />
             </button>

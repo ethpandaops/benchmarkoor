@@ -170,6 +170,7 @@ func (s *server) buildRouter() http.Handler {
 			// Run deletion (requires indexing).
 			if s.indexStore != nil {
 				r.Post("/runs/delete", s.handleDeleteRuns)
+				r.Get("/runs/deletion-queue", s.handleDeletionQueue)
 			}
 
 			// Indexer management.

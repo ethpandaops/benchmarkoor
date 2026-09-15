@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchData, fetchViaS3 } from '../client'
-import type { Index, IndexEntry, LiveRun } from '../types'
+import { isPendingDeletion, type Index, type IndexEntry, type LiveRun } from '../types'
 import {
   loadRuntimeConfig,
   isS3Mode,
@@ -12,6 +12,10 @@ import {
 // How often to refetch the runs/live runs lists. 30s strikes a balance
 // between freshness for in-progress runs and request volume.
 const RUNS_REFETCH_INTERVAL_MS = 30_000
+
+// Poll faster while runs sit in the deletion queue so the rows disappear
+// shortly after the worker removes them.
+const PENDING_DELETION_REFETCH_INTERVAL_MS = 5_000
 
 const emptyIndex: Index = { generated: 0, entries: [] }
 
@@ -136,7 +140,10 @@ function mergeIndexResults(results: (Index | null)[]): Index {
 export function useIndex() {
   return useQuery({
     queryKey: ['index'],
-    refetchInterval: RUNS_REFETCH_INTERVAL_MS,
+    refetchInterval: (query) =>
+      query.state.data?.entries.some(isPendingDeletion)
+        ? PENDING_DELETION_REFETCH_INTERVAL_MS
+        : RUNS_REFETCH_INTERVAL_MS,
     queryFn: async () => {
       const config = await loadRuntimeConfig()
 
