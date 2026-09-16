@@ -69,8 +69,8 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
     totalGasUsedDurationNs > 0 ? (totalGasUsed * 1000) / totalGasUsedDurationNs : undefined
 
   const clientRuns = useMemo(
-    () => selectClientPeerRuns(index?.entries ?? [], run.suite_hash, clientName, instanceID, run.metadata),
-    [index, run.suite_hash, clientName, instanceID, run.metadata],
+    () => selectClientPeerRuns(index?.entries ?? [], run.suite_hash, clientName, instanceID, labels),
+    [index, run.suite_hash, clientName, instanceID, labels],
   )
 
   // Per-test gas data for the live Performance Heatmap. Comes from the
