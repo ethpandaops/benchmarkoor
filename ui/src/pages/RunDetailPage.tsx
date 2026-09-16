@@ -237,7 +237,7 @@ export function RunDetailPage() {
 
   // Compute clientRuns and recentRuns before early returns to satisfy hooks rules.
   const clientRuns = useMemo(
-    () => selectClientPeerRuns(index?.entries ?? [], config?.suite_hash, config?.instance.client, config?.metadata?.labels),
+    () => selectClientPeerRuns(index?.entries ?? [], config?.suite_hash, config?.instance.client, config?.instance.id, config?.metadata?.labels),
     [index, config],
   )
 
