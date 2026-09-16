@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { COLORS, LEVELS, createColorScale, formatShortfall } from './runColorScale'
+import { COLORS, LEVELS, createColorScale, formatMgasStepRange, formatShortfall } from './runColorScale'
 
 const BEST = COLORS[0]
 const WORST = COLORS[LEVELS - 1]
@@ -96,5 +96,19 @@ describe('formatShortfall', () => {
     expect(formatShortfall(0.015)).toBe('1.5%')
     expect(formatShortfall(0.0796)).toBe('8.0%')
     expect(formatShortfall(0.24)).toBe('24%')
+  })
+})
+
+describe('formatMgasStepRange', () => {
+  it('names the throughput and the band of every step', () => {
+    // Twenty runs at 1000 MGas/s: the scale saturates at MIN_DROP.
+    const scale = createColorScale(Array(20).fill(1000), true)
+    expect(formatMgasStepRange(scale, 0)).toBe('≥ 985.0 MGas/s · within 1.5% of best')
+    expect(formatMgasStepRange(scale, 1)).toBe('970.0 – 985.0 MGas/s · 1.5% – 3.0% off')
+    expect(formatMgasStepRange(scale, LEVELS - 1)).toBe('< 865.0 MGas/s · over 14% off')
+  })
+
+  it('names only the band without data', () => {
+    expect(formatMgasStepRange(createColorScale([], true), 0)).toBe('within 1.5% of best')
   })
 })

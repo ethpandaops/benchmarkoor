@@ -14,7 +14,8 @@ import {
   type ColorScale,
   calculatePercentile,
   createColorScale,
-  formatShortfall,
+  formatMgasStepRange,
+  formatShortfallBand,
 } from '@/utils/runColorScale'
 
 // Check if run completed successfully (no status = completed for backward compat)
@@ -408,25 +409,13 @@ export function RunsHeatmap({
   const stepWidth = showValues ? legendScale.step : MIN_DROP / LEVELS
 
   const legendStepRange = (step: number) => {
+    const band = formatShortfallBand(step, stepWidth)
+    if (!showValues) return band
+    if (metricMode === 'mgas') return formatMgasStepRange(legendScale, step)
+
     const from = step * stepWidth
     const to = (step + 1) * stepWidth
-    const band =
-      step === 0
-        ? `within ${formatShortfall(to)} of best`
-        : step === LEVELS - 1
-          ? `over ${formatShortfall(from)} off`
-          : `${formatShortfall(from)} – ${formatShortfall(to)} off`
-    if (!showValues) return band
-
     const { top } = legendScale
-    if (metricMode === 'mgas') {
-      const fmt = (value: number) => value.toFixed(1)
-      if (step === 0) return `≥ ${fmt(top * (1 - to))} MGas/s · ${band}`
-      if (step === LEVELS - 1) return `< ${fmt(Math.max(0, top * (1 - from)))} MGas/s · ${band}`
-
-      return `${fmt(Math.max(0, top * (1 - to)))} – ${fmt(top * (1 - from))} MGas/s · ${band}`
-    }
-
     const fmt = formatDurationCompact
     if (step === 0) return `≤ ${fmt(top * (1 + to))} · ${band}`
     if (step === LEVELS - 1) return `> ${fmt(top * (1 + from))} · ${band}`

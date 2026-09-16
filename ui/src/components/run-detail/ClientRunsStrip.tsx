@@ -3,22 +3,8 @@ import { useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, getIndexAggregatedStats } from '@/api/types'
 import { formatTimestamp } from '@/utils/date'
-
-const COLORS = [
-  '#22c55e', // green - best
-  '#84cc16', // lime
-  '#eab308', // yellow
-  '#f97316', // orange
-  '#ef4444', // red - worst
-]
-
-function getColorByNormalizedValue(value: number, min: number, max: number, higherIsBetter: boolean): string {
-  if (max === min) return COLORS[2]
-  let normalized = (value - min) / (max - min)
-  if (higherIsBetter) normalized = 1 - normalized
-  const level = Math.min(4, Math.floor(normalized * 5))
-  return COLORS[level]
-}
+import { ColorScaleLegend } from '@/components/shared/ColorScaleLegend'
+import { COLORS, NEUTRAL_COLOR, createColorScale, formatMgasStepRange } from '@/utils/runColorScale'
 
 function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number | undefined {
   if (gasUsedDuration <= 0 || gasUsed <= 0) return undefined
@@ -64,24 +50,22 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
   const navigate = useNavigate()
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
 
-  const { displayRuns, minMgas, maxMgas } = useMemo(() => {
+  // Same scale as the suite page's per-client heatmap: a run's colour
+  // says how far it sits below the best of the strip, so a strip of
+  // near-identical runs stays green instead of spanning the rainbow.
+  const { displayRuns, scale } = useMemo(() => {
     const sorted = [...runs].sort((a, b) => b.timestamp - a.timestamp)
     const displayRuns = sorted.slice(0, MAX_RUNS)
 
-    let minMgas = Infinity
-    let maxMgas = -Infinity
+    const mgasValues: number[] = []
     for (const run of displayRuns) {
+      if (!isRunCompleted(run)) continue
       const stats = getIndexAggregatedStats(run, stepFilter)
       const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
-      if (mgas !== undefined) {
-        minMgas = Math.min(minMgas, mgas)
-        maxMgas = Math.max(maxMgas, mgas)
-      }
+      if (mgas !== undefined) mgasValues.push(mgas)
     }
-    if (minMgas === Infinity) minMgas = 0
-    if (maxMgas === -Infinity) maxMgas = 0
 
-    return { displayRuns, minMgas, maxMgas }
+    return { displayRuns, scale: createColorScale(mgasValues, true) }
   }, [runs, stepFilter])
 
   if (displayRuns.length <= 1) return null
@@ -96,8 +80,8 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
             const completed = isRunCompleted(run)
             const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
             const color = completed && mgas !== undefined
-              ? getColorByNormalizedValue(mgas, minMgas, maxMgas, true)
-              : completed ? COLORS[2] : '#6b7280'
+              ? scale.color(mgas)
+              : completed ? NEUTRAL_COLOR : '#6b7280'
             const isCurrent = run.run_id === currentRunId
 
             return (
@@ -142,13 +126,14 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
         <span className="hidden shrink-0 text-xs/5 text-gray-400 sm:inline dark:text-gray-500">Older</span>
       </div>
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1 sm:border-l sm:border-gray-200 sm:pl-3 sm:dark:border-gray-700">
-          <span className="flex gap-0.5">
-            {COLORS.map((color, i) => (
-              <span key={i} className="size-3 rounded-xs" style={{ backgroundColor: color }} />
-            ))}
-          </span>
-          <span className="ml-1 text-xs/5 text-gray-400 dark:text-gray-500">MGas/s</span>
+        <div className="flex items-center gap-1 text-xs/5 text-gray-400 sm:border-l sm:border-gray-200 sm:pl-3 dark:text-gray-500 sm:dark:border-gray-700">
+          <ColorScaleLegend
+            colors={COLORS}
+            endLabel="MGas/s"
+            title="MGas/s buckets"
+            stepRange={(step) => formatMgasStepRange(scale, step)}
+            note="Each run is measured against the best recent run of this client. A set that spreads wider than 15% gets a wider scale."
+          />
         </div>
         <div className="flex items-center gap-1 border-l border-gray-200 pl-3 dark:border-gray-700">
           <span className="size-3 rounded-xs bg-blue-500 ring-2 ring-blue-500" />

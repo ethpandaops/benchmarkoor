@@ -45,6 +45,7 @@ import { useIndex, useLiveRuns } from '@/api/hooks/useIndex'
 import { LiveRunDetailView } from '@/components/run-detail/LiveRunDetailView'
 import { type IndexStepType, ALL_INDEX_STEP_TYPES } from '@/api/types'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
+import { selectClientPeerRuns } from '@/utils/clientPeerRuns'
 import { BlockLogsDashboard } from '@/components/run-detail/block-logs-dashboard'
 import { useBlockLogs } from '@/api/hooks/useBlockLogs'
 import { Flame, Download, SquareStack, GitCompareArrows, Trash2 } from 'lucide-react'
@@ -235,23 +236,10 @@ export function RunDetailPage() {
   const pendingDeletion = indexEntry ? isPendingDeletion(indexEntry) : false
 
   // Compute clientRuns and recentRuns before early returns to satisfy hooks rules.
-  const clientRuns = useMemo(() => {
-    if (!index || !config) return []
-    const myLabels = config.metadata?.labels ?? {}
-    const myLabelKeys = Object.keys(myLabels)
-    return index.entries.filter((r) => {
-      if (r.suite_hash !== config.suite_hash) return false
-      if (r.instance.client !== config.instance.client) return false
-      // Same labels: same set of keys, same values for each key.
-      const otherLabels = r.metadata ?? {}
-      const otherKeys = Object.keys(otherLabels)
-      if (otherKeys.length !== myLabelKeys.length) return false
-      for (const k of myLabelKeys) {
-        if (otherLabels[k] !== myLabels[k]) return false
-      }
-      return true
-    })
-  }, [index, config])
+  const clientRuns = useMemo(
+    () => selectClientPeerRuns(index?.entries ?? [], config?.suite_hash, config?.instance.client, config?.metadata?.labels),
+    [index, config],
+  )
 
   const recentRuns = useMemo(() => {
     const sorted = [...clientRuns].sort((a, b) => b.timestamp - a.timestamp)

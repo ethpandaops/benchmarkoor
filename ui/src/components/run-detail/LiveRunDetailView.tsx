@@ -17,6 +17,7 @@ import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
 import { MetadataLabels } from '@/components/run-detail/MetadataLabels'
 import { GitHubSection } from '@/components/run-detail/GitHubSection'
 import { ClientRunsStrip } from '@/components/run-detail/ClientRunsStrip'
+import { selectClientPeerRuns } from '@/utils/clientPeerRuns'
 import { TestHeatmap, type SortMode, type GroupMode, type ColorMode } from '@/components/run-detail/TestHeatmap'
 import { LiveRunLogPanel } from '@/components/run-detail/LiveRunLogPanel'
 import { useSuite } from '@/api/hooks/useSuite'
@@ -67,12 +68,10 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
   const mgasPerSec =
     totalGasUsedDurationNs > 0 ? (totalGasUsed * 1000) / totalGasUsedDurationNs : undefined
 
-  const clientRuns = useMemo(() => {
-    if (!index || !run.suite_hash || !clientName) return []
-    return index.entries.filter(
-      (r) => r.suite_hash === run.suite_hash && r.instance.client === clientName,
-    )
-  }, [index, run.suite_hash, clientName])
+  const clientRuns = useMemo(
+    () => selectClientPeerRuns(index?.entries ?? [], run.suite_hash, clientName, run.metadata),
+    [index, run.suite_hash, clientName, run.metadata],
+  )
 
   // Per-test gas data for the live Performance Heatmap. Comes from the
   // same snapshot payload that drives the rest of this view, so heatmap

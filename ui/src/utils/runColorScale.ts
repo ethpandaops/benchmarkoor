@@ -86,3 +86,35 @@ export function formatShortfall(fraction: number): string {
   const percent = fraction * 100
   return `${percent < 10 ? percent.toFixed(1) : percent.toFixed(0)}%`
 }
+
+/**
+ * Name the shortfall band of one legend step, e.g. "within 3% of best",
+ * "3% – 6% off" or "over 12% off".
+ */
+export function formatShortfallBand(step: number, stepWidth: number): string {
+  const from = step * stepWidth
+  const to = (step + 1) * stepWidth
+  if (step === 0) return `within ${formatShortfall(to)} of best`
+  if (step === LEVELS - 1) return `over ${formatShortfall(from)} off`
+
+  return `${formatShortfall(from)} – ${formatShortfall(to)} off`
+}
+
+/**
+ * Name one legend step of an MGas/s scale with the throughput it covers,
+ * e.g. "≥ 631.2 MGas/s · within 3% of best". A scale without data only
+ * names the band.
+ */
+export function formatMgasStepRange(scale: ColorScale, step: number): string {
+  const band = formatShortfallBand(step, scale.hasData ? scale.step : MIN_DROP / LEVELS)
+  if (!scale.hasData) return band
+
+  const { top } = scale
+  const from = step * scale.step
+  const to = (step + 1) * scale.step
+  const fmt = (value: number) => value.toFixed(1)
+  if (step === 0) return `≥ ${fmt(top * (1 - to))} MGas/s · ${band}`
+  if (step === LEVELS - 1) return `< ${fmt(Math.max(0, top * (1 - from)))} MGas/s · ${band}`
+
+  return `${fmt(Math.max(0, top * (1 - to)))} – ${fmt(top * (1 - from))} MGas/s · ${band}`
+}
