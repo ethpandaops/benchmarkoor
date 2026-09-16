@@ -4,9 +4,38 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
+
+func withSMTSiblings(basePath string, cpus []int) ([]int, error) {
+	all := make(map[int]struct{}, len(cpus))
+	for _, cpu := range cpus {
+		all[cpu] = struct{}{}
+		path := filepath.Join(basePath, fmt.Sprintf("cpu%d", cpu), "topology", "thread_siblings_list")
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		siblings, err := parseCPURange(strings.TrimSpace(string(data)))
+		if err != nil {
+			return nil, err
+		}
+		for _, sibling := range siblings {
+			all[sibling] = struct{}{}
+		}
+	}
+	result := make([]int, 0, len(all))
+	for cpu := range all {
+		result = append(result, cpu)
+	}
+	slices.Sort(result)
+	return result, nil
+}
 
 const (
 	// DefaultSysfsCPUPath is the default sysfs path for CPU frequency control.

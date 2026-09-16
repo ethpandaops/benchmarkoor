@@ -130,6 +130,11 @@ func (m *manager) Apply(ctx context.Context, cfg *Config, cpus []int) error {
 		}
 	}
 
+	var err error
+	cpus, err = withSMTSiblings(m.sysfsBasePath, cpus)
+	if err != nil {
+		return fmt.Errorf("resolving SMT siblings: %w", err)
+	}
 	m.log.WithField("cpus", cpus).Debug("Applying CPU frequency settings")
 
 	// Capture original settings for any CPU we have not seen before, so a later
