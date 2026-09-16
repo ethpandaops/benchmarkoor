@@ -549,6 +549,7 @@ func (idx *indexer) indexTestStats(
 				TestName:     testName,
 				RunID:        runID,
 				Client:       dur.Client,
+				Baseline:     indexstore.IsBaselineTest(testName),
 				TotalGasUsed: dur.GasUsed,
 				TotalTimeNs:  dur.Time,
 				TotalMGasS:   indexstore.ComputeMGasS(dur.GasUsed, dur.Time),

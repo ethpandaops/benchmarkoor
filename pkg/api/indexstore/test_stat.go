@@ -1,5 +1,7 @@
 package indexstore
 
+import "strings"
+
 // TestStat represents a single per-test timing entry for suite stats.
 type TestStat struct {
 	ID        uint   `gorm:"primaryKey"`
@@ -9,6 +11,10 @@ type TestStat struct {
 	Client    string
 	RunStart  int64 `gorm:"index:idx_ts_suite_run_start;index:idx_ts_suite_start_ttime"`
 	RunEnd    int64
+
+	// Baseline marks calibration variants (see IsBaselineTest). Stamped by the
+	// indexer; rows from before the column existed are backfilled on Start.
+	Baseline bool
 
 	// Total (sum of all steps).
 	TotalGasUsed uint64
@@ -40,6 +46,16 @@ type TestStat struct {
 	TestResourceDiskWriteB   uint64  `gorm:"column:test_resource_disk_write_bytes"`
 	TestResourceDiskReadOps  uint64  `gorm:"column:test_resource_disk_read_iops"`
 	TestResourceDiskWriteOps uint64  `gorm:"column:test_resource_disk_write_iops"`
+}
+
+// IsBaselineTest reports whether an EEST test name is an overhead-baseline
+// calibration variant: the test's keccak-overhead loop without the real
+// workload (~7 Mgas against 200M+ gas targets), present only so the
+// workload's cost can be isolated by subtraction. These execute and are
+// stored like any test, but stats endpoints exclude them by default —
+// including them skews every aggregate low.
+func IsBaselineTest(name string) bool {
+	return strings.Contains(strings.ToLower(name), "overhead_baseline_true")
 }
 
 // ComputeMGasS calculates megagas per second from gas used and time in

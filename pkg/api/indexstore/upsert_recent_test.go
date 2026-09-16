@@ -129,7 +129,7 @@ func TestListRecentCountsInconsistentRunStartAsOneRun(t *testing.T) {
 		stat(suite, "run-B", "t1", "geth", 200),
 	}))
 
-	got, err := s.ListTestStatsBySuiteRecent(ctx, suite, 2)
+	got, err := s.ListTestStatsBySuiteRecent(ctx, suite, 2, false)
 	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{"run-A", "run-B"}, distinctRunIDs(got),
@@ -147,7 +147,7 @@ func TestListRecentRespectsPerClientCap(t *testing.T) {
 		stat(suite, "run-C", "t1", "geth", 100),
 	}))
 
-	got, err := s.ListTestStatsBySuiteRecent(ctx, suite, 2)
+	got, err := s.ListTestStatsBySuiteRecent(ctx, suite, 2, false)
 	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{"run-A", "run-B"}, distinctRunIDs(got),

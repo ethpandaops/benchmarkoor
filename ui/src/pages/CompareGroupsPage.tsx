@@ -7,6 +7,7 @@ import { fetchData } from '@/api/client'
 import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
 import { useIndex } from '@/api/hooks/useIndex'
 import { useSuite } from '@/api/hooks/useSuite'
+import { fetchRunResult } from '@/api/hooks/useRunResult'
 import { LoadingState } from '@/components/shared/Spinner'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { FacetPanel } from '@/components/shared/FacetPanel'
@@ -164,10 +165,7 @@ export function CompareGroupsPage() {
   const resultQueries = useQueries({
     queries: allRunIds.map((runId) => ({
       queryKey: ['run', runId, 'result'],
-      queryFn: async () => {
-        const { data } = await fetchData<RunResult>(`runs/${runId}/result.json`)
-        return data ?? null
-      },
+      queryFn: () => fetchRunResult(runId),
       enabled: !!runId,
     })),
   })
