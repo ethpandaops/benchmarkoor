@@ -75,17 +75,20 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
 
   const sorted = useMemo(() => [...runs].sort((a, b) => b.timestamp - a.timestamp), [runs])
 
-  // The arrows move the page. The page is tied to the run it was set
-  // for, so a new current run starts over: the page then begins at the
-  // newest run, or slides down so the current run is the oldest one on
-  // the strip.
-  const [page, setPage] = useState<{ runId: string; start: number } | null>(null)
-  const setPageStart = (start: number) => setPage({ runId: currentRunId, start })
+  // The arrows move the page. The page is anchored to the run at its
+  // newest end, not to an index, so a page holds still when the live
+  // view adds newer runs. The page is also tied to the current run, so
+  // a new current run starts over: the page then begins at the newest
+  // run, or slides down so the current run is the oldest one on the
+  // strip.
+  const [page, setPage] = useState<{ runId: string; anchorId: string } | null>(null)
+  const setPageStart = (start: number) => setPage({ runId: currentRunId, anchorId: sorted[start].run_id })
 
   const maxStart = Math.max(0, sorted.length - fitCount)
   const currentIndex = sorted.findIndex((run) => run.run_id === currentRunId)
   const autoStart = Math.max(0, currentIndex - fitCount + 1)
-  const start = Math.min(page?.runId === currentRunId ? page.start : autoStart, maxStart)
+  const anchorIndex = page?.runId === currentRunId ? sorted.findIndex((run) => run.run_id === page.anchorId) : -1
+  const start = Math.min(anchorIndex >= 0 ? anchorIndex : autoStart, maxStart)
 
   // Same scale as the suite page's per-client heatmap: a run's colour
   // says how far it sits below the best of the strip, so a strip of
