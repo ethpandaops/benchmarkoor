@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 import { type IndexEntry, type IndexStepType, getIndexAggregatedStats } from '@/api/types'
 import { formatTimestamp } from '@/utils/date'
@@ -23,7 +24,10 @@ function isRunCompleted(run: IndexEntry): boolean {
   return !run.status || run.status === 'completed'
 }
 
-const MAX_RUNS = 34
+// Swatch width and the gap between two swatches, in px. Together they say
+// how many runs fit on one row of the strip: size-5 and gap-1 below.
+const SWATCH_PX = 20
+const GAP_PX = 4
 
 interface TooltipData {
   run: IndexEntry
@@ -50,12 +54,43 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
   const navigate = useNavigate()
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
 
+  // The strip never wraps: it shows one page of runs, as many as fit on
+  // one row, so the legend stays on the same line at every width.
+  const stripRef = useRef<HTMLDivElement>(null)
+  const [fitCount, setFitCount] = useState(1)
+
+  useLayoutEffect(() => {
+    const strip = stripRef.current
+    if (!strip) return
+    const measure = () => {
+      const count = Math.floor((strip.clientWidth + GAP_PX) / (SWATCH_PX + GAP_PX))
+      setFitCount(Math.max(1, count))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(strip)
+    return () => observer.disconnect()
+  }, [])
+
+  const sorted = useMemo(() => [...runs].sort((a, b) => b.timestamp - a.timestamp), [runs])
+
+  // The arrows move the page. The page is tied to the run it was set
+  // for, so a new current run starts over: the page then begins at the
+  // newest run, or slides down so the current run is the oldest one on
+  // the strip.
+  const [page, setPage] = useState<{ runId: string; start: number } | null>(null)
+  const setPageStart = (start: number) => setPage({ runId: currentRunId, start })
+
+  const maxStart = Math.max(0, sorted.length - fitCount)
+  const currentIndex = sorted.findIndex((run) => run.run_id === currentRunId)
+  const autoStart = Math.max(0, currentIndex - fitCount + 1)
+  const start = Math.min(page?.runId === currentRunId ? page.start : autoStart, maxStart)
+
   // Same scale as the suite page's per-client heatmap: a run's colour
   // says how far it sits below the best of the strip, so a strip of
   // near-identical runs stays green instead of spanning the rainbow.
   const { displayRuns, scale } = useMemo(() => {
-    const sorted = [...runs].sort((a, b) => b.timestamp - a.timestamp)
-    const displayRuns = sorted.slice(0, MAX_RUNS)
+    const displayRuns = sorted.slice(start, start + fitCount)
 
     const mgasValues: number[] = []
     for (const run of displayRuns) {
@@ -66,15 +101,25 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
     }
 
     return { displayRuns, scale: createColorScale(mgasValues, true) }
-  }, [runs, stepFilter])
+  }, [sorted, start, fitCount, stepFilter])
 
-  if (displayRuns.length <= 1) return null
+  if (runs.length <= 1) return null
+
+  const pageButtonClass = 'flex shrink-0 cursor-pointer items-center justify-center rounded-xs p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300'
 
   return (
-    <div className="relative flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xs bg-white px-4 py-3 shadow-xs dark:bg-gray-800">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="hidden shrink-0 text-xs/5 text-gray-400 sm:inline dark:text-gray-500">Recent</span>
-        <div className="flex flex-wrap gap-1">
+    <div className="relative flex items-center gap-3 rounded-xs bg-white px-4 py-3 shadow-xs dark:bg-gray-800">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setPageStart(Math.max(0, start - fitCount))}
+          disabled={start === 0}
+          className={pageButtonClass}
+          title="Newer runs"
+        >
+          <ChevronLeft className="size-4" />
+        </button>
+        <div ref={stripRef} className="flex min-w-0 flex-1 gap-1">
           {displayRuns.map((run) => {
             const stats = getIndexAggregatedStats(run, stepFilter)
             const completed = isRunCompleted(run)
@@ -123,10 +168,21 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
             )
           })}
         </div>
-        <span className="hidden shrink-0 text-xs/5 text-gray-400 sm:inline dark:text-gray-500">Older</span>
+        <button
+          type="button"
+          onClick={() => setPageStart(Math.min(maxStart, start + fitCount))}
+          disabled={start >= maxStart}
+          className={pageButtonClass}
+          title="Older runs"
+        >
+          <ChevronRight className="size-4" />
+        </button>
+        <span className="hidden shrink-0 text-xs/5 text-gray-400 tabular-nums sm:inline dark:text-gray-500">
+          {start + 1}–{start + displayRuns.length} of {sorted.length}
+        </span>
       </div>
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1 text-xs/5 text-gray-400 sm:border-l sm:border-gray-200 sm:pl-3 dark:text-gray-500 sm:dark:border-gray-700">
+      <div className="flex shrink-0 items-center gap-3">
+        <div className="flex items-center gap-1 border-l border-gray-200 pl-3 text-xs/5 text-gray-400 dark:border-gray-700 dark:text-gray-500">
           <ColorScaleLegend
             colors={COLORS}
             endLabel="MGas/s"
