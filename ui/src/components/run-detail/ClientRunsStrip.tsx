@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
@@ -56,11 +56,12 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
 
   // The strip never wraps: it shows one page of runs, as many as fit on
   // one row, so the legend stays on the same line at every width.
-  const stripRef = useRef<HTMLDivElement>(null)
+  // A callback ref attaches the observer to the strip node itself, so
+  // it also measures a strip that appears later, when the live view
+  // gets its first peer run.
   const [fitCount, setFitCount] = useState(1)
 
-  useLayoutEffect(() => {
-    const strip = stripRef.current
+  const stripRef = useCallback((strip: HTMLDivElement | null) => {
     if (!strip) return
     const measure = () => {
       const count = Math.floor((strip.clientWidth + GAP_PX) / (SWATCH_PX + GAP_PX))
