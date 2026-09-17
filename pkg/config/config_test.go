@@ -5071,6 +5071,55 @@ func TestEESTFixturesSource_UseFixturesURL(t *testing.T) {
 	}).validate())
 }
 
+func TestEESTFixturesSource_FixturesURLParts(t *testing.T) {
+	parts := []string{"https://x/f.tar.gz.part-000", "https://x/f.tar.gz.part-001"}
+
+	// The split form is the standalone URL mode too.
+	assert.True(t, (&EESTFixturesSource{FixturesURLParts: parts}).UseFixturesURL())
+	assert.False(t, (&EESTFixturesSource{FixturesURLParts: parts, GitHubRelease: "v1"}).UseFixturesURL())
+
+	tests := []struct {
+		name    string
+		src     *EESTFixturesSource
+		wantErr string
+	}{
+		{
+			name: "parts alone are valid",
+			src:  &EESTFixturesSource{FixturesURLParts: parts, FixturesSubdir: "sub"},
+		},
+		{
+			name:    "parts and fixtures_url are exclusive",
+			src:     &EESTFixturesSource{FixturesURL: "https://x/f.tar.gz", FixturesURLParts: parts},
+			wantErr: "mutually exclusive",
+		},
+		{
+			name: "parts have no release override form",
+			src: &EESTFixturesSource{
+				GitHubRepo: "o/r", GitHubRelease: "v1", FixturesURLParts: parts,
+			},
+			wantErr: "cannot be combined with github_release",
+		},
+		{
+			name:    "an empty part is rejected",
+			src:     &EESTFixturesSource{FixturesURLParts: []string{parts[0], " "}},
+			wantErr: "fixtures_url_parts[1] is empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.src.validate()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestDataDirShouldPromotePostPreRuns(t *testing.T) {
 	tests := []struct {
 		name string

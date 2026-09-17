@@ -885,11 +885,17 @@ type SourceConfig struct {
 // EESTFixturesSource defines an EEST fixtures source from GitHub releases, artifacts,
 // or local directories/tarballs.
 type EESTFixturesSource struct {
-	GitHubRepo     string `yaml:"github_repo,omitempty" mapstructure:"github_repo"`
-	GitHubRelease  string `yaml:"github_release,omitempty" mapstructure:"github_release"`
-	FixturesURL    string `yaml:"fixtures_url,omitempty" mapstructure:"fixtures_url"`
-	GenesisURL     string `yaml:"genesis_url,omitempty" mapstructure:"genesis_url"`
-	FixturesSubdir string `yaml:"fixtures_subdir,omitempty" mapstructure:"fixtures_subdir"`
+	GitHubRepo    string `yaml:"github_repo,omitempty" mapstructure:"github_repo"`
+	GitHubRelease string `yaml:"github_release,omitempty" mapstructure:"github_release"`
+	FixturesURL   string `yaml:"fixtures_url,omitempty" mapstructure:"fixtures_url"`
+	// FixturesURLParts is the split form of a standalone fixtures_url: the
+	// ordered .part-NNN URLs of one .tar.gz that exceeded a host's asset size
+	// cap (GitHub caps a release asset at 2 GB). The runner streams the parts
+	// back to back through a single gzip reader, so no host ever holds the
+	// reassembled tarball. Mutually exclusive with fixtures_url.
+	FixturesURLParts []string `yaml:"fixtures_url_parts,omitempty" mapstructure:"fixtures_url_parts"`
+	GenesisURL       string   `yaml:"genesis_url,omitempty" mapstructure:"genesis_url"`
+	FixturesSubdir   string   `yaml:"fixtures_subdir,omitempty" mapstructure:"fixtures_subdir"`
 	// GitHub Actions artifact support (alternative to releases).
 	FixturesArtifactName  string `yaml:"fixtures_artifact_name,omitempty" mapstructure:"fixtures_artifact_name"`
 	GenesisArtifactName   string `yaml:"genesis_artifact_name,omitempty" mapstructure:"genesis_artifact_name"`
@@ -960,12 +966,42 @@ func (e *EESTFixturesSource) UseLocalTarball() bool {
 	return e.LocalFixturesTarball != "" || e.LocalGenesisTarball != ""
 }
 
+// validateFixturesURLParts checks the split form of a standalone fixtures_url.
+// The parts are only ever streamed as one tarball, so they replace fixtures_url
+// rather than extend it, and a release-URL override (github_release set) has
+// no split form.
+func (e *EESTFixturesSource) validateFixturesURLParts() error {
+	if len(e.FixturesURLParts) == 0 {
+		return nil
+	}
+
+	if e.FixturesURL != "" {
+		return fmt.Errorf(
+			"eest_fixtures: fixtures_url and fixtures_url_parts are mutually exclusive",
+		)
+	}
+
+	if e.GitHubRelease != "" {
+		return fmt.Errorf(
+			"eest_fixtures: fixtures_url_parts cannot be combined with github_release",
+		)
+	}
+
+	for i, part := range e.FixturesURLParts {
+		if strings.TrimSpace(part) == "" {
+			return fmt.Errorf("eest_fixtures: fixtures_url_parts[%d] is empty", i)
+		}
+	}
+
+	return nil
+}
+
 // UseFixturesURL returns true when fixtures should be fetched from a standalone
-// URL — a release/plain .tar.gz download or a GitHub Actions artifact URL. When
-// github_release is also set, fixtures_url is instead a release-URL override, so
-// this is false and release mode handles it.
+// URL — a release/plain .tar.gz download, its fixtures_url_parts split, or a
+// GitHub Actions artifact URL. When github_release is also set, fixtures_url is
+// instead a release-URL override, so this is false and release mode handles it.
 func (e *EESTFixturesSource) UseFixturesURL() bool {
-	return e.FixturesURL != "" && e.GitHubRelease == ""
+	return (e.FixturesURL != "" || len(e.FixturesURLParts) > 0) && e.GitHubRelease == ""
 }
 
 // validate checks the EEST fixtures source configuration for errors.
@@ -1018,6 +1054,10 @@ func (e *EESTFixturesSource) validate() error {
 	// Validate remote modes require github_repo.
 	if (hasRelease || hasArtifacts) && e.GitHubRepo == "" {
 		return fmt.Errorf("eest_fixtures.github_repo is required for release/artifact modes")
+	}
+
+	if err := e.validateFixturesURLParts(); err != nil {
+		return err
 	}
 
 	// Validate local dir mode.

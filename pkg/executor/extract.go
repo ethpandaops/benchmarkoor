@@ -89,12 +89,24 @@ func extractTarGzFile(tarballPath, targetDir string) error {
 
 	defer func() { _ = f.Close() }()
 
-	gzr, err := gzip.NewReader(f)
+	return extractTarGz(f, targetDir)
+}
+
+// extractTarGz streams a gzip-compressed tar archive from r into targetDir.
+// It is the one extractor behind local tarballs, URL downloads and the
+// concatenated parts of a split download, so every path applies the same
+// traversal check.
+func extractTarGz(r io.Reader, targetDir string) error {
+	gzr, err := gzip.NewReader(r)
 	if err != nil {
 		return fmt.Errorf("creating gzip reader: %w", err)
 	}
 
 	defer func() { _ = gzr.Close() }()
+
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("creating target directory: %w", err)
+	}
 
 	tr := tar.NewReader(gzr)
 

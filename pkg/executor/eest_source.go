@@ -1,8 +1,6 @@
 package executor
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -290,11 +288,22 @@ func (s *EESTSource) downloadArtifacts(ctx context.Context, cacheBase string) er
 	return nil
 }
 
+// fixturesURLCacheKey identifies a standalone URL source for the cache: the
+// single fixtures_url, or every fixtures_url_parts entry in order so a
+// re-split of the same tarball lands in a fresh cache entry.
+func (s *EESTSource) fixturesURLCacheKey() string {
+	if len(s.cfg.FixturesURLParts) > 0 {
+		return strings.Join(s.cfg.FixturesURLParts, "\n")
+	}
+
+	return s.cfg.FixturesURL
+}
+
 // prepareFromURL downloads + extracts fixtures from a standalone URL: a
 // release/plain .tar.gz URL or a GitHub Actions artifact URL. No genesis is
 // fetched (stateful-engine fixtures boot from the snapshot datadir).
 func (s *EESTSource) prepareFromURL(ctx context.Context) (*PreparedSource, error) {
-	cacheBase := filepath.Join(s.cacheDir, "eest-url", hashRepoURL(s.cfg.FixturesURL))
+	cacheBase := filepath.Join(s.cacheDir, "eest-url", hashRepoURL(s.fixturesURLCacheKey()))
 	s.fixturesDir = filepath.Join(cacheBase, "fixtures")
 	s.genesisDir = filepath.Join(cacheBase, "genesis")
 
@@ -342,6 +351,18 @@ func (s *EESTSource) downloadFromURL(ctx context.Context) error {
 		// Build artifacts wrap the fixtures in an inner .tar.gz.
 		if err := s.extractInnerTarballs(ctx, s.fixturesDir); err != nil {
 			return fmt.Errorf("extracting inner tarballs: %w", err)
+		}
+
+		return nil
+	}
+
+	if parts := s.cfg.FixturesURLParts; len(parts) > 0 {
+		s.log.WithFields(logrus.Fields{
+			"first_part": parts[0], "parts": len(parts),
+		}).Info("Downloading split fixtures tarball from URL parts")
+
+		if err := s.downloadAndExtractTarballParts(ctx, parts, s.fixturesDir); err != nil {
+			return fmt.Errorf("downloading split fixtures tarball: %w", err)
 		}
 
 		return nil
@@ -625,82 +646,110 @@ func (s *EESTSource) extractLocalTarball(tarballPath, targetDir string) error {
 
 // downloadAndExtractTarball downloads a tarball and extracts it to the target directory.
 func (s *EESTSource) downloadAndExtractTarball(ctx context.Context, url, targetDir string) error {
+	body, err := openURL(ctx, url)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = body.Close() }()
+
+	return extractTarGz(body, targetDir)
+}
+
+// downloadAndExtractTarballParts streams the ordered .part-NNN URLs of one
+// split .tar.gz back to back through a single gzip reader and extracts the
+// result into targetDir. Each part is opened only when the previous one is
+// drained, so at most one HTTP body is live at a time.
+func (s *EESTSource) downloadAndExtractTarballParts(
+	ctx context.Context, urls []string, targetDir string,
+) error {
+	r := &urlPartsReader{ctx: ctx, log: s.log, urls: urls}
+
+	defer func() { _ = r.Close() }()
+
+	return extractTarGz(r, targetDir)
+}
+
+// urlPartsReader is an io.Reader over several HTTP GET bodies fetched strictly
+// in sequence: the next URL is opened only once the current body hits EOF, and
+// each body is closed as soon as it is drained.
+type urlPartsReader struct {
+	ctx  context.Context
+	log  logrus.FieldLogger
+	urls []string
+	next int
+	body io.ReadCloser
+}
+
+// Read fills p from the current part, moving on to the next URL at each EOF
+// and reporting io.EOF only after the last part is drained.
+func (r *urlPartsReader) Read(p []byte) (int, error) {
+	for {
+		if r.body == nil {
+			if r.next >= len(r.urls) {
+				return 0, io.EOF
+			}
+
+			body, err := openURL(r.ctx, r.urls[r.next])
+			if err != nil {
+				return 0, err
+			}
+
+			r.log.WithFields(logrus.Fields{
+				"part": r.next + 1, "parts": len(r.urls), "url": r.urls[r.next],
+			}).Debug("Streaming fixtures tarball part")
+
+			r.body = body
+			r.next++
+		}
+
+		n, err := r.body.Read(p)
+		if err != io.EOF {
+			return n, err
+		}
+
+		_ = r.body.Close()
+		r.body = nil
+
+		if n > 0 {
+			return n, nil
+		}
+	}
+}
+
+// Close releases the body still open after an early abort; a fully drained
+// stream has nothing left to close.
+func (r *urlPartsReader) Close() error {
+	if r.body == nil {
+		return nil
+	}
+
+	err := r.body.Close()
+	r.body = nil
+
+	return err
+}
+
+// openURL performs a GET and returns the body of a 200 response; any other
+// status is an error that names the URL so a missing part is easy to spot.
+func openURL(ctx context.Context, url string) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("downloading: %w", err)
+		return nil, fmt.Errorf("downloading %s: %w", url, err)
 	}
-
-	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		_ = resp.Body.Close()
+
+		return nil, fmt.Errorf("downloading %s: unexpected status code: %d", url, resp.StatusCode)
 	}
 
-	// Create gzip reader.
-	gzr, err := gzip.NewReader(resp.Body)
-	if err != nil {
-		return fmt.Errorf("creating gzip reader: %w", err)
-	}
-
-	defer func() { _ = gzr.Close() }()
-
-	// Create tar reader.
-	tr := tar.NewReader(gzr)
-
-	// Create target directory.
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		return fmt.Errorf("creating target directory: %w", err)
-	}
-
-	// Extract files.
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			return fmt.Errorf("reading tar: %w", err)
-		}
-
-		// Sanitize path to prevent directory traversal.
-		target := filepath.Join(targetDir, filepath.Clean(header.Name))
-		if !strings.HasPrefix(target, filepath.Clean(targetDir)+string(os.PathSeparator)) {
-			return fmt.Errorf("invalid tar entry: %s", header.Name)
-		}
-
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0755); err != nil {
-				return fmt.Errorf("creating directory: %w", err)
-			}
-		case tar.TypeReg:
-			// Ensure parent directory exists.
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return fmt.Errorf("creating parent directory: %w", err)
-			}
-
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
-			if err != nil {
-				return fmt.Errorf("creating file: %w", err)
-			}
-
-			if _, err := io.Copy(f, tr); err != nil {
-				_ = f.Close()
-
-				return fmt.Errorf("extracting file: %w", err)
-			}
-
-			_ = f.Close()
-		}
-	}
-
-	return nil
+	return resp.Body, nil
 }
 
 // statefulPreRunMissing reports whether a stateful fixture's absent pre_run
@@ -1106,6 +1155,7 @@ func (s *EESTSource) GetSourceInfo() (*SuiteSource, error) {
 			GitHubRepo:            s.cfg.GitHubRepo,
 			GitHubRelease:         s.cfg.GitHubRelease,
 			FixturesURL:           s.cfg.FixturesURL,
+			FixturesURLParts:      s.cfg.FixturesURLParts,
 			GenesisURL:            s.cfg.GenesisURL,
 			FixturesSubdir:        fixturesSubdir,
 			FixturesArtifactName:  s.cfg.FixturesArtifactName,
@@ -1305,11 +1355,12 @@ func (p *linesProvider) Content() []byte {
 
 // EESTSourceInfo contains EEST source information for the suite summary.
 type EESTSourceInfo struct {
-	GitHubRepo     string `json:"github_repo,omitempty"`
-	GitHubRelease  string `json:"github_release,omitempty"`
-	FixturesURL    string `json:"fixtures_url,omitempty"`
-	GenesisURL     string `json:"genesis_url,omitempty"`
-	FixturesSubdir string `json:"fixtures_subdir,omitempty"`
+	GitHubRepo       string   `json:"github_repo,omitempty"`
+	GitHubRelease    string   `json:"github_release,omitempty"`
+	FixturesURL      string   `json:"fixtures_url,omitempty"`
+	FixturesURLParts []string `json:"fixtures_url_parts,omitempty"`
+	GenesisURL       string   `json:"genesis_url,omitempty"`
+	FixturesSubdir   string   `json:"fixtures_subdir,omitempty"`
 	// Artifact fields (alternative to releases).
 	FixturesArtifactName  string `json:"fixtures_artifact_name,omitempty"`
 	GenesisArtifactName   string `json:"genesis_artifact_name,omitempty"`

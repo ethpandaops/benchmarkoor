@@ -463,9 +463,10 @@ tests:
 | `github_release` | string | Yes* | - | Release tag (e.g., `test-benchmark@v0.0.9`) |
 | `fixtures_subdir` | string | No | `fixtures/blockchain_tests_engine_x` | Subdirectory within the extracted fixtures to search |
 | `fixtures_url` | string | No | Auto-generated | **Standalone source** (when `github_release` is unset): a release/plain `.tar.gz` URL, **or** a GitHub Actions artifact URL (`github.com/<owner>/<repo>/actions/runs/<run>/artifacts/<id>` — needs `runner.github_token`; its inner `.tar.gz` is auto-extracted). No genesis is fetched. Combine with `fixtures_subdir`. When `github_release` is set, it instead overrides the release tarball URL. |
+| `fixtures_url_parts` | []string | No | - | Split form of a standalone `fixtures_url`: the ordered `.part-NNN` URLs of one `.tar.gz` that exceeded a host's asset cap (GitHub caps a release asset at 2 GB). The parts are streamed back to back through one gzip reader, so the reassembled tarball never touches disk. Mutually exclusive with `fixtures_url`; not valid with `github_release`. |
 | `genesis_url` | string | No | Auto-generated | Override URL for genesis tarball (release mode) |
 
-*One of `github_release`, `fixtures_url`, or `fixtures_artifact_name` is required.
+*One of `github_release`, `fixtures_url`, `fixtures_url_parts`, or `fixtures_artifact_name` is required.
 
 **Standalone URL example** (e.g. reusing a benchmarkoor build artifact):
 
@@ -476,6 +477,18 @@ tests:
       fixtures_url: https://github.com/ethpandaops/benchmarkoor/actions/runs/28947560261/artifacts/8170387928
       fixtures_subdir: benchmarkoor-build-artifacts/eest-payloads/geth/blockchain_tests_stateful_engine
 # runner.github_token (or BENCHMARKOOR_RUNNER_GITHUB_TOKEN) is required for artifact URLs.
+```
+
+**Split release asset example** (a `benchmarkoor-release` tarball over 2 GB ships as `.part-NNN` files; `manifest.json` lists them under `assets[].files`):
+
+```yaml
+tests:
+  source:
+    eest_fixtures:
+      fixtures_url_parts:
+        - https://github.com/ethpandaops/benchmarkoor-tests/releases/download/<tag>/eest-payloads-<snapshot>-<fork>-stateful-geth.tar.gz.part-000
+        - https://github.com/ethpandaops/benchmarkoor-tests/releases/download/<tag>/eest-payloads-<snapshot>-<fork>-stateful-geth.tar.gz.part-001
+      fixtures_subdir: benchmarkoor-build-artifacts/eest-payloads/geth/blockchain_tests_stateful_engine
 ```
 
 ###### Replaying a `builder.pre_runs` bundle
