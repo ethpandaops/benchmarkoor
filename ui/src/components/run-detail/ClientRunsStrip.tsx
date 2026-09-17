@@ -189,7 +189,7 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
             endLabel="MGas/s"
             title="MGas/s buckets"
             stepRange={(step) => formatMgasStepRange(scale, step)}
-            note="Each run is measured against the best recent run of this client. A set that spreads wider than 15% gets a wider scale."
+            note="Each run is measured against the best run on this page of the strip. A page that spreads wider than 15% gets a wider scale."
           />
         </div>
         <div className="flex items-center gap-1 border-l border-gray-200 pl-3 dark:border-gray-700">
