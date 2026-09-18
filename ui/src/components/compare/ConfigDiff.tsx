@@ -167,6 +167,12 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
                     label="CPU Pinning"
                     values={instances.map((i) => i.resource_limits?.cpuset_cpus ?? '')}
                   />
+                  {instances.some((i) => i.resource_limits?.cpuset_topology) && (
+                    <DiffRow
+                      label="CPU Pinning Topology"
+                      values={instances.map((i) => i.resource_limits?.cpuset_topology ?? '')}
+                    />
+                  )}
                   {runs.some((r) => r.config.system.cpu_topology && r.config.instance.resource_limits?.cpuset_cpus) && (
                     <DiffRow
                       label="CPU Layout"

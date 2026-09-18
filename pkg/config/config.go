@@ -18,6 +18,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
+	"github.com/ethpandaops/benchmarkoor/pkg/cputopology"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/mitchellh/mapstructure"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -1695,14 +1696,18 @@ type DumpConfig struct {
 
 // ResourceLimits configures container resource constraints.
 type ResourceLimits struct {
-	CpusetCount   *int         `yaml:"cpuset_count,omitempty" mapstructure:"cpuset_count" json:"cpuset_count,omitempty"`
-	Cpuset        []int        `yaml:"cpuset,omitempty" mapstructure:"cpuset" json:"cpuset,omitempty"`
-	Memory        string       `yaml:"memory,omitempty" mapstructure:"memory" json:"memory,omitempty"`
-	SwapDisabled  *bool        `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
-	BlkioConfig   *BlkioConfig `yaml:"blkio_config,omitempty" mapstructure:"blkio_config" json:"blkio_config,omitempty"`
-	CPUFreq       string       `yaml:"cpu_freq,omitempty" mapstructure:"cpu_freq" json:"cpu_freq,omitempty"`
-	CPUTurboBoost *bool        `yaml:"cpu_turboboost,omitempty" mapstructure:"cpu_turboboost" json:"cpu_turboboost,omitempty"`
-	CPUGovernor   string       `yaml:"cpu_freq_governor,omitempty" mapstructure:"cpu_freq_governor" json:"cpu_freq_governor,omitempty"`
+	CpusetCount *int  `yaml:"cpuset_count,omitempty" mapstructure:"cpuset_count" json:"cpuset_count,omitempty"`
+	Cpuset      []int `yaml:"cpuset,omitempty" mapstructure:"cpuset" json:"cpuset,omitempty"`
+	// CpusetTopology constrains the cpuset to physical cores: "any" (default),
+	// "full_cores" or "one_thread_per_core". It steers cpuset_count and checks
+	// an explicit cpuset. It needs the sysfs CPU topology (Linux).
+	CpusetTopology string       `yaml:"cpuset_topology,omitempty" mapstructure:"cpuset_topology" json:"cpuset_topology,omitempty"`
+	Memory         string       `yaml:"memory,omitempty" mapstructure:"memory" json:"memory,omitempty"`
+	SwapDisabled   *bool        `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
+	BlkioConfig    *BlkioConfig `yaml:"blkio_config,omitempty" mapstructure:"blkio_config" json:"blkio_config,omitempty"`
+	CPUFreq        string       `yaml:"cpu_freq,omitempty" mapstructure:"cpu_freq" json:"cpu_freq,omitempty"`
+	CPUTurboBoost  *bool        `yaml:"cpu_turboboost,omitempty" mapstructure:"cpu_turboboost" json:"cpu_turboboost,omitempty"`
+	CPUGovernor    string       `yaml:"cpu_freq_governor,omitempty" mapstructure:"cpu_freq_governor" json:"cpu_freq_governor,omitempty"`
 }
 
 // Merge returns a copy of r with the set fields of override on top of it.
@@ -1725,6 +1730,10 @@ func (r *ResourceLimits) Merge(override *ResourceLimits) *ResourceLimits {
 	if override.CpusetCount != nil || len(override.Cpuset) > 0 {
 		merged.CpusetCount = override.CpusetCount
 		merged.Cpuset = slices.Clone(override.Cpuset)
+	}
+
+	if override.CpusetTopology != "" {
+		merged.CpusetTopology = override.CpusetTopology
 	}
 
 	if override.Memory != "" {
@@ -1817,6 +1826,16 @@ func (r *ResourceLimits) Validate(prefix string) error {
 	// Check mutual exclusivity of cpuset_count and cpuset.
 	if r.CpusetCount != nil && len(r.Cpuset) > 0 {
 		return fmt.Errorf("%s: cpuset_count and cpuset are mutually exclusive", prefix)
+	}
+
+	// Validate cpuset_topology. The host topology is checked at run start.
+	mode, err := cputopology.ParseMode(r.CpusetTopology)
+	if err != nil {
+		return fmt.Errorf("%s: %w", prefix, err)
+	}
+
+	if mode != cputopology.ModeAny && r.CpusetCount == nil && len(r.Cpuset) == 0 {
+		return fmt.Errorf("%s: cpuset_topology requires cpuset_count or cpuset", prefix)
 	}
 
 	// Get available CPU count.

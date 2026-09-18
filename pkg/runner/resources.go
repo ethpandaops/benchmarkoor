@@ -9,13 +9,23 @@ import (
 	"github.com/docker/go-units"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
+	"github.com/ethpandaops/benchmarkoor/pkg/cputopology"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/sirupsen/logrus"
 )
 
-// selectRandomCPUs picks count random CPUs from available CPUs using Fisher-Yates shuffle.
-func selectRandomCPUs(count int) ([]int, error) {
+// selectCPUs picks count random CPUs that satisfy mode. Without a host
+// topology only ModeAny works, and the CPUs are picked from 0..N-1.
+func selectCPUs(count int, mode cputopology.Mode, topology []cputopology.CPU) ([]int, error) {
+	if len(topology) > 0 {
+		return cputopology.Select(topology, count, mode)
+	}
+
+	if mode != cputopology.ModeAny {
+		return nil, fmt.Errorf("cpuset_topology %q needs the sysfs CPU topology, which this host does not expose", mode)
+	}
+
 	numCPUs, err := cpu.Counts(true)
 	if err != nil {
 		return nil, fmt.Errorf("getting CPU count: %w", err)
@@ -55,7 +65,11 @@ func cpusetString(cpus []int) string {
 }
 
 // buildContainerResourceLimits builds docker.ResourceLimits from config.ResourceLimits.
-func buildContainerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceLimits, *ResolvedResourceLimits, error) {
+// topology is the host CPU topology, or empty when the host does not expose one.
+func buildContainerResourceLimits(
+	cfg *config.ResourceLimits,
+	topology []cputopology.CPU,
+) (*docker.ResourceLimits, *ResolvedResourceLimits, error) {
 	if cfg == nil {
 		return nil, nil, nil
 	}
@@ -64,8 +78,17 @@ func buildContainerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceL
 	resolved := &ResolvedResourceLimits{}
 
 	// Handle CPU pinning.
+	mode, err := cputopology.ParseMode(cfg.CpusetTopology)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if mode != cputopology.ModeAny {
+		resolved.CpusetTopology = string(mode)
+	}
+
 	if cfg.CpusetCount != nil {
-		cpus, err := selectRandomCPUs(*cfg.CpusetCount)
+		cpus, err := selectCPUs(*cfg.CpusetCount, mode, topology)
 		if err != nil {
 			return nil, nil, fmt.Errorf("selecting random CPUs: %w", err)
 		}
@@ -73,6 +96,17 @@ func buildContainerResourceLimits(cfg *config.ResourceLimits) (*docker.ResourceL
 		containerLimits.CpusetCpus = cpusetString(cpus)
 		resolved.CpusetCpus = containerLimits.CpusetCpus
 	} else if len(cfg.Cpuset) > 0 {
+		if mode != cputopology.ModeAny {
+			if len(topology) == 0 {
+				return nil, nil, fmt.Errorf(
+					"cpuset_topology %q needs the sysfs CPU topology, which this host does not expose", mode)
+			}
+
+			if err := cputopology.Check(topology, cfg.Cpuset, mode); err != nil {
+				return nil, nil, fmt.Errorf("checking cpuset: %w", err)
+			}
+		}
+
 		containerLimits.CpusetCpus = cpusetString(cfg.Cpuset)
 		resolved.CpusetCpus = containerLimits.CpusetCpus
 	}

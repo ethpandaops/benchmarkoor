@@ -250,6 +250,8 @@ client:
 
 The `cpuset_count` option uses Fisher-Yates shuffle to randomly select CPUs, providing variation between runs while maintaining consistent CPU count.
 
+On an SMT host, add `cpuset_topology: full_cores` or `cpuset_topology: one_thread_per_core` to control how the selected threads map to physical cores. See [CPU Pinning Topology](configuration.md#cpu-pinning-topology).
+
 ### Memory Limits
 
 ```yaml

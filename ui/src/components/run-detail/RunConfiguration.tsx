@@ -597,6 +597,9 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
                         value={instance.resource_limits.cpuset_cpus.split(',').length}
                       />
                       <InfoItem label="CPU Pinning" value={instance.resource_limits.cpuset_cpus} />
+                      {instance.resource_limits.cpuset_topology && (
+                        <InfoItem label="CPU Pinning Topology" value={instance.resource_limits.cpuset_topology} />
+                      )}
                     </>
                   )}
                   {instance.resource_limits.memory && (

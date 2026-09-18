@@ -59,12 +59,13 @@ type markdownInstance struct {
 }
 
 type markdownResourceLimits struct {
-	CpusetCpus    string  `json:"cpuset_cpus,omitempty"`
-	Memory        string  `json:"memory,omitempty"`
-	MemoryBytes   int64   `json:"memory_bytes,omitempty"`
-	CPUFreqKHz    *uint64 `json:"cpu_freq_khz,omitempty"`
-	CPUTurboBoost *bool   `json:"cpu_turboboost,omitempty"`
-	CPUGovernor   string  `json:"cpu_freq_governor,omitempty"`
+	CpusetCpus     string  `json:"cpuset_cpus,omitempty"`
+	CpusetTopology string  `json:"cpuset_topology,omitempty"`
+	Memory         string  `json:"memory,omitempty"`
+	MemoryBytes    int64   `json:"memory_bytes,omitempty"`
+	CPUFreqKHz     *uint64 `json:"cpu_freq_khz,omitempty"`
+	CPUTurboBoost  *bool   `json:"cpu_turboboost,omitempty"`
+	CPUGovernor    string  `json:"cpu_freq_governor,omitempty"`
 }
 
 type markdownMetadata struct {
@@ -298,6 +299,10 @@ func writeResourceLimits(sb *strings.Builder, inst *markdownInstance, sys *markd
 
 	if rl.CpusetCpus != "" {
 		fmt.Fprintf(sb, "| CPU Set | %s |\n", rl.CpusetCpus)
+
+		if rl.CpusetTopology != "" {
+			fmt.Fprintf(sb, "| CPU Set Topology | %s |\n", rl.CpusetTopology)
+		}
 
 		if sys != nil {
 			// Ignore a malformed cpuset: the raw value is already in the table.

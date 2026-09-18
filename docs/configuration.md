@@ -1598,6 +1598,7 @@ resource_limits:
 |--------|------|-------------|
 | `cpuset_count` | int | Number of random CPUs to pin to (new selection each run) |
 | `cpuset` | []int | Specific CPU IDs to pin to |
+| `cpuset_topology` | string | How the cpuset maps to physical cores: `any` (default), `full_cores` or `one_thread_per_core`. See below |
 | `cpu_freq` | string | Fixed CPU frequency. Supports: `"2000MHz"`, `"2.4GHz"`, `"MAX"` (use system maximum) |
 | `cpu_turboboost` | bool | Enable (`true`) or disable (`false`) turbo boost. Omit to leave unchanged |
 | `cpu_freq_governor` | string | CPU frequency governor. Common values: `performance`, `powersave`, `schedutil`. Defaults to `performance` when `cpu_freq` is set |
@@ -1606,6 +1607,24 @@ resource_limits:
 | `blkio_config` | object | Block I/O throttling configuration (see below) |
 
 **Note:** `cpuset_count` and `cpuset` are mutually exclusive. Use one or the other.
+
+#### CPU Pinning Topology
+
+A CPU ID is a hardware thread. On a host with SMT, two thread IDs share one physical core. `cpuset_count: 6` can pick one thread on each of 6 cores, or both threads on 3 cores. The two layouts do not perform the same. Set `cpuset_topology` to control this:
+
+| Value | With `cpuset_count` | With `cpuset` |
+|-------|---------------------|---------------|
+| `any` (default) | Picks any random threads | No check |
+| `full_cores` | Picks random physical cores and uses all their threads. Fails when the count cannot be filled with whole cores | Fails when a core is only partly in the list |
+| `one_thread_per_core` | Picks random physical cores and uses the lowest thread ID of each | Fails when two IDs share a core |
+
+```yaml
+resource_limits:
+  cpuset_count: 6
+  cpuset_topology: full_cores   # 3 cores x 2 threads on an SMT host
+```
+
+The topology comes from sysfs (`/sys/devices/system/cpu/*/topology`), so `full_cores` and `one_thread_per_core` only work on Linux. The run's `config.json` records the host topology in `system.cpu_topology`, and the UI draws the pinned threads per physical core in the Configuration section.
 
 ### Block I/O Configuration
 

@@ -146,14 +146,15 @@ type SystemInfo struct {
 
 // ResolvedResourceLimits contains the resolved resource limits for config.json output.
 type ResolvedResourceLimits struct {
-	CpusetCpus    string               `json:"cpuset_cpus,omitempty"`
-	Memory        string               `json:"memory,omitempty"`
-	MemoryBytes   int64                `json:"memory_bytes,omitempty"`
-	SwapDisabled  bool                 `json:"swap_disabled,omitempty"`
-	BlkioConfig   *ResolvedBlkioConfig `json:"blkio_config,omitempty"`
-	CPUFreqKHz    *uint64              `json:"cpu_freq_khz,omitempty"`
-	CPUTurboBoost *bool                `json:"cpu_turboboost,omitempty"`
-	CPUGovernor   string               `json:"cpu_freq_governor,omitempty"`
+	CpusetCpus     string               `json:"cpuset_cpus,omitempty"`
+	CpusetTopology string               `json:"cpuset_topology,omitempty"`
+	Memory         string               `json:"memory,omitempty"`
+	MemoryBytes    int64                `json:"memory_bytes,omitempty"`
+	SwapDisabled   bool                 `json:"swap_disabled,omitempty"`
+	BlkioConfig    *ResolvedBlkioConfig `json:"blkio_config,omitempty"`
+	CPUFreqKHz     *uint64              `json:"cpu_freq_khz,omitempty"`
+	CPUTurboBoost  *bool                `json:"cpu_turboboost,omitempty"`
+	CPUGovernor    string               `json:"cpu_freq_governor,omitempty"`
 }
 
 // ResolvedBlkioConfig contains the resolved blkio configuration for config.json output.

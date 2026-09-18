@@ -623,6 +623,11 @@ runner:
       #   #   cpuset_count: N    - Pick N random CPUs (new random selection each run)
       #   #   cpuset: [0, 1, 2]  - Pin to specific CPUs
       #   cpuset_count: 4
+      #   # How the CPUs map to physical cores on an SMT host (Linux only):
+      #   #   any                 - No constraint (default)
+      #   #   full_cores          - Whole physical cores with all their threads
+      #   #   one_thread_per_core - One thread on each physical core
+      #   cpuset_topology: full_cores
       #   # Memory limit (supports units: b, k, m, g, e.g., "16g", "4096m")
       #   memory: "16g"
       #   # Disable swap for the container (sets memory-swap equal to memory and swappiness to 0)

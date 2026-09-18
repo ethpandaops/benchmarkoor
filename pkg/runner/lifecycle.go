@@ -585,7 +585,7 @@ func (r *runner) runContainerLifecycle(
 			var err error
 
 			containerResourceLimits, resolvedResourceLimits, err =
-				buildContainerResourceLimits(resourceLimitsCfg)
+				buildContainerResourceLimits(resourceLimitsCfg, systemInfo.CPUTopology)
 			if err != nil {
 				return fmt.Errorf("building resource limits: %w", err)
 			}
@@ -594,6 +594,10 @@ func (r *runner) runContainerLifecycle(
 				"cpuset_cpus":   resolvedResourceLimits.CpusetCpus,
 				"memory":        resolvedResourceLimits.Memory,
 				"swap_disabled": resolvedResourceLimits.SwapDisabled,
+			}
+
+			if resolvedResourceLimits.CpusetTopology != "" {
+				fields["cpuset_topology"] = resolvedResourceLimits.CpusetTopology
 			}
 
 			if resolvedResourceLimits.BlkioConfig != nil {

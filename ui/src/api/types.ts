@@ -295,6 +295,7 @@ export interface BlkioConfig {
 
 export interface ResourceLimitsConfig {
   cpuset_cpus?: string
+  cpuset_topology?: 'full_cores' | 'one_thread_per_core'
   memory?: string
   memory_bytes?: number
   swap_disabled?: boolean

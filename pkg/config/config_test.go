@@ -5244,6 +5244,68 @@ func TestGetResourceLimits(t *testing.T) {
 
 		assert.Nil(t, cfg.GetResourceLimits(&ClientInstance{ID: "geth-1"}))
 	})
+
+	t.Run("instance cpuset_topology overrides the global one", func(t *testing.T) {
+		cfg := &Config{Runner: RunnerConfig{
+			Client: ClientConfig{Config: ClientDefaults{ResourceLimits: &ResourceLimits{
+				CpusetCount:    intCfg(4),
+				CpusetTopology: "full_cores",
+			}}},
+		}}
+
+		got := cfg.GetResourceLimits(&ClientInstance{
+			ID:             "geth-1",
+			ResourceLimits: &ResourceLimits{CpusetTopology: "one_thread_per_core"},
+		})
+
+		require.NotNil(t, got)
+		assert.Equal(t, intCfg(4), got.CpusetCount)
+		assert.Equal(t, "one_thread_per_core", got.CpusetTopology)
+
+		// An instance without the field keeps the global value.
+		got = cfg.GetResourceLimits(&ClientInstance{
+			ID:             "geth-2",
+			ResourceLimits: &ResourceLimits{Memory: "16g"},
+		})
+		assert.Equal(t, "full_cores", got.CpusetTopology)
+	})
+}
+
+func TestResourceLimitsValidateCpusetTopology(t *testing.T) {
+	tests := []struct {
+		name      string
+		limits    ResourceLimits
+		errSubstr string
+	}{
+		{name: "empty is any", limits: ResourceLimits{CpusetCount: intCfg(1)}},
+		{name: "any without cpuset", limits: ResourceLimits{CpusetTopology: "any"}},
+		{name: "full_cores with count", limits: ResourceLimits{CpusetCount: intCfg(1), CpusetTopology: "full_cores"}},
+		{name: "one_thread_per_core with cpuset", limits: ResourceLimits{Cpuset: []int{0}, CpusetTopology: "one_thread_per_core"}},
+		{
+			name:      "unknown mode",
+			limits:    ResourceLimits{CpusetCount: intCfg(1), CpusetTopology: "cores"},
+			errSubstr: "invalid cpuset_topology",
+		},
+		{
+			name:      "mode without a cpuset",
+			limits:    ResourceLimits{CpusetTopology: "full_cores"},
+			errSubstr: "cpuset_topology requires cpuset_count or cpuset",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.limits.Validate("resource_limits")
+			if tt.errSubstr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errSubstr)
+		})
+	}
 }
 
 func TestBlkioConfigMerge(t *testing.T) {
