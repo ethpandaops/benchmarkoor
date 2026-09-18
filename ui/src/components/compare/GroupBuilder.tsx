@@ -468,7 +468,7 @@ function RunBoxes({ runs, selectedRunIds, manual, onToggleRun, onSetRuns, onRese
   )
 
   return (
-    <div className="relative flex flex-wrap items-center gap-1">
+    <div className="relative flex flex-wrap items-center gap-0.5">
       <span className="mr-1 text-xs text-gray-500 dark:text-gray-400">Runs:</span>
       {runs.map((run) => {
         const inSample = selected.has(run.run_id)
@@ -492,7 +492,7 @@ function RunBoxes({ runs, selectedRunIds, manual, onToggleRun, onSetRuns, onRese
             }}
             onMouseLeave={() => setTooltip(null)}
             className={clsx(
-              'relative size-4 shrink-0 rounded-xs transition-all hover:scale-110 hover:opacity-100',
+              'relative size-3 shrink-0 rounded-xs transition-all hover:scale-150 hover:opacity-100',
               !inSample && 'opacity-30',
               live
                 ? 'ring-2 ring-inset ring-blue-500 dark:ring-blue-400'
@@ -514,17 +514,17 @@ function RunBoxes({ runs, selectedRunIds, manual, onToggleRun, onSetRuns, onRese
           >
             {live && (
               <span className="absolute inset-0 flex items-center justify-center">
-                <span className="size-1.5 animate-pulse rounded-full bg-white" />
+                <span className="size-1 animate-pulse rounded-full bg-white" />
               </span>
             )}
             {!live && completed && failedTests > 0 && (
-              <svg className="absolute inset-0 size-4" viewBox="0 0 16 16" fill="none">
-                <text x="8" y="12" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold" fontFamily="system-ui">!</text>
+              <svg className="absolute inset-0 size-3" viewBox="0 0 12 12" fill="none">
+                <text x="6" y="9.5" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold" fontFamily="system-ui">!</text>
               </svg>
             )}
             {!live && !completed && (
-              <svg className="absolute inset-0 size-4 text-red-600 dark:text-red-400" viewBox="0 0 16 16" fill="none">
-                <path d="M3 3l10 10M3 13L13 3" stroke="currentColor" strokeWidth="1.5" />
+              <svg className="absolute inset-0 size-3 text-red-600 dark:text-red-400" viewBox="0 0 12 12" fill="none">
+                <path d="M2.5 2.5l7 7M2.5 9.5l7-7" stroke="currentColor" strokeWidth="1.5" />
               </svg>
             )}
           </a>
