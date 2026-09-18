@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
-import { ChevronRight, SquareStack, GitCompareArrows, Layers, LayoutGrid, Clock, Trash2, Plus, X } from 'lucide-react'
+import { ChevronRight, LayoutGrid, Clock, Trash2, Plus, X } from 'lucide-react'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
@@ -12,6 +12,7 @@ import { DurationChart, type XAxisMode } from '@/components/suite-detail/Duratio
 import { MGasChart } from '@/components/suite-detail/MGasChart'
 import { ResourceCharts } from '@/components/suite-detail/ResourceCharts'
 import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/RunsHeatmap'
+import { CompareToolbar } from '@/components/suite-detail/CompareToolbar'
 import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { EESTMetadata } from '@/components/suite-detail/EESTMetadata'
@@ -578,6 +579,10 @@ export function SuiteDetailPage() {
     return result
   }, [completedRuns])
 
+  const latestCompareUrl = recentSuccessfulPerClient.length >= MIN_COMPARE_RUNS
+    ? `/compare?runs=${encodeURIComponent(recentSuccessfulPerClient.map((r) => r.run_id).join(','))}`
+    : undefined
+
   const images = useMemo(() => {
     const imageSet = new Set(suiteRunsAll.map((e) => e.instance.image))
     return Array.from(imageSet).sort()
@@ -1103,46 +1108,12 @@ export function SuiteDetailPage() {
                       <LayoutGrid className="size-4 text-gray-400 dark:text-gray-500" />
                       Recent Runs by Client
                     </button>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
-                        className={clsx(
-                          'flex cursor-pointer items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors',
-                          compareMode
-                            ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
-                            : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200',
-                        )}
-                        title="Compare"
-                      >
-                        <SquareStack className="size-3.5" />
-                      </button>
-                      {recentSuccessfulPerClient.length >= MIN_COMPARE_RUNS ? (
-                        <a
-                          href={`/compare?runs=${encodeURIComponent(recentSuccessfulPerClient.map((r) => r.run_id).join(','))}`}
-                          className="flex items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
-                          title="Compare latest successful run per client"
-                        >
-                          <GitCompareArrows className="size-3.5" />
-                        </a>
-                      ) : (
-                        <button
-                          disabled
-                          className="flex cursor-not-allowed items-center justify-center rounded-xs p-1 opacity-50 shadow-xs ring-1 ring-inset bg-white text-gray-500 ring-gray-300 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600"
-                          title="Compare latest successful run per client"
-                        >
-                          <GitCompareArrows className="size-3.5" />
-                        </button>
-                      )}
-                      {groupCompareUrl && (
-                        <a
-                          href={groupCompareUrl}
-                          className="flex items-center justify-center rounded-xs p-1 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
-                          title="Compare averaged groups (one group per client)"
-                        >
-                          <Layers className="size-3.5" />
-                        </a>
-                      )}
-                    </div>
+                    <CompareToolbar
+                      compareMode={compareMode}
+                      onToggleCompareMode={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
+                      latestCompareUrl={latestCompareUrl}
+                      groupCompareUrl={groupCompareUrl}
+                    />
                   </div>
                   {heatmapExpanded && (
                     <div className="border-t border-gray-200 p-3 sm:p-4 dark:border-gray-700">
@@ -1379,43 +1350,12 @@ export function SuiteDetailPage() {
                   <>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
-                          className={`flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors ${
-                            compareMode
-                              ? 'bg-blue-600 text-white ring-blue-600 hover:bg-blue-700 hover:ring-blue-700'
-                              : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200'
-                          }`}
-                          title="Compare"
-                        >
-                          <SquareStack className="size-4" />
-                        </button>
-                        {recentSuccessfulPerClient.length >= MIN_COMPARE_RUNS ? (
-                          <a
-                            href={`/compare?runs=${encodeURIComponent(recentSuccessfulPerClient.map((r) => r.run_id).join(','))}`}
-                            className="flex items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
-                            title="Compare latest successful run per client"
-                          >
-                            <GitCompareArrows className="size-4" />
-                          </a>
-                        ) : (
-                          <button
-                            disabled
-                            className="flex cursor-not-allowed items-center justify-center rounded-xs p-1.5 opacity-50 shadow-xs ring-1 ring-inset bg-white text-gray-500 ring-gray-300 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600"
-                            title="Compare latest successful run per client"
-                          >
-                            <GitCompareArrows className="size-4" />
-                          </button>
-                        )}
-                        {groupCompareUrl && (
-                          <a
-                            href={groupCompareUrl}
-                            className="flex items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
-                            title="Compare averaged groups (one group per client)"
-                          >
-                            <Layers className="size-4" />
-                          </a>
-                        )}
+                        <CompareToolbar
+                          compareMode={compareMode}
+                          onToggleCompareMode={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
+                          latestCompareUrl={latestCompareUrl}
+                          groupCompareUrl={groupCompareUrl}
+                        />
                         {isAdmin && (
                           <button
                             onClick={() => deleteMode ? handleExitDeleteMode() : handleEnterDeleteMode()}
