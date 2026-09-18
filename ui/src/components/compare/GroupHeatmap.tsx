@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { LayoutGrid } from 'lucide-react'
 import type { AggregatedStats, SuiteTest } from '@/api/types'
@@ -134,6 +134,9 @@ export function GroupHeatmap({
   onTestClick,
 }: GroupHeatmapProps) {
   const [sortMode, setSortMode] = useState<SortMode>('order')
+  // The slider fires on every tick and each tick recolours every tile.
+  // The controls follow the hand; the tiles follow this deferred copy.
+  const deferredThreshold = useDeferredValue(threshold)
   // The tooltip anchors to the hovered tile. Its own size is only known
   // once rendered, so it renders hidden and a layout effect measures it,
   // clamps it inside the viewport and shows it before the paint.
@@ -218,7 +221,7 @@ export function GroupHeatmap({
   }, [tests, perRow])
 
   const tileStyle = (test: HeatmapTest, gi: number) => {
-    const color = heatmapColor(test.values[gi], test.values[baselineIdx], colorMode, threshold)
+    const color = heatmapColor(test.values[gi], test.values[baselineIdx], colorMode, deferredThreshold)
     return color ? { backgroundColor: color } : NO_DATA_STYLE
   }
 
@@ -284,8 +287,18 @@ export function GroupHeatmap({
           </div>
         )}
         {colorMode === 'mgas' && (
+          // Same control as the run page: a slider to sweep the threshold
+          // and watch the tiles flip, a box for an exact value.
           <div className="flex items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
             <span>Threshold:</span>
+            <input
+              type="range"
+              min={MIN_THRESHOLD}
+              max={MAX_THRESHOLD}
+              value={threshold}
+              onChange={(e) => onThresholdChange(Number(e.target.value))}
+              className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+            />
             <input
               type="number"
               min={MIN_THRESHOLD}
@@ -295,6 +308,14 @@ export function GroupHeatmap({
               className="w-16 rounded-xs border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
             />
             <span>MGas/s</span>
+            {threshold !== DEFAULT_THRESHOLD && (
+              <button
+                onClick={() => onThresholdChange(DEFAULT_THRESHOLD)}
+                className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                reset
+              </button>
+            )}
           </div>
         )}
       </div>
