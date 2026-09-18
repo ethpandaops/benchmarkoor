@@ -16,6 +16,7 @@ import { type CompareRun, type ChartType, CHART_TYPE_OPTIONS } from '@/component
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
 import { GroupHeatmap } from '@/components/compare/GroupHeatmap'
 import { GroupRanking } from '@/components/compare/GroupRanking'
+import { computeMetrics } from '@/components/compare/compareMetrics'
 import { type HeatmapColorModel } from '@/components/compare/heatmapColor'
 import { DEFAULT_SLOW_MS, DEFAULT_THRESHOLD, MAX_SLOW_MS, MAX_THRESHOLD, MIN_SLOW_MS, MIN_THRESHOLD } from '@/utils/perfThreshold'
 import { CVComparisonChart } from '@/components/compare/CVComparisonChart'
@@ -307,7 +308,31 @@ export function CompareGroupsPage() {
   }, [index, suiteHash])
 
   // ─── Table/chart controls ─────────────────────────────────────
-  const baselineIdx = Math.min(Math.max(parseInt(search.baseline ?? '0', 10) || 0, 0), Math.max(syntheticRuns.length - 1, 0))
+  // Without a `baseline` param the slowest group is the baseline, by its
+  // overall MGas/s over every test, so the other groups read as gains
+  // against it. The page filter is left out so the default does not
+  // jump around while you filter.
+  const defaultBaselineIdx = useMemo(() => {
+    let slowest = 0
+    let slowestMgas = Infinity
+    syntheticRuns.forEach((run, i) => {
+      const mgas = computeMetrics(run.config, run.result, stepFilter).mgasPerSec
+      if (mgas !== undefined && mgas < slowestMgas) {
+        slowest = i
+        slowestMgas = mgas
+      }
+    })
+    return slowest
+  }, [syntheticRuns, stepFilter])
+  const baselineIdx = search.baseline !== undefined
+    ? Math.min(Math.max(parseInt(search.baseline, 10) || 0, 0), Math.max(syntheticRuns.length - 1, 0))
+    : defaultBaselineIdx
+  // The default is a computed value, so an explicit pick of it drops the
+  // param and keeps the URL clean; any other pick is written out.
+  const setBaselineIdx = useCallback(
+    (idx: number) => updateSearch({ baseline: idx === defaultBaselineIdx ? undefined : String(idx) }),
+    [updateSearch, defaultBaselineIdx],
+  )
   const tableBaseline: 'best' | 'worst' | number = search.tableBase === 'worst'
     ? 'worst'
     : search.tableBase !== undefined && search.tableBase !== 'best'
@@ -317,15 +342,15 @@ export function CompareGroupsPage() {
   // Heatmap colour model, shared with the test detail modal.
   const heatmapModel = useMemo<HeatmapColorModel>(() => ({
     metric: search.heatmapMetric === 'duration' ? 'duration' : 'mgas',
-    // 'mgas' is the value older links carry for the absolute mode.
-    mode: search.heatmapColor === 'absolute' || search.heatmapColor === 'mgas' ? 'absolute' : 'baseline',
+    // Absolute is the default; 'mgas' is the value older links carry for it.
+    mode: search.heatmapColor === 'baseline' ? 'baseline' : 'absolute',
     threshold: Math.max(MIN_THRESHOLD, Math.min(MAX_THRESHOLD, parseInt(search.heatmapThreshold ?? '', 10) || DEFAULT_THRESHOLD)),
     slowMs: Math.max(MIN_SLOW_MS, Math.min(MAX_SLOW_MS, parseInt(search.heatmapSlowMs ?? '', 10) || DEFAULT_SLOW_MS)),
   }), [search.heatmapMetric, search.heatmapColor, search.heatmapThreshold, search.heatmapSlowMs])
   const updateHeatmapModel = useCallback((patch: Partial<HeatmapColorModel>) => {
     const next: Record<string, string | undefined> = {}
     if (patch.metric !== undefined) next.heatmapMetric = patch.metric === 'mgas' ? undefined : patch.metric
-    if (patch.mode !== undefined) next.heatmapColor = patch.mode === 'baseline' ? undefined : patch.mode
+    if (patch.mode !== undefined) next.heatmapColor = patch.mode === 'absolute' ? undefined : patch.mode
     if (patch.threshold !== undefined) next.heatmapThreshold = patch.threshold === DEFAULT_THRESHOLD ? undefined : String(patch.threshold)
     if (patch.slowMs !== undefined) next.heatmapSlowMs = patch.slowMs === DEFAULT_SLOW_MS ? undefined : String(patch.slowMs)
     updateSearch(next)
@@ -764,7 +789,7 @@ export function CompareGroupsPage() {
             labelMode="instance-id" // shows the group label we set
             testNameFilter={testNameFilter}
             baselineIdx={baselineIdx}
-            onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
+            onBaselineChange={setBaselineIdx}
             highlightGroupIdx={highlightGroupIdx}
             onHighlightChange={setHighlightGroupIdx}
           />
@@ -775,7 +800,7 @@ export function CompareGroupsPage() {
             stepFilter={stepFilter}
             labelMode="instance-id"
             baselineIdx={baselineIdx}
-            onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
+            onBaselineChange={setBaselineIdx}
             model={heatmapModel}
             onModelChange={updateHeatmapModel}
             testNameFilter={testNameFilter}
@@ -802,7 +827,7 @@ export function CompareGroupsPage() {
               suiteTests={suite?.tests}
               stepFilter={stepFilter}
               baselineIdx={baselineIdx}
-              onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
+              onBaselineChange={setBaselineIdx}
               labelMode="instance-id"
               diffFilter={search.diffFilter === 'faster' || search.diffFilter === 'slower' ? search.diffFilter : 'all'}
               onDiffFilterChange={(val) => updateFilterSearch({ diffFilter: val === 'all' ? undefined : val })}

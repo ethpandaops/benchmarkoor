@@ -392,12 +392,12 @@ export function GroupHeatmap({
           value={mode}
           onChange={(m) => onModelChange({ mode: m })}
           options={[
-            { value: 'baseline', label: 'vs Baseline', title: 'Ratio of each group to the baseline group on the same test' },
             {
               value: 'absolute',
               label: metric === 'mgas' ? 'Threshold' : 'Slow limit',
               title: metric === 'mgas' ? `Color against the ${threshold} MGas/s threshold` : `Color against the ${formatSlowMs(slowMs)} slow-payload limit`,
             },
+            { value: 'baseline', label: 'vs Baseline', title: 'Ratio of each group to the baseline group on the same test' },
           ]}
         />
         <ModeGroup
@@ -455,7 +455,9 @@ export function GroupHeatmap({
       {/* Grid */}
       <div ref={gridRef} className="flex flex-col gap-3">
         {stanzas.map((stanza, si) => (
-          <div key={si} className="flex flex-col" style={{ gap: GAP_PX }}>
+          // No vertical gap: the tiles of one test stack into one bar, so a
+          // column reads as one test across the groups.
+          <div key={si} className="flex flex-col">
             {runs.map((run, gi) => (
               <div key={run.index} className="flex items-center" style={{ gap: GAP_PX }}>
                 <img
@@ -472,7 +474,7 @@ export function GroupHeatmap({
                     onMouseEnter={(e) => setTooltip({ test, anchor: e.currentTarget.getBoundingClientRect() })}
                     onMouseLeave={() => setTooltip(null)}
                     className={clsx(
-                      'shrink-0 cursor-pointer rounded-xs transition-transform hover:scale-150 hover:ring-2 hover:ring-gray-500 dark:hover:ring-gray-300',
+                      'relative shrink-0 cursor-pointer transition-transform hover:z-10 hover:scale-150 hover:ring-2 hover:ring-gray-500 dark:hover:ring-gray-300',
                       test.fails[gi] && 'ring-1 ring-inset ring-red-500',
                     )}
                     style={{ width: TILE_PX, height: TILE_PX, ...tileStyle(test, gi) }}
@@ -530,6 +532,7 @@ export function GroupHeatmap({
           style={{ left: 0, top: 0, visibility: 'hidden' }}
         >
           <div className="flex w-96 max-w-[80vw] flex-col gap-1">
+            {tooltip.test.order > 0 && <div className="font-medium">Test #{tooltip.test.order}</div>}
             <TestName name={tooltip.test.name} variant="full" />
             <table className="text-left">
               <tbody>
