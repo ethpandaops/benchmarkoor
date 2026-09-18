@@ -260,9 +260,19 @@ export interface SystemInfo {
   cpu_vendor: string
   cpu_model: string
   cpu_cores: number
+  cpu_threads?: number
   cpu_mhz: number
   cpu_cache_kb: number
   memory_total_gb: number
+  cpu_topology?: CPUTopologyEntry[]
+}
+
+/** One logical CPU (hardware thread) and where it sits on the host. */
+export interface CPUTopologyEntry {
+  id: number
+  core: number
+  socket: number
+  numa: number
 }
 
 export interface DataDirConfig {

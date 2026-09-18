@@ -17,6 +17,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
+	"github.com/ethpandaops/benchmarkoor/pkg/cputopology"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
@@ -134,9 +135,13 @@ type SystemInfo struct {
 	CPUVendor          string  `json:"cpu_vendor"`
 	CPUModel           string  `json:"cpu_model"`
 	CPUCores           int     `json:"cpu_cores"`
+	CPUThreads         int     `json:"cpu_threads,omitempty"`
 	CPUMhz             float64 `json:"cpu_mhz"`
 	CPUCacheKB         int     `json:"cpu_cache_kb"`
 	MemoryTotalGB      float64 `json:"memory_total_gb"`
+	// CPUTopology maps each logical CPU to its core, socket, and NUMA node.
+	// It is only set on Linux hosts that expose the sysfs topology tree.
+	CPUTopology []cputopology.CPU `json:"cpu_topology,omitempty"`
 }
 
 // ResolvedResourceLimits contains the resolved resource limits for config.json output.

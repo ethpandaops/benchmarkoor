@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import { Settings, ChevronDown } from 'lucide-react'
+import { cpuLayoutSummary } from '@/utils/cpuTopology'
 import { formatBytes, formatFrequency } from '@/utils/format'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
@@ -152,6 +153,9 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
               <DiffRow label="Arch" values={systems.map((s) => s.arch)} />
               <DiffRow label="CPU Model" values={systems.map((s) => s.cpu_model)} />
               <DiffRow label="CPU Cores" values={systems.map((s) => String(s.cpu_cores))} />
+              {systems.some((s) => s.cpu_threads !== undefined) && (
+                <DiffRow label="CPU Threads" values={systems.map((s) => s.cpu_threads !== undefined ? String(s.cpu_threads) : '')} />
+              )}
               <DiffRow label="CPU MHz" values={systems.map((s) => s.cpu_mhz.toFixed(0))} />
               <DiffRow label="Memory" values={systems.map((s) => `${s.memory_total_gb.toFixed(1)} GB`)} />
 
@@ -163,6 +167,12 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
                     label="CPU Pinning"
                     values={instances.map((i) => i.resource_limits?.cpuset_cpus ?? '')}
                   />
+                  {runs.some((r) => r.config.system.cpu_topology && r.config.instance.resource_limits?.cpuset_cpus) && (
+                    <DiffRow
+                      label="CPU Layout"
+                      values={runs.map((r) => cpuLayoutSummary(r.config.system.cpu_topology, r.config.instance.resource_limits?.cpuset_cpus))}
+                    />
+                  )}
                   <DiffRow
                     label="Memory Limit"
                     values={instances.map((i) => i.resource_limits?.memory_bytes ? formatBytes(i.resource_limits.memory_bytes) : (i.resource_limits?.memory ?? ''))}

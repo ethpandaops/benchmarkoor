@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/cputopology"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -218,8 +219,12 @@ func TestGenerateRunMarkdown(t *testing.T) {
 		assert.Contains(t, md, "## System")
 		assert.Contains(t, md, "| Hostname | test-host |")
 		assert.Contains(t, md, "| CPU | AMD Ryzen 9 |")
+		assert.Contains(t, md, "| Threads | 32 |")
+		assert.Contains(t, md, "| CPU Layout | 32 threads on 16 physical cores (2 threads per core) |")
 		assert.Contains(t, md, "## Resource Limits")
 		assert.Contains(t, md, "| CPU Set | 0-3 |")
+		assert.Contains(t, md,
+			"| CPU Layout | 4 threads on 4 of 16 physical cores (1 of 2 threads per core) |")
 		assert.Contains(t, md, "## Metadata")
 		assert.Contains(t, md, "| env | staging |")
 		assert.Contains(t, md, "## Start Block")
@@ -297,6 +302,17 @@ func TestGenerateRunMarkdownCharLimit(t *testing.T) {
 }
 
 // writeFixtureConfig writes a comprehensive config.json for testing.
+// smtTopology returns a single-socket host with cores physical cores and two
+// threads per core, siblings (n, n+cores).
+func smtTopology(cores int) []cputopology.CPU {
+	cpus := make([]cputopology.CPU, 0, cores*2)
+	for id := range cores * 2 {
+		cpus = append(cpus, cputopology.CPU{ID: id, Core: id % cores})
+	}
+
+	return cpus
+}
+
 func writeFixtureConfig(t *testing.T, dir string) {
 	t.Helper()
 
@@ -316,8 +332,10 @@ func writeFixtureConfig(t *testing.T, dir string) {
 			Arch:          "x86_64",
 			CPUModel:      "AMD Ryzen 9",
 			CPUCores:      16,
+			CPUThreads:    32,
 			CPUMhz:        5756.0,
 			MemoryTotalGB: 64.0,
+			CPUTopology:   smtTopology(16),
 		},
 		Instance: &markdownInstance{
 			ID:            "geth",
