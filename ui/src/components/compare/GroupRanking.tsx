@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import clsx from 'clsx'
-import { Trophy } from 'lucide-react'
+import { Medal, Trophy } from 'lucide-react'
 import type { AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
@@ -15,6 +15,9 @@ interface GroupRankingProps {
   highlightGroupIdx: number | null
   onHighlightChange: (groupIdx: number | null) => void
 }
+
+// Gold, silver and bronze for the first three places with at least one win.
+const MEDAL_CLASSES = ['text-amber-400', 'text-gray-400 dark:text-gray-300', 'text-amber-700 dark:text-amber-600']
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
   if (!stats || stats.gas_used_time_total <= 0 || stats.gas_used_total <= 0) return undefined
@@ -97,8 +100,10 @@ export function GroupRanking({ runs, stepFilter, labelMode, testNameFilter, high
                     : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
                 )}
               >
-                <span className={clsx('w-5 shrink-0 text-right font-mono', leader ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500')}>
-                  {place + 1}.
+                <span className={clsx('flex w-5 shrink-0 justify-end font-mono', leader ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500')}>
+                  {place < MEDAL_CLASSES.length && wins > 0
+                    ? <Medal className={clsx('size-4', MEDAL_CLASSES[place])} aria-label={`${place + 1}. place`} />
+                    : `${place + 1}.`}
                 </span>
                 <span className={clsx('inline-flex w-56 shrink-0 items-center gap-1.5 truncate rounded-sm px-2 py-0.5 font-medium', slot.badgeBgClass, slot.badgeTextClass)}>
                   <img src={`/img/clients/${run.config.instance.client}.jpg`} alt="" className="size-3.5 shrink-0 rounded-full object-cover" />
