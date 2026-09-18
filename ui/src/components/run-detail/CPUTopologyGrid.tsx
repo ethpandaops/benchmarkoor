@@ -68,12 +68,10 @@ export function CPUTopologyGrid({ topology, cpuset }: CPUTopologyGridProps) {
   const summary = cpuLayoutSummary(topology, cpuset)
   const showGroupLabels = groups.length > 1
 
-  // Rendered as one full-width item inside the System <dl>, next to the
-  // other InfoItems.
   return (
-    <div className="sm:col-span-2 lg:col-span-3">
+    <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <dt className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">CPU Layout</dt>
+        <span className="text-sm/6 text-gray-900 dark:text-gray-100">{summary}</span>
         {pinned.size > 0 && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
             <LegendItem swatch="bg-blue-600 dark:bg-blue-500" label="pinned thread" />
@@ -82,8 +80,7 @@ export function CPUTopologyGrid({ topology, cpuset }: CPUTopologyGridProps) {
           </div>
         )}
       </div>
-      <dd className="mt-1 flex flex-col gap-2">
-        <span className="text-sm/6 text-gray-900 dark:text-gray-100">{summary}</span>
+      <div className="flex flex-col gap-2">
         {groups.map((group) => (
           <div key={`${group.socket}:${group.numa}`}>
             {showGroupLabels && (
@@ -98,7 +95,7 @@ export function CPUTopologyGrid({ topology, cpuset }: CPUTopologyGridProps) {
             </div>
           </div>
         ))}
-      </dd>
+      </div>
     </div>
   )
 }

@@ -580,9 +580,6 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
               {system.virtualization && (
                 <InfoItem label="Virtualization" value={`${system.virtualization} (${system.virtualization_role})`} />
               )}
-              {system.cpu_topology && system.cpu_topology.length > 0 && (
-                <CPUTopologyGrid topology={system.cpu_topology} cpuset={instance.resource_limits?.cpuset_cpus} />
-              )}
             </dl>
 
             {/* Resource Limits */}
@@ -683,6 +680,14 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* CPU Layout */}
+            {system.cpu_topology && system.cpu_topology.length > 0 && (
+              <div className="mt-6 border-t border-gray-200 pt-6 dark:border-gray-700">
+                <h4 className="mb-3 text-sm/6 font-medium text-gray-900 dark:text-gray-100">CPU Layout</h4>
+                <CPUTopologyGrid topology={system.cpu_topology} cpuset={instance.resource_limits?.cpuset_cpus} />
               </div>
             )}
 
