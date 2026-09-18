@@ -54,6 +54,7 @@ export function CompareGroupsPage() {
     heatmapColor?: string
     heatmapThreshold?: string
     heatmapSlowMs?: string
+    testModal?: string
   }
 
   const suiteHash = search.suite ?? ''
@@ -88,6 +89,7 @@ export function CompareGroupsPage() {
           heatmapColor: search.heatmapColor,
           heatmapThreshold: search.heatmapThreshold,
           heatmapSlowMs: search.heatmapSlowMs,
+          testModal: search.testModal,
           ...patch,
         },
         replace: true,
@@ -414,7 +416,13 @@ export function CompareGroupsPage() {
   }, [])
 
   // ─── Test detail modal ─────────────────────────────────────────
-  const [selectedTest, setSelectedTest] = useState<string | null>(null)
+  // The open test modal lives in the URL, the same `testModal` param as
+  // the run page, so a link opens straight on the test.
+  const selectedTest = search.testModal || null
+  const setSelectedTest = useCallback(
+    (name: string | null) => updateSearch({ testModal: name || undefined }),
+    [updateSearch],
+  )
 
   // Per-group individual results (not averaged) for the detail modal.
   const groupResultsForModal = useMemo(() => {
@@ -856,7 +864,8 @@ export function CompareGroupsPage() {
       )}
 
       {/* Test detail modal — shows per-run breakdown for a single test */}
-      {selectedTest && (
+      {/* Wait for the results, so a shared link opens the modal with data. */}
+      {selectedTest && hasResults && (
         <TestDetailModal
           testName={selectedTest}
           testOrder={(() => {
