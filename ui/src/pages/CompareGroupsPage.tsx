@@ -15,6 +15,7 @@ import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER } from '@/page
 import { type CompareRun, type ChartType, CHART_TYPE_OPTIONS } from '@/components/compare/constants'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
+import { GroupHeatmap } from '@/components/compare/GroupHeatmap'
 import { CVComparisonChart } from '@/components/compare/CVComparisonChart'
 import { PercentageDiffChart } from '@/components/compare/PercentageDiffChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
@@ -706,6 +707,17 @@ export function CompareGroupsPage() {
             onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
             labelMode="instance-id" // shows the group label we set
             testNameFilter={testNameFilter}
+          />
+
+          <GroupHeatmap
+            runs={syntheticRuns}
+            suiteTests={suite?.tests}
+            stepFilter={stepFilter}
+            labelMode="instance-id"
+            baselineIdx={baselineIdx}
+            onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
+            testNameFilter={testNameFilter}
+            onTestClick={setSelectedTest}
           />
 
           <MGasComparisonChart
