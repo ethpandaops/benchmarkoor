@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Link, useMatchRoute, useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X, FileText, Search, Tags, Code2, Check, Settings } from 'lucide-react'
+import { Sun, Moon, LogIn, LogOut, Shield, User, Menu, X, FileText, Search, Tags, Code2, Check, Settings, Maximize2, Minimize2 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useNameDisplayMode, type NameDisplayMode } from '@/hooks/useNameDisplayMode'
+import { useLayoutWidth } from '@/hooks/useLayoutWidth'
 
 function NavLink({ to, children, onClick }: { to: string; children: React.ReactNode; onClick?: () => void }) {
   const matchRoute = useMatchRoute()
@@ -126,6 +127,25 @@ function SettingsMenu() {
         </>
       )}
     </div>
+  )
+}
+
+// Below the xl breakpoint the page is already as wide as the viewport, so
+// the toggle only shows where it changes something.
+function LayoutWidthToggle() {
+  const { width, toggle } = useLayoutWidth()
+  const wide = width === 'wide'
+  const Icon = wide ? Minimize2 : Maximize2
+
+  return (
+    <button
+      onClick={toggle}
+      className="hidden rounded-sm p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 xl:block dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+      title={wide ? 'Fixed width layout' : 'Full width layout'}
+      aria-pressed={wide}
+    >
+      <Icon className="size-5" />
+    </button>
   )
 }
 
@@ -316,7 +336,7 @@ export function Header() {
 
   return (
     <header className="border-b border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-      <div className="mx-auto flex max-w-7xl items-center gap-8 px-4 py-2">
+      <div className="mx-auto flex max-w-7xl wide:max-w-none items-center gap-8 px-4 py-2">
         <Link to="/runs" search={{}} className="flex items-center gap-2">
           <img src="/img/logo_black.png" alt="Benchmarkoor" className="h-12 dark:hidden" />
           <img src="/img/logo_white.png" alt="Benchmarkoor" className="hidden h-12 dark:block" />
@@ -331,6 +351,7 @@ export function Header() {
         <div className="ml-auto hidden items-center gap-2 md:flex">
           <AuthControls />
           <SettingsMenu />
+          <LayoutWidthToggle />
         </div>
 
         {/* Mobile hamburger */}

@@ -26,7 +26,7 @@ export function RootLayout() {
     <div className="flex min-h-dvh flex-col bg-gray-50 dark:bg-gray-900">
       {!requiresLogin && <Header />}
       <ApiDownBanner />
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">
+      <main className="mx-auto w-full max-w-7xl wide:max-w-none flex-1 px-4 py-8">
         <Outlet />
       </main>
       <Footer />

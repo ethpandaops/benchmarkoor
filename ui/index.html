@@ -11,6 +11,14 @@
         if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
           document.documentElement.classList.add('dark')
         }
+        // The URL param wins over the saved preference (see hooks/useLayoutWidth.ts).
+        const urlLayout = new URLSearchParams(window.location.search).get('layout')
+        const layout = (urlLayout === 'wide' || urlLayout === 'contained')
+          ? urlLayout
+          : localStorage.getItem('benchmarkoor:layout-width')
+        if (layout === 'wide') {
+          document.documentElement.classList.add('wide')
+        }
       })()
     </script>
   </head>

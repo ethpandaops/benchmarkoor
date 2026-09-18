@@ -1532,7 +1532,7 @@ export function SuiteDetailPage() {
 
       {compareMode && (
         <div className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white px-6 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <div className="mx-auto flex max-w-7xl wide:max-w-none items-center justify-between">
             <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
               {selectedRunIds.size} of {MAX_COMPARE_RUNS} selected
             </span>
@@ -1560,7 +1560,7 @@ export function SuiteDetailPage() {
 
       {deleteMode && (
         <div className="fixed inset-x-0 bottom-0 z-50 border-t border-red-200 bg-white px-6 py-3 shadow-sm dark:border-red-800 dark:bg-gray-800">
-          <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <div className="mx-auto flex max-w-7xl wide:max-w-none items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
                 {deleteSelectedIds.size} selected for deletion

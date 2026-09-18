@@ -42,7 +42,7 @@ export function StickyRunBar({ runs, sentinelRef, labelMode, onLabelModeChange, 
 
   return (
     <div className="fixed top-0 right-0 left-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95">
-      <div className="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-2">
+      <div className="mx-auto flex max-w-7xl wide:max-w-none flex-col gap-1 px-4 py-2">
       <div className="flex items-center justify-center gap-4">
         {runs.map((run) => {
           const slot = RUN_SLOTS[run.index]

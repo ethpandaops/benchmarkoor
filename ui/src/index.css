@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
+/* Full-width layout, toggled from the header (see hooks/useLayoutWidth.ts). */
+@custom-variant wide (&:where(.wide, .wide *));
 
 @theme {
   --color-geth: oklch(0.65 0.15 250);
