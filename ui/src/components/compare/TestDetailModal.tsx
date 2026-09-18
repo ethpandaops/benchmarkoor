@@ -20,7 +20,6 @@ interface TestDetailModalProps {
   /** Run IDs per group for linking to run detail pages. */
   groupRunIds: string[][]
   stepFilter: StepTypeOption[]
-  sampleSize: number
   /** Current page-level search query (used to highlight active chips). */
   searchQuery?: string
   /** Toggle a `key:value` term in the page-level search. */
@@ -41,7 +40,6 @@ export function TestDetailModal({
   groupTimestamps,
   groupRunIds,
   stepFilter,
-  sampleSize,
   searchQuery,
   onChipFilterToggle,
   onClose,
@@ -97,7 +95,7 @@ export function TestDetailModal({
       const timestamps = groupTimestamps[gi] ?? []
       const runIds = groupRunIds[gi] ?? []
 
-      const runs = results.slice(0, sampleSize).map((result, ri) => {
+      const runs = results.map((result, ri) => {
         const entry = result.tests[testName]
         const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
         const mgas = stats && stats.gas_used_time_total > 0
@@ -133,7 +131,7 @@ export function TestDetailModal({
 
       return { label, client: group.client, runs, average, median, min, max, stddev, mgasValues }
     })
-  }, [groups, groupResults, groupTimestamps, groupRunIds, stepFilter, sampleSize, testName])
+  }, [groups, groupResults, groupTimestamps, groupRunIds, stepFilter, testName])
 
   // Find global min/max for the dot chart scaling.
   const allMgas = groupData.flatMap((g) => g.mgasValues)

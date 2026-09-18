@@ -7,7 +7,7 @@ import { type IndexEntry, getIndexAggregatedStats } from '@/api/types'
 import { formatTimestamp } from '@/utils/date'
 import { formatDuration } from '@/utils/format'
 import { NEUTRAL_COLOR, createColorScale } from '@/utils/runColorScale'
-import type { GroupDef } from './groupUtils'
+import { type GroupDef, setGroupRuns, toggleGroupRun } from './groupUtils'
 import { RUN_SLOTS } from './constants'
 
 // ── Props ────────────────────────────────────────────────────────
@@ -25,7 +25,8 @@ interface GroupBuilderProps {
   onSampleSizeChange: (n: number) => void
   aggMode: 'avg' | 'median'
   onAggModeChange: (mode: 'avg' | 'median') => void
-  groupRunCounts: number[]
+  /** Run IDs each group averages: its explicit selection, or the newest `sampleSize` matched runs. */
+  groupSelectedRunIds: string[][]
   /** Matched index entries per group (sorted newest-first, full list before sample-size truncation). */
   groupMatchedRuns: IndexEntry[][]
   /** Per-group loading flag — true while this group's config or any of its result queries are in-flight. */
@@ -64,7 +65,7 @@ export function GroupBuilder({
   onSampleSizeChange,
   aggMode,
   onAggModeChange,
-  groupRunCounts,
+  groupSelectedRunIds,
   groupMatchedRuns,
   groupLoadingFlags,
   indexLoading,
@@ -84,14 +85,28 @@ export function GroupBuilder({
 
   const addMetadata = (idx: number, key: string, value: string) => {
     const group = groups[idx]
-    updateGroup(idx, { metadata: { ...group.metadata, [key]: value } })
+    updateGroup(idx, { metadata: { ...group.metadata, [key]: value }, runs: undefined })
+  }
+
+  // Toggle one run in the group's selection (see toggleGroupRun).
+  const toggleRun = (idx: number, runId: string) => {
+    onGroupsChange(groups.map((g, i) => (i === idx ? toggleGroupRun(g, groupMatchedRuns[idx] ?? [], sampleSize, runId) : g)))
+  }
+
+  // Shift-click: set a whole range to the anchor's state.
+  const setRuns = (idx: number, runIds: string[], include: boolean) => {
+    onGroupsChange(groups.map((g, i) => (i === idx ? setGroupRuns(g, groupMatchedRuns[idx] ?? [], sampleSize, runIds, include) : g)))
+  }
+
+  const resetRuns = (idx: number) => {
+    onGroupsChange(groups.map((g, i) => (i === idx ? { client: g.client, metadata: g.metadata } : g)))
   }
 
   const removeMetadata = (idx: number, key: string) => {
     const group = groups[idx]
     const next = { ...group.metadata }
     delete next[key]
-    updateGroup(idx, { metadata: next })
+    updateGroup(idx, { metadata: next, runs: undefined })
   }
 
   // The URL can select a suite before the index arrives. Keep it in the
@@ -133,7 +148,7 @@ export function GroupBuilder({
             onChange={(e) => onSampleSizeChange(Math.max(1, Math.min(50, parseInt(e.target.value, 10) || 5)))}
             className="w-14 rounded-xs border border-gray-300 bg-white px-2 py-1 text-center text-sm/6 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
-          <span className="text-xs text-gray-500 dark:text-gray-400">latest runs per group</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">latest runs per group · click a run box to pick runs by hand</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -165,12 +180,15 @@ export function GroupBuilder({
               index={idx}
               availableClients={availableClients}
               availableMetadataKeys={availableMetadataKeys}
-              runCount={groupRunCounts[idx] ?? 0}
+              selectedRunIds={groupSelectedRunIds[idx] ?? []}
               sampleSize={sampleSize}
               matchedRuns={groupMatchedRuns[idx] ?? []}
               loading={groupLoadingFlags[idx] ?? false}
               indexLoading={indexLoading}
-              onClientChange={(client) => updateGroup(idx, { client, metadata: {} })}
+              onToggleRun={(runId) => toggleRun(idx, runId)}
+              onSetRuns={(runIds, include) => setRuns(idx, runIds, include)}
+              onResetRuns={() => resetRuns(idx)}
+              onClientChange={(client) => updateGroup(idx, { client, metadata: {}, runs: undefined })}
               onAddMetadata={(key, val) => addMetadata(idx, key, val)}
               onRemoveMetadata={(key) => removeMetadata(idx, key)}
               onRemove={() => removeGroup(idx)}
@@ -199,11 +217,14 @@ function GroupCard({
   index,
   availableClients,
   availableMetadataKeys,
-  runCount,
+  selectedRunIds,
   sampleSize,
   matchedRuns,
   loading,
   indexLoading,
+  onToggleRun,
+  onSetRuns,
+  onResetRuns,
   onClientChange,
   onAddMetadata,
   onRemoveMetadata,
@@ -214,11 +235,14 @@ function GroupCard({
   index: number
   availableClients: string[]
   availableMetadataKeys: Map<string, Set<string>>
-  runCount: number
+  selectedRunIds: string[]
   sampleSize: number
   matchedRuns: IndexEntry[]
   loading: boolean
   indexLoading: boolean
+  onToggleRun: (runId: string) => void
+  onSetRuns: (runIds: string[], include: boolean) => void
+  onResetRuns: () => void
   onClientChange: (client: string) => void
   onAddMetadata: (key: string, value: string) => void
   onRemoveMetadata: (key: string) => void
@@ -231,6 +255,9 @@ function GroupCard({
   const unusedKeys = [...availableMetadataKeys.entries()].filter(
     ([key]) => !(key in group.metadata),
   )
+
+  const manual = group.runs !== undefined
+  const runCount = selectedRunIds.length
 
   // The URL can select a client before the index arrives. Keep it in the
   // option list so the select does not fall back to the placeholder.
@@ -276,13 +303,13 @@ function GroupCard({
           <span className={clsx(
             'rounded-xs px-2 py-0.5 text-xs/5 font-medium',
             !loading && 'ml-auto',
-            runCount >= sampleSize
+            runCount >= sampleSize || (manual && runCount > 0)
               ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
               : runCount > 0
                 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200'
                 : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
           )}>
-            {runCount} run{runCount !== 1 ? 's' : ''} found
+            {runCount} run{runCount !== 1 ? 's' : ''} {manual ? 'selected' : 'found'}
           </span>
         )}
 
@@ -356,8 +383,9 @@ function GroupCard({
 
       {/* Per-group aggregate stats across the sampled runs */}
       {matchedRuns.length > 0 && (() => {
-        const sampled = matchedRuns.slice(0, sampleSize)
-        const mgasValues = sampled
+        const selected = new Set(selectedRunIds)
+        const mgasValues = matchedRuns
+          .filter((r) => selected.has(r.run_id))
           .map(mgasPerSec)
           .filter((v): v is number => v !== undefined)
           .sort((a, b) => a - b)
@@ -383,15 +411,54 @@ function GroupCard({
       })()}
 
       {/* Run boxes — shows which runs matched and which are used in the sample */}
-      {matchedRuns.length > 0 && <RunBoxes runs={matchedRuns} sampleSize={sampleSize} />}
+      {matchedRuns.length > 0 && (
+        <RunBoxes
+          runs={matchedRuns}
+          selectedRunIds={selectedRunIds}
+          manual={manual}
+          onToggleRun={onToggleRun}
+          onSetRuns={onSetRuns}
+          onResetRuns={onResetRuns}
+        />
+      )}
     </div>
   )
 }
 
 // ── Run boxes with tooltip ───────────────────────────────────────
 
-function RunBoxes({ runs, sampleSize }: { runs: IndexEntry[]; sampleSize: number }) {
+function RunBoxes({ runs, selectedRunIds, manual, onToggleRun, onSetRuns, onResetRuns }: {
+  runs: IndexEntry[]
+  selectedRunIds: string[]
+  /** True when the group has an explicit selection instead of the newest-N sample. */
+  manual: boolean
+  onToggleRun: (runId: string) => void
+  onSetRuns: (runIds: string[], include: boolean) => void
+  onResetRuns: () => void
+}) {
   const [tooltip, setTooltip] = useState<{ run: IndexEntry; x: number; y: number } | null>(null)
+  const selected = useMemo(() => new Set(selectedRunIds), [selectedRunIds])
+  // The last plain-clicked run. A shift-click applies its state to every
+  // run between it and the clicked one.
+  const [anchor, setAnchor] = useState<string | null>(null)
+
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>, run: IndexEntry) => {
+    // A modifier or middle click keeps the browser's open-in-new-tab
+    // behaviour. Shift is the range selector.
+    if (e.metaKey || e.ctrlKey || e.button !== 0) return
+    e.preventDefault()
+
+    const anchorIdx = anchor ? runs.findIndex((r) => r.run_id === anchor) : -1
+    if (e.shiftKey && anchorIdx >= 0) {
+      const clickedIdx = runs.findIndex((r) => r.run_id === run.run_id)
+      const [from, to] = anchorIdx < clickedIdx ? [anchorIdx, clickedIdx] : [clickedIdx, anchorIdx]
+      onSetRuns(runs.slice(from, to + 1).map((r) => r.run_id), selected.has(anchor as string))
+      return
+    }
+
+    setAnchor(run.run_id)
+    onToggleRun(run.run_id)
+  }
 
   // Grade each box by its shortfall against the best run of this group,
   // the same scale as the per-client mode of the suite page heatmap.
@@ -403,8 +470,8 @@ function RunBoxes({ runs, sampleSize }: { runs: IndexEntry[]; sampleSize: number
   return (
     <div className="relative flex flex-wrap items-center gap-1">
       <span className="mr-1 text-xs text-gray-500 dark:text-gray-400">Runs:</span>
-      {runs.map((run, i) => {
-        const inSample = i < sampleSize
+      {runs.map((run) => {
+        const inSample = selected.has(run.run_id)
         const completed = isRunCompleted(run)
         const live = isRunLive(run)
         // A live run reports its failed count; total - passed would count
@@ -418,13 +485,14 @@ function RunBoxes({ runs, sampleSize }: { runs: IndexEntry[]; sampleSize: number
             href={`/runs/${run.run_id}`}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={(e) => handleClick(e, run)}
             onMouseEnter={(e) => {
               const rect = e.currentTarget.getBoundingClientRect()
               setTooltip({ run, x: rect.left + rect.width / 2, y: rect.top })
             }}
             onMouseLeave={() => setTooltip(null)}
             className={clsx(
-              'relative size-4 shrink-0 rounded-xs',
+              'relative size-4 shrink-0 rounded-xs transition-all hover:scale-110 hover:opacity-100',
               !inSample && 'opacity-30',
               live
                 ? 'ring-2 ring-inset ring-blue-500 dark:ring-blue-400'
@@ -463,6 +531,16 @@ function RunBoxes({ runs, sampleSize }: { runs: IndexEntry[]; sampleSize: number
         )
       })}
 
+      {manual && (
+        <button
+          onClick={onResetRuns}
+          className="ml-1 text-xs text-blue-600 hover:underline dark:text-blue-400"
+          title="Drop the explicit selection and use the newest runs again"
+        >
+          Reset to sample
+        </button>
+      )}
+
       {tooltip && (() => {
         const stats = getIndexAggregatedStats(tooltip.run)
         const mgas = mgasPerSec(tooltip.run)
@@ -496,7 +574,9 @@ function RunBoxes({ runs, sampleSize }: { runs: IndexEntry[]; sampleSize: number
                   ({tooltip.run.tests.tests_total} total)
                 </span>
               </div>
-              <div className="text-gray-400 dark:text-gray-500">Click to open run details</div>
+              <div className="text-gray-400 dark:text-gray-500">
+                Click to {selected.has(tooltip.run.run_id) ? 'exclude' : 'include'} · Shift-click for a range · ⌘/Ctrl-click to open
+              </div>
             </div>
           </div>
         )

@@ -20,7 +20,7 @@ import { PercentageDiffChart } from '@/components/compare/PercentageDiffChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
 import { ResourceComparisonCharts } from '@/components/compare/ResourceComparisonCharts'
 import { GroupBuilder } from '@/components/compare/GroupBuilder'
-import { type GroupDef, parseGroupsParam, encodeGroupsParam } from '@/components/compare/groupUtils'
+import { type GroupDef, parseGroupsParam, encodeGroupsParam, selectGroupRuns } from '@/components/compare/groupUtils'
 import { averageResults } from '@/utils/averageResults'
 import { TestDetailModal } from '@/components/compare/TestDetailModal'
 
@@ -136,10 +136,17 @@ export function CompareGroupsPage() {
     )
   }, [index, suiteHash, groups])
 
-  // Run IDs used for data fetching (truncated to sample size).
+  // The entries each group averages: its explicit selection, or the
+  // newest `sampleSize` matched entries.
+  const groupSampledEntries = useMemo(
+    () => groupMatchedEntries.map((entries, gi) => selectGroupRuns(groups[gi], entries, sampleSize)),
+    [groupMatchedEntries, groups, sampleSize],
+  )
+
+  // Run IDs used for data fetching.
   const groupRuns = useMemo(
-    () => groupMatchedEntries.map((entries) => entries.slice(0, sampleSize).map((e) => e.run_id)),
-    [groupMatchedEntries, sampleSize],
+    () => groupSampledEntries.map((entries) => entries.map((e) => e.run_id)),
+    [groupSampledEntries],
   )
 
   // Flatten all run IDs for batch fetching.
@@ -398,11 +405,10 @@ export function CompareGroupsPage() {
     })
   }, [selectedTest, groups, groupRuns, resultQueries])
 
-  const groupTimestampsForModal = useMemo(() => {
-    return groupMatchedEntries.map((entries) =>
-      entries.slice(0, sampleSize).map((e) => e.timestamp),
-    )
-  }, [groupMatchedEntries, sampleSize])
+  const groupTimestampsForModal = useMemo(
+    () => groupSampledEntries.map((entries) => entries.map((e) => e.timestamp)),
+    [groupSampledEntries],
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -443,7 +449,7 @@ export function CompareGroupsPage() {
         onSampleSizeChange={setSampleSize}
         aggMode={aggMode}
         onAggModeChange={setAggMode}
-        groupRunCounts={groupRuns.map((ids) => ids.length)}
+        groupSelectedRunIds={groupRuns}
         groupMatchedRuns={groupMatchedEntries}
         groupLoadingFlags={groupLoadingFlags}
         indexLoading={indexLoading}
@@ -798,7 +804,6 @@ export function CompareGroupsPage() {
           groupTimestamps={groupTimestampsForModal}
           groupRunIds={groupRuns}
           stepFilter={stepFilter}
-          sampleSize={sampleSize}
           searchQuery={testFilter}
           onChipFilterToggle={(term) => updateFilterSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
           onClose={() => setSelectedTest(null)}

@@ -5,11 +5,18 @@
 export interface GroupDef {
   client: string
   metadata: Record<string, string>
+  /**
+   * Explicit run selection. When set, the group uses exactly these runs
+   * (those still matched by its criteria) and ignores the sample size.
+   * When unset, the group takes the newest `sampleSize` matched runs.
+   */
+  runs?: string[]
 }
 
 /**
  * Parse the groups search param. Format:
  * "client1:key1=val1,key2=val2;client2:"
+ * A group with an explicit run selection appends "|runId1,runId2".
  */
 export function parseGroupsParam(param: string | undefined): GroupDef[] {
   if (!param) return []
@@ -18,7 +25,8 @@ export function parseGroupsParam(param: string | undefined): GroupDef[] {
     .split(';')
     .filter(Boolean)
     .map((seg) => {
-      const [client, rest] = seg.split(':', 2)
+      const [def, runsPart] = seg.split('|', 2)
+      const [client, rest] = def.split(':', 2)
       const metadata: Record<string, string> = {}
       if (rest) {
         for (const pair of rest.split(',').filter(Boolean)) {
@@ -28,7 +36,8 @@ export function parseGroupsParam(param: string | undefined): GroupDef[] {
           }
         }
       }
-      return { client: client || '', metadata }
+      const runs = runsPart !== undefined ? runsPart.split(',').filter(Boolean) : undefined
+      return runs ? { client: client || '', metadata, runs } : { client: client || '', metadata }
     })
 }
 
@@ -38,7 +47,51 @@ export function encodeGroupsParam(groups: GroupDef[]): string {
       const meta = Object.entries(g.metadata)
         .map(([k, v]) => `${k}=${v}`)
         .join(',')
-      return `${g.client}:${meta}`
+      const runs = g.runs ? `|${g.runs.join(',')}` : ''
+      return `${g.client}:${meta}${runs}`
     })
     .join(';')
+}
+
+/**
+ * The matched entries a group feeds into its average: its explicit
+ * selection in matched order, or the newest `sampleSize` entries.
+ */
+export function selectGroupRuns<T extends { run_id: string }>(group: GroupDef, matched: T[], sampleSize: number): T[] {
+  if (!group.runs) return matched.slice(0, sampleSize)
+  const wanted = new Set(group.runs)
+  return matched.filter((e) => wanted.has(e.run_id))
+}
+
+/**
+ * Set the runs in a group's selection. An automatic group first takes
+ * its current sample as the explicit list. A selection that ends up equal
+ * to the automatic sample drops back to automatic, so the URL stays clean.
+ */
+export function setGroupRuns<T extends { run_id: string }>(
+  group: GroupDef,
+  matched: T[],
+  sampleSize: number,
+  runIds: string[],
+  include: boolean,
+): GroupDef {
+  const current = new Set(selectGroupRuns(group, matched, sampleSize).map((e) => e.run_id))
+  for (const runId of runIds) {
+    if (include) current.add(runId)
+    else current.delete(runId)
+  }
+
+  const automatic = matched.slice(0, sampleSize).map((e) => e.run_id)
+  const isAutomatic = current.size === automatic.length && automatic.every((id) => current.has(id))
+  if (isAutomatic) return { client: group.client, metadata: group.metadata }
+
+  // Keep matched order (newest first) so the encoded list is stable.
+  const runs = matched.filter((e) => current.has(e.run_id)).map((e) => e.run_id)
+  return { ...group, runs }
+}
+
+/** Toggle one run in a group's selection (see setGroupRuns). */
+export function toggleGroupRun<T extends { run_id: string }>(group: GroupDef, matched: T[], sampleSize: number, runId: string): GroupDef {
+  const selected = selectGroupRuns(group, matched, sampleSize).some((e) => e.run_id === runId)
+  return setGroupRuns(group, matched, sampleSize, [runId], !selected)
 }
