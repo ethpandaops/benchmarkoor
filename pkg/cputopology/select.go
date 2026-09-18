@@ -63,6 +63,48 @@ func physicalCores(cpus []CPU) [][]int {
 	return cores
 }
 
+// fillWholeCores picks cores whose thread counts add up to exactly count. It
+// walks cores in the given order and keeps a core whenever the rest can still
+// complete the sum, so a shuffled input yields a random valid combination. A
+// hybrid host can mix core sizes, and a greedy fill would miss combinations
+// such as 2+2 when a 3-thread core is taken first. It returns nil when no
+// combination exists.
+func fillWholeCores(cores [][]int, count int) [][]int {
+	n := len(cores)
+
+	// canFill[i][s] reports whether cores[i:] can reach sum s exactly.
+	canFill := make([][]bool, n+1)
+	for i := range canFill {
+		canFill[i] = make([]bool, count+1)
+	}
+
+	canFill[n][0] = true
+
+	for i := n - 1; i >= 0; i-- {
+		size := len(cores[i])
+		for s := 0; s <= count; s++ {
+			canFill[i][s] = canFill[i+1][s] || (s >= size && canFill[i+1][s-size])
+		}
+	}
+
+	if !canFill[0][count] {
+		return nil
+	}
+
+	picked := make([][]int, 0, n)
+	remaining := count
+
+	for i := 0; i < n && remaining > 0; i++ {
+		size := len(cores[i])
+		if remaining >= size && canFill[i+1][remaining-size] {
+			picked = append(picked, cores[i])
+			remaining -= size
+		}
+	}
+
+	return picked
+}
+
 // Select picks count random threads from cpus with the given mode. For
 // ModeFullCores it picks whole random cores until count threads are
 // reached. For ModeOneThreadPerCore it picks count random cores and takes
@@ -92,27 +134,16 @@ func Select(cpus []CPU, count int, mode Mode) ([]int, error) {
 		selected = append(selected, ids[:count]...)
 
 	case ModeFullCores:
-		selected = make([]int, 0, count)
-		cores := physicalCores(cpus)
-
-		// Take random cores while they fit, largest first. A hybrid host can
-		// have cores of different sizes, and the small ones fill the rest.
-		sort.SliceStable(cores, func(i, j int) bool { return len(cores[i]) > len(cores[j]) })
-
-		for _, threads := range cores {
-			if len(selected) == count {
-				break
-			}
-
-			if len(selected)+len(threads) <= count {
-				selected = append(selected, threads...)
-			}
-		}
-
-		if len(selected) != count {
+		picked := fillWholeCores(physicalCores(cpus), count)
+		if picked == nil {
 			return nil, fmt.Errorf(
 				"cpuset_count %d cannot be filled with full cores on this host (%s)",
 				count, Summary(cpus, nil))
+		}
+
+		selected = make([]int, 0, count)
+		for _, threads := range picked {
+			selected = append(selected, threads...)
 		}
 
 	case ModeOneThreadPerCore:

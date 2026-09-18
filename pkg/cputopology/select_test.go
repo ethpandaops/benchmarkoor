@@ -1,6 +1,7 @@
 package cputopology
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -81,6 +82,40 @@ func TestSelect(t *testing.T) {
 			require.Len(t, got, 3)
 			require.NoError(t, Check(hybridHost, got, ModeFullCores))
 		}
+	})
+
+	t.Run("full cores finds a combination a greedy fill misses", func(t *testing.T) {
+		// Core sizes {3, 2, 2}: 4 = 2+2, 5 = 3+2, 7 = 3+2+2, 6 has no solution.
+		host := []CPU{
+			{ID: 0, Core: 0}, {ID: 1, Core: 0}, {ID: 2, Core: 0},
+			{ID: 3, Core: 1}, {ID: 4, Core: 1},
+			{ID: 5, Core: 2}, {ID: 6, Core: 2},
+		}
+
+		for _, count := range []int{2, 3, 4, 5, 7} {
+			for range 20 {
+				got, err := Select(host, count, ModeFullCores)
+				require.NoError(t, err, "count %d", count)
+				require.Len(t, got, count)
+				require.NoError(t, Check(host, got, ModeFullCores))
+			}
+		}
+
+		for _, count := range []int{1, 6} {
+			_, err := Select(host, count, ModeFullCores)
+			require.Error(t, err, "count %d", count)
+		}
+	})
+
+	t.Run("full cores varies the picked cores", func(t *testing.T) {
+		seen := make(map[string]struct{}, 8)
+		for range 50 {
+			got, err := Select(sixCoresSMT(), 2, ModeFullCores)
+			require.NoError(t, err)
+			seen[fmt.Sprint(got)] = struct{}{}
+		}
+
+		assert.Greater(t, len(seen), 1)
 	})
 
 	t.Run("one thread per core picks the lowest thread of distinct cores", func(t *testing.T) {
