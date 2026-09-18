@@ -55,6 +55,8 @@ interface HeatmapTest {
   durations: (number | undefined)[]
   /** Whether the group reported failed executions for this test. */
   fails: boolean[]
+  /** Positions in `runs` with the highest MGas/s, when at least two groups have a value. Same rule as the ranking. */
+  winners: Set<number>
   /** Best over worst group value of the active metric, minus one. Zero when fewer than two groups have a value. */
   spread: number
 }
@@ -78,6 +80,9 @@ interface GroupHeatmapProps {
   onModelChange: (patch: Partial<HeatmapColorModel>) => void
   testNameFilter?: (name: string) => boolean
   onTestClick?: (testName: string) => void
+  /** Group index (`run.index`) whose won tests stay bright while the rest dim, or null. */
+  highlightGroupIdx?: number | null
+  onHighlightChange?: (groupIdx: number | null) => void
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -189,6 +194,8 @@ export function GroupHeatmap({
   onModelChange,
   testNameFilter,
   onTestClick,
+  highlightGroupIdx = null,
+  onHighlightChange,
 }: GroupHeatmapProps) {
   const [sortMode, setSortMode] = useState<SortMode>('order')
   const { metric, mode, threshold, slowMs } = model
@@ -232,6 +239,7 @@ export function GroupHeatmap({
             mgas: new Array<number | undefined>(runs.length).fill(undefined),
             durations: new Array<number | undefined>(runs.length).fill(undefined),
             fails: new Array<boolean>(runs.length).fill(false),
+            winners: new Set(),
             spread: 0,
           }
           byName.set(name, test)
@@ -247,6 +255,14 @@ export function GroupHeatmap({
     for (const test of list) {
       const known = (metric === 'mgas' ? test.mgas : test.durations).filter((v): v is number => v !== undefined)
       if (known.length >= 2) test.spread = Math.max(...known) / Math.min(...known) - 1
+
+      const knownMgas = test.mgas.filter((v): v is number => v !== undefined)
+      if (knownMgas.length >= 2) {
+        const best = Math.max(...knownMgas)
+        test.mgas.forEach((v, gi) => {
+          if (v === best) test.winners.add(gi)
+        })
+      }
     }
 
     if (sortMode === 'spread') list.sort((a, b) => b.spread - a.spread || a.order - b.order)
@@ -286,11 +302,23 @@ export function GroupHeatmap({
     return out
   }, [tests, perRow])
 
+  // The highlighted group's position in `runs`, or -1 when none or when
+  // the group has no result.
+  const highlightPos = highlightGroupIdx === null ? -1 : runs.findIndex((r) => r.index === highlightGroupIdx)
+  const highlightRun = highlightPos >= 0 ? runs[highlightPos] : undefined
+  const highlightedTestCount = useMemo(
+    () => (highlightPos >= 0 ? tests.filter((t) => t.winners.has(highlightPos)).length : 0),
+    [tests, highlightPos],
+  )
+
   const valuesOf = (test: HeatmapTest, m: HeatmapColorModel['metric']) => (m === 'mgas' ? test.mgas : test.durations)
   const tileStyle = (test: HeatmapTest, gi: number): React.CSSProperties => {
     const values = valuesOf(test, deferredModel.metric)
     const color = heatmapColor(values[gi], values[baselineIdx], deferredModel)
     const style: React.CSSProperties = color ? { backgroundColor: color } : { ...NO_DATA_STYLE }
+    // With a highlighted group, every column it does not win dims, the
+    // same treatment as a filtered-out tile on the run page.
+    if (highlightPos >= 0 && !test.winners.has(highlightPos)) style.opacity = 0.15
     // A slow payload gets an inset outline in every mode, like the run
     // page. It sits inside the tile, so it stays readable next to the red
     // failure ring.
@@ -321,6 +349,17 @@ export function GroupHeatmap({
               title={`Tests with a group whose payload time is above ${formatSlowMs(slowMs)}`}
             >
               {slowTestCount} slow
+            </span>
+          )}
+          {highlightRun && (
+            <span className={clsx('inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs/5 font-medium', RUN_SLOTS[highlightRun.index].badgeBgClass, RUN_SLOTS[highlightRun.index].badgeTextClass)}>
+              <img src={`/img/clients/${highlightRun.config.instance.client}.jpg`} alt="" className="size-3.5 rounded-full object-cover" />
+              {highlightedTestCount} tests won by {highlightRun.config.instance.client}
+              {onHighlightChange && (
+                <button type="button" onClick={() => onHighlightChange(null)} className="ml-0.5 opacity-70 hover:opacity-100" title="Clear the highlight">
+                  ×
+                </button>
+              )}
             </span>
           )}
         </div>

@@ -417,6 +417,9 @@ export function CompareGroupsPage() {
   }, [])
 
   // ─── Test detail modal ─────────────────────────────────────────
+  // Group whose won tests the heatmap highlights, picked in the ranking.
+  const [highlightGroupIdx, setHighlightGroupIdx] = useState<number | null>(null)
+
   // The open test modal lives in the URL, the same `testModal` param as
   // the run page, so a link opens straight on the test.
   const selectedTest = search.testModal || null
@@ -770,6 +773,8 @@ export function CompareGroupsPage() {
             stepFilter={stepFilter}
             labelMode="instance-id"
             testNameFilter={testNameFilter}
+            highlightGroupIdx={highlightGroupIdx}
+            onHighlightChange={setHighlightGroupIdx}
           />
 
           <GroupHeatmap
@@ -783,6 +788,8 @@ export function CompareGroupsPage() {
             onModelChange={updateHeatmapModel}
             testNameFilter={testNameFilter}
             onTestClick={setSelectedTest}
+            highlightGroupIdx={highlightGroupIdx}
+            onHighlightChange={setHighlightGroupIdx}
           />
 
           <MGasComparisonChart
