@@ -416,15 +416,21 @@ export function CompareGroupsPage() {
   }, [selectedTest, groups, groupRuns, resultQueries])
 
   // The averaged MGas/s per group for the selected test — the value the
-  // heatmap tile is coloured by.
+  // heatmap tile is coloured by. Keyed by group index, not by position in
+  // `syntheticRuns`, which skips a group without config or results.
   const groupValuesForModal = useMemo(() => {
     if (!selectedTest) return []
-    return syntheticRuns.map((run) => {
+    const values = new Array<number | undefined>(groups.length).fill(undefined)
+    for (const run of syntheticRuns) {
       const entry = run.result?.tests[selectedTest]
       const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
-      return stats && stats.gas_used_time_total > 0 ? (stats.gas_used_total * 1000) / stats.gas_used_time_total : undefined
-    })
-  }, [selectedTest, syntheticRuns, stepFilter])
+      values[run.index] = stats && stats.gas_used_time_total > 0 ? (stats.gas_used_total * 1000) / stats.gas_used_time_total : undefined
+    }
+    return values
+  }, [selectedTest, groups.length, syntheticRuns, stepFilter])
+
+  // `baselineIdx` is a position in `syntheticRuns`; the modal works per group.
+  const baselineGroupIdx = syntheticRuns[baselineIdx]?.index ?? -1
 
   const groupTimestampsForModal = useMemo(
     () => groupSampledEntries.map((entries) => entries.map((e) => e.timestamp)),
@@ -844,7 +850,7 @@ export function CompareGroupsPage() {
           groupTimestamps={groupTimestampsForModal}
           groupRunIds={groupRuns}
           groupValues={groupValuesForModal}
-          baselineIdx={baselineIdx}
+          baselineGroupIdx={baselineGroupIdx}
           heatmapColorMode={heatmapColorMode}
           heatmapThreshold={heatmapThreshold}
           stepFilter={stepFilter}

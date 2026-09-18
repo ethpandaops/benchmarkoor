@@ -23,9 +23,10 @@ interface TestDetailModalProps {
   groupTimestamps: number[][]
   /** Run IDs per group for linking to run detail pages. */
   groupRunIds: string[][]
-  /** Averaged MGas/s per group for this test — the value the heatmap tile shows. */
+  /** Averaged MGas/s per group (same order as groups) — the value the heatmap tile shows. */
   groupValues: (number | undefined)[]
-  baselineIdx: number
+  /** Group index of the baseline, or -1 when the baseline group has no result. */
+  baselineGroupIdx: number
   /** Colour model of the heatmap, so the cards match its tiles. */
   heatmapColorMode: HeatmapColorMode
   heatmapThreshold: number
@@ -51,7 +52,7 @@ export function TestDetailModal({
   groupTimestamps,
   groupRunIds,
   groupValues,
-  baselineIdx,
+  baselineGroupIdx,
   heatmapColorMode,
   heatmapThreshold,
   stepFilter,
@@ -198,9 +199,9 @@ export function TestDetailModal({
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
               {groupData.map((group, gi) => {
                 const value = groupValues[gi]
-                const base = groupValues[baselineIdx]
+                const base = baselineGroupIdx >= 0 ? groupValues[baselineGroupIdx] : undefined
                 const color = heatmapColor(value, base, heatmapColorMode, heatmapThreshold)
-                const isBaseline = heatmapColorMode === 'baseline' && gi === baselineIdx && groupData.length >= 2
+                const isBaseline = heatmapColorMode === 'baseline' && gi === baselineGroupIdx && groupData.length >= 2
                 return (
                   <div
                     key={gi}

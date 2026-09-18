@@ -54,6 +54,12 @@ interface GroupHeatmapProps {
   suiteTests?: SuiteTest[]
   stepFilter: StepTypeOption[]
   labelMode: LabelMode
+  /**
+   * Position of the baseline in `runs`, the same convention as the other
+   * compare widgets. Not a group index: the page drops a group from
+   * `runs` when it has no config or no results, so `run.index` can differ
+   * from the position.
+   */
   baselineIdx: number
   onBaselineChange: (idx: number) => void
   /** See heatmapColor.ts. Controlled by the page so the test modal can match the tiles. */
@@ -269,8 +275,8 @@ export function GroupHeatmap({
               onChange={(e) => onBaselineChange(Number(e.target.value))}
               className="rounded-xs border border-gray-300 bg-white px-1.5 py-0.5 text-xs/5 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
             >
-              {runs.map((run) => (
-                <option key={run.index} value={run.index}>
+              {runs.map((run, i) => (
+                <option key={run.index} value={i}>
                   {formatRunLabel(RUN_SLOTS[run.index], run, labelMode)}
                 </option>
               ))}
