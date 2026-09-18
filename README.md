@@ -65,6 +65,15 @@ make run-ui
 
 It should print the address where you can access it. By default it's http://localhost:5173/ .
 
+To debug the UI against real data, point the dev server at a remote API. Create an API key on that deployment first (the `/api-keys` page in its UI), then:
+
+```sh
+BENCHMARKOOR_API=https://benchmarkoor-api.core.ethpandaops.io \
+BENCHMARKOOR_API_KEY=bmk_... make run-ui
+```
+
+The dev server proxies `/api` to the remote host and adds the key to each request. The browser only talks to localhost, so CORS and login are not involved. Omit `BENCHMARKOOR_API_KEY` if the remote API allows anonymous reads.
+
 Now we want to run benchmarkoor. We'll be using an example configuration file that contains some stateless tests. By default we'll be just running the `bn128` subset of that suite. Have a look at the config file for more details:
 ```sh
 ./bin/benchmarkoor run --config examples/configuration/config.stateless.eest.yaml
