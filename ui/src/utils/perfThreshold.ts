@@ -116,7 +116,7 @@ export function durationStepRange(step: number, slowMs: number): string {
 export const MIN_SLOW_MS = 100
 export const MAX_SLOW_MS = 20_000
 export const SLOW_STEP_MS = 100
-export const DEFAULT_SLOW_MS = 3_000
+export const DEFAULT_SLOW_MS = 4_000
 
 // Marker colour for a slow payload. Distinct from the MGas/s scale
 // (green → red) and from the red failure ring.

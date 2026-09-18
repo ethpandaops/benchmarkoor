@@ -129,8 +129,9 @@ function ModeGroup<T extends string>({ label, value, options, onChange }: {
 
 // LimitControl is the slider plus number box of an absolute limit, the
 // same control as the run page. The slider sweeps, the box takes an
-// exact value, and a reset link appears off the default.
-function LimitControl({ label, unit, value, min, max, step, defaultValue, onChange }: {
+// exact value, and a reset link appears off the default. `boxScale`
+// divides the value for the box, e.g. 1000 shows milliseconds as seconds.
+function LimitControl({ label, unit, value, min, max, step, defaultValue, boxScale = 1, accent = 'blue', onChange }: {
   label: string
   unit: string
   value: number
@@ -138,6 +139,8 @@ function LimitControl({ label, unit, value, min, max, step, defaultValue, onChan
   max: number
   step: number
   defaultValue: number
+  boxScale?: number
+  accent?: 'blue' | 'fuchsia'
   onChange: (value: number) => void
 }) {
   const clamp = (v: number) => Math.max(min, Math.min(max, v || defaultValue))
@@ -151,15 +154,18 @@ function LimitControl({ label, unit, value, min, max, step, defaultValue, onChan
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+        className={clsx(
+          'h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 dark:bg-gray-700',
+          accent === 'fuchsia' ? 'accent-fuchsia-500' : 'accent-blue-500',
+        )}
       />
       <input
         type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(clamp(Number(e.target.value)))}
+        min={min / boxScale}
+        max={max / boxScale}
+        step={step / boxScale}
+        value={value / boxScale}
+        onChange={(e) => onChange(clamp(Number(e.target.value) * boxScale))}
         className="w-16 rounded-xs border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
       />
       <span>{unit}</span>
@@ -395,12 +401,14 @@ export function GroupHeatmap({
         {/* Always shown: the limit marks slow tiles in every mode, and colours them in duration mode. */}
         <LimitControl
           label="Slow limit:"
-          unit="ms"
+          unit="s"
           value={slowMs}
           min={MIN_SLOW_MS}
           max={MAX_SLOW_MS}
           step={SLOW_STEP_MS}
           defaultValue={DEFAULT_SLOW_MS}
+          boxScale={1000}
+          accent="fuchsia"
           onChange={(v) => onModelChange({ slowMs: v })}
         />
       </div>
