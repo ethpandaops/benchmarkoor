@@ -13,7 +13,6 @@ import { FacetPanel } from '@/components/shared/FacetPanel'
 import { CompareDimensionInsights } from '@/components/compare/CompareDimensionInsights'
 import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type CompareRun, type ChartType, CHART_TYPE_OPTIONS } from '@/components/compare/constants'
-import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
 import { GroupHeatmap } from '@/components/compare/GroupHeatmap'
 import { GroupRanking } from '@/components/compare/GroupRanking'
@@ -759,20 +758,13 @@ export function CompareGroupsPage() {
             onToggle={(term) => updateFilterSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
           />
 
-          <MetricsComparison
-            runs={syntheticRuns}
-            stepFilter={stepFilter}
-            baselineIdx={baselineIdx}
-            onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
-            labelMode="instance-id" // shows the group label we set
-            testNameFilter={testNameFilter}
-          />
-
           <GroupRanking
             runs={syntheticRuns}
             stepFilter={stepFilter}
-            labelMode="instance-id"
+            labelMode="instance-id" // shows the group label we set
             testNameFilter={testNameFilter}
+            baselineIdx={baselineIdx}
+            onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
             highlightGroupIdx={highlightGroupIdx}
             onHighlightChange={setHighlightGroupIdx}
           />
