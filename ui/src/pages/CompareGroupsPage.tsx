@@ -55,7 +55,7 @@ export function CompareGroupsPage() {
   const aggMode = (search.agg === 'median' ? 'median' : 'avg') as 'avg' | 'median'
   const stepFilter = parseStepFilter(search.steps)
 
-  const { data: index } = useIndex()
+  const { data: index, isLoading: indexLoading } = useIndex()
   const { data: suite } = useSuite(suiteHash)
 
   const updateSearch = useCallback(
@@ -446,6 +446,7 @@ export function CompareGroupsPage() {
         groupRunCounts={groupRuns.map((ids) => ids.length)}
         groupMatchedRuns={groupMatchedEntries}
         groupLoadingFlags={groupLoadingFlags}
+        indexLoading={indexLoading}
       />
       </div>
 
@@ -552,6 +553,10 @@ export function CompareGroupsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {indexLoading && suiteHash && groups.length > 0 && (
+        <LoadingState message="Loading the run index..." />
       )}
 
       {isLoading && allRunIds.length > 0 && (

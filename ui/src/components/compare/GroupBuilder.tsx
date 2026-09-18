@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { Plus, Trash2 } from 'lucide-react'
 import { JDenticon } from '@/components/shared/JDenticon'
@@ -6,6 +6,7 @@ import { Spinner } from '@/components/shared/Spinner'
 import { type IndexEntry, getIndexAggregatedStats } from '@/api/types'
 import { formatTimestamp } from '@/utils/date'
 import { formatDuration } from '@/utils/format'
+import { NEUTRAL_COLOR, createColorScale } from '@/utils/runColorScale'
 import type { GroupDef } from './groupUtils'
 import { RUN_SLOTS } from './constants'
 
@@ -29,6 +30,23 @@ interface GroupBuilderProps {
   groupMatchedRuns: IndexEntry[][]
   /** Per-group loading flag — true while this group's config or any of its result queries are in-flight. */
   groupLoadingFlags: boolean[]
+  /** True while the run index is in-flight. The option lists and run counts are empty until it arrives. */
+  indexLoading: boolean
+}
+
+/** MGas/s of a run over all its steps, or undefined when it has no throughput yet. */
+function mgasPerSec(run: IndexEntry): number | undefined {
+  const stats = getIndexAggregatedStats(run)
+  return stats.gasUsedDuration > 0 ? (stats.gasUsed * 1000) / stats.gasUsedDuration : undefined
+}
+
+// No status means completed, for entries written before the field existed.
+function isRunCompleted(run: IndexEntry): boolean {
+  return !run.status || run.status === 'completed'
+}
+
+function isRunLive(run: IndexEntry): boolean {
+  return run.status === 'running'
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -49,6 +67,7 @@ export function GroupBuilder({
   groupRunCounts,
   groupMatchedRuns,
   groupLoadingFlags,
+  indexLoading,
 }: GroupBuilderProps) {
   const addGroup = () => {
     const nextClient = availableClients.find((c) => !groups.some((g) => g.client === c)) ?? availableClients[0] ?? ''
@@ -75,6 +94,12 @@ export function GroupBuilder({
     updateGroup(idx, { metadata: next })
   }
 
+  // The URL can select a suite before the index arrives. Keep it in the
+  // option list so the select does not fall back to the placeholder.
+  const suiteOptions = selectedSuite && !availableSuites.includes(selectedSuite)
+    ? [selectedSuite, ...availableSuites]
+    : availableSuites
+
   return (
     <div className="flex flex-col gap-4 rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
       {/* Suite picker + controls row */}
@@ -87,7 +112,7 @@ export function GroupBuilder({
             className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           >
             <option value="">Select a suite…</option>
-            {availableSuites.map((hash) => (
+            {suiteOptions.map((hash) => (
               <option key={hash} value={hash}>
                 {hash === selectedSuite && suiteName ? suiteName : hash.slice(0, 12)}
               </option>
@@ -144,6 +169,7 @@ export function GroupBuilder({
               sampleSize={sampleSize}
               matchedRuns={groupMatchedRuns[idx] ?? []}
               loading={groupLoadingFlags[idx] ?? false}
+              indexLoading={indexLoading}
               onClientChange={(client) => updateGroup(idx, { client, metadata: {} })}
               onAddMetadata={(key, val) => addMetadata(idx, key, val)}
               onRemoveMetadata={(key) => removeMetadata(idx, key)}
@@ -177,6 +203,7 @@ function GroupCard({
   sampleSize,
   matchedRuns,
   loading,
+  indexLoading,
   onClientChange,
   onAddMetadata,
   onRemoveMetadata,
@@ -191,6 +218,7 @@ function GroupCard({
   sampleSize: number
   matchedRuns: IndexEntry[]
   loading: boolean
+  indexLoading: boolean
   onClientChange: (client: string) => void
   onAddMetadata: (key: string, value: string) => void
   onRemoveMetadata: (key: string) => void
@@ -203,6 +231,12 @@ function GroupCard({
   const unusedKeys = [...availableMetadataKeys.entries()].filter(
     ([key]) => !(key in group.metadata),
   )
+
+  // The URL can select a client before the index arrives. Keep it in the
+  // option list so the select does not fall back to the placeholder.
+  const clientOptions = group.client && !availableClients.includes(group.client)
+    ? [group.client, ...availableClients]
+    : availableClients
 
   return (
     <div className={clsx('flex flex-col gap-2 rounded-sm border border-gray-200 p-3 dark:border-gray-700', SLOT_COLORS[index % SLOT_COLORS.length])}>
@@ -217,7 +251,7 @@ function GroupCard({
           className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-sm/6 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
         >
           <option value="">Select client…</option>
-          {availableClients.map((c) => (
+          {clientOptions.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
@@ -230,24 +264,27 @@ function GroupCard({
           />
         )}
 
-        {loading && (
+        {(loading || indexLoading) && (
           <span className="ml-auto inline-flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">
             <Spinner size="sm" />
             Loading…
           </span>
         )}
 
-        <span className={clsx(
-          'rounded-xs px-2 py-0.5 text-xs/5 font-medium',
-          !loading && 'ml-auto',
-          runCount >= sampleSize
-            ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
-            : runCount > 0
-              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200'
-              : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-        )}>
-          {runCount} run{runCount !== 1 ? 's' : ''} found
-        </span>
+        {/* The count is 0 until the index arrives, so hide it until then. */}
+        {!indexLoading && (
+          <span className={clsx(
+            'rounded-xs px-2 py-0.5 text-xs/5 font-medium',
+            !loading && 'ml-auto',
+            runCount >= sampleSize
+              ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
+              : runCount > 0
+                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200'
+                : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+          )}>
+            {runCount} run{runCount !== 1 ? 's' : ''} found
+          </span>
+        )}
 
         {canRemove && (
           <button
@@ -321,10 +358,7 @@ function GroupCard({
       {matchedRuns.length > 0 && (() => {
         const sampled = matchedRuns.slice(0, sampleSize)
         const mgasValues = sampled
-          .map((r) => {
-            const s = getIndexAggregatedStats(r)
-            return s.gasUsedDuration > 0 ? (s.gasUsed * 1000) / s.gasUsedDuration : undefined
-          })
+          .map(mgasPerSec)
           .filter((v): v is number => v !== undefined)
           .sort((a, b) => a - b)
 
@@ -359,13 +393,24 @@ function GroupCard({
 function RunBoxes({ runs, sampleSize }: { runs: IndexEntry[]; sampleSize: number }) {
   const [tooltip, setTooltip] = useState<{ run: IndexEntry; x: number; y: number } | null>(null)
 
+  // Grade each box by its shortfall against the best run of this group,
+  // the same scale as the per-client mode of the suite page heatmap.
+  const scale = useMemo(
+    () => createColorScale(runs.map(mgasPerSec).filter((v): v is number => v !== undefined), true),
+    [runs],
+  )
+
   return (
     <div className="relative flex flex-wrap items-center gap-1">
       <span className="mr-1 text-xs text-gray-500 dark:text-gray-400">Runs:</span>
       {runs.map((run, i) => {
         const inSample = i < sampleSize
-        const passed = run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total
-        const failed = run.status === 'container_died' || run.status === 'cancelled'
+        const completed = isRunCompleted(run)
+        const live = isRunLive(run)
+        // A live run reports its failed count; total - passed would count
+        // the tests it has not reached yet.
+        const failedTests = live ? run.tests.tests_failed : run.tests.tests_total - run.tests.tests_passed
+        const mgas = mgasPerSec(run)
 
         return (
           <a
@@ -381,18 +426,36 @@ function RunBoxes({ runs, sampleSize }: { runs: IndexEntry[]; sampleSize: number
             className={clsx(
               'relative size-4 shrink-0 rounded-xs',
               !inSample && 'opacity-30',
-              inSample && 'ring-1 ring-inset ring-black/10 dark:ring-white/10',
+              live
+                ? 'ring-2 ring-inset ring-blue-500 dark:ring-blue-400'
+                : !completed
+                  ? 'ring-2 ring-inset ring-red-600 dark:ring-red-500'
+                  : failedTests > 0
+                    ? 'ring-2 ring-inset ring-orange-500'
+                    : inSample && 'ring-1 ring-inset ring-black/10 dark:ring-white/10',
             )}
             style={{
-              backgroundColor: failed
-                ? '#6b7280'
-                : passed
-                  ? '#22c55e'
-                  : '#eab308',
+              backgroundColor: live
+                ? '#3b82f6' // blue-500
+                : !completed
+                  ? '#6b7280' // gray-500
+                  : mgas === undefined
+                    ? NEUTRAL_COLOR
+                    : scale.color(mgas),
             }}
           >
-            {failed && (
-              <svg className="absolute inset-0 size-4 text-red-500" viewBox="0 0 16 16" fill="none">
+            {live && (
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="size-1.5 animate-pulse rounded-full bg-white" />
+              </span>
+            )}
+            {!live && completed && failedTests > 0 && (
+              <svg className="absolute inset-0 size-4" viewBox="0 0 16 16" fill="none">
+                <text x="8" y="12" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold" fontFamily="system-ui">!</text>
+              </svg>
+            )}
+            {!live && !completed && (
+              <svg className="absolute inset-0 size-4 text-red-600 dark:text-red-400" viewBox="0 0 16 16" fill="none">
                 <path d="M3 3l10 10M3 13L13 3" stroke="currentColor" strokeWidth="1.5" />
               </svg>
             )}
@@ -402,7 +465,7 @@ function RunBoxes({ runs, sampleSize }: { runs: IndexEntry[]; sampleSize: number
 
       {tooltip && (() => {
         const stats = getIndexAggregatedStats(tooltip.run)
-        const mgas = stats.gasUsedDuration > 0 ? (stats.gasUsed * 1000) / stats.gasUsedDuration : undefined
+        const mgas = mgasPerSec(tooltip.run)
         return (
           <div
             className="pointer-events-none fixed z-50 rounded-sm bg-white px-3 py-2 text-xs/5 shadow-lg ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:ring-gray-700"
@@ -410,9 +473,12 @@ function RunBoxes({ runs, sampleSize }: { runs: IndexEntry[]; sampleSize: number
           >
             <div className="flex flex-col gap-1">
               <div className="font-medium">{formatTimestamp(tooltip.run.timestamp)}</div>
-              {(tooltip.run.status === 'container_died' || tooltip.run.status === 'cancelled') && (
+              {isRunLive(tooltip.run) && (
+                <div className="font-medium text-blue-600 dark:text-blue-400">In progress</div>
+              )}
+              {!isRunLive(tooltip.run) && !isRunCompleted(tooltip.run) && (
                 <div className="font-medium text-red-600 dark:text-red-400">
-                  {tooltip.run.status === 'container_died' ? 'Container Died' : 'Cancelled'}
+                  {tooltip.run.status === 'container_died' ? 'Container Died' : tooltip.run.status === 'cancelled' ? 'Cancelled' : tooltip.run.status}
                 </div>
               )}
               <div>Duration: {formatDuration(stats.duration)}</div>
