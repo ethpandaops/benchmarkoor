@@ -12,19 +12,15 @@ import {
   THRESHOLD_COLORS,
   THRESHOLD_LIMIT_STEP,
   THRESHOLD_RATIOS,
-  getColorByThreshold,
-  thresholdStep,
   thresholdStepRange,
 } from '@/utils/perfThreshold'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { type HeatmapColorMode, formatRatio, heatmapColor } from './heatmapColor'
 
 // One row per group, one column per test. When the tests do not fit the
 // width, the matrix wraps into stanzas: each stanza repeats the group
 // rows for its slice of tests, so a column is the same test in every row.
 
-// ColorMode selects what a tile says: throughput against an absolute
-// threshold, or the ratio to the baseline group on the same test.
-type ColorMode = 'mgas' | 'baseline'
 type SortMode = 'order' | 'spread'
 
 // Same tile as the run-detail heatmap. The logo is the tile size too,
@@ -60,6 +56,12 @@ interface GroupHeatmapProps {
   labelMode: LabelMode
   baselineIdx: number
   onBaselineChange: (idx: number) => void
+  /** See heatmapColor.ts. Controlled by the page so the test modal can match the tiles. */
+  colorMode: HeatmapColorMode
+  onColorModeChange: (mode: HeatmapColorMode) => void
+  /** MGas/s threshold of the 'mgas' colour mode. */
+  threshold: number
+  onThresholdChange: (threshold: number) => void
   testNameFilter?: (name: string) => boolean
   onTestClick?: (testName: string) => void
 }
@@ -79,13 +81,6 @@ function baselineStepRange(step: number): string {
   if (low === 0) return `< ${fmt(high)} the baseline`
 
   return `${fmt(low)} – ${fmt(high)} the baseline`
-}
-
-/** Render a ratio to the baseline as a signed percentage, e.g. 1.2 -> "+20%". */
-function formatRatio(ratio: number): string {
-  const percent = (ratio - 1) * 100
-  const sign = percent > 0 ? '+' : ''
-  return `${sign}${Math.abs(percent) < 10 ? percent.toFixed(1) : percent.toFixed(0)}%`
 }
 
 function ModeGroup<T extends string>({ label, value, options, onChange }: {
@@ -118,10 +113,21 @@ function ModeGroup<T extends string>({ label, value, options, onChange }: {
   )
 }
 
-export function GroupHeatmap({ runs, suiteTests, stepFilter, labelMode, baselineIdx, onBaselineChange, testNameFilter, onTestClick }: GroupHeatmapProps) {
-  const [colorMode, setColorMode] = useState<ColorMode>('baseline')
+export function GroupHeatmap({
+  runs,
+  suiteTests,
+  stepFilter,
+  labelMode,
+  baselineIdx,
+  onBaselineChange,
+  colorMode,
+  onColorModeChange,
+  threshold,
+  onThresholdChange,
+  testNameFilter,
+  onTestClick,
+}: GroupHeatmapProps) {
   const [sortMode, setSortMode] = useState<SortMode>('order')
-  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
   // The tooltip anchors to the hovered tile. Its own size is only known
   // once rendered, so it renders hidden and a layout effect measures it,
   // clamps it inside the viewport and shows it before the paint.
@@ -206,13 +212,8 @@ export function GroupHeatmap({ runs, suiteTests, stepFilter, labelMode, baseline
   }, [tests, perRow])
 
   const tileStyle = (test: HeatmapTest, gi: number) => {
-    const value = test.values[gi]
-    if (value === undefined) return NO_DATA_STYLE
-    if (colorMode === 'mgas') return { backgroundColor: getColorByThreshold(value, threshold) }
-
-    const base = test.values[baselineIdx]
-    if (base === undefined) return NO_DATA_STYLE
-    return { backgroundColor: THRESHOLD_COLORS[thresholdStep(value / base)] }
+    const color = heatmapColor(test.values[gi], test.values[baselineIdx], colorMode, threshold)
+    return color ? { backgroundColor: color } : NO_DATA_STYLE
   }
 
   if (tests.length === 0) return null
@@ -245,7 +246,7 @@ export function GroupHeatmap({ runs, suiteTests, stepFilter, labelMode, baseline
         <ModeGroup
           label="Color by:"
           value={colorMode}
-          onChange={setColorMode}
+          onChange={onColorModeChange}
           options={[
             { value: 'baseline', label: 'vs Baseline', title: 'Ratio of each group to the baseline group on the same test' },
             { value: 'mgas', label: 'MGas/s', title: `Color against the ${threshold} MGas/s threshold` },
@@ -284,7 +285,7 @@ export function GroupHeatmap({ runs, suiteTests, stepFilter, labelMode, baseline
               min={MIN_THRESHOLD}
               max={MAX_THRESHOLD}
               value={threshold}
-              onChange={(e) => setThreshold(Math.max(MIN_THRESHOLD, Math.min(MAX_THRESHOLD, Number(e.target.value) || DEFAULT_THRESHOLD)))}
+              onChange={(e) => onThresholdChange(Math.max(MIN_THRESHOLD, Math.min(MAX_THRESHOLD, Number(e.target.value) || DEFAULT_THRESHOLD)))}
               className="w-16 rounded-xs border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
             />
             <span>MGas/s</span>

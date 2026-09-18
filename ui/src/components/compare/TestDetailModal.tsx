@@ -2,16 +2,20 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { GitCompareArrows, X } from 'lucide-react'
 import clsx from 'clsx'
-import type { RunResult } from '@/api/types'
+import type { RunResult, SuiteTest } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { TestName } from '@/components/shared/TestName'
+import { EESTInfoContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { formatTimestamp } from '@/utils/date'
 import { type GroupDef } from './groupUtils'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from './constants'
+import { type HeatmapColorMode, formatRatio, heatmapColor } from './heatmapColor'
 
 interface TestDetailModalProps {
   testName: string
   testOrder?: number
+  /** The suite entry of the test, for its EEST info and opcode counts. */
+  suiteTest?: SuiteTest
   groups: GroupDef[]
   /** All individual RunResult objects per group (same order as groups). */
   groupResults: RunResult[][]
@@ -19,6 +23,12 @@ interface TestDetailModalProps {
   groupTimestamps: number[][]
   /** Run IDs per group for linking to run detail pages. */
   groupRunIds: string[][]
+  /** Averaged MGas/s per group for this test — the value the heatmap tile shows. */
+  groupValues: (number | undefined)[]
+  baselineIdx: number
+  /** Colour model of the heatmap, so the cards match its tiles. */
+  heatmapColorMode: HeatmapColorMode
+  heatmapThreshold: number
   stepFilter: StepTypeOption[]
   /** Current page-level search query (used to highlight active chips). */
   searchQuery?: string
@@ -35,18 +45,26 @@ interface TestDetailModalProps {
 export function TestDetailModal({
   testName,
   testOrder,
+  suiteTest,
   groups,
   groupResults,
   groupTimestamps,
   groupRunIds,
+  groupValues,
+  baselineIdx,
+  heatmapColorMode,
+  heatmapThreshold,
   stepFilter,
   searchQuery,
   onChipFilterToggle,
   onClose,
 }: TestDetailModalProps) {
   const SLOT_COLORS = ['text-blue-700 dark:text-blue-300', 'text-orange-700 dark:text-orange-300', 'text-purple-700 dark:text-purple-300', 'text-green-700 dark:text-green-300', 'text-red-700 dark:text-red-300']
+  // Dot fill per slot, the 500 shade of the same hues as SLOT_COLORS.
+  const DOT_COLORS = ['#3b82f6', '#f97316', '#a855f7', '#22c55e', '#ef4444']
 
   const navigate = useNavigate()
+  const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
 
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
   const toggleGroupExpand = (gi: number) => {
@@ -107,12 +125,21 @@ export function TestDetailModal({
           timestamp: timestamps[ri],
           mgas,
           gasUsed: stats?.gas_used_total ?? 0,
+          gasUsedTime: stats?.gas_used_time_total ?? 0,
           duration: stats?.time_total ?? 0,
         }
       })
 
       const mgasValues = runs.map((r) => r.mgas).filter((v): v is number => v !== undefined)
-      const average = mgasValues.length > 0 ? mgasValues.reduce((a, b) => a + b, 0) / mgasValues.length : undefined
+      // The average throughput is total gas over total time, the same
+      // number the averaged group result and the heatmap use. Time is the
+      // measured quantity, so a slow run weighs as much as it lasted. The
+      // arithmetic mean of the per-run rates reads high whenever the runs
+      // spread; it is kept only for σ and CV, which are defined around it.
+      const measured = runs.filter((r) => r.mgas !== undefined)
+      const totalGasTime = measured.reduce((sum, r) => sum + r.gasUsedTime, 0)
+      const average = totalGasTime > 0 ? (measured.reduce((sum, r) => sum + r.gasUsed, 0) * 1000) / totalGasTime : undefined
+      const mean = mgasValues.length > 0 ? mgasValues.reduce((a, b) => a + b, 0) / mgasValues.length : undefined
       const median = mgasValues.length > 0
         ? (() => {
             const sorted = [...mgasValues].sort((a, b) => a - b)
@@ -122,14 +149,14 @@ export function TestDetailModal({
         : undefined
       const min = mgasValues.length > 0 ? Math.min(...mgasValues) : undefined
       const max = mgasValues.length > 0 ? Math.max(...mgasValues) : undefined
-      const stddev = mgasValues.length >= 2 && average !== undefined
-        ? Math.sqrt(mgasValues.reduce((sum, v) => sum + (v - average) ** 2, 0) / (mgasValues.length - 1))
+      const stddev = mgasValues.length >= 2 && mean !== undefined
+        ? Math.sqrt(mgasValues.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (mgasValues.length - 1))
         : undefined
 
       const metaStr = Object.entries(group.metadata).map(([k, v]) => `${k}=${v}`).join(', ')
       const label = metaStr || group.client
 
-      return { label, client: group.client, runs, average, median, min, max, stddev, mgasValues }
+      return { label, client: group.client, runs, average, mean, median, min, max, stddev, mgasValues }
     })
   }, [groups, groupResults, groupTimestamps, groupRunIds, stepFilter, testName])
 
@@ -138,11 +165,12 @@ export function TestDetailModal({
   const globalMin = allMgas.length > 0 ? Math.min(...allMgas) : 0
   const globalMax = allMgas.length > 0 ? Math.max(...allMgas) : 1
   const range = globalMax - globalMin || 1
+  const dotLeft = (v: number) => `${Math.max(2, Math.min(98, ((v - globalMin) / range) * 100))}%`
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div
-        className="mx-4 flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-sm bg-white shadow-xl dark:bg-gray-800"
+        className="mx-4 flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-sm bg-white shadow-xl dark:bg-gray-800"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -163,6 +191,72 @@ export function TestDetailModal({
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4 pb-20">
           <div className="flex flex-col gap-6">
+            {suiteTest && (
+              <EESTInfoContent test={suiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
+            )}
+            {/* One card per group with the averaged value, tinted like its heatmap tile */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              {groupData.map((group, gi) => {
+                const value = groupValues[gi]
+                const base = groupValues[baselineIdx]
+                const color = heatmapColor(value, base, heatmapColorMode, heatmapThreshold)
+                const isBaseline = heatmapColorMode === 'baseline' && gi === baselineIdx && groupData.length >= 2
+                return (
+                  <div
+                    key={gi}
+                    className="flex flex-col gap-1 rounded-sm border-l-4 border-gray-300 bg-gray-100 px-3 py-2 dark:border-gray-600 dark:bg-gray-700/50"
+                    style={color ? { borderColor: color, backgroundColor: `${color}26` } : undefined}
+                  >
+                    <span className={clsx('inline-flex items-center gap-1.5 text-xs/5 font-medium', SLOT_COLORS[gi % SLOT_COLORS.length])}>
+                      <img src={`/img/clients/${group.client}.jpg`} alt={group.client} className="size-3.5 rounded-full object-cover" />
+                      <span className="truncate">{group.label}</span>
+                    </span>
+                    <span className="font-mono text-lg/7 font-semibold text-gray-900 dark:text-gray-100">
+                      {value === undefined ? '—' : value.toFixed(2)}
+                      <span className="ml-1 text-xs/5 font-normal text-gray-500 dark:text-gray-400">MGas/s</span>
+                    </span>
+                    <span className="text-xs/5 text-gray-500 dark:text-gray-400">
+                      {isBaseline
+                        ? 'baseline'
+                        : heatmapColorMode === 'baseline' && value !== undefined && base !== undefined
+                          ? `${formatRatio(value / base)} vs baseline`
+                          : heatmapColorMode === 'mgas' && value !== undefined
+                            ? `${formatRatio(value / heatmapThreshold)} vs ${heatmapThreshold} MGas/s`
+                            : '\u00a0'}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* All groups on one strip, so the overlap between them is visible at a glance */}
+            {groupData.length >= 2 && (
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">All groups</span>
+                  {groupData.map((group, gi) => (
+                    <span key={gi} className={clsx('inline-flex items-center gap-1 text-xs/5', SLOT_COLORS[gi % SLOT_COLORS.length])}>
+                      <span className="size-2 rounded-full" style={{ backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }} />
+                      {group.label}
+                    </span>
+                  ))}
+                </div>
+                <div className="relative mb-4 h-6 rounded-xs bg-gray-100 dark:bg-gray-700">
+                  {groupData.map((group, gi) =>
+                    group.mgasValues.map((v, i) => (
+                      <span
+                        key={`${gi}-${i}`}
+                        className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-70"
+                        style={{ left: dotLeft(v), backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }}
+                        title={`${group.label}: ${v.toFixed(2)} MGas/s`}
+                      />
+                    )),
+                  )}
+                  <span className="absolute left-1 top-full mt-0.5 text-xs text-gray-400">{globalMin.toFixed(1)}</span>
+                  <span className="absolute right-1 top-full mt-0.5 text-xs text-gray-400">{globalMax.toFixed(1)}</span>
+                </div>
+              </div>
+            )}
             {groupData.map((group, gi) => (
               <div key={gi} className="flex flex-col gap-2">
                 {/* Group header */}
@@ -179,17 +273,14 @@ export function TestDetailModal({
 
                 {/* Dot chart — each dot is one run's MGas/s for this test */}
                 <div className="relative h-6 rounded-xs bg-gray-100 dark:bg-gray-700">
-                  {group.mgasValues.map((v, i) => {
-                    const pct = ((v - globalMin) / range) * 100
-                    return (
-                      <span
-                        key={i}
-                        className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current opacity-70"
-                        style={{ left: `${Math.max(2, Math.min(98, pct))}%`, color: SLOT_COLORS[gi % SLOT_COLORS.length].includes('blue') ? '#3b82f6' : SLOT_COLORS[gi % SLOT_COLORS.length].includes('orange') ? '#f97316' : SLOT_COLORS[gi % SLOT_COLORS.length].includes('purple') ? '#a855f7' : SLOT_COLORS[gi % SLOT_COLORS.length].includes('green') ? '#22c55e' : '#ef4444' }}
-                        title={`${v.toFixed(2)} MGas/s`}
-                      />
-                    )
-                  })}
+                  {group.mgasValues.map((v, i) => (
+                    <span
+                      key={i}
+                      className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-70"
+                      style={{ left: dotLeft(v), backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }}
+                      title={`${v.toFixed(2)} MGas/s`}
+                    />
+                  ))}
                   {/* Min/Max labels */}
                   <span className="absolute left-1 top-full mt-0.5 text-xs text-gray-400">{globalMin.toFixed(1)}</span>
                   <span className="absolute right-1 top-full mt-0.5 text-xs text-gray-400">{globalMax.toFixed(1)}</span>
@@ -201,7 +292,7 @@ export function TestDetailModal({
                     <StatCell
                       label="Avg"
                       value={group.average?.toFixed(2)}
-                      title="Arithmetic mean of MGas/s across the sampled runs in this group."
+                      title="Total gas over total time of the sampled runs — the throughput of the group as a whole, and the value the heatmap and the charts use. A slow run weighs as much as it lasted."
                     />
                     <StatCell
                       label="Median"
@@ -226,14 +317,14 @@ export function TestDetailModal({
                     <StatCell
                       label="σ"
                       value={group.stddev?.toFixed(2)}
-                      title="Sample standard deviation of MGas/s. How much individual runs typically deviate from the average."
+                      title="Sample standard deviation of the per-run MGas/s around their arithmetic mean. How much individual runs typically deviate."
                     />
                     <StatCell
                       label="CV"
-                      value={group.stddev !== undefined && group.average !== undefined && group.average > 0
-                        ? `${((group.stddev / group.average) * 100).toFixed(1)}%`
+                      value={group.stddev !== undefined && group.mean !== undefined && group.mean > 0
+                        ? `${((group.stddev / group.mean) * 100).toFixed(1)}%`
                         : undefined}
-                      title="Coefficient of Variation — standard deviation as a percentage of the average. Lower = more consistent across runs."
+                      title="Coefficient of Variation — standard deviation as a percentage of the arithmetic mean of the per-run MGas/s. Lower = more consistent across runs."
                     />
                   </div>
                 )}
