@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { LayoutGrid } from 'lucide-react'
 import type { AggregatedStats, SuiteTest } from '@/api/types'
@@ -122,7 +122,25 @@ export function GroupHeatmap({ runs, suiteTests, stepFilter, labelMode, baseline
   const [colorMode, setColorMode] = useState<ColorMode>('baseline')
   const [sortMode, setSortMode] = useState<SortMode>('order')
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD)
-  const [tooltip, setTooltip] = useState<{ test: HeatmapTest; x: number; y: number } | null>(null)
+  // The tooltip anchors to the hovered tile. Its own size is only known
+  // once rendered, so it renders hidden and a layout effect measures it,
+  // clamps it inside the viewport and shows it before the paint.
+  const [tooltip, setTooltip] = useState<{ test: HeatmapTest; anchor: DOMRect } | null>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = tooltipRef.current
+    if (!tooltip || !el) return
+    const margin = 8
+    const { width, height } = el.getBoundingClientRect()
+    const { anchor } = tooltip
+    const left = Math.max(margin, Math.min(window.innerWidth - width - margin, anchor.left + anchor.width / 2 - width / 2))
+    // Above the tile, or below it when the top of the viewport is too close.
+    let top = anchor.top - margin - height
+    if (top < margin) top = anchor.bottom + margin
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+    el.style.visibility = 'visible'
+  }, [tooltip])
 
   const tests = useMemo(() => {
     const suiteOrder = new Map<string, number>()
@@ -291,10 +309,7 @@ export function GroupHeatmap({ runs, suiteTests, stepFilter, labelMode, baseline
                   <button
                     key={test.name}
                     onClick={() => onTestClick?.(test.name)}
-                    onMouseEnter={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      setTooltip({ test, x: rect.left + rect.width / 2, y: rect.top })
-                    }}
+                    onMouseEnter={(e) => setTooltip({ test, anchor: e.currentTarget.getBoundingClientRect() })}
                     onMouseLeave={() => setTooltip(null)}
                     className={clsx(
                       'shrink-0 cursor-pointer rounded-xs transition-transform hover:scale-150 hover:ring-2 hover:ring-gray-500 dark:hover:ring-gray-300',
@@ -332,8 +347,9 @@ export function GroupHeatmap({ runs, suiteTests, stepFilter, labelMode, baseline
 
       {tooltip && (
         <div
+          ref={tooltipRef}
           className="pointer-events-none fixed z-50 max-w-[80vw] rounded-sm bg-white px-3 py-2 text-xs/5 shadow-lg ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:ring-gray-700"
-          style={{ left: tooltip.x, top: tooltip.y - 8, transform: 'translate(-50%, -100%)' }}
+          style={{ left: 0, top: 0, visibility: 'hidden' }}
         >
           <div className="flex w-96 max-w-[80vw] flex-col gap-1">
             <TestName name={tooltip.test.name} variant="full" />
