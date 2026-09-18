@@ -16,6 +16,7 @@ import { type CompareRun, type ChartType, CHART_TYPE_OPTIONS } from '@/component
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
 import { GroupHeatmap } from '@/components/compare/GroupHeatmap'
+import { GroupRanking } from '@/components/compare/GroupRanking'
 import { type HeatmapColorModel } from '@/components/compare/heatmapColor'
 import { DEFAULT_SLOW_MS, DEFAULT_THRESHOLD, MAX_SLOW_MS, MAX_THRESHOLD, MIN_SLOW_MS, MIN_THRESHOLD } from '@/utils/perfThreshold'
 import { CVComparisonChart } from '@/components/compare/CVComparisonChart'
@@ -761,6 +762,13 @@ export function CompareGroupsPage() {
             baselineIdx={baselineIdx}
             onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
             labelMode="instance-id" // shows the group label we set
+            testNameFilter={testNameFilter}
+          />
+
+          <GroupRanking
+            runs={syntheticRuns}
+            stepFilter={stepFilter}
+            labelMode="instance-id"
             testNameFilter={testNameFilter}
           />
 
