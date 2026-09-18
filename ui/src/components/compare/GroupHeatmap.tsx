@@ -6,16 +6,25 @@ import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { ColorScaleLegend } from '@/components/shared/ColorScaleLegend'
 import { TestName } from '@/components/shared/TestName'
 import {
+  DEFAULT_SLOW_MS,
   DEFAULT_THRESHOLD,
+  MAX_SLOW_MS,
   MAX_THRESHOLD,
+  MIN_SLOW_MS,
   MIN_THRESHOLD,
+  SLOW_COLOR,
+  SLOW_STEP_MS,
   THRESHOLD_COLORS,
   THRESHOLD_LIMIT_STEP,
   THRESHOLD_RATIOS,
+  durationStepRange,
+  formatSlowMs,
+  isSlowPayload,
   thresholdStepRange,
 } from '@/utils/perfThreshold'
+import { formatDuration } from '@/utils/format'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
-import { type HeatmapColorMode, formatRatio, heatmapColor } from './heatmapColor'
+import { type HeatmapColorModel, baselineRatio, formatRatio, heatmapColor } from './heatmapColor'
 
 // One row per group, one column per test. When the tests do not fit the
 // width, the matrix wraps into stanzas: each stanza repeats the group
@@ -41,10 +50,12 @@ interface HeatmapTest {
   name: string
   order: number
   /** MGas/s per group, in `runs` order. */
-  values: (number | undefined)[]
+  mgas: (number | undefined)[]
+  /** Total engine_newPayload time per group in nanoseconds, in `runs` order. */
+  durations: (number | undefined)[]
   /** Whether the group reported failed executions for this test. */
   fails: boolean[]
-  /** Best over worst group value minus one. Zero when fewer than two groups have a value. */
+  /** Best over worst group value of the active metric, minus one. Zero when fewer than two groups have a value. */
   spread: number
 }
 
@@ -63,11 +74,8 @@ interface GroupHeatmapProps {
   baselineIdx: number
   onBaselineChange: (idx: number) => void
   /** See heatmapColor.ts. Controlled by the page so the test modal can match the tiles. */
-  colorMode: HeatmapColorMode
-  onColorModeChange: (mode: HeatmapColorMode) => void
-  /** MGas/s threshold of the 'mgas' colour mode. */
-  threshold: number
-  onThresholdChange: (threshold: number) => void
+  model: HeatmapColorModel
+  onModelChange: (patch: Partial<HeatmapColorModel>) => void
   testNameFilter?: (name: string) => boolean
   onTestClick?: (testName: string) => void
 }
@@ -119,6 +127,51 @@ function ModeGroup<T extends string>({ label, value, options, onChange }: {
   )
 }
 
+// LimitControl is the slider plus number box of an absolute limit, the
+// same control as the run page. The slider sweeps, the box takes an
+// exact value, and a reset link appears off the default.
+function LimitControl({ label, unit, value, min, max, step, defaultValue, onChange }: {
+  label: string
+  unit: string
+  value: number
+  min: number
+  max: number
+  step: number
+  defaultValue: number
+  onChange: (value: number) => void
+}) {
+  const clamp = (v: number) => Math.max(min, Math.min(max, v || defaultValue))
+  return (
+    <div className="flex items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
+      <span>{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
+      />
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(clamp(Number(e.target.value)))}
+        className="w-16 rounded-xs border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+      />
+      <span>{unit}</span>
+      {value !== defaultValue && (
+        <button onClick={() => onChange(defaultValue)} className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+          reset
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function GroupHeatmap({
   runs,
   suiteTests,
@@ -126,17 +179,16 @@ export function GroupHeatmap({
   labelMode,
   baselineIdx,
   onBaselineChange,
-  colorMode,
-  onColorModeChange,
-  threshold,
-  onThresholdChange,
+  model,
+  onModelChange,
   testNameFilter,
   onTestClick,
 }: GroupHeatmapProps) {
   const [sortMode, setSortMode] = useState<SortMode>('order')
-  // The slider fires on every tick and each tick recolours every tile.
+  const { metric, mode, threshold, slowMs } = model
+  // The sliders fire on every tick and each tick recolours every tile.
   // The controls follow the hand; the tiles follow this deferred copy.
-  const deferredThreshold = useDeferredValue(threshold)
+  const deferredModel = useDeferredValue(model)
   // The tooltip anchors to the hovered tile. Its own size is only known
   // once rendered, so it renders hidden and a layout effect measures it,
   // clamps it inside the viewport and shows it before the paint.
@@ -171,21 +223,23 @@ export function GroupHeatmap({
           test = {
             name,
             order: suiteOrder.get(name) ?? (parseInt(entry.dir, 10) || 0),
-            values: new Array<number | undefined>(runs.length).fill(undefined),
+            mgas: new Array<number | undefined>(runs.length).fill(undefined),
+            durations: new Array<number | undefined>(runs.length).fill(undefined),
             fails: new Array<boolean>(runs.length).fill(false),
             spread: 0,
           }
           byName.set(name, test)
         }
         const stats = getAggregatedStats(entry, stepFilter)
-        test.values[gi] = calculateMGasPerSec(stats)
+        test.mgas[gi] = calculateMGasPerSec(stats)
+        test.durations[gi] = stats && stats.gas_used_time_total > 0 ? stats.gas_used_time_total : undefined
         test.fails[gi] = (stats?.fail ?? 0) > 0
       }
     })
 
     const list = [...byName.values()]
     for (const test of list) {
-      const known = test.values.filter((v): v is number => v !== undefined)
+      const known = (metric === 'mgas' ? test.mgas : test.durations).filter((v): v is number => v !== undefined)
       if (known.length >= 2) test.spread = Math.max(...known) / Math.min(...known) - 1
     }
 
@@ -193,7 +247,7 @@ export function GroupHeatmap({
     else list.sort((a, b) => a.order - b.order)
 
     return list
-  }, [runs, suiteTests, stepFilter, testNameFilter, sortMode])
+  }, [runs, suiteTests, stepFilter, testNameFilter, sortMode, metric])
 
   // Tests per stanza, from the measured width of the grid.
   const gridRef = useRef<HTMLDivElement>(null)
@@ -214,16 +268,34 @@ export function GroupHeatmap({
     return () => observer.disconnect()
   }, [hasTests])
 
+  // Tests with at least one group above the slow-payload limit.
+  const slowTestCount = useMemo(
+    () => tests.filter((t) => t.durations.some((d) => d !== undefined && isSlowPayload(d, slowMs))).length,
+    [tests, slowMs],
+  )
+
   const stanzas = useMemo(() => {
     const out: HeatmapTest[][] = []
     for (let i = 0; i < tests.length; i += perRow) out.push(tests.slice(i, i + perRow))
     return out
   }, [tests, perRow])
 
-  const tileStyle = (test: HeatmapTest, gi: number) => {
-    const color = heatmapColor(test.values[gi], test.values[baselineIdx], colorMode, deferredThreshold)
-    return color ? { backgroundColor: color } : NO_DATA_STYLE
+  const valuesOf = (test: HeatmapTest, m: HeatmapColorModel['metric']) => (m === 'mgas' ? test.mgas : test.durations)
+  const tileStyle = (test: HeatmapTest, gi: number): React.CSSProperties => {
+    const values = valuesOf(test, deferredModel.metric)
+    const color = heatmapColor(values[gi], values[baselineIdx], deferredModel)
+    const style: React.CSSProperties = color ? { backgroundColor: color } : { ...NO_DATA_STYLE }
+    // A slow payload gets an inset outline in every mode, like the run
+    // page. It sits inside the tile, so it stays readable next to the red
+    // failure ring.
+    const duration = test.durations[gi]
+    if (duration !== undefined && isSlowPayload(duration, deferredModel.slowMs)) {
+      style.outline = `2px solid ${SLOW_COLOR}`
+      style.outlineOffset = '-2px'
+    }
+    return style
   }
+  const formatValue = (value: number) => (metric === 'mgas' ? `${value.toFixed(1)} MGas/s` : formatDuration(value))
 
   if (tests.length === 0) return null
 
@@ -236,6 +308,15 @@ export function GroupHeatmap({
           <span className="text-xs/5 text-gray-500 dark:text-gray-400">
             {tests.length} tests × {runs.length} groups
           </span>
+          {slowTestCount > 0 && (
+            <span
+              className="rounded-xs px-1.5 py-0.5 text-xs/5 font-medium"
+              style={{ backgroundColor: `${SLOW_COLOR}26`, color: SLOW_COLOR }}
+              title={`Tests with a group whose payload time is above ${formatSlowMs(slowMs)}`}
+            >
+              {slowTestCount} slow
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2 text-xs/5">
           {runs.map((run) => {
@@ -253,12 +334,25 @@ export function GroupHeatmap({
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-4">
         <ModeGroup
+          label="Metric:"
+          value={metric}
+          onChange={(m) => onModelChange({ metric: m })}
+          options={[
+            { value: 'mgas', label: 'MGas/s' },
+            { value: 'duration', label: 'Duration', title: 'Total engine_newPayload time of the test' },
+          ]}
+        />
+        <ModeGroup
           label="Color by:"
-          value={colorMode}
-          onChange={onColorModeChange}
+          value={mode}
+          onChange={(m) => onModelChange({ mode: m })}
           options={[
             { value: 'baseline', label: 'vs Baseline', title: 'Ratio of each group to the baseline group on the same test' },
-            { value: 'mgas', label: 'MGas/s', title: `Color against the ${threshold} MGas/s threshold` },
+            {
+              value: 'absolute',
+              label: metric === 'mgas' ? 'Threshold' : 'Slow limit',
+              title: metric === 'mgas' ? `Color against the ${threshold} MGas/s threshold` : `Color against the ${formatSlowMs(slowMs)} slow-payload limit`,
+            },
           ]}
         />
         <ModeGroup
@@ -270,7 +364,7 @@ export function GroupHeatmap({
             { value: 'spread', label: 'Spread', title: 'Largest gap between the best and the worst group first' },
           ]}
         />
-        {colorMode === 'baseline' && runs.length >= 2 && (
+        {mode === 'baseline' && runs.length >= 2 && (
           <div className="flex items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
             <span>Baseline:</span>
             <select
@@ -286,38 +380,29 @@ export function GroupHeatmap({
             </select>
           </div>
         )}
-        {colorMode === 'mgas' && (
-          // Same control as the run page: a slider to sweep the threshold
-          // and watch the tiles flip, a box for an exact value.
-          <div className="flex items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
-            <span>Threshold:</span>
-            <input
-              type="range"
-              min={MIN_THRESHOLD}
-              max={MAX_THRESHOLD}
-              value={threshold}
-              onChange={(e) => onThresholdChange(Number(e.target.value))}
-              className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-gray-200 accent-blue-500 dark:bg-gray-700"
-            />
-            <input
-              type="number"
-              min={MIN_THRESHOLD}
-              max={MAX_THRESHOLD}
-              value={threshold}
-              onChange={(e) => onThresholdChange(Math.max(MIN_THRESHOLD, Math.min(MAX_THRESHOLD, Number(e.target.value) || DEFAULT_THRESHOLD)))}
-              className="w-16 rounded-xs border border-gray-300 bg-white px-1.5 py-0.5 text-center text-xs/5 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-            />
-            <span>MGas/s</span>
-            {threshold !== DEFAULT_THRESHOLD && (
-              <button
-                onClick={() => onThresholdChange(DEFAULT_THRESHOLD)}
-                className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-              >
-                reset
-              </button>
-            )}
-          </div>
+        {mode === 'absolute' && metric === 'mgas' && (
+          <LimitControl
+            label="Threshold:"
+            unit="MGas/s"
+            value={threshold}
+            min={MIN_THRESHOLD}
+            max={MAX_THRESHOLD}
+            step={1}
+            defaultValue={DEFAULT_THRESHOLD}
+            onChange={(v) => onModelChange({ threshold: v })}
+          />
         )}
+        {/* Always shown: the limit marks slow tiles in every mode, and colours them in duration mode. */}
+        <LimitControl
+          label="Slow limit:"
+          unit="ms"
+          value={slowMs}
+          min={MIN_SLOW_MS}
+          max={MAX_SLOW_MS}
+          step={SLOW_STEP_MS}
+          defaultValue={DEFAULT_SLOW_MS}
+          onChange={(v) => onModelChange({ slowMs: v })}
+        />
       </div>
 
       {/* Grid */}
@@ -356,11 +441,22 @@ export function GroupHeatmap({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
         <ColorScaleLegend
           colors={THRESHOLD_COLORS}
-          startLabel={colorMode === 'mgas' ? 'Fast' : 'Faster than baseline'}
-          endLabel={colorMode === 'mgas' ? 'Slow' : 'Slower'}
-          title={colorMode === 'mgas' ? 'MGas/s' : 'Ratio to the baseline'}
-          stepRange={(step) => (colorMode === 'mgas' ? thresholdStepRange(step, threshold) : baselineStepRange(step))}
-          note={colorMode === 'mgas' ? `Yellow is the ${threshold} MGas/s threshold.` : 'Yellow is parity with the baseline.'}
+          startLabel={mode === 'absolute' ? 'Fast' : 'Faster than baseline'}
+          endLabel={mode === 'absolute' ? 'Slow' : 'Slower'}
+          title={mode === 'baseline' ? 'Ratio to the baseline' : metric === 'mgas' ? 'MGas/s' : 'Payload time'}
+          stepRange={(step) =>
+            mode === 'baseline'
+              ? baselineStepRange(step)
+              : metric === 'mgas'
+                ? thresholdStepRange(step, threshold)
+                : durationStepRange(step, slowMs)}
+          note={
+            mode === 'baseline'
+              ? 'Yellow is parity with the baseline.'
+              : metric === 'mgas'
+                ? `Yellow is the ${threshold} MGas/s threshold.`
+                : `Yellow is the ${formatSlowMs(slowMs)} slow-payload limit.`
+          }
         />
         <span className="flex items-center">
           <span className="mr-1 inline-block size-3 rounded-xs" style={NO_DATA_STYLE} />
@@ -369,6 +465,13 @@ export function GroupHeatmap({
         <span className="flex items-center">
           <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-inset ring-red-500" style={{ backgroundColor: THRESHOLD_COLORS[THRESHOLD_LIMIT_STEP] }} />
           Failed executions
+        </span>
+        <span className="flex items-center" title={`Payload time above ${formatSlowMs(slowMs)}`}>
+          <span
+            className="mr-1 inline-block size-3 rounded-xs"
+            style={{ backgroundColor: THRESHOLD_COLORS[THRESHOLD_LIMIT_STEP], outline: `2px solid ${SLOW_COLOR}`, outlineOffset: '-2px' }}
+          />
+          Slow payload (&gt;{formatSlowMs(slowMs)})
         </span>
         <span>Click a tile to open the test.</span>
       </div>
@@ -385,8 +488,10 @@ export function GroupHeatmap({
               <tbody>
                 {runs.map((run, gi) => {
                   const slot = RUN_SLOTS[run.index]
-                  const value = tooltip.test.values[gi]
-                  const base = tooltip.test.values[baselineIdx]
+                  const values = valuesOf(tooltip.test, metric)
+                  const value = values[gi]
+                  const base = values[baselineIdx]
+                  const other = valuesOf(tooltip.test, metric === 'mgas' ? 'duration' : 'mgas')[gi]
                   return (
                     <tr key={run.index}>
                       <td className={clsx('pr-2 font-medium', slot.diffTextClass)}>
@@ -395,12 +500,20 @@ export function GroupHeatmap({
                           {formatRunLabel(slot, run, labelMode)}
                         </span>
                       </td>
-                      <td className="pr-2 text-right font-mono">{value === undefined ? '—' : `${value.toFixed(1)} MGas/s`}</td>
+                      <td className="pr-2 text-right font-mono">{value === undefined ? '—' : formatValue(value)}</td>
+                      <td className="pr-2 text-right font-mono text-gray-400 dark:text-gray-500">
+                        {other !== undefined && (metric === 'mgas' ? formatDuration(other) : `${other.toFixed(1)} MGas/s`)}
+                      </td>
                       <td className="text-right font-mono text-gray-500 dark:text-gray-400">
-                        {value !== undefined && base !== undefined && gi !== baselineIdx && formatRatio(value / base)}
+                        {value !== undefined && base !== undefined && gi !== baselineIdx && formatRatio(baselineRatio(value, base, metric))}
                         {gi === baselineIdx && runs.length >= 2 && 'baseline'}
                       </td>
-                      <td className="pl-2 text-red-600 dark:text-red-400">{tooltip.test.fails[gi] && 'failed'}</td>
+                      <td className="pl-2">
+                        {tooltip.test.durations[gi] !== undefined && isSlowPayload(tooltip.test.durations[gi], slowMs) && (
+                          <span style={{ color: SLOW_COLOR }}>slow</span>
+                        )}
+                        {tooltip.test.fails[gi] && <span className="ml-1 text-red-600 dark:text-red-400">failed</span>}
+                      </td>
                     </tr>
                   )
                 })}

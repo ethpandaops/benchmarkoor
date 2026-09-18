@@ -9,7 +9,9 @@ import { EESTInfoContent, type OpcodeSortMode } from '@/components/suite-detail/
 import { formatTimestamp } from '@/utils/date'
 import { type GroupDef } from './groupUtils'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from './constants'
-import { type HeatmapColorMode, formatRatio, heatmapColor } from './heatmapColor'
+import { type HeatmapColorModel, baselineRatio, formatRatio, heatmapColor } from './heatmapColor'
+import { formatDuration } from '@/utils/format'
+import { SLOW_COLOR, isSlowPayload } from '@/utils/perfThreshold'
 
 interface TestDetailModalProps {
   testName: string
@@ -24,12 +26,13 @@ interface TestDetailModalProps {
   /** Run IDs per group for linking to run detail pages. */
   groupRunIds: string[][]
   /** Averaged MGas/s per group (same order as groups) — the value the heatmap tile shows. */
-  groupValues: (number | undefined)[]
+  groupMgas: (number | undefined)[]
+  /** Averaged total engine_newPayload time per group in nanoseconds (same order as groups). */
+  groupDurations: (number | undefined)[]
   /** Group index of the baseline, or -1 when the baseline group has no result. */
   baselineGroupIdx: number
   /** Colour model of the heatmap, so the cards match its tiles. */
-  heatmapColorMode: HeatmapColorMode
-  heatmapThreshold: number
+  heatmapModel: HeatmapColorModel
   stepFilter: StepTypeOption[]
   /** Current page-level search query (used to highlight active chips). */
   searchQuery?: string
@@ -51,10 +54,10 @@ export function TestDetailModal({
   groupResults,
   groupTimestamps,
   groupRunIds,
-  groupValues,
+  groupMgas,
+  groupDurations,
   baselineGroupIdx,
-  heatmapColorMode,
-  heatmapThreshold,
+  heatmapModel,
   stepFilter,
   searchQuery,
   onChipFilterToggle,
@@ -198,32 +201,51 @@ export function TestDetailModal({
             {/* One card per group with the averaged value, tinted like its heatmap tile */}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
               {groupData.map((group, gi) => {
-                const value = groupValues[gi]
-                const base = baselineGroupIdx >= 0 ? groupValues[baselineGroupIdx] : undefined
-                const color = heatmapColor(value, base, heatmapColorMode, heatmapThreshold)
-                const isBaseline = heatmapColorMode === 'baseline' && gi === baselineGroupIdx && groupData.length >= 2
+                const { metric, mode, threshold, slowMs } = heatmapModel
+                const values = metric === 'mgas' ? groupMgas : groupDurations
+                const value = values[gi]
+                const base = baselineGroupIdx >= 0 ? values[baselineGroupIdx] : undefined
+                const color = heatmapColor(value, base, heatmapModel)
+                const isBaseline = mode === 'baseline' && gi === baselineGroupIdx && groupData.length >= 2
+                // The other metric, in small print under the main value.
+                const other = metric === 'mgas' ? groupDurations[gi] : groupMgas[gi]
+                const duration = groupDurations[gi]
+                const slow = duration !== undefined && isSlowPayload(duration, slowMs)
+                const note = isBaseline
+                  ? 'baseline'
+                  : value === undefined
+                    ? '\u00a0'
+                    : mode === 'baseline'
+                      ? base !== undefined && base > 0 && value > 0 ? `${formatRatio(baselineRatio(value, base, metric))} vs baseline` : '\u00a0'
+                      : metric === 'mgas'
+                        ? `${formatRatio(value / threshold)} vs ${threshold} MGas/s`
+                        : `${formatRatio((slowMs * 1_000_000) / value)} vs ${formatDuration(slowMs * 1_000_000)} limit`
                 return (
                   <div
                     key={gi}
                     className="flex flex-col gap-1 rounded-sm border-l-4 border-gray-300 bg-gray-100 px-3 py-2 dark:border-gray-600 dark:bg-gray-700/50"
-                    style={color ? { borderColor: color, backgroundColor: `${color}26` } : undefined}
+                    style={{
+                      ...(color ? { borderColor: color, backgroundColor: `${color}26` } : {}),
+                      // Same slow-payload outline as the heatmap tile.
+                      ...(slow ? { outline: `2px solid ${SLOW_COLOR}`, outlineOffset: '-2px' } : {}),
+                    }}
                   >
                     <span className={clsx('inline-flex items-center gap-1.5 text-xs/5 font-medium', SLOT_COLORS[gi % SLOT_COLORS.length])}>
                       <img src={`/img/clients/${group.client}.jpg`} alt={group.client} className="size-3.5 rounded-full object-cover" />
                       <span className="truncate">{group.label}</span>
+                      {slow && (
+                        <span className="rounded-xs px-1 text-[10px]/4 font-medium" style={{ backgroundColor: `${SLOW_COLOR}26`, color: SLOW_COLOR }} title={`Payload time above ${formatDuration(slowMs * 1_000_000)}`}>
+                          slow
+                        </span>
+                      )}
                     </span>
                     <span className="font-mono text-lg/7 font-semibold text-gray-900 dark:text-gray-100">
-                      {value === undefined ? '—' : value.toFixed(2)}
-                      <span className="ml-1 text-xs/5 font-normal text-gray-500 dark:text-gray-400">MGas/s</span>
+                      {value === undefined ? '—' : metric === 'mgas' ? value.toFixed(2) : formatDuration(value)}
+                      {metric === 'mgas' && <span className="ml-1 text-xs/5 font-normal text-gray-500 dark:text-gray-400">MGas/s</span>}
                     </span>
-                    <span className="text-xs/5 text-gray-500 dark:text-gray-400">
-                      {isBaseline
-                        ? 'baseline'
-                        : heatmapColorMode === 'baseline' && value !== undefined && base !== undefined
-                          ? `${formatRatio(value / base)} vs baseline`
-                          : heatmapColorMode === 'mgas' && value !== undefined
-                            ? `${formatRatio(value / heatmapThreshold)} vs ${heatmapThreshold} MGas/s`
-                            : '\u00a0'}
+                    <span className="text-xs/5 text-gray-500 dark:text-gray-400">{note}</span>
+                    <span className="font-mono text-xs/5 text-gray-400 dark:text-gray-500">
+                      {other === undefined ? '\u00a0' : metric === 'mgas' ? formatDuration(other) : `${other.toFixed(2)} MGas/s`}
                     </span>
                   </div>
                 )

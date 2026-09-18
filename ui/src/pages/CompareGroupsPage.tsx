@@ -16,8 +16,8 @@ import { type CompareRun, type ChartType, CHART_TYPE_OPTIONS } from '@/component
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
 import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
 import { GroupHeatmap } from '@/components/compare/GroupHeatmap'
-import { type HeatmapColorMode } from '@/components/compare/heatmapColor'
-import { DEFAULT_THRESHOLD, MAX_THRESHOLD, MIN_THRESHOLD } from '@/utils/perfThreshold'
+import { type HeatmapColorModel } from '@/components/compare/heatmapColor'
+import { DEFAULT_SLOW_MS, DEFAULT_THRESHOLD, MAX_SLOW_MS, MAX_THRESHOLD, MIN_SLOW_MS, MIN_THRESHOLD } from '@/utils/perfThreshold'
 import { CVComparisonChart } from '@/components/compare/CVComparisonChart'
 import { PercentageDiffChart } from '@/components/compare/PercentageDiffChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
@@ -50,8 +50,10 @@ export function CompareGroupsPage() {
     filterRegex?: string
     gasBuckets?: string
     diffFilter?: string
+    heatmapMetric?: string
     heatmapColor?: string
     heatmapThreshold?: string
+    heatmapSlowMs?: string
   }
 
   const suiteHash = search.suite ?? ''
@@ -82,8 +84,10 @@ export function CompareGroupsPage() {
           filterRegex: search.filterRegex,
           gasBuckets: search.gasBuckets,
           diffFilter: search.diffFilter,
+          heatmapMetric: search.heatmapMetric,
           heatmapColor: search.heatmapColor,
           heatmapThreshold: search.heatmapThreshold,
+          heatmapSlowMs: search.heatmapSlowMs,
           ...patch,
         },
         replace: true,
@@ -309,8 +313,21 @@ export function CompareGroupsPage() {
       : 'best'
   const chartType: ChartType = (search.chart as ChartType) ?? 'line'
   // Heatmap colour model, shared with the test detail modal.
-  const heatmapColorMode: HeatmapColorMode = search.heatmapColor === 'mgas' ? 'mgas' : 'baseline'
-  const heatmapThreshold = Math.max(MIN_THRESHOLD, Math.min(MAX_THRESHOLD, parseInt(search.heatmapThreshold ?? '', 10) || DEFAULT_THRESHOLD))
+  const heatmapModel = useMemo<HeatmapColorModel>(() => ({
+    metric: search.heatmapMetric === 'duration' ? 'duration' : 'mgas',
+    // 'mgas' is the value older links carry for the absolute mode.
+    mode: search.heatmapColor === 'absolute' || search.heatmapColor === 'mgas' ? 'absolute' : 'baseline',
+    threshold: Math.max(MIN_THRESHOLD, Math.min(MAX_THRESHOLD, parseInt(search.heatmapThreshold ?? '', 10) || DEFAULT_THRESHOLD)),
+    slowMs: Math.max(MIN_SLOW_MS, Math.min(MAX_SLOW_MS, parseInt(search.heatmapSlowMs ?? '', 10) || DEFAULT_SLOW_MS)),
+  }), [search.heatmapMetric, search.heatmapColor, search.heatmapThreshold, search.heatmapSlowMs])
+  const updateHeatmapModel = useCallback((patch: Partial<HeatmapColorModel>) => {
+    const next: Record<string, string | undefined> = {}
+    if (patch.metric !== undefined) next.heatmapMetric = patch.metric === 'mgas' ? undefined : patch.metric
+    if (patch.mode !== undefined) next.heatmapColor = patch.mode === 'baseline' ? undefined : patch.mode
+    if (patch.threshold !== undefined) next.heatmapThreshold = patch.threshold === DEFAULT_THRESHOLD ? undefined : String(patch.threshold)
+    if (patch.slowMs !== undefined) next.heatmapSlowMs = patch.slowMs === DEFAULT_SLOW_MS ? undefined : String(patch.slowMs)
+    updateSearch(next)
+  }, [updateSearch])
   const [sharedZoom, setSharedZoom] = useState(true)
   const [chartZoom, setChartZoom] = useState({ start: 0, end: 100 })
   const tableSortBy = (search.sort ?? 'order') as 'order' | 'name' | 'gasUsed' | 'avgValue' | `run-${number}`
@@ -415,18 +432,22 @@ export function CompareGroupsPage() {
     })
   }, [selectedTest, groups, groupRuns, resultQueries])
 
-  // The averaged MGas/s per group for the selected test — the value the
-  // heatmap tile is coloured by. Keyed by group index, not by position in
-  // `syntheticRuns`, which skips a group without config or results.
+  // The averaged MGas/s and payload time per group for the selected test
+  // — the values the heatmap tile is coloured by. Keyed by group index,
+  // not by position in `syntheticRuns`, which skips a group without
+  // config or results.
   const groupValuesForModal = useMemo(() => {
-    if (!selectedTest) return []
-    const values = new Array<number | undefined>(groups.length).fill(undefined)
+    const mgas = new Array<number | undefined>(groups.length).fill(undefined)
+    const durations = new Array<number | undefined>(groups.length).fill(undefined)
+    if (!selectedTest) return { mgas, durations }
     for (const run of syntheticRuns) {
       const entry = run.result?.tests[selectedTest]
       const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
-      values[run.index] = stats && stats.gas_used_time_total > 0 ? (stats.gas_used_total * 1000) / stats.gas_used_time_total : undefined
+      if (!stats || stats.gas_used_time_total <= 0) continue
+      mgas[run.index] = (stats.gas_used_total * 1000) / stats.gas_used_time_total
+      durations[run.index] = stats.gas_used_time_total
     }
-    return values
+    return { mgas, durations }
   }, [selectedTest, groups.length, syntheticRuns, stepFilter])
 
   // `baselineIdx` is a position in `syntheticRuns`; the modal works per group.
@@ -742,10 +763,8 @@ export function CompareGroupsPage() {
             labelMode="instance-id"
             baselineIdx={baselineIdx}
             onBaselineChange={(idx) => updateSearch({ baseline: idx > 0 ? String(idx) : undefined })}
-            colorMode={heatmapColorMode}
-            onColorModeChange={(mode) => updateSearch({ heatmapColor: mode === 'baseline' ? undefined : mode })}
-            threshold={heatmapThreshold}
-            onThresholdChange={(t) => updateSearch({ heatmapThreshold: t === DEFAULT_THRESHOLD ? undefined : String(t) })}
+            model={heatmapModel}
+            onModelChange={updateHeatmapModel}
             testNameFilter={testNameFilter}
             onTestClick={setSelectedTest}
           />
@@ -849,10 +868,10 @@ export function CompareGroupsPage() {
           groupResults={groupResultsForModal}
           groupTimestamps={groupTimestampsForModal}
           groupRunIds={groupRuns}
-          groupValues={groupValuesForModal}
+          groupMgas={groupValuesForModal.mgas}
+          groupDurations={groupValuesForModal.durations}
           baselineGroupIdx={baselineGroupIdx}
-          heatmapColorMode={heatmapColorMode}
-          heatmapThreshold={heatmapThreshold}
+          heatmapModel={heatmapModel}
           stepFilter={stepFilter}
           searchQuery={testFilter}
           onChipFilterToggle={(term) => updateFilterSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
