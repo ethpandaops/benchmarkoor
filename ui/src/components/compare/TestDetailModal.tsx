@@ -41,6 +41,11 @@ interface TestDetailModalProps {
   onClose: () => void
 }
 
+// Text colour per slot, matching the group card colours of the builder,
+// and the dot fill in the 500 shade of the same hues.
+const SLOT_TEXT_COLORS = ['text-blue-700 dark:text-blue-300', 'text-orange-700 dark:text-orange-300', 'text-purple-700 dark:text-purple-300', 'text-green-700 dark:text-green-300', 'text-red-700 dark:text-red-300']
+const DOT_COLORS = ['#3b82f6', '#f97316', '#a855f7', '#22c55e', '#ef4444']
+
 /**
  * TestDetailModal shows per-run MGas/s breakdown for a single test
  * across all groups. Helps identify outlier runs or variance within
@@ -63,9 +68,6 @@ export function TestDetailModal({
   onChipFilterToggle,
   onClose,
 }: TestDetailModalProps) {
-  const SLOT_COLORS = ['text-blue-700 dark:text-blue-300', 'text-orange-700 dark:text-orange-300', 'text-purple-700 dark:text-purple-300', 'text-green-700 dark:text-green-300', 'text-red-700 dark:text-red-300']
-  // Dot fill per slot, the 500 shade of the same hues as SLOT_COLORS.
-  const DOT_COLORS = ['#3b82f6', '#f97316', '#a855f7', '#22c55e', '#ef4444']
 
   const navigate = useNavigate()
   const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
@@ -230,7 +232,7 @@ export function TestDetailModal({
                       ...(slow ? { outline: `2px solid ${SLOW_COLOR}`, outlineOffset: '-2px' } : {}),
                     }}
                   >
-                    <span className={clsx('inline-flex items-center gap-1.5 text-xs/5 font-medium', SLOT_COLORS[gi % SLOT_COLORS.length])}>
+                    <span className={clsx('inline-flex items-center gap-1.5 text-xs/5 font-medium', SLOT_TEXT_COLORS[gi % SLOT_TEXT_COLORS.length])}>
                       <img src={`/img/clients/${group.client}.jpg`} alt={group.client} className="size-3.5 rounded-full object-cover" />
                       <span className="truncate">{group.label}</span>
                       {slow && (
@@ -252,19 +254,11 @@ export function TestDetailModal({
               })}
             </div>
 
-            {/* All groups on one strip, so the overlap between them is visible at a glance */}
-            {groupData.length >= 2 && (
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">All groups</span>
-                  {groupData.map((group, gi) => (
-                    <span key={gi} className={clsx('inline-flex items-center gap-1 text-xs/5', SLOT_COLORS[gi % SLOT_COLORS.length])}>
-                      <span className="size-2 rounded-full" style={{ backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }} />
-                      {group.label}
-                    </span>
-                  ))}
-                </div>
-                <div className="relative mb-4 h-6 rounded-xs bg-gray-100 dark:bg-gray-700">
+            {/* Strips: all groups on one axis, then one strip per group right
+                under it, so the overlap between groups is visible at a glance */}
+            <div className="flex flex-col gap-1">
+              {groupData.length >= 2 && (
+                <StripRow label={<span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">All groups</span>}>
                   {groupData.map((group, gi) =>
                     group.mgasValues.map((v, i) => (
                       <span
@@ -275,27 +269,10 @@ export function TestDetailModal({
                       />
                     )),
                   )}
-                  <span className="absolute left-1 top-full mt-0.5 text-xs text-gray-400">{globalMin.toFixed(1)}</span>
-                  <span className="absolute right-1 top-full mt-0.5 text-xs text-gray-400">{globalMax.toFixed(1)}</span>
-                </div>
-              </div>
-            )}
-            {groupData.map((group, gi) => (
-              <div key={gi} className="flex flex-col gap-2">
-                {/* Group header */}
-                <div className="flex items-center gap-2">
-                  <img
-                    src={`/img/clients/${group.client}.jpg`}
-                    alt={group.client}
-                    className="size-5 rounded-full object-cover"
-                  />
-                  <span className={clsx('text-sm/6 font-medium', SLOT_COLORS[gi % SLOT_COLORS.length])}>
-                    {group.label}
-                  </span>
-                </div>
-
-                {/* Dot chart — each dot is one run's MGas/s for this test */}
-                <div className="relative h-6 rounded-xs bg-gray-100 dark:bg-gray-700">
+                </StripRow>
+              )}
+              {groupData.map((group, gi) => (
+                <StripRow key={gi} label={<GroupLabel group={group} gi={gi} />}>
                   {group.mgasValues.map((v, i) => (
                     <span
                       key={i}
@@ -304,121 +281,125 @@ export function TestDetailModal({
                       title={`${v.toFixed(2)} MGas/s`}
                     />
                   ))}
-                  {/* Min/Max labels */}
-                  <span className="absolute left-1 top-full mt-0.5 text-xs text-gray-400">{globalMin.toFixed(1)}</span>
-                  <span className="absolute right-1 top-full mt-0.5 text-xs text-gray-400">{globalMax.toFixed(1)}</span>
-                </div>
-
-                {/* Stats summary */}
-                {group.min !== undefined && (
-                  <div className="mt-4 grid grid-cols-7 gap-x-2 border-t border-gray-200 pt-2 text-xs dark:border-gray-700">
-                    <StatCell
-                      label="Avg"
-                      value={group.average?.toFixed(2)}
-                      title="Total gas over total time of the sampled runs — the throughput of the group as a whole, and the value the heatmap and the charts use. A slow run weighs as much as it lasted."
-                    />
-                    <StatCell
-                      label="Median"
-                      value={group.median?.toFixed(2)}
-                      title="Middle value of MGas/s across the sampled runs. Less sensitive to outliers than the average."
-                    />
-                    <StatCell
-                      label="Min"
-                      value={group.min.toFixed(2)}
-                      title="Lowest MGas/s observed across the sampled runs."
-                    />
-                    <StatCell
-                      label="Max"
-                      value={group.max?.toFixed(2)}
-                      title="Highest MGas/s observed across the sampled runs."
-                    />
-                    <StatCell
-                      label="Range"
-                      value={((group.max ?? 0) - (group.min ?? 0)).toFixed(2)}
-                      title="Max minus min — the spread of MGas/s across the sampled runs."
-                    />
-                    <StatCell
-                      label="σ"
-                      value={group.stddev?.toFixed(2)}
-                      title="Sample standard deviation of the per-run MGas/s around their arithmetic mean. How much individual runs typically deviate."
-                    />
-                    <StatCell
-                      label="CV"
-                      value={group.stddev !== undefined && group.mean !== undefined && group.mean > 0
-                        ? `${((group.stddev / group.mean) * 100).toFixed(1)}%`
-                        : undefined}
-                      title="Coefficient of Variation — standard deviation as a percentage of the arithmetic mean of the per-run MGas/s. Lower = more consistent across runs."
-                    />
-                  </div>
-                )}
-
-                {/* Per-run table (collapsed by default) */}
-                <button
-                  type="button"
-                  onClick={() => toggleGroupExpand(gi)}
-                  className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                >
-                  <span className={clsx('transition-transform', expandedGroups.has(gi) && 'rotate-90')}>▶</span>
-                  {expandedGroups.has(gi) ? 'Hide' : 'Show'} individual runs ({group.runs.length})
-                </button>
-                {expandedGroups.has(gi) && <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                      <th className="w-6 px-2 py-1"></th>
-                      <SortableHeader label="Run" sortKey="run" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="left" />
-                      <SortableHeader label="MGas/s" sortKey="mgas" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                      <SortableHeader label="Gas Used" sortKey="gasUsed" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                      <SortableHeader label="Duration" sortKey="duration" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                    </tr>
-                  </thead>
-                  <tbody className="text-gray-700 dark:text-gray-200">
-                    {[...group.runs].sort((a, b) => {
-                      let cmp = 0
-                      switch (sortKey) {
-                        case 'run': cmp = (a.timestamp ?? 0) - (b.timestamp ?? 0); break
-                        case 'mgas': cmp = (a.mgas ?? 0) - (b.mgas ?? 0); break
-                        case 'gasUsed': cmp = a.gasUsed - b.gasUsed; break
-                        case 'duration': cmp = a.duration - b.duration; break
-                      }
-                      return sortDir === 'asc' ? cmp : -cmp
-                    }).map((run, ri) => {
-                      const isSelected = !!run.runId && selectedRunIds.has(run.runId)
-                      const selectable = !!run.runId
-                      const atCap = selectedRunIds.size >= MAX_COMPARE_RUNS && !isSelected
-                      return (
-                        <tr
-                          key={ri}
-                          className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/50"
-                          onClick={() => { if (run.runId) window.open(`/runs/${run.runId}?testModal=${encodeURIComponent(testName)}`, '_blank') }}
-                        >
-                          <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              disabled={!selectable || atCap}
-                              onChange={() => run.runId && toggleRunSelected(run.runId)}
-                              title={atCap ? `Maximum ${MAX_COMPARE_RUNS} runs can be compared` : 'Select for comparison'}
-                              className="size-3.5 cursor-pointer accent-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:accent-blue-500"
-                            />
-                          </td>
-                          <td className="px-2 py-1">{run.timestamp ? formatTimestamp(run.timestamp) : `Run ${ri + 1}`}</td>
-                          <td className="px-2 py-1 text-right font-mono">
-                            {run.mgas !== undefined ? run.mgas.toFixed(2) : '-'}
-                          </td>
-                          <td className="px-2 py-1 text-right font-mono">
-                            {run.gasUsed > 0 ? `${(run.gasUsed / 1_000_000).toFixed(1)}M` : '-'}
-                          </td>
-                          <td className="px-2 py-1 text-right font-mono">
-                            {run.duration > 0 ? `${(run.duration / 1_000_000_000).toFixed(2)}s` : '-'}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>}
-
+                </StripRow>
+              ))}
+              {/* One shared axis under the strips */}
+              <div className="flex text-xs text-gray-400">
+                <span className="w-40 shrink-0" />
+                <span className="flex flex-1 justify-between px-1">
+                  <span>{globalMin.toFixed(1)}</span>
+                  <span>{globalMax.toFixed(1)}</span>
+                </span>
               </div>
-            ))}
+            </div>
+
+            {/* One table with the stats of every group */}
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-200 text-left text-[10px] uppercase tracking-wide text-gray-400 dark:border-gray-700 dark:text-gray-500">
+                  <th className="py-1 pr-2 font-medium">Group</th>
+                  <th className="px-2 py-1 text-right font-medium" title="Total gas over total time of the sampled runs — the throughput of the group as a whole, and the value the heatmap and the charts use. A slow run weighs as much as it lasted.">Avg</th>
+                  <th className="px-2 py-1 text-right font-medium" title="Middle value of MGas/s across the sampled runs. Less sensitive to outliers than the average.">Median</th>
+                  <th className="px-2 py-1 text-right font-medium" title="Lowest MGas/s observed across the sampled runs.">Min</th>
+                  <th className="px-2 py-1 text-right font-medium" title="Highest MGas/s observed across the sampled runs.">Max</th>
+                  <th className="px-2 py-1 text-right font-medium" title="Max minus min — the spread of MGas/s across the sampled runs.">Range</th>
+                  <th className="px-2 py-1 text-right font-medium" title="Sample standard deviation of the per-run MGas/s around their arithmetic mean. How much individual runs typically deviate.">σ</th>
+                  <th className="px-2 py-1 text-right font-medium" title="Coefficient of Variation — standard deviation as a percentage of the arithmetic mean of the per-run MGas/s. Lower = more consistent across runs.">CV</th>
+                  <th className="px-2 py-1 text-right font-medium">Runs</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono tabular-nums text-gray-700 dark:text-gray-200">
+                {groupData.map((group, gi) => (
+                  <tr key={gi} className="border-b border-gray-100 last:border-0 dark:border-gray-700/50">
+                    <td className="py-1 pr-2 font-sans"><GroupLabel group={group} gi={gi} /></td>
+                    <td className="px-2 py-1 text-right">{group.average?.toFixed(2) ?? '—'}</td>
+                    <td className="px-2 py-1 text-right">{group.median?.toFixed(2) ?? '—'}</td>
+                    <td className="px-2 py-1 text-right">{group.min?.toFixed(2) ?? '—'}</td>
+                    <td className="px-2 py-1 text-right">{group.max?.toFixed(2) ?? '—'}</td>
+                    <td className="px-2 py-1 text-right">{group.min !== undefined && group.max !== undefined ? (group.max - group.min).toFixed(2) : '—'}</td>
+                    <td className="px-2 py-1 text-right">{group.stddev?.toFixed(2) ?? '—'}</td>
+                    <td className="px-2 py-1 text-right">
+                      {group.stddev !== undefined && group.mean !== undefined && group.mean > 0
+                        ? `${((group.stddev / group.mean) * 100).toFixed(1)}%`
+                        : '—'}
+                    </td>
+                    <td className="px-2 py-1 text-right">{group.mgasValues.length}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Per-run tables, one per group, collapsed by default */}
+            <div className="flex flex-col gap-2">
+              {groupData.map((group, gi) => (
+                <div key={gi} className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroupExpand(gi)}
+                    className="flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  >
+                    <span className={clsx('transition-transform', expandedGroups.has(gi) && 'rotate-90')}>▶</span>
+                    <GroupLabel group={group} gi={gi} />
+                    <span>{expandedGroups.has(gi) ? 'Hide' : 'Show'} individual runs ({group.runs.length})</span>
+                  </button>
+                  {expandedGroups.has(gi) && <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                        <th className="w-6 px-2 py-1"></th>
+                        <SortableHeader label="Run" sortKey="run" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="left" />
+                        <SortableHeader label="MGas/s" sortKey="mgas" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                        <SortableHeader label="Gas Used" sortKey="gasUsed" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                        <SortableHeader label="Duration" sortKey="duration" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                      </tr>
+                    </thead>
+                    <tbody className="text-gray-700 dark:text-gray-200">
+                      {[...group.runs].sort((a, b) => {
+                        let cmp = 0
+                        switch (sortKey) {
+                          case 'run': cmp = (a.timestamp ?? 0) - (b.timestamp ?? 0); break
+                          case 'mgas': cmp = (a.mgas ?? 0) - (b.mgas ?? 0); break
+                          case 'gasUsed': cmp = a.gasUsed - b.gasUsed; break
+                          case 'duration': cmp = a.duration - b.duration; break
+                        }
+                        return sortDir === 'asc' ? cmp : -cmp
+                      }).map((run, ri) => {
+                        const isSelected = !!run.runId && selectedRunIds.has(run.runId)
+                        const selectable = !!run.runId
+                        const atCap = selectedRunIds.size >= MAX_COMPARE_RUNS && !isSelected
+                        return (
+                          <tr
+                            key={ri}
+                            className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/50"
+                            onClick={() => { if (run.runId) window.open(`/runs/${run.runId}?testModal=${encodeURIComponent(testName)}`, '_blank') }}
+                          >
+                            <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                disabled={!selectable || atCap}
+                                onChange={() => run.runId && toggleRunSelected(run.runId)}
+                                title={atCap ? `Maximum ${MAX_COMPARE_RUNS} runs can be compared` : 'Select for comparison'}
+                                className="size-3.5 cursor-pointer accent-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:accent-blue-500"
+                              />
+                            </td>
+                            <td className="px-2 py-1">{run.timestamp ? formatTimestamp(run.timestamp) : `Run ${ri + 1}`}</td>
+                            <td className="px-2 py-1 text-right font-mono">
+                              {run.mgas !== undefined ? run.mgas.toFixed(2) : '-'}
+                            </td>
+                            <td className="px-2 py-1 text-right font-mono">
+                              {run.gasUsed > 0 ? `${(run.gasUsed / 1_000_000).toFixed(1)}M` : '-'}
+                            </td>
+                            <td className="px-2 py-1 text-right font-mono">
+                              {run.duration > 0 ? `${(run.duration / 1_000_000_000).toFixed(2)}s` : '-'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -483,12 +464,22 @@ function SortableHeader({ label, sortKey, currentKey, currentDir, onSort, align 
   )
 }
 
-function StatCell({ label, value, title }: { label: string; value?: string; title?: string }) {
+function GroupLabel({ group, gi }: { group: { client: string; label: string }; gi: number }) {
   return (
-    <div className="flex flex-col" title={title}>
-      <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{label}</span>
-      <span className="font-mono tabular-nums text-gray-700 dark:text-gray-200">{value ?? '—'}</span>
-    </div>
+    <span className={clsx('inline-flex min-w-0 items-center gap-1.5 text-xs/5 font-medium', SLOT_TEXT_COLORS[gi % SLOT_TEXT_COLORS.length])}>
+      <img src={`/img/clients/${group.client}.jpg`} alt={group.client} className="size-4 shrink-0 rounded-full object-cover" />
+      <span className="truncate">{group.label}</span>
+    </span>
   )
 }
 
+// StripRow is one labelled dot strip. The label column has a fixed width
+// so the strips of every row share the same axis.
+function StripRow({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-40 shrink-0 truncate">{label}</div>
+      <div className="relative h-5 flex-1 rounded-xs bg-gray-100 dark:bg-gray-700">{children}</div>
+    </div>
+  )
+}
