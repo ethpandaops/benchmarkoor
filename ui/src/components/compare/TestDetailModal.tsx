@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { GitCompareArrows, Medal, X } from 'lucide-react'
 import clsx from 'clsx'
@@ -44,8 +44,8 @@ interface TestDetailModalProps {
   onChipFilterToggle?: (term: string) => void
   /**
    * Open sections of the modal, held by the page so a shared link keeps
-   * them open. `mgas` and `duration` open the group details of a metric
-   * section, `runs<groupIndex>` opens the run table of a group.
+   * them open. `mgas` and `duration` open the group details of the
+   * matching metric section.
    */
   expanded: Set<string>
   onExpandedChange: (next: Set<string>) => void
@@ -56,6 +56,9 @@ interface TestDetailModalProps {
 // and the dot fill in the 500 shade of the same hues.
 const SLOT_TEXT_COLORS = ['text-blue-700 dark:text-blue-300', 'text-orange-700 dark:text-orange-300', 'text-purple-700 dark:text-purple-300', 'text-green-700 dark:text-green-300', 'text-red-700 dark:text-red-300']
 const DOT_COLORS = ['#3b82f6', '#f97316', '#a855f7', '#22c55e', '#ef4444']
+
+type SortKey = 'group' | 'run' | 'mgas' | 'gasUsed' | 'payload' | 'duration'
+type RunsGroupBy = 'group' | 'none'
 
 /** One sampled run of a group, behind a dot of a strip. */
 interface RunPoint {
@@ -148,7 +151,7 @@ export function TestDetailModal({
     navigate({ to: '/compare', search: { runs: Array.from(selectedRunIds).join(',') } })
   }
 
-  type SortKey = 'run' | 'mgas' | 'gasUsed' | 'payload' | 'duration'
+  const [runsGroupBy, setRunsGroupBy] = useState<RunsGroupBy>('none')
   const [sortKey, setSortKey] = useState<SortKey>('run')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
@@ -236,82 +239,17 @@ export function TestDetailModal({
             <MetricSection metric="mgas" title="MGas/s" testName={testName} groupData={groupData} values={groupMgas} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} open={expanded.has('mgas')} onToggleOpen={() => toggleExpanded('mgas')} />
             <MetricSection metric="duration" title="Payload time" testName={testName} groupData={groupData} values={groupDurations} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} open={expanded.has('duration')} onToggleOpen={() => toggleExpanded('duration')} />
 
-            {/* Per-run tables, one per group, collapsed by default */}
-            <div className="flex flex-col gap-2">
-              {groupData.map((group, gi) => (
-                <div key={gi} className="flex flex-col gap-1">
-                  <button
-                    type="button"
-                    onClick={() => toggleExpanded(`runs${gi}`)}
-                    className="flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                  >
-                    <span className={clsx('transition-transform', expanded.has(`runs${gi}`) && 'rotate-90')}>▶</span>
-                    <GroupLabel group={group} gi={gi} />
-                    <span>{expanded.has(`runs${gi}`) ? 'Hide' : 'Show'} individual runs ({group.runs.length})</span>
-                  </button>
-                  {expanded.has(`runs${gi}`) && <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                        <th className="w-6 px-2 py-1"></th>
-                        <SortableHeader label="Run" sortKey="run" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="left" />
-                        <SortableHeader label="MGas/s" sortKey="mgas" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                        <SortableHeader label="Gas Used" sortKey="gasUsed" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                        <SortableHeader label="Payload time" sortKey="payload" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                        <SortableHeader label="Total time" sortKey="duration" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                      </tr>
-                    </thead>
-                    <tbody className="text-gray-700 dark:text-gray-200">
-                      {[...group.runs].sort((a, b) => {
-                        let cmp = 0
-                        switch (sortKey) {
-                          case 'run': cmp = (a.timestamp ?? 0) - (b.timestamp ?? 0); break
-                          case 'mgas': cmp = (a.mgas ?? 0) - (b.mgas ?? 0); break
-                          case 'gasUsed': cmp = a.gasUsed - b.gasUsed; break
-                          case 'payload': cmp = a.gasUsedTime - b.gasUsedTime; break
-                          case 'duration': cmp = a.duration - b.duration; break
-                        }
-                        return sortDir === 'asc' ? cmp : -cmp
-                      }).map((run, ri) => {
-                        const isSelected = !!run.runId && selectedRunIds.has(run.runId)
-                        const selectable = !!run.runId
-                        const atCap = selectedRunIds.size >= MAX_COMPARE_RUNS && !isSelected
-                        return (
-                          <tr
-                            key={ri}
-                            className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/50"
-                            onClick={() => { if (run.runId) window.open(`/runs/${run.runId}?testModal=${encodeURIComponent(testName)}`, '_blank') }}
-                          >
-                            <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                disabled={!selectable || atCap}
-                                onChange={() => run.runId && toggleRunSelected(run.runId)}
-                                title={atCap ? `Maximum ${MAX_COMPARE_RUNS} runs can be compared` : 'Select for comparison'}
-                                className="size-3.5 cursor-pointer accent-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:accent-blue-500"
-                              />
-                            </td>
-                            <td className="px-2 py-1">{run.timestamp ? formatTimestamp(run.timestamp) : `Run ${ri + 1}`}</td>
-                            <td className="px-2 py-1 text-right font-mono">
-                              {run.mgas !== undefined ? run.mgas.toFixed(2) : '-'}
-                            </td>
-                            <td className="px-2 py-1 text-right font-mono">
-                              {run.gasUsed > 0 ? `${(run.gasUsed / 1_000_000).toFixed(1)}M` : '-'}
-                            </td>
-                            <td className="px-2 py-1 text-right font-mono">
-                              {run.gasUsedTime > 0 ? formatDuration(run.gasUsedTime) : '-'}
-                            </td>
-                            <td className="px-2 py-1 text-right font-mono" title="Wall time of the whole test step, payloads and other calls">
-                              {run.duration > 0 ? formatDuration(run.duration) : '-'}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>}
-                </div>
-              ))}
-            </div>
+            <RunsTable
+              groupData={groupData}
+              testName={testName}
+              groupBy={runsGroupBy}
+              onGroupByChange={setRunsGroupBy}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={toggleSort}
+              selectedRunIds={selectedRunIds}
+              onToggleRunSelected={toggleRunSelected}
+            />
 
             {suiteHash && suiteTest && <StepPayloads suiteHash={suiteHash} test={suiteTest} />}
           </div>
@@ -442,6 +380,135 @@ function StepPayloads({ suiteHash, test }: { suiteHash: string; test: SuiteTest 
   )
 }
 
+/**
+ * RunsTable lists every sampled run of every group in one table. The
+ * columns sort, and the rows either cluster per group or run flat.
+ */
+function RunsTable({ groupData, testName, groupBy, onGroupByChange, sortKey, sortDir, onSort, selectedRunIds, onToggleRunSelected }: {
+  groupData: GroupSummary[]
+  testName: string
+  groupBy: RunsGroupBy
+  onGroupByChange: (mode: RunsGroupBy) => void
+  sortKey: SortKey
+  sortDir: 'asc' | 'desc'
+  onSort: (key: SortKey) => void
+  selectedRunIds: Set<string>
+  onToggleRunSelected: (runId: string) => void
+}) {
+  const rows = groupData.flatMap((group, gi) => group.runs.map((run) => ({ group, gi, run })))
+  if (rows.length === 0) return null
+
+  const compare = (a: typeof rows[number], b: typeof rows[number]) => {
+    let cmp = 0
+    switch (sortKey) {
+      case 'group': cmp = a.gi - b.gi; break
+      case 'run': cmp = (a.run.timestamp ?? 0) - (b.run.timestamp ?? 0); break
+      case 'mgas': cmp = (a.run.mgas ?? 0) - (b.run.mgas ?? 0); break
+      case 'gasUsed': cmp = a.run.gasUsed - b.run.gasUsed; break
+      case 'payload': cmp = a.run.gasUsedTime - b.run.gasUsedTime; break
+      case 'duration': cmp = a.run.duration - b.run.duration; break
+    }
+    return sortDir === 'asc' ? cmp : -cmp
+  }
+  // Grouped rows keep their group together and sort inside it.
+  const sorted = [...rows].sort((a, b) => (groupBy === 'group' ? a.gi - b.gi || compare(a, b) : compare(a, b)))
+  const columns = groupBy === 'group' ? 6 : 7
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+          Runs <span className="font-normal text-gray-500 dark:text-gray-400">({rows.length})</span>
+        </h4>
+        <div className="flex items-center gap-2">
+          <span className="text-xs/5 text-gray-500 dark:text-gray-400">Group by:</span>
+          <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
+            {([['group', 'Group'], ['none', 'None']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onGroupByChange(value)}
+                className={clsx(
+                  'rounded-xs px-2 py-0.5 text-xs/5 font-medium transition-colors',
+                  groupBy === value
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600 dark:text-gray-100'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
+            <th className="w-6 px-2 py-1"></th>
+            {groupBy === 'none' && (
+              <SortableHeader label="Group" sortKey="group" currentKey={sortKey} currentDir={sortDir} onSort={onSort} align="left" />
+            )}
+            <SortableHeader label="Run" sortKey="run" currentKey={sortKey} currentDir={sortDir} onSort={onSort} align="left" />
+            <SortableHeader label="MGas/s" sortKey="mgas" currentKey={sortKey} currentDir={sortDir} onSort={onSort} align="right" />
+            <SortableHeader label="Gas Used" sortKey="gasUsed" currentKey={sortKey} currentDir={sortDir} onSort={onSort} align="right" />
+            <SortableHeader label="Payload time" sortKey="payload" currentKey={sortKey} currentDir={sortDir} onSort={onSort} align="right" />
+            <SortableHeader label="Total time" sortKey="duration" currentKey={sortKey} currentDir={sortDir} onSort={onSort} align="right" />
+          </tr>
+        </thead>
+        <tbody className="text-gray-700 dark:text-gray-200">
+          {sorted.map(({ group, gi, run }, ri) => {
+            const isSelected = !!run.runId && selectedRunIds.has(run.runId)
+            const atCap = selectedRunIds.size >= MAX_COMPARE_RUNS && !isSelected
+            // One header row per group, above its first run.
+            const header = groupBy === 'group' && (ri === 0 || sorted[ri - 1].gi !== gi)
+              ? (
+                <tr key={`head-${gi}`} className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-700/40">
+                  <td colSpan={columns} className="px-2 py-1">
+                    <span className="inline-flex items-center gap-2">
+                      <GroupLabel group={group} gi={gi} />
+                      <span className="text-gray-400 dark:text-gray-500">({group.runs.length} run{group.runs.length === 1 ? '' : 's'})</span>
+                    </span>
+                  </td>
+                </tr>
+              )
+              : null
+            return (
+              <Fragment key={`${gi}-${ri}`}>
+                {header}
+                <tr
+                  className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/50"
+                  onClick={() => { if (run.runId) window.open(`/runs/${run.runId}?testModal=${encodeURIComponent(testName)}`, '_blank') }}
+                >
+                  <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={!run.runId || atCap}
+                      onChange={() => run.runId && onToggleRunSelected(run.runId)}
+                      title={atCap ? `Maximum ${MAX_COMPARE_RUNS} runs can be compared` : 'Select for comparison'}
+                      className="size-3.5 cursor-pointer accent-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:accent-blue-500"
+                    />
+                  </td>
+                  {groupBy === 'none' && (
+                    <td className="px-2 py-1"><GroupLabel group={group} gi={gi} /></td>
+                  )}
+                  <td className="px-2 py-1">{run.timestamp ? formatTimestamp(run.timestamp) : `Run ${ri + 1}`}</td>
+                  <td className="px-2 py-1 text-right font-mono">{run.mgas !== undefined ? run.mgas.toFixed(2) : '-'}</td>
+                  <td className="px-2 py-1 text-right font-mono">{run.gasUsed > 0 ? `${(run.gasUsed / 1_000_000).toFixed(1)}M` : '-'}</td>
+                  <td className="px-2 py-1 text-right font-mono">{run.gasUsedTime > 0 ? formatDuration(run.gasUsedTime) : '-'}</td>
+                  <td className="px-2 py-1 text-right font-mono" title="Wall time of the whole test step, payloads and other calls">
+                    {run.duration > 0 ? formatDuration(run.duration) : '-'}
+                  </td>
+                </tr>
+              </Fragment>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function SortableHeader({ label, sortKey, currentKey, currentDir, onSort, align }: {
   label: string
   sortKey: string
@@ -470,6 +537,8 @@ function SortableHeader({ label, sortKey, currentKey, currentDir, onSort, align 
 interface GroupSummary {
   label: string
   client: string
+  /** Every sampled run of the group, in run order. */
+  runs: RunPoint[]
   metrics: Record<HeatmapMetric, MetricSummary>
 }
 
@@ -589,8 +658,10 @@ function MetricSection({ metric, title, testName, groupData, values, durations, 
         const base = baselineGroupIdx >= 0 ? values[baselineGroupIdx] : undefined
         const color = heatmapColor(value, base, model)
         const isBaseline = mode === 'baseline' && gi === baselineGroupIdx && groupData.length >= 2
+        // The slow marker belongs to the payload time. The MGas/s cards
+        // colour against their own threshold instead.
         const duration = durations[gi]
-        const slow = duration !== undefined && isSlowPayload(duration, slowMs)
+        const slow = metric === 'duration' && duration !== undefined && isSlowPayload(duration, slowMs)
         const note = isBaseline
           ? 'baseline'
           : value === undefined
