@@ -132,7 +132,7 @@ export function TestDetailModal({
 }: TestDetailModalProps) {
 
   const navigate = useNavigate()
-  const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
+  const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('count')
 
   const toggleExpanded = (token: string) => {
     const next = new Set(expanded)

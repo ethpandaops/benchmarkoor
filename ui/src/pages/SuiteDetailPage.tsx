@@ -741,7 +741,7 @@ export function SuiteDetailPage() {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort: sort === 'name' ? undefined : sort, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy, testView, psort: search.psort, psortDir: search.psortDir, psOrder: search.psOrder, psEncoding: search.psEncoding },
+      search: { tab, client, image, status, sortBy, sortDir, filesPage, detail, opcodeSort: sort === 'count' ? undefined : sort, q, steps: serializeStepFilter(stepFilter), labels: serializeLabelFilters(labelFilters), groupBy, testView, psort: search.psort, psortDir: search.psortDir, psOrder: search.psOrder, psEncoding: search.psEncoding },
     })
   }
 

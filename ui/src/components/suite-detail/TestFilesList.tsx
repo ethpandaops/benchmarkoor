@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { Copy, Check, Search, ArrowDown, ArrowUp } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -269,38 +269,127 @@ export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test
             </Fragment>
           ))}
         </dl>
-        {hasOpcodes && (
-          <div className="mt-3 flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Opcode Count</span>
-              <button
-                onClick={() => onOpcodeSortChange(opcodeSort === 'name' ? 'count' : 'name')}
-                className="rounded-sm px-2 py-0.5 text-xs font-medium text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-600 dark:hover:text-gray-200"
-              >
-                Sort by {opcodeSort === 'name' ? 'count' : 'name'}
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {Object.entries(opcodes!)
-                .sort(opcodeSort === 'name'
-                  ? ([a], [b]) => a.localeCompare(b)
-                  : ([, a], [, b]) => b - a
-                )
-                .map(([opcode, count]) => {
-                  const category = getOpcodeCategory(opcode)
-                  return (
+        {hasOpcodes && <OpcodeBreakdown opcodes={opcodes!} sort={opcodeSort} onSortChange={onOpcodeSortChange} />}
+      </div>
+    </div>
+  )
+}
+
+
+/** Follows the theme, so the category colours repaint on a theme switch. */
+function useDarkMode() {
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
+  useEffect(() => {
+    const observer = new MutationObserver(() => setIsDark(document.documentElement.classList.contains('dark')))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+  return isDark
+}
+
+/**
+ * OpcodeBreakdown draws the opcode counts of a test: the mix per category
+ * on one stacked bar, and a bar per opcode behind a caret. Colour repeats
+ * the category of an opcode, and every mark carries its own label, so the
+ * chart never leans on colour alone.
+ */
+function OpcodeBreakdown({ opcodes, sort, onSortChange }: {
+  opcodes: Record<string, number>
+  sort: OpcodeSortMode
+  onSortChange: (sort: OpcodeSortMode) => void
+}) {
+  const isDark = useDarkMode()
+  const [showBars, setShowBars] = useState(false)
+
+  const entries = Object.entries(opcodes).filter(([, count]) => count > 0)
+  const total = entries.reduce((sum, [, count]) => sum + count, 0)
+  if (entries.length === 0 || total === 0) return null
+
+  const max = Math.max(...entries.map(([, count]) => count))
+  const bars = [...entries].sort(sort === 'name' ? ([a], [b]) => a.localeCompare(b) : ([, a], [, b]) => b - a)
+
+  // Category totals, largest first.
+  const perCategory = new Map<string, number>()
+  for (const [opcode, count] of entries) {
+    const category = getOpcodeCategory(opcode)
+    perCategory.set(category, (perCategory.get(category) ?? 0) + count)
+  }
+  const categories = [...perCategory.entries()].sort(([, a], [, b]) => b - a)
+  const share = (count: number) => (count / total) * 100
+  const fmtShare = (count: number) => `${share(count) >= 10 ? share(count).toFixed(0) : share(count).toFixed(1)}%`
+
+  return (
+    <div className="mt-3 flex flex-col gap-3">
+      <span className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">
+        Opcode Count{' '}
+        <span className="font-normal text-gray-400 dark:text-gray-500">
+          {total.toLocaleString()} calls over {entries.length} opcode{entries.length === 1 ? '' : 's'}
+        </span>
+      </span>
+
+      {/* The mix per category, one bar */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex h-3 w-full gap-0.5 overflow-hidden">
+          {categories.map(([name, count]) => (
+            <span
+              key={name}
+              className="h-full rounded-xs"
+              style={{ width: `${share(count)}%`, backgroundColor: getCategoryColor(name, isDark) }}
+              title={`${name}: ${count.toLocaleString()} (${fmtShare(count)})`}
+            />
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs/5 text-gray-500 dark:text-gray-400">
+          {categories.map(([name, count]) => (
+            <span key={name} className="inline-flex items-center gap-1.5">
+              <span className="size-2 shrink-0 rounded-xs" style={{ backgroundColor: getCategoryColor(name, isDark) }} />
+              {name}
+              <span className="text-gray-400 dark:text-gray-500">{fmtShare(count)}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* One bar per opcode */}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button
+            onClick={() => setShowBars((v) => !v)}
+            title={showBars ? 'Hide the opcodes' : 'Show a bar per opcode'}
+            className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          >
+            <span className={clsx('transition-transform', showBars && 'rotate-90')}>▶</span>
+            Every opcode ({entries.length})
+          </button>
+          {showBars && (
+            <button
+              onClick={() => onSortChange(sort === 'name' ? 'count' : 'name')}
+              className="rounded-sm px-2 py-0.5 text-xs font-medium text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-600 dark:hover:text-gray-200"
+            >
+              Sort by {sort === 'name' ? 'count' : 'name'}
+            </button>
+          )}
+        </div>
+        {showBars && (
+          <div className="flex max-h-96 flex-col gap-1 overflow-y-auto pr-1">
+            {bars.map(([opcode, count]) => {
+              const category = getOpcodeCategory(opcode)
+              return (
+                <div key={opcode} className="flex items-center gap-2 text-xs/5" title={`${opcode} · ${category} · ${count.toLocaleString()} (${fmtShare(count)})`}>
+                  <span className="w-24 shrink-0 truncate text-right font-mono text-gray-700 dark:text-gray-200">{opcode}</span>
+                  <span className="relative h-2.5 flex-1 rounded-xs bg-gray-100 dark:bg-gray-700/60">
                     <span
-                      key={opcode}
-                      title={category}
-                      className="inline-flex items-center gap-1 rounded-xs bg-gray-100 px-2 py-0.5 font-mono text-xs/5 dark:bg-gray-700"
-                      style={{ color: getCategoryColor(category, document.documentElement.classList.contains('dark')) }}
-                    >
-                      {opcode}
-                      <span className="opacity-60">{count}</span>
-                    </span>
-                  )
-                })}
-            </div>
+                      className="absolute inset-y-0 left-0 rounded-xs"
+                      style={{ width: `${Math.max(1, (count / max) * 100)}%`, backgroundColor: getCategoryColor(category, isDark) }}
+                    />
+                  </span>
+                  <span className="w-28 shrink-0 text-right font-mono text-gray-600 dark:text-gray-300">
+                    {count.toLocaleString()}
+                    <span className="ml-1 text-gray-400 dark:text-gray-500">{fmtShare(count)}</span>
+                  </span>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -540,7 +629,7 @@ export function TestFilesList({
   onSearchChange,
   detailIndex,
   onDetailChange,
-  opcodeSort = 'name',
+  opcodeSort = 'count',
   onOpcodeSortChange,
   testView,
   onTestViewChange,

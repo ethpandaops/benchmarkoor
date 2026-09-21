@@ -456,7 +456,7 @@ export function TestHeatmap({
   const threshold = thresholdProp ?? DEFAULT_THRESHOLD
   const slowMs = slowMsProp ?? DEFAULT_SLOW_MS
   const [tooltip, setTooltip] = useState<{ test: TestData; x: number; y: number } | null>(null)
-  const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
+  const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('count')
   const [activeStepTabLocal, setActiveStepTabLocal] = useState<'test' | 'setup' | 'cleanup'>('test')
   const activeStepTab = activeStepTabProp ?? activeStepTabLocal
   const setActiveStepTab = (tab: 'test' | 'setup' | 'cleanup') => {
