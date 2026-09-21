@@ -469,6 +469,9 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
   baselineGroupIdx: number
   heatmapModel: HeatmapColorModel
 }) {
+  // The combined strip is the summary. The per-group strips and the
+  // stats table are its parts, so they stay behind a caret.
+  const [showGroupDetails, setShowGroupDetails] = useState(false)
   const model = { ...heatmapModel, metric }
   const { mode, threshold, slowMs } = model
   const fmt = (v: number) => (metric === 'mgas' ? v.toFixed(2) : formatDuration(v))
@@ -488,6 +491,7 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
     const fraction = (v - globalMin) / range
     return `${Math.max(2, Math.min(98, (invert ? 1 - fraction : fraction) * 100))}%`
   }
+  const showDetails = showGroupDetails || groupData.length < 2
   const axisLeft = invert ? globalMax : globalMin
   const axisRight = invert ? globalMin : globalMax
 
@@ -564,11 +568,25 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
       })}
     </div>
 
-    {/* Strips: all groups on one axis, then one strip per group right
-        under it, so the overlap between groups is visible at a glance */}
+    {/* Strips: all groups on one axis, and, on request, one strip per
+        group right under it, so the overlap between groups is visible */}
     <div className="flex flex-col gap-1">
       {groupData.length >= 2 && (
-        <StripRow emphasis label={<span className="text-sm/6 font-semibold text-gray-900 dark:text-gray-100">All groups</span>}>
+        <StripRow
+          emphasis
+          label={
+            <button
+              type="button"
+              onClick={() => setShowGroupDetails((v) => !v)}
+              title={showGroupDetails ? 'Hide the strip and the stats of every group' : 'Show the strip and the stats of every group'}
+              className="flex items-center gap-1.5 text-sm/6 font-semibold text-gray-900 hover:text-gray-600 dark:text-gray-100 dark:hover:text-gray-300"
+            >
+              <span className={clsx('text-xs transition-transform', showGroupDetails && 'rotate-90')}>▶</span>
+              All groups
+              <span className="text-xs/5 font-normal text-gray-500 dark:text-gray-400">({groupData.length})</span>
+            </button>
+          }
+        >
           {groupData.map((group, gi) =>
             group.metrics[metric].values.map((v, i) => (
               <span
@@ -581,7 +599,7 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
           )}
         </StripRow>
       )}
-      {groupData.map((group, gi) => (
+      {showDetails && groupData.map((group, gi) => (
         <StripRow key={gi} label={<GroupLabel group={group} gi={gi} />}>
           {group.metrics[metric].values.map((v, i) => (
             <span
@@ -604,7 +622,7 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
     </div>
 
     {/* One table with the stats of every group */}
-    <table className="w-full text-xs">
+    {showDetails && <table className="w-full text-xs">
       <thead>
         <tr className="border-b border-gray-200 text-left text-[10px] uppercase tracking-wide text-gray-400 dark:border-gray-700 dark:text-gray-500">
           <th className="py-1 pr-2 font-medium">Group</th>
@@ -646,7 +664,7 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
           )
         })}
       </tbody>
-    </table>
+    </table>}
 
     </div>
   )
