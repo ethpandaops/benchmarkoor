@@ -170,9 +170,9 @@ export function GroupBuilder({
         </div>
       </div>
 
-      {/* Group cards */}
+      {/* Group cards: one per row, two from lg on, three on a wide screen */}
       {selectedSuite && (
-        <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
           {groups.map((group, idx) => (
             <GroupCard
               key={idx}
@@ -198,7 +198,7 @@ export function GroupBuilder({
           {availableClients.length > 0 && groups.length < RUN_SLOTS.length && (
             <button
               onClick={addGroup}
-              className="flex items-center gap-1.5 self-start rounded-xs border border-dashed border-gray-300 px-3 py-1.5 text-sm/6 text-gray-600 hover:border-gray-400 hover:text-gray-800 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-200"
+              className="flex items-center gap-1.5 self-start justify-self-start rounded-xs border border-dashed border-gray-300 px-3 py-1.5 text-sm/6 text-gray-600 hover:border-gray-400 hover:text-gray-800 lg:col-span-2 2xl:col-span-3 dark:border-gray-600 dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-200"
             >
               <Plus className="size-4" />
               Add group
@@ -266,8 +266,8 @@ function GroupCard({
     : availableClients
 
   return (
-    <div className={clsx('flex flex-col gap-2 rounded-sm border border-gray-200 p-3 dark:border-gray-700', SLOT_COLORS[index % SLOT_COLORS.length])}>
-      <div className="flex items-center gap-3">
+    <div className={clsx('flex min-w-0 flex-col gap-2 rounded-sm border border-gray-200 p-3 dark:border-gray-700', SLOT_COLORS[index % SLOT_COLORS.length])}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-xs/5 font-bold text-gray-500 dark:text-gray-400">
           Group {String.fromCharCode(65 + index)}
         </span>
