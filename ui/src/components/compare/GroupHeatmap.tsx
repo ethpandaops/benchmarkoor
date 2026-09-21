@@ -30,7 +30,7 @@ import { type HeatmapColorModel, baselineRatio, formatRatio, heatmapColor } from
 // width, the matrix wraps into stanzas: each stanza repeats the group
 // rows for its slice of tests, so a column is the same test in every row.
 
-type SortMode = 'order' | 'spread'
+export type SortMode = 'order' | 'spread' | 'avg'
 
 // Same tile as the run-detail heatmap. The logo is the tile size too,
 // so it does not set a taller row pitch than the tiles.
@@ -59,6 +59,8 @@ interface HeatmapTest {
   winners: Set<number>
   /** Best over worst group value of the active metric, minus one. Zero when fewer than two groups have a value. */
   spread: number
+  /** Mean of the active metric over the groups that have a value, or undefined when no group has one. */
+  avg: number | undefined
 }
 
 interface GroupHeatmapProps {
@@ -83,6 +85,9 @@ interface GroupHeatmapProps {
   /** Group index (`run.index`) whose won tests stay bright while the rest dim, or null. */
   highlightGroupIdx?: number | null
   onHighlightChange?: (groupIdx: number | null) => void
+  /** Test order of the matrix. The page owns it so the URL keeps it. */
+  sortMode: SortMode
+  onSortModeChange: (mode: SortMode) => void
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -196,8 +201,9 @@ export function GroupHeatmap({
   onTestClick,
   highlightGroupIdx = null,
   onHighlightChange,
+  sortMode,
+  onSortModeChange,
 }: GroupHeatmapProps) {
-  const [sortMode, setSortMode] = useState<SortMode>('order')
   const { metric, mode, threshold, slowMs } = model
   // The sliders fire on every tick and each tick recolours every tile.
   // The controls follow the hand; the tiles follow this deferred copy.
@@ -241,6 +247,7 @@ export function GroupHeatmap({
             fails: new Array<boolean>(runs.length).fill(false),
             winners: new Set(),
             spread: 0,
+            avg: undefined,
           }
           byName.set(name, test)
         }
@@ -255,6 +262,7 @@ export function GroupHeatmap({
     for (const test of list) {
       const known = (metric === 'mgas' ? test.mgas : test.durations).filter((v): v is number => v !== undefined)
       if (known.length >= 2) test.spread = Math.max(...known) / Math.min(...known) - 1
+      if (known.length > 0) test.avg = known.reduce((sum, v) => sum + v, 0) / known.length
 
       const knownMgas = test.mgas.filter((v): v is number => v !== undefined)
       if (knownMgas.length >= 2) {
@@ -265,8 +273,20 @@ export function GroupHeatmap({
       }
     }
 
-    if (sortMode === 'spread') list.sort((a, b) => b.spread - a.spread || a.order - b.order)
-    else list.sort((a, b) => a.order - b.order)
+    if (sortMode === 'spread') {
+      list.sort((a, b) => b.spread - a.spread || a.order - b.order)
+    } else if (sortMode === 'avg') {
+      // Worst first: the lowest average MGas/s, or the longest average
+      // duration. A test with no value at all goes last.
+      list.sort((a, b) => {
+        if (a.avg === undefined || b.avg === undefined) {
+          return Number(a.avg === undefined) - Number(b.avg === undefined) || a.order - b.order
+        }
+        return (metric === 'mgas' ? a.avg - b.avg : b.avg - a.avg) || a.order - b.order
+      })
+    } else {
+      list.sort((a, b) => a.order - b.order)
+    }
 
     return list
   }, [runs, suiteTests, stepFilter, testNameFilter, sortMode, metric])
@@ -403,10 +423,15 @@ export function GroupHeatmap({
         <ModeGroup
           label="Sort by:"
           value={sortMode}
-          onChange={setSortMode}
+          onChange={onSortModeChange}
           options={[
             { value: 'order', label: 'Test #' },
             { value: 'spread', label: 'Spread', title: 'Largest gap between the best and the worst group first' },
+            {
+              value: 'avg',
+              label: 'Avg',
+              title: metric === 'mgas' ? 'Lowest average MGas/s over the groups first' : 'Longest average duration over the groups first',
+            },
           ]}
         />
         {mode === 'baseline' && runs.length >= 2 && (
