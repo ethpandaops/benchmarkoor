@@ -64,6 +64,8 @@ const LANE_PX = 9
 const MAX_LANES = 5
 /** Label column of a strip row (w-40) plus the gap (gap-2). */
 const STRIP_LABEL_PX = 168
+/** Lane under a strip that carries the range and average markers. */
+const MARKER_LANE_PX = 10
 
 type SortKey = 'group' | 'run' | 'mgas' | 'gasUsed' | 'payload' | 'duration'
 type RunsGroupBy = 'group' | 'none'
@@ -698,7 +700,11 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
   hoveredRunId: string | null
   onHoverRunChange: (runId: string | null) => void
 }) {
-  const [hover, setHover] = useState<{ point: RunPoint; group: GroupSummary; gi: number; anchor: DOMRect } | null>(null)
+  const [hover, setHover] = useState<
+    | { kind: 'run'; point: RunPoint; group: GroupSummary; gi: number; anchor: DOMRect }
+    | { kind: 'group'; group: GroupSummary; gi: number; anchor: DOMRect }
+    | null
+  >(null)
   // The lanes need the width of a strip, so a dot knows how close its
   // neighbour really is.
   const stripsRef = useRef<HTMLDivElement>(null)
@@ -769,9 +775,52 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
   // Hovered dot: the popover anchors to it, and every dot of the same
   // run lights up, in the combined strip and in the group strip alike.
   const isActive = (point: RunPoint) =>
-    point.runId !== undefined ? hoveredRunId === point.runId : hover?.point === point
+    point.runId !== undefined
+      ? hoveredRunId === point.runId
+      : hover?.kind === 'run' && hover.point === point
   const openRun = (point: RunPoint) => {
     if (point.runId) window.open(`/runs/${point.runId}?testModal=${encodeURIComponent(testName)}`, '_blank')
+  }
+  // Range of a group on its own strip: a line from its slowest run to
+  // its fastest one, with a cap at each end and the group average in the
+  // middle. The dots draw over it.
+  const rangeMarker = (group: GroupSummary, gi: number, withRange = true) => {
+    const summary = group.metrics[metric]
+    const { min, max, average } = summary
+    if (min === undefined || max === undefined) return null
+    const color = DOT_COLORS[gi % DOT_COLORS.length]
+    const left = Math.min(dotPercent(min), dotPercent(max))
+    const right = Math.max(dotPercent(min), dotPercent(max))
+    return (
+      <>
+        {withRange && (
+          <span
+            className="pointer-events-none absolute top-1/2 h-px -translate-y-1/2 opacity-80"
+            style={{ left: `${left}%`, width: `${right - left}%`, backgroundColor: color }}
+          />
+        )}
+        {withRange && [left, right].map((x) => (
+          <span
+            key={x}
+            className="pointer-events-none absolute top-1/2 h-2 w-px -translate-y-1/2 opacity-80"
+            style={{ left: `${x}%`, backgroundColor: color }}
+          />
+        ))}
+        {average !== undefined && (
+          <span
+            className="pointer-events-none absolute top-1/2 h-2.5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{ left: dotLeft(average), backgroundColor: color }}
+          />
+        )}
+        {/* Hit area of the whole marker, so the card opens anywhere on it */}
+        <span
+          className="absolute inset-y-0 cursor-default"
+          style={{ left: `${left}%`, width: `${right - left}%`, minWidth: 16 }}
+          onMouseEnter={(e) => setHover({ kind: 'group', group, gi, anchor: e.currentTarget.getBoundingClientRect() })}
+          onMouseLeave={() => setHover(null)}
+        />
+      </>
+    )
   }
   const dot = (point: RunPoint, value: number, group: GroupSummary, gi: number, key: string, offset = 0) => (
     <span
@@ -783,7 +832,7 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
       )}
       style={{ top: `calc(50% + ${offset}px)`, left: dotLeft(value), backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }}
       onMouseEnter={(e) => {
-        setHover({ point, group, gi, anchor: e.currentTarget.getBoundingClientRect() })
+        setHover({ kind: 'run', point, group, gi, anchor: e.currentTarget.getBoundingClientRect() })
         onHoverRunChange(point.runId ?? null)
       }}
       onMouseLeave={() => {
@@ -871,6 +920,9 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
         <StripRow
           emphasis
           height={combined.height}
+          footer={groupData.map((group, gi) => (
+            <Fragment key={`avg-${gi}`}>{rangeMarker(group, gi, false)}</Fragment>
+          ))}
           marker={stripMarkers}
           label={
             <button
@@ -897,7 +949,7 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
           key: String(i),
         })))
         return (
-          <StripRow key={gi} height={own.height} marker={stripMarkers} label={<GroupLabel group={group} gi={gi} />}>
+          <StripRow key={gi} height={own.height} footer={rangeMarker(group, gi)} marker={stripMarkers} label={<GroupLabel group={group} gi={gi} />}>
             {own.placed.map(({ item, lane }) => dot(item.point, item.value, group, gi, item.key, laneOffset(lane)))}
           </StripRow>
         )
@@ -966,21 +1018,53 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
         }}
       >
         <div className="truncate"><GroupLabel group={hover.group} gi={hover.gi} /></div>
-        <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-gray-700 dark:text-gray-200">
-          <span className="font-sans text-gray-500 dark:text-gray-400">MGas/s</span>
-          <span className="text-right">{hover.point.mgas !== undefined ? hover.point.mgas.toFixed(2) : '—'}</span>
-          <span className="font-sans text-gray-500 dark:text-gray-400">Payload time</span>
-          <span className="text-right">{formatDuration(hover.point.gasUsedTime)}</span>
-          <span className="font-sans text-gray-500 dark:text-gray-400">Total time</span>
-          <span className="text-right">{formatDuration(hover.point.duration)}</span>
-          <span className="font-sans text-gray-500 dark:text-gray-400">Gas used</span>
-          <span className="text-right">{(hover.point.gasUsed / 1_000_000).toFixed(1)}M</span>
-        </div>
-        {hover.point.timestamp !== undefined && (
-          <div className="mt-1 text-gray-500 dark:text-gray-400">{formatTimestamp(hover.point.timestamp)}</div>
-        )}
-        {hover.point.runId && (
-          <div className="text-gray-400 dark:text-gray-500">Click to open the run in a new tab</div>
+        {hover.kind === 'run' ? (
+          <>
+            <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-gray-700 dark:text-gray-200">
+              <span className="font-sans text-gray-500 dark:text-gray-400">MGas/s</span>
+              <span className="text-right">{hover.point.mgas !== undefined ? hover.point.mgas.toFixed(2) : '—'}</span>
+              <span className="font-sans text-gray-500 dark:text-gray-400">Payload time</span>
+              <span className="text-right">{formatDuration(hover.point.gasUsedTime)}</span>
+              <span className="font-sans text-gray-500 dark:text-gray-400">Total time</span>
+              <span className="text-right">{formatDuration(hover.point.duration)}</span>
+              <span className="font-sans text-gray-500 dark:text-gray-400">Gas used</span>
+              <span className="text-right">{(hover.point.gasUsed / 1_000_000).toFixed(1)}M</span>
+            </div>
+            {hover.point.timestamp !== undefined && (
+              <div className="mt-1 text-gray-500 dark:text-gray-400">{formatTimestamp(hover.point.timestamp)}</div>
+            )}
+            {hover.point.runId && (
+              <div className="text-gray-400 dark:text-gray-500">Click to open the run in a new tab</div>
+            )}
+          </>
+        ) : (
+          (() => {
+            const m = hover.group.metrics[metric]
+            const cell = (v: number | undefined) => (v === undefined ? '—' : fmt(v))
+            return (
+              <>
+                <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-gray-700 dark:text-gray-200">
+                  <span className="font-sans text-gray-500 dark:text-gray-400">Average</span>
+                  <span className="text-right">{cell(m.average)}</span>
+                  <span className="font-sans text-gray-500 dark:text-gray-400">Median</span>
+                  <span className="text-right">{cell(m.median)}</span>
+                  <span className="font-sans text-gray-500 dark:text-gray-400">Min</span>
+                  <span className="text-right">{cell(m.min)}</span>
+                  <span className="font-sans text-gray-500 dark:text-gray-400">Max</span>
+                  <span className="text-right">{cell(m.max)}</span>
+                  <span className="font-sans text-gray-500 dark:text-gray-400">σ</span>
+                  <span className="text-right">{cell(m.stddev)}</span>
+                  <span className="font-sans text-gray-500 dark:text-gray-400">CV</span>
+                  <span className="text-right">
+                    {m.stddev !== undefined && m.mean !== undefined && m.mean > 0 ? `${((m.stddev / m.mean) * 100).toFixed(1)}%` : '—'}
+                  </span>
+                </div>
+                <div className="mt-1 text-gray-500 dark:text-gray-400">
+                  {m.values.length} run{m.values.length === 1 ? '' : 's'} · the tick marks the average
+                </div>
+              </>
+            )
+          })()
         )}
       </div>
     )}
@@ -1000,7 +1084,7 @@ function GroupLabel({ group, gi }: { group: { client: string; label: string }; g
 
 // StripRow is one labelled dot strip. The label column has a fixed width
 // so the strips of every row share the same axis.
-function StripRow({ label, children, emphasis, marker, height }: {
+function StripRow({ label, children, emphasis, marker, height, footer }: {
   label: React.ReactNode
   children: React.ReactNode
   emphasis?: boolean
@@ -1008,23 +1092,36 @@ function StripRow({ label, children, emphasis, marker, height }: {
   marker?: React.ReactNode
   /** Taller row in pixels, when the dots need lanes. Zero keeps the default. */
   height?: number
+  /**
+   * Range and average markers. They sit in their own lane under the
+   * strip, on the page background, where they read better than over the
+   * track of the dots.
+   */
+  footer?: React.ReactNode
 }) {
   return (
     <div className={clsx('flex items-center gap-2', emphasis && 'mb-1')}>
       <div className="w-40 shrink-0 truncate">{label}</div>
-      <div
-        className={clsx(
-          'relative flex-1 rounded-xs',
-          // The combined strip is taller and darker, with a ring, so it
-          // reads as the summary and the group strips as its parts.
-          emphasis
-            ? 'h-7 bg-gray-200 ring-1 ring-gray-300 dark:bg-gray-600 dark:ring-gray-500'
-            : 'h-5 bg-gray-100 dark:bg-gray-700',
+      <div className="flex flex-1 flex-col">
+        <div
+          className={clsx(
+            'relative w-full rounded-xs',
+            // The combined strip is taller and darker, with a ring, so it
+            // reads as the summary and the group strips as its parts.
+            emphasis
+              ? 'h-7 bg-gray-200 ring-1 ring-gray-300 dark:bg-gray-600 dark:ring-gray-500'
+              : 'h-5 bg-gray-100 dark:bg-gray-700',
+          )}
+          style={height ? { height } : undefined}
+        >
+          {marker}
+          {children}
+        </div>
+        {footer && (
+          <div className="relative w-full" style={{ height: MARKER_LANE_PX }}>
+            {footer}
+          </div>
         )}
-        style={height ? { height } : undefined}
-      >
-        {marker}
-        {children}
       </div>
     </div>
   )
