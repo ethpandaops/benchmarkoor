@@ -11,7 +11,7 @@ import { type StepType } from '@/api/hooks/useTestDetails'
 import { formatTimestamp } from '@/utils/date'
 import { type GroupDef } from './groupUtils'
 import { MAX_COMPARE_RUNS, MEDAL_CLASSES, MIN_COMPARE_RUNS } from './constants'
-import { type HeatmapColorModel, type HeatmapMetric, baselineRatio, formatRatio, heatmapColor } from './heatmapColor'
+import { type HeatmapColorModel, type HeatmapMetric, heatmapColor } from './heatmapColor'
 import { formatBytes, formatDuration } from '@/utils/format'
 import { SLOW_COLOR, THRESHOLD_COLORS, isSlowPayload } from '@/utils/perfThreshold'
 
@@ -239,8 +239,9 @@ export function TestDetailModal({
             {suiteTest && (
               <EESTInfoContent test={suiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
             )}
-            <MetricSection metric="mgas" title="MGas/s" testName={testName} groupData={groupData} values={groupMgas} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} open={expanded.has('mgas')} onToggleOpen={() => toggleExpanded('mgas')} hoveredRunId={hoveredRunId} onHoverRunChange={setHoveredRunId} />
-            <MetricSection metric="duration" title="Payload time" testName={testName} groupData={groupData} values={groupDurations} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} open={expanded.has('duration')} onToggleOpen={() => toggleExpanded('duration')} hoveredRunId={hoveredRunId} onHoverRunChange={setHoveredRunId} />
+            <GroupCards groupData={groupData} mgasValues={groupMgas} durationValues={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} />
+            <MetricSection metric="mgas" title="MGas/s" testName={testName} groupData={groupData} heatmapModel={heatmapModel} open={expanded.has('mgas')} onToggleOpen={() => toggleExpanded('mgas')} hoveredRunId={hoveredRunId} onHoverRunChange={setHoveredRunId} />
+            <MetricSection metric="duration" title="Payload time" testName={testName} groupData={groupData} heatmapModel={heatmapModel} open={expanded.has('duration')} onToggleOpen={() => toggleExpanded('duration')} hoveredRunId={hoveredRunId} onHoverRunChange={setHoveredRunId} />
 
             <RunsTable
               groupData={groupData}
@@ -556,20 +557,127 @@ interface GroupSummary {
   metrics: Record<HeatmapMetric, MetricSummary>
 }
 
-// MetricSection is the cards, the dot strips and the stats table of one
-// metric. The cards colour with the section's metric and the heatmap's
-// mode and limits.
-function MetricSection({ metric, title, testName, groupData, values, durations, baselineGroupIdx, heatmapModel, open, onToggleOpen, hoveredRunId, onHoverRunChange }: {
+/**
+ * GroupCards is one card per group, ranked from the fastest group to the
+ * slowest one. A card carries both metrics: the one the heatmap colours
+ * by leads, the other follows. The tint, the note and the slow marker
+ * match the heatmap tile of the test.
+ */
+function GroupCards({ groupData, mgasValues, durationValues, baselineGroupIdx, heatmapModel }: {
+  groupData: GroupSummary[]
+  /** Averaged MGas/s per group — the value the heatmap tile shows. */
+  mgasValues: (number | undefined)[]
+  /** Averaged payload time per group, in nanoseconds. */
+  durationValues: (number | undefined)[]
+  baselineGroupIdx: number
+  heatmapModel: HeatmapColorModel
+}) {
+  const { metric, mode, slowMs } = heatmapModel
+  const values = metric === 'mgas' ? mgasValues : durationValues
+
+  // The slowest group of the comparison. Every other card says how much
+  // it beats that one by.
+  const measured = values.filter((v): v is number => v !== undefined)
+  const slowest = measured.length >= 2
+    ? (metric === 'mgas' ? Math.min(...measured) : Math.max(...measured))
+    : undefined
+
+  // The gas of a test is the same for every group, so the MGas/s order is
+  // the payload time order turned around. One ranking serves both.
+  const order = groupData.map((_, gi) => gi).sort((a, b) => {
+    const va = mgasValues[a]
+    const vb = mgasValues[b]
+    if (va === undefined || vb === undefined) return Number(va === undefined) - Number(vb === undefined)
+    return vb - va
+  })
+
+  if (groupData.length === 0) return null
+
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      {order.map((gi, place) => {
+        const group = groupData[gi]
+        const mgas = mgasValues[gi]
+        const duration = durationValues[gi]
+        const value = values[gi]
+        // Gold, silver and bronze for the fastest three, as in the ranking.
+        const medal = groupData.length >= 2 && mgas !== undefined && place < MEDAL_CLASSES.length ? place : undefined
+        const base = baselineGroupIdx >= 0 ? values[baselineGroupIdx] : undefined
+        const color = heatmapColor(value, base, heatmapModel)
+        const isBaseline = mode === 'baseline' && gi === baselineGroupIdx && groupData.length >= 2
+        const slow = duration !== undefined && isSlowPayload(duration, slowMs)
+        const gain = slowest !== undefined && value !== undefined && slowest > 0 && value > 0
+          ? (metric === 'mgas' ? value / slowest : slowest / value) - 1
+          : undefined
+        const note = isBaseline
+          ? 'baseline'
+          : gain === undefined
+            ? null
+            : gain < 0.0005
+              ? 'slowest'
+              : `+${(gain * 100).toFixed(gain >= 0.1 ? 0 : 1)}% vs slowest`
+        const lead = metric === 'mgas'
+          ? { value: mgas === undefined ? '—' : mgas.toFixed(2), unit: 'MGas/s' }
+          : { value: duration === undefined ? '—' : formatDuration(duration), unit: '' }
+        const follow = metric === 'mgas'
+          ? `${duration === undefined ? '—' : formatDuration(duration)} payload time`
+          : `${mgas === undefined ? '—' : mgas.toFixed(2)} MGas/s`
+        return (
+          <div
+            key={gi}
+            className="relative isolate flex flex-col gap-1 overflow-hidden rounded-sm border-l-4 border-gray-300 bg-gray-100 px-3 py-2 dark:border-gray-600 dark:bg-gray-700/50"
+            style={{
+              ...(color ? { borderColor: color, backgroundColor: `${color}26` } : {}),
+              // Same slow-payload outline as the heatmap tile.
+              ...(slow ? { outline: `2px solid ${SLOW_COLOR}`, outlineOffset: '-2px' } : {}),
+            }}
+          >
+            {medal !== undefined && (
+              <Medal
+                aria-hidden
+                className={clsx('pointer-events-none absolute -right-3 -top-3 -z-10 size-16 rotate-12 opacity-20 dark:opacity-30', MEDAL_CLASSES[medal])}
+              />
+            )}
+            <span
+              className={clsx('inline-flex items-center gap-1.5 text-xs/5 font-medium', SLOT_TEXT_COLORS[gi % SLOT_TEXT_COLORS.length])}
+              title={medal !== undefined ? `${medal + 1}. place` : undefined}
+            >
+              <img src={`/img/clients/${group.client}.jpg`} alt={group.client} className="size-3.5 rounded-full object-cover" />
+              <span className="truncate">{group.label}</span>
+              {slow && (
+                <span className="rounded-xs px-1 text-[10px]/4 font-medium" style={{ backgroundColor: `${SLOW_COLOR}26`, color: SLOW_COLOR }} title={`Payload time above ${formatDuration(slowMs * 1_000_000)}`}>
+                  slow
+                </span>
+              )}
+            </span>
+            <span className="font-mono text-lg/7 font-semibold text-gray-900 dark:text-gray-100">
+              {lead.value}
+              {lead.unit && <span className="ml-1 text-xs/5 font-normal text-gray-500 dark:text-gray-400">{lead.unit}</span>}
+            </span>
+            <span className="font-mono text-xs/5 text-gray-600 dark:text-gray-300">{follow}</span>
+            {note && (
+              <span
+                className="text-xs/5 text-gray-500 dark:text-gray-400"
+                title={note === 'baseline' ? 'The baseline of the comparison' : 'Against the slowest group of the comparison'}
+              >
+                {note}
+              </span>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// MetricSection is the dot strips and the stats table of one metric. The
+// strips carry the limit of the metric and every sampled run.
+function MetricSection({ metric, title, testName, groupData, heatmapModel, open, onToggleOpen, hoveredRunId, onHoverRunChange }: {
   metric: HeatmapMetric
   title: string
   /** Test the modal shows, so a dot can open its run on that test. */
   testName: string
   groupData: GroupSummary[]
-  /** Averaged value of this metric per group — the value the heatmap tile shows. */
-  values: (number | undefined)[]
-  /** Averaged payload time per group, for the slow marker. */
-  durations: (number | undefined)[]
-  baselineGroupIdx: number
   heatmapModel: HeatmapColorModel
   /**
    * Whether the per-group strips and the stats table show. The combined
@@ -583,8 +691,7 @@ function MetricSection({ metric, title, testName, groupData, values, durations, 
   onHoverRunChange: (runId: string | null) => void
 }) {
   const [hover, setHover] = useState<{ point: RunPoint; group: GroupSummary; gi: number; anchor: DOMRect } | null>(null)
-  const model = { ...heatmapModel, metric }
-  const { mode, threshold, slowMs } = model
+  const { threshold, slowMs } = heatmapModel
   const fmt = (v: number) => (metric === 'mgas' ? v.toFixed(2) : formatDuration(v))
   const fmtAxis = (v: number) => (metric === 'mgas' ? v.toFixed(1) : formatDuration(v))
   const unit = metric === 'mgas' ? 'MGas/s' : 'payload time'
@@ -652,93 +759,43 @@ function MetricSection({ metric, title, testName, groupData, values, durations, 
       title={limitTitle}
     />
   ) : null
+  // Both axes run from the best value to the worst one, so everything
+  // right of the limit line misses it. That side carries the colour of
+  // the limit. A strip where every run misses it is washed end to end.
+  const everyRunMisses = metric === 'mgas' ? globalMax < limit : globalMin > limit
+  const missZoneFrom = limitInRange ? dotLeft(limit) : everyRunMisses ? '0%' : null
+  const missZone = missZoneFrom === null ? null : (
+    <span
+      className="pointer-events-none absolute inset-y-0 right-0"
+      style={{ left: missZoneFrom, backgroundColor: `${limitColor}1f` }}
+      title={metric === 'mgas'
+        ? `Under the ${threshold} MGas/s threshold`
+        : `Over the ${formatDuration(slowMs * 1_000_000)} slow-payload limit`}
+    />
+  )
+  const stripMarkers = (
+    <>
+      {missZone}
+      {limitMarker}
+    </>
+  )
 
   const showDetails = open || groupData.length < 2
   const axisLeft = invert ? globalMax : globalMin
   const axisRight = invert ? globalMin : globalMax
-
-  // The cards run from the fastest group to the slowest one, the same
-  // direction as the strips. A group with no value goes last.
-  const cardOrder = groupData.map((_, gi) => gi).sort((a, b) => {
-    const va = values[a]
-    const vb = values[b]
-    if (va === undefined || vb === undefined) return Number(va === undefined) - Number(vb === undefined)
-    return invert ? vb - va : va - vb
-  })
 
   if (allValues.length === 0) return null
 
   return (
     <div className="flex flex-col gap-3">
       <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">{title}</h4>
-    {/* One card per group with the averaged value, tinted like its heatmap tile */}
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-      {cardOrder.map((gi, place) => {
-        const group = groupData[gi]
-        const value = values[gi]
-        // Gold, silver and bronze for the fastest three, as in the ranking.
-        const medal = groupData.length >= 2 && value !== undefined && place < MEDAL_CLASSES.length ? place : undefined
-        const base = baselineGroupIdx >= 0 ? values[baselineGroupIdx] : undefined
-        const color = heatmapColor(value, base, model)
-        const isBaseline = mode === 'baseline' && gi === baselineGroupIdx && groupData.length >= 2
-        // The slow marker belongs to the payload time. The MGas/s cards
-        // colour against their own threshold instead.
-        const duration = durations[gi]
-        const slow = metric === 'duration' && duration !== undefined && isSlowPayload(duration, slowMs)
-        const note = isBaseline
-          ? 'baseline'
-          : value === undefined
-            ? '\u00a0'
-            : mode === 'baseline'
-              ? base !== undefined && base > 0 && value > 0 ? `${formatRatio(baselineRatio(value, base, metric))} vs baseline` : '\u00a0'
-              : metric === 'mgas'
-                ? `${formatRatio(value / threshold)} vs ${threshold} MGas/s`
-                : `${formatRatio((slowMs * 1_000_000) / value)} vs ${formatDuration(slowMs * 1_000_000)} limit`
-        return (
-          <div
-            key={gi}
-            className="relative isolate flex flex-col gap-1 overflow-hidden rounded-sm border-l-4 border-gray-300 bg-gray-100 px-3 py-2 dark:border-gray-600 dark:bg-gray-700/50"
-            style={{
-              ...(color ? { borderColor: color, backgroundColor: `${color}26` } : {}),
-              // Same slow-payload outline as the heatmap tile.
-              ...(slow ? { outline: `2px solid ${SLOW_COLOR}`, outlineOffset: '-2px' } : {}),
-            }}
-          >
-            {medal !== undefined && (
-              <Medal
-                aria-hidden
-                className={clsx('pointer-events-none absolute -right-3 -top-3 -z-10 size-16 rotate-12 opacity-20 dark:opacity-30', MEDAL_CLASSES[medal])}
-              />
-            )}
-            <span
-              className={clsx('inline-flex items-center gap-1.5 text-xs/5 font-medium', SLOT_TEXT_COLORS[gi % SLOT_TEXT_COLORS.length])}
-              title={medal !== undefined ? `${medal + 1}. place` : undefined}
-            >
-              <img src={`/img/clients/${group.client}.jpg`} alt={group.client} className="size-3.5 rounded-full object-cover" />
-              <span className="truncate">{group.label}</span>
-              {slow && (
-                <span className="rounded-xs px-1 text-[10px]/4 font-medium" style={{ backgroundColor: `${SLOW_COLOR}26`, color: SLOW_COLOR }} title={`Payload time above ${formatDuration(slowMs * 1_000_000)}`}>
-                  slow
-                </span>
-              )}
-            </span>
-            <span className="font-mono text-lg/7 font-semibold text-gray-900 dark:text-gray-100">
-              {value === undefined ? '—' : metric === 'mgas' ? value.toFixed(2) : formatDuration(value)}
-              {metric === 'mgas' && <span className="ml-1 text-xs/5 font-normal text-gray-500 dark:text-gray-400">MGas/s</span>}
-            </span>
-            <span className="text-xs/5 text-gray-500 dark:text-gray-400">{note}</span>
-          </div>
-        )
-      })}
-    </div>
-
     {/* Strips: all groups on one axis, and, on request, one strip per
         group right under it, so the overlap between groups is visible */}
     <div className="flex flex-col gap-1">
       {groupData.length >= 2 && (
         <StripRow
           emphasis
-          marker={limitMarker}
+          marker={stripMarkers}
           label={
             <button
               type="button"
@@ -760,7 +817,7 @@ function MetricSection({ metric, title, testName, groupData, values, durations, 
         </StripRow>
       )}
       {showDetails && groupData.map((group, gi) => (
-        <StripRow key={gi} marker={limitMarker} label={<GroupLabel group={group} gi={gi} />}>
+        <StripRow key={gi} marker={stripMarkers} label={<GroupLabel group={group} gi={gi} />}>
           {group.metrics[metric].values.map((v, i) =>
             dot(group.metrics[metric].points[i], v, group, gi, String(i)),
           )}
