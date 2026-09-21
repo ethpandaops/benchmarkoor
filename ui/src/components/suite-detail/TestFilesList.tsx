@@ -424,7 +424,7 @@ export function PayloadSizesContent({ test }: { test: SuiteTest }) {
 // Per-step transaction-count breakdown for the test-details modal.
 // One table row per engine_newPayload in each populated step, plus a
 // totals row when there's more than one block.
-export function TxCountsContent({ test }: { test: SuiteTest }) {
+function TxCountsContent({ test }: { test: SuiteTest }) {
   const tc = test.tx_counts
   if (!tc) return null
   const steps: { label: string; counts: number[] }[] = []

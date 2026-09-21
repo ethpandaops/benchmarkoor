@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import type { RunResult, SuiteTest } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { TestName } from '@/components/shared/TestName'
-import { EESTInfoContent, PayloadSizesContent, TxCountsContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
+import { EESTInfoContent, PayloadSizesContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { ExecutionsList } from '@/components/run-detail/ExecutionsList'
 import { type StepType } from '@/api/hooks/useTestDetails'
 import { formatTimestamp } from '@/utils/date'
@@ -213,11 +213,7 @@ export function TestDetailModal({
         <div className="flex-1 overflow-y-auto px-5 py-4 pb-20">
           <div className="flex flex-col gap-6">
             {suiteTest && (
-              <>
-                <EESTInfoContent test={suiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
-                <TxCountsContent test={suiteTest} />
-                <PayloadSizesContent test={suiteTest} />
-              </>
+              <EESTInfoContent test={suiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
             )}
             <MetricSection metric="mgas" title="MGas/s" groupData={groupData} values={groupMgas} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} />
             <MetricSection metric="duration" title="Payload time" groupData={groupData} values={groupDurations} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} />
@@ -299,6 +295,7 @@ export function TestDetailModal({
               ))}
             </div>
 
+            {suiteTest && <PayloadSizesContent test={suiteTest} />}
             {suiteHash && suiteTest && <StepPayloads suiteHash={suiteHash} test={suiteTest} />}
           </div>
         </div>
@@ -364,7 +361,9 @@ function StepPayloads({ suiteHash, test }: { suiteHash: string; test: SuiteTest 
       </div>
       <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
         {steps.map(({ key, label }) => {
-          const payloads = test.tx_counts?.[key]?.length ?? 0
+          const counts = test.tx_counts?.[key] ?? []
+          const payloads = counts.length
+          const txs = counts.reduce((sum, n) => sum + n, 0)
           return (
             <button
               key={key}
@@ -384,6 +383,14 @@ function StepPayloads({ suiteHash, test }: { suiteHash: string; test: SuiteTest 
                   title={`${payloads} engine_newPayload call${payloads === 1 ? '' : 's'}`}
                 >
                   {payloads}
+                </span>
+              )}
+              {txs > 0 && (
+                <span
+                  className="rounded-xs bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+                  title={`${txs.toLocaleString()} transaction${txs === 1 ? '' : 's'} over the ${payloads} engine_newPayload call${payloads === 1 ? '' : 's'} of the ${label.toLowerCase()} step`}
+                >
+                  {txs.toLocaleString()} tx{txs === 1 ? '' : 's'}
                 </span>
               )}
             </button>
