@@ -529,17 +529,23 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
         return (
           <div
             key={gi}
-            className="flex flex-col gap-1 rounded-sm border-l-4 border-gray-300 bg-gray-100 px-3 py-2 dark:border-gray-600 dark:bg-gray-700/50"
+            className="relative isolate flex flex-col gap-1 overflow-hidden rounded-sm border-l-4 border-gray-300 bg-gray-100 px-3 py-2 dark:border-gray-600 dark:bg-gray-700/50"
             style={{
               ...(color ? { borderColor: color, backgroundColor: `${color}26` } : {}),
               // Same slow-payload outline as the heatmap tile.
               ...(slow ? { outline: `2px solid ${SLOW_COLOR}`, outlineOffset: '-2px' } : {}),
             }}
           >
-            <span className={clsx('inline-flex items-center gap-1.5 text-xs/5 font-medium', SLOT_TEXT_COLORS[gi % SLOT_TEXT_COLORS.length])}>
-              {medal !== undefined && (
-                <Medal className={clsx('size-3.5 shrink-0', MEDAL_CLASSES[medal])} aria-label={`${medal + 1}. place`} />
-              )}
+            {medal !== undefined && (
+              <Medal
+                aria-hidden
+                className={clsx('pointer-events-none absolute -right-3 -top-3 -z-10 size-16 rotate-12 opacity-20 dark:opacity-30', MEDAL_CLASSES[medal])}
+              />
+            )}
+            <span
+              className={clsx('inline-flex items-center gap-1.5 text-xs/5 font-medium', SLOT_TEXT_COLORS[gi % SLOT_TEXT_COLORS.length])}
+              title={medal !== undefined ? `${medal + 1}. place` : undefined}
+            >
               <img src={`/img/clients/${group.client}.jpg`} alt={group.client} className="size-3.5 rounded-full object-cover" />
               <span className="truncate">{group.label}</span>
               {slow && (
