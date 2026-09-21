@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { GitCompareArrows, X } from 'lucide-react'
+import { GitCompareArrows, Medal, X } from 'lucide-react'
 import clsx from 'clsx'
 import type { RunResult, SuiteTest } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
@@ -10,7 +10,7 @@ import { ExecutionsList } from '@/components/run-detail/ExecutionsList'
 import { type StepType } from '@/api/hooks/useTestDetails'
 import { formatTimestamp } from '@/utils/date'
 import { type GroupDef } from './groupUtils'
-import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from './constants'
+import { MAX_COMPARE_RUNS, MEDAL_CLASSES, MIN_COMPARE_RUNS } from './constants'
 import { type HeatmapColorModel, type HeatmapMetric, baselineRatio, formatRatio, heatmapColor } from './heatmapColor'
 import { formatBytes, formatDuration } from '@/utils/format'
 import { SLOW_COLOR, isSlowPayload } from '@/utils/perfThreshold'
@@ -480,7 +480,25 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
   const globalMin = allValues.length > 0 ? Math.min(...allValues) : 0
   const globalMax = allValues.length > 0 ? Math.max(...allValues) : 1
   const range = globalMax - globalMin || 1
-  const dotLeft = (v: number) => `${Math.max(2, Math.min(98, ((v - globalMin) / range) * 100))}%`
+  // Both strips run from the best value to the worst one. A high MGas/s
+  // is a good one, so its axis descends; a long payload time is a bad
+  // one, so its axis keeps ascending.
+  const invert = metric === 'mgas'
+  const dotLeft = (v: number) => {
+    const fraction = (v - globalMin) / range
+    return `${Math.max(2, Math.min(98, (invert ? 1 - fraction : fraction) * 100))}%`
+  }
+  const axisLeft = invert ? globalMax : globalMin
+  const axisRight = invert ? globalMin : globalMax
+
+  // The cards run from the fastest group to the slowest one, the same
+  // direction as the strips. A group with no value goes last.
+  const cardOrder = groupData.map((_, gi) => gi).sort((a, b) => {
+    const va = values[a]
+    const vb = values[b]
+    if (va === undefined || vb === undefined) return Number(va === undefined) - Number(vb === undefined)
+    return invert ? vb - va : va - vb
+  })
 
   if (allValues.length === 0) return null
 
@@ -489,8 +507,11 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
       <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">{title}</h4>
     {/* One card per group with the averaged value, tinted like its heatmap tile */}
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-      {groupData.map((group, gi) => {
+      {cardOrder.map((gi, place) => {
+        const group = groupData[gi]
         const value = values[gi]
+        // Gold, silver and bronze for the fastest three, as in the ranking.
+        const medal = groupData.length >= 2 && value !== undefined && place < MEDAL_CLASSES.length ? place : undefined
         const base = baselineGroupIdx >= 0 ? values[baselineGroupIdx] : undefined
         const color = heatmapColor(value, base, model)
         const isBaseline = mode === 'baseline' && gi === baselineGroupIdx && groupData.length >= 2
@@ -516,6 +537,9 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
             }}
           >
             <span className={clsx('inline-flex items-center gap-1.5 text-xs/5 font-medium', SLOT_TEXT_COLORS[gi % SLOT_TEXT_COLORS.length])}>
+              {medal !== undefined && (
+                <Medal className={clsx('size-3.5 shrink-0', MEDAL_CLASSES[medal])} aria-label={`${medal + 1}. place`} />
+              )}
               <img src={`/img/clients/${group.client}.jpg`} alt={group.client} className="size-3.5 rounded-full object-cover" />
               <span className="truncate">{group.label}</span>
               {slow && (
@@ -567,8 +591,8 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
       <div className="flex text-xs text-gray-400">
         <span className="w-40 shrink-0" />
         <span className="flex flex-1 justify-between px-1">
-          <span>{fmtAxis(globalMin)}</span>
-          <span>{fmtAxis(globalMax)}</span>
+          <span>{fmtAxis(axisLeft)} <span className="opacity-70">fastest</span></span>
+          <span><span className="opacity-70">slowest</span> {fmtAxis(axisRight)}</span>
         </span>
       </div>
     </div>

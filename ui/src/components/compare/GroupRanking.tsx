@@ -5,7 +5,7 @@ import type { AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { formatDuration, formatNumber } from '@/utils/format'
 import { formatDurationSeconds } from '@/utils/date'
-import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { type CompareRun, type LabelMode, MEDAL_CLASSES, RUN_SLOTS, formatRunLabel } from './constants'
 import { computeMetrics, formatGas } from './compareMetrics'
 
 interface GroupRankingProps {
@@ -21,9 +21,6 @@ interface GroupRankingProps {
   highlightGroupIdx: number | null
   onHighlightChange: (groupIdx: number | null) => void
 }
-
-// Gold, silver and bronze for the first three places with at least one win.
-const MEDAL_CLASSES = ['text-amber-400', 'text-gray-400 dark:text-gray-300', 'text-amber-700 dark:text-amber-600']
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
   if (!stats || stats.gas_used_time_total <= 0 || stats.gas_used_total <= 0) return undefined

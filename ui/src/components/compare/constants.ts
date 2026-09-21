@@ -1,5 +1,8 @@
 import type { RunConfig, RunResult } from '@/api/types'
 
+// Gold, silver and bronze for the first three places.
+export const MEDAL_CLASSES = ['text-amber-400', 'text-gray-400 dark:text-gray-300', 'text-amber-700 dark:text-amber-600']
+
 export const MIN_COMPARE_RUNS = 2
 export const MAX_COMPARE_RUNS = 5
 
