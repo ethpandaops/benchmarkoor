@@ -5,7 +5,9 @@ import clsx from 'clsx'
 import type { RunResult, SuiteTest } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { TestName } from '@/components/shared/TestName'
-import { EESTInfoContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
+import { EESTInfoContent, PayloadSizesContent, TxCountsContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
+import { ExecutionsList } from '@/components/run-detail/ExecutionsList'
+import { type StepType } from '@/api/hooks/useTestDetails'
 import { formatTimestamp } from '@/utils/date'
 import { type GroupDef } from './groupUtils'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from './constants'
@@ -18,6 +20,8 @@ interface TestDetailModalProps {
   testOrder?: number
   /** The suite entry of the test, for its EEST info and opcode counts. */
   suiteTest?: SuiteTest
+  /** Suite the groups share. The step payloads come from its request files. */
+  suiteHash?: string
   groups: GroupDef[]
   /** All individual RunResult objects per group (same order as groups). */
   groupResults: RunResult[][]
@@ -80,6 +84,7 @@ export function TestDetailModal({
   testName,
   testOrder,
   suiteTest,
+  suiteHash,
   groups,
   groupResults,
   groupTimestamps,
@@ -208,7 +213,11 @@ export function TestDetailModal({
         <div className="flex-1 overflow-y-auto px-5 py-4 pb-20">
           <div className="flex flex-col gap-6">
             {suiteTest && (
-              <EESTInfoContent test={suiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
+              <>
+                <EESTInfoContent test={suiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
+                <TxCountsContent test={suiteTest} />
+                <PayloadSizesContent test={suiteTest} />
+              </>
             )}
             <MetricSection metric="mgas" title="MGas/s" groupData={groupData} values={groupMgas} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} />
             <MetricSection metric="duration" title="Payload time" groupData={groupData} values={groupDurations} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} />
@@ -289,6 +298,8 @@ export function TestDetailModal({
                 </div>
               ))}
             </div>
+
+            {suiteHash && suiteTest && <StepPayloads suiteHash={suiteHash} test={suiteTest} />}
           </div>
         </div>
 
@@ -324,6 +335,68 @@ export function TestDetailModal({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Step payloads of the test, in the layout of the run detail modal: one
+ * tab per step, one row per call, each row expands into the JSON. The
+ * suite holds the request files, so the list is the same for every group.
+ * The responses, the timings and the statuses belong to a run and stay on
+ * the run detail page.
+ */
+function StepPayloads({ suiteHash, test }: { suiteHash: string; test: SuiteTest }) {
+  const steps = ([
+    { key: 'test', label: 'Test', file: test.test },
+    { key: 'setup', label: 'Setup', file: test.setup },
+    { key: 'cleanup', label: 'Cleanup', file: test.cleanup },
+  ] as const).filter((s) => !!s.file)
+  const [activeKey, setActiveKey] = useState<StepType | null>(null)
+  if (steps.length === 0) return null
+  const active = steps.find((s) => s.key === activeKey) ?? steps[0]
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-baseline gap-2">
+        <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Payloads</h4>
+        <span className="text-xs/5 text-gray-500 dark:text-gray-400">the requests of the suite, shared by every group</span>
+      </div>
+      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
+        {steps.map(({ key, label }) => {
+          const payloads = test.tx_counts?.[key]?.length ?? 0
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setActiveKey(key)}
+              className={clsx(
+                'flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors',
+                active.key === key
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
+              )}
+            >
+              {label}
+              {payloads > 0 && (
+                <span
+                  className="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                  title={`${payloads} engine_newPayload call${payloads === 1 ? '' : 's'}`}
+                >
+                  {payloads}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+      <ExecutionsList
+        key={active.key}
+        suiteHash={suiteHash}
+        testName={test.name}
+        stepType={active.key}
+        txCounts={test.tx_counts?.[active.key]}
+      />
     </div>
   )
 }

@@ -70,7 +70,12 @@ function JsonBlock({ code }: { code: string }) {
 }
 
 interface ExecutionsListProps {
-  runId: string
+  /**
+   * Run that holds the responses, the timings and the statuses. Leave it
+   * out for a suite-only list: the rows then show the request side alone,
+   * which is the same for every run of the suite.
+   */
+  runId?: string
   suiteHash: string
   testName: string
   stepType: StepType
@@ -140,6 +145,8 @@ interface ExecutionRowProps {
   responseViewerUrl?: string
   /** File viewer link for the request file at this line. */
   requestViewerUrl?: string
+  /** Drop the columns that need a run: the response size, the timings and the status. */
+  requestsOnly?: boolean
   /** Slow-threshold MGas/s the call's MGas/s colours against. */
   threshold: number
   /** Slow-payload limit in milliseconds the call's time colours against. */
@@ -167,7 +174,7 @@ function StatusIndicator({ status }: { status?: number }) {
 
 const MAX_LAZY_LINE_SIZE = 1_000_000 // 1MB — lazy-load lines up to this size
 
-function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, txCount, responseViewerUrl, requestViewerUrl, threshold, slowMs, expanded: expandedProp, onExpandedChange }: ExecutionRowProps & { expanded?: boolean; onExpandedChange?: (index: number, expanded: boolean) => void }) {
+function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, txCount, responseViewerUrl, requestViewerUrl, requestsOnly = false, threshold, slowMs, expanded: expandedProp, onExpandedChange }: ExecutionRowProps & { expanded?: boolean; onExpandedChange?: (index: number, expanded: boolean) => void }) {
   const [expandedLocal, setExpandedLocal] = useState(false)
   const expanded = expandedProp ?? expandedLocal
   const setExpanded = (v: boolean) => {
@@ -234,37 +241,41 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
             </span>
           )}
         </span>
-        <span
-          className={clsx(
-            'w-44 shrink-0 text-right text-sm/6 font-medium',
-            mgasPerSec !== undefined ? getTextClassByThreshold(mgasPerSec, threshold) : '',
-          )}
-          title={mgasPerSec !== undefined ? `Threshold ${threshold} MGas/s` : undefined}
-        >
-          {mgasPerSec !== undefined ? (
-            <>
-              {mgasPerSec.toFixed(2)} MGas/s
-              {gasUsed !== undefined && (
-                <span className="ml-1 font-normal text-gray-500 dark:text-gray-400">
-                  ({(gasUsed / 1e6).toFixed(2)}M)
-                </span>
-              )}
-            </>
-          ) : ''}
-        </span>
-        <span
-          className={clsx(
-            'w-16 shrink-0 text-right text-sm/6',
-            // Only a call that executed gas is a payload, so only it
-            // colours against the slow-payload limit.
-            time !== undefined && isPayload
-              ? getTextClassByDuration(time, slowMs)
-              : 'text-gray-500 dark:text-gray-400',
-          )}
-          title={time !== undefined && isPayload ? `Slow-payload limit ${formatSlowMs(slowMs)}` : undefined}
-        >
-          {time !== undefined ? <Duration nanoseconds={time} /> : ''}
-        </span>
+        {!requestsOnly && (
+          <span
+            className={clsx(
+              'w-44 shrink-0 text-right text-sm/6 font-medium',
+              mgasPerSec !== undefined ? getTextClassByThreshold(mgasPerSec, threshold) : '',
+            )}
+            title={mgasPerSec !== undefined ? `Threshold ${threshold} MGas/s` : undefined}
+          >
+            {mgasPerSec !== undefined ? (
+              <>
+                {mgasPerSec.toFixed(2)} MGas/s
+                {gasUsed !== undefined && (
+                  <span className="ml-1 font-normal text-gray-500 dark:text-gray-400">
+                    ({(gasUsed / 1e6).toFixed(2)}M)
+                  </span>
+                )}
+              </>
+            ) : ''}
+          </span>
+        )}
+        {!requestsOnly && (
+          <span
+            className={clsx(
+              'w-16 shrink-0 text-right text-sm/6',
+              // Only a call that executed gas is a payload, so only it
+              // colours against the slow-payload limit.
+              time !== undefined && isPayload
+                ? getTextClassByDuration(time, slowMs)
+                : 'text-gray-500 dark:text-gray-400',
+            )}
+            title={time !== undefined && isPayload ? `Slow-payload limit ${formatSlowMs(slowMs)}` : undefined}
+          >
+            {time !== undefined ? <Duration nanoseconds={time} /> : ''}
+          </span>
+        )}
         <span className="w-28 shrink-0 text-right text-xs text-gray-400 dark:text-gray-500">
           {requestSize !== undefined || request ? (
             <span title="Request size">
@@ -273,18 +284,24 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
           ) : (
             <span className="inline-block size-2.5 animate-spin rounded-full border border-gray-300 border-t-gray-500" />
           )}
-          {' / '}
-          {responseSize !== undefined || response ? (
-            <span title="Response size">
-              {formatBytes(responseSize ?? new Blob([response!]).size)}
-            </span>
-          ) : (
-            <span className="inline-block size-2.5 animate-spin rounded-full border border-gray-300 border-t-gray-500" />
+          {!requestsOnly && (
+            <>
+              {' / '}
+              {responseSize !== undefined || response ? (
+                <span title="Response size">
+                  {formatBytes(responseSize ?? new Blob([response!]).size)}
+                </span>
+              ) : (
+                <span className="inline-block size-2.5 animate-spin rounded-full border border-gray-300 border-t-gray-500" />
+              )}
+            </>
           )}
         </span>
-        <span className="w-12 shrink-0 text-right">
-          <StatusIndicator status={status} />
-        </span>
+        {!requestsOnly && (
+          <span className="w-12 shrink-0 text-right">
+            <StatusIndicator status={status} />
+          </span>
+        )}
       </button>
 
       {expanded && (
@@ -372,7 +389,10 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
 
 const EXECUTIONS_PAGE_SIZE = 100
 
-export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedRows, onExpandedRowsChange, txCounts, threshold = DEFAULT_THRESHOLD, slowMs = DEFAULT_SLOW_MS }: ExecutionsListProps) {
+export function ExecutionsList({ runId = '', suiteHash, testName, stepType, expandedRows, onExpandedRowsChange, txCounts, threshold = DEFAULT_THRESHOLD, slowMs = DEFAULT_SLOW_MS }: ExecutionsListProps) {
+  // Without a run there are no responses, no timings and no statuses. The
+  // hooks below stay disabled and the rows keep the request side only.
+  const requestsOnly = !runId
   const { data: requests, isLoading: requestsLoading, error: requestsError } = useTestRequests(suiteHash, testName, stepType)
   const { data: responses, error: responsesError } = useTestResponses(runId, testName, stepType)
   const { data: resultDetails, isLoading: detailsLoading, error: detailsError } = useTestResultDetails(runId, testName, stepType)
@@ -399,8 +419,11 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedR
   const safeResponses = responsesError ? undefined : responses
   const safeDetails = detailsError ? undefined : resultDetails
 
-  // Wait for at least one data source (details or requests) to be ready
-  const isLoading = (!requestsError && requestsLoading) && (!detailsError && detailsLoading)
+  // Wait for at least one data source (details or requests) to be ready.
+  // The suite-only list has the requests as its one source.
+  const isLoading = requestsOnly
+    ? !requestsError && requestsLoading
+    : (!requestsError && requestsLoading) && (!detailsError && detailsLoading)
 
   if (isLoading) {
     return (
@@ -456,7 +479,7 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedR
     <div className="mt-4 max-w-full overflow-hidden">
       <div className="mb-2 flex items-center justify-between">
         <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
-          Executions ({executionCount})
+          {requestsOnly ? 'Requests' : 'Executions'} ({executionCount})
         </h4>
         {totalDurationNs > 0 && (
           <span className="text-sm/6 text-gray-500 dark:text-gray-400">
@@ -489,12 +512,13 @@ export function ExecutionsList({ runId, suiteHash, testName, stepType, expandedR
               mgasPerSec={safeDetails?.mgas_s[String(index)]}
               gasUsed={safeDetails?.gas_used[String(index)]}
               txCount={txCountByRow.get(index)}
+              requestsOnly={requestsOnly}
               threshold={threshold}
               slowMs={slowMs}
-              responseViewerUrl={!safeResponses?.[index] && responseSummaries?.[index] && responseSummaries[index].size > 1_000_000
+              responseViewerUrl={!requestsOnly && !safeResponses?.[index] && responseSummaries?.[index] && responseSummaries[index].size > 1_000_000
                 ? `/runs/${runId}/fileviewer?file=${encodeURIComponent(`${testName}/${stepType}.response`)}&lines=${index + 1}`
                 : undefined}
-              requestViewerUrl={!safeRequests?.[index] && requestSummaries?.[index] && requestSummaries[index].size > 1_000_000
+              requestViewerUrl={!requestsOnly && !safeRequests?.[index] && requestSummaries?.[index] && requestSummaries[index].size > 1_000_000
                 ? `/runs/${runId}/fileviewer?base=${encodeURIComponent(`suites/${suiteHash}`)}&file=${encodeURIComponent(`${testName}/${stepType}.request`)}&lines=${index + 1}`
                 : undefined}
               expanded={expandedRows?.has(index)}

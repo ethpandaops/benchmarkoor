@@ -915,6 +915,7 @@ export function CompareGroupsPage() {
             return idx >= 0 ? idx + 1 : undefined
           })()}
           suiteTest={suite?.tests?.find((t) => t.name === selectedTest)}
+          suiteHash={suiteHash}
           groups={groups}
           groupResults={groupResultsForModal}
           groupTimestamps={groupTimestampsForModal}

@@ -313,7 +313,7 @@ export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test
 // in that step plus a totals row. The three columns are the SSZ raw,
 // BAL, and snappy byte counts, each shown alongside its % of the SSZ
 // raw size for BAL/snappy rows.
-function PayloadSizesContent({ test }: { test: SuiteTest }) {
+export function PayloadSizesContent({ test }: { test: SuiteTest }) {
   const ps = test.payload_sizes
   if (!ps) return null
   const steps: { label: string; buckets: NonNullable<typeof ps.test> }[] = []
@@ -424,7 +424,7 @@ function PayloadSizesContent({ test }: { test: SuiteTest }) {
 // Per-step transaction-count breakdown for the test-details modal.
 // One table row per engine_newPayload in each populated step, plus a
 // totals row when there's more than one block.
-function TxCountsContent({ test }: { test: SuiteTest }) {
+export function TxCountsContent({ test }: { test: SuiteTest }) {
   const tc = test.tx_counts
   if (!tc) return null
   const steps: { label: string; counts: number[] }[] = []
