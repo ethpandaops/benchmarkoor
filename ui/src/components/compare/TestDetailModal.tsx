@@ -795,12 +795,13 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
   )
 
   const limitInRange = limit >= globalMin && limit <= globalMax
-  // Says where the limit sits when the strips cannot show it.
+  // Says where the limit sits when the strips cannot show the line.
   const limitNote = limitInRange
     ? null
     : metric === 'mgas'
-      ? `every run is ${globalMin > limit ? 'above' : 'below'} the ${threshold} MGas/s threshold`
-      : `every run is ${globalMax < limit ? 'under' : 'over'} the ${formatDuration(slowMs * 1_000_000)} limit`
+      ? `every run is ${globalMin > limit ? 'above' : 'below'} it`
+      : `every run is ${globalMax < limit ? 'under' : 'over'} it`
+  const missLabel = metric === 'mgas' ? 'under the threshold' : 'over the limit'
   const limitMarker = limitInRange ? (
     <span
       className="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full opacity-80"
@@ -848,7 +849,21 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
 
   return (
     <div className="flex flex-col gap-3">
-      <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">{title}</h4>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">{title}</h4>
+        {/* Legend of the limit line and of the side that misses it */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs/5 text-gray-500 dark:text-gray-400">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-0.5 rounded-full" style={{ backgroundColor: limitColor }} />
+            {limitTitle}
+            {limitNote && <span className="opacity-70">· {limitNote}</span>}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-3 rounded-xs" style={{ backgroundColor: `${limitColor}1f` }} />
+            {missLabel}
+          </span>
+        </div>
+      </div>
     {/* Strips: all groups on one axis, and, on request, one strip per
         group right under it, so the overlap between groups is visible */}
     <div ref={stripsRef} className="flex flex-col gap-1">
@@ -892,7 +907,6 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
         <span className="w-40 shrink-0" />
         <span className="flex flex-1 justify-between px-1">
           <span>{fmtAxis(axisLeft)} <span className="opacity-70">fastest</span></span>
-          {limitNote && <span className="hidden truncate px-2 opacity-70 sm:inline" title={limitTitle}>{limitNote}</span>}
           <span><span className="opacity-70">slowest</span> {fmtAxis(axisRight)}</span>
         </span>
       </div>
