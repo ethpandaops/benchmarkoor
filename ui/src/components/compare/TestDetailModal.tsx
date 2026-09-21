@@ -12,7 +12,7 @@ import { formatTimestamp } from '@/utils/date'
 import { type GroupDef } from './groupUtils'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from './constants'
 import { type HeatmapColorModel, type HeatmapMetric, baselineRatio, formatRatio, heatmapColor } from './heatmapColor'
-import { formatDuration } from '@/utils/format'
+import { formatBytes, formatDuration } from '@/utils/format'
 import { SLOW_COLOR, isSlowPayload } from '@/utils/perfThreshold'
 
 interface TestDetailModalProps {
@@ -295,7 +295,6 @@ export function TestDetailModal({
               ))}
             </div>
 
-            {suiteTest && <PayloadSizesContent test={suiteTest} />}
             {suiteHash && suiteTest && <StepPayloads suiteHash={suiteHash} test={suiteTest} />}
           </div>
         </div>
@@ -350,8 +349,11 @@ function StepPayloads({ suiteHash, test }: { suiteHash: string; test: SuiteTest 
     { key: 'cleanup', label: 'Cleanup', file: test.cleanup },
   ] as const).filter((s) => !!s.file)
   const [activeKey, setActiveKey] = useState<StepType | null>(null)
+  const [showSizes, setShowSizes] = useState(false)
   if (steps.length === 0) return null
   const active = steps.find((s) => s.key === activeKey) ?? steps[0]
+  const sizes = test.payload_sizes?.[active.key]
+  const sszTotal = sizes?.ssz_full.reduce((sum, n) => sum + n, 0) ?? 0
 
   return (
     <div className="flex flex-col gap-3">
@@ -397,12 +399,26 @@ function StepPayloads({ suiteHash, test }: { suiteHash: string; test: SuiteTest 
           )
         })}
       </div>
+      {sszTotal > 0 && (
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setShowSizes((v) => !v)}
+            className="flex items-center gap-2 self-start text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          >
+            <span className={clsx('transition-transform', showSizes && 'rotate-90')}>▶</span>
+            {showSizes ? 'Hide' : 'Show'} payload size breakdown ({formatBytes(sszTotal)} SSZ in the {active.label.toLowerCase()} step)
+          </button>
+          {showSizes && <PayloadSizesContent test={test} only={active.key} hideTitle />}
+        </div>
+      )}
       <ExecutionsList
         key={active.key}
         suiteHash={suiteHash}
         testName={test.name}
         stepType={active.key}
         txCounts={test.tx_counts?.[active.key]}
+        payloadSizes={sizes}
       />
     </div>
   )

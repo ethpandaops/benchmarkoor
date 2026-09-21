@@ -313,13 +313,19 @@ export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test
 // in that step plus a totals row. The three columns are the SSZ raw,
 // BAL, and snappy byte counts, each shown alongside its % of the SSZ
 // raw size for BAL/snappy rows.
-export function PayloadSizesContent({ test }: { test: SuiteTest }) {
+export function PayloadSizesContent({ test, only, hideTitle }: {
+  test: SuiteTest
+  /** Limit the panel to one step. The default shows every populated step. */
+  only?: 'setup' | 'test' | 'cleanup'
+  /** Drop the "Payload Sizes" badge, for a caller that titles the panel itself. */
+  hideTitle?: boolean
+}) {
   const ps = test.payload_sizes
   if (!ps) return null
   const steps: { label: string; buckets: NonNullable<typeof ps.test> }[] = []
-  if (ps.setup) steps.push({ label: 'Setup', buckets: ps.setup })
-  if (ps.test) steps.push({ label: 'Test', buckets: ps.test })
-  if (ps.cleanup) steps.push({ label: 'Cleanup', buckets: ps.cleanup })
+  if (ps.setup && (!only || only === 'setup')) steps.push({ label: 'Setup', buckets: ps.setup })
+  if (ps.test && (!only || only === 'test')) steps.push({ label: 'Test', buckets: ps.test })
+  if (ps.cleanup && (!only || only === 'cleanup')) steps.push({ label: 'Cleanup', buckets: ps.cleanup })
   if (steps.length === 0) return null
 
   const pctCell = (numerator: number, denom: number) => {
@@ -333,10 +339,12 @@ export function PayloadSizesContent({ test }: { test: SuiteTest }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <Badge variant="default">Payload Sizes</Badge>
-        <span className="text-xs/5 text-gray-500 dark:text-gray-400">per engine_newPayload</span>
-      </div>
+      {!hideTitle && (
+        <div className="flex items-center gap-2">
+          <Badge variant="default">Payload Sizes</Badge>
+          <span className="text-xs/5 text-gray-500 dark:text-gray-400">per engine_newPayload</span>
+        </div>
+      )}
       <div className="flex flex-col gap-4">
         {steps.map(({ label, buckets }) => {
           const n = Math.max(

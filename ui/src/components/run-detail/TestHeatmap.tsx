@@ -1188,6 +1188,7 @@ export function TestHeatmap({
                           expandedRows={expandedExecRows}
                           onExpandedRowsChange={onExpandedExecRowsChange}
                           txCounts={matchingSuiteTest?.tx_counts?.[activeStep.key]}
+                          payloadSizes={matchingSuiteTest?.payload_sizes?.[activeStep.key]}
                           threshold={threshold}
                           slowMs={slowMs}
                         />
