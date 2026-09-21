@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { GitCompareArrows, Medal, X } from 'lucide-react'
 import clsx from 'clsx'
@@ -56,6 +56,14 @@ interface TestDetailModalProps {
 // and the dot fill in the 500 shade of the same hues.
 const SLOT_TEXT_COLORS = ['text-blue-700 dark:text-blue-300', 'text-orange-700 dark:text-orange-300', 'text-purple-700 dark:text-purple-300', 'text-green-700 dark:text-green-300', 'text-red-700 dark:text-red-300']
 const DOT_COLORS = ['#3b82f6', '#f97316', '#a855f7', '#22c55e', '#ef4444']
+
+// Dot strips. Dots that would cover each other move into lanes above and
+// below the middle of the strip, so every run stays visible.
+const DOT_PX = 12
+const LANE_PX = 9
+const MAX_LANES = 5
+/** Label column of a strip row (w-40) plus the gap (gap-2). */
+const STRIP_LABEL_PX = 168
 
 type SortKey = 'group' | 'run' | 'mgas' | 'gasUsed' | 'payload' | 'duration'
 type RunsGroupBy = 'group' | 'none'
@@ -691,6 +699,19 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
   onHoverRunChange: (runId: string | null) => void
 }) {
   const [hover, setHover] = useState<{ point: RunPoint; group: GroupSummary; gi: number; anchor: DOMRect } | null>(null)
+  // The lanes need the width of a strip, so a dot knows how close its
+  // neighbour really is.
+  const stripsRef = useRef<HTMLDivElement>(null)
+  const [stripWidth, setStripWidth] = useState(600)
+  useEffect(() => {
+    const el = stripsRef.current
+    if (!el) return
+    const measure = () => setStripWidth(Math.max(1, el.clientWidth - STRIP_LABEL_PX))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   const { threshold, slowMs } = heatmapModel
   const fmt = (v: number) => (metric === 'mgas' ? v.toFixed(2) : formatDuration(v))
   const fmtAxis = (v: number) => (metric === 'mgas' ? v.toFixed(1) : formatDuration(v))
@@ -705,10 +726,38 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
   // is a good one, so its axis descends; a long payload time is a bad
   // one, so its axis keeps ascending.
   const invert = metric === 'mgas'
-  const dotLeft = (v: number) => {
+  const dotPercent = (v: number) => {
     const fraction = (v - globalMin) / range
-    return `${Math.max(2, Math.min(98, (invert ? 1 - fraction : fraction) * 100))}%`
+    return Math.max(2, Math.min(98, (invert ? 1 - fraction : fraction) * 100))
   }
+  const dotLeft = (v: number) => `${dotPercent(v)}%`
+
+  // Lane of every dot of one strip, and the height that holds them.
+  const spread = <T extends { value: number }>(items: T[]) => {
+    const minGap = (DOT_PX / stripWidth) * 100
+    const sorted = items.map((item) => ({ item, x: dotPercent(item.value) })).sort((a, b) => a.x - b.x)
+    const lastX: number[] = []
+    const placed = sorted.map(({ item, x }) => {
+      let lane = lastX.findIndex((last) => x - last >= minGap)
+      if (lane === -1) {
+        if (lastX.length < MAX_LANES) {
+          lane = lastX.length
+          lastX.push(x)
+        } else {
+          // Every lane is busy, so reuse the one whose dot sits farthest left.
+          lane = lastX.indexOf(Math.min(...lastX))
+          lastX[lane] = x
+        }
+      } else {
+        lastX[lane] = x
+      }
+      return { item, lane }
+    })
+    // Lane 0 keeps the middle, the others alternate above and below it.
+    const half = Math.floor(lastX.length / 2)
+    return { placed, height: half > 0 ? 2 * (half * LANE_PX + 8) : 0 }
+  }
+  const laneOffset = (lane: number) => (lane === 0 ? 0 : (lane % 2 === 1 ? -1 : 1) * Math.ceil(lane / 2) * LANE_PX)
   // Limit of the active metric, drawn on the strips: the MGas/s
   // threshold, or the slow-payload limit. It only fits when it falls
   // inside the measured range.
@@ -724,15 +773,15 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
   const openRun = (point: RunPoint) => {
     if (point.runId) window.open(`/runs/${point.runId}?testModal=${encodeURIComponent(testName)}`, '_blank')
   }
-  const dot = (point: RunPoint, value: number, group: GroupSummary, gi: number, key: string) => (
+  const dot = (point: RunPoint, value: number, group: GroupSummary, gi: number, key: string, offset = 0) => (
     <span
       key={key}
       className={clsx(
-        'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height,opacity]',
+        'absolute -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height,opacity]',
         point.runId && 'cursor-pointer',
         isActive(point) ? 'z-10 size-4 opacity-100 ring-2 ring-gray-900/60 dark:ring-white/70' : 'size-3 opacity-70',
       )}
-      style={{ left: dotLeft(value), backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }}
+      style={{ top: `calc(50% + ${offset}px)`, left: dotLeft(value), backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }}
       onMouseEnter={(e) => {
         setHover({ point, group, gi, anchor: e.currentTarget.getBoundingClientRect() })
         onHoverRunChange(point.runId ?? null)
@@ -780,6 +829,17 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
     </>
   )
 
+  // Every run of every group on the combined strip, laid out together.
+  const combined = spread(groupData.flatMap((group, gi) =>
+    group.metrics[metric].values.map((value, i) => ({
+      value,
+      point: group.metrics[metric].points[i],
+      group,
+      gi,
+      key: `${gi}-${i}`,
+    })),
+  ))
+
   const showDetails = open || groupData.length < 2
   const axisLeft = invert ? globalMax : globalMin
   const axisRight = invert ? globalMin : globalMax
@@ -791,10 +851,11 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
       <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">{title}</h4>
     {/* Strips: all groups on one axis, and, on request, one strip per
         group right under it, so the overlap between groups is visible */}
-    <div className="flex flex-col gap-1">
+    <div ref={stripsRef} className="flex flex-col gap-1">
       {groupData.length >= 2 && (
         <StripRow
           emphasis
+          height={combined.height}
           marker={stripMarkers}
           label={
             <button
@@ -809,20 +870,23 @@ function MetricSection({ metric, title, testName, groupData, heatmapModel, open,
             </button>
           }
         >
-          {groupData.map((group, gi) =>
-            group.metrics[metric].values.map((v, i) =>
-              dot(group.metrics[metric].points[i], v, group, gi, `${gi}-${i}`),
-            ),
+          {combined.placed.map(({ item, lane }) =>
+            dot(item.point, item.value, item.group, item.gi, item.key, laneOffset(lane)),
           )}
         </StripRow>
       )}
-      {showDetails && groupData.map((group, gi) => (
-        <StripRow key={gi} marker={stripMarkers} label={<GroupLabel group={group} gi={gi} />}>
-          {group.metrics[metric].values.map((v, i) =>
-            dot(group.metrics[metric].points[i], v, group, gi, String(i)),
-          )}
-        </StripRow>
-      ))}
+      {showDetails && groupData.map((group, gi) => {
+        const own = spread(group.metrics[metric].values.map((value, i) => ({
+          value,
+          point: group.metrics[metric].points[i],
+          key: String(i),
+        })))
+        return (
+          <StripRow key={gi} height={own.height} marker={stripMarkers} label={<GroupLabel group={group} gi={gi} />}>
+            {own.placed.map(({ item, lane }) => dot(item.point, item.value, group, gi, item.key, laneOffset(lane)))}
+          </StripRow>
+        )
+      })}
       {/* One shared axis under the strips */}
       <div className="flex text-xs text-gray-400">
         <span className="w-40 shrink-0" />
@@ -922,12 +986,14 @@ function GroupLabel({ group, gi }: { group: { client: string; label: string }; g
 
 // StripRow is one labelled dot strip. The label column has a fixed width
 // so the strips of every row share the same axis.
-function StripRow({ label, children, emphasis, marker }: {
+function StripRow({ label, children, emphasis, marker, height }: {
   label: React.ReactNode
   children: React.ReactNode
   emphasis?: boolean
   /** Limit line of the metric, drawn under the dots. */
   marker?: React.ReactNode
+  /** Taller row in pixels, when the dots need lanes. Zero keeps the default. */
+  height?: number
 }) {
   return (
     <div className={clsx('flex items-center gap-2', emphasis && 'mb-1')}>
@@ -941,6 +1007,7 @@ function StripRow({ label, children, emphasis, marker }: {
             ? 'h-7 bg-gray-200 ring-1 ring-gray-300 dark:bg-gray-600 dark:ring-gray-500'
             : 'h-5 bg-gray-100 dark:bg-gray-700',
         )}
+        style={height ? { height } : undefined}
       >
         {marker}
         {children}
