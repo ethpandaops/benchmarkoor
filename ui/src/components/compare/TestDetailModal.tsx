@@ -42,6 +42,13 @@ interface TestDetailModalProps {
   searchQuery?: string
   /** Toggle a `key:value` term in the page-level search. */
   onChipFilterToggle?: (term: string) => void
+  /**
+   * Open sections of the modal, held by the page so a shared link keeps
+   * them open. `mgas` and `duration` open the group details of a metric
+   * section, `runs<groupIndex>` opens the run table of a group.
+   */
+  expanded: Set<string>
+  onExpandedChange: (next: Set<string>) => void
   onClose: () => void
 }
 
@@ -50,9 +57,21 @@ interface TestDetailModalProps {
 const SLOT_TEXT_COLORS = ['text-blue-700 dark:text-blue-300', 'text-orange-700 dark:text-orange-300', 'text-purple-700 dark:text-purple-300', 'text-green-700 dark:text-green-300', 'text-red-700 dark:text-red-300']
 const DOT_COLORS = ['#3b82f6', '#f97316', '#a855f7', '#22c55e', '#ef4444']
 
+/** One sampled run of a group, behind a dot of a strip. */
+interface RunPoint {
+  runId?: string
+  timestamp?: number
+  mgas?: number
+  gasUsed: number
+  gasUsedTime: number
+  duration: number
+}
+
 interface MetricSummary {
   /** Per-run values, in run order. */
   values: number[]
+  /** The run behind each value, in the same order. */
+  points: RunPoint[]
   /** The group value: the same number the averaged group result and the heatmap use. */
   average?: number
   /** Arithmetic mean of the per-run values; σ and CV are defined around it. */
@@ -63,8 +82,8 @@ interface MetricSummary {
   stddev?: number
 }
 
-function summarize(values: number[], average: number | undefined): MetricSummary {
-  if (values.length === 0) return { values, average }
+function summarize(values: number[], average: number | undefined, points: RunPoint[]): MetricSummary {
+  if (values.length === 0) return { values, points, average }
   const mean = values.reduce((a, b) => a + b, 0) / values.length
   const sorted = [...values].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)
@@ -72,7 +91,7 @@ function summarize(values: number[], average: number | undefined): MetricSummary
   const stddev = values.length >= 2
     ? Math.sqrt(values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1))
     : undefined
-  return { values, average, mean, median, min: sorted[0], max: sorted[sorted.length - 1], stddev }
+  return { values, points, average, mean, median, min: sorted[0], max: sorted[sorted.length - 1], stddev }
 }
 
 /**
@@ -96,19 +115,18 @@ export function TestDetailModal({
   stepFilter,
   searchQuery,
   onChipFilterToggle,
+  expanded,
+  onExpandedChange,
   onClose,
 }: TestDetailModalProps) {
 
   const navigate = useNavigate()
   const [opcodeSort, setOpcodeSort] = useState<OpcodeSortMode>('name')
 
-  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
-  const toggleGroupExpand = (gi: number) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev)
-      if (next.has(gi)) next.delete(gi); else next.add(gi)
-      return next
-    })
+  const toggleExpanded = (token: string) => {
+    const next = new Set(expanded)
+    if (next.has(token)) next.delete(token); else next.add(token)
+    onExpandedChange(next)
   }
 
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set())
@@ -176,9 +194,9 @@ export function TestDetailModal({
       const measured = runs.filter((r) => r.mgas !== undefined)
       const totalGasTime = measured.reduce((sum, r) => sum + r.gasUsedTime, 0)
       const mgasAverage = totalGasTime > 0 ? (measured.reduce((sum, r) => sum + r.gasUsed, 0) * 1000) / totalGasTime : undefined
-      const mgas = summarize(measured.map((r) => r.mgas as number), mgasAverage)
+      const mgas = summarize(measured.map((r) => r.mgas as number), mgasAverage, measured)
       const payloadTimes = measured.map((r) => r.gasUsedTime)
-      const duration = summarize(payloadTimes, measured.length > 0 ? totalGasTime / measured.length : undefined)
+      const duration = summarize(payloadTimes, measured.length > 0 ? totalGasTime / measured.length : undefined, measured)
 
       const metaStr = Object.entries(group.metadata).map(([k, v]) => `${k}=${v}`).join(', ')
       const label = metaStr || group.client
@@ -215,8 +233,8 @@ export function TestDetailModal({
             {suiteTest && (
               <EESTInfoContent test={suiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
             )}
-            <MetricSection metric="mgas" title="MGas/s" groupData={groupData} values={groupMgas} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} />
-            <MetricSection metric="duration" title="Payload time" groupData={groupData} values={groupDurations} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} />
+            <MetricSection metric="mgas" title="MGas/s" testName={testName} groupData={groupData} values={groupMgas} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} open={expanded.has('mgas')} onToggleOpen={() => toggleExpanded('mgas')} />
+            <MetricSection metric="duration" title="Payload time" testName={testName} groupData={groupData} values={groupDurations} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} open={expanded.has('duration')} onToggleOpen={() => toggleExpanded('duration')} />
 
             {/* Per-run tables, one per group, collapsed by default */}
             <div className="flex flex-col gap-2">
@@ -224,14 +242,14 @@ export function TestDetailModal({
                 <div key={gi} className="flex flex-col gap-1">
                   <button
                     type="button"
-                    onClick={() => toggleGroupExpand(gi)}
+                    onClick={() => toggleExpanded(`runs${gi}`)}
                     className="flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                   >
-                    <span className={clsx('transition-transform', expandedGroups.has(gi) && 'rotate-90')}>▶</span>
+                    <span className={clsx('transition-transform', expanded.has(`runs${gi}`) && 'rotate-90')}>▶</span>
                     <GroupLabel group={group} gi={gi} />
-                    <span>{expandedGroups.has(gi) ? 'Hide' : 'Show'} individual runs ({group.runs.length})</span>
+                    <span>{expanded.has(`runs${gi}`) ? 'Hide' : 'Show'} individual runs ({group.runs.length})</span>
                   </button>
-                  {expandedGroups.has(gi) && <table className="w-full text-xs">
+                  {expanded.has(`runs${gi}`) && <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
                         <th className="w-6 px-2 py-1"></th>
@@ -458,9 +476,11 @@ interface GroupSummary {
 // MetricSection is the cards, the dot strips and the stats table of one
 // metric. The cards colour with the section's metric and the heatmap's
 // mode and limits.
-function MetricSection({ metric, title, groupData, values, durations, baselineGroupIdx, heatmapModel }: {
+function MetricSection({ metric, title, testName, groupData, values, durations, baselineGroupIdx, heatmapModel, open, onToggleOpen }: {
   metric: HeatmapMetric
   title: string
+  /** Test the modal shows, so a dot can open its run on that test. */
+  testName: string
   groupData: GroupSummary[]
   /** Averaged value of this metric per group — the value the heatmap tile shows. */
   values: (number | undefined)[]
@@ -468,10 +488,15 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
   durations: (number | undefined)[]
   baselineGroupIdx: number
   heatmapModel: HeatmapColorModel
+  /**
+   * Whether the per-group strips and the stats table show. The combined
+   * strip is the summary, they are its parts, so they stay behind a
+   * caret. The page owns the flag so the URL keeps it.
+   */
+  open: boolean
+  onToggleOpen: () => void
 }) {
-  // The combined strip is the summary. The per-group strips and the
-  // stats table are its parts, so they stay behind a caret.
-  const [showGroupDetails, setShowGroupDetails] = useState(false)
+  const [hover, setHover] = useState<{ point: RunPoint; group: GroupSummary; gi: number; anchor: DOMRect } | null>(null)
   const model = { ...heatmapModel, metric }
   const { mode, threshold, slowMs } = model
   const fmt = (v: number) => (metric === 'mgas' ? v.toFixed(2) : formatDuration(v))
@@ -499,6 +524,28 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
   const limitTitle = metric === 'mgas'
     ? `${threshold} MGas/s threshold`
     : `${formatDuration(slowMs * 1_000_000)} slow-payload limit`
+  // Hovered dot: the popover anchors to it, and every dot of the same
+  // run lights up, in the combined strip and in the group strip alike.
+  const isActive = (point: RunPoint) =>
+    hover !== null && (point.runId !== undefined ? hover.point.runId === point.runId : hover.point === point)
+  const openRun = (point: RunPoint) => {
+    if (point.runId) window.open(`/runs/${point.runId}?testModal=${encodeURIComponent(testName)}`, '_blank')
+  }
+  const dot = (point: RunPoint, value: number, group: GroupSummary, gi: number, key: string) => (
+    <span
+      key={key}
+      className={clsx(
+        'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height,opacity]',
+        point.runId && 'cursor-pointer',
+        isActive(point) ? 'z-10 size-4 opacity-100 ring-2 ring-gray-900/60 dark:ring-white/70' : 'size-3 opacity-70',
+      )}
+      style={{ left: dotLeft(value), backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }}
+      onMouseEnter={(e) => setHover({ point, group, gi, anchor: e.currentTarget.getBoundingClientRect() })}
+      onMouseLeave={() => setHover(null)}
+      onClick={() => openRun(point)}
+    />
+  )
+
   const limitInRange = limit >= globalMin && limit <= globalMax
   // Says where the limit sits when the strips cannot show it.
   const limitNote = limitInRange
@@ -514,7 +561,7 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
     />
   ) : null
 
-  const showDetails = showGroupDetails || groupData.length < 2
+  const showDetails = open || groupData.length < 2
   const axisLeft = invert ? globalMax : globalMin
   const axisRight = invert ? globalMin : globalMax
 
@@ -601,38 +648,28 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
           label={
             <button
               type="button"
-              onClick={() => setShowGroupDetails((v) => !v)}
-              title={showGroupDetails ? 'Hide the strip and the stats of every group' : 'Show the strip and the stats of every group'}
+              onClick={onToggleOpen}
+              title={open ? 'Hide the strip and the stats of every group' : 'Show the strip and the stats of every group'}
               className="flex items-center gap-1.5 text-sm/6 font-semibold text-gray-900 hover:text-gray-600 dark:text-gray-100 dark:hover:text-gray-300"
             >
-              <span className={clsx('text-xs transition-transform', showGroupDetails && 'rotate-90')}>▶</span>
+              <span className={clsx('text-xs transition-transform', open && 'rotate-90')}>▶</span>
               All groups
               <span className="text-xs/5 font-normal text-gray-500 dark:text-gray-400">({groupData.length})</span>
             </button>
           }
         >
           {groupData.map((group, gi) =>
-            group.metrics[metric].values.map((v, i) => (
-              <span
-                key={`${gi}-${i}`}
-                className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-70"
-                style={{ left: dotLeft(v), backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }}
-                title={`${group.label}: ${fmt(v)}${metric === 'mgas' ? ' MGas/s' : ''}`}
-              />
-            )),
+            group.metrics[metric].values.map((v, i) =>
+              dot(group.metrics[metric].points[i], v, group, gi, `${gi}-${i}`),
+            ),
           )}
         </StripRow>
       )}
       {showDetails && groupData.map((group, gi) => (
         <StripRow key={gi} marker={limitMarker} label={<GroupLabel group={group} gi={gi} />}>
-          {group.metrics[metric].values.map((v, i) => (
-            <span
-              key={i}
-              className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-70"
-              style={{ left: dotLeft(v), backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }}
-              title={`${fmt(v)}${metric === 'mgas' ? ' MGas/s' : ''}`}
-            />
-          ))}
+          {group.metrics[metric].values.map((v, i) =>
+            dot(group.metrics[metric].points[i], v, group, gi, String(i)),
+          )}
         </StripRow>
       ))}
       {/* One shared axis under the strips */}
@@ -690,6 +727,34 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
         })}
       </tbody>
     </table>}
+
+    {hover && (
+      <div
+        className="pointer-events-none fixed z-[60] w-56 -translate-x-1/2 -translate-y-full rounded-sm border border-gray-200 bg-white p-2 text-xs shadow-lg dark:border-gray-600 dark:bg-gray-800"
+        style={{
+          left: Math.max(120, Math.min(window.innerWidth - 120, hover.anchor.left + hover.anchor.width / 2)),
+          top: hover.anchor.top - 8,
+        }}
+      >
+        <div className="truncate"><GroupLabel group={hover.group} gi={hover.gi} /></div>
+        <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-gray-700 dark:text-gray-200">
+          <span className="font-sans text-gray-500 dark:text-gray-400">MGas/s</span>
+          <span className="text-right">{hover.point.mgas !== undefined ? hover.point.mgas.toFixed(2) : '—'}</span>
+          <span className="font-sans text-gray-500 dark:text-gray-400">Payload time</span>
+          <span className="text-right">{formatDuration(hover.point.gasUsedTime)}</span>
+          <span className="font-sans text-gray-500 dark:text-gray-400">Total time</span>
+          <span className="text-right">{formatDuration(hover.point.duration)}</span>
+          <span className="font-sans text-gray-500 dark:text-gray-400">Gas used</span>
+          <span className="text-right">{(hover.point.gasUsed / 1_000_000).toFixed(1)}M</span>
+        </div>
+        {hover.point.timestamp !== undefined && (
+          <div className="mt-1 text-gray-500 dark:text-gray-400">{formatTimestamp(hover.point.timestamp)}</div>
+        )}
+        {hover.point.runId && (
+          <div className="text-gray-400 dark:text-gray-500">Click to open the run in a new tab</div>
+        )}
+      </div>
+    )}
 
     </div>
   )

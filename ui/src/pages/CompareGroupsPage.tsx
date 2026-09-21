@@ -57,6 +57,7 @@ export function CompareGroupsPage() {
     heatmapSlowMs?: string
     heatmapSort?: string
     testModal?: string
+    testExpand?: string
   }
 
   const suiteHash = search.suite ?? ''
@@ -93,6 +94,7 @@ export function CompareGroupsPage() {
           heatmapSlowMs: search.heatmapSlowMs,
           heatmapSort: search.heatmapSort,
           testModal: search.testModal,
+          testExpand: search.testExpand,
           ...patch,
         },
         replace: true,
@@ -456,7 +458,17 @@ export function CompareGroupsPage() {
   // the run page, so a link opens straight on the test.
   const selectedTest = search.testModal || null
   const setSelectedTest = useCallback(
-    (name: string | null) => updateSearch({ testModal: name || undefined }),
+    (name: string | null) => updateSearch(name ? { testModal: name } : { testModal: undefined, testExpand: undefined }),
+    [updateSearch],
+  )
+
+  // Open sections of the modal, so a shared link keeps them open.
+  const testExpand = useMemo(
+    () => new Set((search.testExpand ?? '').split(',').filter(Boolean)),
+    [search.testExpand],
+  )
+  const setTestExpand = useCallback(
+    (next: Set<string>) => updateSearch({ testExpand: [...next].join(',') || undefined }),
     [updateSearch],
   )
 
@@ -925,6 +937,8 @@ export function CompareGroupsPage() {
           baselineGroupIdx={baselineGroupIdx}
           heatmapModel={heatmapModel}
           stepFilter={stepFilter}
+          expanded={testExpand}
+          onExpandedChange={setTestExpand}
           searchQuery={testFilter}
           onChipFilterToggle={(term) => updateFilterSearch({ filter: toggleSearchTerm(testFilter, term) || undefined })}
           onClose={() => setSelectedTest(null)}
