@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Copy, Check, Search, ArrowDown, ArrowUp } from 'lucide-react'
+import { Copy, Check, Search, ArrowDown, ArrowUp, ExternalLink } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import type { SuiteFile, SuiteTest } from '@/api/types'
 import { fetchText } from '@/api/client'
@@ -223,58 +223,128 @@ function SearchIcon({ className }: { className?: string }) {
   return <Search className={className} />
 }
 
-// Component for displaying EEST fixture info and opcode counts
+/** The file and the line of a source link, e.g. "test_arithmetic.py#L40". */
+function sourceLabel(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const file = parsed.pathname.split('/').filter(Boolean).pop()
+    return file ? `${file}${parsed.hash}` : parsed.host
+  } catch {
+    return url
+  }
+}
+
+/** Head and tail of a long hash, e.g. "0xfe2ed6c0…fcd62c3b63d". */
+function shortHash(hash: string): string {
+  return hash.length > 22 ? `${hash.slice(0, 10)}…${hash.slice(-11)}` : hash
+}
+
+/** Client and version of a filling tool, e.g. "Geth v1.17.6-unstable-…". */
+function fillingToolLabel(tool: string): string {
+  const inner = tool.match(/\[([^\]]+)\]/)?.[1] ?? tool
+  const [client, version] = inner.split('/')
+  return version ? `${client} ${version}` : inner
+}
+
+/** Copy control small enough to live inside a chip. */
+function CopyIconButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={async (e) => {
+        e.stopPropagation()
+        await navigator.clipboard.writeText(text)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      }}
+      title={`Copy the ${label}`}
+      className="shrink-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-200"
+    >
+      {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+    </button>
+  )
+}
+
+/** One metadata fact: a muted label and its value, as a chip. */
+function MetaChip({ label, value, title, href, copy }: {
+  label: string
+  value: string
+  title?: string
+  /** Turns the chip into a link. */
+  href?: string
+  /** Text a copy control puts on the clipboard. */
+  copy?: string
+}) {
+  const className = 'inline-flex max-w-full items-center gap-1.5 rounded-xs bg-gray-100 px-2 py-1 text-xs/5 dark:bg-gray-700/60'
+  const body = (
+    <>
+      <span className="shrink-0 text-gray-500 dark:text-gray-400">{label}</span>
+      <span className={clsx('truncate font-mono', href ? 'text-blue-600 dark:text-blue-400' : 'text-gray-800 dark:text-gray-100')}>{value}</span>
+      {href && <ExternalLink className="size-3 shrink-0 text-gray-400 dark:text-gray-500" />}
+    </>
+  )
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={title ?? href}
+        onClick={(e) => e.stopPropagation()}
+        className={clsx(className, 'hover:bg-gray-200 dark:hover:bg-gray-600')}
+      >
+        {body}
+      </a>
+    )
+  }
+  return (
+    <span title={title ?? value} className={className}>
+      {body}
+      {copy && <CopyIconButton text={copy} label={label} />}
+    </span>
+  )
+}
+
+// EEST fixture info and opcode counts. The prose leads, the facts follow
+// as chips, and the opcode charts close the panel.
 export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test: SuiteTest; opcodeSort: OpcodeSortMode; onOpcodeSortChange: (sort: OpcodeSortMode) => void }) {
   const info = test.eest?.info
   const opcodes = test.opcode_count ?? info?.opcode_count
+  const hasOpcodes = !!opcodes && Object.keys(opcodes).length > 0
 
-  const fields = info ? [
-    { label: 'Description', value: info.description },
-    { label: 'Comment', value: info.comment },
-    { label: 'Fixture Format', value: info['fixture-format'] },
-    { label: 'Filling Tool', value: info['filling-transition-tool'] },
-    { label: 'Hash', value: info.hash },
-    { label: 'URL', value: info.url },
-  ].filter((f) => f.value) : []
+  const tool = info?.['filling-transition-tool']
+  const fork = tool?.match(/fork=([^\];,\s]+)/)?.[1]
+  const hasProse = !!(info?.description || info?.comment)
+  const hasFacts = !!(info?.['fixture-format'] || tool || info?.hash || info?.url)
 
-  const hasOpcodes = opcodes && Object.keys(opcodes).length > 0
-
-  if (fields.length === 0 && !hasOpcodes) return null
+  if (!hasProse && !hasFacts && !hasOpcodes) return null
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
         <Badge variant="default">{info ? 'EEST Info' : 'Opcode Info'}</Badge>
       </div>
-      <div className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm/6">
-          {fields.map(({ label, value }) => (
-            <Fragment key={label}>
-              <dt className="font-medium text-gray-500 dark:text-gray-400">{label}</dt>
-              <dd className="break-all text-gray-900 dark:text-gray-100">
-                {label === 'URL' && value ? (
-                  <a
-                    href={value}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline dark:text-blue-400"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {value}
-                  </a>
-                ) : (
-                  <span className="font-mono">{value}</span>
-                )}
-              </dd>
-            </Fragment>
-          ))}
-        </dl>
+      <div className="flex flex-col gap-3 rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        {hasProse && (
+          <div className="flex flex-col gap-1">
+            {info?.description && <p className="text-sm/6 text-gray-800 dark:text-gray-100">{info.description}</p>}
+            {info?.comment && <p className="text-xs/5 text-gray-500 dark:text-gray-400">{info.comment}</p>}
+          </div>
+        )}
+        {hasFacts && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {info?.['fixture-format'] && <MetaChip label="format" value={info['fixture-format']} />}
+            {fork && <MetaChip label="fork" value={fork} />}
+            {tool && <MetaChip label="filled by" value={fillingToolLabel(tool)} title={tool} />}
+            {info?.hash && <MetaChip label="hash" value={shortHash(info.hash)} title={info.hash} copy={info.hash} />}
+            {info?.url && <MetaChip label="source" value={sourceLabel(info.url)} href={info.url} />}
+          </div>
+        )}
         {hasOpcodes && <OpcodeBreakdown opcodes={opcodes!} sort={opcodeSort} onSortChange={onOpcodeSortChange} />}
       </div>
     </div>
   )
 }
-
 
 /** Follows the theme, so the category colours repaint on a theme switch. */
 function useDarkMode() {
@@ -319,7 +389,7 @@ function OpcodeBreakdown({ opcodes, sort, onSortChange }: {
   const fmtShare = (count: number) => `${share(count) >= 10 ? share(count).toFixed(0) : share(count).toFixed(1)}%`
 
   return (
-    <div className="mt-3 flex flex-col gap-3">
+    <div className="flex flex-col gap-3">
       <span className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">
         Opcode Count{' '}
         <span className="font-normal text-gray-400 dark:text-gray-500">
