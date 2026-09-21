@@ -45,7 +45,7 @@ interface TestDetailModalProps {
   /**
    * Open sections of the modal, held by the page so a shared link keeps
    * them open. `mgas` and `duration` open the group details of the
-   * matching metric section.
+   * matching metric section, `runs` opens the table of every run.
    */
   expanded: Set<string>
   onExpandedChange: (next: Set<string>) => void
@@ -151,6 +151,9 @@ export function TestDetailModal({
     navigate({ to: '/compare', search: { runs: Array.from(selectedRunIds).join(',') } })
   }
 
+  // The hovered run is shared, so a dot lights up in both metric
+  // sections at once. The popover stays with the section under the mouse.
+  const [hoveredRunId, setHoveredRunId] = useState<string | null>(null)
   const [runsGroupBy, setRunsGroupBy] = useState<RunsGroupBy>('none')
   const [sortKey, setSortKey] = useState<SortKey>('run')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -236,12 +239,14 @@ export function TestDetailModal({
             {suiteTest && (
               <EESTInfoContent test={suiteTest} opcodeSort={opcodeSort} onOpcodeSortChange={setOpcodeSort} />
             )}
-            <MetricSection metric="mgas" title="MGas/s" testName={testName} groupData={groupData} values={groupMgas} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} open={expanded.has('mgas')} onToggleOpen={() => toggleExpanded('mgas')} />
-            <MetricSection metric="duration" title="Payload time" testName={testName} groupData={groupData} values={groupDurations} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} open={expanded.has('duration')} onToggleOpen={() => toggleExpanded('duration')} />
+            <MetricSection metric="mgas" title="MGas/s" testName={testName} groupData={groupData} values={groupMgas} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} open={expanded.has('mgas')} onToggleOpen={() => toggleExpanded('mgas')} hoveredRunId={hoveredRunId} onHoverRunChange={setHoveredRunId} />
+            <MetricSection metric="duration" title="Payload time" testName={testName} groupData={groupData} values={groupDurations} durations={groupDurations} baselineGroupIdx={baselineGroupIdx} heatmapModel={heatmapModel} open={expanded.has('duration')} onToggleOpen={() => toggleExpanded('duration')} hoveredRunId={hoveredRunId} onHoverRunChange={setHoveredRunId} />
 
             <RunsTable
               groupData={groupData}
               testName={testName}
+              open={expanded.has('runs')}
+              onToggleOpen={() => toggleExpanded('runs')}
               groupBy={runsGroupBy}
               onGroupByChange={setRunsGroupBy}
               sortKey={sortKey}
@@ -384,9 +389,12 @@ function StepPayloads({ suiteHash, test }: { suiteHash: string; test: SuiteTest 
  * RunsTable lists every sampled run of every group in one table. The
  * columns sort, and the rows either cluster per group or run flat.
  */
-function RunsTable({ groupData, testName, groupBy, onGroupByChange, sortKey, sortDir, onSort, selectedRunIds, onToggleRunSelected }: {
+function RunsTable({ groupData, testName, open, onToggleOpen, groupBy, onGroupByChange, sortKey, sortDir, onSort, selectedRunIds, onToggleRunSelected }: {
   groupData: GroupSummary[]
   testName: string
+  /** Whether the table shows. The page owns the flag, so the URL keeps it. */
+  open: boolean
+  onToggleOpen: () => void
   groupBy: RunsGroupBy
   onGroupByChange: (mode: RunsGroupBy) => void
   sortKey: SortKey
@@ -417,10 +425,16 @@ function RunsTable({ groupData, testName, groupBy, onGroupByChange, sortKey, sor
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+        <button
+          type="button"
+          onClick={onToggleOpen}
+          title={open ? 'Hide the runs' : 'Show every sampled run'}
+          className="flex items-center gap-1.5 text-sm/6 font-medium text-gray-900 hover:text-gray-600 dark:text-gray-100 dark:hover:text-gray-300"
+        >
+          <span className={clsx('text-xs transition-transform', open && 'rotate-90')}>▶</span>
           Runs <span className="font-normal text-gray-500 dark:text-gray-400">({rows.length})</span>
-        </h4>
-        <div className="flex items-center gap-2">
+        </button>
+        {open && <div className="flex items-center gap-2">
           <span className="text-xs/5 text-gray-500 dark:text-gray-400">Group by:</span>
           <div className="flex items-center gap-1 rounded-sm bg-gray-100 p-0.5 dark:bg-gray-700">
             {([['group', 'Group'], ['none', 'None']] as const).map(([value, label]) => (
@@ -439,9 +453,9 @@ function RunsTable({ groupData, testName, groupBy, onGroupByChange, sortKey, sor
               </button>
             ))}
           </div>
-        </div>
+        </div>}
       </div>
-      <table className="w-full text-xs">
+      {open && <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">
             <th className="w-6 px-2 py-1"></th>
@@ -504,7 +518,7 @@ function RunsTable({ groupData, testName, groupBy, onGroupByChange, sortKey, sor
             )
           })}
         </tbody>
-      </table>
+      </table>}
     </div>
   )
 }
@@ -545,7 +559,7 @@ interface GroupSummary {
 // MetricSection is the cards, the dot strips and the stats table of one
 // metric. The cards colour with the section's metric and the heatmap's
 // mode and limits.
-function MetricSection({ metric, title, testName, groupData, values, durations, baselineGroupIdx, heatmapModel, open, onToggleOpen }: {
+function MetricSection({ metric, title, testName, groupData, values, durations, baselineGroupIdx, heatmapModel, open, onToggleOpen, hoveredRunId, onHoverRunChange }: {
   metric: HeatmapMetric
   title: string
   /** Test the modal shows, so a dot can open its run on that test. */
@@ -564,6 +578,9 @@ function MetricSection({ metric, title, testName, groupData, values, durations, 
    */
   open: boolean
   onToggleOpen: () => void
+  /** Run under the mouse anywhere in the modal, highlighted in every strip. */
+  hoveredRunId: string | null
+  onHoverRunChange: (runId: string | null) => void
 }) {
   const [hover, setHover] = useState<{ point: RunPoint; group: GroupSummary; gi: number; anchor: DOMRect } | null>(null)
   const model = { ...heatmapModel, metric }
@@ -596,7 +613,7 @@ function MetricSection({ metric, title, testName, groupData, values, durations, 
   // Hovered dot: the popover anchors to it, and every dot of the same
   // run lights up, in the combined strip and in the group strip alike.
   const isActive = (point: RunPoint) =>
-    hover !== null && (point.runId !== undefined ? hover.point.runId === point.runId : hover.point === point)
+    point.runId !== undefined ? hoveredRunId === point.runId : hover?.point === point
   const openRun = (point: RunPoint) => {
     if (point.runId) window.open(`/runs/${point.runId}?testModal=${encodeURIComponent(testName)}`, '_blank')
   }
@@ -609,8 +626,14 @@ function MetricSection({ metric, title, testName, groupData, values, durations, 
         isActive(point) ? 'z-10 size-4 opacity-100 ring-2 ring-gray-900/60 dark:ring-white/70' : 'size-3 opacity-70',
       )}
       style={{ left: dotLeft(value), backgroundColor: DOT_COLORS[gi % DOT_COLORS.length] }}
-      onMouseEnter={(e) => setHover({ point, group, gi, anchor: e.currentTarget.getBoundingClientRect() })}
-      onMouseLeave={() => setHover(null)}
+      onMouseEnter={(e) => {
+        setHover({ point, group, gi, anchor: e.currentTarget.getBoundingClientRect() })
+        onHoverRunChange(point.runId ?? null)
+      }}
+      onMouseLeave={() => {
+        setHover(null)
+        onHoverRunChange(null)
+      }}
       onClick={() => openRun(point)}
     />
   )
