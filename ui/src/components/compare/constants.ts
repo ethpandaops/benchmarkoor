@@ -1,7 +1,12 @@
 import type { RunConfig, RunResult } from '@/api/types'
 
-// Gold, silver and bronze for the first three places.
+// Gold, silver and bronze for the first three places. The medal shrinks
+// with the place, so the winner reads first.
 export const MEDAL_CLASSES = ['text-amber-400', 'text-gray-400 dark:text-gray-300', 'text-amber-700 dark:text-amber-600']
+/** Medal size in a table row. */
+export const MEDAL_SIZES = ['size-5', 'size-4', 'size-3.5']
+/** Medal size as the watermark of a card. */
+export const MEDAL_WATERMARK_SIZES = ['size-18', 'size-15', 'size-12']
 
 export const MIN_COMPARE_RUNS = 2
 export const MAX_COMPARE_RUNS = 5

@@ -10,7 +10,7 @@ import { ExecutionsList } from '@/components/run-detail/ExecutionsList'
 import { type StepType } from '@/api/hooks/useTestDetails'
 import { formatTimestamp } from '@/utils/date'
 import { type GroupDef } from './groupUtils'
-import { MAX_COMPARE_RUNS, MEDAL_CLASSES, MIN_COMPARE_RUNS } from './constants'
+import { MAX_COMPARE_RUNS, MEDAL_CLASSES, MEDAL_WATERMARK_SIZES, MIN_COMPARE_RUNS } from './constants'
 import { type HeatmapColorModel, type HeatmapMetric, heatmapColor } from './heatmapColor'
 import { formatBytes, formatDuration } from '@/utils/format'
 import { SLOW_COLOR, THRESHOLD_COLORS, isSlowPayload } from '@/utils/perfThreshold'
@@ -645,7 +645,7 @@ function GroupCards({ groupData, mgasValues, durationValues, baselineGroupIdx, h
             {medal !== undefined && (
               <Medal
                 aria-hidden
-                className={clsx('pointer-events-none absolute -right-3 -top-3 -z-10 size-16 rotate-12 opacity-20 dark:opacity-30', MEDAL_CLASSES[medal])}
+                className={clsx('pointer-events-none absolute -right-3 -top-3 -z-10 rotate-12 opacity-20 dark:opacity-30', MEDAL_WATERMARK_SIZES[medal], MEDAL_CLASSES[medal])}
               />
             )}
             <span

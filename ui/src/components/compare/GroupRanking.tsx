@@ -5,7 +5,7 @@ import type { AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { formatDuration, formatNumber } from '@/utils/format'
 import { formatDurationSeconds } from '@/utils/date'
-import { type CompareRun, type LabelMode, MEDAL_CLASSES, RUN_SLOTS, formatRunLabel } from './constants'
+import { type CompareRun, type LabelMode, MEDAL_CLASSES, MEDAL_SIZES, RUN_SLOTS, formatRunLabel } from './constants'
 import { computeMetrics, formatGas } from './compareMetrics'
 
 interface GroupRankingProps {
@@ -139,7 +139,7 @@ export function GroupRanking({
         <table className="w-full text-xs/5">
           <thead>
             <tr className="border-b border-gray-200 text-[10px] uppercase tracking-wide text-gray-400 dark:border-gray-700 dark:text-gray-500">
-              <th className="w-6 px-1 py-1" />
+              <th className="w-7 px-1 py-1" />
               <th className="px-2 py-1 text-left font-medium">Group</th>
               <th className="px-2 py-1 text-left font-medium" title="Tests where this group had the highest MGas/s">Wins</th>
               <th className={th} title="Total gas over total payload time of the tests">MGas/s</th>
@@ -167,10 +167,10 @@ export function GroupRanking({
                     highlighted ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
                   )}
                 >
-                  <td className={clsx('px-1 py-1 text-right font-mono', leader ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500')}>
-                    <span className="flex justify-end">
+                  <td className={clsx('px-1 py-1 text-center font-mono', leader ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500')}>
+                    <span className="flex h-5 items-center justify-center">
                       {place < MEDAL_CLASSES.length && wins > 0
-                        ? <Medal className={clsx('size-4', MEDAL_CLASSES[place])} aria-label={`${place + 1}. place`} />
+                        ? <Medal className={clsx(MEDAL_SIZES[place], MEDAL_CLASSES[place])} aria-label={`${place + 1}. place`} />
                         : `${place + 1}.`}
                     </span>
                   </td>
