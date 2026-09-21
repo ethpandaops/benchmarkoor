@@ -13,7 +13,7 @@ import { type GroupDef } from './groupUtils'
 import { MAX_COMPARE_RUNS, MEDAL_CLASSES, MIN_COMPARE_RUNS } from './constants'
 import { type HeatmapColorModel, type HeatmapMetric, baselineRatio, formatRatio, heatmapColor } from './heatmapColor'
 import { formatBytes, formatDuration } from '@/utils/format'
-import { SLOW_COLOR, isSlowPayload } from '@/utils/perfThreshold'
+import { SLOW_COLOR, THRESHOLD_COLORS, isSlowPayload } from '@/utils/perfThreshold'
 
 interface TestDetailModalProps {
   testName: string
@@ -491,6 +491,29 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
     const fraction = (v - globalMin) / range
     return `${Math.max(2, Math.min(98, (invert ? 1 - fraction : fraction) * 100))}%`
   }
+  // Limit of the active metric, drawn on the strips: the MGas/s
+  // threshold, or the slow-payload limit. It only fits when it falls
+  // inside the measured range.
+  const limit = metric === 'mgas' ? threshold : slowMs * 1_000_000
+  const limitColor = metric === 'mgas' ? THRESHOLD_COLORS[4] : SLOW_COLOR
+  const limitTitle = metric === 'mgas'
+    ? `${threshold} MGas/s threshold`
+    : `${formatDuration(slowMs * 1_000_000)} slow-payload limit`
+  const limitInRange = limit >= globalMin && limit <= globalMax
+  // Says where the limit sits when the strips cannot show it.
+  const limitNote = limitInRange
+    ? null
+    : metric === 'mgas'
+      ? `every run is ${globalMin > limit ? 'above' : 'below'} the ${threshold} MGas/s threshold`
+      : `every run is ${globalMax < limit ? 'under' : 'over'} the ${formatDuration(slowMs * 1_000_000)} limit`
+  const limitMarker = limitInRange ? (
+    <span
+      className="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full opacity-80"
+      style={{ left: dotLeft(limit), backgroundColor: limitColor }}
+      title={limitTitle}
+    />
+  ) : null
+
   const showDetails = showGroupDetails || groupData.length < 2
   const axisLeft = invert ? globalMax : globalMin
   const axisRight = invert ? globalMin : globalMax
@@ -574,6 +597,7 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
       {groupData.length >= 2 && (
         <StripRow
           emphasis
+          marker={limitMarker}
           label={
             <button
               type="button"
@@ -600,7 +624,7 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
         </StripRow>
       )}
       {showDetails && groupData.map((group, gi) => (
-        <StripRow key={gi} label={<GroupLabel group={group} gi={gi} />}>
+        <StripRow key={gi} marker={limitMarker} label={<GroupLabel group={group} gi={gi} />}>
           {group.metrics[metric].values.map((v, i) => (
             <span
               key={i}
@@ -616,6 +640,7 @@ function MetricSection({ metric, title, groupData, values, durations, baselineGr
         <span className="w-40 shrink-0" />
         <span className="flex flex-1 justify-between px-1">
           <span>{fmtAxis(axisLeft)} <span className="opacity-70">fastest</span></span>
+          {limitNote && <span className="hidden truncate px-2 opacity-70 sm:inline" title={limitTitle}>{limitNote}</span>}
           <span><span className="opacity-70">slowest</span> {fmtAxis(axisRight)}</span>
         </span>
       </div>
@@ -681,7 +706,13 @@ function GroupLabel({ group, gi }: { group: { client: string; label: string }; g
 
 // StripRow is one labelled dot strip. The label column has a fixed width
 // so the strips of every row share the same axis.
-function StripRow({ label, children, emphasis }: { label: React.ReactNode; children: React.ReactNode; emphasis?: boolean }) {
+function StripRow({ label, children, emphasis, marker }: {
+  label: React.ReactNode
+  children: React.ReactNode
+  emphasis?: boolean
+  /** Limit line of the metric, drawn under the dots. */
+  marker?: React.ReactNode
+}) {
   return (
     <div className={clsx('flex items-center gap-2', emphasis && 'mb-1')}>
       <div className="w-40 shrink-0 truncate">{label}</div>
@@ -695,6 +726,7 @@ function StripRow({ label, children, emphasis }: { label: React.ReactNode; child
             : 'h-5 bg-gray-100 dark:bg-gray-700',
         )}
       >
+        {marker}
         {children}
       </div>
     </div>
