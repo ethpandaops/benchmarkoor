@@ -621,10 +621,32 @@ func (b *PreRunsBuilder) bootFiller(
 	// no multi-TB copy, and output_dir is unused. This recover is pre-run-specific;
 	// the shared source-mount path (ensureSourceSchelkMounted, used by eest_payloads
 	// too) only mounts, never recovers, so downstream stages can't wipe the
-	// advanced scratch. Other methods copy source_dir → output_dir and boot there.
+	// advanced scratch. zfs makes output_dir a persistent ZFS clone of source_dir
+	// (O(1), source untouched, replaced by the next forced run). Other methods copy
+	// source_dir → output_dir and boot there.
 	bootDir := t.OutputDir
 
-	if t.DataDirMethod == "schelk" {
+	switch t.DataDirMethod {
+	case "zfs":
+		// Clear a plain leftover output_dir (e.g. from a copy-based run), but never
+		// RemoveAll a mounted clone: CloneZFSPreRunOutput replaces its own.
+		mounted, merr := datadir.IsMountedAt(filepath.Clean(t.OutputDir)) // exact /proc/mounts match: no trailing slash
+		if merr != nil {
+			err = merr
+
+			return nil, fmt.Errorf("checking output_dir %q: %w", t.OutputDir, merr)
+		}
+
+		if !mounted {
+			if err = prepareOutputDir(t.OutputDir, true); err != nil {
+				return nil, err
+			}
+		}
+
+		if err = datadir.CloneZFSPreRunOutput(ctx, log, t.SourceDir, t.OutputDir); err != nil {
+			return nil, fmt.Errorf("cloning snapshot datadir: %w", err)
+		}
+	case "schelk":
 		if err = b.restoreSchelkSource(ctx, log, t.SourceDir); err != nil {
 			return nil, err
 		}
@@ -633,7 +655,7 @@ func (b *PreRunsBuilder) bootFiller(
 
 		log.WithField("source_dir", t.SourceDir).
 			Info("Booting pre-run in place on schelk scratch (no copy)")
-	} else {
+	default:
 		if err = prepareOutputDir(t.OutputDir, true); err != nil {
 			return nil, err
 		}
