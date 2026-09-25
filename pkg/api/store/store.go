@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/api/gormlogger"
+	"github.com/ethpandaops/benchmarkoor/pkg/api/sqlitedsn"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/glebarez/sqlite"
 	"github.com/sirupsen/logrus"
@@ -136,7 +137,9 @@ func (s *store) Start(ctx context.Context) error {
 
 // openSQLite opens the write and read GORM connections for SQLite.
 func (s *store) openSQLite(gormCfg *gorm.Config) error {
-	writeDB, err := gorm.Open(sqlite.Open(s.cfg.SQLite.Path), gormCfg)
+	dsn := sqlitedsn.Build(s.cfg.SQLite.Path, sqlitePragmas)
+
+	writeDB, err := gorm.Open(sqlite.Open(dsn), gormCfg)
 	if err != nil {
 		return fmt.Errorf("opening database (write): %w", err)
 	}
@@ -148,10 +151,6 @@ func (s *store) openSQLite(gormCfg *gorm.Config) error {
 
 	writeSQLDB.SetMaxOpenConns(1)
 
-	if err := applySQLitePragmas(writeDB); err != nil {
-		return err
-	}
-
 	s.db = writeDB
 
 	if s.cfg.SQLite.Path == ":memory:" ||
@@ -161,9 +160,7 @@ func (s *store) openSQLite(gormCfg *gorm.Config) error {
 		return nil
 	}
 
-	readDB, err := gorm.Open(
-		sqlite.Open(s.cfg.SQLite.Path), gormCfg,
-	)
+	readDB, err := gorm.Open(sqlite.Open(dsn), gormCfg)
 	if err != nil {
 		return fmt.Errorf("opening database (read): %w", err)
 	}
@@ -175,33 +172,21 @@ func (s *store) openSQLite(gormCfg *gorm.Config) error {
 
 	readSQLDB.SetMaxOpenConns(4)
 
-	if err := applySQLitePragmas(readDB); err != nil {
-		return err
-	}
-
 	s.readDB = readDB
 
 	return nil
 }
 
-// applySQLitePragmas sets performance and reliability pragmas on a
-// SQLite GORM connection.
-func applySQLitePragmas(db *gorm.DB) error {
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA synchronous=NORMAL",
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA foreign_keys=ON",
-		"PRAGMA temp_store=MEMORY",
-	}
-
-	for _, p := range pragmas {
-		if err := db.Exec(p).Error; err != nil {
-			return fmt.Errorf("setting pragma %q: %w", p, err)
-		}
-	}
-
-	return nil
+// sqlitePragmas are the pragmas every connection needs. They ride in the DSN
+// rather than a one-off Exec because SQLite applies them per connection: an
+// Exec reaches the one pooled connection that served it, and the read pool
+// opens four. See the sqlitedsn package.
+var sqlitePragmas = []sqlitedsn.Pragma{
+	{Name: "journal_mode", Value: "WAL"},
+	{Name: "synchronous", Value: "NORMAL"},
+	{Name: "busy_timeout", Value: "5000"},
+	{Name: "foreign_keys", Value: "ON"},
+	{Name: "temp_store", Value: "MEMORY"},
 }
 
 // Stop closes the underlying database connections.
