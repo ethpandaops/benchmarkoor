@@ -66,6 +66,32 @@ type Store interface {
 	ListRunsPendingDeletion(ctx context.Context) ([]Run, error)
 	SetRunDeletionError(ctx context.Context, runID, msg string) error
 
+	// Index failures: runs storage exposes that the indexer cannot index,
+	// plus their own deletion queue. See index_failure.go.
+	RecordIndexFailure(
+		ctx context.Context, discoveryPath, runID, msg string,
+	) error
+	ClearIndexFailure(
+		ctx context.Context, discoveryPath, runID string,
+	) error
+	ListIndexFailuresByPath(
+		ctx context.Context, discoveryPath string,
+	) ([]IndexFailure, error)
+	ListIndexFailures(
+		ctx context.Context, limit, offset int,
+	) ([]IndexFailure, error)
+	CountIndexFailures(ctx context.Context) (int64, error)
+	MarkIndexFailureForDeletion(ctx context.Context, runID string) error
+	UnmarkIndexFailureForDeletion(ctx context.Context, runID string) error
+	MarkAllIndexFailuresForDeletion(ctx context.Context) (int64, error)
+	UnmarkAllIndexFailuresForDeletion(ctx context.Context) (int64, error)
+	ListIndexFailuresPendingDeletion(
+		ctx context.Context,
+	) ([]IndexFailure, error)
+	SetIndexFailureDeletionError(
+		ctx context.Context, discoveryPath, runID, msg string,
+	) error
+
 	UpsertSuite(ctx context.Context, suite *Suite) error
 
 	BulkInsertTestStatsBlockLogs(
@@ -152,6 +178,7 @@ func (s *store) Start(ctx context.Context) error {
 		&TestStatsBlockLog{},
 		&Suite{},
 		&LiveRun{},
+		&IndexFailure{},
 	); err != nil {
 		return fmt.Errorf("running index migrations: %w", err)
 	}

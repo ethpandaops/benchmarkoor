@@ -33,12 +33,32 @@ type Indexer interface {
 // Compile-time interface check.
 var _ Indexer = (*indexer)(nil)
 
+// Options configures an indexer.
+type Options struct {
+	// Interval is the delay between indexing passes.
+	Interval time.Duration
+
+	// Concurrency bounds how many runs are indexed in parallel. Zero means
+	// defaultConcurrency.
+	Concurrency int
+
+	// FailureGrace is how old a run must be before the indexer records it as
+	// a failure. Below it a missing config.json means "still uploading", not
+	// "broken".
+	FailureGrace time.Duration
+
+	// FailureRetry is how long a recorded failure is skipped for before the
+	// indexer tries it again. It stops thousands of broken runs from costing
+	// a storage round-trip on every pass, while still letting a run whose
+	// upload finished late heal on its own.
+	FailureRetry time.Duration
+}
+
 type indexer struct {
 	log              logrus.FieldLogger
 	store            indexstore.Store
 	reader           storage.Reader
-	interval         time.Duration
-	concurrency      int
+	opts             Options
 	onLiveRunIndexed func(runID string)
 	ctx              context.Context // lifecycle context set by Start
 	done             chan struct{}
@@ -56,20 +76,18 @@ func NewIndexer(
 	log logrus.FieldLogger,
 	store indexstore.Store,
 	reader storage.Reader,
-	interval time.Duration,
-	concurrency int,
+	opts Options,
 	onLiveRunIndexed func(runID string),
 ) Indexer {
-	if concurrency <= 0 {
-		concurrency = defaultConcurrency
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultConcurrency
 	}
 
 	return &indexer{
 		log:              log.WithField("component", "indexer"),
 		store:            store,
 		reader:           reader,
-		interval:         interval,
-		concurrency:      concurrency,
+		opts:             opts,
 		onLiveRunIndexed: onLiveRunIndexed,
 		done:             make(chan struct{}),
 	}
@@ -82,8 +100,10 @@ func (idx *indexer) Start(ctx context.Context) error {
 	idx.ctx = ctx
 
 	idx.log.WithFields(logrus.Fields{
-		"interval":    idx.interval.String(),
-		"concurrency": idx.concurrency,
+		"interval":      idx.opts.Interval.String(),
+		"concurrency":   idx.opts.Concurrency,
+		"failure_grace": idx.opts.FailureGrace.String(),
+		"failure_retry": idx.opts.FailureRetry.String(),
 	}).Info("Starting indexer")
 
 	idx.wg.Add(1)
@@ -94,7 +114,7 @@ func (idx *indexer) Start(ctx context.Context) error {
 		// Run one pass immediately.
 		idx.runPass(ctx)
 
-		ticker := time.NewTicker(idx.interval)
+		ticker := time.NewTicker(idx.opts.Interval)
 		defer ticker.Stop()
 
 		for {
@@ -219,13 +239,26 @@ func (idx *indexer) indexDiscoveryPath(
 		incompleteSet[id] = struct{}{}
 	}
 
+	dpLog := idx.log.WithField("discovery_path", dp)
+
+	// Runs that already failed to index. Recent ones are skipped outright:
+	// re-reading thousands of broken runs every pass is what made a pass take
+	// half an hour and flooded the log.
+	failures, err := idx.loadFailures(ctx, dp, storageIDs, dpLog)
+	if err != nil {
+		return err
+	}
+
 	// Build list of runs that need indexing.
 	type runTask struct {
 		runID          string
 		alreadyIndexed bool
 	}
 
-	var tasks []runTask
+	var (
+		tasks   []runTask
+		skipped int
+	)
 
 	for _, id := range storageIDs {
 		_, alreadyIndexed := indexedSet[id]
@@ -235,13 +268,17 @@ func (idx *indexer) indexDiscoveryPath(
 			continue
 		}
 
+		if _, muted := failures.skip[id]; muted {
+			skipped++
+
+			continue
+		}
+
 		tasks = append(tasks, runTask{
 			runID:          id,
 			alreadyIndexed: alreadyIndexed,
 		})
 	}
-
-	dpLog := idx.log.WithField("discovery_path", dp)
 
 	newCount := 0
 	for _, t := range tasks {
@@ -251,10 +288,12 @@ func (idx *indexer) indexDiscoveryPath(
 	}
 
 	dpLog.WithFields(logrus.Fields{
-		"storage_runs":    len(storageIDs),
-		"indexed_runs":    len(indexedIDs),
-		"new_runs":        newCount,
-		"incomplete_runs": len(incompleteIDs),
+		"storage_runs":      len(storageIDs),
+		"indexed_runs":      len(indexedIDs),
+		"new_runs":          newCount,
+		"incomplete_runs":   len(incompleteIDs),
+		"recorded_failures": len(failures.recorded),
+		"skipped_failures":  skipped,
 	}).Info("Scanning discovery path")
 
 	if len(tasks) == 0 {
@@ -263,7 +302,7 @@ func (idx *indexer) indexDiscoveryPath(
 
 	// Process runs concurrently with bounded parallelism.
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(idx.concurrency)
+	g.SetLimit(idx.opts.Concurrency)
 
 	var indexed atomic.Int64
 
@@ -278,14 +317,28 @@ func (idx *indexer) indexDiscoveryPath(
 			default:
 			}
 
+			_, wasRecorded := failures.recorded[task.runID]
+
 			if err := idx.indexRun(
 				gCtx, dp, task.runID, task.alreadyIndexed,
 			); err != nil {
-				dpLog.WithError(err).
-					WithField("run_id", task.runID).
-					Warn("Failed to index run")
+				idx.handleIndexFailure(
+					gCtx, dp, task.runID, err, wasRecorded, dpLog,
+				)
 
-				return nil //nolint:nilerr // log and continue
+				return nil //nolint:nilerr // record and continue
+			}
+
+			// A run that healed must not keep its record, or the retry
+			// interval would keep muting a run that now indexes fine.
+			if wasRecorded {
+				if cErr := idx.clearFailure(
+					gCtx, dp, task.runID,
+				); cErr != nil {
+					dpLog.WithError(cErr).
+						WithField("run_id", task.runID).
+						Warn("Failed to clear index failure")
+				}
 			}
 
 			action := "indexed"
@@ -313,6 +366,133 @@ func (idx *indexer) indexDiscoveryPath(
 	}
 
 	return nil
+}
+
+// indexFailureState is one pass's view of the recorded failures for a
+// discovery path.
+type indexFailureState struct {
+	// recorded holds every run that already has a failure record, so the
+	// pass knows a failure is a repeat and not news.
+	recorded map[string]struct{}
+
+	// skip holds the subset whose last attempt is still inside the retry
+	// interval. Those runs are not read from storage at all.
+	skip map[string]struct{}
+}
+
+// loadFailures reads the recorded failures for a discovery path and splits
+// them into the muted set and the rest. It also drops records whose run has
+// since left storage, which is what makes an admin deleting a run's data
+// clean up the record on the next pass.
+func (idx *indexer) loadFailures(
+	ctx context.Context,
+	dp string,
+	storageIDs []string,
+	dpLog logrus.FieldLogger,
+) (*indexFailureState, error) {
+	records, err := idx.store.ListIndexFailuresByPath(ctx, dp)
+	if err != nil {
+		return nil, fmt.Errorf("listing index failures: %w", err)
+	}
+
+	state := &indexFailureState{
+		recorded: make(map[string]struct{}, len(records)),
+		skip:     make(map[string]struct{}, len(records)),
+	}
+
+	if len(records) == 0 {
+		return state, nil
+	}
+
+	inStorage := make(map[string]struct{}, len(storageIDs))
+	for _, id := range storageIDs {
+		inStorage[id] = struct{}{}
+	}
+
+	muteBefore := time.Now().UTC().Add(-idx.opts.FailureRetry)
+
+	for i := range records {
+		record := &records[i]
+
+		// The run is gone from storage, so the record has nothing left to
+		// describe.
+		if _, ok := inStorage[record.RunID]; !ok {
+			if cErr := idx.store.ClearIndexFailure(
+				ctx, dp, record.RunID,
+			); cErr != nil {
+				dpLog.WithError(cErr).
+					WithField("run_id", record.RunID).
+					Warn("Failed to prune index failure")
+			}
+
+			continue
+		}
+
+		state.recorded[record.RunID] = struct{}{}
+
+		if record.LastAttemptAt.After(muteBefore) {
+			state.skip[record.RunID] = struct{}{}
+		}
+	}
+
+	return state, nil
+}
+
+// clearFailure drops a failure record, serializing the write with the other
+// per-run writes of the pass.
+func (idx *indexer) clearFailure(
+	ctx context.Context, dp, runID string,
+) error {
+	idx.dbMu.Lock()
+	defer idx.dbMu.Unlock()
+
+	return idx.store.ClearIndexFailure(ctx, dp, runID)
+}
+
+// handleIndexFailure decides what a failed run earns. A run younger than the
+// grace period is left alone: its config.json may still be uploading, and
+// marking it broken would be wrong. An older one gets a record, so the pass
+// can skip it next time and an admin can find it.
+//
+// The first failure is logged at warn. Repeats drop to debug, because the
+// record is the durable signal and thousands of warn lines a pass are not.
+func (idx *indexer) handleIndexFailure(
+	ctx context.Context,
+	dp, runID string,
+	cause error,
+	wasRecorded bool,
+	dpLog logrus.FieldLogger,
+) {
+	log := dpLog.WithError(cause).WithField("run_id", runID)
+
+	if ts := indexstore.RunIDTimestamp(runID); ts > 0 {
+		if age := time.Since(time.Unix(ts, 0)); age < idx.opts.FailureGrace {
+			log.WithField("age", age.Round(time.Second)).
+				Debug("Skipped failed run inside the grace period")
+
+			return
+		}
+	}
+
+	// Same reason indexRun serializes its writes: the pass runs these
+	// concurrently and SQLite does not enjoy that.
+	idx.dbMu.Lock()
+	err := idx.store.RecordIndexFailure(ctx, dp, runID, cause.Error())
+	idx.dbMu.Unlock()
+
+	if err != nil {
+		log.WithError(err).Warn("Failed to record index failure")
+
+		return
+	}
+
+	if wasRecorded {
+		log.Debug("Failed to index run again")
+
+		return
+	}
+
+	log.Warn("Failed to index run")
 }
 
 // indexRun reads config.json and optionally result.json for a run,

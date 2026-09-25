@@ -274,6 +274,8 @@ api:
     enabled: true
     interval: "10m"
     concurrency: 4
+    failure_grace_period: "6h"
+    failure_retry_interval: "24h"
     database:
       driver: sqlite
       sqlite:
@@ -285,6 +287,8 @@ api:
 | `enabled` | bool | `false` | Enable the background indexing service |
 | `interval` | string | `10m` | How often to re-scan storage for new/updated runs (Go duration string) |
 | `concurrency` | int | `4` | Number of runs to index in parallel. Higher values speed up indexing but increase I/O and memory usage. Set to `1` for sequential processing |
+| `failure_grace_period` | string | `6h` | How old a run must be before a failed index is recorded against it. See [Failed runs](#failed-runs) |
+| `failure_retry_interval` | string | `24h` | How long a recorded failure is skipped for before the indexer tries it again |
 | `database.driver` | string | Required | Database driver (`sqlite` or `postgres`). This is a **separate** database from the auth database |
 | `database.sqlite.path` | string | When driver=sqlite | Path to the index SQLite database file |
 | `database.postgres.*` | - | When driver=postgres | PostgreSQL connection settings (same schema as the [auth database](#postgresql)) |
@@ -328,6 +332,27 @@ While a run is queued, it stays visible:
 Queuing a run that is already queued is a no-op. A run whose status is `running` is refused with a per-run error, because deleting it would race with the active runner. Deletion needs a storage backend that supports deletion (both S3 and local do).
 
 To take a run out of the queue, call `POST /admin/runs/delete/cancel` with the same `run_ids` body. This clears the mark and the recorded error. Use it when a run fails to delete again and again, for example when its discovery path was removed from the storage config. The cancel is best-effort: a run the worker is deleting at that moment is still removed.
+
+### Failed runs
+
+A run directory that storage holds but the indexer cannot read leaves nothing behind on its own. Most of them never got their `config.json`, because the upload died part-way. Without a record the indexer re-reads every one of them on every pass: on one deployment that was 9779 storage round-trips and 9779 log lines per pass, and it was most of why a pass took 26 minutes.
+
+The indexer therefore records these runs in an `index_failures` table.
+
+1. A run that fails to index is only recorded once it is older than `failure_grace_period` (default 6h). Below that age a missing `config.json` means the upload is still in flight, not that the run is broken. A run's age comes from its ID, which is named `{timestamp}_{shortID}_{instance}` — the run has no `config.json`, so the ID is the only place a timestamp survives.
+2. A recorded run is skipped by later passes until `failure_retry_interval` (default 24h) lapses. The pass does not read it from storage at all.
+3. When the interval lapses the run is tried again. A run whose upload finally landed is indexed and loses its record, so a late upload heals without anyone intervening.
+4. A record whose run has left storage is dropped on the next pass.
+
+The first failure is logged at `warn`. Repeats drop to `debug`, because the record is the durable signal.
+
+Admins see the records under **Admin → Indexer** in the UI, or through the API:
+
+- `GET /admin/indexer/failures` lists them, newest run first, paged.
+- `POST /admin/indexer/failures/delete` queues runs so their stored data is deleted. Pass `run_ids` for a chosen set or `all` for every record.
+- `POST /admin/indexer/failures/delete/cancel` takes them back out of the queue.
+
+Deletion uses the same background worker as run deletion. The files go from storage first; the record is dropped only once that succeeds. A record whose delete fails keeps its place in the queue with the reason attached, and is retried on the next pass.
 
 ## Ingest (live run reporting)
 
@@ -459,6 +484,8 @@ API configuration values can be overridden via environment variables with the `B
 | `api.indexing.enabled` | `BENCHMARKOOR_API_INDEXING_ENABLED` |
 | `api.indexing.interval` | `BENCHMARKOOR_API_INDEXING_INTERVAL` |
 | `api.indexing.concurrency` | `BENCHMARKOOR_API_INDEXING_CONCURRENCY` |
+| `api.indexing.failure_grace_period` | `BENCHMARKOOR_API_INDEXING_FAILURE_GRACE_PERIOD` |
+| `api.indexing.failure_retry_interval` | `BENCHMARKOOR_API_INDEXING_FAILURE_RETRY_INTERVAL` |
 | `api.indexing.database.driver` | `BENCHMARKOOR_API_INDEXING_DATABASE_DRIVER` |
 | `api.indexing.database.sqlite.path` | `BENCHMARKOOR_API_INDEXING_DATABASE_SQLITE_PATH` |
 

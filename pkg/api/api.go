@@ -306,8 +306,13 @@ func (s *server) prepareIndexing(ctx context.Context) error {
 
 	// Create the indexer (not started yet).
 	s.indexer = indexer.NewIndexer(
-		s.log, s.indexStore, s.storageReader, interval,
-		s.cfg.Indexing.Concurrency,
+		s.log, s.indexStore, s.storageReader,
+		indexer.Options{
+			Interval:     interval,
+			Concurrency:  s.cfg.Indexing.Concurrency,
+			FailureGrace: s.cfg.Indexing.GetFailureGracePeriod(),
+			FailureRetry: s.cfg.Indexing.GetFailureRetryInterval(),
+		},
 		onLiveRunIndexed,
 	)
 

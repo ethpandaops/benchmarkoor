@@ -18,10 +18,28 @@ import {
   useUpsertUserMapping,
   useDeleteUserMapping,
   useRunIndexer,
+  useIndexerFailures,
+  useDeleteIndexerFailures,
+  useCancelDeleteIndexerFailures,
+  INDEXER_FAILURES_PAGE_SIZE,
   type AdminSession,
+  type IndexerFailure,
+  type IndexerFailureSelection,
 } from '@/api/hooks/useAdmin'
 import { useAdminApiKeys, useDeleteAdminApiKey, type AdminApiKey } from '@/api/hooks/useApiKeys'
-import { Plus, Pencil, Trash2, Play, Loader2, ChevronUp, ChevronDown } from 'lucide-react'
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Play,
+  Loader2,
+  ChevronUp,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
+  Undo2,
+} from 'lucide-react'
 import clsx from 'clsx'
 
 type SortDirection = 'asc' | 'desc'
@@ -93,7 +111,7 @@ const cmpDateNullable = (a: string | null, b: string | null) => {
   return cmpDate(a, b)
 }
 
-type Tab = 'users' | 'github-mappings' | 'sessions' | 'api-keys'
+type Tab = 'users' | 'github-mappings' | 'sessions' | 'api-keys' | 'indexer'
 
 export function AdminPage() {
   const { isAdmin, authConfig } = useAuth()
@@ -104,6 +122,7 @@ export function AdminPage() {
     if (authConfig?.auth.github_enabled) result.push({ key: 'github-mappings', label: 'GitHub Mappings' })
     result.push({ key: 'sessions', label: 'Sessions' })
     result.push({ key: 'api-keys', label: 'API Keys' })
+    if (authConfig?.indexing?.enabled) result.push({ key: 'indexer', label: 'Indexer' })
     return result
   }, [authConfig])
 
@@ -153,6 +172,7 @@ export function AdminPage() {
           {resolvedTab === 'github-mappings' && <GitHubMappingsTab />}
           {resolvedTab === 'sessions' && <SessionsTab />}
           {resolvedTab === 'api-keys' && <AdminAPIKeysTab />}
+          {resolvedTab === 'indexer' && <IndexerTab />}
         </>
       )}
     </div>
@@ -650,6 +670,308 @@ function AdminAPIKeysTab() {
         </table>
       </div>
     </div>
+  )
+}
+
+// --- Indexer Tab ---
+
+// A run directory is named {timestamp}_{shortID}_{instance}. A run recorded
+// here has no config.json, so that leading field is the only date left.
+function formatRunTimestamp(unixSeconds?: number): string {
+  if (!unixSeconds) return 'unknown'
+  return formatTimestamp(new Date(unixSeconds * 1000).toISOString())
+}
+
+function IndexerTab() {
+  const [offset, setOffset] = useState(0)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null)
+
+  const { data, isLoading, error } = useIndexerFailures(offset, true)
+  const deleteFailures = useDeleteIndexerFailures()
+  const cancelFailures = useCancelDeleteIndexerFailures()
+
+  const entries = useMemo(() => data?.entries ?? [], [data])
+  const total = data?.total ?? 0
+  const busy = deleteFailures.isPending || cancelFailures.isPending
+
+  // A page the worker has drained can leave the offset past the end.
+  const onLastPage = offset + INDEXER_FAILURES_PAGE_SIZE >= total
+
+  const selectableOnPage = useMemo(
+    () => entries.filter((e) => !e.deletion_requested_at).map((e) => e.run_id),
+    [entries],
+  )
+  const allOnPageSelected =
+    selectableOnPage.length > 0 && selectableOnPage.every((id) => selected.has(id))
+
+  const toggleOne = (runId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(runId)) next.delete(runId)
+      else next.add(runId)
+      return next
+    })
+  }
+
+  const togglePage = () => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allOnPageSelected) selectableOnPage.forEach((id) => next.delete(id))
+      else selectableOnPage.forEach((id) => next.add(id))
+      return next
+    })
+  }
+
+  const run = async (
+    action: 'delete' | 'cancel',
+    selection: IndexerFailureSelection,
+  ) => {
+    setMessage(null)
+    try {
+      if (action === 'delete') {
+        const result = await deleteFailures.mutateAsync(selection)
+        setMessage({
+          text:
+            `Queued ${result.queued} run(s) for deletion. The worker removes ` +
+            `their data in the background.` +
+            (result.errors?.length ? ` ${result.errors.join('; ')}` : ''),
+          isError: false,
+        })
+      } else {
+        const result = await cancelFailures.mutateAsync(selection)
+        setMessage({
+          text: `Took ${result.cancelled} run(s) out of the deletion queue.`,
+          isError: false,
+        })
+      }
+      setSelected(new Set())
+    } catch (err) {
+      setMessage({
+        text: err instanceof Error ? err.message : 'Request failed',
+        isError: true,
+      })
+    }
+  }
+
+  const deleteSelected = () => {
+    const runIds = [...selected]
+    if (runIds.length === 0) return
+    if (
+      !confirm(
+        `Delete the stored data of ${runIds.length} failed run(s)?\n\n` +
+          'This removes every file of those runs from storage. It cannot be undone.',
+      )
+    ) {
+      return
+    }
+    void run('delete', { runIds })
+  }
+
+  const deleteAll = () => {
+    if (
+      !confirm(
+        `Delete the stored data of all ${total} failed run(s)?\n\n` +
+          'This removes every file of those runs from storage. It cannot be undone.',
+      )
+    ) {
+      return
+    }
+    void run('delete', { all: true })
+  }
+
+  if (isLoading) return <div className="text-sm text-gray-500">Loading...</div>
+
+  if (error) {
+    return (
+      <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        {error instanceof Error ? error.message : 'Failed to load index failures'}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="mb-4 rounded-sm border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-400">
+        Runs that storage holds but the indexer cannot index, usually because the
+        run directory never got its <code className="font-mono text-xs">config.json</code>.
+        A run is only recorded once it is old enough that an upload still in
+        flight is ruled out, and it is skipped by later passes until the retry
+        interval lapses. Deleting one removes its files from storage; the record
+        goes once that succeeds.
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          {total} failed run{total !== 1 ? 's' : ''}
+          {selected.size > 0 && ` · ${selected.size} selected`}
+        </h2>
+
+        <div className="ml-auto flex items-center gap-2">
+          {selected.size > 0 && (
+            <button
+              onClick={deleteSelected}
+              disabled={busy}
+              className="flex items-center gap-1.5 rounded-sm bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+              Delete selected
+            </button>
+          )}
+          {total > 0 && (
+            <button
+              onClick={deleteAll}
+              disabled={busy}
+              className="flex items-center gap-1.5 rounded-sm border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+            >
+              <AlertTriangle className="size-3.5" />
+              Delete all {total}
+            </button>
+          )}
+          <button
+            onClick={() => void run('cancel', { all: true })}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-sm border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            title="Take every queued run back out of the deletion queue"
+          >
+            <Undo2 className="size-3.5" />
+            Cancel queued
+          </button>
+        </div>
+      </div>
+
+      {message && (
+        <div
+          className={clsx(
+            'mb-4 rounded-sm px-4 py-2 text-sm',
+            message.isError
+              ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+              : 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300',
+          )}
+        >
+          {message.text}
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-sm border border-gray-200 dark:border-gray-700">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-gray-50 text-xs text-gray-500 uppercase dark:bg-gray-800 dark:text-gray-400">
+            <tr>
+              <th className="w-10 px-4 py-2">
+                <input
+                  type="checkbox"
+                  checked={allOnPageSelected}
+                  onChange={togglePage}
+                  disabled={selectableOnPage.length === 0}
+                  aria-label="Select every run on this page"
+                  className="size-3.5 accent-blue-600"
+                />
+              </th>
+              <th className="px-4 py-2">Run</th>
+              <th className="px-4 py-2">Run time</th>
+              <th className="px-4 py-2">Discovery path</th>
+              <th className="px-4 py-2">Error</th>
+              <th className="px-4 py-2 text-right">Attempts</th>
+              <th className="px-4 py-2">Last attempt</th>
+              <th className="px-4 py-2">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {entries.map((failure) => (
+              <IndexerFailureRow
+                key={`${failure.discovery_path}/${failure.run_id}`}
+                failure={failure}
+                selected={selected.has(failure.run_id)}
+                onToggle={() => toggleOne(failure.run_id)}
+              />
+            ))}
+            {entries.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                  No failed runs. The indexer is keeping up.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {total > INDEXER_FAILURES_PAGE_SIZE && (
+        <div className="mt-3 flex items-center justify-end gap-2 text-sm text-gray-500 dark:text-gray-400">
+          <span>
+            {offset + 1}-{Math.min(offset + INDEXER_FAILURES_PAGE_SIZE, total)} of {total}
+          </span>
+          <button
+            onClick={() => setOffset((o) => Math.max(0, o - INDEXER_FAILURES_PAGE_SIZE))}
+            disabled={offset === 0}
+            className="rounded-sm border border-gray-300 p-1 disabled:opacity-40 dark:border-gray-700"
+            aria-label="Previous page"
+          >
+            <ChevronLeft className="size-3.5" />
+          </button>
+          <button
+            onClick={() => setOffset((o) => o + INDEXER_FAILURES_PAGE_SIZE)}
+            disabled={onLastPage}
+            className="rounded-sm border border-gray-300 p-1 disabled:opacity-40 dark:border-gray-700"
+            aria-label="Next page"
+          >
+            <ChevronRight className="size-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function IndexerFailureRow({
+  failure,
+  selected,
+  onToggle,
+}: {
+  failure: IndexerFailure
+  selected: boolean
+  onToggle: () => void
+}) {
+  const queued = Boolean(failure.deletion_requested_at)
+
+  return (
+    <tr className={clsx('bg-white dark:bg-gray-900', queued && 'opacity-60')}>
+      <td className="px-4 py-2">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          disabled={queued}
+          aria-label={`Select ${failure.run_id}`}
+          className="size-3.5 accent-blue-600"
+        />
+      </td>
+      <td className="px-4 py-2">
+        <code className="rounded-xs bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+          {failure.run_id}
+        </code>
+      </td>
+      <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400">
+        {formatRunTimestamp(failure.run_timestamp)}
+      </td>
+      <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{failure.discovery_path}</td>
+      <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{failure.error || '-'}</td>
+      <td className="px-4 py-2 text-right text-gray-500 dark:text-gray-400">{failure.attempts}</td>
+      <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400">
+        {formatTimestamp(failure.last_attempt_at)}
+      </td>
+      <td className="px-4 py-2">
+        {failure.deletion_error ? (
+          <span className="text-xs text-red-600 dark:text-red-400" title={failure.deletion_error}>
+            Delete failed, retrying
+          </span>
+        ) : queued ? (
+          <span className="text-xs text-amber-600 dark:text-amber-400">Queued for deletion</span>
+        ) : (
+          <span className="text-xs text-gray-400 dark:text-gray-500">Recorded</span>
+        )}
+      </td>
+    </tr>
   )
 }
 

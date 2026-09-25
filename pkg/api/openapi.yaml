@@ -1162,6 +1162,181 @@ paths:
                     type: string
                     example: Indexing pass already in progress
 
+  /admin/indexer/failures:
+    get:
+      operationId: listIndexerFailures
+      tags: [admin]
+      summary: List runs the indexer could not index
+      description: |
+        Returns runs that storage exposes but the indexer cannot index,
+        usually because the run directory never got its `config.json`.
+
+        A run is only recorded once it is older than the indexer's failure
+        grace period, so a run still uploading never appears here. A recorded
+        run is skipped by later passes until the retry interval lapses, and
+        its record disappears on its own if the run later indexes or leaves
+        storage.
+
+        Newest run first. A neglected deployment holds thousands of these, so
+        the listing is paged.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 200
+            minimum: 1
+            maximum: 1000
+          description: Page size. Out-of-range values are clamped.
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        "200":
+          description: Recorded index failures
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndexerFailuresResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/indexer/failures/delete:
+    post:
+      operationId: deleteIndexerFailures
+      tags: [admin]
+      summary: Queue failed runs so their stored data is deleted
+      description: |
+        Queues the stored data of failed runs for deletion. The request
+        returns as soon as every record is marked; a background worker does
+        the storage deletes in queue order and drops each record once its
+        data is gone.
+
+        Pass either `run_ids` or `all`. A run whose delete fails keeps its
+        place in the queue with the reason on its record, and is retried.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndexerFailuresActionRequest"
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  queued:
+                    type: integer
+                  errors:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          description: Neither run_ids nor all was given
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Storage backend does not support deletion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/indexer/failures/delete/cancel:
+    post:
+      operationId: cancelDeleteIndexerFailures
+      tags: [admin]
+      summary: Take failed runs out of the deletion queue
+      description: |
+        Best-effort: a record the worker is deleting at this moment is still
+        removed from the queue. A record that is not queued counts as
+        cancelled. Pass either `run_ids` or `all`.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndexerFailuresActionRequest"
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  cancelled:
+                    type: integer
+                  errors:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          description: Neither run_ids nor all was given
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /admin/runs/delete:
     post:
       operationId: deleteRuns
@@ -1381,6 +1556,76 @@ components:
         status:
           type: string
           example: ok
+
+    # ── Indexer housekeeping schemas ────────────────────────────────
+
+    IndexerFailure:
+      type: object
+      required: [run_id, discovery_path, attempts]
+      properties:
+        run_id:
+          type: string
+          example: 1790344061_c0f24cc0_reth-bal-full
+        discovery_path:
+          type: string
+          example: repricings/results
+        run_timestamp:
+          type: integer
+          format: int64
+          description: |
+            Unix seconds taken from the run ID, which is named
+            `{timestamp}_{shortID}_{instance}`. The run has no config.json,
+            so the ID is the only place a timestamp survives. Absent when
+            the ID does not follow the convention.
+        error:
+          type: string
+          description: The failure of the most recent attempt.
+          example: config.json not found
+        attempts:
+          type: integer
+          description: How many indexing attempts have failed.
+        first_failed_at:
+          type: string
+          format: date-time
+        last_attempt_at:
+          type: string
+          format: date-time
+        deletion_requested_at:
+          type: string
+          format: date-time
+          description: Present while the run sits in the deletion queue.
+        deletion_error:
+          type: string
+          description: The last failed deletion attempt. The run stays queued.
+
+    IndexerFailuresResponse:
+      type: object
+      required: [total, limit, offset, entries]
+      properties:
+        total:
+          type: integer
+          format: int64
+          description: Recorded failures in total, not just on this page.
+        limit:
+          type: integer
+        offset:
+          type: integer
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndexerFailure"
+
+    IndexerFailuresActionRequest:
+      type: object
+      description: Give either run_ids or all.
+      properties:
+        run_ids:
+          type: array
+          items:
+            type: string
+        all:
+          type: boolean
+          description: Act on every recorded failure.
 
     # ── Auth schemas ────────────────────────────────────────────────
     LoginRequest:

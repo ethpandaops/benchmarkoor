@@ -2291,6 +2291,14 @@ func bindEnvKeys(v *viper.Viper) {
 		"api.storage.s3.secret_access_key",
 		"api.storage.s3.force_path_style",
 		"api.storage.s3.presigned_urls.expiry",
+		// API indexing settings
+		"api.indexing.enabled",
+		"api.indexing.interval",
+		"api.indexing.concurrency",
+		"api.indexing.failure_grace_period",
+		"api.indexing.failure_retry_interval",
+		"api.indexing.database.driver",
+		"api.indexing.database.sqlite.path",
 		// Builder settings
 		"builder.state_actor.container_runtime",
 		"builder.state_actor.pull_policy",
