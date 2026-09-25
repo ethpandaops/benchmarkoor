@@ -343,17 +343,46 @@ paths:
         Returns all indexed runs across all discovery paths, sorted by
         timestamp descending. Same shape as `index.json` with an additional
         `discovery_path` field per entry.
+
+        The payload is large and changes only when a run is indexed or
+        deleted. The response carries an `ETag`; send it back as
+        `If-None-Match` to get a `304` instead of the body. The identity
+        and the gzip representation carry different entity tags, so replay
+        the tag under the same `Accept-Encoding` that produced it.
       security:
         - cookieAuth: []
         - bearerAuth: []
         - {}
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+          description: ETag from a previous response. A match returns `304`.
       responses:
         "200":
           description: Index listing
+          headers:
+            ETag:
+              description: Validator for the returned body.
+              schema:
+                type: string
+            Cache-Control:
+              description: Always `no-cache`, so clients revalidate each poll.
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/IndexResponse"
+        "304":
+          description: Not modified since the supplied `If-None-Match`
+          headers:
+            ETag:
+              description: Validator for the unchanged body.
+              schema:
+                type: string
         "401":
           description: Not authenticated
           content:

@@ -1,7 +1,13 @@
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -11,6 +17,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/go-chi/chi/v5"
+	"github.com/sirupsen/logrus"
 )
 
 // emptyJSONObject is spliced in for runs that have no (or malformed) steps
@@ -49,29 +56,69 @@ type indexTestStats struct {
 	Steps       json.RawMessage `json:"steps"`
 }
 
+// indexGzipLevel is the gzip level used for the cached /index body. Encoding
+// happens once per runs generation rather than once per request, but a rebuild
+// still lands on a live request, so this stays at the default. On a body of
+// this shape BestCompression buys a couple of percent for several times the
+// CPU, which is the wrong trade on a rebuild path that already reads the whole
+// runs table.
+const indexGzipLevel = gzip.DefaultCompression
+
+// indexCacheEntry is a fully rendered /index response for one runs-table
+// generation. The body, its gzip-encoded copy and the ETag they share are all
+// built together and then served verbatim. Entries are immutable once stored,
+// so readers may hold one without copying.
+type indexCacheEntry struct {
+	gen uint64
+	// body is the marshaled JSON. gzipped is the same bytes gzip-encoded, or
+	// nil if encoding failed; callers then fall back to body.
+	body    []byte
+	gzipped []byte
+	// etag validates body, gzipETag validates gzipped. A strong entity tag
+	// identifies one representation (RFC 9110 8.8.1), and two content codings
+	// are two representations, so they must not share a validator: a client
+	// whose Accept-Encoding changed between polls would otherwise be told a
+	// body it has never seen is unmodified.
+	etag     string
+	gzipETag string
+}
+
 // handleIndex returns the aggregated index of all benchmark runs from all
 // discovery paths. The response shape matches executor.Index with an
 // additional "discovery_path" field on each entry.
 //
 // The full payload is O(number of runs) and the UI polls it periodically, so
-// the marshaled body is cached and keyed by the store's runs generation: while
-// no run is upserted or deleted the response is served straight from the cache
-// without touching the database.
+// the response is cached and keyed by the store's runs generation: while no run
+// is upserted or deleted nothing touches the database, nothing is re-encoded,
+// and an unchanged client gets a 304 instead of the body.
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	gen := s.indexStore.RunsGeneration()
 
-	if body := s.cachedIndex(gen); body != nil {
-		writeRawJSON(w, body)
+	entry := s.cachedIndex(gen)
+	if entry == nil {
+		built, err := s.buildIndex(r.Context(), gen)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError,
+				errorResponse{err.Error()})
 
-		return
+			return
+		}
+
+		s.storeCachedIndex(built)
+
+		entry = built
 	}
 
-	runs, err := s.indexStore.ListAllRuns(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError,
-			errorResponse{"listing runs: " + err.Error()})
+	writeIndexResponse(w, r, entry)
+}
 
-		return
+// buildIndex renders the whole /index response for the given generation.
+func (s *server) buildIndex(
+	ctx context.Context, gen uint64,
+) (*indexCacheEntry, error) {
+	runs, err := s.indexStore.ListAllRuns(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing runs: %w", err)
 	}
 
 	// ListAllRuns already orders by timestamp descending, so no re-sort here.
@@ -129,40 +176,171 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Entries:   entries,
 	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError,
-			errorResponse{"encoding index: " + err.Error()})
+		return nil, fmt.Errorf("encoding index: %w", err)
+	}
+
+	digest := indexETagDigest(body)
+
+	return &indexCacheEntry{
+		gen:     gen,
+		body:    body,
+		gzipped: gzipIndexBody(s.log, body),
+		etag:    `"` + digest + `"`,
+		// The "-gzip" suffix is the convention Apache's mod_deflate set and
+		// the one intermediaries expect for an encoded variant.
+		gzipETag: `"` + digest + `-gzip"`,
+	}, nil
+}
+
+// writeIndexResponse serves a cached entry. It picks the representation the
+// client accepts, answers a matching If-None-Match with a 304, and otherwise
+// writes the pre-encoded bytes. Setting Content-Encoding makes the compression
+// middleware pass those bytes straight through instead of gzipping them a
+// second time.
+//
+// The validator follows the representation, so a conditional request can only
+// ever be answered with the encoding it asked for.
+func writeIndexResponse(
+	w http.ResponseWriter, r *http.Request, entry *indexCacheEntry,
+) {
+	body, etag := entry.body, entry.etag
+
+	useGzip := entry.gzipped != nil && acceptsGzip(r)
+	if useGzip {
+		body, etag = entry.gzipped, entry.gzipETag
+	}
+
+	header := w.Header()
+	header.Set("ETag", etag)
+	header.Add("Vary", "Accept-Encoding")
+	// The index changes whenever a run is indexed, so the client must
+	// revalidate on every poll. Revalidation is a 304 rather than a
+	// multi-megabyte transfer, which is the point.
+	header.Set("Cache-Control", "no-cache")
+
+	if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		// A 304 carries no body, so it carries no Content-Encoding either:
+		// there is nothing for the client to decode.
+		w.WriteHeader(http.StatusNotModified)
 
 		return
 	}
 
-	s.storeCachedIndex(gen, body)
-	writeRawJSON(w, body)
+	if useGzip {
+		header.Set("Content-Encoding", "gzip")
+	}
+
+	header.Set("Content-Type", "application/json")
+	header.Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusOK)
+
+	_, _ = w.Write(body)
 }
 
-// cachedIndex returns the cached marshaled index body if it was built for the
-// given runs generation, otherwise nil.
-func (s *server) cachedIndex(gen uint64) []byte {
+// gzipIndexBody gzip-encodes the rendered body. It returns nil when encoding
+// fails, which is not fatal: the caller then serves the plain body and lets
+// the compression middleware handle it as before.
+func gzipIndexBody(log logrus.FieldLogger, body []byte) []byte {
+	// Real index bodies compress to well under a tenth of their size, so this
+	// hint saves the buffer several doublings of a multi-megabyte allocation.
+	buf := bytes.NewBuffer(make([]byte, 0, len(body)/8))
+
+	writer, err := gzip.NewWriterLevel(buf, indexGzipLevel)
+	if err != nil {
+		log.WithError(err).Warn("Creating gzip writer for index response")
+
+		return nil
+	}
+
+	if _, err := writer.Write(body); err != nil {
+		log.WithError(err).Warn("Compressing index response")
+
+		return nil
+	}
+
+	if err := writer.Close(); err != nil {
+		log.WithError(err).Warn("Flushing compressed index response")
+
+		return nil
+	}
+
+	return buf.Bytes()
+}
+
+// indexETagDigest hashes the rendered body into the shared part of the entity
+// tags. The body embeds its own "generated" timestamp, so hashing the content
+// (rather than keying off the generation counter, which restarts with the
+// process) is what keeps a 304 honest across restarts.
+func indexETagDigest(body []byte) string {
+	sum := sha256.Sum256(body)
+
+	return hex.EncodeToString(sum[:16])
+}
+
+// etagMatches reports whether an If-None-Match header covers the given ETag.
+// It handles the "*" wildcard, comma-separated lists and the weak prefix,
+// since an intermediary may weaken a validator on the way back.
+func etagMatches(ifNoneMatch, etag string) bool {
+	if ifNoneMatch == "" {
+		return false
+	}
+
+	for _, candidate := range strings.Split(ifNoneMatch, ",") {
+		candidate = strings.TrimSpace(candidate)
+
+		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == etag {
+			return true
+		}
+	}
+
+	return false
+}
+
+// acceptsGzip reports whether the request allows a gzip-encoded response.
+// "gzip;q=0" is an explicit refusal, so the quality value decides rather than
+// the bare presence of the token.
+func acceptsGzip(r *http.Request) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			continue
+		}
+
+		_, quality, ok := strings.Cut(params, "q=")
+		if !ok {
+			return true
+		}
+
+		value, err := strconv.ParseFloat(strings.TrimSpace(quality), 64)
+
+		return err != nil || value > 0
+	}
+
+	return false
+}
+
+// cachedIndex returns the cached response if it was built for the given runs
+// generation, otherwise nil.
+func (s *server) cachedIndex(gen uint64) *indexCacheEntry {
 	s.indexCacheMu.Lock()
 	defer s.indexCacheMu.Unlock()
 
-	if s.indexCacheBody != nil && s.indexCacheGen == gen {
-		return s.indexCacheBody
+	if s.indexCache != nil && s.indexCache.gen == gen {
+		return s.indexCache
 	}
 
 	return nil
 }
 
-// storeCachedIndex records a freshly built index body for the given
-// generation. A build is only allowed to replace the cache if its generation
-// is at least as fresh, so a slow build for an older generation can't clobber
-// a newer cached body.
-func (s *server) storeCachedIndex(gen uint64, body []byte) {
+// storeCachedIndex records a freshly built response. A build is only allowed
+// to replace the cache if its generation is at least as fresh, so a slow build
+// for an older generation can't clobber a newer cached entry.
+func (s *server) storeCachedIndex(entry *indexCacheEntry) {
 	s.indexCacheMu.Lock()
 	defer s.indexCacheMu.Unlock()
 
-	if s.indexCacheBody == nil || gen >= s.indexCacheGen {
-		s.indexCacheGen = gen
-		s.indexCacheBody = body
+	if s.indexCache == nil || entry.gen >= s.indexCache.gen {
+		s.indexCache = entry
 	}
 }
 
