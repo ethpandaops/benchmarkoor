@@ -76,9 +76,15 @@ func (s *server) kickRunDeleter() {
 	}
 }
 
-// drainDeletionQueue deletes every queued run in queue order. It stops
-// early when the context is cancelled.
+// drainDeletionQueue deletes every queued run, then every queued failed run,
+// in queue order. It stops early when the context is cancelled.
 func (s *server) drainDeletionQueue(ctx context.Context) {
+	s.drainRunQueue(ctx)
+	s.drainIndexFailureQueue(ctx)
+}
+
+// drainRunQueue deletes every queued indexed run in queue order.
+func (s *server) drainRunQueue(ctx context.Context) {
 	runs, err := s.indexStore.ListRunsPendingDeletion(ctx)
 	if err != nil {
 		s.log.WithError(err).Warn("Failed to list runs pending deletion")
@@ -100,6 +106,94 @@ func (s *server) drainDeletionQueue(ctx context.Context) {
 		}
 
 		s.deleteQueuedRun(ctx, &runs[i])
+	}
+}
+
+// drainIndexFailureQueue deletes the stored data of every queued failed run.
+// These runs never made it into the index, so they have no rows to cascade
+// through: the storage delete is the whole job, and the record goes once it
+// succeeds.
+func (s *server) drainIndexFailureQueue(ctx context.Context) {
+	failures, err := s.indexStore.ListIndexFailuresPendingDeletion(ctx)
+	if err != nil {
+		s.log.WithError(err).
+			Warn("Failed to list index failures pending deletion")
+
+		return
+	}
+
+	if len(failures) == 0 {
+		return
+	}
+
+	s.log.WithField("queued", len(failures)).
+		Info("Draining index failure deletion queue")
+
+	for i := range failures {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		s.deleteQueuedIndexFailure(ctx, &failures[i])
+	}
+}
+
+// deleteQueuedIndexFailure removes one failed run's data from storage and then
+// drops its record. A failure is recorded on the row and the row stays queued
+// for the next pass.
+func (s *server) deleteQueuedIndexFailure(
+	ctx context.Context, failure *indexstore.IndexFailure,
+) {
+	log := s.log.WithFields(logrus.Fields{
+		"run_id":         failure.RunID,
+		"discovery_path": failure.DiscoveryPath,
+	})
+
+	if err := s.storageDeleter.DeleteRun(
+		ctx, failure.DiscoveryPath, failure.RunID,
+	); err != nil {
+		log.WithError(err).
+			Error("Failed to delete failed run from storage")
+		s.recordIndexFailureDeletionError(
+			ctx, failure.DiscoveryPath, failure.RunID,
+			"storage delete failed: "+err.Error(),
+		)
+
+		return
+	}
+
+	if err := s.indexStore.ClearIndexFailure(
+		ctx, failure.DiscoveryPath, failure.RunID,
+	); err != nil {
+		log.WithError(err).Error("Failed to clear index failure record")
+		s.recordIndexFailureDeletionError(
+			ctx, failure.DiscoveryPath, failure.RunID,
+			"record delete failed: "+err.Error(),
+		)
+
+		return
+	}
+
+	log.Info("Deleted failed run")
+}
+
+// recordIndexFailureDeletionError stores the failure on the queued record.
+// Cancellation is not recorded: the delete was not attempted, it was
+// interrupted.
+func (s *server) recordIndexFailureDeletionError(
+	ctx context.Context, discoveryPath, runID, msg string,
+) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	if err := s.indexStore.SetIndexFailureDeletionError(
+		ctx, discoveryPath, runID, msg,
+	); err != nil {
+		s.log.WithError(err).WithField("run_id", runID).
+			Warn("Failed to record index failure deletion error")
 	}
 }
 

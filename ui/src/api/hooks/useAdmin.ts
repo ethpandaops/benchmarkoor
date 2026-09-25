@@ -181,6 +181,97 @@ export function useCancelDeleteRuns() {
   })
 }
 
+// Indexer failures. Runs storage exposes that the indexer cannot index,
+// usually because the run directory never got its config.json. The API only
+// records a run once it is older than the indexer's grace period, so a run
+// still uploading never shows up here.
+export interface IndexerFailure {
+  run_id: string
+  discovery_path: string
+  /** Unix seconds taken from the run ID. Absent on a malformed ID. */
+  run_timestamp?: number
+  error?: string
+  attempts: number
+  first_failed_at: string
+  last_attempt_at: string
+  /** Present while the run sits in the deletion queue. */
+  deletion_requested_at?: string
+  /** The last failed deletion attempt. The run stays queued and is retried. */
+  deletion_error?: string
+}
+
+export interface IndexerFailuresResponse {
+  /** Recorded failures in total, not just on this page. */
+  total: number
+  limit: number
+  offset: number
+  entries: IndexerFailure[]
+}
+
+export const INDEXER_FAILURES_PAGE_SIZE = 100
+
+export function useIndexerFailures(offset: number, enabled: boolean) {
+  return useQuery<IndexerFailuresResponse>({
+    queryKey: ['admin', 'indexerFailures', offset],
+    enabled,
+    // A queued record disappears once the worker deletes its data, so keep
+    // the list moving while a bulk delete drains.
+    refetchInterval: 10_000,
+    queryFn: () =>
+      adminFetch(
+        `/api/v1/admin/indexer/failures?limit=${INDEXER_FAILURES_PAGE_SIZE}` +
+          `&offset=${offset}`,
+      ),
+  })
+}
+
+/** Selects either an explicit set of runs or every recorded failure. */
+export type IndexerFailureSelection = { runIds: string[] } | { all: true }
+
+function selectionBody(selection: IndexerFailureSelection): string {
+  return JSON.stringify(
+    'all' in selection ? { all: true } : { run_ids: selection.runIds },
+  )
+}
+
+interface DeleteIndexerFailuresResponse {
+  status: string
+  queued: number
+  errors?: string[]
+}
+
+export function useDeleteIndexerFailures() {
+  const queryClient = useQueryClient()
+  return useMutation<DeleteIndexerFailuresResponse, Error, IndexerFailureSelection>({
+    mutationFn: (selection) =>
+      adminFetch('/api/v1/admin/indexer/failures/delete', {
+        method: 'POST',
+        body: selectionBody(selection),
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['admin', 'indexerFailures'] }),
+  })
+}
+
+interface CancelIndexerFailuresResponse {
+  status: string
+  cancelled: number
+  errors?: string[]
+}
+
+export function useCancelDeleteIndexerFailures() {
+  const queryClient = useQueryClient()
+  return useMutation<CancelIndexerFailuresResponse, Error, IndexerFailureSelection>({
+    mutationFn: (selection) =>
+      adminFetch('/api/v1/admin/indexer/failures/delete/cancel', {
+        method: 'POST',
+        body: selectionBody(selection),
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['admin', 'indexerFailures'] }),
+  })
+}
+
 // GitHub User Mappings
 export function useUserMappings() {
   return useQuery<GitHubUserMapping[]>({
