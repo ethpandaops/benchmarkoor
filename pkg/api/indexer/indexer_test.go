@@ -88,7 +88,7 @@ func (f *indexerFixture) runDir(runID string) string {
 func (f *indexerFixture) pass() {
 	f.t.Helper()
 
-	f.idx.runPass(context.Background())
+	f.idx.runPass(context.Background(), indexstore.IndexerPassTriggerSchedule)
 }
 
 func (f *indexerFixture) failures() []indexstore.IndexFailure {

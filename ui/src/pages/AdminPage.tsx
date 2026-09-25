@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useAuth } from '@/hooks/useAuth'
 import type { AuthConfig } from '@/api/auth-client'
@@ -18,6 +18,7 @@ import {
   useUpsertUserMapping,
   useDeleteUserMapping,
   useRunIndexer,
+  useIndexerStats,
   useIndexerFailures,
   useDeleteIndexerFailures,
   useCancelDeleteIndexerFailures,
@@ -26,9 +27,12 @@ import {
   type AdminSession,
   type IndexerFailure,
   type IndexerFailureSelection,
+  type IndexerPass,
   type DatabaseStats,
 } from '@/api/hooks/useAdmin'
 import { useAdminApiKeys, useDeleteAdminApiKey, type AdminApiKey } from '@/api/hooks/useApiKeys'
+import { IndexerPassCharts } from '@/components/admin/IndexerPassCharts'
+import { formatPassDuration, passTriggerLabel } from '@/components/admin/constants'
 import { formatBytes, formatNumber } from '@/utils/format'
 import {
   Plus,
@@ -988,6 +992,287 @@ function formatRunTimestamp(unixSeconds?: number): string {
   return formatTimestamp(new Date(unixSeconds * 1000).toISOString())
 }
 
+// How many passes the table lists. The charts cover the whole window; the
+// table is there to read the newest few exactly, and to give the charts a
+// text equivalent.
+const RECENT_PASS_ROWS = 10
+
+/**
+ * The middle duration of the window. A median rather than a mean, because one
+ * pass that picked up a thousand new runs would drag a mean away from what a
+ * pass normally costs.
+ */
+function medianDuration(passes: IndexerPass[]): number {
+  if (passes.length === 0) return 0
+
+  const sorted = passes.map((pass) => pass.duration_ms).sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle]
+}
+
+/**
+ * How long the running pass has been going. The server measured the elapsed
+ * time when it answered, so the browser only adds the time since that answer
+ * arrived and never compares its clock with the server's.
+ */
+function useRunningElapsedMs(baseMs: number | undefined, since: number): number {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (baseMs === undefined) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [baseMs])
+
+  if (baseMs === undefined) return 0
+
+  // A tick that predates the response reads as "no time has passed yet",
+  // which is exactly right until the next one lands a second later.
+  return baseMs + Math.max(0, now - since)
+}
+
+/**
+ * The pass history: what the last pass cost, what the recent ones cost, and
+ * the button that starts one now.
+ */
+function IndexerPasses() {
+  const { data, isLoading, error, dataUpdatedAt } = useIndexerStats(true)
+  const runIndexer = useRunIndexer()
+  const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null)
+
+  const passes = useMemo(() => data?.passes ?? [], [data])
+  const last = passes[0]
+  const median = useMemo(() => medianDuration(passes), [passes])
+  const slowest = useMemo(
+    () =>
+      passes.reduce<IndexerPass | undefined>(
+        (worst, pass) =>
+          !worst || pass.duration_ms > worst.duration_ms ? pass : worst,
+        undefined,
+      ),
+    [passes],
+  )
+
+  const current = data?.current_pass
+  const elapsedMs = useRunningElapsedMs(current?.elapsed_ms, dataUpdatedAt)
+
+  // A pass already in flight would only get a 409 back, so the button waits.
+  const busy = runIndexer.isPending || (data?.running ?? false)
+
+  const handleRun = async () => {
+    setMessage(null)
+    try {
+      const result = await runIndexer.mutateAsync()
+      setMessage({ text: result.message, isError: false })
+    } catch (err) {
+      setMessage({
+        text: err instanceof Error ? err.message : 'Failed to trigger indexer',
+        isError: true,
+      })
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          Indexing passes
+        </h2>
+        {data?.interval && (
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            every {data.interval}
+          </span>
+        )}
+        {data?.running && (
+          <span
+            className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400"
+            title={
+              current
+                ? `Started ${formatTimestamp(current.started_at)} · ` +
+                  `${passTriggerLabel(current.trigger)}`
+                : undefined
+            }
+          >
+            <Loader2 className="size-3 animate-spin" />
+            {current
+              ? `Indexing for ${formatPassDuration(elapsedMs)}`
+              : 'Pass in progress'}
+          </span>
+        )}
+        <button
+          onClick={handleRun}
+          disabled={busy}
+          title={
+            data?.running
+              ? 'A pass is already running. Starting another would be refused.'
+              : 'Start an indexing pass now'
+          }
+          className="ml-auto flex items-center gap-1.5 rounded-sm border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          {busy ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Play className="size-3.5" />
+          )}
+          Run Indexer
+        </button>
+      </div>
+
+      {message && (
+        <div
+          className={clsx(
+            'rounded-sm px-4 py-2 text-sm',
+            message.isError
+              ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+              : 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300',
+          )}
+        >
+          {message.text}
+        </div>
+      )}
+
+      {isLoading && <div className="text-sm text-gray-500">Loading...</div>}
+
+      {/* React Query keeps the last good data across a failed refetch, so a
+          blip on the poll only blanks the panel when there is nothing left. */}
+      {!isLoading && !data && (
+        <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          {error instanceof Error ? error.message : 'Failed to load indexer stats'}
+        </div>
+      )}
+
+      {data && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label="Last pass"
+              value={last ? formatPassDuration(last.duration_ms) : '-'}
+              hint={
+                last
+                  ? `${formatTimestamp(last.started_at)} · ${passTriggerLabel(last.trigger)}`
+                  : 'No pass recorded yet'
+              }
+              tone={last && last.status !== 'completed' ? 'warning' : 'normal'}
+            />
+            <StatCard
+              label="New runs, last pass"
+              value={last ? formatNumber(last.runs_indexed) : '-'}
+              hint={
+                last
+                  ? `${formatNumber(last.runs_reindexed)} re-indexed · ` +
+                    `${formatNumber(last.runs_failed)} failed`
+                  : undefined
+              }
+            />
+            <StatCard
+              label="Median duration"
+              value={passes.length > 0 ? formatPassDuration(median) : '-'}
+              hint={`over the last ${passes.length} pass${passes.length === 1 ? '' : 'es'}`}
+            />
+            <StatCard
+              label="Slowest pass"
+              value={slowest ? formatPassDuration(slowest.duration_ms) : '-'}
+              hint={slowest ? formatTimestamp(slowest.started_at) : undefined}
+            />
+          </div>
+
+          <IndexerPassCharts passes={passes} />
+
+          {passes.length > 0 && <RecentPassesTable passes={passes} />}
+        </>
+      )}
+    </section>
+  )
+}
+
+function RecentPassesTable({ passes }: { passes: IndexerPass[] }) {
+  const rows = passes.slice(0, RECENT_PASS_ROWS)
+
+  return (
+    <div>
+      <h3 className="mb-2 text-xs font-medium text-gray-500 uppercase dark:text-gray-400">
+        Recent passes
+      </h3>
+      <div className="overflow-x-auto rounded-sm border border-gray-200 dark:border-gray-700">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-gray-50 text-xs text-gray-500 uppercase dark:bg-gray-800 dark:text-gray-400">
+            <tr>
+              <th className="px-4 py-2">Started</th>
+              <th className="px-4 py-2">Trigger</th>
+              <th className="px-4 py-2 text-right">Duration</th>
+              <th className="px-4 py-2 text-right">New</th>
+              <th className="px-4 py-2 text-right">Re-indexed</th>
+              <th className="px-4 py-2 text-right">Failed</th>
+              <th className="px-4 py-2 text-right">Skipped</th>
+              <th className="px-4 py-2 text-right">In storage</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {rows.map((pass) => (
+              <tr key={pass.started_at + pass.trigger} className="bg-white dark:bg-gray-900">
+                <td className="px-4 py-2 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                  {formatTimestamp(pass.started_at)}
+                  {pass.status !== 'completed' && (
+                    <span
+                      className="ml-2 text-xs text-amber-600 dark:text-amber-400"
+                      title={pass.error}
+                    >
+                      {pass.status}
+                    </span>
+                  )}
+                  {pass.status === 'completed' && pass.error && (
+                    <span
+                      className="ml-2 text-xs text-red-600 dark:text-red-400"
+                      title={pass.error}
+                    >
+                      a path failed
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                  {passTriggerLabel(pass.trigger)}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">
+                  {formatPassDuration(pass.duration_ms)}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">
+                  {formatNumber(pass.runs_indexed)}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-500 dark:text-gray-400">
+                  {formatNumber(pass.runs_reindexed)}
+                </td>
+                <td
+                  className={clsx(
+                    'px-4 py-2 text-right',
+                    pass.runs_failed > 0
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-gray-500 dark:text-gray-400',
+                  )}
+                >
+                  {formatNumber(pass.runs_failed)}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-500 dark:text-gray-400">
+                  {formatNumber(pass.skipped_failures)}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-500 dark:text-gray-400">
+                  {formatNumber(pass.storage_runs)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+        &quot;Skipped&quot; runs were never read: their failure record is still inside the
+        retry interval. &quot;In storage&quot; is how many run directories the pass found.
+      </p>
+    </div>
+  )
+}
+
 function IndexerTab() {
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -1086,18 +1371,34 @@ function IndexerTab() {
     void run('delete', { all: true })
   }
 
-  if (isLoading) return <div className="text-sm text-gray-500">Loading...</div>
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-8">
+        <IndexerPasses />
+        <div className="text-sm text-gray-500">Loading...</div>
+      </div>
+    )
+  }
 
   if (error) {
     return (
-      <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-        {error instanceof Error ? error.message : 'Failed to load index failures'}
+      <div className="flex flex-col gap-8">
+        <IndexerPasses />
+        <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          {error instanceof Error ? error.message : 'Failed to load index failures'}
+        </div>
       </div>
     )
   }
 
   return (
     <div>
+      <IndexerPasses />
+
+      <h2 className="mt-8 mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+        Runs the indexer cannot index
+      </h2>
+
       <div className="mb-4 rounded-sm border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-400">
         Runs that storage holds but the indexer cannot index, usually because the
         run directory never got its <code className="font-mono text-xs">config.json</code>.
@@ -1108,10 +1409,10 @@ function IndexerTab() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
           {total} failed run{total !== 1 ? 's' : ''}
           {selected.size > 0 && ` · ${selected.size} selected`}
-        </h2>
+        </h3>
 
         <div className="ml-auto flex items-center gap-2">
           {selected.size > 0 && (
@@ -1288,22 +1589,6 @@ function ConfigOverview({ config }: { config: AuthConfig }) {
   const local = config.storage?.local
   const indexingEnabled = config.indexing?.enabled ?? false
 
-  const runIndexer = useRunIndexer()
-  const [indexerMessage, setIndexerMessage] = useState<{ text: string; isError: boolean } | null>(null)
-
-  const handleRunIndexer = async () => {
-    setIndexerMessage(null)
-    try {
-      const result = await runIndexer.mutateAsync()
-      setIndexerMessage({ text: result.message, isError: false })
-    } catch (err) {
-      setIndexerMessage({
-        text: err instanceof Error ? err.message : 'Failed to trigger indexer',
-        isError: true,
-      })
-    }
-  }
-
   const items: { label: string; enabled: boolean }[] = [
     { label: 'Basic Auth', enabled: config.auth.basic_enabled },
     { label: 'GitHub Auth', enabled: config.auth.github_enabled },
@@ -1327,33 +1612,7 @@ function ConfigOverview({ config }: { config: AuthConfig }) {
             <span className="text-gray-700 dark:text-gray-300">{item.label}</span>
           </span>
         ))}
-        {indexingEnabled && (
-          <button
-            onClick={handleRunIndexer}
-            disabled={runIndexer.isPending}
-            className="flex items-center gap-1 rounded-sm border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            {runIndexer.isPending ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <Play className="size-3" />
-            )}
-            Run Indexer
-          </button>
-        )}
       </div>
-      {indexerMessage && (
-        <div
-          className={clsx(
-            'mt-2 text-xs',
-            indexerMessage.isError
-              ? 'text-red-600 dark:text-red-400'
-              : 'text-green-600 dark:text-green-400',
-          )}
-        >
-          {indexerMessage.text}
-        </div>
-      )}
       {s3?.enabled && s3.discovery_paths.length > 0 && (
         <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           S3 discovery paths: {s3.discovery_paths.join(', ')}

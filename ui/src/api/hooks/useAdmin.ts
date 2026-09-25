@@ -137,9 +137,89 @@ interface RunIndexerResponse {
 }
 
 export function useRunIndexer() {
+  const queryClient = useQueryClient()
   return useMutation<RunIndexerResponse, Error>({
     mutationFn: () =>
       adminFetch('/api/v1/admin/indexer/run', { method: 'POST' }),
+    // The pass only finishes later, but the stats endpoint reports the
+    // running pass straight away. Refetch on a failure too: a 409 means a
+    // pass the UI had not polled yet is already running.
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ['admin', 'indexerStats'] }),
+  })
+}
+
+// Indexer pass history. The indexer writes a row when a pass ends, so this is
+// how long passes take and what each one found. It is the only way to see a
+// pass getting slower before it gets slow enough to notice.
+export interface IndexerPass {
+  started_at: string
+  finished_at: string
+  /** How long the pass took, in milliseconds. */
+  duration_ms: number
+  /** What started the pass: "startup", "schedule" or "manual". */
+  trigger: string
+  /**
+   * How the pass ended: "completed", or "cancelled" for one a shutdown cut
+   * short, whose counters cover only the paths it reached.
+   */
+  status: string
+  discovery_paths: number
+  /** Run directories storage held. */
+  storage_runs: number
+  /** How many of those the index already had. The gap is the backlog. */
+  indexed_runs: number
+  runs_indexed: number
+  runs_reindexed: number
+  runs_failed: number
+  /** Runs left unread because their failure record is still muted. */
+  skipped_failures: number
+  error?: string
+}
+
+/**
+ * The pass in flight. A pass only writes its history row when it ends, so
+ * until then this is the only place it appears.
+ */
+export interface RunningIndexerPass {
+  started_at: string
+  trigger: string
+  /**
+   * How long the pass had been running when the response was built. The
+   * server measures it, so a browser with a skewed clock still shows the
+   * right elapsed time.
+   */
+  elapsed_ms: number
+}
+
+export interface IndexerStatsResponse {
+  /**
+   * Whether a pass is in flight. Starting another one would only be refused,
+   * so the UI waits instead.
+   */
+  running: boolean
+  /** Absent when no pass is running. */
+  current_pass?: RunningIndexerPass
+  /** The configured delay between passes, as a Go duration. */
+  interval?: string
+  limit: number
+  /** The most recent passes, newest first. */
+  passes: IndexerPass[]
+}
+
+export const INDEXER_PASSES_LIMIT = 100
+
+export function useIndexerStats(enabled: boolean) {
+  return useQuery<IndexerStatsResponse>({
+    queryKey: ['admin', 'indexerStats'],
+    enabled,
+    // A pass ends between polls, and the running state is what goes stale
+    // fast, so this is short. The query reads a few hundred small rows.
+    refetchInterval: 10_000,
+    queryFn: () =>
+      adminFetch(
+        `/api/v1/admin/indexer/stats?limit=${INDEXER_PASSES_LIMIT}`,
+      ),
   })
 }
 
