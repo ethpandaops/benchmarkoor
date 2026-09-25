@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
@@ -6,6 +6,7 @@ import { type IndexEntry, type IndexStepType, getIndexAggregatedStats } from '@/
 import { formatTimestamp } from '@/utils/date'
 import { ColorScaleLegend } from '@/components/shared/ColorScaleLegend'
 import { COLORS, NEUTRAL_COLOR, createColorScale, formatMgasStepRange } from '@/utils/runColorScale'
+import { positionTooltip } from '@/utils/tooltipPosition'
 
 function calculateMGasPerSec(gasUsed: number, gasUsedDuration: number): number | undefined {
   if (gasUsedDuration <= 0 || gasUsed <= 0) return undefined
@@ -31,15 +32,8 @@ const GAP_PX = 4
 
 interface TooltipData {
   run: IndexEntry
-  x: number
-  top: number
-  bottom: number
+  anchor: DOMRect
 }
-
-// Estimated tooltip height; used to decide whether to flip below the button
-// when there isn't enough room above. Slightly overestimated so we err on the
-// side of flipping rather than clipping.
-const TOOLTIP_HEIGHT_ESTIMATE = 220
 
 interface ClientRunsStripProps {
   runs: IndexEntry[]
@@ -53,6 +47,29 @@ interface ClientRunsStripProps {
 export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = false, selectedRunIds, onSelectionChange }: ClientRunsStripProps) {
   const navigate = useNavigate()
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
+
+  // The tooltip is sized by its contents: a run ID, and however many metadata
+  // labels the run carries. Its size is only known once rendered, so it
+  // renders hidden, and this measures it and places it before the paint.
+  // Guessing instead let the first swatch of the strip, which sits near the
+  // left edge, hang half its tooltip outside the window.
+  const tooltipRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const el = tooltipRef.current
+    if (!tooltip || !el) return
+
+    const { width, height } = el.getBoundingClientRect()
+    const { left, top } = positionTooltip(
+      tooltip.anchor,
+      { width, height },
+      { width: window.innerWidth, height: window.innerHeight },
+    )
+
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+    el.style.visibility = 'visible'
+  }, [tooltip])
 
   // The strip never wraps: it shows one page of runs, as many as fit on
   // one row, so the legend stays on the same line at every width.
@@ -144,8 +161,7 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
                   }
                 }}
                 onMouseEnter={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  setTooltip({ run, x: rect.left + rect.width / 2, top: rect.top, bottom: rect.bottom })
+                  setTooltip({ run, anchor: e.currentTarget.getBoundingClientRect() })
                 }}
                 onMouseLeave={() => setTooltip(null)}
                 className={clsx(
@@ -206,14 +222,11 @@ export function ClientRunsStrip({ runs, currentRunId, stepFilter, selectable = f
         const completed = isRunCompleted(tooltip.run)
         const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
         const labelEntries = Object.entries(tooltip.run.metadata ?? {})
-        const placeBelow = tooltip.top < TOOLTIP_HEIGHT_ESTIMATE
-        const positionStyle = placeBelow
-          ? { left: tooltip.x, top: tooltip.bottom + 8, transform: 'translate(-50%, 0)' }
-          : { left: tooltip.x, top: tooltip.top - 8, transform: 'translate(-50%, -100%)' }
         return (
           <div
-            className="pointer-events-none fixed z-50 rounded-sm bg-white px-3 py-2 text-xs/5 shadow-lg ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:ring-0"
-            style={positionStyle}
+            ref={tooltipRef}
+            className="pointer-events-none fixed z-50 max-w-[90vw] rounded-sm bg-white px-3 py-2 text-xs/5 shadow-lg ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:ring-0"
+            style={{ left: 0, top: 0, visibility: 'hidden' }}
           >
             <div className="flex flex-col gap-1">
               <div className="font-medium">{tooltip.run.instance.client}</div>
