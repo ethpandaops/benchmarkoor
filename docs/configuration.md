@@ -2050,7 +2050,7 @@ builder:
 |---|---|---|---|
 | `filler_client` | string | – | `geth`, `besu` or `nethermind`. Replay targets may use any bootable client. |
 | `source_dir` | string | – | Snapshot datadir to advance. Absolute. |
-| `output_dir` | string | – | Where the advanced datadir is written. Not used (and not required) when `datadir_method: schelk`, which advances `source_dir` in place. |
+| `output_dir` | string | – | Where the advanced datadir is written. Not used (and not required) when `datadir_method: schelk`, which advances `source_dir` in place. With `datadir_method: zfs` it becomes a **persistent ZFS clone** of `source_dir` instead of a copy: O(1), the source is never written, and the clone (`<dataset>/prerun-<id>`, outside the orphan-cleanup patterns) holds the advanced datadir until a forced re-run replaces it. `source_dir` must then be a dataset's mountpoint. Every other method copies `source_dir` first. |
 | `bundle_dir` | string | `output_dir`, else `source_dir` | Where the replay bundle is written (as `<dir>/pre_run_bundle/`). **A schelk target needs this**: the advanced datadir is the copy-on-write scratch, and the next `schelk restore` — including the one the runner performs before replaying — discards anything on it, bundle included. |
 | `replay_from` | string | – | Makes this a *replay* target: instead of filling, it replays another target's bundle (by target name) or a path to a `.request` file / `pre_run_bundle` directory. |
 | `genesis` | string | – | Boot genesis for the filler. Local path or http(s) URL. |
