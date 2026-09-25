@@ -22,6 +22,12 @@ interface SuitesTableProps {
   sortDir?: SuiteSortDirection
   onSortChange?: (column: SuiteSortColumn, direction: SuiteSortDirection) => void
   inactiveThresholdMs?: number
+  /** Shows a checkbox per row and turns a row click into a toggle. */
+  selectable?: boolean
+  selectedHashes?: Set<string>
+  onToggle?: (hash: string) => void
+  /** Selects or clears every suite the table is currently showing. */
+  onToggleAll?: (hashes: string[], selected: boolean) => void
 }
 
 function SortIcon({ direction, active }: { direction: SuiteSortDirection; active: boolean }) {
@@ -73,18 +79,53 @@ function StaticHeader({ label }: { label: string }) {
   )
 }
 
-function SuiteRow({ suite, isInactive }: { suite: SuiteEntry; isInactive?: boolean }) {
+function SuiteRow({
+  suite,
+  isInactive,
+  selectable,
+  selected,
+  onToggle,
+}: {
+  suite: SuiteEntry
+  isInactive?: boolean
+  selectable?: boolean
+  selected?: boolean
+  onToggle?: (hash: string) => void
+}) {
   const navigate = useNavigate()
   const { data: suiteInfo } = useSuite(suite.hash)
 
+  const handleRowClick = () => {
+    if (selectable) {
+      onToggle?.(suite.hash)
+
+      return
+    }
+
+    navigate({ to: '/suites/$suiteHash', params: { suiteHash: suite.hash } })
+  }
+
   return (
     <tr
-      onClick={() => navigate({ to: '/suites/$suiteHash', params: { suiteHash: suite.hash } })}
+      onClick={handleRowClick}
       className={clsx(
         'cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50',
         isInactive && 'opacity-40',
+        selected && 'bg-red-50 dark:bg-red-950/30',
       )}
     >
+      {selectable && (
+        <td className="px-3 py-2 sm:px-4 sm:py-2.5">
+          <input
+            type="checkbox"
+            checked={selected ?? false}
+            onChange={() => onToggle?.(suite.hash)}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Select suite ${suite.hash}`}
+            className="size-3.5 accent-red-600"
+          />
+        </td>
+      )}
       <td className="whitespace-nowrap px-3 py-2 text-sm/6 text-gray-500 sm:px-4 sm:py-2.5 dark:text-gray-400">
         <span className="flex flex-col" title={formatRelativeTime(suite.lastRun)}>
           <span>{formatTimestampDate(suite.lastRun)}</span>
@@ -168,6 +209,10 @@ export function SuitesTable({
   sortDir = 'desc',
   onSortChange,
   inactiveThresholdMs = DEFAULT_INACTIVE_THRESHOLD_MS,
+  selectable = false,
+  selectedHashes,
+  onToggle,
+  onToggleAll,
 }: SuitesTableProps) {
   const now = useNow()
   const handleSort = (column: SuiteSortColumn) => {
@@ -195,12 +240,28 @@ export function SuitesTable({
     })
   }, [suites, sortBy, sortDir])
 
+  const allSelected =
+    selectable && sortedSuites.length > 0 && sortedSuites.every((s) => selectedHashes?.has(s.hash))
+
   return (
     <div className="overflow-x-auto rounded-xs bg-white shadow-xs dark:bg-gray-800">
       <table className="min-w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
-        <colgroup><col className="w-28" /><col /><col className="w-32" /><col className="w-28" /><col className="w-32" /><col className="w-24" /></colgroup>
+        <colgroup>{selectable && <col className="w-10" />}<col className="w-28" /><col /><col className="w-32" /><col className="w-28" /><col className="w-32" /><col className="w-24" /></colgroup>
         <thead className="bg-gray-50 dark:bg-gray-900">
           <tr>
+            {selectable && (
+              <th className="px-3 py-2 sm:px-4">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={() =>
+                    onToggleAll?.(sortedSuites.map((s) => s.hash), !allSelected)
+                  }
+                  aria-label="Select every suite shown"
+                  className="size-3.5 accent-red-600"
+                />
+              </th>
+            )}
             <SortableHeader label="Last Run" column="lastRun" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <SortableHeader label="Suite" column="hash" currentSort={sortBy} currentDirection={sortDir} onSort={handleSort} />
             <StaticHeader label="Source" />
@@ -215,6 +276,9 @@ export function SuitesTable({
               key={suite.hash}
               suite={suite}
               isInactive={(now - suite.lastRun * 1000) > inactiveThresholdMs}
+              selectable={selectable}
+              selected={selectedHashes?.has(suite.hash)}
+              onToggle={onToggle}
             />
           ))}
         </tbody>

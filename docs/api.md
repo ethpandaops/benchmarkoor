@@ -333,6 +333,34 @@ Queuing a run that is already queued is a no-op. A run whose status is `running`
 
 To take a run out of the queue, call `POST /admin/runs/delete/cancel` with the same `run_ids` body. This clears the mark and the recorded error. Use it when a run fails to delete again and again, for example when its discovery path was removed from the storage config. The cancel is best-effort: a run the worker is deleting at that moment is still removed.
 
+#### Deleting a whole suite
+
+`POST /admin/runs/delete` also takes `suite_hashes`, which queues every run of the named suites. A suite can hold thousands of runs, so the server resolves them rather than making the client send every ID.
+
+```json
+{"suite_hashes": ["22c2404b9ce3f47c"]}
+```
+
+The same guard applies per run: a run that is still `running` is left alone, and the response says how many were skipped for that reason. Deleting the last run of a suite also removes the suite row, because `DeleteRunCascade` cleans up an orphaned suite.
+
+In the UI this is the trash button on the **Suites** page. It turns on a checkbox per suite and a bar showing how many runs the selection will queue.
+
+### Database report
+
+`GET /admin/database` reports the size and contents of the index database, so an admin can tell whether a cleanup is due before the volume fills up. It backs the **Admin → Database** tab.
+
+It returns:
+
+- The database file size, its write-ahead log, and the page count.
+- `free_pages * page_size`, which is what a `VACUUM` would hand back. Note that a `VACUUM` needs as much free space again as the database occupies, so it is not a way out of a nearly full volume.
+- The total and available bytes of the filesystem holding the database. This is the number that decides whether a cleanup is urgent.
+- A row count per table.
+- The suites with the most runs, with the test-stat and block-log rows that deleting each would take with it. This pairs with deleting a suite's runs above.
+
+Gathering the report counts every row in every table, which on a large database is seconds of work, so it is cached for a minute. `gathered_at` says when the figures were taken.
+
+Per-table byte sizes are **not** reported. The SQLite build used here has no `dbstat` virtual table, and an estimate would be worse than an honest omission.
+
 ### Failed runs
 
 A run directory that storage holds but the indexer cannot read leaves nothing behind on its own. Most of them never got their `config.json`, because the upload died part-way. Without a record the indexer re-reads every one of them on every pass: on one deployment that was 9779 storage round-trips and 9779 log lines per pass, and it was most of why a pass took 26 minutes.

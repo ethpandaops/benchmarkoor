@@ -69,6 +69,75 @@ func (s *store) MarkRunForDeletion(
 	return nil
 }
 
+// SuiteDeletionResult reports what queueing a whole suite did. Skipped counts
+// the runs that were refused because their runner is still reporting; they are
+// the caller's to report, not an error.
+type SuiteDeletionResult struct {
+	Queued  int64
+	Skipped int64
+}
+
+// MarkRunsForDeletionBySuite queues every run of a suite in one statement.
+// A suite can hold thousands of runs, so resolving them to IDs and marking
+// each one in turn would be a needlessly large request and a needlessly long
+// transaction.
+//
+// It honours the same guard as MarkRunForDeletion: a run that is still
+// running is left alone, because deleting it would race with the active
+// runner. Runs already queued keep their place. Returns ErrRunNotFound when
+// the suite has no runs at all.
+func (s *store) MarkRunsForDeletionBySuite(
+	ctx context.Context, suiteHash string,
+) (*SuiteDeletionResult, error) {
+	if suiteHash == "" {
+		return nil, ErrRunNotFound
+	}
+
+	res := s.db.WithContext(ctx).
+		Model(&Run{}).
+		Where("suite_hash = ? AND deletion_requested_at IS NULL AND status != ?",
+			suiteHash, RunStatusRunning).
+		Updates(map[string]any{
+			"deletion_requested_at": time.Now().UTC(),
+			"deletion_error":        "",
+		})
+	if res.Error != nil {
+		return nil, fmt.Errorf(
+			"marking suite runs for deletion: %w", res.Error,
+		)
+	}
+
+	if res.RowsAffected > 0 {
+		s.runsGen.Add(1)
+	}
+
+	var total, running int64
+
+	if err := s.db.WithContext(ctx).
+		Model(&Run{}).
+		Where("suite_hash = ?", suiteHash).
+		Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("counting suite runs: %w", err)
+	}
+
+	if total == 0 {
+		return nil, ErrRunNotFound
+	}
+
+	if err := s.db.WithContext(ctx).
+		Model(&Run{}).
+		Where("suite_hash = ? AND deletion_requested_at IS NULL AND status = ?",
+			suiteHash, RunStatusRunning).
+		Count(&running).Error; err != nil {
+		return nil, fmt.Errorf("counting running suite runs: %w", err)
+	}
+
+	return &SuiteDeletionResult{
+		Queued:  res.RowsAffected,
+		Skipped: running,
+	}, nil
+}
+
 // ListRunsPendingDeletion returns every queued run in queue order: the
 // oldest deletion request first, with the row ID as a tie-breaker so the
 // order is stable across drivers.

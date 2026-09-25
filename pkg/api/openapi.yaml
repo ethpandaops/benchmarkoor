@@ -1162,6 +1162,46 @@ paths:
                     type: string
                     example: Indexing pass already in progress
 
+  /admin/database:
+    get:
+      operationId: getDatabaseStats
+      tags: [admin]
+      summary: Index database size and contents
+      description: |
+        Reports how large the index database is, what is in it, and how much
+        room is left on its volume, so an admin can tell whether a cleanup is
+        due before the disk fills.
+
+        Gathering the report counts every row in every table, so it is cached
+        for a minute. `gathered_at` says when the figures were taken.
+
+        Per-table byte sizes are not reported: this build of SQLite has no
+        `dbstat` virtual table. `free_pages * page_size` is what a VACUUM
+        would hand back, but a VACUUM needs as much free space again as the
+        database occupies.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Database report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatabaseStatsResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /admin/indexer/failures:
     get:
       operationId: listIndexerFailures
@@ -1357,6 +1397,12 @@ paths:
         `running` is refused, because deleting it would race with the active
         runner. Partial success is possible — the response includes a count of
         queued runs and any per-run errors.
+
+        `suite_hashes` queues every run of the named suites. A suite can hold
+        thousands of runs, so the server resolves them rather than making the
+        client send every ID. Runs of that suite which are still running are
+        left alone and reported in `errors`. Give `run_ids`, `suite_hashes`,
+        or both.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -1366,7 +1412,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [run_ids]
+              description: Give run_ids, suite_hashes, or both.
               properties:
                 run_ids:
                   type: array
@@ -1374,6 +1420,12 @@ paths:
                     type: string
                   description: List of run IDs to delete
                   example: ["abc123", "def456"]
+                suite_hashes:
+                  type: array
+                  items:
+                    type: string
+                  description: Queue every run of these suites
+                  example: ["22c2404b9ce3f47c"]
       responses:
         "202":
           description: Runs queued for deletion (may include partial errors)
@@ -1556,6 +1608,107 @@ components:
         status:
           type: string
           example: ok
+
+    # ── Database report schemas ─────────────────────────────────────
+
+    DatabaseTableStat:
+      type: object
+      required: [name, rows]
+      properties:
+        name:
+          type: string
+          example: test_stats
+        rows:
+          type: integer
+          format: int64
+
+    DatabaseSuiteUsage:
+      type: object
+      description: |
+        How much of the database one suite accounts for. Deleting a suite's
+        runs cascades to its test stats and block logs, so these are the rows
+        a cleanup actually frees.
+      required: [suite_hash, runs, test_stats, block_logs]
+      properties:
+        suite_hash:
+          type: string
+        name:
+          type: string
+        discovery_path:
+          type: string
+        runs:
+          type: integer
+          format: int64
+        test_stats:
+          type: integer
+          format: int64
+        block_logs:
+          type: integer
+          format: int64
+        last_run:
+          type: integer
+          format: int64
+          description: Unix seconds of the newest run.
+
+    DatabaseStats:
+      type: object
+      required: [driver, tables, top_suites]
+      properties:
+        driver:
+          type: string
+          example: sqlite
+        path:
+          type: string
+          description: The SQLite file. Absent for other drivers.
+        file_bytes:
+          type: integer
+          format: int64
+        wal_bytes:
+          type: integer
+          format: int64
+          description: The write-ahead log, which a long writer can leave large.
+        page_size:
+          type: integer
+          format: int64
+        page_count:
+          type: integer
+          format: int64
+        free_pages:
+          type: integer
+          format: int64
+          description: Pages a VACUUM would hand back.
+        volume_total_bytes:
+          type: integer
+          format: int64
+        volume_free_bytes:
+          type: integer
+          format: int64
+          description: The number that decides whether a cleanup is urgent.
+        oldest_run:
+          type: integer
+          format: int64
+        newest_run:
+          type: integer
+          format: int64
+        tables:
+          type: array
+          items:
+            $ref: "#/components/schemas/DatabaseTableStat"
+        top_suites:
+          type: array
+          items:
+            $ref: "#/components/schemas/DatabaseSuiteUsage"
+
+    DatabaseStatsResponse:
+      type: object
+      required: [gathered_at, stats]
+      properties:
+        gathered_at:
+          type: string
+          format: date-time
+          description: When the figures were taken. They are cached for a minute.
+        stats:
+          $ref: "#/components/schemas/DatabaseStats"
 
     # ── Indexer housekeeping schemas ────────────────────────────────
 

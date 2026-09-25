@@ -281,3 +281,74 @@ func TestStartRunDeleter_DrainsOnKickAndStops(t *testing.T) {
 	close(s.done)
 	s.wg.Wait()
 }
+
+// TestHandleDeleteRuns_BySuite covers queueing a whole suite through the
+// endpoint: the server resolves the runs, leaves a running one alone and says
+// so, and the worker then deletes what it queued.
+func TestHandleDeleteRuns_BySuite(t *testing.T) {
+	s := newIndexTestServer(t)
+	deleter := &fakeDeleter{}
+	s.storageDeleter = deleter
+	s.runDeleterKick = make(chan struct{}, 1)
+
+	ctx := context.Background()
+	seed := func(runID, suiteHash, status string) {
+		require.NoError(t, s.indexStore.UpsertRun(ctx, &indexstore.Run{
+			DiscoveryPath: "dp/test", RunID: runID, SuiteHash: suiteHash,
+			Timestamp: time.Now().Unix(), Status: status,
+		}))
+	}
+
+	seed("run-a", "suite-1", "completed")
+	seed("run-b", "suite-1", "failed")
+	seed("run-c", "suite-1", indexstore.RunStatusRunning)
+	seed("run-other", "suite-2", "completed")
+
+	body, err := json.Marshal(deleteRunsRequest{
+		SuiteHashes: []string{"suite-1", "suite-missing"},
+	})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	s.handleDeleteRuns(rec, httptest.NewRequest(
+		http.MethodPost, "/api/v1/admin/runs/delete", bytes.NewReader(body),
+	))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	var resp deleteRunsResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, 2, resp.Queued)
+	assert.Equal(t, []string{
+		"suite-1: 1 run(s) still in progress, left alone",
+		"suite-missing: no runs in index",
+	}, resp.Errors)
+
+	queued, err := s.indexStore.ListRunsPendingDeletion(ctx)
+	require.NoError(t, err)
+	require.Len(t, queued, 2)
+
+	s.drainRunQueue(ctx)
+
+	assert.ElementsMatch(t, []string{"run-a", "run-b"}, deleter.calls())
+
+	// The running run and the other suite survive.
+	remaining, err := s.indexStore.ListAllRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, remaining, 2)
+}
+
+// TestHandleDeleteRuns_RequiresATarget covers the guard on the request body.
+func TestHandleDeleteRuns_RequiresATarget(t *testing.T) {
+	s := newIndexTestServer(t)
+	s.storageDeleter = &fakeDeleter{}
+	s.runDeleterKick = make(chan struct{}, 1)
+
+	body, err := json.Marshal(deleteRunsRequest{})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	s.handleDeleteRuns(rec, httptest.NewRequest(
+		http.MethodPost, "/api/v1/admin/runs/delete", bytes.NewReader(body),
+	))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

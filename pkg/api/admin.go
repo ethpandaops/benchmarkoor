@@ -550,6 +550,11 @@ func (s *server) handleDeleteUserMapping(
 
 type deleteRunsRequest struct {
 	RunIDs []string `json:"run_ids"`
+
+	// SuiteHashes queues every run of the named suites. A suite can hold
+	// thousands of runs, so the server resolves them rather than making the
+	// client send every ID. Both fields may be given at once.
+	SuiteHashes []string `json:"suite_hashes,omitempty"`
 }
 
 type deleteRunsResponse struct {
@@ -558,11 +563,11 @@ type deleteRunsResponse struct {
 	Errors []string `json:"errors,omitempty"`
 }
 
-// handleDeleteRuns queues runs for deletion. The request returns as soon as
-// every run is marked; the run deleter removes them from storage and the
-// index in the background, in the order they were queued. Queuing a run
-// that is already queued is a no-op. A run that is still running is
-// refused: deleting it would race with the active runner.
+// handleDeleteRuns queues runs for deletion, named either individually or by
+// suite. The request returns as soon as every run is marked; the run deleter
+// removes them from storage and the index in the background, in the order they
+// were queued. Queuing a run that is already queued is a no-op. A run that is
+// still running is refused: deleting it would race with the active runner.
 func (s *server) handleDeleteRuns(
 	w http.ResponseWriter, r *http.Request,
 ) {
@@ -581,9 +586,9 @@ func (s *server) handleDeleteRuns(
 		return
 	}
 
-	if len(req.RunIDs) == 0 {
+	if len(req.RunIDs) == 0 && len(req.SuiteHashes) == 0 {
 		writeJSON(w, http.StatusBadRequest,
-			errorResponse{"run_ids is required"})
+			errorResponse{"run_ids or suite_hashes is required"})
 
 		return
 	}
@@ -592,6 +597,36 @@ func (s *server) handleDeleteRuns(
 		queued int
 		errs   []string
 	)
+
+	for _, suiteHash := range req.SuiteHashes {
+		result, err := s.indexStore.MarkRunsForDeletionBySuite(
+			r.Context(), suiteHash,
+		)
+
+		switch {
+		case err == nil:
+			queued += int(result.Queued)
+
+			// A suite mid-run is the normal case for an active suite, so
+			// say so rather than silently queueing less than was asked.
+			if result.Skipped > 0 {
+				errs = append(errs, fmt.Sprintf(
+					"%s: %d run(s) still in progress, left alone",
+					suiteHash, result.Skipped,
+				))
+			}
+		case errors.Is(err, indexstore.ErrRunNotFound):
+			errs = append(errs, fmt.Sprintf(
+				"%s: no runs in index", suiteHash,
+			))
+		default:
+			s.log.WithError(err).WithField("suite_hash", suiteHash).
+				Error("Failed to queue suite runs for deletion")
+			errs = append(errs, fmt.Sprintf(
+				"%s: queue failed: %v", suiteHash, err,
+			))
+		}
+	}
 
 	for _, runID := range req.RunIDs {
 		err := s.indexStore.MarkRunForDeletion(r.Context(), runID)

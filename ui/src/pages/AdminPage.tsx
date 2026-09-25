@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useAuth } from '@/hooks/useAuth'
 import type { AuthConfig } from '@/api/auth-client'
 import type { AuthUser } from '@/api/auth-client'
@@ -21,12 +21,15 @@ import {
   useIndexerFailures,
   useDeleteIndexerFailures,
   useCancelDeleteIndexerFailures,
+  useDatabaseStats,
   INDEXER_FAILURES_PAGE_SIZE,
   type AdminSession,
   type IndexerFailure,
   type IndexerFailureSelection,
+  type DatabaseStats,
 } from '@/api/hooks/useAdmin'
 import { useAdminApiKeys, useDeleteAdminApiKey, type AdminApiKey } from '@/api/hooks/useApiKeys'
+import { formatBytes, formatNumber } from '@/utils/format'
 import {
   Plus,
   Pencil,
@@ -39,6 +42,7 @@ import {
   ChevronRight,
   AlertTriangle,
   Undo2,
+  Database,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -111,7 +115,7 @@ const cmpDateNullable = (a: string | null, b: string | null) => {
   return cmpDate(a, b)
 }
 
-type Tab = 'users' | 'github-mappings' | 'sessions' | 'api-keys' | 'indexer'
+type Tab = 'users' | 'github-mappings' | 'sessions' | 'api-keys' | 'indexer' | 'database'
 
 export function AdminPage() {
   const { isAdmin, authConfig } = useAuth()
@@ -122,7 +126,10 @@ export function AdminPage() {
     if (authConfig?.auth.github_enabled) result.push({ key: 'github-mappings', label: 'GitHub Mappings' })
     result.push({ key: 'sessions', label: 'Sessions' })
     result.push({ key: 'api-keys', label: 'API Keys' })
-    if (authConfig?.indexing?.enabled) result.push({ key: 'indexer', label: 'Indexer' })
+    if (authConfig?.indexing?.enabled) {
+      result.push({ key: 'indexer', label: 'Indexer' })
+      result.push({ key: 'database', label: 'Database' })
+    }
     return result
   }, [authConfig])
 
@@ -173,6 +180,7 @@ export function AdminPage() {
           {resolvedTab === 'sessions' && <SessionsTab />}
           {resolvedTab === 'api-keys' && <AdminAPIKeysTab />}
           {resolvedTab === 'indexer' && <IndexerTab />}
+          {resolvedTab === 'database' && <DatabaseTab />}
         </>
       )}
     </div>
@@ -670,6 +678,283 @@ function AdminAPIKeysTab() {
         </table>
       </div>
     </div>
+  )
+}
+
+// --- Database Tab ---
+
+// Above these shares of the volume a cleanup stops being optional.
+const VOLUME_CRITICAL = 0.9
+const VOLUME_WARNING = 0.75
+
+function StatCard({
+  label,
+  value,
+  hint,
+  tone = 'normal',
+}: {
+  label: string
+  value: string
+  hint?: string
+  tone?: 'normal' | 'warning' | 'critical'
+}) {
+  return (
+    <div className="rounded-sm border border-gray-200 px-4 py-3 dark:border-gray-700">
+      <div className="text-xs font-medium text-gray-500 uppercase dark:text-gray-400">{label}</div>
+      <div
+        className={clsx(
+          'mt-1 text-lg font-semibold',
+          tone === 'critical' && 'text-red-600 dark:text-red-400',
+          tone === 'warning' && 'text-amber-600 dark:text-amber-400',
+          tone === 'normal' && 'text-gray-900 dark:text-gray-100',
+        )}
+      >
+        {value}
+      </div>
+      {hint && <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{hint}</div>}
+    </div>
+  )
+}
+
+function VolumeBar({ used, total }: { used: number; total: number }) {
+  const share = total > 0 ? used / total : 0
+  const pct = Math.min(100, Math.round(share * 100))
+
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between text-sm">
+        <span className="text-gray-700 dark:text-gray-300">
+          {formatBytes(used)} of {formatBytes(total)} used
+        </span>
+        <span
+          className={clsx(
+            'font-semibold',
+            share >= VOLUME_CRITICAL
+              ? 'text-red-600 dark:text-red-400'
+              : share >= VOLUME_WARNING
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-gray-700 dark:text-gray-300',
+          )}
+        >
+          {pct}%
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+        <div
+          className={clsx(
+            'h-full rounded-full',
+            share >= VOLUME_CRITICAL
+              ? 'bg-red-500'
+              : share >= VOLUME_WARNING
+                ? 'bg-amber-500'
+                : 'bg-green-500',
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function DatabaseTab() {
+  const { data, isLoading, error } = useDatabaseStats(true)
+
+  if (isLoading) return <div className="text-sm text-gray-500">Loading...</div>
+
+  if (error || !data) {
+    return (
+      <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        {error instanceof Error ? error.message : 'Failed to load database stats'}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <DatabaseStorage stats={data.stats} gatheredAt={data.gathered_at} />
+      <DatabaseTables stats={data.stats} />
+      <DatabaseSuites stats={data.stats} />
+    </div>
+  )
+}
+
+function DatabaseStorage({ stats, gatheredAt }: { stats: DatabaseStats; gatheredAt: string }) {
+  const total = stats.volume_total_bytes ?? 0
+  const free = stats.volume_free_bytes ?? 0
+  const used = total > 0 ? total - free : 0
+  const share = total > 0 ? used / total : 0
+  const reclaimable = (stats.free_pages ?? 0) * (stats.page_size ?? 0)
+
+  return (
+    <section>
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+          <Database className="size-4" />
+          Storage
+        </h2>
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {stats.driver}
+          {stats.path && <span className="ml-2 font-mono">{stats.path}</span>}
+        </span>
+        <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+          Gathered {formatTimestamp(gatheredAt)}
+        </span>
+      </div>
+
+      {total > 0 && (
+        <div className="mb-4 rounded-sm border border-gray-200 px-4 py-3 dark:border-gray-700">
+          <VolumeBar used={used} total={total} />
+          {share >= VOLUME_WARNING && (
+            <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                The volume holding the index database is filling up. Deleting the runs of a
+                suite you no longer need frees both its storage objects and its index rows.
+              </span>
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Database file"
+          value={formatBytes(stats.file_bytes)}
+          hint={stats.page_count ? `${formatNumber(stats.page_count)} pages` : undefined}
+          tone={share >= VOLUME_CRITICAL ? 'critical' : 'normal'}
+        />
+        <StatCard
+          label="Write-ahead log"
+          value={formatBytes(stats.wal_bytes)}
+          hint="Checkpointed by SQLite"
+        />
+        <StatCard
+          label="Reclaimable"
+          value={formatBytes(reclaimable)}
+          hint="Freed by VACUUM, which needs the same free space again"
+        />
+        <StatCard
+          label="Free on volume"
+          value={formatBytes(free)}
+          tone={
+            share >= VOLUME_CRITICAL ? 'critical' : share >= VOLUME_WARNING ? 'warning' : 'normal'
+          }
+        />
+      </div>
+    </section>
+  )
+}
+
+function DatabaseTables({ stats }: { stats: DatabaseStats }) {
+  const totalRows = stats.tables.reduce((sum, table) => sum + table.rows, 0)
+
+  return (
+    <section>
+      <h2 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+        Tables · {formatNumber(totalRows)} rows
+      </h2>
+      <div className="overflow-hidden rounded-sm border border-gray-200 dark:border-gray-700">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-gray-50 text-xs text-gray-500 uppercase dark:bg-gray-800 dark:text-gray-400">
+            <tr>
+              <th className="px-4 py-2">Table</th>
+              <th className="px-4 py-2 text-right">Rows</th>
+              <th className="px-4 py-2 text-right">Share</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {stats.tables.map((table) => (
+              <tr key={table.name} className="bg-white dark:bg-gray-900">
+                <td className="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">
+                  {table.name}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">
+                  {formatNumber(table.rows)}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-500 dark:text-gray-400">
+                  {totalRows > 0 ? `${Math.round((table.rows / totalRows) * 100)}%` : '-'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+        Byte sizes per table are not shown: this build of SQLite has no{' '}
+        <code className="font-mono">dbstat</code> table, and an estimate would be worse than
+        leaving it out.
+      </p>
+    </section>
+  )
+}
+
+function DatabaseSuites({ stats }: { stats: DatabaseStats }) {
+  if (stats.top_suites.length === 0) return null
+
+  return (
+    <section>
+      <h2 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+        Biggest suites
+      </h2>
+      <div className="overflow-x-auto rounded-sm border border-gray-200 dark:border-gray-700">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-gray-50 text-xs text-gray-500 uppercase dark:bg-gray-800 dark:text-gray-400">
+            <tr>
+              <th className="px-4 py-2">Suite</th>
+              <th className="px-4 py-2">Discovery path</th>
+              <th className="px-4 py-2 text-right">Runs</th>
+              <th className="px-4 py-2 text-right">Test stats</th>
+              <th className="px-4 py-2 text-right">Block logs</th>
+              <th className="px-4 py-2">Last run</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {stats.top_suites.map((suite) => (
+              <tr key={suite.suite_hash} className="bg-white dark:bg-gray-900">
+                <td className="px-4 py-2">
+                  <Link
+                    to="/suites/$suiteHash"
+                    params={{ suiteHash: suite.suite_hash }}
+                    className="text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    {suite.name || <span className="font-mono text-xs">{suite.suite_hash}</span>}
+                  </Link>
+                  {suite.name && (
+                    <div className="font-mono text-xs text-gray-500 dark:text-gray-400">
+                      {suite.suite_hash}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                  {suite.discovery_path || '-'}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">
+                  {formatNumber(suite.runs)}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">
+                  {formatNumber(suite.test_stats)}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">
+                  {formatNumber(suite.block_logs)}
+                </td>
+                <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400">
+                  {suite.last_run
+                    ? formatTimestamp(new Date(suite.last_run * 1000).toISOString())
+                    : '-'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+        Deleting a suite&apos;s runs from the{' '}
+        <Link to="/suites" className="text-blue-600 hover:underline dark:text-blue-400">
+          Suites page
+        </Link>{' '}
+        removes its stored files and every row above.
+      </p>
+    </section>
   )
 }
 

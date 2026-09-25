@@ -2,10 +2,12 @@ import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { Plus, X } from 'lucide-react'
+import { Plus, X, Trash2 } from 'lucide-react'
 import { fetchData } from '@/api/client'
 import type { SuiteInfo } from '@/api/types'
 import { useIndex } from '@/api/hooks/useIndex'
+import { useDeleteRunsBySuite } from '@/api/hooks/useAdmin'
+import { useAuth } from '@/hooks/useAuth'
 import { SuitesTable, type SuiteSortColumn, type SuiteSortDirection } from '@/components/suites/SuitesTable'
 import { Pagination } from '@/components/shared/Pagination'
 import { LoadingState } from '@/components/shared/Spinner'
@@ -400,6 +402,11 @@ export function SuitesPage() {
     })
   }, [groupByKeys, visibleSuites, suiteInfoMap, now, inactiveThresholdMs])
 
+  const { isAdmin } = useAuth()
+  const deleteRunsBySuite = useDeleteRunsBySuite()
+  const [deleteMode, setDeleteMode] = useState(false)
+  const [selectedHashes, setSelectedHashes] = useState<Set<string>>(new Set())
+
   const updateSearch = useCallback(
     (patch: Record<string, string | number | undefined>) => {
       navigate({
@@ -436,6 +443,67 @@ export function SuitesPage() {
     setCurrentPage(1)
   }
 
+  const toggleSuite = useCallback((hash: string) => {
+    setSelectedHashes((prev) => {
+      const next = new Set(prev)
+      if (next.has(hash)) next.delete(hash)
+      else next.add(hash)
+      return next
+    })
+  }, [])
+
+  const toggleSuites = useCallback((hashes: string[], selected: boolean) => {
+    setSelectedHashes((prev) => {
+      const next = new Set(prev)
+      for (const hash of hashes) {
+        if (selected) next.add(hash)
+        else next.delete(hash)
+      }
+      return next
+    })
+  }, [])
+
+  const exitDeleteMode = useCallback(() => {
+    setDeleteMode(false)
+    setSelectedHashes(new Set())
+  }, [])
+
+  const selectedRunCount = useMemo(
+    () =>
+      suites
+        .filter((suite) => selectedHashes.has(suite.hash))
+        .reduce((sum, suite) => sum + suite.runCount, 0),
+    [suites, selectedHashes],
+  )
+
+  const handleDeleteConfirm = async () => {
+    const hashes = Array.from(selectedHashes)
+    if (hashes.length === 0) return
+
+    if (
+      !confirm(
+        `Delete every run of ${hashes.length} suite(s)?\n\n` +
+          `That is ${selectedRunCount} run(s). Their files are removed from storage and ` +
+          'their index rows go with them. A run still in progress is left alone. ' +
+          'This cannot be undone.',
+      )
+    ) {
+      return
+    }
+
+    try {
+      const result = await deleteRunsBySuite.mutateAsync(hashes)
+      const errors = result.errors?.length ? `\n\n${result.errors.join('\n')}` : ''
+      alert(
+        `Queued ${result.queued} run(s) for deletion. ` +
+          `The worker removes them in the background.${errors}`,
+      )
+      exitDeleteMode()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to queue the runs')
+    }
+  }
+
   if (isLoading) {
     return <LoadingState message="Loading suites..." />
   }
@@ -458,6 +526,20 @@ export function SuitesPage() {
           Test Suites ({visibleSuites.length}{visibleSuites.length !== suites.length && ` / ${suites.length}`})
         </h1>
         <div className="flex items-center gap-4">
+          {isAdmin && (
+            <button
+              onClick={() => (deleteMode ? exitDeleteMode() : setDeleteMode(true))}
+              className={clsx(
+                'flex cursor-pointer items-center justify-center rounded-xs p-1.5 shadow-xs ring-1 ring-inset transition-colors',
+                deleteMode
+                  ? 'bg-red-600 text-white ring-red-600 hover:bg-red-700 hover:ring-red-700'
+                  : 'bg-white text-gray-500 ring-gray-300 hover:bg-gray-50 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200',
+              )}
+              title="Delete every run of a suite"
+            >
+              <Trash2 className="size-4" />
+            </button>
+          )}
           <div className="flex items-center gap-2 text-sm/6 text-gray-600 dark:text-gray-400">
             <span>Inactive:</span>
             <div className="flex gap-1">
@@ -546,14 +628,14 @@ export function SuitesPage() {
                     ({group.suites.length}{inactiveCount > 0 && `, ${inactiveCount} inactive`})
                   </span>
                 </h2>
-                <SuitesTable suites={group.suites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} inactiveThresholdMs={inactiveThresholdMs} />
+                <SuitesTable suites={group.suites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} inactiveThresholdMs={inactiveThresholdMs} selectable={deleteMode} selectedHashes={selectedHashes} onToggle={toggleSuite} onToggleAll={toggleSuites} />
               </div>
             )
           })}
         </div>
       ) : (
         <>
-          <SuitesTable suites={paginatedSuites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} inactiveThresholdMs={inactiveThresholdMs} />
+          <SuitesTable suites={paginatedSuites} sortBy={sortBy} sortDir={sortDir} onSortChange={handleSortChange} inactiveThresholdMs={inactiveThresholdMs} selectable={deleteMode} selectedHashes={selectedHashes} onToggle={toggleSuite} onToggleAll={toggleSuites} />
 
           {totalPages > 1 && (
             <div className="flex justify-center">
@@ -561,6 +643,36 @@ export function SuitesPage() {
             </div>
           )}
         </>
+      )}
+
+      {deleteMode && (
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-red-200 bg-white px-6 py-3 shadow-sm dark:border-red-800 dark:bg-gray-800">
+          <div className="mx-auto flex max-w-7xl wide:max-w-none items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
+                {selectedHashes.size} suite{selectedHashes.size !== 1 ? 's' : ''} selected
+              </span>
+              <span className="text-sm/6 text-gray-500 dark:text-gray-400">
+                {selectedRunCount} run{selectedRunCount !== 1 ? 's' : ''} will be queued
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={exitDeleteMode}
+                className="rounded-sm px-3 py-1.5 text-sm/6 font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={selectedHashes.size === 0 || deleteRunsBySuite.isPending}
+                onClick={handleDeleteConfirm}
+                className="rounded-sm bg-red-600 px-4 py-1.5 text-sm/6 font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deleteRunsBySuite.isPending ? 'Queuing...' : 'Delete runs'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

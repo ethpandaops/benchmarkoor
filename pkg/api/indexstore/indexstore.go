@@ -63,8 +63,15 @@ type Store interface {
 	// Run deletion queue. See deletion.go.
 	MarkRunForDeletion(ctx context.Context, runID string) error
 	UnmarkRunForDeletion(ctx context.Context, runID string) error
+	MarkRunsForDeletionBySuite(
+		ctx context.Context, suiteHash string,
+	) (*SuiteDeletionResult, error)
 	ListRunsPendingDeletion(ctx context.Context) ([]Run, error)
 	SetRunDeletionError(ctx context.Context, runID, msg string) error
+
+	// DatabaseStats reports the size and contents of the index database.
+	// It runs full row counts, so callers should cache the result.
+	DatabaseStats(ctx context.Context) (*DatabaseStats, error)
 
 	// Index failures: runs storage exposes that the indexer cannot index,
 	// plus their own deletion queue. See index_failure.go.
@@ -128,6 +135,39 @@ type store struct {
 	runsGen atomic.Uint64
 }
 
+// migratedModels is every model the index database owns, in the order they
+// are migrated. DatabaseStats walks the same list, so a new table shows up in
+// the admin report without anyone remembering to add it there.
+var migratedModels = []struct{ value any }{
+	{value: &Run{}},
+	{value: &TestStat{}},
+	{value: &TestStatsBlockLog{}},
+	{value: &Suite{}},
+	{value: &LiveRun{}},
+	{value: &IndexFailure{}},
+}
+
+// migratedValues returns the models as AutoMigrate wants them.
+func migratedValues() []any {
+	values := make([]any, 0, len(migratedModels))
+	for _, model := range migratedModels {
+		values = append(values, model.value)
+	}
+
+	return values
+}
+
+// tableName resolves a model to its table name through GORM's naming
+// strategy, so the report never hardcodes a name the schema could change.
+func (s *store) tableName(model any) (string, error) {
+	stmt := &gorm.Statement{DB: s.readDB}
+	if err := stmt.Parse(model); err != nil {
+		return "", fmt.Errorf("resolving table name: %w", err)
+	}
+
+	return stmt.Table, nil
+}
+
 // NewStore creates a new index Store backed by the configured database driver.
 func NewStore(
 	log logrus.FieldLogger,
@@ -173,12 +213,7 @@ func (s *store) Start(ctx context.Context) error {
 	}
 
 	if err := s.db.WithContext(ctx).AutoMigrate(
-		&Run{},
-		&TestStat{},
-		&TestStatsBlockLog{},
-		&Suite{},
-		&LiveRun{},
-		&IndexFailure{},
+		migratedValues()...,
 	); err != nil {
 		return fmt.Errorf("running index migrations: %w", err)
 	}
