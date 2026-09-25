@@ -48,67 +48,30 @@ type APIIndexingConfig struct {
 	Concurrency int               `yaml:"concurrency,omitempty" mapstructure:"concurrency"`
 	Database    APIDatabaseConfig `yaml:"database" mapstructure:"database"`
 
-	// FailureGracePeriod is how old a run must be before the indexer records
-	// it as a failure. A run that is still uploading has no config.json yet,
-	// and must not be marked broken for that. Default 6h.
+	// FailureGracePeriod is how old a run must be before the indexer gives up
+	// on it and records it as failed. A run that is still uploading has no
+	// config.json yet, and must not be marked broken for that. Past the grace
+	// period the run is considered failed for good: the indexer does not read
+	// it again, and an admin resolves it from the Indexer admin tab.
+	// Default 6h.
 	FailureGracePeriod string `yaml:"failure_grace_period,omitempty" mapstructure:"failure_grace_period"`
-
-	// FailureRetryInterval is how long the indexer skips a recorded failure
-	// before trying it again. It keeps thousands of broken runs from costing
-	// a storage round-trip every pass, while still letting a run whose upload
-	// finished late heal on its own. Default 24h.
-	FailureRetryInterval string `yaml:"failure_retry_interval,omitempty" mapstructure:"failure_retry_interval"`
 }
 
-const (
-	// DefaultAPIIndexingFailureGracePeriod is the default age a run must
-	// reach before a failed index is recorded against it.
-	DefaultAPIIndexingFailureGracePeriod = "6h"
+// DefaultAPIIndexingFailureGracePeriod is the default age a run must reach
+// before a failed index is recorded against it.
+const DefaultAPIIndexingFailureGracePeriod = "6h"
 
-	// DefaultAPIIndexingFailureRetryInterval is the default time a recorded
-	// failure is skipped for before the indexer retries it.
-	DefaultAPIIndexingFailureRetryInterval = "24h"
-)
-
-// GetFailureGracePeriod returns the parsed grace period or the default.
+// GetFailureGracePeriod returns the parsed grace period, falling back to the
+// default when it is unset or malformed.
 func (c *APIIndexingConfig) GetFailureGracePeriod() time.Duration {
-	return parseDurationOr(
-		c.failureGracePeriod(), DefaultAPIIndexingFailureGracePeriod,
-	)
-}
-
-// GetFailureRetryInterval returns the parsed retry interval or the default.
-func (c *APIIndexingConfig) GetFailureRetryInterval() time.Duration {
-	return parseDurationOr(
-		c.failureRetryInterval(), DefaultAPIIndexingFailureRetryInterval,
-	)
-}
-
-func (c *APIIndexingConfig) failureGracePeriod() string {
-	if c == nil {
-		return ""
+	if c != nil {
+		if d, err := time.ParseDuration(c.FailureGracePeriod); err == nil &&
+			d > 0 {
+			return d
+		}
 	}
 
-	return c.FailureGracePeriod
-}
-
-func (c *APIIndexingConfig) failureRetryInterval() string {
-	if c == nil {
-		return ""
-	}
-
-	return c.FailureRetryInterval
-}
-
-// parseDurationOr parses value, falling back to fallback when value is empty
-// or malformed. The fallback is a constant in this package, so it always
-// parses.
-func parseDurationOr(value, fallback string) time.Duration {
-	if d, err := time.ParseDuration(value); err == nil && d > 0 {
-		return d
-	}
-
-	d, _ := time.ParseDuration(fallback)
+	d, _ := time.ParseDuration(DefaultAPIIndexingFailureGracePeriod)
 
 	return d
 }

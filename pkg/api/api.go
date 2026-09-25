@@ -311,7 +311,6 @@ func (s *server) prepareIndexing(ctx context.Context) error {
 			Interval:     interval,
 			Concurrency:  s.cfg.Indexing.Concurrency,
 			FailureGrace: s.cfg.Indexing.GetFailureGracePeriod(),
-			FailureRetry: s.cfg.Indexing.GetFailureRetryInterval(),
 		},
 		onLiveRunIndexed,
 	)

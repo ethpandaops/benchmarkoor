@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -18,12 +17,14 @@ var ErrIndexFailureNotFound = errors.New("index failure not found")
 
 // IndexFailure records a run that storage exposes but the indexer cannot
 // index, usually because the run directory never got its config.json. Without
-// the record the same broken run costs an S3 round-trip and a log line on
+// the record the same broken run costs a storage round-trip and a log line on
 // every pass, forever.
 //
 // A run only earns a row once it is old enough that an upload still in flight
-// is ruled out, so a healthy new run never lands here. See the indexer's
-// failure grace period.
+// is ruled out, so a healthy new run never lands here. Past that age the run
+// is failed for good: the indexer never reads it again, and the row stands
+// until an admin deletes the run's data or the run leaves storage. See the
+// indexer's failure grace period.
 type IndexFailure struct {
 	ID            uint   `gorm:"primaryKey"`
 	DiscoveryPath string `gorm:"not null;uniqueIndex:idx_index_failures_dp_run"`
@@ -34,15 +35,12 @@ type IndexFailure struct {
 	// no config.json, so the ID is the only place a timestamp survives.
 	RunTimestamp int64 `gorm:"index"`
 
-	// LastError is the failure of the most recent attempt.
-	LastError string `gorm:"type:text"`
+	// Reason is why the indexer gave up on the run.
+	Reason string `gorm:"type:text"`
 
-	// Attempts counts the failed indexing attempts. The indexer skips a row
-	// until LastAttemptAt falls outside the retry interval, so a run whose
-	// upload finished late still heals without anyone intervening.
-	Attempts      int
-	FirstFailedAt time.Time
-	LastAttemptAt time.Time `gorm:"index"`
+	// FailedAt is when the indexer gave up. There is only ever one attempt,
+	// so this is both the first and the last word on the run.
+	FailedAt time.Time
 
 	// DeletionRequestedAt is set when an admin queues the run's stored data
 	// for deletion. DeletionError carries the last failed attempt.
@@ -68,22 +66,19 @@ func RunIDTimestamp(runID string) int64 {
 	return ts
 }
 
-// RecordIndexFailure stores a failed indexing attempt. The first failure
-// creates the row; later ones bump the attempt count and overwrite the error,
-// keeping FirstFailedAt as the moment the run first went bad.
+// RecordIndexFailure marks a run as one the indexer gave up on. The indexer
+// does not read a recorded run again, so in practice this writes each row
+// once; the upsert keeps a second call from failing and refreshes the reason
+// without moving FailedAt.
 func (s *store) RecordIndexFailure(
-	ctx context.Context, discoveryPath, runID, msg string,
+	ctx context.Context, discoveryPath, runID, reason string,
 ) error {
-	now := time.Now().UTC()
-
 	failure := &IndexFailure{
 		DiscoveryPath: discoveryPath,
 		RunID:         runID,
 		RunTimestamp:  RunIDTimestamp(runID),
-		LastError:     msg,
-		Attempts:      1,
-		FirstFailedAt: now,
-		LastAttemptAt: now,
+		Reason:        reason,
+		FailedAt:      time.Now().UTC(),
 	}
 
 	if err := s.db.WithContext(ctx).
@@ -91,12 +86,9 @@ func (s *store) RecordIndexFailure(
 			Columns: []clause.Column{
 				{Name: "discovery_path"}, {Name: "run_id"},
 			},
-			DoUpdates: clause.Assignments(map[string]any{
-				"last_error":      msg,
-				"run_timestamp":   failure.RunTimestamp,
-				"attempts":        gorm.Expr("index_failures.attempts + 1"),
-				"last_attempt_at": now,
-			}),
+			DoUpdates: clause.AssignmentColumns(
+				[]string{"reason", "run_timestamp"},
+			),
 		}).
 		Create(failure).Error; err != nil {
 		return fmt.Errorf("recording index failure: %w", err)
@@ -105,8 +97,9 @@ func (s *store) RecordIndexFailure(
 	return nil
 }
 
-// ClearIndexFailure drops the record for a run that indexed successfully. A
-// run with no record is a no-op, which is the common case.
+// ClearIndexFailure drops the record for a run that no longer needs one:
+// its data was deleted, or it left storage. A run with no record is a no-op,
+// which is the common case.
 func (s *store) ClearIndexFailure(
 	ctx context.Context, discoveryPath, runID string,
 ) error {
@@ -120,8 +113,8 @@ func (s *store) ClearIndexFailure(
 }
 
 // ListIndexFailuresByPath returns every recorded failure for one discovery
-// path. The indexer reads it once per pass to build both its skip set and the
-// set of records whose run has since left storage.
+// path. The indexer reads it once per pass, to know which runs to leave alone
+// and which records describe a run that has left storage.
 func (s *store) ListIndexFailuresByPath(
 	ctx context.Context, discoveryPath string,
 ) ([]IndexFailure, error) {

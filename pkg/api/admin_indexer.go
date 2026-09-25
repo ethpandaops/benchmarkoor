@@ -28,9 +28,7 @@ type indexerFailureEntry struct {
 	// does not follow the naming convention.
 	RunTimestamp        int64  `json:"run_timestamp,omitempty"`
 	Error               string `json:"error,omitempty"`
-	Attempts            int    `json:"attempts"`
-	FirstFailedAt       string `json:"first_failed_at"`
-	LastAttemptAt       string `json:"last_attempt_at"`
+	FailedAt            string `json:"failed_at"`
 	DeletionRequestedAt string `json:"deletion_requested_at,omitempty"`
 	DeletionError       string `json:"deletion_error,omitempty"`
 }
@@ -44,8 +42,8 @@ type indexerFailuresResponse struct {
 	Entries []indexerFailureEntry `json:"entries"`
 }
 
-// handleIndexerFailures lists the runs the indexer could not index, newest
-// run first.
+// handleIndexerFailures lists the runs the indexer gave up on, newest run
+// first.
 func (s *server) handleIndexerFailures(
 	w http.ResponseWriter, r *http.Request,
 ) {
@@ -82,10 +80,8 @@ func (s *server) handleIndexerFailures(
 			RunID:         failure.RunID,
 			DiscoveryPath: failure.DiscoveryPath,
 			RunTimestamp:  failure.RunTimestamp,
-			Error:         failure.LastError,
-			Attempts:      failure.Attempts,
-			FirstFailedAt: formatAdminTime(failure.FirstFailedAt),
-			LastAttemptAt: formatAdminTime(failure.LastAttemptAt),
+			Error:         failure.Reason,
+			FailedAt:      formatAdminTime(failure.FailedAt),
 			DeletionError: failure.DeletionError,
 		}
 
