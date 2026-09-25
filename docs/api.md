@@ -363,6 +363,30 @@ Gathering the report counts every row in every table, which on a large database 
 
 Per-table byte sizes are **not** reported. The SQLite build used here has no `dbstat` virtual table, and an estimate would be worse than an honest omission.
 
+### Pass history
+
+The indexer writes a row when a pass ends, and `GET /admin/indexer/stats` returns the most recent ones, newest first. It backs the charts under **Admin → Indexer**, which is where a pass getting slower shows up before it gets slow enough to notice.
+
+Each row carries how long the pass took, what started it (`startup`, `schedule` or `manual`), and what it did: runs added, incomplete runs read again, runs it could not index, and runs it skipped because their failure record is still muted. It also carries what storage held and how much of that the index already had, so the backlog a pass started with is visible. A pass a shutdown cut short has status `cancelled`, whether the shutdown landed between two discovery paths or inside one, and its counters cover only the work it got through. Runs whose reads the shutdown cancelled are left out of `runs_failed` and earn no failure record, because the shutdown says nothing about the run.
+
+The table keeps the last 500 passes. A deployment on a one-minute interval writes a row a minute, so the oldest rows are pruned on every write.
+
+A pass in flight has no row yet. The same endpoint reports it separately:
+
+```json
+{
+  "running": true,
+  "current_pass": {
+    "started_at": "2026-09-25T18:20:00Z",
+    "trigger": "manual",
+    "elapsed_ms": 137000
+  },
+  "interval": "10m0s"
+}
+```
+
+`elapsed_ms` is measured on the server, so a browser with a skewed clock still shows the right elapsed time. The UI uses it to say how long the pass has been going, and to leave the **Run Indexer** button disabled while it is — starting a second pass would only be refused with 409.
+
 ### Failed runs
 
 A run directory that storage holds but the indexer cannot read leaves nothing behind on its own. Most of them never got their `config.json`, because the upload died part-way. Without a record the indexer re-reads every one of them on every pass: on one deployment that was 9779 storage round-trips and 9779 log lines per pass, and it was most of why a pass took 26 minutes.
@@ -451,6 +475,7 @@ A request whose `Content-Length` exceeds the limit is rejected with `413 Payload
 | `POST` | `/admin/github/user-mappings` | Create/update user mapping |
 | `DELETE` | `/admin/github/user-mappings/{id}` | Delete user mapping |
 | `POST` | `/admin/indexer/run` | Trigger an immediate indexing pass. Returns 409 if already running. Requires [indexing](#indexing) to be enabled |
+| `GET` | `/admin/indexer/stats` | The recent indexing passes and the pass running right now. Requires [indexing](#indexing) to be enabled. See [Pass history](#pass-history) |
 | `POST` | `/admin/runs/delete` | Queue runs for deletion. Returns 202 as soon as the runs are marked. Requires [indexing](#indexing) to be enabled. See [Run deletion](#run-deletion) |
 | `POST` | `/admin/runs/delete/cancel` | Take runs out of the deletion queue. Requires [indexing](#indexing) to be enabled |
 | `GET` | `/admin/runs/deletion-queue` | List the runs queued for deletion, in deletion order. Requires [indexing](#indexing) to be enabled |

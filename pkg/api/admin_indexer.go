@@ -18,7 +18,130 @@ const (
 	// one response is what the /index endpoint already taught us not to do.
 	defaultIndexerFailureLimit = 200
 	maxIndexerFailureLimit     = 1000
+
+	// defaultIndexerPassLimit is how many passes the admin UI charts when it
+	// asks for none. maxIndexerPassLimit caps the ask; the store keeps a few
+	// hundred rows, so nothing above that exists to return.
+	defaultIndexerPassLimit = 100
+	maxIndexerPassLimit     = 500
 )
+
+// indexerPassEntry is one finished indexing pass in the admin listing.
+type indexerPassEntry struct {
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at"`
+	DurationMs int64  `json:"duration_ms"`
+	// Trigger is "startup", "schedule" or "manual". Status is "completed" or
+	// "cancelled".
+	Trigger         string `json:"trigger"`
+	Status          string `json:"status"`
+	DiscoveryPaths  int    `json:"discovery_paths"`
+	StorageRuns     int    `json:"storage_runs"`
+	IndexedRuns     int    `json:"indexed_runs"`
+	RunsIndexed     int    `json:"runs_indexed"`
+	RunsReindexed   int    `json:"runs_reindexed"`
+	RunsFailed      int    `json:"runs_failed"`
+	SkippedFailures int    `json:"skipped_failures"`
+	Error           string `json:"error,omitempty"`
+}
+
+// runningIndexerPass describes the pass in flight. A pass only writes its row
+// when it ends, so until then this is the only place it appears.
+type runningIndexerPass struct {
+	StartedAt string `json:"started_at"`
+	Trigger   string `json:"trigger"`
+	// ElapsedMs is how long the pass had been running when this response was
+	// built. It is measured on the server, so a client whose clock is off
+	// still shows the right elapsed time.
+	ElapsedMs int64 `json:"elapsed_ms"`
+}
+
+// indexerStatsResponse is the recent pass history plus what the store cannot
+// know: the pass running right now, and how often they are scheduled.
+type indexerStatsResponse struct {
+	// Running says whether a pass is in flight. Starting another one while it
+	// is would only be refused, so the UI waits.
+	Running bool `json:"running"`
+	// CurrentPass is absent when no pass is running.
+	CurrentPass *runningIndexerPass `json:"current_pass,omitempty"`
+	// Interval is the configured delay between passes, as a Go duration.
+	Interval string `json:"interval,omitempty"`
+	Limit    int    `json:"limit"`
+	// Passes are the most recent passes, newest first.
+	Passes []indexerPassEntry `json:"passes"`
+}
+
+// handleIndexerStats reports the recent indexing passes, so an admin can see
+// how long a pass takes and how much each one finds.
+func (s *server) handleIndexerStats(w http.ResponseWriter, r *http.Request) {
+	if s.indexer == nil {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"indexing is not enabled"})
+
+		return
+	}
+
+	limit := clampQueryInt(
+		r.URL.Query().Get("limit"),
+		defaultIndexerPassLimit, 1, maxIndexerPassLimit,
+	)
+
+	passes, err := s.indexStore.ListIndexerPasses(r.Context(), limit)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list indexer passes")
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"internal error"})
+
+		return
+	}
+
+	entries := make([]indexerPassEntry, 0, len(passes))
+
+	for i := range passes {
+		pass := &passes[i]
+
+		entries = append(entries, indexerPassEntry{
+			StartedAt:       formatAdminTime(pass.StartedAt),
+			FinishedAt:      formatAdminTime(pass.FinishedAt),
+			DurationMs:      pass.DurationMs,
+			Trigger:         pass.Trigger,
+			Status:          pass.Status,
+			DiscoveryPaths:  pass.DiscoveryPaths,
+			StorageRuns:     pass.StorageRuns,
+			IndexedRuns:     pass.IndexedRuns,
+			RunsIndexed:     pass.RunsIndexed,
+			RunsReindexed:   pass.RunsReindexed,
+			RunsFailed:      pass.RunsFailed,
+			SkippedFailures: pass.SkippedFailures,
+			Error:           pass.Error,
+		})
+	}
+
+	state := s.indexer.State()
+
+	resp := indexerStatsResponse{
+		Running: state.Running,
+		Limit:   limit,
+		Passes:  entries,
+	}
+
+	if state.Interval > 0 {
+		resp.Interval = state.Interval.String()
+	}
+
+	// A pass claims the running flag a moment before it records when it
+	// started, so a zero start means "running, ask again" rather than
+	// "started at year one".
+	if state.Running && !state.StartedAt.IsZero() {
+		resp.CurrentPass = &runningIndexerPass{
+			StartedAt: formatAdminTime(state.StartedAt),
+			Trigger:   state.Trigger,
+			ElapsedMs: time.Since(state.StartedAt).Milliseconds(),
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
 
 // indexerFailureEntry is one recorded failure in the admin listing.
 type indexerFailureEntry struct {

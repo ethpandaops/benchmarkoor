@@ -7,9 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ethpandaops/benchmarkoor/pkg/api/indexer"
+	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
 )
 
 const testFailureDiscoveryPath = "dp/test"
@@ -266,4 +270,125 @@ func TestDrainIndexFailureQueue_DeletesStorageThenRecord(t *testing.T) {
 
 	assert.Equal(t, []string{"100_a_geth", "200_b_reth"}, deleter.calls())
 	assert.Zero(t, getIndexerFailures(t, s, "").Total)
+}
+
+// stubIndexer stands in for the real indexer in the stats handler test: the
+// handler only asks it whether a pass is running and how often they are
+// scheduled.
+type stubIndexer struct {
+	state indexer.State
+}
+
+var _ indexer.Indexer = (*stubIndexer)(nil)
+
+func (s *stubIndexer) Start(_ context.Context) error { return nil }
+func (s *stubIndexer) Stop() error                   { return nil }
+func (s *stubIndexer) RunNow() bool                  { return true }
+func (s *stubIndexer) State() indexer.State          { return s.state }
+
+func getIndexerStats(
+	t *testing.T, s *server, query string,
+) (*httptest.ResponseRecorder, indexerStatsResponse) {
+	t.Helper()
+
+	rec := httptest.NewRecorder()
+	s.handleIndexerStats(rec, httptest.NewRequest(
+		http.MethodGet, "/api/v1/admin/indexer/stats"+query, nil,
+	))
+
+	var resp indexerStatsResponse
+	if rec.Code == http.StatusOK {
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	}
+
+	return rec, resp
+}
+
+// TestHandleIndexerStats covers the pass history the admin page charts: the
+// newest pass first, the limit clamped, and the indexer's own state alongside.
+func TestHandleIndexerStats(t *testing.T) {
+	s := newIndexTestServer(t)
+	s.indexer = &stubIndexer{state: indexer.State{
+		Running:   true,
+		StartedAt: time.Now().UTC().Add(-90 * time.Second),
+		Trigger:   indexstore.IndexerPassTriggerManual,
+		Interval:  5 * time.Minute,
+	}}
+
+	ctx := context.Background()
+	started := time.Now().UTC().Truncate(time.Second)
+
+	for i := range 3 {
+		require.NoError(t, s.indexStore.RecordIndexerPass(
+			ctx, &indexstore.IndexerPass{
+				StartedAt:      started.Add(time.Duration(i) * time.Minute),
+				FinishedAt:     started.Add(time.Duration(i) * time.Minute),
+				DurationMs:     int64(100 + i),
+				Trigger:        indexstore.IndexerPassTriggerSchedule,
+				Status:         indexstore.IndexerPassStatusCompleted,
+				DiscoveryPaths: 1,
+				StorageRuns:    10,
+				IndexedRuns:    9,
+				RunsIndexed:    1,
+				RunsFailed:     2,
+			},
+		))
+	}
+
+	rec, resp := getIndexerStats(t, s, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	assert.True(t, resp.Running)
+	assert.Equal(t, "5m0s", resp.Interval)
+	require.NotNil(t, resp.CurrentPass, "a running pass is reported")
+	assert.Equal(t, indexstore.IndexerPassTriggerManual, resp.CurrentPass.Trigger)
+	assert.NotEmpty(t, resp.CurrentPass.StartedAt)
+	assert.GreaterOrEqual(t, resp.CurrentPass.ElapsedMs, int64(90_000))
+	assert.Equal(t, defaultIndexerPassLimit, resp.Limit)
+	require.Len(t, resp.Passes, 3)
+
+	newest := resp.Passes[0]
+	assert.Equal(t, int64(102), newest.DurationMs, "newest first")
+	assert.Equal(t, indexstore.IndexerPassTriggerSchedule, newest.Trigger)
+	assert.Equal(t, indexstore.IndexerPassStatusCompleted, newest.Status)
+	assert.Equal(t, 1, newest.DiscoveryPaths)
+	assert.Equal(t, 10, newest.StorageRuns)
+	assert.Equal(t, 9, newest.IndexedRuns)
+	assert.Equal(t, 1, newest.RunsIndexed)
+	assert.Equal(t, 2, newest.RunsFailed)
+	assert.NotEmpty(t, newest.StartedAt)
+	assert.NotEmpty(t, newest.FinishedAt)
+
+	// An explicit limit pages the history.
+	_, limited := getIndexerStats(t, s, "?limit=1")
+	assert.Equal(t, 1, limited.Limit)
+	assert.Len(t, limited.Passes, 1)
+
+	// An ask above the cap is clamped rather than refused.
+	_, clamped := getIndexerStats(t, s, "?limit=99999")
+	assert.Equal(t, maxIndexerPassLimit, clamped.Limit)
+}
+
+// TestHandleIndexerStats_IdleIndexer covers the other half of the running
+// state: an idle indexer reports no pass at all, which is what leaves the
+// "Run Indexer" button usable.
+func TestHandleIndexerStats_IdleIndexer(t *testing.T) {
+	s := newIndexTestServer(t)
+	s.indexer = &stubIndexer{state: indexer.State{Interval: time.Minute}}
+
+	rec, resp := getIndexerStats(t, s, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	assert.False(t, resp.Running)
+	assert.Nil(t, resp.CurrentPass)
+	assert.Empty(t, resp.Passes)
+}
+
+// TestHandleIndexerStats_IndexingDisabled covers a deployment with no indexer:
+// there is no history to report and no state to report it from.
+func TestHandleIndexerStats_IndexingDisabled(t *testing.T) {
+	s := newIndexTestServer(t)
+
+	rec, _ := getIndexerStats(t, s, "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

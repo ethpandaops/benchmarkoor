@@ -99,6 +99,13 @@ type Store interface {
 		ctx context.Context, discoveryPath, runID, msg string,
 	) error
 
+	// Indexer passes: one row per finished indexing pass, so the admin page
+	// can show how long they take and what they do. See indexer_pass.go.
+	RecordIndexerPass(ctx context.Context, pass *IndexerPass) error
+	ListIndexerPasses(
+		ctx context.Context, limit int,
+	) ([]IndexerPass, error)
+
 	UpsertSuite(ctx context.Context, suite *Suite) error
 
 	BulkInsertTestStatsBlockLogs(
@@ -145,6 +152,7 @@ var migratedModels = []struct{ value any }{
 	{value: &Suite{}},
 	{value: &LiveRun{}},
 	{value: &IndexFailure{}},
+	{value: &IndexerPass{}},
 }
 
 // migratedValues returns the models as AutoMigrate wants them.

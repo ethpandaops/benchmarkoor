@@ -20,6 +20,12 @@ import (
 // no explicit concurrency value is configured.
 const defaultConcurrency = 4
 
+// passRecordTimeout bounds the write that stores a finished pass. The write
+// runs on a context without cancellation, so that a pass a shutdown cut short
+// still leaves its row behind, and this is what stops that outliving the
+// shutdown itself.
+const passRecordTimeout = 10 * time.Second
+
 // Indexer is a background service that periodically scans storage
 // and upserts indexed run/suite data into the index store.
 type Indexer interface {
@@ -28,6 +34,43 @@ type Indexer interface {
 	// RunNow triggers an immediate indexing pass. Returns true if a
 	// new pass was kicked off, false if one is already running.
 	RunNow() bool
+	// State reports whether a pass is running right now and how often
+	// passes are scheduled.
+	State() State
+}
+
+// State is what the admin API reports about the indexer itself. The pass
+// history lives in the index store; this is only what the store cannot know.
+type State struct {
+	// Running says whether a pass is in flight at this moment. A pass only
+	// writes its row when it ends, so a running pass is nowhere in the
+	// history until then.
+	Running bool
+
+	// StartedAt and Trigger describe the running pass. They are zero when no
+	// pass is running, and StartedAt is how long it has been going.
+	StartedAt time.Time
+	Trigger   string
+
+	// Interval is the configured delay between scheduled passes.
+	Interval time.Duration
+}
+
+// currentPass is the pass in flight, published for State to read.
+type currentPass struct {
+	startedAt time.Time
+	trigger   string
+}
+
+// lifecycleCtx carries the context Start was given, so a pass RunNow starts
+// outlives the request that asked for it.
+//
+// It travels through an atomic rather than a plain field because Start writes
+// it while the HTTP server is already serving: RunNow reads it from a handler
+// goroutine, and an unsynchronised read is a data race whatever value it
+// happens to land on.
+type lifecycleCtx struct {
+	ctx context.Context
 }
 
 // Compile-time interface check.
@@ -60,11 +103,16 @@ type indexer struct {
 	reader           storage.Reader
 	opts             Options
 	onLiveRunIndexed func(runID string)
-	ctx              context.Context // lifecycle context set by Start
-	done             chan struct{}
-	wg               sync.WaitGroup
-	running          atomic.Bool // prevents overlapping indexing passes
-	dbMu             sync.Mutex  // serializes DB writes to avoid SQLite contention
+	// lifecycle carries the context Start was given. See the type.
+	lifecycle atomic.Pointer[lifecycleCtx]
+	done      chan struct{}
+	wg        sync.WaitGroup
+	running   atomic.Bool // prevents overlapping indexing passes
+	// current describes the pass running right now, nil when none is. It is
+	// claimed a moment after running, so a State read caught in between says
+	// a pass is running without saying since when.
+	current atomic.Pointer[currentPass]
+	dbMu    sync.Mutex // serializes DB writes to avoid SQLite contention
 }
 
 // NewIndexer creates a new background indexer. `onLiveRunIndexed`, when
@@ -97,7 +145,7 @@ func NewIndexer(
 // pass and then ticks at the configured interval. The first pass is
 // asynchronous so the caller (the API server) is not blocked.
 func (idx *indexer) Start(ctx context.Context) error {
-	idx.ctx = ctx
+	idx.setLifecycle(ctx)
 
 	idx.log.WithFields(logrus.Fields{
 		"interval":      idx.opts.Interval.String(),
@@ -112,7 +160,7 @@ func (idx *indexer) Start(ctx context.Context) error {
 		defer idx.wg.Done()
 
 		// Run one pass immediately.
-		idx.runPass(ctx)
+		idx.runPass(ctx, indexstore.IndexerPassTriggerStartup)
 
 		ticker := time.NewTicker(idx.opts.Interval)
 		defer ticker.Stop()
@@ -120,7 +168,7 @@ func (idx *indexer) Start(ctx context.Context) error {
 		for {
 			select {
 			case <-ticker.C:
-				idx.runPass(ctx)
+				idx.runPass(ctx, indexstore.IndexerPassTriggerSchedule)
 			case <-idx.done:
 				return
 			case <-ctx.Done():
@@ -152,81 +200,226 @@ func (idx *indexer) RunNow() bool {
 		return false
 	}
 
+	ctx := idx.lifecycleContext()
+
 	idx.wg.Add(1)
 
 	go func() {
 		defer idx.wg.Done()
 
-		idx.runPassInner(idx.ctx)
+		idx.runPassInner(ctx, indexstore.IndexerPassTriggerManual)
 	}()
 
 	return true
 }
 
+// setLifecycle publishes the context passes run under.
+func (idx *indexer) setLifecycle(ctx context.Context) {
+	idx.lifecycle.Store(&lifecycleCtx{ctx: ctx})
+}
+
+// lifecycleContext returns the context Start published. The HTTP server
+// listens before Start runs, so a pass triggered in that window gets a
+// background context: a nil one would panic in the pass goroutine and take
+// the process with it.
+func (idx *indexer) lifecycleContext() context.Context {
+	if life := idx.lifecycle.Load(); life != nil {
+		return life.ctx
+	}
+
+	return context.Background()
+}
+
+// State reports what the index store cannot: whether a pass is in flight,
+// since when, and how often passes are scheduled.
+func (idx *indexer) State() State {
+	state := State{
+		Running:  idx.running.Load(),
+		Interval: idx.opts.Interval,
+	}
+
+	if pass := idx.current.Load(); pass != nil {
+		state.StartedAt = pass.startedAt
+		state.Trigger = pass.trigger
+	}
+
+	return state
+}
+
 // runPass attempts to run one indexing pass if no other pass is active.
 // Used by the periodic ticker and initial startup pass.
-func (idx *indexer) runPass(ctx context.Context) {
+func (idx *indexer) runPass(ctx context.Context, trigger string) {
 	if !idx.running.CompareAndSwap(false, true) {
 		return
 	}
 
-	idx.runPassInner(ctx)
+	idx.runPassInner(ctx, trigger)
 }
 
 // runPassInner executes one full indexing pass across all discovery paths.
 // The caller must have already set running to true; this method resets it
-// on return.
-func (idx *indexer) runPassInner(ctx context.Context) {
+// on return. Whatever the pass does, it records a row describing itself, so
+// the admin page can chart how long passes take and what they find.
+func (idx *indexer) runPassInner(ctx context.Context, trigger string) {
 	defer idx.running.Store(false)
 
 	start := time.Now()
+
+	// Publish the pass before any work, so an admin watching the page sees
+	// how long it has been going rather than only that it is going.
+	idx.current.Store(&currentPass{startedAt: start.UTC(), trigger: trigger})
+	defer idx.current.Store(nil)
+
 	paths := idx.reader.DiscoveryPaths()
 
-	idx.log.WithField("discovery_paths", len(paths)).
-		Info("Indexing pass started")
+	pass := &indexstore.IndexerPass{
+		StartedAt:      start.UTC(),
+		Trigger:        trigger,
+		Status:         indexstore.IndexerPassStatusCompleted,
+		DiscoveryPaths: len(paths),
+	}
+
+	idx.log.WithFields(logrus.Fields{
+		"discovery_paths": len(paths),
+		"trigger":         trigger,
+	}).Info("Indexing pass started")
 
 	for _, dp := range paths {
-		select {
-		case <-ctx.Done():
-			return
-		case <-idx.done:
-			return
-		default:
+		if idx.stopping(ctx) {
+			pass.Status = indexstore.IndexerPassStatusCancelled
+
+			break
 		}
 
-		if err := idx.indexDiscoveryPath(ctx, dp); err != nil {
+		stats, err := idx.indexDiscoveryPath(ctx, dp)
+		if err != nil {
 			idx.log.WithError(err).
 				WithField("discovery_path", dp).
 				Warn("Indexing pass failed for discovery path")
+
+			pass.Error = err.Error()
 		}
+
+		// A path that failed part-way still did the work it got through, so
+		// its counters are folded in either way.
+		stats.addTo(pass)
 	}
 
-	idx.log.WithField("duration", time.Since(start).Round(time.Millisecond)).
-		Info("Indexing pass completed")
+	// The check above only sees a shutdown that lands between two paths. One
+	// that lands inside a path — the usual case, since most deployments have
+	// one — leaves the loop with nothing left to visit and the status still
+	// saying the pass ran to the end. The cost of settling it here is a pass
+	// that finished everything in the instant before a shutdown, and reads as
+	// cancelled; that is the right way round.
+	if idx.stopping(ctx) {
+		pass.Status = indexstore.IndexerPassStatusCancelled
+	}
+
+	pass.FinishedAt = time.Now().UTC()
+	pass.DurationMs = pass.FinishedAt.Sub(pass.StartedAt).Milliseconds()
+
+	idx.log.WithFields(logrus.Fields{
+		"duration":       time.Since(start).Round(time.Millisecond),
+		"status":         pass.Status,
+		"runs_indexed":   pass.RunsIndexed,
+		"runs_reindexed": pass.RunsReindexed,
+		"runs_failed":    pass.RunsFailed,
+	}).Info("Indexing pass completed")
+
+	idx.recordPass(ctx, pass)
+}
+
+// stopping reports whether the pass must give up, either because the
+// lifecycle context is done or because Stop was called.
+func (idx *indexer) stopping(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	case <-idx.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// recordPass stores the finished pass. A shutdown cancels the pass context,
+// and a cancelled pass is exactly the one worth having a record of, so the
+// write runs on a context that carries the values but not the cancellation.
+func (idx *indexer) recordPass(
+	ctx context.Context, pass *indexstore.IndexerPass,
+) {
+	writeCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx), passRecordTimeout,
+	)
+	defer cancel()
+
+	// Same reason the per-run writes serialize: SQLite has one writer.
+	idx.dbMu.Lock()
+	err := idx.store.RecordIndexerPass(writeCtx, pass)
+	idx.dbMu.Unlock()
+
+	if err != nil {
+		idx.log.WithError(err).Warn("Failed to record indexing pass")
+	}
+}
+
+// pathStats is what one discovery path contributed to a pass. The counters the
+// worker pool touches are atomic; the rest are settled by the scan before the
+// pool starts.
+type pathStats struct {
+	storageRuns int
+	indexedRuns int
+	skipped     int
+
+	indexed   atomic.Int64
+	reindexed atomic.Int64
+	failed    atomic.Int64
+}
+
+// addTo folds one path's counters into the pass totals. A nil receiver adds
+// nothing, which is what a path that failed before it counted anything did.
+func (p *pathStats) addTo(pass *indexstore.IndexerPass) {
+	if p == nil {
+		return
+	}
+
+	pass.StorageRuns += p.storageRuns
+	pass.IndexedRuns += p.indexedRuns
+	pass.SkippedFailures += p.skipped
+	pass.RunsIndexed += int(p.indexed.Load())
+	pass.RunsReindexed += int(p.reindexed.Load())
+	pass.RunsFailed += int(p.failed.Load())
 }
 
 // indexDiscoveryPath performs incremental indexing for a single
 // discovery path. It discovers new runs and re-indexes incomplete ones
-// using a bounded worker pool for parallel processing.
+// using a bounded worker pool for parallel processing. It returns what the
+// path contributed to the pass, which is nil only when the path failed before
+// it did anything.
 func (idx *indexer) indexDiscoveryPath(
 	ctx context.Context, dp string,
-) error {
+) (*pathStats, error) {
 	// List all run IDs from storage.
 	storageIDs, err := idx.reader.ListRunIDs(ctx, dp)
 	if err != nil {
-		return fmt.Errorf("listing storage run IDs: %w", err)
+		return nil, fmt.Errorf("listing storage run IDs: %w", err)
 	}
 
 	// List already-indexed run IDs.
 	indexedIDs, err := idx.store.ListRunIDs(ctx, dp)
 	if err != nil {
-		return fmt.Errorf("listing indexed run IDs: %w", err)
+		return nil, fmt.Errorf("listing indexed run IDs: %w", err)
 	}
 
 	// List incomplete run IDs that need re-indexing.
 	incompleteIDs, err := idx.store.ListIncompleteRunIDs(ctx, dp)
 	if err != nil {
-		return fmt.Errorf("listing incomplete run IDs: %w", err)
+		return nil, fmt.Errorf("listing incomplete run IDs: %w", err)
+	}
+
+	stats := &pathStats{
+		storageRuns: len(storageIDs),
+		indexedRuns: len(indexedIDs),
 	}
 
 	indexedSet := make(map[string]struct{}, len(indexedIDs))
@@ -246,7 +439,7 @@ func (idx *indexer) indexDiscoveryPath(
 	// half an hour and flooded the log.
 	failures, err := idx.loadFailures(ctx, dp, storageIDs, dpLog)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Build list of runs that need indexing.
@@ -255,10 +448,7 @@ func (idx *indexer) indexDiscoveryPath(
 		alreadyIndexed bool
 	}
 
-	var (
-		tasks   []runTask
-		skipped int
-	)
+	var tasks []runTask
 
 	for _, id := range storageIDs {
 		_, alreadyIndexed := indexedSet[id]
@@ -269,7 +459,7 @@ func (idx *indexer) indexDiscoveryPath(
 		}
 
 		if _, muted := failures.skip[id]; muted {
-			skipped++
+			stats.skipped++
 
 			continue
 		}
@@ -293,18 +483,16 @@ func (idx *indexer) indexDiscoveryPath(
 		"new_runs":          newCount,
 		"incomplete_runs":   len(incompleteIDs),
 		"recorded_failures": len(failures.recorded),
-		"skipped_failures":  skipped,
+		"skipped_failures":  stats.skipped,
 	}).Info("Scanning discovery path")
 
 	if len(tasks) == 0 {
-		return nil
+		return stats, nil
 	}
 
 	// Process runs concurrently with bounded parallelism.
 	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(idx.opts.Concurrency)
-
-	var indexed atomic.Int64
 
 	for _, task := range tasks {
 		g.Go(func() error {
@@ -322,6 +510,16 @@ func (idx *indexer) indexDiscoveryPath(
 			if err := idx.indexRun(
 				gCtx, dp, task.runID, task.alreadyIndexed,
 			); err != nil {
+				// The shutdown cancelled the reads, so the failure says
+				// nothing about the run. Counting it would blame the run for
+				// the shutdown, and recording it would be a write on a
+				// context that is already dead.
+				if gCtx.Err() != nil {
+					return nil //nolint:nilerr // the pass is going down
+				}
+
+				stats.failed.Add(1)
+
 				idx.handleIndexFailure(
 					gCtx, dp, task.runID, err, wasRecorded, dpLog,
 				)
@@ -344,28 +542,32 @@ func (idx *indexer) indexDiscoveryPath(
 			action := "indexed"
 			if task.alreadyIndexed {
 				action = "reindexed"
+
+				stats.reindexed.Add(1)
+			} else {
+				stats.indexed.Add(1)
 			}
 
 			dpLog.WithField("run_id", task.runID).
 				WithField("action", action).
 				Info("Indexed run")
 
-			indexed.Add(1)
-
 			return nil
 		})
 	}
 
 	if err := g.Wait(); err != nil {
-		return fmt.Errorf("indexing runs: %w", err)
+		// The pool got through some of the tasks, so the counters still
+		// describe real work and go back with the error.
+		return stats, fmt.Errorf("indexing runs: %w", err)
 	}
 
-	if count := indexed.Load(); count > 0 {
+	if count := stats.indexed.Load() + stats.reindexed.Load(); count > 0 {
 		dpLog.WithField("count", count).
 			Info("Discovery path indexing complete")
 	}
 
-	return nil
+	return stats, nil
 }
 
 // indexFailureState is one pass's view of the recorded failures for a

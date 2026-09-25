@@ -174,9 +174,11 @@ func (s *server) buildRouter() http.Handler {
 				r.Get("/runs/deletion-queue", s.handleDeletionQueue)
 			}
 
-			// Indexer management.
+			// Indexer management, and the recent pass history behind the
+			// duration chart on the admin page.
 			if s.indexer != nil {
 				r.Post("/indexer/run", s.handleRunIndexer)
+				r.Get("/indexer/stats", s.handleIndexerStats)
 			}
 
 			// Index database size and contents, so an admin can see
