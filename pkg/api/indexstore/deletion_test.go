@@ -216,6 +216,7 @@ func TestStore_MarkRunsForDeletionBySuite(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), result.Queued)
 	assert.Equal(t, int64(1), result.Skipped, "the running run is left alone")
+	assert.Zero(t, result.AlreadyQueued)
 	assert.Greater(t, s.RunsGeneration(), before, "/index must refresh")
 
 	queued, err := s.ListRunsPendingDeletion(ctx)
@@ -227,13 +228,15 @@ func TestStore_MarkRunsForDeletionBySuite(t *testing.T) {
 		assert.NotEqual(t, "run-c", run.RunID)
 	}
 
-	// Repeating it queues nothing new, and still reports the running run.
+	// Repeating it queues nothing new. Both reasons must come back, or the
+	// caller reports "queued 0 runs" with nothing to explain it.
 	gen := s.RunsGeneration()
 
 	result, err = s.MarkRunsForDeletionBySuite(ctx, "suite-1")
 	require.NoError(t, err)
 	assert.Zero(t, result.Queued)
 	assert.Equal(t, int64(1), result.Skipped)
+	assert.Equal(t, int64(2), result.AlreadyQueued)
 	assert.Equal(t, gen, s.RunsGeneration(), "a no-op must not bump the gen")
 
 	// The other suite is untouched.

@@ -207,7 +207,12 @@ export interface DatabaseStats {
   page_count?: number
   /** Pages a VACUUM would hand back. */
   free_pages?: number
+  /**
+   * Used and free do not add up to total: a filesystem reserves a slice for
+   * root. A usage share is used/(used+free), which is what df prints.
+   */
   volume_total_bytes?: number
+  volume_used_bytes?: number
   volume_free_bytes?: number
   oldest_run?: number
   newest_run?: number
@@ -224,8 +229,10 @@ export function useDatabaseStats(enabled: boolean) {
   return useQuery<DatabaseStatsResponse>({
     queryKey: ['admin', 'database'],
     enabled,
-    // The API caches the report for a minute; asking more often than that
-    // only costs a round-trip.
+    // The API caches the report for five minutes, so most of these polls are
+    // answered from that cache and cost only a round-trip. Polling at exactly
+    // the TTL would instead land just after every expiry and make each tab
+    // pay for a full scan.
     refetchInterval: 60_000,
     queryFn: () => adminFetch('/api/v1/admin/database'),
   })

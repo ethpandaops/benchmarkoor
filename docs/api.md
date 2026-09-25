@@ -341,7 +341,9 @@ To take a run out of the queue, call `POST /admin/runs/delete/cancel` with the s
 {"suite_hashes": ["22c2404b9ce3f47c"]}
 ```
 
-The same guard applies per run: a run that is still `running` is left alone, and the response says how many were skipped for that reason. Deleting the last run of a suite also removes the suite row, because `DeleteRunCascade` cleans up an orphaned suite.
+The same guard applies per run: a run that is still `running` is left alone, and the response says how many were skipped for that reason. Runs that were already queued are reported too, so a repeat request explains why it queued nothing rather than returning a bare `queued: 0`. Deleting the last run of a suite also removes the suite row, because `DeleteRunCascade` cleans up an orphaned suite.
+
+At most 200 suites per request. Each one costs a transaction on the SQLite writer, which is a single connection, so an unbounded list would hold that connection — and the indexer behind it — for as long as the list.
 
 In the UI this is the trash button on the **Suites** page. It turns on a checkbox per suite and a bar showing how many runs the selection will queue.
 
@@ -353,11 +355,11 @@ It returns:
 
 - The database file size, its write-ahead log, and the page count.
 - `free_pages * page_size`, which is what a `VACUUM` would hand back. Note that a `VACUUM` needs as much free space again as the database occupies, so it is not a way out of a nearly full volume.
-- The total and available bytes of the filesystem holding the database. This is the number that decides whether a cleanup is urgent.
+- The size of the filesystem holding the database, what files occupy on it, and what is still available. Used and available add up to less than the total, because a filesystem reserves a slice for root: a usage share is `used/(used+available)`, the way `df` computes it. Dividing by the total instead would read the deployed volume as 88% full where `df` says 93%, and an empty ext4 volume as 5% full.
 - A row count per table.
 - The suites with the most runs, with the test-stat and block-log rows that deleting each would take with it. This pairs with deleting a suite's runs above.
 
-Gathering the report counts every row in every table, which on a large database is seconds of work, so it is cached for a minute. `gathered_at` says when the figures were taken.
+Gathering the report counts every row in every table, which on a large database is seconds of work, so it is cached for five minutes and only one gather runs at a time. Without that, two open admin tabs would each start their own scan on a four-connection read pool and starve `/index` of readers. `gathered_at` says when the figures were taken.
 
 Per-table byte sizes are **not** reported. The SQLite build used here has no `dbstat` virtual table, and an estimate would be worse than an honest omission.
 

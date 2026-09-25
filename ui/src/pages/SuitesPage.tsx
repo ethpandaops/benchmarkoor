@@ -24,6 +24,8 @@ const INACTIVE_OPTIONS = [
   { label: '90d', days: 90 },
 ] as const
 const DEFAULT_INACTIVE_DAYS = 7
+// How many suite hashes the delete confirmation spells out before summarising.
+const CONFIRM_LIST_LIMIT = 10
 
 interface SuiteEntry {
   hash: string
@@ -468,21 +470,47 @@ export function SuitesPage() {
     setSelectedHashes(new Set())
   }, [])
 
+  // A selection must never outlive the rows it was made on. Filtering, paging
+  // or hiding inactive suites would otherwise leave suites ticked that the
+  // admin can no longer see, and the delete is irreversible.
+  const visibleHashes = useMemo(
+    () => new Set(visibleSuites.map((suite) => suite.hash)),
+    [visibleSuites],
+  )
+
+  useEffect(() => {
+    setSelectedHashes((prev) => {
+      const next = new Set([...prev].filter((hash) => visibleHashes.has(hash)))
+
+      return next.size === prev.size ? prev : next
+    })
+  }, [visibleHashes])
+
+  const selectedSuites = useMemo(
+    () => visibleSuites.filter((suite) => selectedHashes.has(suite.hash)),
+    [visibleSuites, selectedHashes],
+  )
+
   const selectedRunCount = useMemo(
-    () =>
-      suites
-        .filter((suite) => selectedHashes.has(suite.hash))
-        .reduce((sum, suite) => sum + suite.runCount, 0),
-    [suites, selectedHashes],
+    () => selectedSuites.reduce((sum, suite) => sum + suite.runCount, 0),
+    [selectedSuites],
   )
 
   const handleDeleteConfirm = async () => {
-    const hashes = Array.from(selectedHashes)
+    const hashes = selectedSuites.map((suite) => suite.hash)
     if (hashes.length === 0) return
+
+    // Name what goes. A count alone is not enough to check before an
+    // irreversible delete.
+    const named = hashes.slice(0, CONFIRM_LIST_LIMIT).join('\n')
+    const rest =
+      hashes.length > CONFIRM_LIST_LIMIT
+        ? `\n...and ${hashes.length - CONFIRM_LIST_LIMIT} more`
+        : ''
 
     if (
       !confirm(
-        `Delete every run of ${hashes.length} suite(s)?\n\n` +
+        `Delete every run of ${hashes.length} suite(s)?\n\n${named}${rest}\n\n` +
           `That is ${selectedRunCount} run(s). Their files are removed from storage and ` +
           'their index rows go with them. A run still in progress is left alone. ' +
           'This cannot be undone.',

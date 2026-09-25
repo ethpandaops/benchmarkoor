@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -323,6 +324,18 @@ func TestHandleDeleteRuns_BySuite(t *testing.T) {
 		"suite-missing: no runs in index",
 	}, resp.Errors)
 
+	// Repeating the request must explain why it queued nothing.
+	repeat := httptest.NewRecorder()
+	s.handleDeleteRuns(repeat, httptest.NewRequest(
+		http.MethodPost, "/api/v1/admin/runs/delete", bytes.NewReader(body),
+	))
+	require.Equal(t, http.StatusAccepted, repeat.Code)
+
+	var repeatResp deleteRunsResponse
+	require.NoError(t, json.Unmarshal(repeat.Body.Bytes(), &repeatResp))
+	assert.Zero(t, repeatResp.Queued)
+	assert.Contains(t, repeatResp.Errors, "suite-1: 2 run(s) were already queued")
+
 	queued, err := s.indexStore.ListRunsPendingDeletion(ctx)
 	require.NoError(t, err)
 	require.Len(t, queued, 2)
@@ -337,18 +350,33 @@ func TestHandleDeleteRuns_BySuite(t *testing.T) {
 	require.Len(t, remaining, 2)
 }
 
-// TestHandleDeleteRuns_RequiresATarget covers the guard on the request body.
+// TestHandleDeleteRuns_RequiresATarget covers the guards on the request body.
 func TestHandleDeleteRuns_RequiresATarget(t *testing.T) {
 	s := newIndexTestServer(t)
 	s.storageDeleter = &fakeDeleter{}
 	s.runDeleterKick = make(chan struct{}, 1)
 
-	body, err := json.Marshal(deleteRunsRequest{})
-	require.NoError(t, err)
+	post := func(req deleteRunsRequest) int {
+		body, err := json.Marshal(req)
+		require.NoError(t, err)
 
-	rec := httptest.NewRecorder()
-	s.handleDeleteRuns(rec, httptest.NewRequest(
-		http.MethodPost, "/api/v1/admin/runs/delete", bytes.NewReader(body),
-	))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+		rec := httptest.NewRecorder()
+		s.handleDeleteRuns(rec, httptest.NewRequest(
+			http.MethodPost, "/api/v1/admin/runs/delete", bytes.NewReader(body),
+		))
+
+		return rec.Code
+	}
+
+	assert.Equal(t, http.StatusBadRequest, post(deleteRunsRequest{}))
+
+	// Each suite costs a transaction on the single SQLite writer connection,
+	// so the list is capped rather than left to the body limit.
+	tooMany := make([]string, maxSuiteHashesPerRequest+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("suite-%d", i)
+	}
+
+	assert.Equal(t, http.StatusBadRequest,
+		post(deleteRunsRequest{SuiteHashes: tooMany}))
 }

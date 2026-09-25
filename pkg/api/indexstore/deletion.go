@@ -70,11 +70,14 @@ func (s *store) MarkRunForDeletion(
 }
 
 // SuiteDeletionResult reports what queueing a whole suite did. Skipped counts
-// the runs that were refused because their runner is still reporting; they are
-// the caller's to report, not an error.
+// the runs refused because their runner is still reporting, and AlreadyQueued
+// the ones that were waiting in the queue before the request. Neither is an
+// error, but both are the caller's to report: without them a repeat request
+// reads as "queued 0 runs" with no reason given.
 type SuiteDeletionResult struct {
-	Queued  int64
-	Skipped int64
+	Queued        int64
+	Skipped       int64
+	AlreadyQueued int64
 }
 
 // MarkRunsForDeletionBySuite queues every run of a suite in one statement.
@@ -93,49 +96,71 @@ func (s *store) MarkRunsForDeletionBySuite(
 		return nil, ErrRunNotFound
 	}
 
-	res := s.db.WithContext(ctx).
-		Model(&Run{}).
-		Where("suite_hash = ? AND deletion_requested_at IS NULL AND status != ?",
-			suiteHash, RunStatusRunning).
-		Updates(map[string]any{
-			"deletion_requested_at": time.Now().UTC(),
-			"deletion_error":        "",
-		})
-	if res.Error != nil {
-		return nil, fmt.Errorf(
-			"marking suite runs for deletion: %w", res.Error,
-		)
+	result := &SuiteDeletionResult{}
+
+	// The update and the counts share one transaction so the three numbers
+	// describe the same instant. Without it a run that finishes between the
+	// update and the count is neither queued nor reported as left behind, and
+	// the totals quietly fail to add up.
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var total int64
+		if err := tx.Model(&Run{}).
+			Where("suite_hash = ?", suiteHash).
+			Count(&total).Error; err != nil {
+			return fmt.Errorf("counting suite runs: %w", err)
+		}
+
+		if total == 0 {
+			return ErrRunNotFound
+		}
+
+		// The status guard lives in the WHERE clause, as it does for a single
+		// run: deleting a run its runner is still writing would race.
+		res := tx.Model(&Run{}).
+			Where(
+				"suite_hash = ? AND deletion_requested_at IS NULL AND status != ?",
+				suiteHash, RunStatusRunning,
+			).
+			Updates(map[string]any{
+				"deletion_requested_at": time.Now().UTC(),
+				"deletion_error":        "",
+			})
+		if res.Error != nil {
+			return fmt.Errorf(
+				"marking suite runs for deletion: %w", res.Error,
+			)
+		}
+
+		result.Queued = res.RowsAffected
+
+		if err := tx.Model(&Run{}).
+			Where("suite_hash = ? AND deletion_requested_at IS NULL AND status = ?",
+				suiteHash, RunStatusRunning).
+			Count(&result.Skipped).Error; err != nil {
+			return fmt.Errorf("counting running suite runs: %w", err)
+		}
+
+		var queued int64
+		if err := tx.Model(&Run{}).
+			Where("suite_hash = ? AND deletion_requested_at IS NOT NULL",
+				suiteHash).
+			Count(&queued).Error; err != nil {
+			return fmt.Errorf("counting queued suite runs: %w", err)
+		}
+
+		result.AlreadyQueued = queued - result.Queued
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	if res.RowsAffected > 0 {
+	if result.Queued > 0 {
 		s.runsGen.Add(1)
 	}
 
-	var total, running int64
-
-	if err := s.db.WithContext(ctx).
-		Model(&Run{}).
-		Where("suite_hash = ?", suiteHash).
-		Count(&total).Error; err != nil {
-		return nil, fmt.Errorf("counting suite runs: %w", err)
-	}
-
-	if total == 0 {
-		return nil, ErrRunNotFound
-	}
-
-	if err := s.db.WithContext(ctx).
-		Model(&Run{}).
-		Where("suite_hash = ? AND deletion_requested_at IS NULL AND status = ?",
-			suiteHash, RunStatusRunning).
-		Count(&running).Error; err != nil {
-		return nil, fmt.Errorf("counting running suite runs: %w", err)
-	}
-
-	return &SuiteDeletionResult{
-		Queued:  res.RowsAffected,
-		Skipped: running,
-	}, nil
+	return result, nil
 }
 
 // ListRunsPendingDeletion returns every queued run in queue order: the

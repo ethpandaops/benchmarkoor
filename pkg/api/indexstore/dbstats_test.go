@@ -147,8 +147,43 @@ func TestStore_DatabaseStats_FileBacked(t *testing.T) {
 	assert.Positive(t, stats.PageCount)
 	assert.GreaterOrEqual(t, stats.FreePages, int64(0))
 	assert.Positive(t, stats.VolumeTotalBytes)
+	assert.Positive(t, stats.VolumeUsedBytes)
 	assert.Positive(t, stats.VolumeFreeBytes)
+
+	// Used and free must not be derived from each other: a filesystem keeps a
+	// reserve that neither counts, so they add up to less than the total. A
+	// usage share is used/(used+free), the way df computes it.
 	assert.Less(t, stats.VolumeFreeBytes, stats.VolumeTotalBytes)
+	assert.LessOrEqual(t,
+		stats.VolumeUsedBytes+stats.VolumeFreeBytes, stats.VolumeTotalBytes,
+	)
+}
+
+// TestStore_DatabaseStats_DSNPath covers a SQLite path given as a DSN, which
+// the driver accepts and this file already half-expects. Stat'ing it verbatim
+// would report no size and no volume at all, which is exactly when the report
+// matters most.
+func TestStore_DatabaseStats_DSNPath(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.ErrorLevel)
+
+	file := filepath.Join(t.TempDir(), "index.db")
+
+	s := indexstore.NewStore(log, &config.APIDatabaseConfig{
+		Driver: "sqlite",
+		SQLite: config.SQLiteDatabaseConfig{
+			Path: "file:" + file + "?_pragma=busy_timeout(5000)",
+		},
+	})
+	require.NoError(t, s.Start(context.Background()))
+	t.Cleanup(func() { _ = s.Stop() })
+
+	stats, err := s.DatabaseStats(context.Background())
+	require.NoError(t, err)
+
+	assert.Positive(t, stats.FileBytes, "the file behind the DSN was found")
+	assert.Positive(t, stats.VolumeTotalBytes)
+	assert.Positive(t, stats.VolumeFreeBytes)
 }
 
 // TestStore_DatabaseStats_InMemoryHasNoFile guards the guard: an in-memory

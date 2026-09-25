@@ -557,6 +557,13 @@ type deleteRunsRequest struct {
 	SuiteHashes []string `json:"suite_hashes,omitempty"`
 }
 
+// maxSuiteHashesPerRequest bounds how many suites one request may queue. Each
+// one costs a transaction on the SQLite writer, which is a single connection,
+// so an unbounded list would hold that connection (and the indexer behind it)
+// for as long as the list is. The body limit already bounds the per-run path;
+// this is its equivalent for suites, and is far above any real selection.
+const maxSuiteHashesPerRequest = 200
+
 type deleteRunsResponse struct {
 	Status string   `json:"status"`
 	Queued int      `json:"queued"`
@@ -593,6 +600,15 @@ func (s *server) handleDeleteRuns(
 		return
 	}
 
+	if len(req.SuiteHashes) > maxSuiteHashesPerRequest {
+		writeJSON(w, http.StatusBadRequest, errorResponse{fmt.Sprintf(
+			"suite_hashes: at most %d suites per request, got %d",
+			maxSuiteHashesPerRequest, len(req.SuiteHashes),
+		)})
+
+		return
+	}
+
 	var (
 		queued int
 		errs   []string
@@ -607,12 +623,21 @@ func (s *server) handleDeleteRuns(
 		case err == nil:
 			queued += int(result.Queued)
 
-			// A suite mid-run is the normal case for an active suite, so
-			// say so rather than silently queueing less than was asked.
+			// A suite mid-run is the normal case for an active suite, and a
+			// suite already queued is the normal case for a repeat request.
+			// Both must be said out loud: without them the response is a
+			// bare "queued 0 runs" with no reason given.
 			if result.Skipped > 0 {
 				errs = append(errs, fmt.Sprintf(
 					"%s: %d run(s) still in progress, left alone",
 					suiteHash, result.Skipped,
+				))
+			}
+
+			if result.AlreadyQueued > 0 {
+				errs = append(errs, fmt.Sprintf(
+					"%s: %d run(s) were already queued",
+					suiteHash, result.AlreadyQueued,
 				))
 			}
 		case errors.Is(err, indexstore.ErrRunNotFound):

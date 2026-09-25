@@ -687,6 +687,19 @@ function AdminAPIKeysTab() {
 const VOLUME_CRITICAL = 0.9
 const VOLUME_WARNING = 0.75
 
+/**
+ * The share of the volume in use, the way df computes it. Used and free do not
+ * add up to total, because a filesystem reserves a slice for root that this
+ * process cannot write to. Dividing by total would count that reserve as free
+ * space we could use, and would read the pod's volume as 88% rather than the
+ * 93% df reports.
+ */
+function volumeShare(used: number, free: number): number {
+  const usable = used + free
+
+  return usable > 0 ? used / usable : 0
+}
+
 function StatCard({
   label,
   value,
@@ -716,15 +729,15 @@ function StatCard({
   )
 }
 
-function VolumeBar({ used, total }: { used: number; total: number }) {
-  const share = total > 0 ? used / total : 0
+function VolumeBar({ used, free, total }: { used: number; free: number; total: number }) {
+  const share = volumeShare(used, free)
   const pct = Math.min(100, Math.round(share * 100))
 
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between text-sm">
         <span className="text-gray-700 dark:text-gray-300">
-          {formatBytes(used)} of {formatBytes(total)} used
+          {formatBytes(used)} used, {formatBytes(free)} free of {formatBytes(total)}
         </span>
         <span
           className={clsx(
@@ -761,7 +774,10 @@ function DatabaseTab() {
 
   if (isLoading) return <div className="text-sm text-gray-500">Loading...</div>
 
-  if (error || !data) {
+  // Only give up the whole report when there is nothing to show. React Query
+  // keeps the last good data across a failed refetch, and a blip on the poll
+  // is no reason to blank a report the admin is reading.
+  if (!data) {
     return (
       <div className="rounded-sm border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
         {error instanceof Error ? error.message : 'Failed to load database stats'}
@@ -771,6 +787,11 @@ function DatabaseTab() {
 
   return (
     <div className="flex flex-col gap-6">
+      {error && (
+        <div className="rounded-sm border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          Could not refresh. Showing the last report.
+        </div>
+      )}
       <DatabaseStorage stats={data.stats} gatheredAt={data.gathered_at} />
       <DatabaseTables stats={data.stats} />
       <DatabaseSuites stats={data.stats} />
@@ -781,8 +802,8 @@ function DatabaseTab() {
 function DatabaseStorage({ stats, gatheredAt }: { stats: DatabaseStats; gatheredAt: string }) {
   const total = stats.volume_total_bytes ?? 0
   const free = stats.volume_free_bytes ?? 0
-  const used = total > 0 ? total - free : 0
-  const share = total > 0 ? used / total : 0
+  const used = stats.volume_used_bytes ?? 0
+  const share = volumeShare(used, free)
   const reclaimable = (stats.free_pages ?? 0) * (stats.page_size ?? 0)
 
   return (
@@ -803,7 +824,7 @@ function DatabaseStorage({ stats, gatheredAt }: { stats: DatabaseStats; gathered
 
       {total > 0 && (
         <div className="mb-4 rounded-sm border border-gray-200 px-4 py-3 dark:border-gray-700">
-          <VolumeBar used={used} total={total} />
+          <VolumeBar used={used} free={free} total={total} />
           {share >= VOLUME_WARNING && (
             <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />

@@ -31,9 +31,15 @@ type DatabaseStats struct {
 	PageCount int64 `json:"page_count,omitempty"`
 	FreePages int64 `json:"free_pages,omitempty"`
 
-	// Volume describes the filesystem holding the database. This is the
-	// number that decides whether a cleanup is urgent.
+	// Volume describes the filesystem holding the database. This is what
+	// decides whether a cleanup is urgent.
+	//
+	// Used and Free do not add up to Total: a filesystem reserves a slice for
+	// root that an ordinary process cannot touch. A usage share is
+	// Used/(Used+Free), which is what df prints; Total-Free would count the
+	// reserve as occupied and read ~5% full on an empty ext4 volume.
 	VolumeTotalBytes int64 `json:"volume_total_bytes,omitempty"`
+	VolumeUsedBytes  int64 `json:"volume_used_bytes,omitempty"`
 	VolumeFreeBytes  int64 `json:"volume_free_bytes,omitempty"`
 
 	Tables    []TableStat  `json:"tables"`
@@ -249,6 +255,7 @@ func (s *store) addSQLiteStats(ctx context.Context, stats *DatabaseStats) {
 	}
 
 	stats.Path = path
+	file := sqliteFilePath(path)
 
 	for _, pragma := range []struct {
 		name string
@@ -272,21 +279,37 @@ func (s *store) addSQLiteStats(ctx context.Context, stats *DatabaseStats) {
 		*pragma.into = value
 	}
 
-	if info, err := os.Stat(path); err == nil {
+	if info, err := os.Stat(file); err == nil {
 		stats.FileBytes = info.Size()
 	}
 
-	if info, err := os.Stat(path + "-wal"); err == nil {
+	if info, err := os.Stat(file + "-wal"); err == nil {
 		stats.WALBytes = info.Size()
 	}
 
-	total, free, err := volumeUsage(filepath.Dir(path))
+	volume, err := volumeUsage(filepath.Dir(file))
 	if err != nil {
 		s.log.WithError(err).Debug("Reading volume usage")
 
 		return
 	}
 
-	stats.VolumeTotalBytes = total
-	stats.VolumeFreeBytes = free
+	stats.VolumeTotalBytes = volume.Total
+	stats.VolumeUsedBytes = volume.Used
+	stats.VolumeFreeBytes = volume.Free
+}
+
+// sqliteFilePath reduces a configured SQLite path to the file on disk. The
+// path is handed straight to the driver, which accepts a DSN as well as a
+// plain path, so "file:/data/index.db?_pragma=busy_timeout(5000)" is valid
+// config. Stat'ing that verbatim would silently report no size and no volume
+// at all, which is exactly when the report matters most.
+func sqliteFilePath(path string) string {
+	file := strings.TrimPrefix(path, "file:")
+
+	if idx := strings.IndexByte(file, '?'); idx >= 0 {
+		file = file[:idx]
+	}
+
+	return file
 }
