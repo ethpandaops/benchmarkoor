@@ -165,7 +165,7 @@ export function TestMetricChart({ runs, suiteTests, stepFilter, labelMode, testN
         indexToOrder.set(d.testIndex, d.testOrder)
       }
     }
-    const clientBySeriesName = new Map(runs.map((r, i) => [`Run ${formatRunLabel(RUN_SLOTS[i], r, labelMode)}`, r.config.instance.client]))
+    const clientBySeriesName = new Map(runs.map((r) => [`Run ${formatRunLabel(RUN_SLOTS[r.index], r, labelMode)}`, r.config.instance.client]))
     // The slow limit only gets a line when a test comes near it. A limit
     // far above every value would squash the whole chart.
     const maxValue = Math.max(0, ...pointsPerRun.flatMap((p) => p.map((d) => d.value)))
@@ -279,8 +279,10 @@ export function TestMetricChart({ runs, suiteTests, stepFilter, labelMode, testN
           moveOnMouseWheel: false,
         },
       ],
-      series: runs.map((_run, i) => {
-        const slot = RUN_SLOTS[i]
+      series: runs.map((run, i) => {
+        // The group compare page drops a group with no runs, so the slot
+        // comes from run.index, not from the position in the array.
+        const slot = RUN_SLOTS[run.index]
         const points = pointsPerRun[i]
         const data = points.map((d) => [d.testIndex, d.value, d.testName, d.testOrder])
         const base = {

@@ -249,8 +249,6 @@ function GroupCard({
   onRemove: () => void
   canRemove: boolean
 }) {
-  const SLOT_COLORS = ['bg-blue-100 dark:bg-blue-900/30', 'bg-orange-100 dark:bg-orange-900/30', 'bg-purple-100 dark:bg-purple-900/30', 'bg-green-100 dark:bg-green-900/30', 'bg-red-100 dark:bg-red-900/30']
-
   // Metadata keys not yet used by this group.
   const unusedKeys = [...availableMetadataKeys.entries()].filter(
     ([key]) => !(key in group.metadata),
@@ -266,7 +264,7 @@ function GroupCard({
     : availableClients
 
   return (
-    <div className={clsx('flex min-w-0 flex-col gap-2 rounded-sm border border-gray-200 p-3 dark:border-gray-700', SLOT_COLORS[index % SLOT_COLORS.length])}>
+    <div className={clsx('flex min-w-0 flex-col gap-2 rounded-sm border border-gray-200 p-3 dark:border-gray-700', RUN_SLOTS[index].cardBgClass)}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-xs/5 font-bold text-gray-500 dark:text-gray-400">
           Group {String.fromCharCode(65 + index)}

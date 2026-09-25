@@ -441,7 +441,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                       ? (activeMetric.higherIsBetter ? val - refValue : refValue - val)
                       : undefined
                     return (
-                      <td key={RUN_SLOTS[i].label} className="whitespace-nowrap px-4 py-2 text-right text-sm/6">
+                      <td key={RUN_SLOTS[runs[i].index].label} className="whitespace-nowrap px-4 py-2 text-right text-sm/6">
                         {val !== undefined ? (
                           <Link
                             to="/runs/$runId"

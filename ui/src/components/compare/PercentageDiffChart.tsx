@@ -190,7 +190,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           const baseValue = params[0].value[3]
           const testOrder = params[0].value[5]
           highlightedTestRef.current = testName
-          const baseSlot = RUN_SLOTS[baselineIdx]
+          const baseSlot = RUN_SLOTS[runs[baselineIdx].index]
           const baseClient = runs[baselineIdx].config.instance.client
           const baseImg = `<img src="/img/clients/${baseClient}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />`
 
@@ -204,7 +204,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
             const sign = diff >= 0 ? '+' : ''
             const color = diff >= 0 ? '#10b981' : '#ef4444'
             const label = diff >= 0 ? 'faster' : 'slower'
-            const seriesRunIdx = otherRunIndices.find((ri) => `vs ${formatRunLabel(RUN_SLOTS[ri], runs[ri], labelMode)}` === p.seriesName)
+            const seriesRunIdx = otherRunIndices.find((ri) => `vs ${formatRunLabel(RUN_SLOTS[runs[ri].index], runs[ri], labelMode)}` === p.seriesName)
             const client = seriesRunIdx !== undefined ? runs[seriesRunIdx].config.instance.client : undefined
             const clientImg = client ? `<img src="/img/clients/${client}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />` : ''
             content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${absMGas.toFixed(2)} MGas/s <span style="color:${color};font-weight:600;">(${sign}${diff.toFixed(1)}% ${label})</span><br/>`
@@ -290,7 +290,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           },
         },
         ...otherRunIndices.map((runIdx, seriesIdx) => {
-          const slot = RUN_SLOTS[runIdx]
+          const slot = RUN_SLOTS[runs[runIdx].index]
           const data = diffData.map((d) => {
             const diff = d.diffs[seriesIdx]
             const absMGas = d.values[seriesIdx]
@@ -365,7 +365,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           </div>
           <div className="flex items-center gap-2 text-xs/5">
             {otherRunIndices.map((ri) => {
-              const slot = RUN_SLOTS[ri]
+              const slot = RUN_SLOTS[runs[ri].index]
               const run = runs[ri]
               return (
                 <span
@@ -432,7 +432,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
             {otherRunIndices.map((ri, seriesIdx) => {
-              const slot = RUN_SLOTS[ri]
+              const slot = RUN_SLOTS[runs[ri].index]
               const run = runs[ri]
               const fasterPcts: number[] = []
               const slowerPcts: number[] = []

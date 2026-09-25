@@ -114,7 +114,7 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
         indexToOrder.set(d.testIndex, d.testOrder)
       }
     }
-    const clientBySeriesName = new Map(runs.map((r, i) => [`Run ${formatRunLabel(RUN_SLOTS[i], r, labelMode)}`, r.config.instance.client]))
+    const clientBySeriesName = new Map(runs.map((r) => [`Run ${formatRunLabel(RUN_SLOTS[r.index], r, labelMode)}`, r.config.instance.client]))
 
     return {
       backgroundColor: 'transparent',
@@ -210,8 +210,8 @@ export function CVComparisonChart({ runs, suiteTests, labelMode, testNameFilter,
           moveOnMouseWheel: false,
         },
       ],
-      series: runs.map((_run, i) => {
-        const slot = RUN_SLOTS[i]
+      series: runs.map((run, i) => {
+        const slot = RUN_SLOTS[run.index]
         const points = pointsPerRun[i]
         const data = points.map((d) => [d.testIndex, d.cv, d.testName, d.testOrder])
         const markLine = i === 0

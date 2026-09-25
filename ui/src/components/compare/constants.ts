@@ -22,6 +22,8 @@ export interface RunSlot {
   diffTextClass: string
   badgeBgClass: string
   badgeTextClass: string
+  /** Soft tint of a whole card, e.g. a group card of the compare builder. */
+  cardBgClass: string
 }
 
 export const RUN_SLOTS: RunSlot[] = [
@@ -36,6 +38,7 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-blue-700 dark:text-blue-300',
     badgeBgClass: 'bg-blue-100 dark:bg-blue-900/50',
     badgeTextClass: 'text-blue-700 dark:text-blue-300',
+    cardBgClass: 'bg-blue-100 dark:bg-blue-900/30',
   },
   {
     label: 'B',
@@ -48,6 +51,7 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-amber-700 dark:text-amber-300',
     badgeBgClass: 'bg-amber-100 dark:bg-amber-900/50',
     badgeTextClass: 'text-amber-700 dark:text-amber-300',
+    cardBgClass: 'bg-amber-100 dark:bg-amber-900/30',
   },
   {
     label: 'C',
@@ -60,6 +64,7 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-emerald-700 dark:text-emerald-300',
     badgeBgClass: 'bg-emerald-100 dark:bg-emerald-900/50',
     badgeTextClass: 'text-emerald-700 dark:text-emerald-300',
+    cardBgClass: 'bg-emerald-100 dark:bg-emerald-900/30',
   },
   {
     label: 'D',
@@ -72,6 +77,7 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-violet-700 dark:text-violet-300',
     badgeBgClass: 'bg-violet-100 dark:bg-violet-900/50',
     badgeTextClass: 'text-violet-700 dark:text-violet-300',
+    cardBgClass: 'bg-violet-100 dark:bg-violet-900/30',
   },
   {
     label: 'E',
@@ -84,6 +90,7 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-red-700 dark:text-red-300',
     badgeBgClass: 'bg-red-100 dark:bg-red-900/50',
     badgeTextClass: 'text-red-700 dark:text-red-300',
+    cardBgClass: 'bg-red-100 dark:bg-red-900/30',
   },
   {
     label: 'F',
@@ -96,6 +103,7 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-cyan-700 dark:text-cyan-300',
     badgeBgClass: 'bg-cyan-100 dark:bg-cyan-900/50',
     badgeTextClass: 'text-cyan-700 dark:text-cyan-300',
+    cardBgClass: 'bg-cyan-100 dark:bg-cyan-900/30',
   },
   {
     label: 'G',
@@ -108,6 +116,7 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-pink-700 dark:text-pink-300',
     badgeBgClass: 'bg-pink-100 dark:bg-pink-900/50',
     badgeTextClass: 'text-pink-700 dark:text-pink-300',
+    cardBgClass: 'bg-pink-100 dark:bg-pink-900/30',
   },
   {
     label: 'H',
@@ -120,6 +129,7 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-orange-700 dark:text-orange-300',
     badgeBgClass: 'bg-orange-100 dark:bg-orange-900/50',
     badgeTextClass: 'text-orange-700 dark:text-orange-300',
+    cardBgClass: 'bg-orange-100 dark:bg-orange-900/30',
   },
   {
     label: 'I',
@@ -132,6 +142,7 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-lime-700 dark:text-lime-300',
     badgeBgClass: 'bg-lime-100 dark:bg-lime-900/50',
     badgeTextClass: 'text-lime-700 dark:text-lime-300',
+    cardBgClass: 'bg-lime-100 dark:bg-lime-900/30',
   },
   {
     label: 'J',
@@ -144,6 +155,7 @@ export const RUN_SLOTS: RunSlot[] = [
     diffTextClass: 'text-indigo-700 dark:text-indigo-300',
     badgeBgClass: 'bg-indigo-100 dark:bg-indigo-900/50',
     badgeTextClass: 'text-indigo-700 dark:text-indigo-300',
+    cardBgClass: 'bg-indigo-100 dark:bg-indigo-900/30',
   },
 ]
 
