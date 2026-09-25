@@ -1168,13 +1168,13 @@ paths:
       tags: [admin]
       summary: List runs the indexer could not index
       description: |
-        Returns runs that storage exposes but the indexer gave up on, usually
-        because the run directory never got its `config.json`.
+        Returns runs that storage exposes but the indexer cannot index,
+        usually because the run directory never got its `config.json`.
 
         A run is only recorded once it is older than the indexer's failure
-        grace period, so a run still uploading never appears here. Past that
-        age the failure is final: the indexer never reads the run again, and
-        the record stands until the run's data is deleted or the run leaves
+        grace period, so a run still uploading never appears here. A recorded
+        run is skipped by later passes until the retry interval lapses, and
+        its record disappears on its own if the run later indexes or leaves
         storage.
 
         Newest run first. A neglected deployment holds thousands of these, so
@@ -1561,7 +1561,7 @@ components:
 
     IndexerFailure:
       type: object
-      required: [run_id, discovery_path, failed_at]
+      required: [run_id, discovery_path, attempts]
       properties:
         run_id:
           type: string
@@ -1579,12 +1579,17 @@ components:
             the ID does not follow the convention.
         error:
           type: string
-          description: Why the indexer gave up on the run.
+          description: The failure of the most recent attempt.
           example: config.json not found
-        failed_at:
+        attempts:
+          type: integer
+          description: How many indexing attempts have failed.
+        first_failed_at:
           type: string
           format: date-time
-          description: When the indexer gave up. There is only one attempt.
+        last_attempt_at:
+          type: string
+          format: date-time
         deletion_requested_at:
           type: string
           format: date-time

@@ -82,7 +82,9 @@ func TestHandleIndexerFailures_ListsAndPages(t *testing.T) {
 	assert.Equal(t, testFailureDiscoveryPath, first.DiscoveryPath)
 	assert.Equal(t, int64(300), first.RunTimestamp)
 	assert.Equal(t, "config.json not found", first.Error)
-	assert.NotEmpty(t, first.FailedAt)
+	assert.Equal(t, 1, first.Attempts)
+	assert.NotEmpty(t, first.FirstFailedAt)
+	assert.NotEmpty(t, first.LastAttemptAt)
 	assert.Empty(t, first.DeletionRequestedAt)
 
 	page := getIndexerFailures(t, s, "?limit=1&offset=1")

@@ -2296,6 +2296,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"api.indexing.interval",
 		"api.indexing.concurrency",
 		"api.indexing.failure_grace_period",
+		"api.indexing.failure_retry_interval",
 		"api.indexing.database.driver",
 		"api.indexing.database.sqlite.path",
 		// Builder settings

@@ -107,6 +107,7 @@ func TestIndexer_RecordsFailureOnlyAfterGracePeriod(t *testing.T) {
 	f := newIndexerFixture(t, Options{
 		Concurrency:  2,
 		FailureGrace: 6 * time.Hour,
+		FailureRetry: 24 * time.Hour,
 	})
 
 	fresh := f.addBrokenRun(10 * time.Minute)
@@ -118,40 +119,37 @@ func TestIndexer_RecordsFailureOnlyAfterGracePeriod(t *testing.T) {
 	require.Len(t, failures, 1, "only the old run earns a record")
 	assert.Equal(t, old, failures[0].RunID)
 	assert.Equal(t, testDiscoveryPath, failures[0].DiscoveryPath)
-	assert.Contains(t, failures[0].Reason, "config.json not found")
-	assert.False(t, failures[0].FailedAt.IsZero())
+	assert.Equal(t, 1, failures[0].Attempts)
+	assert.Contains(t, failures[0].LastError, "config.json not found")
 
 	for _, failure := range failures {
 		assert.NotEqual(t, fresh, failure.RunID)
 	}
 }
 
-// TestIndexer_NeverRetriesAFailedRun covers the rule that a run past the
-// grace period is failed for good: later passes do not read it from storage,
-// and a config.json that turns up afterwards does not bring it back. Deleting
-// the run's data is how an admin resolves it.
-func TestIndexer_NeverRetriesAFailedRun(t *testing.T) {
+// TestIndexer_SkipsRecordedFailures covers the retry interval: a recorded run
+// is not read from storage again until the interval lapses. Re-reading
+// thousands of broken runs every pass is what made a pass take half an hour.
+func TestIndexer_SkipsRecordedFailures(t *testing.T) {
 	f := newIndexerFixture(t, Options{
 		Concurrency:  2,
 		FailureGrace: time.Hour,
+		FailureRetry: 24 * time.Hour,
 	})
 
 	runID := f.addBrokenRun(8 * time.Hour)
 
 	f.pass()
+	require.Len(t, f.failures(), 1)
+
+	// The run is muted, so a second pass does not even attempt it.
+	f.pass()
 
 	failures := f.failures()
 	require.Len(t, failures, 1)
-	failedAt := failures[0].FailedAt
+	assert.Equal(t, 1, failures[0].Attempts, "a muted run is not retried")
 
-	// A second pass leaves the record exactly as it was.
-	f.pass()
-
-	failures = f.failures()
-	require.Len(t, failures, 1)
-	assert.Equal(t, failedAt.Unix(), failures[0].FailedAt.Unix())
-
-	// Even a run that heals stays failed.
+	// Healing it changes nothing while the record is still muted.
 	f.heal(runID)
 	f.pass()
 
@@ -162,12 +160,47 @@ func TestIndexer_NeverRetriesAFailedRun(t *testing.T) {
 	assert.Empty(t, runs)
 }
 
+// TestIndexer_RetriesAfterInterval covers the other half of the retry
+// interval: once it lapses, a run that healed is indexed and loses its record.
+func TestIndexer_RetriesAfterInterval(t *testing.T) {
+	f := newIndexerFixture(t, Options{
+		Concurrency: 2,
+		// No mute window, so every pass retries.
+		FailureGrace: time.Hour,
+		FailureRetry: 0,
+	})
+
+	runID := f.addBrokenRun(8 * time.Hour)
+
+	f.pass()
+	require.Len(t, f.failures(), 1)
+
+	// Still broken: the attempt count climbs, the record stays one row.
+	f.pass()
+
+	failures := f.failures()
+	require.Len(t, failures, 1)
+	assert.Equal(t, 2, failures[0].Attempts)
+
+	// The upload finally lands.
+	f.heal(runID)
+	f.pass()
+
+	assert.Empty(t, f.failures(), "an indexed run loses its record")
+
+	runs, err := f.store.ListRuns(context.Background(), testDiscoveryPath)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.Equal(t, runID, runs[0].RunID)
+}
+
 // TestIndexer_PrunesFailuresForRunsLeavingStorage covers the cleanup that
 // makes an admin deleting a failed run's data remove its record too.
 func TestIndexer_PrunesFailuresForRunsLeavingStorage(t *testing.T) {
 	f := newIndexerFixture(t, Options{
 		Concurrency:  2,
 		FailureGrace: time.Hour,
+		FailureRetry: 24 * time.Hour,
 	})
 
 	kept := f.addBrokenRun(8 * time.Hour)
@@ -191,6 +224,7 @@ func TestIndexer_HealthyRunNeverRecordsAFailure(t *testing.T) {
 	f := newIndexerFixture(t, Options{
 		Concurrency:  2,
 		FailureGrace: time.Hour,
+		FailureRetry: 24 * time.Hour,
 	})
 
 	runID := f.addBrokenRun(8 * time.Hour)

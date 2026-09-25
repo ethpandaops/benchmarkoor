@@ -793,12 +793,12 @@ function IndexerTab() {
   return (
     <div>
       <div className="mb-4 rounded-sm border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-400">
-        Runs that storage holds but the indexer gave up on, usually because the
+        Runs that storage holds but the indexer cannot index, usually because the
         run directory never got its <code className="font-mono text-xs">config.json</code>.
         A run is only recorded once it is old enough that an upload still in
-        flight is ruled out. Past that age the failure is final: the indexer
-        never reads the run again. Deleting one removes its files from storage;
-        the record goes once that succeeds.
+        flight is ruled out, and it is skipped by later passes until the retry
+        interval lapses. Deleting one removes its files from storage; the record
+        goes once that succeeds.
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -871,7 +871,8 @@ function IndexerTab() {
               <th className="px-4 py-2">Run time</th>
               <th className="px-4 py-2">Discovery path</th>
               <th className="px-4 py-2">Error</th>
-              <th className="px-4 py-2">Failed at</th>
+              <th className="px-4 py-2 text-right">Attempts</th>
+              <th className="px-4 py-2">Last attempt</th>
               <th className="px-4 py-2">Status</th>
             </tr>
           </thead>
@@ -886,7 +887,7 @@ function IndexerTab() {
             ))}
             {entries.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                <td colSpan={8} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
                   No failed runs. The indexer is keeping up.
                 </td>
               </tr>
@@ -955,8 +956,9 @@ function IndexerFailureRow({
       </td>
       <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{failure.discovery_path}</td>
       <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{failure.error || '-'}</td>
+      <td className="px-4 py-2 text-right text-gray-500 dark:text-gray-400">{failure.attempts}</td>
       <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400">
-        {formatTimestamp(failure.failed_at)}
+        {formatTimestamp(failure.last_attempt_at)}
       </td>
       <td className="px-4 py-2">
         {failure.deletion_error ? (
@@ -966,7 +968,7 @@ function IndexerFailureRow({
         ) : queued ? (
           <span className="text-xs text-amber-600 dark:text-amber-400">Queued for deletion</span>
         ) : (
-          <span className="text-xs text-gray-400 dark:text-gray-500">Failed</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">Recorded</span>
         )}
       </td>
     </tr>

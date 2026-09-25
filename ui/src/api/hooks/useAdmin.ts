@@ -181,19 +181,19 @@ export function useCancelDeleteRuns() {
   })
 }
 
-// Indexer failures. Runs storage holds that the indexer gave up on, usually
-// because the run directory never got its config.json. The API only records a
-// run once it is older than the indexer's grace period, so a run still
-// uploading never shows up here. Past that age the failure is final.
+// Indexer failures. Runs storage exposes that the indexer cannot index,
+// usually because the run directory never got its config.json. The API only
+// records a run once it is older than the indexer's grace period, so a run
+// still uploading never shows up here.
 export interface IndexerFailure {
   run_id: string
   discovery_path: string
   /** Unix seconds taken from the run ID. Absent on a malformed ID. */
   run_timestamp?: number
-  /** Why the indexer gave up on the run. */
   error?: string
-  /** When the indexer gave up. There is only one attempt. */
-  failed_at: string
+  attempts: number
+  first_failed_at: string
+  last_attempt_at: string
   /** Present while the run sits in the deletion queue. */
   deletion_requested_at?: string
   /** The last failed deletion attempt. The run stays queued and is retried. */

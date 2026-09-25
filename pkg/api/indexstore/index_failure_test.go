@@ -37,8 +37,8 @@ func TestRunIDTimestamp(t *testing.T) {
 	}
 }
 
-// TestStore_RecordIndexFailure covers the upsert: writing the same run twice
-// refreshes the reason without moving when the indexer gave up.
+// TestStore_RecordIndexFailure covers the upsert: a repeat failure bumps the
+// attempt count and refreshes the error without losing when it first broke.
 func TestStore_RecordIndexFailure(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
@@ -60,10 +60,11 @@ func TestStore_RecordIndexFailure(t *testing.T) {
 	assert.Equal(t, dp, first.DiscoveryPath)
 	assert.Equal(t, runID, first.RunID)
 	assert.Equal(t, int64(1790344061), first.RunTimestamp)
-	assert.Equal(t, "config.json not found", first.Reason)
-	assert.False(t, first.FailedAt.IsZero())
+	assert.Equal(t, "config.json not found", first.LastError)
+	assert.Equal(t, 1, first.Attempts)
+	assert.False(t, first.FirstFailedAt.IsZero())
 
-	// Writing the same run again is the same record, not a new one.
+	// A second failure is the same run, not a new record.
 	require.NoError(t, s.RecordIndexFailure(ctx, dp, runID, "still broken"))
 
 	failures, err = s.ListIndexFailures(ctx, 10, 0)
@@ -71,13 +72,14 @@ func TestStore_RecordIndexFailure(t *testing.T) {
 	require.Len(t, failures, 1)
 
 	second := failures[0]
-	assert.Equal(t, "still broken", second.Reason)
+	assert.Equal(t, 2, second.Attempts)
+	assert.Equal(t, "still broken", second.LastError)
 	assert.Equal(t,
-		first.FailedAt.Unix(), second.FailedAt.Unix(),
-		"failed_at must not move",
+		first.FirstFailedAt.Unix(), second.FirstFailedAt.Unix(),
+		"first_failed_at must survive a repeat",
 	)
 
-	// A run whose data is deleted loses its record.
+	// A run that heals loses its record.
 	require.NoError(t, s.ClearIndexFailure(ctx, dp, runID))
 
 	failures, err = s.ListIndexFailures(ctx, 10, 0)
@@ -136,7 +138,7 @@ func TestStore_ListIndexFailuresByPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, one, 1)
 	assert.Equal(t, "100_a_geth", one[0].RunID)
-	assert.False(t, one[0].FailedAt.IsZero())
+	assert.False(t, one[0].LastAttemptAt.IsZero())
 
 	none, err := s.ListIndexFailuresByPath(ctx, "dp/missing")
 	require.NoError(t, err)

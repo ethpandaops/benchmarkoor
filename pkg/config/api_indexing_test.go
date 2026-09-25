@@ -49,39 +49,48 @@ func writeConfig(t *testing.T, body string) string {
 	return path
 }
 
-// TestAPIIndexingConfig_GracePeriod covers the grace period falling back when
-// nothing usable sets it, including on a nil section.
-func TestAPIIndexingConfig_GracePeriod(t *testing.T) {
+// TestAPIIndexingConfig_Defaults covers the failure-housekeeping durations
+// falling back when nothing sets them, including on a nil section.
+func TestAPIIndexingConfig_Defaults(t *testing.T) {
 	var absent *config.APIIndexingConfig
 
 	assert.Equal(t, 6*time.Hour, absent.GetFailureGracePeriod())
+	assert.Equal(t, 24*time.Hour, absent.GetFailureRetryInterval())
 
 	tests := []struct {
 		name  string
 		cfg   config.APIIndexingConfig
 		grace time.Duration
+		retry time.Duration
 	}{
-		{name: "unset", cfg: config.APIIndexingConfig{}, grace: 6 * time.Hour},
+		{name: "unset", cfg: config.APIIndexingConfig{}, grace: 6 * time.Hour, retry: 24 * time.Hour},
 		{
-			name:  "set",
-			cfg:   config.APIIndexingConfig{FailureGracePeriod: "90m"},
+			name: "set",
+			cfg: config.APIIndexingConfig{
+				FailureGracePeriod:   "90m",
+				FailureRetryInterval: "3h",
+			},
 			grace: 90 * time.Minute,
+			retry: 3 * time.Hour,
 		},
 		{
 			name:  "malformed falls back",
 			cfg:   config.APIIndexingConfig{FailureGracePeriod: "not-a-duration"},
 			grace: 6 * time.Hour,
+			retry: 24 * time.Hour,
 		},
 		{
 			name:  "zero falls back",
-			cfg:   config.APIIndexingConfig{FailureGracePeriod: "0s"},
+			cfg:   config.APIIndexingConfig{FailureRetryInterval: "0s"},
 			grace: 6 * time.Hour,
+			retry: 24 * time.Hour,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.grace, tt.cfg.GetFailureGracePeriod())
+			assert.Equal(t, tt.retry, tt.cfg.GetFailureRetryInterval())
 		})
 	}
 }
@@ -97,8 +106,9 @@ func TestAPIIndexingConfig_EnvOverrides(t *testing.T) {
 		assert.Nil(t, cfg.API.Indexing)
 	})
 
-	t.Run("env overrides the grace period", func(t *testing.T) {
+	t.Run("env overrides the durations", func(t *testing.T) {
 		t.Setenv("BENCHMARKOOR_API_INDEXING_FAILURE_GRACE_PERIOD", "2h")
+		t.Setenv("BENCHMARKOOR_API_INDEXING_FAILURE_RETRY_INTERVAL", "48h")
 
 		cfg, err := config.Load(
 			writeConfig(t, minimalAPIConfig+indexingSection),
@@ -106,5 +116,6 @@ func TestAPIIndexingConfig_EnvOverrides(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, cfg.API.Indexing)
 		assert.Equal(t, 2*time.Hour, cfg.API.Indexing.GetFailureGracePeriod())
+		assert.Equal(t, 48*time.Hour, cfg.API.Indexing.GetFailureRetryInterval())
 	})
 }
