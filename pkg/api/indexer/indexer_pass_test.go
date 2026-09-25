@@ -109,7 +109,7 @@ func TestIndexer_RecordsManualTrigger(t *testing.T) {
 		FailureGrace: time.Hour,
 		FailureRetry: time.Hour,
 	})
-	f.idx.ctx = context.Background()
+	f.idx.setLifecycle(context.Background())
 
 	require.True(t, f.idx.RunNow())
 
@@ -188,7 +188,7 @@ func TestIndexer_ReportsRunningPass(t *testing.T) {
 	).(*indexer)
 	require.True(t, ok)
 
-	idx.ctx = context.Background()
+	idx.setLifecycle(context.Background())
 
 	assert.False(t, idx.State().Running, "idle before anything starts")
 
@@ -230,10 +230,47 @@ func TestIndexer_RunNowBeforeStart(t *testing.T) {
 		FailureRetry: time.Hour,
 	})
 
-	require.Nil(t, f.idx.ctx, "Start has not run")
+	require.Nil(t, f.idx.lifecycle.Load(), "Start has not run")
 	require.True(t, f.idx.RunNow())
 
 	require.Eventually(t, func() bool {
 		return len(f.passes()) == 1
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// TestIndexer_RunNowDuringStart covers the same window from the other side.
+// Start publishes the lifecycle context while HTTP handlers can already call
+// RunNow, so the two must not touch it through a plain field. Run this one
+// with -race: that is the failure it is here to catch.
+func TestIndexer_RunNowDuringStart(t *testing.T) {
+	f := newIndexerFixture(t, Options{
+		Concurrency:  1,
+		Interval:     time.Hour,
+		FailureGrace: time.Hour,
+		FailureRetry: time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var (
+		wg       sync.WaitGroup
+		startErr error
+	)
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		startErr = f.idx.Start(ctx)
+	}()
+
+	for range 200 {
+		f.idx.RunNow()
+	}
+
+	wg.Wait()
+	require.NoError(t, startErr)
+	require.NoError(t, f.idx.Stop())
 }

@@ -62,6 +62,17 @@ type currentPass struct {
 	trigger   string
 }
 
+// lifecycleCtx carries the context Start was given, so a pass RunNow starts
+// outlives the request that asked for it.
+//
+// It travels through an atomic rather than a plain field because Start writes
+// it while the HTTP server is already serving: RunNow reads it from a handler
+// goroutine, and an unsynchronised read is a data race whatever value it
+// happens to land on.
+type lifecycleCtx struct {
+	ctx context.Context
+}
+
 // Compile-time interface check.
 var _ Indexer = (*indexer)(nil)
 
@@ -92,10 +103,11 @@ type indexer struct {
 	reader           storage.Reader
 	opts             Options
 	onLiveRunIndexed func(runID string)
-	ctx              context.Context // lifecycle context set by Start
-	done             chan struct{}
-	wg               sync.WaitGroup
-	running          atomic.Bool // prevents overlapping indexing passes
+	// lifecycle carries the context Start was given. See the type.
+	lifecycle atomic.Pointer[lifecycleCtx]
+	done      chan struct{}
+	wg        sync.WaitGroup
+	running   atomic.Bool // prevents overlapping indexing passes
 	// current describes the pass running right now, nil when none is. It is
 	// claimed a moment after running, so a State read caught in between says
 	// a pass is running without saying since when.
@@ -133,7 +145,7 @@ func NewIndexer(
 // pass and then ticks at the configured interval. The first pass is
 // asynchronous so the caller (the API server) is not blocked.
 func (idx *indexer) Start(ctx context.Context) error {
-	idx.ctx = ctx
+	idx.setLifecycle(ctx)
 
 	idx.log.WithFields(logrus.Fields{
 		"interval":      idx.opts.Interval.String(),
@@ -188,14 +200,7 @@ func (idx *indexer) RunNow() bool {
 		return false
 	}
 
-	// Start sets the lifecycle context, and the HTTP server is listening
-	// before it does. A pass triggered in that window has no context yet, and
-	// a nil one would panic in a background goroutine, taking the process
-	// with it.
-	ctx := idx.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx := idx.lifecycleContext()
 
 	idx.wg.Add(1)
 
@@ -206,6 +211,23 @@ func (idx *indexer) RunNow() bool {
 	}()
 
 	return true
+}
+
+// setLifecycle publishes the context passes run under.
+func (idx *indexer) setLifecycle(ctx context.Context) {
+	idx.lifecycle.Store(&lifecycleCtx{ctx: ctx})
+}
+
+// lifecycleContext returns the context Start published. The HTTP server
+// listens before Start runs, so a pass triggered in that window gets a
+// background context: a nil one would panic in the pass goroutine and take
+// the process with it.
+func (idx *indexer) lifecycleContext() context.Context {
+	if life := idx.lifecycle.Load(); life != nil {
+		return life.ctx
+	}
+
+	return context.Background()
 }
 
 // State reports what the index store cannot: whether a pass is in flight,
