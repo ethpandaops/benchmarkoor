@@ -12,11 +12,12 @@
 # ./bin/benchmarkoor run --config examples/configuration/config.state-actor-eest.simple.amsterdam.stateful.yaml --limit-instance-id=besu
 #
 # Each client activates amsterdam on the osaka snapshot one of three ways:
-#   - geth, erigon:        CLI fork override (--override.amsterdam=<ts>)
-#   - besu, reth, ethrex:  genesis_fork_override (benchmarkoor sets <fork>Time in
-#                          the geth-format genesis at boot)
-#   - nethermind:          genesis_eip_override (benchmarkoor sets the amsterdam
-#                          EIPs' eip<N>TransitionTimestamp in the parity chainspec)
+#   - geth, erigon:                CLI fork override (--override.amsterdam=<ts>)
+#   - besu, reth, ethrex, nimbus:  genesis_fork_override (benchmarkoor sets
+#                                  <fork>Time in the geth-format genesis at boot)
+#   - nethermind:                  genesis_eip_override (benchmarkoor sets the
+#                                  amsterdam EIPs' eip<N>TransitionTimestamp in
+#                                  the parity chainspec)
 # Snapshot block 0's timestamp is 0, so amsterdam is scheduled at ts 1.
 #
 global:
@@ -39,6 +40,7 @@ builder:
       nethermind: ghcr.io/ethereum/state-actor-nethermind:main
       ethrex: ghcr.io/ethereum/state-actor-ethrex:main
       erigon: ghcr.io/ethereum/state-actor-erigon:main
+      # nimbus: ghcr.io/ethereum/state-actor-nimbus:main
     pull_policy: always
     config:
       seed: 1234
@@ -83,6 +85,8 @@ builder:
         output_dir: ${STATE_DIR}/ethrex
       - client: erigon
         output_dir: ${STATE_DIR}/erigon
+      # - client: nimbus   # rejects the bal-devnet-7 fixtures (nimbus master tracks glamsterdam-devnet-8)
+      #   output_dir: ${STATE_DIR}/nimbus
 
   ## Stage 2: Building EEST stateful (EIP-7928 / BAL) fixtures
   eest_payloads:
@@ -174,10 +178,11 @@ runner:
         nethermind: ${STATE_DIR}/nethermind/parity-chainspec.json
         #geth: ${STATE_DIR}/geth/geth-genesis.json
         reth:  ${STATE_DIR}/reth/chainspec.json
-        # besu/reth/ethrex have no --override.amsterdam flag — they read forks
-        # from the genesis. benchmarkoor patches it for them at boot via the
-        # per-instance genesis_fork_override below (sets amsterdamTime + inherits
-        # the amsterdam blobSchedule), so the osaka chainspec is used as-is.
+        # besu/reth/ethrex/nimbus have no --override.amsterdam flag — they read
+        # forks from the genesis. benchmarkoor patches it for them at boot via
+        # the per-instance genesis_fork_override below (sets amsterdamTime +
+        # inherits the amsterdam blobSchedule), so the osaka chainspec is used
+        # as-is.
         besu: ${STATE_DIR}/besu/besu-chainspec.json
         ethrex: ${STATE_DIR}/ethrex/ethrex-genesis.json
         # erigon consumes a geth-format genesis via its init container. Filename
@@ -186,6 +191,7 @@ runner:
         # erigon image.
         erigon: ${STATE_DIR}/erigon/chainspec.json
         #erigon: ${STATE_DIR}/geth/geth-genesis.json
+        # nimbus: ${STATE_DIR}/nimbus/nimbus-genesis.json
 
     datadirs:
       geth:
@@ -206,6 +212,9 @@ runner:
       erigon:
         source_dir: ${STATE_DIR}/erigon
         method: copy
+      # nimbus:
+      #   source_dir: ${STATE_DIR}/nimbus
+      #   method: copy
 
   instances:
     - id: geth
@@ -324,3 +333,21 @@ runner:
         enabled: true
         max_retries: 120
         backoff: 30s
+    # nimbus rejects the bal-devnet-7 fixtures: nimbus master tracks glamsterdam-devnet-8
+    # (EIP-2780, the EIP-8038 repricing, and the EIP-8282 predeploys this snapshot lacks).
+    # - id: nimbus
+    #   client: nimbus
+    #   # state-actor writes nimbus's current Aristo on-disk format, which only
+    #   # nimbus-eth1 master builds from commit 2f0ae87 onwards read (no tagged
+    #   # release does yet), so track master.
+    #   image: statusim/nimbus-eth1:master
+    #   # nimbus reads forks from its genesis (--network), so patch amsterdam in
+    #   # at boot.
+    #   genesis_fork_override:
+    #     amsterdam: 1
+    #   extra_args:
+    #     # --debug-rewrite-datadir-id: nimbus rebuilds genesis from --network's alloc
+    #     # and refuses a datadir whose block-0 hash differs. The emitted
+    #     # nimbus-genesis.json has an empty alloc (the state lives in the snapshot),
+    #     # so skip that check (the analogue of ethrex's --skip-genesis-validation).
+    #     - --debug-rewrite-datadir-id

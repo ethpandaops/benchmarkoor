@@ -20,9 +20,9 @@ var blobForkOrder = []string{"cancun", "prague", "osaka", "amsterdam"}
 // ApplyForkOverrides patches a geth-format genesis JSON so the given forks
 // activate at the given timestamps (fork name → unix-seconds). It is the
 // genesis-file equivalent of geth's --override.<fork> flag, for clients that
-// read their fork schedule from the genesis (besu, reth, ethrex). For each fork
-// it sets config.<fork>Time and, when a blobSchedule is present but lacks the
-// fork, inherits the latest preceding fork's blob parameters.
+// read their fork schedule from the genesis (besu, reth, ethrex, nimbus). For
+// each fork it sets config.<fork>Time and, when a blobSchedule is present but
+// lacks the fork, inherits the latest preceding fork's blob parameters.
 //
 // Only the top-level "config" object is rewritten; every other field round-trips
 // verbatim and existing numbers are preserved exactly (so the genesis block hash

@@ -282,8 +282,7 @@ func (s *StateActorConfig) ImageFor(client string) string {
 }
 
 // stateActorSupportedClients lists the clients state-actor itself can
-// materialise datadirs for. Nimbus is intentionally absent (state-actor
-// does not implement a writer for it).
+// materialise datadirs for.
 var stateActorSupportedClients = map[string]struct{}{
 	"geth":       {},
 	"reth":       {},
@@ -291,6 +290,7 @@ var stateActorSupportedClients = map[string]struct{}{
 	"nethermind": {},
 	"ethrex":     {},
 	"erigon":     {},
+	"nimbus":     {},
 }
 
 // stateActorValidPullPolicies mirrors the pull-policy vocabulary used by
@@ -454,7 +454,7 @@ type EESTPayloadTarget struct {
 	// GenesisForkOverride / GenesisEIPOverride patch the Genesis at filler boot
 	// to activate a fork the file doesn't schedule (e.g. amsterdam on an osaka
 	// snapshot), identically to the runner. GenesisForkOverride sets
-	// config.<fork>Time in a geth-format genesis (besu/reth/ethrex);
+	// config.<fork>Time in a geth-format genesis (besu/reth/ethrex/nimbus);
 	// GenesisEIPOverride sets params.eip<N>TransitionTimestamp in a parity
 	// chainspec (nethermind).
 	GenesisForkOverride map[string]uint64   `yaml:"genesis_fork_override,omitempty" mapstructure:"genesis_fork_override"`
@@ -2807,7 +2807,7 @@ func (c *Config) validateStateActor() error {
 		if _, ok := stateActorSupportedClients[t.Client]; !ok {
 			return fmt.Errorf(
 				"%s.client: %q is not supported by state-actor "+
-					"(must be geth, reth, besu, nethermind, ethrex, or erigon)",
+					"(must be geth, reth, besu, nethermind, ethrex, erigon, or nimbus)",
 				prefix, t.Client,
 			)
 		}

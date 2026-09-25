@@ -647,8 +647,9 @@ func (b *PreRunsBuilder) bootFiller(
 
 	et := preRunToEESTTarget(t, bootDir, fixturesDir)
 
-	// genesis_fork_override / genesis_eip_override patch the boot genesis before
-	// the filler mounts it (besu/reth/ethrex/nethermind) — identical to eest.
+	// genesis_fork_override / genesis_eip_override patch the boot genesis
+	// before the filler mounts it (besu/reth/ethrex/nimbus/nethermind) —
+	// identical to eest.
 	if len(et.GenesisForkOverride) > 0 ||
 		(et.GenesisEIPOverride != nil && len(et.GenesisEIPOverride.EIPs) > 0) {
 		patched, cleanup, perr := patchFillerGenesis(log, et)
@@ -699,7 +700,7 @@ func (b *PreRunsBuilder) bootFiller(
 
 	// Fill targets boot with the fill-stateful command (testing namespace);
 	// replay targets boot with the client's standard runner command, which is
-	// correct for non-filler clients (reth/ethrex) too.
+	// correct for non-filler clients (reth/ethrex/nimbus) too.
 	cmd := fillerCommand(et, spec)
 	if replay {
 		cmd = fillerReplayCommand(et, spec)
@@ -764,8 +765,8 @@ func (b *PreRunsBuilder) bootFiller(
 // runReplay advances t.OutputDir by replaying a recorded bundle onto a booted
 // t.FillerClient, instead of running the fill. The bundle is resolved from
 // t.ReplayFrom (another target's output, or a .request / pre_run_bundle path).
-// This works for non-filler clients (reth/ethrex) since replay uses only the
-// engine API.
+// This works for non-filler clients (reth/ethrex/nimbus) since replay uses
+// only the engine API.
 func (b *PreRunsBuilder) runReplay(ctx context.Context, log logrus.FieldLogger, t *config.PreRunTarget) error {
 	log.WithFields(logrus.Fields{
 		"filler_client": t.FillerClient,

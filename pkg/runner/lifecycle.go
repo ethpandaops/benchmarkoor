@@ -237,7 +237,7 @@ func (r *runner) runContainerLifecycle(
 
 	// Apply per-instance genesis fork-time overrides (the genesis-file
 	// equivalent of geth's --override.<fork> for clients that read forks from
-	// the genesis, e.g. besu/reth/ethrex).
+	// the genesis, e.g. besu/reth/ethrex/nimbus).
 	if len(instance.GenesisForkOverride) > 0 {
 		if len(genesisContent) == 0 {
 			return fmt.Errorf(

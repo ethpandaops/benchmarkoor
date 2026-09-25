@@ -500,12 +500,12 @@ func (b *EESTPayloadsBuilder) run(ctx context.Context, log logrus.FieldLogger, t
 		}
 	}()
 
-	// genesis_fork_override / genesis_eip_override patch the boot genesis before
-	// the filler mounts it, to activate a fork the file doesn't schedule (e.g.
-	// amsterdam on an osaka snapshot) — identical to the runner. Used by fillers
-	// that read forks from the genesis (besu/reth/ethrex/nethermind). geth/erigon
-	// boot from the datadir and instead activate forks via --override.<fork> in
-	// filler_extra_args.
+	// genesis_fork_override / genesis_eip_override patch the boot genesis
+	// before the filler mounts it, to activate a fork the file doesn't schedule
+	// (e.g. amsterdam on an osaka snapshot) — identical to the runner. Used by
+	// fillers that read forks from the genesis
+	// (besu/reth/ethrex/nimbus/nethermind). geth/erigon boot from the datadir
+	// and instead activate forks via --override.<fork> in filler_extra_args.
 	if len(t.GenesisForkOverride) > 0 ||
 		(t.GenesisEIPOverride != nil && len(t.GenesisEIPOverride.EIPs) > 0) {
 		patched, cleanup, perr := patchFillerGenesis(log, t)
@@ -1102,7 +1102,7 @@ func fillerCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
 // only the engine API (newPayload/forkchoiceUpdated), not fill-stateful's
 // testing namespace, so it uses the client's standard runner command
 // (spec.DefaultCommand — correct for every client, incl. non-fillers like
-// reth/ethrex) plus the genesis chain flag and any filler_extra_args.
+// reth/ethrex/nimbus) plus the genesis chain flag and any filler_extra_args.
 func fillerReplayCommand(t *config.EESTPayloadTarget, spec client.Spec) []string {
 	args := spec.DefaultCommand()
 

@@ -164,10 +164,10 @@ type PreRunTarget struct {
 	// (gas-bump + funding + fill-stateful), it boots FillerClient on a copy of
 	// SourceDir and replays a recorded .request bundle onto it, so OutputDir
 	// becomes the advanced datadir. This works for non-filler clients
-	// (reth/ethrex) too, since replay needs only the engine API. It resolves two
-	// ways: a declared non-replay pre_runs target name (replays that target's
-	// output_dir/pre_run_bundle bundle) or an absolute path to a .request file or
-	// a pre_run_bundle directory.
+	// (reth/ethrex/nimbus) too, since replay needs only the engine API. It
+	// resolves two ways: a declared non-replay pre_runs target name (replays
+	// that target's output_dir/pre_run_bundle bundle) or an absolute path to a
+	// .request file or a pre_run_bundle directory.
 	ReplayFrom string `yaml:"replay_from,omitempty" mapstructure:"replay_from"`
 
 	// Hoistable fields (mirror PreRunDefaults).
