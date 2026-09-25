@@ -367,7 +367,7 @@ Per-table byte sizes are **not** reported. The SQLite build used here has no `db
 
 The indexer writes a row when a pass ends, and `GET /admin/indexer/stats` returns the most recent ones, newest first. It backs the charts under **Admin → Indexer**, which is where a pass getting slower shows up before it gets slow enough to notice.
 
-Each row carries how long the pass took, what started it (`startup`, `schedule` or `manual`), and what it did: runs added, incomplete runs read again, runs it could not index, and runs it skipped because their failure record is still muted. It also carries what storage held and how much of that the index already had, so the backlog a pass started with is visible. A pass a shutdown cut short has status `cancelled`, and its counters cover only the discovery paths it reached.
+Each row carries how long the pass took, what started it (`startup`, `schedule` or `manual`), and what it did: runs added, incomplete runs read again, runs it could not index, and runs it skipped because their failure record is still muted. It also carries what storage held and how much of that the index already had, so the backlog a pass started with is visible. A pass a shutdown cut short has status `cancelled`, whether the shutdown landed between two discovery paths or inside one, and its counters cover only the work it got through. Runs whose reads the shutdown cancelled are left out of `runs_failed` and earn no failure record, because the shutdown says nothing about the run.
 
 The table keeps the last 500 passes. A deployment on a one-minute interval writes a row a minute, so the oldest rows are pruned on every write.
 

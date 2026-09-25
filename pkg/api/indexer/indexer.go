@@ -305,6 +305,16 @@ func (idx *indexer) runPassInner(ctx context.Context, trigger string) {
 		stats.addTo(pass)
 	}
 
+	// The check above only sees a shutdown that lands between two paths. One
+	// that lands inside a path — the usual case, since most deployments have
+	// one — leaves the loop with nothing left to visit and the status still
+	// saying the pass ran to the end. The cost of settling it here is a pass
+	// that finished everything in the instant before a shutdown, and reads as
+	// cancelled; that is the right way round.
+	if idx.stopping(ctx) {
+		pass.Status = indexstore.IndexerPassStatusCancelled
+	}
+
 	pass.FinishedAt = time.Now().UTC()
 	pass.DurationMs = pass.FinishedAt.Sub(pass.StartedAt).Milliseconds()
 
@@ -500,6 +510,14 @@ func (idx *indexer) indexDiscoveryPath(
 			if err := idx.indexRun(
 				gCtx, dp, task.runID, task.alreadyIndexed,
 			); err != nil {
+				// The shutdown cancelled the reads, so the failure says
+				// nothing about the run. Counting it would blame the run for
+				// the shutdown, and recording it would be a write on a
+				// context that is already dead.
+				if gCtx.Err() != nil {
+					return nil //nolint:nilerr // the pass is going down
+				}
+
 				stats.failed.Add(1)
 
 				idx.handleIndexFailure(

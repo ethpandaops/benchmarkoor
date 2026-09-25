@@ -127,6 +127,29 @@ func TestIndexer_RecordsManualTrigger(t *testing.T) {
 	assert.Equal(t, time.Minute, state.Interval)
 }
 
+// newReaderIndexer wires an indexer to a stub reader and an in-memory store,
+// for the tests that need to hold a pass open.
+func newReaderIndexer(
+	t *testing.T, reader storage.Reader, opts Options,
+) (*indexer, indexstore.Store) {
+	t.Helper()
+
+	log := logrus.New()
+	log.SetLevel(logrus.ErrorLevel)
+
+	store := indexstore.NewStore(log, &config.APIDatabaseConfig{
+		Driver: "sqlite",
+		SQLite: config.SQLiteDatabaseConfig{Path: ":memory:"},
+	})
+	require.NoError(t, store.Start(context.Background()))
+	t.Cleanup(func() { _ = store.Stop() })
+
+	idx, ok := NewIndexer(log, store, reader, opts, nil).(*indexer)
+	require.True(t, ok)
+
+	return idx, store
+}
+
 // blockingReader holds the pass inside its first storage call until it is
 // released, so a test can look at the indexer while a pass is in flight.
 type blockingReader struct {
@@ -171,22 +194,8 @@ func (r *blockingReader) GetSuiteFile(
 // "Run Indexer" button honest: while a pass is in flight the indexer says so,
 // says since when, and refuses to start a second one.
 func TestIndexer_ReportsRunningPass(t *testing.T) {
-	log := logrus.New()
-	log.SetLevel(logrus.ErrorLevel)
-
-	store := indexstore.NewStore(log, &config.APIDatabaseConfig{
-		Driver: "sqlite",
-		SQLite: config.SQLiteDatabaseConfig{Path: ":memory:"},
-	})
-	require.NoError(t, store.Start(context.Background()))
-	t.Cleanup(func() { _ = store.Stop() })
-
 	reader := newBlockingReader()
-
-	idx, ok := NewIndexer(
-		log, store, reader, Options{Interval: 2 * time.Minute}, nil,
-	).(*indexer)
-	require.True(t, ok)
+	idx, _ := newReaderIndexer(t, reader, Options{Interval: 2 * time.Minute})
 
 	idx.setLifecycle(context.Background())
 
@@ -273,4 +282,95 @@ func TestIndexer_RunNowDuringStart(t *testing.T) {
 	wg.Wait()
 	require.NoError(t, startErr)
 	require.NoError(t, f.idx.Stop())
+}
+
+// hangingReader lists one run and then hangs reading its files until the
+// context is cancelled. It is the shape of a shutdown landing in the middle
+// of a run, rather than between two discovery paths.
+type hangingReader struct {
+	entered chan struct{}
+	once    sync.Once
+}
+
+var _ storage.Reader = (*hangingReader)(nil)
+
+func newHangingReader() *hangingReader {
+	return &hangingReader{entered: make(chan struct{})}
+}
+
+func (r *hangingReader) DiscoveryPaths() []string { return []string{"dp"} }
+
+func (r *hangingReader) ListRunIDs(
+	_ context.Context, _ string,
+) ([]string, error) {
+	return []string{"1700000000_abcd0001_geth"}, nil
+}
+
+func (r *hangingReader) GetRunFile(
+	ctx context.Context, _, _, _ string,
+) ([]byte, error) {
+	r.once.Do(func() { close(r.entered) })
+	<-ctx.Done()
+
+	return nil, ctx.Err()
+}
+
+func (r *hangingReader) GetSuiteFile(
+	_ context.Context, _, _, _ string,
+) ([]byte, error) {
+	return nil, nil
+}
+
+// TestIndexer_RecordsPassCancelledMidPath covers the shutdown that lands
+// inside a discovery path rather than between two. The pass has no path left
+// to visit afterwards, so nothing before the loop catches it: the row has to
+// say cancelled, and the runs whose reads the shutdown cancelled must not be
+// counted against the pass as failures.
+func TestIndexer_RecordsPassCancelledMidPath(t *testing.T) {
+	reader := newHangingReader()
+	idx, store := newReaderIndexer(t, reader, Options{
+		Interval: time.Hour,
+		// Old enough to earn a failure record, were the failure real.
+		FailureGrace: time.Minute,
+		FailureRetry: time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	idx.setLifecycle(ctx)
+	require.True(t, idx.RunNow())
+
+	select {
+	case <-reader.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pass never reached the run")
+	}
+
+	// The shutdown lands while the run is being read.
+	cancel()
+
+	var passes []indexstore.IndexerPass
+
+	require.Eventually(t, func() bool {
+		var err error
+		passes, err = store.ListIndexerPasses(context.Background(), 10)
+
+		return err == nil && len(passes) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+
+	assert.Equal(
+		t, indexstore.IndexerPassStatusCancelled, passes[0].Status,
+		"a pass a shutdown cut short is not a completed pass",
+	)
+	assert.Equal(
+		t, 0, passes[0].RunsFailed,
+		"a read the shutdown cancelled is not the run's failure",
+	)
+	assert.Equal(t, 0, passes[0].RunsIndexed)
+
+	// The run keeps a clean sheet too: it was never given a fair attempt.
+	failures, err := store.ListIndexFailures(context.Background(), 10, 0)
+	require.NoError(t, err)
+	assert.Empty(t, failures)
 }

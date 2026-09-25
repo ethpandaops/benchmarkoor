@@ -1174,8 +1174,9 @@ paths:
 
         The indexer writes a row when a pass ends and keeps the last few
         hundred, so `limit` above that returns everything there is. A pass
-        with status `cancelled` was cut short by a shutdown, and its counters
-        describe only the discovery paths it reached.
+        with status `cancelled` was cut short by a shutdown, either between
+        two discovery paths or inside one, so its counters describe only the
+        work it got through.
 
         A pass in flight has no row yet: it is reported by `running` and
         `current_pass`, which carries when it started and how long it has
@@ -1802,8 +1803,11 @@ components:
           type: string
           enum: [completed, cancelled]
           description: |
-            How the pass ended. A cancelled pass was cut short by a shutdown,
-            so its counters cover only the discovery paths it reached.
+            How the pass ended. A shutdown cut a cancelled pass short, either
+            between two discovery paths or inside one, so its counters cover
+            only the work it got through. Runs whose reads the shutdown
+            cancelled are not counted in `runs_failed`: the shutdown is not
+            the run's fault.
         discovery_paths:
           type: integer
           description: How many discovery paths the pass walked.

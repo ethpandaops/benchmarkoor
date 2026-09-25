@@ -14,8 +14,9 @@ const (
 	IndexerPassTriggerManual   = "manual"
 )
 
-// How a pass ended. A cancelled pass was cut short by a shutdown, so its
-// counters describe only the discovery paths it reached.
+// How a pass ended. A shutdown cut a cancelled pass short, either between
+// two discovery paths or inside one, so its counters describe only the work
+// it got through.
 const (
 	IndexerPassStatusCompleted = "completed"
 	IndexerPassStatusCancelled = "cancelled"

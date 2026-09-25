@@ -161,7 +161,7 @@ export interface IndexerPass {
   trigger: string
   /**
    * How the pass ended: "completed", or "cancelled" for one a shutdown cut
-   * short, whose counters cover only the paths it reached.
+   * short, whose counters cover only the work it got through.
    */
   status: string
   discovery_paths: number
