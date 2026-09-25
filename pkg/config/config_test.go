@@ -2156,6 +2156,58 @@ func TestGetCheckpointTmpfsThreshold(t *testing.T) {
 	}
 }
 
+func TestGetCheckpointRestoreInPlace(t *testing.T) {
+	tests := []struct {
+		name     string
+		global   *CheckpointRestoreStrategyOptions
+		instance *CheckpointRestoreStrategyOptions
+		expected bool
+	}{
+		{
+			name:     "no options defaults to false",
+			global:   nil,
+			instance: nil,
+			expected: false,
+		},
+		{
+			name:     "global enabled, no instance options inherits global",
+			global:   &CheckpointRestoreStrategyOptions{RestoreInPlace: true},
+			instance: nil,
+			expected: true,
+		},
+		{
+			name:     "instance options replace global entirely",
+			global:   &CheckpointRestoreStrategyOptions{RestoreInPlace: true},
+			instance: &CheckpointRestoreStrategyOptions{TmpfsThreshold: "4g"},
+			expected: false,
+		},
+		{
+			name:     "instance enabled",
+			global:   nil,
+			instance: &CheckpointRestoreStrategyOptions{RestoreInPlace: true},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Runner: RunnerConfig{
+					Client: ClientConfig{
+						Config: ClientDefaults{
+							CheckpointRestoreStrategyOptions: tt.global,
+						},
+					},
+				},
+			}
+			instance := &ClientInstance{
+				CheckpointRestoreStrategyOptions: tt.instance,
+			}
+			assert.Equal(t, tt.expected, cfg.GetCheckpointRestoreInPlace(instance))
+		})
+	}
+}
+
 // createTestTarball creates a minimal .tar.gz file at the given path for testing.
 func createTestTarball(t *testing.T, path string) {
 	t.Helper()
