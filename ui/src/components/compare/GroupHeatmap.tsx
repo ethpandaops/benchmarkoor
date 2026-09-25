@@ -23,6 +23,7 @@ import {
   thresholdStepRange,
 } from '@/utils/perfThreshold'
 import { formatDuration } from '@/utils/format'
+import { positionTooltip } from '@/utils/tooltipPosition'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import { type HeatmapColorModel, baselineRatio, formatRatio, heatmapColor } from './heatmapColor'
 
@@ -216,13 +217,12 @@ export function GroupHeatmap({
   useLayoutEffect(() => {
     const el = tooltipRef.current
     if (!tooltip || !el) return
-    const margin = 8
     const { width, height } = el.getBoundingClientRect()
-    const { anchor } = tooltip
-    const left = Math.max(margin, Math.min(window.innerWidth - width - margin, anchor.left + anchor.width / 2 - width / 2))
-    // Above the tile, or below it when the top of the viewport is too close.
-    let top = anchor.top - margin - height
-    if (top < margin) top = anchor.bottom + margin
+    const { left, top } = positionTooltip(
+      tooltip.anchor,
+      { width, height },
+      { width: window.innerWidth, height: window.innerHeight },
+    )
     el.style.left = `${left}px`
     el.style.top = `${top}px`
     el.style.visibility = 'visible'
