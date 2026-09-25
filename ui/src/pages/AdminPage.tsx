@@ -872,11 +872,13 @@ function DatabaseStorage({ stats, gatheredAt }: { stats: DatabaseStats; gathered
 
 function DatabaseTables({ stats }: { stats: DatabaseStats }) {
   const totalRows = stats.tables.reduce((sum, table) => sum + table.rows, 0)
+  const anyEstimated = stats.tables.some((table) => table.estimated)
 
   return (
     <section>
       <h2 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
-        Tables · {formatNumber(totalRows)} rows
+        Tables · {anyEstimated && '~'}
+        {formatNumber(totalRows)} rows
       </h2>
       <div className="overflow-hidden rounded-sm border border-gray-200 dark:border-gray-700">
         <table className="w-full text-left text-sm">
@@ -894,6 +896,7 @@ function DatabaseTables({ stats }: { stats: DatabaseStats }) {
                   {table.name}
                 </td>
                 <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">
+                  {table.estimated && '~'}
                   {formatNumber(table.rows)}
                 </td>
                 <td className="px-4 py-2 text-right text-gray-500 dark:text-gray-400">
@@ -905,6 +908,12 @@ function DatabaseTables({ stats }: { stats: DatabaseStats }) {
         </table>
       </div>
       <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+        {anyEstimated && (
+          <>
+            A count with ~ is the primary-key span, not a full count. These tables are too large
+            to count on each request, and the span is an upper bound.{' '}
+          </>
+        )}
         Byte sizes per table are not shown: this build of SQLite has no{' '}
         <code className="font-mono">dbstat</code> table, and an estimate would be worse than
         leaving it out.
@@ -928,8 +937,7 @@ function DatabaseSuites({ stats }: { stats: DatabaseStats }) {
               <th className="px-4 py-2">Suite</th>
               <th className="px-4 py-2">Discovery path</th>
               <th className="px-4 py-2 text-right">Runs</th>
-              <th className="px-4 py-2 text-right">Test stats</th>
-              <th className="px-4 py-2 text-right">Block logs</th>
+              <th className="px-4 py-2 text-right">Tests</th>
               <th className="px-4 py-2">Last run</th>
             </tr>
           </thead>
@@ -957,10 +965,7 @@ function DatabaseSuites({ stats }: { stats: DatabaseStats }) {
                   {formatNumber(suite.runs)}
                 </td>
                 <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">
-                  {formatNumber(suite.test_stats)}
-                </td>
-                <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">
-                  {formatNumber(suite.block_logs)}
+                  {formatNumber(suite.tests)}
                 </td>
                 <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400">
                   {suite.last_run
@@ -977,7 +982,8 @@ function DatabaseSuites({ stats }: { stats: DatabaseStats }) {
         <Link to="/suites" className="text-blue-600 hover:underline dark:text-blue-400">
           Suites page
         </Link>{' '}
-        removes its stored files and every row above.
+        removes its stored files, its runs, and all of its test rows. Tests is the sum of each
+        run&apos;s test count, which is about the number of test_stats rows it frees.
       </p>
     </section>
   )

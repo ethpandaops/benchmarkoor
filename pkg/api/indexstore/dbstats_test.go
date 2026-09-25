@@ -13,18 +13,26 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 )
 
-func tableRows(t *testing.T, stats *indexstore.DatabaseStats, name string) int64 {
+func findTable(
+	t *testing.T, stats *indexstore.DatabaseStats, name string,
+) indexstore.TableStat {
 	t.Helper()
 
 	for _, table := range stats.Tables {
 		if table.Name == name {
-			return table.Rows
+			return table
 		}
 	}
 
 	t.Fatalf("table %q missing from the report", name)
 
-	return 0
+	return indexstore.TableStat{}
+}
+
+func tableRows(t *testing.T, stats *indexstore.DatabaseStats, name string) int64 {
+	t.Helper()
+
+	return findTable(t, stats, name).Rows
 }
 
 // TestStore_DatabaseStats covers the row counts, the run span and the
@@ -45,17 +53,19 @@ func TestStore_DatabaseStats(t *testing.T) {
 		runID     string
 		suiteHash string
 		timestamp int64
+		tests     int
 	}{
-		{runID: "run-1", suiteHash: "suite-big", timestamp: 100},
-		{runID: "run-2", suiteHash: "suite-big", timestamp: 300},
-		{runID: "run-3", suiteHash: "suite-big", timestamp: 200},
-		{runID: "run-4", suiteHash: "suite-small", timestamp: 150},
+		{runID: "run-1", suiteHash: "suite-big", timestamp: 100, tests: 10},
+		{runID: "run-2", suiteHash: "suite-big", timestamp: 300, tests: 12},
+		{runID: "run-3", suiteHash: "suite-big", timestamp: 200, tests: 10},
+		{runID: "run-4", suiteHash: "suite-small", timestamp: 150, tests: 7},
 	} {
 		require.NoError(t, s.UpsertRun(ctx, &indexstore.Run{
 			DiscoveryPath: "dp/one",
 			RunID:         spec.runID,
 			SuiteHash:     spec.suiteHash,
 			Timestamp:     spec.timestamp,
+			TestsTotal:    spec.tests,
 			Status:        "completed",
 		}))
 
@@ -86,6 +96,11 @@ func TestStore_DatabaseStats(t *testing.T) {
 	assert.Equal(t, int64(0), tableRows(t, stats, "test_stats_block_logs"))
 	assert.Equal(t, int64(0), tableRows(t, stats, "live_runs"))
 
+	// Only the per-test tables are estimated. The rest are exact counts.
+	assert.True(t, findTable(t, stats, "test_stats").Estimated)
+	assert.True(t, findTable(t, stats, "test_stats_block_logs").Estimated)
+	assert.False(t, findTable(t, stats, "runs").Estimated)
+
 	assert.Equal(t, int64(50), stats.OldestRun)
 	assert.Equal(t, int64(300), stats.NewestRun)
 
@@ -96,12 +111,40 @@ func TestStore_DatabaseStats(t *testing.T) {
 	assert.Equal(t, "Big suite", biggest.Name)
 	assert.Equal(t, "dp/one", biggest.DiscoveryPath)
 	assert.Equal(t, int64(3), biggest.Runs)
-	assert.Equal(t, int64(3), biggest.TestStats)
-	assert.Equal(t, int64(0), biggest.BlockLogs)
+	assert.Equal(t, int64(32), biggest.Tests, "summed from runs.tests_total")
 	assert.Equal(t, int64(300), biggest.LastRun)
 
 	assert.Equal(t, "suite-small", stats.TopSuites[1].SuiteHash)
 	assert.Equal(t, int64(1), stats.TopSuites[1].Runs)
+	assert.Equal(t, int64(7), stats.TopSuites[1].Tests)
+}
+
+// TestStore_DatabaseStats_EstimateIsIDSpan pins down what the per-test
+// estimate means. It reads the primary-key span, so a gap at either end
+// shrinks it and a gap in the middle does not.
+func TestStore_DatabaseStats_EstimateIsIDSpan(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	for _, runID := range []string{"run-1", "run-2", "run-3", "run-4"} {
+		require.NoError(t, s.UpsertRun(ctx, &indexstore.Run{
+			DiscoveryPath: "dp", RunID: runID, SuiteHash: "suite",
+		}))
+		require.NoError(t, s.UpsertTestStat(ctx, &indexstore.TestStat{
+			SuiteHash: "suite", RunID: runID, TestName: "test-a",
+		}))
+	}
+
+	stats, err := s.DatabaseStats(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), tableRows(t, stats, "test_stats"))
+
+	// Deleting the oldest run drops the low end of the span.
+	require.NoError(t, s.DeleteRunCascade(ctx, "run-1"))
+
+	stats, err = s.DatabaseStats(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), tableRows(t, stats, "test_stats"))
 }
 
 // TestStore_DatabaseStats_Empty checks the report holds up with nothing in it,

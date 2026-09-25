@@ -56,25 +56,36 @@ type DatabaseStats struct {
 type TableStat struct {
 	Name string `json:"name"`
 	Rows int64  `json:"rows"`
+
+	// Estimated marks a count read from the primary-key span instead of a
+	// COUNT(*). See estimatedRows.
+	Estimated bool `json:"estimated,omitempty"`
 }
 
 // SuiteUsage is how much of the database one suite accounts for. Deleting a
-// suite's runs cascades to its test stats and block logs, so these three
-// numbers are what a cleanup actually frees.
+// suite's runs cascades to its test stats and block logs, so this is roughly
+// what a cleanup frees.
 type SuiteUsage struct {
 	SuiteHash     string `json:"suite_hash"`
 	Name          string `json:"name,omitempty"`
 	DiscoveryPath string `json:"discovery_path,omitempty"`
 	Runs          int64  `json:"runs"`
-	TestStats     int64  `json:"test_stats"`
-	BlockLogs     int64  `json:"block_logs"`
+
+	// Tests is the sum of tests_total over the suite's runs. It stands in for
+	// the suite's test_stats rows, which are too many to count per request.
+	Tests int64 `json:"tests"`
+
 	// LastRun is unix seconds of the newest run, 0 when unknown.
 	LastRun int64 `json:"last_run,omitempty"`
 }
 
-// DatabaseStats gathers the index database's size and contents. The row counts
-// are full scans over a database that can hold tens of millions of rows, so
-// callers are expected to cache the result rather than poll it.
+// DatabaseStats gathers the index database's size and contents.
+//
+// Every query here must stay cheap however large the database grows, because
+// the report is built per request. test_stats and test_stats_block_logs hold
+// tens of millions of rows in production, where one COUNT(*) ran for more
+// than half an hour. So the report never scans them: their row counts are
+// estimates, and the per-suite breakdown reads only the runs table.
 func (s *store) DatabaseStats(ctx context.Context) (*DatabaseStats, error) {
 	stats := &DatabaseStats{
 		Driver:    s.cfg.Driver,
@@ -88,14 +99,22 @@ func (s *store) DatabaseStats(ctx context.Context) (*DatabaseStats, error) {
 			return nil, err
 		}
 
-		var rows int64
-		if err := s.readDB.WithContext(ctx).
+		table := TableStat{Name: name, Estimated: isPerTestModel(model.value)}
+
+		if table.Estimated {
+			rows, err := s.estimatedRows(ctx, model.value)
+			if err != nil {
+				return nil, fmt.Errorf("estimating %s: %w", name, err)
+			}
+
+			table.Rows = rows
+		} else if err := s.readDB.WithContext(ctx).
 			Model(model.value).
-			Count(&rows).Error; err != nil {
+			Count(&table.Rows).Error; err != nil {
 			return nil, fmt.Errorf("counting %s: %w", name, err)
 		}
 
-		stats.Tables = append(stats.Tables, TableStat{Name: name, Rows: rows})
+		stats.Tables = append(stats.Tables, table)
 	}
 
 	if err := s.addRunSpan(ctx, stats); err != nil {
@@ -113,38 +132,93 @@ func (s *store) DatabaseStats(ctx context.Context) (*DatabaseStats, error) {
 	return stats, nil
 }
 
-// addRunSpan records how far back the runs table reaches.
-func (s *store) addRunSpan(ctx context.Context, stats *DatabaseStats) error {
-	var span struct {
-		Oldest int64
-		Newest int64
+// isPerTestModel reports whether a model holds a row per test per run. These
+// tables grow by thousands of rows with every run, so the report must not
+// count or group them.
+func isPerTestModel(model any) bool {
+	switch model.(type) {
+	case *TestStat, *TestStatsBlockLog:
+		return true
+	default:
+		return false
+	}
+}
+
+// estimatedRows reads a table's size from its primary-key span, MAX(id) -
+// MIN(id) + 1. Each end is one index lookup, so the cost does not grow with
+// the table. IDs only grow and deletes leave gaps, so the figure is an upper
+// bound: a purge in the middle of the ID range is not reflected in it.
+func (s *store) estimatedRows(ctx context.Context, model any) (int64, error) {
+	lowest, err := s.columnExtreme(ctx, model, "MIN", "id")
+	if err != nil {
+		return 0, err
 	}
 
+	highest, err := s.columnExtreme(ctx, model, "MAX", "id")
+	if err != nil {
+		return 0, err
+	}
+
+	if highest == 0 {
+		return 0, nil
+	}
+
+	return highest - lowest + 1, nil
+}
+
+// columnExtreme reads MIN or MAX of one indexed column, 0 on an empty table.
+//
+// Each extreme is a query of its own on purpose. SQLite answers a lone MIN()
+// or MAX() of an indexed column from one end of the index, but a query that
+// asks for both falls back to a scan of the whole index.
+func (s *store) columnExtreme(
+	ctx context.Context, model any, fn, column string,
+) (int64, error) {
+	var value int64
 	if err := s.readDB.WithContext(ctx).
-		Model(&Run{}).
-		Select("MIN(timestamp) AS oldest, MAX(timestamp) AS newest").
-		Scan(&span).Error; err != nil {
+		Model(model).
+		Select("COALESCE(" + fn + "(" + column + "), 0)").
+		Scan(&value).Error; err != nil {
+		return 0, fmt.Errorf("reading %s(%s): %w", fn, column, err)
+	}
+
+	return value, nil
+}
+
+// addRunSpan records how far back the runs table reaches.
+func (s *store) addRunSpan(ctx context.Context, stats *DatabaseStats) error {
+	oldest, err := s.columnExtreme(ctx, &Run{}, "MIN", "timestamp")
+	if err != nil {
 		return fmt.Errorf("reading run span: %w", err)
 	}
 
-	stats.OldestRun = span.Oldest
-	stats.NewestRun = span.Newest
+	newest, err := s.columnExtreme(ctx, &Run{}, "MAX", "timestamp")
+	if err != nil {
+		return fmt.Errorf("reading run span: %w", err)
+	}
+
+	stats.OldestRun = oldest
+	stats.NewestRun = newest
 
 	return nil
 }
 
-// addTopSuites records the suites with the most runs, and what deleting each
-// would take with it.
+// addTopSuites records the suites with the most runs, and roughly what
+// deleting each would take with it. It reads only the runs table: a run
+// carries its own test count, so the suite's test_stats rows need no scan.
 func (s *store) addTopSuites(ctx context.Context, stats *DatabaseStats) error {
 	var top []struct {
 		SuiteHash string
 		Runs      int64
+		Tests     int64
 		LastRun   int64
 	}
 
 	if err := s.readDB.WithContext(ctx).
 		Model(&Run{}).
-		Select("suite_hash, COUNT(*) AS runs, MAX(timestamp) AS last_run").
+		Select("suite_hash, COUNT(*) AS runs, " +
+			"COALESCE(SUM(tests_total), 0) AS tests, " +
+			"MAX(timestamp) AS last_run").
 		Where("suite_hash != ''").
 		Group("suite_hash").
 		Order("runs DESC").
@@ -162,16 +236,6 @@ func (s *store) addTopSuites(ctx context.Context, stats *DatabaseStats) error {
 		hashes = append(hashes, row.SuiteHash)
 	}
 
-	testStats, err := s.countBySuite(ctx, &TestStat{}, hashes)
-	if err != nil {
-		return err
-	}
-
-	blockLogs, err := s.countBySuite(ctx, &TestStatsBlockLog{}, hashes)
-	if err != nil {
-		return err
-	}
-
 	names, err := s.suiteLabels(ctx, hashes)
 	if err != nil {
 		return err
@@ -181,8 +245,7 @@ func (s *store) addTopSuites(ctx context.Context, stats *DatabaseStats) error {
 		usage := SuiteUsage{
 			SuiteHash: row.SuiteHash,
 			Runs:      row.Runs,
-			TestStats: testStats[row.SuiteHash],
-			BlockLogs: blockLogs[row.SuiteHash],
+			Tests:     row.Tests,
 			LastRun:   row.LastRun,
 		}
 
@@ -195,32 +258,6 @@ func (s *store) addTopSuites(ctx context.Context, stats *DatabaseStats) error {
 	}
 
 	return nil
-}
-
-// countBySuite counts a model's rows per suite hash, for the given hashes only.
-func (s *store) countBySuite(
-	ctx context.Context, model any, hashes []string,
-) (map[string]int64, error) {
-	var rows []struct {
-		SuiteHash string
-		Total     int64
-	}
-
-	if err := s.readDB.WithContext(ctx).
-		Model(model).
-		Select("suite_hash, COUNT(*) AS total").
-		Where("suite_hash IN ?", hashes).
-		Group("suite_hash").
-		Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("counting rows by suite: %w", err)
-	}
-
-	counts := make(map[string]int64, len(rows))
-	for _, row := range rows {
-		counts[row.SuiteHash] = row.Total
-	}
-
-	return counts, nil
 }
 
 // suiteLabels fetches the name and discovery path of the given suites so the
