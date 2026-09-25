@@ -179,6 +179,12 @@ func (s *server) buildRouter() http.Handler {
 				r.Post("/indexer/run", s.handleRunIndexer)
 			}
 
+			// Index database size and contents, so an admin can see
+			// whether a cleanup is due.
+			if s.indexStore != nil {
+				r.Get("/database", s.handleDatabaseStats)
+			}
+
 			// Runs storage exposes that the indexer cannot index, and
 			// housekeeping for them. Recording them needs the index store.
 			if s.indexStore != nil {

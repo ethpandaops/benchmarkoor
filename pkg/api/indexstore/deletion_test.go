@@ -190,3 +190,64 @@ func TestStore_UnmarkRunForDeletion(t *testing.T) {
 	assert.Equal(t, gen, s.RunsGeneration())
 	require.ErrorIs(t, s.UnmarkRunForDeletion(ctx, "nope"), indexstore.ErrRunNotFound)
 }
+
+// TestStore_MarkRunsForDeletionBySuite covers queueing a whole suite: every
+// idle run goes, a running one is left alone, and other suites are untouched.
+func TestStore_MarkRunsForDeletionBySuite(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	seed := func(runID, suiteHash, status string) {
+		require.NoError(t, s.UpsertRun(ctx, &indexstore.Run{
+			DiscoveryPath: "dp/suite", RunID: runID,
+			SuiteHash: suiteHash, Timestamp: time.Now().Unix(),
+			Status: status,
+		}))
+	}
+
+	seed("run-a", "suite-1", "completed")
+	seed("run-b", "suite-1", "failed")
+	seed("run-c", "suite-1", indexstore.RunStatusRunning)
+	seed("run-other", "suite-2", "completed")
+
+	before := s.RunsGeneration()
+
+	result, err := s.MarkRunsForDeletionBySuite(ctx, "suite-1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), result.Queued)
+	assert.Equal(t, int64(1), result.Skipped, "the running run is left alone")
+	assert.Zero(t, result.AlreadyQueued)
+	assert.Greater(t, s.RunsGeneration(), before, "/index must refresh")
+
+	queued, err := s.ListRunsPendingDeletion(ctx)
+	require.NoError(t, err)
+	require.Len(t, queued, 2)
+
+	for _, run := range queued {
+		assert.Equal(t, "suite-1", run.SuiteHash)
+		assert.NotEqual(t, "run-c", run.RunID)
+	}
+
+	// Repeating it queues nothing new. Both reasons must come back, or the
+	// caller reports "queued 0 runs" with nothing to explain it.
+	gen := s.RunsGeneration()
+
+	result, err = s.MarkRunsForDeletionBySuite(ctx, "suite-1")
+	require.NoError(t, err)
+	assert.Zero(t, result.Queued)
+	assert.Equal(t, int64(1), result.Skipped)
+	assert.Equal(t, int64(2), result.AlreadyQueued)
+	assert.Equal(t, gen, s.RunsGeneration(), "a no-op must not bump the gen")
+
+	// The other suite is untouched.
+	other, err := s.GetRunByRunID(ctx, "run-other")
+	require.NoError(t, err)
+	assert.Nil(t, other.DeletionRequestedAt)
+
+	// A suite with no runs is reported, not silently accepted.
+	_, err = s.MarkRunsForDeletionBySuite(ctx, "suite-missing")
+	assert.ErrorIs(t, err, indexstore.ErrRunNotFound)
+
+	_, err = s.MarkRunsForDeletionBySuite(ctx, "")
+	assert.ErrorIs(t, err, indexstore.ErrRunNotFound)
+}

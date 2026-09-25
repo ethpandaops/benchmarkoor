@@ -163,6 +163,81 @@ export function useDeleteRuns() {
   })
 }
 
+// Deleting a whole suite. The server resolves the suite to its runs, so a
+// suite with thousands of runs is still one small request. Runs that are
+// still in progress are left alone and come back in `errors`.
+export function useDeleteRunsBySuite() {
+  const queryClient = useQueryClient()
+  return useMutation<DeleteRunsResponse, Error, string[]>({
+    mutationFn: (suiteHashes: string[]) =>
+      adminFetch('/api/v1/admin/runs/delete', {
+        method: 'POST',
+        body: JSON.stringify({ suite_hashes: suiteHashes }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['index'] }),
+  })
+}
+
+// Index database report. Gathering it counts every row in every table, so the
+// API caches it for a minute and `gathered_at` says when it was taken.
+export interface DatabaseTableStat {
+  name: string
+  rows: number
+}
+
+export interface DatabaseSuiteUsage {
+  suite_hash: string
+  name?: string
+  discovery_path?: string
+  runs: number
+  test_stats: number
+  block_logs: number
+  /** Unix seconds of the newest run. */
+  last_run?: number
+}
+
+export interface DatabaseStats {
+  driver: string
+  /** The SQLite file. Absent for other drivers. */
+  path?: string
+  file_bytes?: number
+  /** The write-ahead log, which a long-running writer can leave large. */
+  wal_bytes?: number
+  page_size?: number
+  page_count?: number
+  /** Pages a VACUUM would hand back. */
+  free_pages?: number
+  /**
+   * Used and free do not add up to total: a filesystem reserves a slice for
+   * root. A usage share is used/(used+free), which is what df prints.
+   */
+  volume_total_bytes?: number
+  volume_used_bytes?: number
+  volume_free_bytes?: number
+  oldest_run?: number
+  newest_run?: number
+  tables: DatabaseTableStat[]
+  top_suites: DatabaseSuiteUsage[]
+}
+
+export interface DatabaseStatsResponse {
+  gathered_at: string
+  stats: DatabaseStats
+}
+
+export function useDatabaseStats(enabled: boolean) {
+  return useQuery<DatabaseStatsResponse>({
+    queryKey: ['admin', 'database'],
+    enabled,
+    // The API caches the report for five minutes, so most of these polls are
+    // answered from that cache and cost only a round-trip. Polling at exactly
+    // the TTL would instead land just after every expiry and make each tab
+    // pay for a full scan.
+    refetchInterval: 60_000,
+    queryFn: () => adminFetch('/api/v1/admin/database'),
+  })
+}
+
 interface CancelDeleteRunsResponse {
   status: string
   cancelled: number

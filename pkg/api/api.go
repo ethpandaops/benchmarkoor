@@ -62,6 +62,15 @@ type server struct {
 	// rebuild or re-encode it. See handleIndex.
 	indexCacheMu sync.Mutex
 	indexCache   *indexCacheEntry
+
+	// dbStats holds the last index-database report. Gathering one counts
+	// every row in every table, so it is reused for databaseStatsTTL rather
+	// than run per request, and dbStatsGatherMu keeps concurrent callers from
+	// each starting their own scan. See handleDatabaseStats.
+	dbStatsMu       sync.Mutex
+	dbStatsGatherMu sync.Mutex
+	dbStats         *indexstore.DatabaseStats
+	dbStatsAt       time.Time
 }
 
 // NewServer creates a new API server.

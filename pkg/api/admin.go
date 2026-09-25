@@ -550,7 +550,19 @@ func (s *server) handleDeleteUserMapping(
 
 type deleteRunsRequest struct {
 	RunIDs []string `json:"run_ids"`
+
+	// SuiteHashes queues every run of the named suites. A suite can hold
+	// thousands of runs, so the server resolves them rather than making the
+	// client send every ID. Both fields may be given at once.
+	SuiteHashes []string `json:"suite_hashes,omitempty"`
 }
+
+// maxSuiteHashesPerRequest bounds how many suites one request may queue. Each
+// one costs a transaction on the SQLite writer, which is a single connection,
+// so an unbounded list would hold that connection (and the indexer behind it)
+// for as long as the list is. The body limit already bounds the per-run path;
+// this is its equivalent for suites, and is far above any real selection.
+const maxSuiteHashesPerRequest = 200
 
 type deleteRunsResponse struct {
 	Status string   `json:"status"`
@@ -558,11 +570,11 @@ type deleteRunsResponse struct {
 	Errors []string `json:"errors,omitempty"`
 }
 
-// handleDeleteRuns queues runs for deletion. The request returns as soon as
-// every run is marked; the run deleter removes them from storage and the
-// index in the background, in the order they were queued. Queuing a run
-// that is already queued is a no-op. A run that is still running is
-// refused: deleting it would race with the active runner.
+// handleDeleteRuns queues runs for deletion, named either individually or by
+// suite. The request returns as soon as every run is marked; the run deleter
+// removes them from storage and the index in the background, in the order they
+// were queued. Queuing a run that is already queued is a no-op. A run that is
+// still running is refused: deleting it would race with the active runner.
 func (s *server) handleDeleteRuns(
 	w http.ResponseWriter, r *http.Request,
 ) {
@@ -581,9 +593,18 @@ func (s *server) handleDeleteRuns(
 		return
 	}
 
-	if len(req.RunIDs) == 0 {
+	if len(req.RunIDs) == 0 && len(req.SuiteHashes) == 0 {
 		writeJSON(w, http.StatusBadRequest,
-			errorResponse{"run_ids is required"})
+			errorResponse{"run_ids or suite_hashes is required"})
+
+		return
+	}
+
+	if len(req.SuiteHashes) > maxSuiteHashesPerRequest {
+		writeJSON(w, http.StatusBadRequest, errorResponse{fmt.Sprintf(
+			"suite_hashes: at most %d suites per request, got %d",
+			maxSuiteHashesPerRequest, len(req.SuiteHashes),
+		)})
 
 		return
 	}
@@ -592,6 +613,45 @@ func (s *server) handleDeleteRuns(
 		queued int
 		errs   []string
 	)
+
+	for _, suiteHash := range req.SuiteHashes {
+		result, err := s.indexStore.MarkRunsForDeletionBySuite(
+			r.Context(), suiteHash,
+		)
+
+		switch {
+		case err == nil:
+			queued += int(result.Queued)
+
+			// A suite mid-run is the normal case for an active suite, and a
+			// suite already queued is the normal case for a repeat request.
+			// Both must be said out loud: without them the response is a
+			// bare "queued 0 runs" with no reason given.
+			if result.Skipped > 0 {
+				errs = append(errs, fmt.Sprintf(
+					"%s: %d run(s) still in progress, left alone",
+					suiteHash, result.Skipped,
+				))
+			}
+
+			if result.AlreadyQueued > 0 {
+				errs = append(errs, fmt.Sprintf(
+					"%s: %d run(s) were already queued",
+					suiteHash, result.AlreadyQueued,
+				))
+			}
+		case errors.Is(err, indexstore.ErrRunNotFound):
+			errs = append(errs, fmt.Sprintf(
+				"%s: no runs in index", suiteHash,
+			))
+		default:
+			s.log.WithError(err).WithField("suite_hash", suiteHash).
+				Error("Failed to queue suite runs for deletion")
+			errs = append(errs, fmt.Sprintf(
+				"%s: queue failed: %v", suiteHash, err,
+			))
+		}
+	}
 
 	for _, runID := range req.RunIDs {
 		err := s.indexStore.MarkRunForDeletion(r.Context(), runID)
