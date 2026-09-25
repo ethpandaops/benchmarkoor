@@ -346,7 +346,9 @@ paths:
 
         The payload is large and changes only when a run is indexed or
         deleted. The response carries an `ETag`; send it back as
-        `If-None-Match` to get a `304` instead of the body.
+        `If-None-Match` to get a `304` instead of the body. The identity
+        and the gzip representation carry different entity tags, so replay
+        the tag under the same `Accept-Encoding` that produced it.
       security:
         - cookieAuth: []
         - bearerAuth: []

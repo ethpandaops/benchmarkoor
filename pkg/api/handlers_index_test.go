@@ -86,6 +86,8 @@ func TestHandleIndex_SplicesAndCaches(t *testing.T) {
 	assert.Equal(t, gen, s.indexCache.gen)
 	assert.NotEmpty(t, s.indexCache.etag)
 	assert.NotEmpty(t, s.indexCache.gzipped)
+	// Each encoding is a separate representation and needs its own validator.
+	assert.NotEqual(t, s.indexCache.etag, s.indexCache.gzipETag)
 
 	// A second request with no intervening writes is served from cache and
 	// returns byte-for-byte identical output.
@@ -185,6 +187,7 @@ func TestHandleIndex_ServesPrecompressedBody(t *testing.T) {
 	require.Equal(t, "gzip", rec.Header().Get("Content-Encoding"))
 	assert.Equal(t, strconv.Itoa(rec.Body.Len()),
 		rec.Header().Get("Content-Length"))
+	assert.Equal(t, s.indexCache.gzipETag, rec.Header().Get("ETag"))
 
 	reader, err := gzip.NewReader(bytes.NewReader(rec.Body.Bytes()))
 	require.NoError(t, err)
@@ -198,11 +201,85 @@ func TestHandleIndex_ServesPrecompressedBody(t *testing.T) {
 	require.Len(t, resp.Entries, 1)
 	assert.Equal(t, "run-1", resp.Entries[0].RunID)
 
-	// A client that can't take gzip still gets readable JSON.
+	// A client that can't take gzip still gets readable JSON, under the
+	// validator of that representation.
 	plain, plainResp := getIndex(t, s)
 	assert.Empty(t, plain.Header().Get("Content-Encoding"))
 	assert.Equal(t, decoded, plain.Body.Bytes())
+	assert.Equal(t, s.indexCache.etag, plain.Header().Get("ETag"))
+	assert.NotEqual(t, rec.Header().Get("ETag"), plain.Header().Get("ETag"))
 	require.Len(t, plainResp.Entries, 1)
+}
+
+// TestHandleIndex_ETagIsPerEncoding guards RFC 9110 8.8.1: a strong entity tag
+// identifies one representation. A client that stops (or starts) accepting
+// gzip must not be told a body it has never received is unmodified.
+func TestHandleIndex_ETagIsPerEncoding(t *testing.T) {
+	s := newIndexTestServer(t)
+
+	require.NoError(t, s.indexStore.UpsertRun(context.Background(), &indexstore.Run{
+		DiscoveryPath: "dp", RunID: "run-1", Timestamp: 100,
+	}))
+
+	// Collect the validator each encoding hands out.
+	etags := make(map[string]string, 2)
+
+	for _, encoding := range []string{"", "gzip"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/index", nil)
+
+		if encoding != "" {
+			req.Header.Set("Accept-Encoding", encoding)
+		}
+
+		s.handleIndex(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		etags[encoding] = rec.Header().Get("ETag")
+		require.NotEmpty(t, etags[encoding])
+	}
+
+	require.NotEqual(t, etags[""], etags["gzip"])
+
+	// Replaying a validator under the other encoding must return the body,
+	// not a 304.
+	crossed := []struct {
+		name      string
+		encoding  string
+		validator string
+	}{
+		{name: "identity tag on gzip request", encoding: "gzip", validator: etags[""]},
+		{name: "gzip tag on identity request", encoding: "", validator: etags["gzip"]},
+	}
+
+	for _, tt := range crossed {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/index", nil)
+			req.Header.Set("If-None-Match", tt.validator)
+
+			if tt.encoding != "" {
+				req.Header.Set("Accept-Encoding", tt.encoding)
+			}
+
+			s.handleIndex(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.NotEmpty(t, rec.Body.Bytes())
+		})
+	}
+
+	// The matching pair still revalidates, and a 304 carries no encoding
+	// because it carries no body.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/index", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set("If-None-Match", etags["gzip"])
+	s.handleIndex(rec, req)
+
+	assert.Equal(t, http.StatusNotModified, rec.Code)
+	assert.Empty(t, rec.Header().Get("Content-Encoding"))
+	assert.Empty(t, rec.Body.Bytes())
 }
 
 // TestHandleIndex_CompressMiddlewareDoesNotReEncode guards the reason the

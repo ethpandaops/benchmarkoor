@@ -74,7 +74,13 @@ type indexCacheEntry struct {
 	// nil if encoding failed; callers then fall back to body.
 	body    []byte
 	gzipped []byte
-	etag    string
+	// etag validates body, gzipETag validates gzipped. A strong entity tag
+	// identifies one representation (RFC 9110 8.8.1), and two content codings
+	// are two representations, so they must not share a validator: a client
+	// whose Accept-Encoding changed between polls would otherwise be told a
+	// body it has never seen is unmodified.
+	etag     string
+	gzipETag string
 }
 
 // handleIndex returns the aggregated index of all benchmark runs from all
@@ -173,40 +179,54 @@ func (s *server) buildIndex(
 		return nil, fmt.Errorf("encoding index: %w", err)
 	}
 
+	digest := indexETagDigest(body)
+
 	return &indexCacheEntry{
 		gen:     gen,
 		body:    body,
 		gzipped: gzipIndexBody(s.log, body),
-		etag:    indexETag(body),
+		etag:    `"` + digest + `"`,
+		// The "-gzip" suffix is the convention Apache's mod_deflate set and
+		// the one intermediaries expect for an encoded variant.
+		gzipETag: `"` + digest + `-gzip"`,
 	}, nil
 }
 
-// writeIndexResponse serves a cached entry. It answers a matching
-// If-None-Match with a 304 and otherwise writes the pre-encoded copy the
-// client accepts. Setting Content-Encoding makes the compression middleware
-// pass the bytes straight through instead of gzipping them a second time.
+// writeIndexResponse serves a cached entry. It picks the representation the
+// client accepts, answers a matching If-None-Match with a 304, and otherwise
+// writes the pre-encoded bytes. Setting Content-Encoding makes the compression
+// middleware pass those bytes straight through instead of gzipping them a
+// second time.
+//
+// The validator follows the representation, so a conditional request can only
+// ever be answered with the encoding it asked for.
 func writeIndexResponse(
 	w http.ResponseWriter, r *http.Request, entry *indexCacheEntry,
 ) {
+	body, etag := entry.body, entry.etag
+
+	useGzip := entry.gzipped != nil && acceptsGzip(r)
+	if useGzip {
+		body, etag = entry.gzipped, entry.gzipETag
+	}
+
 	header := w.Header()
-	header.Set("ETag", entry.etag)
+	header.Set("ETag", etag)
 	header.Add("Vary", "Accept-Encoding")
 	// The index changes whenever a run is indexed, so the client must
 	// revalidate on every poll. Revalidation is a 304 rather than a
 	// multi-megabyte transfer, which is the point.
 	header.Set("Cache-Control", "no-cache")
 
-	if etagMatches(r.Header.Get("If-None-Match"), entry.etag) {
+	if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		// A 304 carries no body, so it carries no Content-Encoding either:
+		// there is nothing for the client to decode.
 		w.WriteHeader(http.StatusNotModified)
 
 		return
 	}
 
-	body := entry.body
-
-	if entry.gzipped != nil && acceptsGzip(r) {
-		body = entry.gzipped
-
+	if useGzip {
 		header.Set("Content-Encoding", "gzip")
 	}
 
@@ -247,14 +267,14 @@ func gzipIndexBody(log logrus.FieldLogger, body []byte) []byte {
 	return buf.Bytes()
 }
 
-// indexETag derives a strong validator from the rendered body. The body embeds
-// its own "generated" timestamp, so hashing the content (rather than keying off
-// the generation counter, which restarts with the process) is what keeps a 304
-// honest across restarts.
-func indexETag(body []byte) string {
+// indexETagDigest hashes the rendered body into the shared part of the entity
+// tags. The body embeds its own "generated" timestamp, so hashing the content
+// (rather than keying off the generation counter, which restarts with the
+// process) is what keeps a 304 honest across restarts.
+func indexETagDigest(body []byte) string {
 	sum := sha256.Sum256(body)
 
-	return `"` + hex.EncodeToString(sum[:16]) + `"`
+	return hex.EncodeToString(sum[:16])
 }
 
 // etagMatches reports whether an If-None-Match header covers the given ETag.
