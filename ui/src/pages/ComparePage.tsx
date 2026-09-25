@@ -16,7 +16,7 @@ import { CompareDimensionInsights } from '@/components/compare/CompareDimensionI
 import { CompareHeader } from '@/components/compare/CompareHeader'
 import { StickyRunBar } from '@/components/compare/StickyRunBar'
 import { MetricsComparison } from '@/components/compare/MetricsComparison'
-import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
+import { TestMetricChart } from '@/components/compare/TestMetricChart'
 import { type ChartType, CHART_TYPE_OPTIONS } from '@/components/compare/constants'
 import { PercentageDiffChart } from '@/components/compare/PercentageDiffChart'
 import { TestComparisonTable } from '@/components/compare/TestComparisonTable'
@@ -472,7 +472,11 @@ export function ComparePage() {
       <MetricsComparison runs={runs} stepFilter={stepFilter} baselineIdx={baselineIdx} onBaselineChange={setBaselineIdx} labelMode={labelMode} testNameFilter={testNameFilter} />
 
       {allResults && (
-        <MGasComparisonChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} labelMode={labelMode} testNameFilter={testNameFilter} zoomRange={sharedZoom ? chartZoom : undefined} onZoomChange={sharedZoom ? setChartZoom : undefined} chartType={chartType} />
+        <TestMetricChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} labelMode={labelMode} testNameFilter={testNameFilter} zoomRange={sharedZoom ? chartZoom : undefined} onZoomChange={sharedZoom ? setChartZoom : undefined} chartType={chartType} />
+      )}
+
+      {allResults && (
+        <TestMetricChart runs={runs} suiteTests={suite?.tests} stepFilter={stepFilter} labelMode={labelMode} testNameFilter={testNameFilter} zoomRange={sharedZoom ? chartZoom : undefined} onZoomChange={sharedZoom ? setChartZoom : undefined} chartType={chartType} metric="duration" />
       )}
 
       {allResults && (

@@ -156,6 +156,12 @@ export interface CompareRun {
 
 export type LabelMode = string
 
+/** Data-zoom window of a per-test chart, as percentages of the x axis. */
+export interface ZoomRange {
+  start: number
+  end: number
+}
+
 export type ChartType = 'line' | 'bar' | 'dot'
 
 export const CHART_TYPE_OPTIONS: { value: ChartType; label: string }[] = [

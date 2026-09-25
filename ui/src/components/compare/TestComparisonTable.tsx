@@ -7,6 +7,7 @@ import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { Pagination } from '@/components/shared/Pagination'
 import { TestName } from '@/components/shared/TestName'
 import { compareOptional } from '@/components/run-detail/block-logs-dashboard/hooks/useProcessedData'
+import { formatDuration } from '@/utils/format'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface TestComparisonTableProps {
@@ -95,6 +96,20 @@ function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undef
   return (stats.gas_used_total * 1000) / stats.gas_used_time_total
 }
 
+// Total engine_newPayload time of the test, in nanoseconds. The same
+// number the performance heatmap colours.
+function payloadTime(stats: AggregatedStats | undefined): number | undefined {
+  if (!stats || stats.gas_used_time_total <= 0) return undefined
+  return stats.gas_used_time_total
+}
+
+/** Where a metric comes from, for the tab tooltip. */
+function tabTitle(id: string): string | undefined {
+  if (id.startsWith('bl-')) return 'Extracted from block logs'
+  if (id === 'duration') return 'Total engine_newPayload time of the test'
+  return undefined
+}
+
 function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
   return (
     <svg
@@ -148,6 +163,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
   const tabs: MetricTab[] = useMemo(() => {
     const base: MetricTab[] = [
       { id: 'mgas', label: 'MGas/s', unit: 'MGas/s', higherIsBetter: true, format: (v) => v >= 100 ? v.toFixed(0) : v.toFixed(2) },
+      { id: 'duration', label: 'Duration', unit: 'time', higherIsBetter: false, format: formatDuration },
     ]
     if (hasBlockLogs) {
       return [...base, ...BLOCK_LOG_METRICS]
@@ -167,8 +183,11 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
 
   const comparedTests = useMemo(() => {
     const allTestNames = new Set<string>()
+    // Both run metrics read the test results; every other tab reads the
+    // block logs.
+    const isRunMetric = activeTab === 'mgas' || activeTab === 'duration'
 
-    if (activeTab === 'mgas') {
+    if (isRunMetric) {
       for (const run of runs) {
         if (run.result) {
           for (const name of Object.keys(run.result.tests)) allTestNames.add(name)
@@ -187,11 +206,11 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
       const values: (number | undefined)[] = []
       let order = suiteOrder.get(name) ?? 0
 
-      if (activeTab === 'mgas') {
+      if (isRunMetric) {
         for (const run of runs) {
           const entry = run.result?.tests[name]
           const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
-          values.push(calculateMGasPerSec(stats))
+          values.push(activeTab === 'mgas' ? calculateMGasPerSec(stats) : payloadTime(stats))
           if (order === 0 && entry) {
             order = parseInt(entry.dir, 10) || 0
           }
@@ -298,7 +317,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
             <button
               key={tab.id}
               onClick={() => { setActiveTab(tab.id); setCurrentPage(1) }}
-              title={tab.id.startsWith('bl-') ? 'Extracted from block logs' : undefined}
+              title={tabTitle(tab.id)}
               className={clsx(
                 'shrink-0 border-b-2 px-3 py-2 text-xs/5 font-medium transition-colors',
                 activeTab === tab.id

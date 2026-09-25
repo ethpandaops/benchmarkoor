@@ -13,7 +13,7 @@ import { FacetPanel } from '@/components/shared/FacetPanel'
 import { CompareDimensionInsights } from '@/components/compare/CompareDimensionInsights'
 import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type CompareRun, type ChartType, CHART_TYPE_OPTIONS } from '@/components/compare/constants'
-import { MGasComparisonChart } from '@/components/compare/MGasComparisonChart'
+import { TestMetricChart } from '@/components/compare/TestMetricChart'
 import { type SortMode, GroupHeatmap } from '@/components/compare/GroupHeatmap'
 import { GroupRanking } from '@/components/compare/GroupRanking'
 import { computeMetrics } from '@/components/compare/compareMetrics'
@@ -831,7 +831,7 @@ export function CompareGroupsPage() {
             onHighlightChange={setHighlightGroupIdx}
           />
 
-          <MGasComparisonChart
+          <TestMetricChart
             runs={syntheticRuns}
             suiteTests={suite?.tests}
             stepFilter={stepFilter}
@@ -841,6 +841,20 @@ export function CompareGroupsPage() {
             onZoomChange={sharedZoom ? setChartZoom : undefined}
             chartType={chartType}
             onTestClick={setSelectedTest}
+          />
+
+          <TestMetricChart
+            runs={syntheticRuns}
+            suiteTests={suite?.tests}
+            stepFilter={stepFilter}
+            labelMode="instance-id"
+            testNameFilter={testNameFilter}
+            zoomRange={sharedZoom ? chartZoom : undefined}
+            onZoomChange={sharedZoom ? setChartZoom : undefined}
+            chartType={chartType}
+            onTestClick={setSelectedTest}
+            metric="duration"
+            slowMs={heatmapModel.slowMs}
           />
 
           {syntheticRuns.length >= 2 && (
