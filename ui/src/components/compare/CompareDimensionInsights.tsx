@@ -325,7 +325,7 @@ export function CompareDimensionInsights({
         </div>
         <div className="flex flex-col gap-0.5">
           {v.perRun.map((r, i) => {
-            const slot = RUN_SLOTS[i] ?? RUN_SLOTS[0]
+            const slot = RUN_SLOTS[runs[i].index] ?? RUN_SLOTS[0]
             const widthPct = r.mean !== undefined ? (r.mean / maxMean) * 100 : 0
             const pct = i !== baselineIdx && baseline !== undefined && baseline > 0 && r.mean !== undefined
               ? ((r.mean - baseline) / baseline) * 100
@@ -497,7 +497,7 @@ export function CompareDimensionInsights({
                   <SortableTh label={tableDim.def.label} col="value" sort={tableSort} onSort={handleSort} align="left" />
                   <SortableTh label="Count" col="count" sort={tableSort} onSort={handleSort} align="right" />
                   {runs.map((run, i) => {
-                    const slot = RUN_SLOTS[i] ?? RUN_SLOTS[0]
+                    const slot = RUN_SLOTS[run.index] ?? RUN_SLOTS[0]
                     const isBaseline = i === baselineIdx
                     return (
                       <SortableTh
@@ -521,7 +521,7 @@ export function CompareDimensionInsights({
                   })}
                   {runs.map((run, i) => {
                     if (i === baselineIdx) return null
-                    const slot = RUN_SLOTS[i] ?? RUN_SLOTS[0]
+                    const slot = RUN_SLOTS[run.index] ?? RUN_SLOTS[0]
                     return (
                       <SortableTh
                         key={`delta-${i}`}

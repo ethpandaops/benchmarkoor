@@ -3,8 +3,7 @@ import ReactECharts from 'echarts-for-react'
 import { Cpu } from 'lucide-react'
 import type { TestEntry, StepResult, SuiteTest } from '@/api/types'
 import { formatBytes } from '@/utils/format'
-import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
-import type { ZoomRange } from './MGasComparisonChart'
+import { type ChartType, type CompareRun, type LabelMode, type ZoomRange, RUN_SLOTS, formatRunLabel } from './constants'
 import { useChartAreaClick } from './useChartAreaClick'
 import { formatTestNameLong } from '@/utils/eestName'
 import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
@@ -281,7 +280,7 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
     const clientBySeriesName = new Map<string, string>()
     for (let i = 0; i < runs.length; i++) {
       const client = runs[i].config.instance.client
-      const label = RUN_SLOTS[i].label
+      const label = RUN_SLOTS[runs[i].index].label
       clientBySeriesName.set(`Run ${label}`, client)
       clientBySeriesName.set(`${label} Read`, client)
       clientBySeriesName.set(`${label} Write`, client)
@@ -326,8 +325,8 @@ export function ResourceComparisonCharts({ runs, labelMode, testNameFilter, suit
 
     // Build simple series (one per run)
     const buildSimpleSeries = (field: keyof ResourceDataPoint) =>
-      runs.map((_run, i) => {
-        const slot = RUN_SLOTS[i]
+      runs.map((run, i) => {
+        const slot = RUN_SLOTS[run.index]
         const points = pointsPerRun[i]
         return {
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,

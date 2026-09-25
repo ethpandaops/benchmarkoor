@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import { Flame } from 'lucide-react'
+import { Flame, Timer } from 'lucide-react'
 import type { RunResult, SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
-import { type ChartType, type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { type ChartType, type CompareRun, type LabelMode, type ZoomRange, RUN_SLOTS, formatRunLabel } from './constants'
+import { type HeatmapMetric } from './heatmapColor'
 import { useChartAreaClick } from './useChartAreaClick'
 import { formatTestNameLong } from '@/utils/eestName'
+import { formatDuration } from '@/utils/format'
+import { SLOW_COLOR, formatSlowMs } from '@/utils/perfThreshold'
 import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 
-export interface ZoomRange {
-  start: number
-  end: number
-}
-
-interface MGasComparisonChartProps {
+interface TestMetricChartProps {
   runs: CompareRun[]
   suiteTests?: SuiteTest[]
   stepFilter: StepTypeOption[]
@@ -23,12 +21,53 @@ interface MGasComparisonChartProps {
   onZoomChange?: (range: ZoomRange) => void
   chartType?: ChartType
   onTestClick?: (testName: string) => void
+  /** Throughput, or the total engine_newPayload time of the test. */
+  metric?: HeatmapMetric
+  /** Slow-payload limit in milliseconds. Draws a limit line on the duration chart. */
+  slowMs?: number
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
   if (!stats || stats.gas_used_time_total <= 0 || stats.gas_used_total <= 0) return undefined
   return (stats.gas_used_total * 1000) / stats.gas_used_time_total
 }
+
+function payloadTime(stats: AggregatedStats | undefined): number | undefined {
+  if (!stats || stats.gas_used_time_total <= 0) return undefined
+  return stats.gas_used_time_total
+}
+
+/** Short duration for an axis label, e.g. "250ms" or "1.5s". */
+function formatAxisDuration(nanoseconds: number): string {
+  if (nanoseconds >= 1_000_000_000) {
+    const seconds = nanoseconds / 1_000_000_000
+    return `${seconds >= 10 ? seconds.toFixed(0) : seconds.toFixed(1)}s`
+  }
+  if (nanoseconds >= 1_000_000) return `${(nanoseconds / 1_000_000).toFixed(0)}ms`
+  if (nanoseconds >= 1000) return `${(nanoseconds / 1000).toFixed(0)}µs`
+  return `${nanoseconds.toFixed(0)}ns`
+}
+
+// Title, axis and units of each metric. The duration is the total, not
+// the slowest single payload, so it matches the heatmap tile.
+const METRIC_META = {
+  mgas: {
+    title: 'MGas/s per Test',
+    icon: Flame,
+    axisName: 'MGas/s',
+    value: calculateMGasPerSec,
+    axisLabel: (value: number) => `${value.toFixed(0)}`,
+    tooltip: (value: number) => `${value.toFixed(2)} MGas/s`,
+  },
+  duration: {
+    title: 'Duration per Test',
+    icon: Timer,
+    axisName: 'Payload time',
+    value: payloadTime,
+    axisLabel: formatAxisDuration,
+    tooltip: formatDuration,
+  },
+} as const
 
 function useDarkMode() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
@@ -44,44 +83,48 @@ function useDarkMode() {
   return isDark
 }
 
-interface MGasDataPoint {
+interface MetricDataPoint {
   testIndex: number
   testOrder: number
   testName: string
-  mgas: number
+  value: number
 }
 
-function buildMGasData(
+function buildMetricData(
   result: RunResult,
   suiteTests: SuiteTest[] | undefined,
   stepFilter: StepTypeOption[],
+  metric: HeatmapMetric,
   nameFilter?: (name: string) => boolean,
-): MGasDataPoint[] {
+): MetricDataPoint[] {
   const suiteOrder = new Map<string, number>()
   if (suiteTests) {
     suiteTests.forEach((t, i) => suiteOrder.set(t.name, i + 1))
   }
 
-  const entries: { name: string; order: number; mgas: number }[] = []
+  const valueOf = METRIC_META[metric].value
+  const entries: { name: string; order: number; value: number }[] = []
   for (const [name, entry] of Object.entries(result.tests)) {
     if (nameFilter && !nameFilter(name)) continue
     const stats = getAggregatedStats(entry, stepFilter)
-    const mgas = calculateMGasPerSec(stats)
-    if (mgas === undefined) continue
+    const value = valueOf(stats)
+    if (value === undefined) continue
     const order = suiteOrder.get(name) ?? (parseInt(entry.dir, 10) || 0)
-    entries.push({ name, order, mgas })
+    entries.push({ name, order, value })
   }
 
   entries.sort((a, b) => a.order - b.order)
-  return entries.map((e, i) => ({ testIndex: i + 1, testOrder: e.order, testName: e.name, mgas: e.mgas }))
+  return entries.map((e, i) => ({ testIndex: i + 1, testOrder: e.order, testName: e.name, value: e.value }))
 }
 
-export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line', onTestClick }: MGasComparisonChartProps) {
+export function TestMetricChart({ runs, suiteTests, stepFilter, labelMode, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line', onTestClick, metric = 'mgas', slowMs }: TestMetricChartProps) {
   const { mode: nameMode } = useNameDisplayMode()
   const isDark = useDarkMode()
   const [internalZoom, setInternalZoom] = useState({ start: 0, end: 100 })
   const zoomRange = externalZoom ?? internalZoom
   const prevZoomRef = useRef(zoomRange)
+  const meta = METRIC_META[metric]
+  const Icon = meta.icon
 
   const handleZoom = useCallback((params: { start?: number; end?: number; batch?: Array<{ start: number; end: number }> }) => {
     let start: number | undefined
@@ -104,8 +147,8 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
   const onEvents = useMemo(() => ({ datazoom: handleZoom }), [handleZoom])
 
   const pointsPerRun = useMemo(
-    () => runs.map((r) => r.result ? buildMGasData(r.result, suiteTests, stepFilter, testNameFilter) : []),
-    [runs, suiteTests, stepFilter, testNameFilter],
+    () => runs.map((r) => r.result ? buildMetricData(r.result, suiteTests, stepFilter, metric, testNameFilter) : []),
+    [runs, suiteTests, stepFilter, metric, testNameFilter],
   )
 
   const { highlightedTestRef, handleMouseDown, handleClick, cursor } = useChartAreaClick(onTestClick)
@@ -122,7 +165,25 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
         indexToOrder.set(d.testIndex, d.testOrder)
       }
     }
-    const clientBySeriesName = new Map(runs.map((r, i) => [`Run ${formatRunLabel(RUN_SLOTS[i], r, labelMode)}`, r.config.instance.client]))
+    const clientBySeriesName = new Map(runs.map((r) => [`Run ${formatRunLabel(RUN_SLOTS[r.index], r, labelMode)}`, r.config.instance.client]))
+    // The slow limit only gets a line when a test comes near it. A limit
+    // far above every value would squash the whole chart.
+    const maxValue = Math.max(0, ...pointsPerRun.flatMap((p) => p.map((d) => d.value)))
+    const limitMs = metric === 'duration' ? slowMs : undefined
+    const limitLine = limitMs !== undefined && limitMs * 1_000_000 <= maxValue
+      ? {
+          silent: true,
+          symbol: 'none' as const,
+          lineStyle: { color: SLOW_COLOR, type: 'dashed' as const, width: 1 },
+          label: {
+            formatter: `Slow ${formatSlowMs(limitMs)}`,
+            color: SLOW_COLOR,
+            fontSize: 10,
+            position: 'insideEndTop' as const,
+          },
+          data: [{ yAxis: limitMs * 1_000_000 }],
+        }
+      : undefined
 
     return {
       backgroundColor: 'transparent',
@@ -156,7 +217,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
             const value = p.value[1]
             const client = clientBySeriesName.get(p.seriesName)
             const clientImg = client ? `<img src="/img/clients/${client}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />` : ''
-            content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${value.toFixed(2)} MGas/s<br/>`
+            content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${meta.tooltip(value)}<br/>`
           })
           return content
         },
@@ -180,12 +241,12 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
         axisLabel: {
           color: textColor,
           fontSize: 11,
-          formatter: (value: number) => `${value.toFixed(0)}`,
+          formatter: (value: number) => meta.axisLabel(value),
         },
         axisLine: { show: true, lineStyle: { color: axisLineColor } },
         axisTick: { show: true, lineStyle: { color: axisLineColor } },
         splitLine: { lineStyle: { color: splitLineColor } },
-        name: 'MGas/s',
+        name: meta.axisName,
         nameTextStyle: { color: textColor, fontSize: 11 },
       },
       legend: {
@@ -218,15 +279,19 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
           moveOnMouseWheel: false,
         },
       ],
-      series: runs.map((_run, i) => {
-        const slot = RUN_SLOTS[i]
+      series: runs.map((run, i) => {
+        // The group compare page drops a group with no runs, so the slot
+        // comes from run.index, not from the position in the array.
+        const slot = RUN_SLOTS[run.index]
         const points = pointsPerRun[i]
-        const data = points.map((d) => [d.testIndex, d.mgas, d.testName, d.testOrder])
+        const data = points.map((d) => [d.testIndex, d.value, d.testName, d.testOrder])
         const base = {
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
           data,
           itemStyle: { color: slot.color },
           cursor: onTestClick ? 'pointer' : 'default',
+          // One line marks the slow limit, so it goes on the first series.
+          ...(limitLine && i === 0 ? { markLine: limitLine } : {}),
         }
         if (chartType === 'bar') {
           return { ...base, type: 'bar' as const, barMaxWidth: 6 }
@@ -245,7 +310,7 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
         }
       }),
     }
-  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, onTestClick, highlightedTestRef, nameMode])
+  }, [pointsPerRun, runs, isDark, zoomRange, labelMode, chartType, onTestClick, highlightedTestRef, nameMode, meta, metric, slowMs])
 
   if (pointsPerRun.every((p) => p.length === 0)) return null
 
@@ -253,8 +318,8 @@ export function MGasComparisonChart({ runs, suiteTests, stepFilter, labelMode, t
     <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Flame className="size-4 text-gray-400 dark:text-gray-500" />
-          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">MGas/s per Test</h3>
+          <Icon className="size-4 text-gray-400 dark:text-gray-500" />
+          <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">{meta.title}</h3>
         </div>
         <div className="flex items-center gap-2 text-xs/5">
           {runs.map((run) => {
