@@ -57,6 +57,8 @@ type ContainerManager interface {
 	// Volume operations.
 	CreateVolume(ctx context.Context, name string, labels map[string]string) error
 	RemoveVolume(ctx context.Context, name string) error
+	// VolumeMountpoint returns the host path that holds the volume data.
+	VolumeMountpoint(ctx context.Context, name string) (string, error)
 
 	// Cleanup operations.
 	ListContainers(ctx context.Context) ([]ContainerInfo, error)
@@ -565,6 +567,16 @@ func (m *manager) RemoveVolume(ctx context.Context, name string) error {
 	m.log.WithField("volume", name).Info("Removed volume")
 
 	return nil
+}
+
+// VolumeMountpoint returns the host path that holds a Docker volume.
+func (m *manager) VolumeMountpoint(ctx context.Context, name string) (string, error) {
+	vol, err := m.client.VolumeInspect(ctx, name)
+	if err != nil {
+		return "", fmt.Errorf("inspecting volume %s: %w", name, err)
+	}
+
+	return vol.Mountpoint, nil
 }
 
 // ListContainers returns all containers managed by benchmarkoor.

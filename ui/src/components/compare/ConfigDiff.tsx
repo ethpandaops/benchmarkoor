@@ -1,8 +1,17 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import { Settings, ChevronDown } from 'lucide-react'
+import type { InstanceConfig } from '@/api/types'
 import { cpuLayoutSummary } from '@/utils/cpuTopology'
-import { formatBytes, formatFrequency } from '@/utils/format'
+import {
+  formatApproxBandwidth,
+  formatApproxCount,
+  formatBytes,
+  formatDiskSize,
+  formatFrequency,
+  formatNumber,
+  withinTolerance,
+} from '@/utils/format'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 
 interface ConfigDiffProps {
@@ -10,8 +19,10 @@ interface ConfigDiffProps {
   labelMode: LabelMode
 }
 
-function DiffRow({ label, values }: { label: string; values: string[] }) {
-  const allSame = values.every((v) => v === values[0])
+// same overrides the text comparison, for measured values that change a
+// little on each run.
+function DiffRow({ label, values, same }: { label: string; values: string[]; same?: boolean }) {
+  const allSame = same ?? values.every((v) => v === values[0])
   return (
     <tr className={clsx(!allSame && 'bg-yellow-50/50 dark:bg-yellow-900/10')}>
       <td className="px-3 py-1.5 text-xs/5 font-medium text-gray-500 dark:text-gray-400">{label}</td>
@@ -25,6 +36,12 @@ function DiffRow({ label, values }: { label: string; values: string[] }) {
       })}
     </tr>
   )
+}
+
+// diskLimitsKey joins the disk limit fields, to compare them between runs.
+function diskLimitsKey(inst: InstanceConfig): string {
+  const rl = inst.resource_limits
+  return [rl?.device_path, rl?.device_read_iops, rl?.device_write_iops, rl?.device_read_bps, rl?.device_write_bps].join('|')
 }
 
 export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
@@ -44,12 +61,15 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
       || JSON.stringify(inst.retry_new_payloads_syncing_state) !== JSON.stringify(first.retry_new_payloads_syncing_state)
       || JSON.stringify(inst.retry_new_payloads_failed_state) !== JSON.stringify(first.retry_new_payloads_failed_state)
       || JSON.stringify(inst.command) !== JSON.stringify(first.command)
-      || JSON.stringify(inst.environment) !== JSON.stringify(first.environment),
+      || JSON.stringify(inst.environment) !== JSON.stringify(first.environment)
+      || diskLimitsKey(inst) !== diskLimitsKey(first),
     ) || systems.some((sys) =>
       sys.hostname !== firstSys.hostname
       || sys.cpu_model !== firstSys.cpu_model
       || sys.cpu_cores !== firstSys.cpu_cores
-      || sys.memory_total_gb !== firstSys.memory_total_gb,
+      || sys.memory_total_gb !== firstSys.memory_total_gb
+      || sys.storage?.device?.path !== firstSys.storage?.device?.path
+      || sys.storage?.filesystem !== firstSys.storage?.filesystem,
     )
   })()
 
@@ -158,6 +178,61 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
               )}
               <DiffRow label="CPU MHz" values={systems.map((s) => s.cpu_mhz.toFixed(0))} />
               <DiffRow label="Memory" values={systems.map((s) => `${s.memory_total_gb.toFixed(1)} GB`)} />
+              {systems.some((s) => s.storage?.device) && (
+                <DiffRow
+                  label="Storage Device"
+                  values={systems.map((s) => {
+                    const d = s.storage?.device
+                    return d ? [d.path, d.kind, d.model].filter(Boolean).join(' · ') : ''
+                  })}
+                />
+              )}
+              {systems.some((s) => s.storage?.device?.size_bytes) && (
+                <DiffRow
+                  label="Storage Size"
+                  values={systems.map((s) => {
+                    const size = s.storage?.device?.size_bytes
+                    return size ? formatDiskSize(size) : ''
+                  })}
+                />
+              )}
+              {systems.some((s) => s.storage?.filesystem) && (
+                <DiffRow
+                  label="Filesystem"
+                  values={systems.map((s) => {
+                    const st = s.storage
+                    if (!st?.filesystem) return ''
+                    return st.partition ? `${st.filesystem} on ${st.partition}` : st.filesystem
+                  })}
+                />
+              )}
+              {/* A probe row shows a difference only above the measurement tolerance. */}
+              {systems.some((s) => s.storage?.probe) && (
+                <>
+                  <DiffRow
+                    label="Disk Random IOPS (R/W)"
+                    values={systems.map((s) => {
+                      const p = s.storage?.probe
+                      return p ? `${formatApproxCount(p.rand_read_iops)} / ${formatApproxCount(p.rand_write_iops)}` : ''
+                    })}
+                    same={
+                      withinTolerance(systems.map((s) => s.storage?.probe?.rand_read_iops))
+                      && withinTolerance(systems.map((s) => s.storage?.probe?.rand_write_iops))
+                    }
+                  />
+                  <DiffRow
+                    label="Disk Sequential (R/W)"
+                    values={systems.map((s) => {
+                      const p = s.storage?.probe
+                      return p ? `${formatApproxBandwidth(p.seq_read_bps)} / ${formatApproxBandwidth(p.seq_write_bps)}` : ''
+                    })}
+                    same={
+                      withinTolerance(systems.map((s) => s.storage?.probe?.seq_read_bps))
+                      && withinTolerance(systems.map((s) => s.storage?.probe?.seq_write_bps))
+                    }
+                  />
+                </>
+              )}
 
               {/* Resource Limits */}
               {instances.some((i) => i.resource_limits) && (
@@ -187,6 +262,34 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
                     <DiffRow
                       label="CPU Frequency"
                       values={instances.map((i) => i.resource_limits?.cpu_freq_khz ? formatFrequency(i.resource_limits.cpu_freq_khz) : '')}
+                    />
+                  )}
+                  {instances.some((i) => i.resource_limits?.device_path) && (
+                    <DiffRow
+                      label="Disk Limit Device"
+                      values={instances.map((i) => i.resource_limits?.device_path ?? '')}
+                    />
+                  )}
+                  {instances.some((i) => i.resource_limits?.device_read_iops || i.resource_limits?.device_write_iops) && (
+                    <DiffRow
+                      label="Disk IOPS Limit (R/W)"
+                      values={instances.map((i) => {
+                        const rl = i.resource_limits
+                        if (!rl?.device_read_iops && !rl?.device_write_iops) return ''
+                        const fmt = (v?: number) => (v ? formatNumber(v) : 'none')
+                        return `${fmt(rl.device_read_iops)} / ${fmt(rl.device_write_iops)}`
+                      })}
+                    />
+                  )}
+                  {instances.some((i) => i.resource_limits?.device_read_bps || i.resource_limits?.device_write_bps) && (
+                    <DiffRow
+                      label="Disk Bandwidth Limit (R/W)"
+                      values={instances.map((i) => {
+                        const rl = i.resource_limits
+                        if (!rl?.device_read_bps && !rl?.device_write_bps) return ''
+                        const fmt = (v?: number) => (v ? `${formatBytes(v)}/s` : 'none')
+                        return `${fmt(rl.device_read_bps)} / ${fmt(rl.device_write_bps)}`
+                      })}
                     />
                   )}
                 </>

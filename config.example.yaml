@@ -43,6 +43,15 @@ runner:
   # Can also be set via BENCHMARKOOR_RUNNER_GITHUB_TOKEN environment variable.
   # github_token: ${GITHUB_TOKEN:-}
 
+  # Optional: Measure the IOPS and bandwidth of the datadir block device
+  # before the first client starts (Linux only). The probe writes a test
+  # file into the data mount with direct I/O and deletes it after.
+  # storage_probe:
+  #   enabled: true
+  #   file_size: 1GB
+  #   duration: 5s
+  #   io_depth: 64
+
   # Optional: Stream periodic run-status reports to a benchmarkoor API
   # instance so the UI can show in-progress runs. The API must have a
   # matching `api.ingest.token` configured.
@@ -632,24 +641,17 @@ runner:
       #   memory: "16g"
       #   # Disable swap for the container (sets memory-swap equal to memory and swappiness to 0)
       #   swap_disabled: true
-      #   # Block I/O throttling (optional)
-      #   blkio_config:
-      #     # Limit device read bandwidth (supports units: b, k, m, g)
-      #     device_read_bps:
-      #       - path: /dev/sdb
-      #         rate: '12mb'
-      #     # Limit device read IOPS (integer)
-      #     device_read_iops:
-      #       - path: /dev/sdb
-      #         rate: '120'
-      #     # Limit device write bandwidth
-      #     device_write_bps:
-      #       - path: /dev/sdb
-      #         rate: '1024k'
-      #     # Limit device write IOPS
-      #     device_write_iops:
-      #       - path: /dev/sdb
-      #         rate: '30'
+      #   # Disk I/O limits on the block device that holds the client datadir
+      #   # (Linux only). benchmarkoor finds the device, so no path is needed.
+      #   # These values match the storage recommendations of EIP-7870.
+      #   device_read_iops: 50000
+      #   device_write_iops: 15000
+      #   # Bandwidth limits (supports units: b, k, m, g; "mb" is a mebibyte)
+      #   device_read_bps: "500mb"
+      #   device_write_bps: "500mb"
+      #   # Optional: the device to throttle, when the automatic lookup cannot
+      #   # find it (e.g. benchmarkoor runs in a container).
+      #   # device_path: /dev/nvme0n1
       #   # CPU frequency management (Linux only, requires root and cpufreq subsystem)
       #   # These settings are applied to the CPUs specified by cpuset/cpuset_count,
       #   # or all online CPUs if neither is specified.

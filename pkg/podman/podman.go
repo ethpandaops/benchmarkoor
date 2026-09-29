@@ -308,6 +308,12 @@ func (m *manager) CreateContainer(
 				s.ResourceLimits.Memory.Swap = &swap
 			}
 		}
+
+		// Podman resolves each device path to its major:minor number.
+		s.ThrottleReadBpsDevice = throttleDevices(spec.ResourceLimits.BlkioDeviceReadBps)
+		s.ThrottleWriteBpsDevice = throttleDevices(spec.ResourceLimits.BlkioDeviceWriteBps)
+		s.ThrottleReadIOPSDevice = throttleDevices(spec.ResourceLimits.BlkioDeviceReadIOps)
+		s.ThrottleWriteIOPSDevice = throttleDevices(spec.ResourceLimits.BlkioDeviceWriteIOps)
 	}
 
 	conn, cancel := m.connWithCtx(ctx)
@@ -610,6 +616,19 @@ func (m *manager) CreateVolume(
 	return nil
 }
 
+// VolumeMountpoint returns the host path that holds a Podman volume.
+func (m *manager) VolumeMountpoint(ctx context.Context, name string) (string, error) {
+	conn, cancel := m.connWithCtx(ctx)
+	defer cancel()
+
+	vol, err := volumes.Inspect(conn, name, nil)
+	if err != nil {
+		return "", fmt.Errorf("inspecting volume %s: %w", name, err)
+	}
+
+	return vol.Mountpoint, nil
+}
+
 // RemoveVolume removes a Podman volume.
 func (m *manager) RemoveVolume(ctx context.Context, name string) error {
 	conn, cancel := m.connWithCtx(ctx)
@@ -738,4 +757,20 @@ func (m *manager) WaitForContainerExit(
 	}()
 
 	return statusCh, errCh
+}
+
+// throttleDevices converts blkio throttles to the specgen format, keyed by the
+// device path. A later entry for the same path replaces an earlier one.
+func throttleDevices(devices []docker.BlkioThrottleDevice) map[string]specs.LinuxThrottleDevice {
+	if len(devices) == 0 {
+		return nil
+	}
+
+	result := make(map[string]specs.LinuxThrottleDevice, len(devices))
+
+	for _, dev := range devices {
+		result[dev.Path] = specs.LinuxThrottleDevice{Rate: dev.Rate}
+	}
+
+	return result
 }

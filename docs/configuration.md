@@ -151,6 +151,7 @@ runner:
 | `metadata.labels` | map[string]string | - | Arbitrary key-value labels attached to the run (see [Metadata Labels](#metadata-labels)) |
 | `github_token` | string | - | GitHub token for downloading Actions artifacts via REST API. Not needed if `gh` CLI is installed and authenticated. Requires `actions:read` scope. Can also be set via `BENCHMARKOOR_RUNNER_GITHUB_TOKEN` env var |
 | `live_reporting` | object | - | Stream periodic run-status reports to a benchmarkoor API instance so the UI can display in-progress runs. See [Live Reporting](#live-reporting) |
+| `storage_probe` | object | - | Measure the IOPS and bandwidth of the datadir block device before the first client starts. See [Storage Probe](#storage-probe) |
 
 #### Live Reporting
 
@@ -1569,7 +1570,7 @@ Merge rules:
 
 - A field that the instance omits keeps the global value.
 - `cpuset` and `cpuset_count` are one setting. An instance that sets either one replaces both global fields.
-- Each `blkio_config` device list is replaced as a whole. An instance `device_read_bps` list does not change the global `device_write_bps` list.
+- Each `device_*` limit merges on its own, as the other fields do.
 - Set `swap_disabled: false` on the instance to turn swap on again when the global config disables it.
 
 ```yaml
@@ -1579,19 +1580,10 @@ resource_limits:
   cpuset: [0, 1, 2, 3]
   memory: "16g"
   swap_disabled: true
-  blkio_config:
-    device_read_bps:
-      - path: /dev/sdb
-        rate: '12mb'
-    device_write_bps:
-      - path: /dev/sdb
-        rate: '1024k'
-    device_read_iops:
-      - path: /dev/sdb
-        rate: '120'
-    device_write_iops:
-      - path: /dev/sdb
-        rate: '30'
+  device_read_iops: 50000
+  device_write_iops: 15000
+  device_read_bps: "500mb"
+  device_write_bps: "500mb"
 ```
 
 | Option | Type | Description |
@@ -1604,7 +1596,11 @@ resource_limits:
 | `cpu_freq_governor` | string | CPU frequency governor. Common values: `performance`, `powersave`, `schedutil`. Defaults to `performance` when `cpu_freq` is set |
 | `memory` | string | Memory limit with unit: `b`, `k`, `m`, `g` (e.g., `"16g"`, `"4096m"`) |
 | `swap_disabled` | bool | Disable swap (sets memory-swap equal to memory, swappiness to 0) |
-| `blkio_config` | object | Block I/O throttling configuration (see below) |
+| `device_read_iops` | uint | Read IOPS limit on the datadir block device. See [Disk I/O Limits](#disk-io-limits) |
+| `device_write_iops` | uint | Write IOPS limit on the datadir block device |
+| `device_read_bps` | string | Read bandwidth limit on the datadir block device, with a unit: `b`, `k`, `m`, `g` (e.g., `"500mb"`) |
+| `device_write_bps` | string | Write bandwidth limit on the datadir block device, with a unit |
+| `device_path` | string | Block device for the `device_*` limits, e.g. `/dev/nvme0n1`. Omit it to use the device that holds the datadir |
 
 **Note:** `cpuset_count` and `cpuset` are mutually exclusive. Use one or the other.
 
@@ -1626,23 +1622,73 @@ resource_limits:
 
 The topology comes from sysfs (`/sys/devices/system/cpu/*/topology`), so `full_cores` and `one_thread_per_core` only work on Linux. The run's `config.json` records the host topology in `system.cpu_topology`, and the UI draws the pinned threads per physical core in the Configuration section.
 
-### Block I/O Configuration
+### Disk I/O Limits
 
-The `blkio_config` option allows throttling container disk I/O:
+The `device_*` limits throttle the block device that holds the client datadir. You do not usually set a device path. Before the client starts, benchmarkoor finds the device:
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `device_read_bps` | []object | Device read bandwidth limits |
-| `device_read_iops` | []object | Device read IOPS limits |
-| `device_write_bps` | []object | Device write bandwidth limits |
-| `device_write_iops` | []object | Device write IOPS limits |
+1. It takes the host path of the data mount. For a Docker or Podman volume, this is the volume mountpoint.
+2. It reads the device number of that filesystem. It follows an overlay mount to its upper directory, and a btrfs subvolume to its source device.
+3. It goes from a partition to its whole disk. The kernel does not throttle a single partition.
 
-Each device entry has:
+Use the limits to give each client the disk of a reference machine. For example, these values match the storage recommendations of [EIP-7870](https://eips.ethereum.org/EIPS/eip-7870):
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `path` | string | Device path (e.g., `/dev/sdb`) |
-| `rate` | string | Rate limit. For `*_bps`: string with unit (`b`, `k`, `m`, `g`). For `*_iops`: integer string |
+```yaml
+runner:
+  client:
+    config:
+      resource_limits:
+        device_read_iops: 50000
+        device_write_iops: 15000
+        device_read_bps: "500mb"
+        device_write_bps: "500mb"
+```
+
+Notes:
+
+- The limits work only on Linux. They use the cgroup `io` controller through Docker or Podman.
+- On cgroup v2, the kernel also throttles buffered writes when it writes them back. On cgroup v1, only direct and synchronous writes are throttled. benchmarkoor logs a warning on a cgroup v1 host.
+- The `zfs` and `fuse-overlayfs` datadir methods do not support the limits. The disk I/O of these methods does not run in the container cgroup, so the config validation rejects them.
+- The limits apply to the whole disk. On a device-mapper or md device (LVM, RAID), they apply to that device.
+- The unit `mb` is a mebibyte (1,048,576 bytes), as in Docker. Thus `"500mb"` is 524 MB/s.
+- Set `device_path` when benchmarkoor cannot find the device, for example when it runs in a container that does not see the data mount. The path must be the device on the host of the container runtime. With `device_path`, benchmarkoor does not check that this device holds the datadir.
+- The `blkio_config` option was removed. A config that still sets it fails validation.
+- The run `config.json` records the throttled device in `instance.resource_limits.device_path`, and the rates in bytes per second or IOPS.
+
+### Storage Probe
+
+The storage probe measures the capacity of the datadir block device, before the first client starts. It runs outside any container, so it shows the host device without throttles. The UI shows the results in the **Storage** part of the System section, next to the container limits and the EIP-7870 recommendations.
+
+```yaml
+runner:
+  storage_probe:
+    enabled: true
+    file_size: 1GB   # size of the test file
+    duration: 5s     # time of each workload
+    io_depth: 64     # I/O operations in flight
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `false` | Run the probe |
+| `file_size` | string | `1GB` | Size of the test file. The minimum is `64MB` |
+| `duration` | string | `5s` | Time of each of the 4 workloads |
+| `io_depth` | int | `64` | Number of I/O operations in flight (1-1024) |
+
+The probe follows the fio commands of EIP-7870. It uses direct I/O (`O_DIRECT`), which bypasses the page cache:
+
+1. It writes the test file with random data.
+2. It measures 1 MiB sequential reads, then 4 KiB random reads.
+3. It measures 1 MiB sequential writes, then 4 KiB random writes.
+4. It deletes the test file.
+
+Notes:
+
+- The probe runs once for each device and filesystem in a benchmarkoor process. Later instances on the same filesystem use the same result.
+- The probe writes its file into the data mount (for `overlayfs`, next to the upper directory). With the `direct` and `schelk` methods, this is the source datadir. benchmarkoor deletes the file, but schelk then has more blocks to restore.
+- A small test file can fit in the drive cache, and then the result is too high. Use a file that is larger than the drive cache for a more accurate result.
+- A failed probe does not stop the run. The error goes into `config.json` and the UI.
+
+The device details come from sysfs and do not need the probe. The run `config.json` records them in `system.storage`: the device path, type, model, size, filesystem, I/O scheduler, block sizes, and the backing disks of a device-mapper or md device.
 
 ### CPU Frequency Management
 

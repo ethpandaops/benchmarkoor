@@ -142,33 +142,27 @@ type SystemInfo struct {
 	// CPUTopology maps each logical CPU to its core, socket, and NUMA node.
 	// It is only set on Linux hosts that expose the sysfs topology tree.
 	CPUTopology []cputopology.CPU `json:"cpu_topology,omitempty"`
+	// Storage is the block device that holds the client datadir. It is only
+	// set on Linux hosts.
+	Storage *StorageInfo `json:"storage,omitempty"`
 }
 
 // ResolvedResourceLimits contains the resolved resource limits for config.json output.
 type ResolvedResourceLimits struct {
-	CpusetCpus     string               `json:"cpuset_cpus,omitempty"`
-	CpusetTopology string               `json:"cpuset_topology,omitempty"`
-	Memory         string               `json:"memory,omitempty"`
-	MemoryBytes    int64                `json:"memory_bytes,omitempty"`
-	SwapDisabled   bool                 `json:"swap_disabled,omitempty"`
-	BlkioConfig    *ResolvedBlkioConfig `json:"blkio_config,omitempty"`
-	CPUFreqKHz     *uint64              `json:"cpu_freq_khz,omitempty"`
-	CPUTurboBoost  *bool                `json:"cpu_turboboost,omitempty"`
-	CPUGovernor    string               `json:"cpu_freq_governor,omitempty"`
-}
-
-// ResolvedBlkioConfig contains the resolved blkio configuration for config.json output.
-type ResolvedBlkioConfig struct {
-	DeviceReadBps   []ResolvedThrottleDevice `json:"device_read_bps,omitempty"`
-	DeviceReadIOps  []ResolvedThrottleDevice `json:"device_read_iops,omitempty"`
-	DeviceWriteBps  []ResolvedThrottleDevice `json:"device_write_bps,omitempty"`
-	DeviceWriteIOps []ResolvedThrottleDevice `json:"device_write_iops,omitempty"`
-}
-
-// ResolvedThrottleDevice contains a resolved throttle device for config.json output.
-type ResolvedThrottleDevice struct {
-	Path string `json:"path"`
-	Rate uint64 `json:"rate"`
+	CpusetCpus     string  `json:"cpuset_cpus,omitempty"`
+	CpusetTopology string  `json:"cpuset_topology,omitempty"`
+	Memory         string  `json:"memory,omitempty"`
+	MemoryBytes    int64   `json:"memory_bytes,omitempty"`
+	SwapDisabled   bool    `json:"swap_disabled,omitempty"`
+	CPUFreqKHz     *uint64 `json:"cpu_freq_khz,omitempty"`
+	CPUTurboBoost  *bool   `json:"cpu_turboboost,omitempty"`
+	CPUGovernor    string  `json:"cpu_freq_governor,omitempty"`
+	// DevicePath is the datadir block device that the device_* limits throttle.
+	DevicePath      string `json:"device_path,omitempty"`
+	DeviceReadBps   uint64 `json:"device_read_bps,omitempty"`
+	DeviceReadIOps  uint64 `json:"device_read_iops,omitempty"`
+	DeviceWriteBps  uint64 `json:"device_write_bps,omitempty"`
+	DeviceWriteIOps uint64 `json:"device_write_iops,omitempty"`
 }
 
 // ResolvedInstance contains the resolved configuration for a client instance.
@@ -228,6 +222,7 @@ func NewRunner(
 		cpufreqMgr:      cpufreqMgr,
 		uploader:        uploader,
 		preRunLogBuffer: preRunLogBuffer,
+		storageProbes:   make(map[string]storageProbe, 1),
 		done:            make(chan struct{}),
 	}
 }
@@ -242,6 +237,8 @@ type runner struct {
 	cpufreqMgr      cpufreq.Manager
 	uploader        upload.Uploader
 	preRunLogBuffer *BufferHook // Buffered logs from before RunInstance (may be nil).
+	storageProbesMu sync.Mutex
+	storageProbes   map[string]storageProbe // Disk probe outcomes, per filesystem.
 	done            chan struct{}
 	wg              sync.WaitGroup
 }

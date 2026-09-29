@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -634,9 +633,59 @@ type RunnerConfig struct {
 	CPUSysfsPath       string               `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
 	GitHubToken        string               `yaml:"github_token,omitempty" mapstructure:"github_token"`
 	LiveReporting      *LiveReportingConfig `yaml:"live_reporting,omitempty" mapstructure:"live_reporting"`
+	StorageProbe       *StorageProbeConfig  `yaml:"storage_probe,omitempty" mapstructure:"storage_probe"`
 	Benchmark          BenchmarkConfig      `yaml:"benchmark" mapstructure:"benchmark"`
 	Client             ClientConfig         `yaml:"client" mapstructure:"client"`
 	Instances          []ClientInstance     `yaml:"instances" mapstructure:"instances"`
+}
+
+// StorageProbeConfig configures the disk I/O probe. Before the first client
+// starts, the probe measures the random IOPS and the sequential bandwidth of
+// the block device that holds the client datadir. It runs once for each
+// device and filesystem in a benchmarkoor process.
+type StorageProbeConfig struct {
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+	// FileSize is the size of the test file, e.g. "1GB". Default 1GB.
+	FileSize string `yaml:"file_size,omitempty" mapstructure:"file_size"`
+	// Duration is the time of each of the 4 workloads. Default 5s.
+	Duration string `yaml:"duration,omitempty" mapstructure:"duration"`
+	// IODepth is the number of I/O operations in flight. Default 64.
+	IODepth int `yaml:"io_depth,omitempty" mapstructure:"io_depth"`
+}
+
+// Validate checks the storage probe configuration for errors.
+func (p *StorageProbeConfig) Validate() error {
+	if p == nil {
+		return nil
+	}
+
+	if p.FileSize != "" {
+		size, err := units.RAMInBytes(p.FileSize)
+		if err != nil {
+			return fmt.Errorf("runner.storage_probe.file_size: invalid size %q: %w", p.FileSize, err)
+		}
+
+		if size < 64<<20 {
+			return fmt.Errorf("runner.storage_probe.file_size: %q is less than the minimum of 64MB", p.FileSize)
+		}
+	}
+
+	if p.Duration != "" {
+		d, err := time.ParseDuration(p.Duration)
+		if err != nil {
+			return fmt.Errorf("runner.storage_probe.duration: invalid duration %q: %w", p.Duration, err)
+		}
+
+		if d <= 0 {
+			return fmt.Errorf("runner.storage_probe.duration: must be greater than 0")
+		}
+	}
+
+	if p.IODepth < 0 || p.IODepth > 1024 {
+		return fmt.Errorf("runner.storage_probe.io_depth: %d is not in the range 1-1024", p.IODepth)
+	}
+
+	return nil
 }
 
 // LiveReportingConfig enables periodic run-status reports to a benchmarkoor
@@ -1701,13 +1750,25 @@ type ResourceLimits struct {
 	// CpusetTopology constrains the cpuset to physical cores: "any" (default),
 	// "full_cores" or "one_thread_per_core". It steers cpuset_count and checks
 	// an explicit cpuset. It needs the sysfs CPU topology (Linux).
-	CpusetTopology string       `yaml:"cpuset_topology,omitempty" mapstructure:"cpuset_topology" json:"cpuset_topology,omitempty"`
-	Memory         string       `yaml:"memory,omitempty" mapstructure:"memory" json:"memory,omitempty"`
-	SwapDisabled   *bool        `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
-	BlkioConfig    *BlkioConfig `yaml:"blkio_config,omitempty" mapstructure:"blkio_config" json:"blkio_config,omitempty"`
-	CPUFreq        string       `yaml:"cpu_freq,omitempty" mapstructure:"cpu_freq" json:"cpu_freq,omitempty"`
-	CPUTurboBoost  *bool        `yaml:"cpu_turboboost,omitempty" mapstructure:"cpu_turboboost" json:"cpu_turboboost,omitempty"`
-	CPUGovernor    string       `yaml:"cpu_freq_governor,omitempty" mapstructure:"cpu_freq_governor" json:"cpu_freq_governor,omitempty"`
+	CpusetTopology string `yaml:"cpuset_topology,omitempty" mapstructure:"cpuset_topology" json:"cpuset_topology,omitempty"`
+	Memory         string `yaml:"memory,omitempty" mapstructure:"memory" json:"memory,omitempty"`
+	SwapDisabled   *bool  `yaml:"swap_disabled,omitempty" mapstructure:"swap_disabled" json:"swap_disabled,omitempty"`
+	CPUFreq        string `yaml:"cpu_freq,omitempty" mapstructure:"cpu_freq" json:"cpu_freq,omitempty"`
+	CPUTurboBoost  *bool  `yaml:"cpu_turboboost,omitempty" mapstructure:"cpu_turboboost" json:"cpu_turboboost,omitempty"`
+	CPUGovernor    string `yaml:"cpu_freq_governor,omitempty" mapstructure:"cpu_freq_governor" json:"cpu_freq_governor,omitempty"`
+	// The device_* limits throttle the block device that holds the client
+	// datadir. benchmarkoor finds the device at run time. DevicePath replaces
+	// that lookup with an explicit device, e.g. "/dev/nvme0n1".
+	// The bps limits take a size with a unit ("500mb"), the iops limits a count.
+	DevicePath      string `yaml:"device_path,omitempty" mapstructure:"device_path" json:"device_path,omitempty"`
+	DeviceReadBps   string `yaml:"device_read_bps,omitempty" mapstructure:"device_read_bps" json:"device_read_bps,omitempty"`
+	DeviceReadIOps  uint64 `yaml:"device_read_iops,omitempty" mapstructure:"device_read_iops" json:"device_read_iops,omitempty"`
+	DeviceWriteBps  string `yaml:"device_write_bps,omitempty" mapstructure:"device_write_bps" json:"device_write_bps,omitempty"`
+	DeviceWriteIOps uint64 `yaml:"device_write_iops,omitempty" mapstructure:"device_write_iops" json:"device_write_iops,omitempty"`
+	// RemovedBlkioConfig catches the removed blkio_config option. The config
+	// loader ignores unknown keys, so without this field an old config would
+	// lose its I/O limits without an error.
+	RemovedBlkioConfig any `yaml:"-" mapstructure:"blkio_config" json:"-"`
 }
 
 // Merge returns a copy of r with the set fields of override on top of it.
@@ -1756,7 +1817,29 @@ func (r *ResourceLimits) Merge(override *ResourceLimits) *ResourceLimits {
 		merged.CPUGovernor = override.CPUGovernor
 	}
 
-	merged.BlkioConfig = r.BlkioConfig.Merge(override.BlkioConfig)
+	if override.DeviceReadBps != "" {
+		merged.DeviceReadBps = override.DeviceReadBps
+	}
+
+	if override.DeviceReadIOps != 0 {
+		merged.DeviceReadIOps = override.DeviceReadIOps
+	}
+
+	if override.DeviceWriteBps != "" {
+		merged.DeviceWriteBps = override.DeviceWriteBps
+	}
+
+	if override.DeviceWriteIOps != 0 {
+		merged.DeviceWriteIOps = override.DeviceWriteIOps
+	}
+
+	if override.DevicePath != "" {
+		merged.DevicePath = override.DevicePath
+	}
+
+	if override.RemovedBlkioConfig != nil {
+		merged.RemovedBlkioConfig = override.RemovedBlkioConfig
+	}
 
 	return &merged
 }
@@ -1766,55 +1849,10 @@ func (r *ResourceLimits) IsSwapDisabled() bool {
 	return r != nil && r.SwapDisabled != nil && *r.SwapDisabled
 }
 
-// BlkioConfig configures container block I/O limits.
-type BlkioConfig struct {
-	DeviceReadBps   []ThrottleDevice `yaml:"device_read_bps,omitempty" mapstructure:"device_read_bps" json:"device_read_bps,omitempty"`
-	DeviceReadIOps  []ThrottleDevice `yaml:"device_read_iops,omitempty" mapstructure:"device_read_iops" json:"device_read_iops,omitempty"`
-	DeviceWriteBps  []ThrottleDevice `yaml:"device_write_bps,omitempty" mapstructure:"device_write_bps" json:"device_write_bps,omitempty"`
-	DeviceWriteIOps []ThrottleDevice `yaml:"device_write_iops,omitempty" mapstructure:"device_write_iops" json:"device_write_iops,omitempty"`
-}
-
-// Merge returns a copy of b with the set device lists of override on top of it.
-// Each device list is replaced as a whole. Both sides accept a nil value.
-func (b *BlkioConfig) Merge(override *BlkioConfig) *BlkioConfig {
-	if b == nil {
-		return override
-	}
-
-	if override == nil {
-		return b
-	}
-
-	merged := &BlkioConfig{
-		DeviceReadBps:   slices.Clone(b.DeviceReadBps),
-		DeviceReadIOps:  slices.Clone(b.DeviceReadIOps),
-		DeviceWriteBps:  slices.Clone(b.DeviceWriteBps),
-		DeviceWriteIOps: slices.Clone(b.DeviceWriteIOps),
-	}
-
-	if len(override.DeviceReadBps) > 0 {
-		merged.DeviceReadBps = slices.Clone(override.DeviceReadBps)
-	}
-
-	if len(override.DeviceReadIOps) > 0 {
-		merged.DeviceReadIOps = slices.Clone(override.DeviceReadIOps)
-	}
-
-	if len(override.DeviceWriteBps) > 0 {
-		merged.DeviceWriteBps = slices.Clone(override.DeviceWriteBps)
-	}
-
-	if len(override.DeviceWriteIOps) > 0 {
-		merged.DeviceWriteIOps = slices.Clone(override.DeviceWriteIOps)
-	}
-
-	return merged
-}
-
-// ThrottleDevice defines a device throttle setting.
-type ThrottleDevice struct {
-	Path string `yaml:"path" mapstructure:"path" json:"path"`
-	Rate string `yaml:"rate" mapstructure:"rate" json:"rate"` // For bps: supports units like "12mb", "1024k". For iops: integer string.
+// HasDeviceLimits reports if the limits throttle the datadir block device.
+func (r *ResourceLimits) HasDeviceLimits() bool {
+	return r != nil && (r.DeviceReadBps != "" || r.DeviceReadIOps != 0 ||
+		r.DeviceWriteBps != "" || r.DeviceWriteIOps != 0)
 }
 
 // Validate checks the resource limits configuration for errors.
@@ -1879,83 +1917,39 @@ func (r *ResourceLimits) Validate(prefix string) error {
 		}
 	}
 
-	// Validate blkio_config.
-	if r.BlkioConfig != nil {
-		if err := r.BlkioConfig.Validate(prefix + ".blkio_config"); err != nil {
-			return err
+	// Validate the datadir device limits.
+	for key, rate := range map[string]string{
+		"device_read_bps":  r.DeviceReadBps,
+		"device_write_bps": r.DeviceWriteBps,
+	} {
+		if rate == "" {
+			continue
+		}
+
+		bps, err := units.RAMInBytes(rate)
+		if err != nil {
+			return fmt.Errorf("%s: invalid %s format %q: %w", prefix, key, rate, err)
+		}
+
+		if bps <= 0 {
+			return fmt.Errorf("%s: %s must be greater than 0", prefix, key)
 		}
 	}
 
-	return nil
-}
+	if r.DevicePath != "" {
+		if !filepath.IsAbs(r.DevicePath) {
+			return fmt.Errorf("%s: device_path %q must be an absolute path", prefix, r.DevicePath)
+		}
 
-// Validate checks the blkio configuration for errors.
-func (b *BlkioConfig) Validate(prefix string) error {
-	// Validate device_read_bps (bandwidth rates).
-	for i, dev := range b.DeviceReadBps {
-		if err := validateThrottleDeviceBps(dev, fmt.Sprintf("%s.device_read_bps[%d]", prefix, i)); err != nil {
-			return err
+		if !r.HasDeviceLimits() {
+			return fmt.Errorf("%s: device_path needs at least one device_read_*/device_write_* limit", prefix)
 		}
 	}
 
-	// Validate device_write_bps (bandwidth rates).
-	for i, dev := range b.DeviceWriteBps {
-		if err := validateThrottleDeviceBps(dev, fmt.Sprintf("%s.device_write_bps[%d]", prefix, i)); err != nil {
-			return err
-		}
-	}
-
-	// Validate device_read_iops (IOPS rates).
-	for i, dev := range b.DeviceReadIOps {
-		if err := validateThrottleDeviceIOps(dev, fmt.Sprintf("%s.device_read_iops[%d]", prefix, i)); err != nil {
-			return err
-		}
-	}
-
-	// Validate device_write_iops (IOPS rates).
-	for i, dev := range b.DeviceWriteIOps {
-		if err := validateThrottleDeviceIOps(dev, fmt.Sprintf("%s.device_write_iops[%d]", prefix, i)); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// validateThrottleDeviceBps validates a throttle device for bandwidth (bps) limits.
-func validateThrottleDeviceBps(dev ThrottleDevice, prefix string) error {
-	if dev.Path == "" {
-		return fmt.Errorf("%s: path is required", prefix)
-	}
-
-	if dev.Rate == "" {
-		return fmt.Errorf("%s: rate is required", prefix)
-	}
-
-	if _, err := units.RAMInBytes(dev.Rate); err != nil {
-		return fmt.Errorf("%s: invalid rate format %q: %w", prefix, dev.Rate, err)
-	}
-
-	return nil
-}
-
-// validateThrottleDeviceIOps validates a throttle device for IOPS limits.
-func validateThrottleDeviceIOps(dev ThrottleDevice, prefix string) error {
-	if dev.Path == "" {
-		return fmt.Errorf("%s: path is required", prefix)
-	}
-
-	if dev.Rate == "" {
-		return fmt.Errorf("%s: rate is required", prefix)
-	}
-
-	rate, err := strconv.ParseUint(dev.Rate, 10, 64)
-	if err != nil {
-		return fmt.Errorf("%s: invalid iops rate %q (must be a positive integer): %w", prefix, dev.Rate, err)
-	}
-
-	if rate == 0 {
-		return fmt.Errorf("%s: iops rate must be greater than 0", prefix)
+	if r.RemovedBlkioConfig != nil {
+		return fmt.Errorf("%s: blkio_config was removed. Use device_read_iops, device_write_iops, "+
+			"device_read_bps and device_write_bps, which throttle the datadir device, "+
+			"and device_path to name the device", prefix)
 	}
 
 	return nil
@@ -2251,6 +2245,16 @@ func bindEnvKeys(v *viper.Viper) {
 		"runner.client.config.resource_limits.cpu_freq",
 		"runner.client.config.resource_limits.cpu_turboboost",
 		"runner.client.config.resource_limits.cpu_freq_governor",
+		"runner.client.config.resource_limits.device_path",
+		"runner.client.config.resource_limits.device_read_bps",
+		"runner.client.config.resource_limits.device_read_iops",
+		"runner.client.config.resource_limits.device_write_bps",
+		"runner.client.config.resource_limits.device_write_iops",
+		// Runner storage probe
+		"runner.storage_probe.enabled",
+		"runner.storage_probe.file_size",
+		"runner.storage_probe.duration",
+		"runner.storage_probe.io_depth",
 		// Runner client retry new payloads syncing state
 		"runner.client.config.retry_new_payloads_syncing_state.enabled",
 		"runner.client.config.retry_new_payloads_syncing_state.max_retries",
@@ -2628,6 +2632,15 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 
 	// Validate cpu_freq settings.
 	if err := c.validateCPUFreq(); err != nil {
+		return err
+	}
+
+	// Validate the datadir device limits and the storage probe.
+	if err := c.validateDeviceLimits(); err != nil {
+		return err
+	}
+
+	if err := c.Runner.StorageProbe.Validate(); err != nil {
 		return err
 	}
 
@@ -3931,6 +3944,43 @@ func (c *Config) validateContainerRuntime() error {
 			"invalid container_runtime %q (must be \"docker\" or \"podman\")",
 			c.Runner.ContainerRuntime,
 		)
+	}
+
+	return nil
+}
+
+// deviceLimitsUnsupportedMethods are the datadir methods where a cgroup I/O
+// limit on the container has no effect. ZFS issues its disk I/O from kernel
+// threads, and fuse-overlayfs from a FUSE daemon outside the container.
+var deviceLimitsUnsupportedMethods = map[string]struct{}{
+	"zfs":            {},
+	"fuse-overlayfs": {},
+}
+
+// validateDeviceLimits checks the device_* resource limits of each instance
+// against the host and the datadir method.
+func (c *Config) validateDeviceLimits() error {
+	for i := range c.Runner.Instances {
+		instance := &c.Runner.Instances[i]
+
+		if !c.GetResourceLimits(instance).HasDeviceLimits() {
+			continue
+		}
+
+		if runtime.GOOS != "linux" {
+			return fmt.Errorf("instance %q: resource_limits.device_* limits are only supported on Linux "+
+				"(current OS: %s)", instance.ID, runtime.GOOS)
+		}
+
+		dd := c.resolveDataDir(instance)
+		if dd == nil {
+			continue
+		}
+
+		if _, ok := deviceLimitsUnsupportedMethods[dd.Method]; ok {
+			return fmt.Errorf("instance %q: resource_limits.device_* limits do not work with the %q "+
+				"datadir method, because its disk I/O does not run in the container cgroup", instance.ID, dd.Method)
+		}
 	}
 
 	return nil

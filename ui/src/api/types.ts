@@ -265,6 +265,53 @@ export interface SystemInfo {
   cpu_cache_kb: number
   memory_total_gb: number
   cpu_topology?: CPUTopologyEntry[]
+  /** The block device that holds the client datadir (Linux only). */
+  storage?: StorageInfo
+}
+
+/** A block device, as read from sysfs. */
+export interface BlockDevice {
+  name: string
+  path: string
+  maj_min?: string
+  /** nvme, scsi, virtio, xen, mmc, device-mapper, md, loop or other. */
+  kind?: string
+  dm_name?: string
+  model?: string
+  vendor?: string
+  firmware?: string
+  size_bytes?: number
+  rotational?: boolean
+  scheduler?: string
+  logical_block_size?: number
+  physical_block_size?: number
+  nr_requests?: number
+  /** The physical disks under a device-mapper or md device. */
+  backing?: BlockDevice[]
+}
+
+/** The measured capacity of the datadir device, outside any container. */
+export interface StorageProbe {
+  rand_read_iops: number
+  rand_write_iops: number
+  seq_read_bps: number
+  seq_write_bps: number
+  file_size_bytes: number
+  io_depth: number
+  duration: string
+  rand_block_size: number
+  seq_block_size: number
+}
+
+export interface StorageInfo {
+  data_path: string
+  filesystem?: string
+  partition?: string
+  device?: BlockDevice
+  /** Why the device is unknown. */
+  error?: string
+  probe?: StorageProbe
+  probe_error?: string
 }
 
 /** One logical CPU (hardware thread) and where it sits on the host. */
@@ -281,28 +328,21 @@ export interface DataDirConfig {
   method?: string
 }
 
-export interface ThrottleDeviceConfig {
-  path: string
-  rate: number
-}
-
-export interface BlkioConfig {
-  device_read_bps?: ThrottleDeviceConfig[]
-  device_read_iops?: ThrottleDeviceConfig[]
-  device_write_bps?: ThrottleDeviceConfig[]
-  device_write_iops?: ThrottleDeviceConfig[]
-}
-
 export interface ResourceLimitsConfig {
   cpuset_cpus?: string
   cpuset_topology?: 'full_cores' | 'one_thread_per_core'
   memory?: string
   memory_bytes?: number
   swap_disabled?: boolean
-  blkio_config?: BlkioConfig
   cpu_freq_khz?: number
   cpu_turboboost?: boolean
   cpu_freq_governor?: string
+  /** The datadir block device that the device_* limits throttle. */
+  device_path?: string
+  device_read_bps?: number
+  device_read_iops?: number
+  device_write_bps?: number
+  device_write_iops?: number
 }
 
 export interface RetryNewPayloadsSyncingConfig {

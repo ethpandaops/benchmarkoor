@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -5164,10 +5165,8 @@ func TestGetResourceLimits(t *testing.T) {
 		CPUGovernor:   "performance",
 		Memory:        "32g",
 		SwapDisabled:  boolCfg(true),
-		BlkioConfig: &BlkioConfig{
-			DeviceReadBps:  []ThrottleDevice{{Path: "/dev/sdb", Rate: "12mb"}},
-			DeviceWriteBps: []ThrottleDevice{{Path: "/dev/sdb", Rate: "1024k"}},
-		},
+		DevicePath:    "/dev/nvme0n1",
+		DeviceReadBps: "500mb",
 	}
 
 	t.Run("instance memory keeps the global defaults", func(t *testing.T) {
@@ -5187,7 +5186,8 @@ func TestGetResourceLimits(t *testing.T) {
 		assert.Equal(t, "performance", got.CPUGovernor)
 		assert.Equal(t, boolCfg(false), got.CPUTurboBoost)
 		assert.True(t, got.IsSwapDisabled())
-		assert.Equal(t, global.BlkioConfig, got.BlkioConfig)
+		assert.Equal(t, "/dev/nvme0n1", got.DevicePath)
+		assert.Equal(t, "500mb", got.DeviceReadBps)
 
 		// The global limits stay untouched.
 		assert.Equal(t, "32g", global.Memory)
@@ -5308,21 +5308,176 @@ func TestResourceLimitsValidateCpusetTopology(t *testing.T) {
 	}
 }
 
-func TestBlkioConfigMerge(t *testing.T) {
-	base := &BlkioConfig{
-		DeviceReadBps:   []ThrottleDevice{{Path: "/dev/sdb", Rate: "12mb"}},
-		DeviceWriteIOps: []ThrottleDevice{{Path: "/dev/sdb", Rate: "30"}},
-	}
+func TestResourceLimitsDeviceLimits(t *testing.T) {
+	t.Run("merge keeps the global limits the instance does not set", func(t *testing.T) {
+		global := &ResourceLimits{
+			DeviceReadIOps:  50000,
+			DeviceWriteIOps: 15000,
+			DeviceReadBps:   "500mb",
+		}
 
-	got := base.Merge(&BlkioConfig{
-		DeviceReadBps: []ThrottleDevice{{Path: "/dev/nvme0n1", Rate: "50mb"}},
+		got := global.Merge(&ResourceLimits{DeviceReadIOps: 10000, DeviceWriteBps: "100mb", DevicePath: "/dev/sdb"})
+
+		require.NotNil(t, got)
+		assert.Equal(t, "/dev/sdb", got.DevicePath)
+		assert.Equal(t, uint64(10000), got.DeviceReadIOps)
+		assert.Equal(t, uint64(15000), got.DeviceWriteIOps)
+		assert.Equal(t, "500mb", got.DeviceReadBps)
+		assert.Equal(t, "100mb", got.DeviceWriteBps)
+		assert.Equal(t, uint64(50000), global.DeviceReadIOps)
 	})
 
-	require.NotNil(t, got)
-	assert.Equal(t, []ThrottleDevice{{Path: "/dev/nvme0n1", Rate: "50mb"}}, got.DeviceReadBps)
-	assert.Equal(t, []ThrottleDevice{{Path: "/dev/sdb", Rate: "30"}}, got.DeviceWriteIOps)
-	assert.Empty(t, got.DeviceWriteBps)
+	t.Run("has device limits", func(t *testing.T) {
+		assert.False(t, (*ResourceLimits)(nil).HasDeviceLimits())
+		assert.False(t, (&ResourceLimits{Memory: "1g"}).HasDeviceLimits())
+		assert.True(t, (&ResourceLimits{DeviceWriteIOps: 1}).HasDeviceLimits())
+		assert.True(t, (&ResourceLimits{DeviceReadBps: "1mb"}).HasDeviceLimits())
+	})
 
-	// The base stays untouched.
-	assert.Equal(t, []ThrottleDevice{{Path: "/dev/sdb", Rate: "12mb"}}, base.DeviceReadBps)
+	tests := []struct {
+		name      string
+		limits    ResourceLimits
+		errSubstr string
+	}{
+		{name: "valid", limits: ResourceLimits{DeviceReadBps: "500mb", DeviceWriteBps: "1g", DeviceReadIOps: 1}},
+		{name: "bad bps unit", limits: ResourceLimits{DeviceReadBps: "fast"}, errSubstr: "invalid device_read_bps"},
+		{name: "zero bps", limits: ResourceLimits{DeviceWriteBps: "0"}, errSubstr: "device_write_bps must be greater than 0"},
+		{name: "device path", limits: ResourceLimits{DevicePath: "/dev/nvme0n1", DeviceReadIOps: 1}},
+		{
+			name:      "relative device path",
+			limits:    ResourceLimits{DevicePath: "nvme0n1", DeviceReadIOps: 1},
+			errSubstr: "must be an absolute path",
+		},
+		{
+			name:      "device path without limits",
+			limits:    ResourceLimits{DevicePath: "/dev/nvme0n1"},
+			errSubstr: "needs at least one",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.limits.Validate("resource_limits")
+			if tt.errSubstr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errSubstr)
+		})
+	}
+}
+
+func TestValidateDeviceLimits(t *testing.T) {
+	limits := &ResourceLimits{DeviceReadIOps: 50000}
+
+	tests := []struct {
+		name      string
+		method    string
+		errSubstr string
+	}{
+		{name: "overlayfs works", method: "overlayfs"},
+		{name: "zfs does not work", method: "zfs", errSubstr: `"zfs" datadir method`},
+		{name: "fuse-overlayfs does not work", method: "fuse-overlayfs", errSubstr: `"fuse-overlayfs" datadir method`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Runner: RunnerConfig{
+				Client: ClientConfig{Config: ClientDefaults{ResourceLimits: limits}},
+				Instances: []ClientInstance{{
+					ID:      "geth-1",
+					Client:  "geth",
+					DataDir: &DataDirConfig{SourceDir: "/data", Method: tt.method},
+				}},
+			}}
+
+			err := cfg.validateDeviceLimits()
+
+			if runtime.GOOS != "linux" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "only supported on Linux")
+
+				return
+			}
+
+			if tt.errSubstr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errSubstr)
+		})
+	}
+}
+
+func TestStorageProbeConfigValidate(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       *StorageProbeConfig
+		errSubstr string
+	}{
+		{name: "nil", cfg: nil},
+		{name: "defaults", cfg: &StorageProbeConfig{Enabled: true}},
+		{name: "valid", cfg: &StorageProbeConfig{Enabled: true, FileSize: "4g", Duration: "10s", IODepth: 32}},
+		{name: "bad size", cfg: &StorageProbeConfig{FileSize: "big"}, errSubstr: "invalid size"},
+		{name: "tiny size", cfg: &StorageProbeConfig{FileSize: "1mb"}, errSubstr: "minimum"},
+		{name: "bad duration", cfg: &StorageProbeConfig{Duration: "soon"}, errSubstr: "invalid duration"},
+		{name: "negative duration", cfg: &StorageProbeConfig{Duration: "-1s"}, errSubstr: "greater than 0"},
+		{name: "io depth too high", cfg: &StorageProbeConfig{IODepth: 4096}, errSubstr: "io_depth"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.errSubstr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errSubstr)
+		})
+	}
+}
+
+func TestRemovedBlkioConfigFails(t *testing.T) {
+	configContent := `
+runner:
+  client:
+    config:
+      resource_limits:
+        blkio_config:
+          device_read_iops:
+            - path: /dev/sdb
+              rate: '120'
+  instances:
+    - id: geth
+      client: geth
+      resource_limits:
+        blkio_config:
+          device_write_bps:
+            - path: /dev/sdb
+              rate: '12mb'
+`
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	// Both levels keep the removed option, so validation can reject it.
+	err = cfg.Runner.Client.Config.ResourceLimits.Validate("runner.client.config.resource_limits")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blkio_config was removed")
+
+	err = cfg.Runner.Instances[0].ResourceLimits.Validate("instance resource_limits")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blkio_config was removed")
 }

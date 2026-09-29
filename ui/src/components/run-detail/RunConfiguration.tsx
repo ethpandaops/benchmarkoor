@@ -4,6 +4,7 @@ import { Settings, Check, Copy, ChevronDown } from 'lucide-react'
 import type { InstanceConfig, SystemInfo, StartBlock } from '@/api/types'
 import { formatBytes, formatFrequency } from '@/utils/format'
 import { CPUTopologyGrid } from './CPUTopologyGrid'
+import { StorageInfoPanel } from './StorageInfoPanel'
 
 interface RunConfigurationProps {
   instance: InstanceConfig
@@ -620,68 +621,27 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
                   {instance.resource_limits.cpu_freq_governor && (
                     <InfoItem label="CPU Governor" value={instance.resource_limits.cpu_freq_governor} />
                   )}
+                  {instance.resource_limits.device_read_iops !== undefined && (
+                    <InfoItem label="Disk Read IOPS" value={instance.resource_limits.device_read_iops.toLocaleString()} />
+                  )}
+                  {instance.resource_limits.device_write_iops !== undefined && (
+                    <InfoItem label="Disk Write IOPS" value={instance.resource_limits.device_write_iops.toLocaleString()} />
+                  )}
+                  {instance.resource_limits.device_read_bps !== undefined && (
+                    <InfoItem label="Disk Read Bandwidth" value={`${formatBytes(instance.resource_limits.device_read_bps)}/s`} />
+                  )}
+                  {instance.resource_limits.device_write_bps !== undefined && (
+                    <InfoItem label="Disk Write Bandwidth" value={`${formatBytes(instance.resource_limits.device_write_bps)}/s`} />
+                  )}
+                  {instance.resource_limits.device_path && (
+                    <InfoItem label="Disk Limit Device" value={instance.resource_limits.device_path} />
+                  )}
                 </dl>
-
-                {/* Block I/O Limits */}
-                {instance.resource_limits.blkio_config && (
-                  <div className="mt-4">
-                    <h6 className="mb-2 text-xs/5 font-medium text-gray-500 dark:text-gray-400">Block I/O Limits</h6>
-                    <div className="overflow-x-auto rounded-sm bg-gray-100 p-3 dark:bg-gray-900">
-                      <div className="flex flex-col gap-3 font-mono text-xs/5 text-gray-900 dark:text-gray-100">
-                        {instance.resource_limits.blkio_config.device_read_bps &&
-                          instance.resource_limits.blkio_config.device_read_bps.length > 0 && (
-                            <div>
-                              <span className="text-gray-500 dark:text-gray-400">Read BPS: </span>
-                              {instance.resource_limits.blkio_config.device_read_bps.map((dev, i) => (
-                                <span key={i}>
-                                  {i > 0 && ', '}
-                                  {dev.path} @ {formatBytes(dev.rate)}/s
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        {instance.resource_limits.blkio_config.device_write_bps &&
-                          instance.resource_limits.blkio_config.device_write_bps.length > 0 && (
-                            <div>
-                              <span className="text-gray-500 dark:text-gray-400">Write BPS: </span>
-                              {instance.resource_limits.blkio_config.device_write_bps.map((dev, i) => (
-                                <span key={i}>
-                                  {i > 0 && ', '}
-                                  {dev.path} @ {formatBytes(dev.rate)}/s
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        {instance.resource_limits.blkio_config.device_read_iops &&
-                          instance.resource_limits.blkio_config.device_read_iops.length > 0 && (
-                            <div>
-                              <span className="text-gray-500 dark:text-gray-400">Read IOPS: </span>
-                              {instance.resource_limits.blkio_config.device_read_iops.map((dev, i) => (
-                                <span key={i}>
-                                  {i > 0 && ', '}
-                                  {dev.path} @ {dev.rate.toLocaleString()}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        {instance.resource_limits.blkio_config.device_write_iops &&
-                          instance.resource_limits.blkio_config.device_write_iops.length > 0 && (
-                            <div>
-                              <span className="text-gray-500 dark:text-gray-400">Write IOPS: </span>
-                              {instance.resource_limits.blkio_config.device_write_iops.map((dev, i) => (
-                                <span key={i}>
-                                  {i > 0 && ', '}
-                                  {dev.path} @ {dev.rate.toLocaleString()}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
+
+            {/* Storage: the datadir device, its measured capacity and the device limits */}
+            <StorageInfoPanel storage={system.storage} limits={instance.resource_limits} />
 
             {/* CPU Layout */}
             {system.cpu_topology && system.cpu_topology.length > 0 && (

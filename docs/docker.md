@@ -266,6 +266,24 @@ When `swap_disabled: true`:
 - `memory-swap` is set equal to `memory` (no swap available)
 - `memory-swappiness` is set to 0
 
+### Disk I/O Limits
+
+```yaml
+client:
+  config:
+    resource_limits:
+      device_read_iops: 50000
+      device_write_iops: 15000
+      device_read_bps: "500mb"
+      device_write_bps: "500mb"
+```
+
+benchmarkoor finds the block device under the client volume or datadir, and gives it to Docker as `--device-read-iops` and the related flags. See [Disk I/O Limits](configuration.md#disk-io-limits).
+
+When benchmarkoor itself runs in a container, it must see the data mount at the same path as the host. For a Docker volume, mount `/var/lib/docker/volumes` at the same path. If benchmarkoor cannot find the device, the run fails with the reason. Set `resource_limits.device_path` to the host device in that case.
+
+To measure the disk before the limits apply, enable the [Storage Probe](configuration.md#storage-probe).
+
 ### Per-Instance Overrides
 
 Resource limits can be overridden per instance:

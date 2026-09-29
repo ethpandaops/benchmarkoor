@@ -66,9 +66,11 @@ func cpusetString(cpus []int) string {
 
 // buildContainerResourceLimits builds docker.ResourceLimits from config.ResourceLimits.
 // topology is the host CPU topology, or empty when the host does not expose one.
+// storage is the datadir block device, which the device_* limits need.
 func buildContainerResourceLimits(
 	cfg *config.ResourceLimits,
 	topology []cputopology.CPU,
+	storage *StorageInfo,
 ) (*docker.ResourceLimits, *ResolvedResourceLimits, error) {
 	if cfg == nil {
 		return nil, nil, nil
@@ -133,83 +135,11 @@ func buildContainerResourceLimits(
 		}
 	}
 
-	// Handle blkio config.
-	if cfg.BlkioConfig != nil {
-		blkioCfg := cfg.BlkioConfig
-		resolvedBlkio := &ResolvedBlkioConfig{}
-
-		// Process device_read_bps.
-		if len(blkioCfg.DeviceReadBps) > 0 {
-			containerLimits.BlkioDeviceReadBps, resolvedBlkio.DeviceReadBps = convertBlkioDevicesBps(blkioCfg.DeviceReadBps)
-		}
-
-		// Process device_write_bps.
-		if len(blkioCfg.DeviceWriteBps) > 0 {
-			containerLimits.BlkioDeviceWriteBps, resolvedBlkio.DeviceWriteBps = convertBlkioDevicesBps(blkioCfg.DeviceWriteBps)
-		}
-
-		// Process device_read_iops.
-		if len(blkioCfg.DeviceReadIOps) > 0 {
-			containerLimits.BlkioDeviceReadIOps, resolvedBlkio.DeviceReadIOps = convertBlkioDevicesIOps(blkioCfg.DeviceReadIOps)
-		}
-
-		// Process device_write_iops.
-		if len(blkioCfg.DeviceWriteIOps) > 0 {
-			containerLimits.BlkioDeviceWriteIOps, resolvedBlkio.DeviceWriteIOps = convertBlkioDevicesIOps(blkioCfg.DeviceWriteIOps)
-		}
-
-		// Only set if we have any blkio config.
-		if len(resolvedBlkio.DeviceReadBps) > 0 || len(resolvedBlkio.DeviceWriteBps) > 0 ||
-			len(resolvedBlkio.DeviceReadIOps) > 0 || len(resolvedBlkio.DeviceWriteIOps) > 0 {
-			resolved.BlkioConfig = resolvedBlkio
-		}
+	if err := applyDeviceLimits(cfg, storage, containerLimits, resolved); err != nil {
+		return nil, nil, err
 	}
 
 	return containerLimits, resolved, nil
-}
-
-// convertBlkioDevicesBps converts config blkio devices with bps rates to docker and resolved formats.
-func convertBlkioDevicesBps(devices []config.ThrottleDevice) ([]docker.BlkioThrottleDevice, []ResolvedThrottleDevice) {
-	dockerDevices := make([]docker.BlkioThrottleDevice, len(devices))
-	resolvedDevices := make([]ResolvedThrottleDevice, len(devices))
-
-	for i, dev := range devices {
-		// Parse rate using RAMInBytes (validation already done in config.Validate).
-		rate, _ := units.RAMInBytes(dev.Rate)
-
-		dockerDevices[i] = docker.BlkioThrottleDevice{
-			Path: dev.Path,
-			Rate: uint64(rate),
-		}
-		resolvedDevices[i] = ResolvedThrottleDevice{
-			Path: dev.Path,
-			Rate: uint64(rate),
-		}
-	}
-
-	return dockerDevices, resolvedDevices
-}
-
-// convertBlkioDevicesIOps converts config blkio devices with IOPS rates to docker and resolved formats.
-func convertBlkioDevicesIOps(devices []config.ThrottleDevice) ([]docker.BlkioThrottleDevice, []ResolvedThrottleDevice) {
-	dockerDevices := make([]docker.BlkioThrottleDevice, len(devices))
-	resolvedDevices := make([]ResolvedThrottleDevice, len(devices))
-
-	for i, dev := range devices {
-		// Parse rate as integer (validation already done in config.Validate).
-		rate, _ := strconv.ParseUint(dev.Rate, 10, 64)
-
-		dockerDevices[i] = docker.BlkioThrottleDevice{
-			Path: dev.Path,
-			Rate: rate,
-		}
-		resolvedDevices[i] = ResolvedThrottleDevice{
-			Path: dev.Path,
-			Rate: rate,
-		}
-	}
-
-	return dockerDevices, resolvedDevices
 }
 
 // hasCPUFreqSettings returns true if the resource limits have any CPU frequency settings.
