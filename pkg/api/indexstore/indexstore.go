@@ -732,8 +732,8 @@ func (s *store) ListTestStatsBySuite(
 	return stats, nil
 }
 
-// clientRunRow holds the lightweight result of the distinct client/run_id
-// query used by ListTestStatsBySuiteRecent.
+// clientRunRow holds the lightweight result of the client/run_id query used
+// by ListTestStatsBySuiteRecent.
 type clientRunRow struct {
 	Client   string
 	RunID    string
@@ -746,16 +746,28 @@ type clientRunRow struct {
 func (s *store) ListTestStatsBySuiteRecent(
 	ctx context.Context, suiteHash string, maxRunsPerClient int,
 ) ([]TestStat, error) {
-	// Step 1: lightweight query to get one row per client/run combo. We group by
-	// client and run_id (rather than SELECT DISTINCT over run_start too) so that
-	// a run whose stats carry inconsistent run_start values still counts as a
-	// single run. Otherwise it would produce several rows, consume several of the
-	// per-client slots, and evict other recent runs.
+	// Step 1: list the suite's runs, newest first, from the runs table.
+	//
+	// The indexer writes a run's test_stats with the client and run_start of
+	// its runs row, so the runs table answers "which runs, which client, and
+	// when" on its own. It holds one row per run, not one per test. Grouping
+	// test_stats instead sorted every row of the suite, which is 35M rows for
+	// the largest suite in production and several GB of sorter memory.
+	//
+	// The EXISTS keeps out runs with no test stats, for example a run whose
+	// result.json has no step data. It is one seek on idx_td_suite_test_run
+	// per run, whose (suite_hash, run_id) prefix matches it.
+	//
+	// We group by client and run_id so that a run indexed under two discovery
+	// paths still takes a single per-client slot.
 	var rows []clientRunRow
 	if err := s.readDB.WithContext(ctx).
-		Model(&TestStat{}).
-		Select("client, run_id, MAX(run_start) AS run_start").
+		Model(&Run{}).
+		Select("client, run_id, MAX(timestamp) AS run_start").
 		Where("suite_hash = ?", suiteHash).
+		Where("EXISTS (SELECT 1 FROM test_stats ts " +
+			"WHERE ts.suite_hash = runs.suite_hash " +
+			"AND ts.run_id = runs.run_id)").
 		Group("client, run_id").
 		// run_id is a deterministic tie-breaker so that, when more runs than the
 		// per-client cap share the same run_start, the same runs are kept on
