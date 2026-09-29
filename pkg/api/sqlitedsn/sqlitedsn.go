@@ -21,15 +21,18 @@ type Pragma struct {
 // Build returns path as a DSN that carries pragmas. A pragma the path already
 // sets is left alone, so an operator can still override one through config.
 //
-// The driver reads everything after the first "?" as DSN options, so a plain
-// path, a "file:" path and a full DSN all come back with the pragmas appended
-// and the file itself untouched.
+// The driver reads everything after the first "?" as DSN options, whether or
+// not the path has a "file:" prefix. Build keeps the form it is given. A plain
+// path stays plain: the driver cuts the options off and SQLite gets a literal
+// filename. A "file:" prefix would make SQLite parse the name as a URI, which
+// ends it at a "#" and decodes "%XX", so a valid path could open a different
+// file.
 func Build(path string, pragmas []Pragma) string {
 	if path == "" {
 		return path
 	}
 
-	file, query, _ := strings.Cut(strings.TrimPrefix(path, "file:"), "?")
+	file, query, _ := strings.Cut(path, "?")
 
 	opts := make([]string, 0, len(pragmas)+1)
 	if query != "" {
@@ -47,8 +50,8 @@ func Build(path string, pragmas []Pragma) string {
 	}
 
 	if len(opts) == 0 {
-		return "file:" + file
+		return file
 	}
 
-	return "file:" + file + "?" + strings.Join(opts, "&")
+	return file + "?" + strings.Join(opts, "&")
 }
