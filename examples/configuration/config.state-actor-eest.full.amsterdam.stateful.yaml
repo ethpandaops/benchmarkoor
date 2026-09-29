@@ -17,7 +17,7 @@
 #   orb -m bench sudo benchmarkoor run   --config $(pwd)/examples/configuration/config.state-actor-eest.full.amsterdam.stateful.yaml --limit-instance-id=geth
 #
 # Amsterdam is activated exactly as in the other configs: geth/erigon via the
-# --override.amsterdam flag, besu/reth/ethrex via genesis_fork_override,
+# --override.amsterdam flag, besu/reth/ethrex/nimbus via genesis_fork_override,
 # nethermind via genesis_eip_override. (Per the assume-Amsterdam decision; the
 # gist itself notes the repricing actually ships in glamsterdam.)
 #
@@ -25,6 +25,10 @@
 # client needs its OWN multi-hundred-GB snapshot (state-actor builds one per
 # target), ~1.7 TB for these five. erigon is left commented out: its state-actor
 # build OOMs a 58 GB VM in the commitment phase — re-enable with more RAM.
+# nimbus is commented out too: nimbus master implements glamsterdam's amsterdam
+# (EIP-2780, and it requires the EIP-8282 builder-request contracts, which this
+# prestate does not predeploy), so it rejects fixtures filled by the bal-devnet-7
+# geth below. Enable it once the config moves to a glamsterdam devnet.
 #
 # STATUS: validated end-to-end in the OrbStack VM — geth fills 225 bloatnet
 # cases (0 failed) against this prestate, and the geth/nethermind genesis state
@@ -51,6 +55,7 @@ builder:
       reth: ghcr.io/ethereum/state-actor-reth:main
       besu: ghcr.io/ethereum/state-actor-besu:main
       # erigon: ghcr.io/ethereum/state-actor-erigon:main
+      # nimbus: ghcr.io/ethereum/state-actor-nimbus:main
     pull_policy: always
     config:
       seed: 42                  # gist uses --seed=42 (reproducible addresses)
@@ -144,6 +149,8 @@ builder:
         output_dir: ${STATE_DIR}/besu          # ~329 GB
       # - client: erigon   # OOMs the state-actor build on a 58 GB VM (huge-storage commitment phase)
       #   output_dir: ${STATE_DIR}/erigon
+      # - client: nimbus   # rejects the bal-devnet-7 fixtures (see the NB in the header)
+      #   output_dir: ${STATE_DIR}/nimbus
 
   ## Stage 2: Building EEST bloatnet/repricing fixtures
   eest_payloads:
@@ -246,6 +253,7 @@ runner:
         reth:  ${STATE_DIR}/reth/chainspec.json
         besu: ${STATE_DIR}/besu/besu-chainspec.json
         # erigon: ${STATE_DIR}/erigon/chainspec.json
+        # nimbus: ${STATE_DIR}/nimbus/nimbus-genesis.json
     datadirs:
       geth:
         source_dir: ${STATE_DIR}/geth
@@ -265,6 +273,7 @@ runner:
         source_dir: ${STATE_DIR}/besu
         method: overlayfs
       # erigon: { source_dir: ${STATE_DIR}/erigon, method: overlayfs }
+      # nimbus: { source_dir: ${STATE_DIR}/nimbus, method: overlayfs }
 
   instances:
     - id: geth
@@ -301,3 +310,8 @@ runner:
     #   image: ethpandaops/erigon:bal-devnet-7
     #   extra_args: [--override.amsterdam=1, --fcu.background.commit=false, --exec.no-merge=true, --exec.no-prune=true, --exec.no-background-maintenance]
     #   bootstrap_fcu: { enabled: true, max_retries: 120, backoff: 30s }
+    # - id: nimbus
+    #   client: nimbus
+    #   image: statusim/nimbus-eth1:master
+    #   genesis_fork_override: { amsterdam: 1 }
+    #   extra_args: [--debug-rewrite-datadir-id]

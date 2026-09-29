@@ -12,10 +12,11 @@
 #                       block, run fill-stateful --no-reset-between-tests on
 #                       test_setup_contracts (contracts persist), and RECORD a
 #                       replayable payload bundle under output_dir/pre_run_bundle/.
-#                       geth/besu/reth/ethrex REPLAY (replay_from): each advances
-#                       its own snapshot by replaying nethermind's bundle — no
-#                       re-fill, and it works for non-filler clients (reth/ethrex)
-#                       too since replay uses only the engine API.
+#                       geth/besu/reth/ethrex/nimbus REPLAY (replay_from): each
+#                       advances its own snapshot by replaying nethermind's
+#                       bundle — no re-fill, and it works for non-filler clients
+#                       (reth/ethrex/nimbus) too since replay uses only the
+#                       engine API.
 #   2.   eest_payloads  fill the benchmark (test_account_access) on nethermind's
 #                       advanced datadir → fixtures anchored at the setup head.
 #   3.   runner         each client boots directly from its OWN advanced datadir
@@ -24,8 +25,9 @@
 #                       which filler's benchmark fixtures the runner uses.
 #
 # Only geth/besu/nethermind can act as the fill-stateful filler, so nethermind
-# fills; every other client (including non-fillers reth/ethrex) is advanced at
-# BUILD time by replaying nethermind's bundle onto its snapshot (replay_from).
+# fills; every other client (including non-fillers reth/ethrex/nimbus) is
+# advanced at BUILD time by replaying nethermind's bundle onto its snapshot
+# (replay_from).
 #
 # pre_runs REQUIRES fill-stateful's --no-reset-between-tests flag, on
 # skylenet/execution-specs feat/fill-stateful-no-reset-between-tests (branched
@@ -62,6 +64,7 @@ builder:
       nethermind: ghcr.io/ethereum/state-actor-nethermind:main
       reth: ghcr.io/ethereum/state-actor-reth:main
       ethrex: ghcr.io/ethereum/state-actor-ethrex:main
+      # nimbus: ghcr.io/ethereum/state-actor-nimbus:main
     pull_policy: always
     config:
       seed: 1234
@@ -79,9 +82,9 @@ builder:
           address: 0x4e59b44847b379578588920cA78FbF26c0B4956C
         # Pre-fund fill-stateful's seed account (rpc_seed_key=0x..01 → this addr).
         # EIP-8282 builder-execution-request predeploys (system-called at end of
-        # every block since amsterdam). Strict clients (besu/nethermind/ethrex)
-        # reject a block if these have no code; predeploy the bytecode so the
-        # end-of-block system call returns empty requests (queue empty).
+        # every block since amsterdam). Strict clients (besu/nethermind/ethrex/
+        # nimbus) reject a block if these have no code; predeploy the bytecode so
+        # the end-of-block system call returns empty requests (queue empty).
         # devnet-7 MOVED both predeploys to new addresses with new bytecode (and
         # dropped them from the devnet genesis alloc — the live devnet deploys
         # them via the EIP's presigned Nick's-method txs before the fork). The
@@ -109,10 +112,12 @@ builder:
       - { client: nethermind, output_dir: "${STATE_DIR}/nethermind" }
       - { client: reth, output_dir: "${STATE_DIR}/reth" }
       - { client: ethrex, output_dir: "${STATE_DIR}/ethrex" }
+      # - { client: nimbus, output_dir: "${STATE_DIR}/nimbus" }   # devnet mismatch (see the NB in the header)
 
   ## Stage 1.5: pre-runs — advance the filler's snapshot + record its payload
-  ## bundle. nethermind fills; geth/besu/reth/ethrex advance their snapshots by
-  ## replaying that bundle (replay_from) — so every client gets an advanced datadir.
+  ## bundle. nethermind fills; geth/besu/reth/ethrex/nimbus advance their
+  ## snapshots by replaying that bundle (replay_from) — so every client gets an
+  ## advanced datadir.
   pre_runs:
     pull_policy: always
     eest_repo: ${EEST_REPO}
@@ -159,10 +164,10 @@ builder:
           - --Blocks.CachePrecompilesOnBlockProcessing=false
       # Replay targets: advance each client's snapshot by replaying nethermind's
       # recorded bundle (replay_from) onto it — no re-fill. This works for
-      # non-filler clients (reth/ethrex) too, since replay uses only the engine
-      # API. Each boots with its standard runner command + genesis; the runner then
-      # boots each client from its own advanced datadir (no run-time replay). Each
-      # client's boot flags mirror its runner instance below.
+      # non-filler clients (reth/ethrex/nimbus) too, since replay uses only the
+      # engine API. Each boots with its standard runner command + genesis; the
+      # runner then boots each client from its own advanced datadir (no run-time
+      # replay). Each client's boot flags mirror its runner instance below.
       - name: pre-run-geth
         filler_client: geth
         filler_image: ethpandaops/geth:glamsterdam-devnet-7
@@ -201,6 +206,20 @@ builder:
         filler_extra_args: [--skip-genesis-validation, --no-precompile-cache]
         replay_from: pre-run-nethermind
         output_dir: ${PRERUN_DIR}/ethrex
+      # nimbus rejects the devnet-7 bundle (see the NB in the header).
+      # - name: pre-run-nimbus
+      #   filler_client: nimbus
+      #   # nimbus-eth1 master reads state-actor's Aristo format from commit
+      #   # 2f0ae87 onwards; no tagged release does yet.
+      #   filler_image: statusim/nimbus-eth1:master
+      #   source_dir: ${STATE_DIR}/nimbus
+      #   genesis: ${STATE_DIR}/nimbus/nimbus-genesis.json
+      #   genesis_fork_override: { amsterdam: 1 }
+      #   # nimbus-genesis.json has an empty alloc, so skip nimbus's
+      #   # rebuild-genesis-and-compare check on the snapshot datadir.
+      #   filler_extra_args: [--debug-rewrite-datadir-id]
+      #   replay_from: pre-run-nethermind
+      #   output_dir: ${PRERUN_DIR}/nimbus
 
   ## Stage 2: fill the benchmark on the filler's advanced datadir
   eest_payloads:
@@ -276,6 +295,7 @@ runner:
         besu: ${STATE_DIR}/besu/besu-chainspec.json
         reth: ${STATE_DIR}/reth/chainspec.json
         ethrex: ${STATE_DIR}/ethrex/ethrex-genesis.json
+        # nimbus: ${STATE_DIR}/nimbus/nimbus-genesis.json
     # Every client boots directly from its OWN advanced datadir (produced by its
     # pre_runs fill/replay target), already at the setup head — so no run-time
     # replay is needed (eest_fixtures.pre_runs stays off above).
@@ -285,6 +305,7 @@ runner:
       nethermind: { source_dir: "${PRERUN_DIR}/nethermind", method: copy }
       reth: { source_dir: "${PRERUN_DIR}/reth", method: copy }
       ethrex: { source_dir: "${PRERUN_DIR}/ethrex", method: copy }
+      # nimbus: { source_dir: "${PRERUN_DIR}/nimbus", method: copy }
   instances:
     - id: geth
       client: geth
@@ -323,3 +344,9 @@ runner:
       image: ethpandaops/ethrex:glamsterdam-devnet-7
       genesis_fork_override: { amsterdam: 1 }
       extra_args: [--skip-genesis-validation, --no-precompile-cache]
+    # nimbus rejects the devnet-7 fixtures (see the NB in the header).
+    # - id: nimbus
+    #   client: nimbus
+    #   image: statusim/nimbus-eth1:master
+    #   genesis_fork_override: { amsterdam: 1 }
+    #   extra_args: [--debug-rewrite-datadir-id]
