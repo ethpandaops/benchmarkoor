@@ -1688,7 +1688,7 @@ Notes:
 - A small test file can fit in the drive cache, and then the result is too high. Use a file that is larger than the drive cache for a more accurate result.
 - A failed probe does not stop the run. The error goes into `config.json` and the UI.
 
-The device details come from sysfs and do not need the probe. The run `config.json` records them in `system.storage`: the device path, type, model, size, filesystem, I/O scheduler, block sizes, and the backing disks of a device-mapper or md device.
+The device details come from sysfs and do not need the probe. The run `config.json` records them in `system.storage`: the device path, type, model, size, filesystem, I/O scheduler, block sizes, and the backing disks of a device-mapper or md device. With `schelk`, the backing disks include a RAM disk (`ram0`). It holds the dm-era metadata, not the data, so the probe does not measure it.
 
 ### CPU Frequency Management
 
