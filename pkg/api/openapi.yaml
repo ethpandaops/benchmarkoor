@@ -1229,9 +1229,11 @@ paths:
         room is left on its volume, so an admin can tell whether a cleanup is
         due before the disk fills.
 
-        Gathering the report counts every row in every table, so it is cached
-        for five minutes and only one gather runs at a time. `gathered_at`
-        says when the figures were taken.
+        The report is built per request and uses only cheap queries. The
+        per-test tables (`test_stats`, `test_stats_block_logs`) hold tens of
+        millions of rows, so the report never counts them. Their row counts
+        are estimates from the primary-key span, and the per-suite breakdown
+        reads only the `runs` table.
 
         Per-table byte sizes are not reported: this build of SQLite has no
         `dbstat` virtual table. `free_pages * page_size` is what a VACUUM
@@ -1681,14 +1683,20 @@ components:
         rows:
           type: integer
           format: int64
+        estimated:
+          type: boolean
+          description: >-
+            True when `rows` is `MAX(id) - MIN(id) + 1`, not a `COUNT(*)`.
+            It is an upper bound: deletes in the middle of the ID range do
+            not lower it.
 
     DatabaseSuiteUsage:
       type: object
       description: |
         How much of the database one suite accounts for. Deleting a suite's
-        runs cascades to its test stats and block logs, so these are the rows
-        a cleanup actually frees.
-      required: [suite_hash, runs, test_stats, block_logs]
+        runs cascades to its test stats and block logs, so this is roughly
+        what a cleanup frees.
+      required: [suite_hash, runs, tests]
       properties:
         suite_hash:
           type: string
@@ -1699,12 +1707,12 @@ components:
         runs:
           type: integer
           format: int64
-        test_stats:
+        tests:
           type: integer
           format: int64
-        block_logs:
-          type: integer
-          format: int64
+          description: >-
+            The sum of `tests_total` over the suite's runs. It stands in for
+            the suite's `test_stats` rows, which are too many to count.
         last_run:
           type: integer
           format: int64
@@ -1775,7 +1783,7 @@ components:
         gathered_at:
           type: string
           format: date-time
-          description: When the figures were taken. They are cached for a minute.
+          description: When the figures were taken.
         stats:
           $ref: "#/components/schemas/DatabaseStats"
 

@@ -258,11 +258,13 @@ export function useDeleteRunsBySuite() {
   })
 }
 
-// Index database report. Gathering it counts every row in every table, so the
-// API caches it for a minute and `gathered_at` says when it was taken.
+// Index database report. The API builds it per request from cheap queries
+// only, so the per-test tables carry estimated row counts.
 export interface DatabaseTableStat {
   name: string
   rows: number
+  /** True when `rows` is the primary-key span, an upper bound. */
+  estimated?: boolean
 }
 
 export interface DatabaseSuiteUsage {
@@ -270,8 +272,8 @@ export interface DatabaseSuiteUsage {
   name?: string
   discovery_path?: string
   runs: number
-  test_stats: number
-  block_logs: number
+  /** Sum of tests_total over the suite's runs, about its test_stats rows. */
+  tests: number
   /** Unix seconds of the newest run. */
   last_run?: number
 }
@@ -309,10 +311,8 @@ export function useDatabaseStats(enabled: boolean) {
   return useQuery<DatabaseStatsResponse>({
     queryKey: ['admin', 'database'],
     enabled,
-    // The API caches the report for five minutes, so most of these polls are
-    // answered from that cache and cost only a round-trip. Polling at exactly
-    // the TTL would instead land just after every expiry and make each tab
-    // pay for a full scan.
+    // Each poll builds a fresh report. It uses only index lookups and a walk
+    // of the runs table, so a poll a minute costs the API very little.
     refetchInterval: 60_000,
     queryFn: () => adminFetch('/api/v1/admin/database'),
   })

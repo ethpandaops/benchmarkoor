@@ -116,40 +116,99 @@ func distinctRunIDs(stats []indexstore.TestStat) []string {
 	return out
 }
 
-// A run whose stats carry inconsistent run_start values must count as a single
-// run, so it does not evict other recent runs from the per-client window.
-func TestListRecentCountsInconsistentRunStartAsOneRun(t *testing.T) {
-	s := setupTestStore(t)
-	ctx := context.Background()
-	suite := "suite-1"
+// indexRun records a run and one test stat per test name, the way the indexer
+// does: the stats carry the run's client and timestamp.
+func indexRun(
+	t *testing.T, s indexstore.Store,
+	dp, suite, runID, client string, timestamp int64, tests ...string,
+) {
+	t.Helper()
 
-	require.NoError(t, s.BulkUpsertTestStats(ctx, []*indexstore.TestStat{
-		stat(suite, "run-A", "t1", "geth", 300),
-		stat(suite, "run-A", "t2", "geth", 290), // inconsistent run_start for run-A
-		stat(suite, "run-B", "t1", "geth", 200),
+	ctx := context.Background()
+
+	require.NoError(t, s.UpsertRun(ctx, &indexstore.Run{
+		DiscoveryPath: dp, RunID: runID, SuiteHash: suite,
+		Client: client, Timestamp: timestamp, HasResult: len(tests) > 0,
 	}))
 
-	got, err := s.ListTestStatsBySuiteRecent(ctx, suite, 2)
-	require.NoError(t, err)
+	stats := make([]*indexstore.TestStat, 0, len(tests))
+	for _, test := range tests {
+		stats = append(stats, stat(suite, runID, test, client, timestamp))
+	}
 
-	assert.ElementsMatch(t, []string{"run-A", "run-B"}, distinctRunIDs(got),
-		"both recent runs should be returned despite run-A's inconsistent run_start")
+	if len(stats) > 0 {
+		require.NoError(t, s.BulkUpsertTestStats(ctx, stats))
+	}
 }
 
 func TestListRecentRespectsPerClientCap(t *testing.T) {
 	s := setupTestStore(t)
-	ctx := context.Background()
 	suite := "suite-2"
 
-	require.NoError(t, s.BulkUpsertTestStats(ctx, []*indexstore.TestStat{
-		stat(suite, "run-A", "t1", "geth", 300),
-		stat(suite, "run-B", "t1", "geth", 200),
-		stat(suite, "run-C", "t1", "geth", 100),
-	}))
+	indexRun(t, s, "dp", suite, "run-A", "geth", 300, "t1", "t2")
+	indexRun(t, s, "dp", suite, "run-B", "geth", 200, "t1", "t2")
+	indexRun(t, s, "dp", suite, "run-C", "geth", 100, "t1", "t2")
+	indexRun(t, s, "dp", suite, "run-D", "reth", 50, "t1")
 
-	got, err := s.ListTestStatsBySuiteRecent(ctx, suite, 2)
+	got, err := s.ListTestStatsBySuiteRecent(context.Background(), suite, 2)
 	require.NoError(t, err)
 
-	assert.ElementsMatch(t, []string{"run-A", "run-B"}, distinctRunIDs(got),
-		"only the 2 most recent runs should be returned")
+	assert.ElementsMatch(t, []string{"run-A", "run-B", "run-D"},
+		distinctRunIDs(got),
+		"the 2 most recent runs per client should be returned")
+	assert.Len(t, got, 5, "every test stat of a selected run is returned")
+}
+
+// A run with no test stats, such as one whose result.json had no step data,
+// must not take a per-client slot from a run that has them.
+func TestListRecentSkipsRunsWithoutTestStats(t *testing.T) {
+	s := setupTestStore(t)
+	suite := "suite-3"
+
+	indexRun(t, s, "dp", suite, "run-A", "geth", 300)
+	indexRun(t, s, "dp", suite, "run-B", "geth", 200, "t1")
+	indexRun(t, s, "dp", suite, "run-C", "geth", 100, "t1")
+
+	got, err := s.ListTestStatsBySuiteRecent(context.Background(), suite, 2)
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"run-B", "run-C"}, distinctRunIDs(got))
+}
+
+// A run indexed under two discovery paths has two runs rows but one set of
+// test stats. It must count as a single run in the per-client window.
+func TestListRecentCountsARunInTwoPathsOnce(t *testing.T) {
+	s := setupTestStore(t)
+	suite := "suite-4"
+
+	indexRun(t, s, "dp/one", suite, "run-A", "geth", 300, "t1")
+	indexRun(t, s, "dp/one", suite, "run-B", "geth", 200, "t1")
+
+	// test_stats has no discovery path, so the second path adds a runs row
+	// only.
+	require.NoError(t, s.UpsertRun(context.Background(), &indexstore.Run{
+		DiscoveryPath: "dp/two", RunID: "run-A", SuiteHash: suite,
+		Client: "geth", Timestamp: 300, HasResult: true,
+	}))
+
+	got, err := s.ListTestStatsBySuiteRecent(context.Background(), suite, 2)
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"run-A", "run-B"}, distinctRunIDs(got))
+}
+
+// A run ID that also exists in another suite must not pull that suite's
+// stats in, nor count toward this suite's window.
+func TestListRecentStaysInsideTheSuite(t *testing.T) {
+	s := setupTestStore(t)
+
+	indexRun(t, s, "dp", "suite-5", "run-A", "geth", 300, "t1")
+	indexRun(t, s, "dp", "suite-other", "run-B", "geth", 400, "t1")
+
+	got, err := s.ListTestStatsBySuiteRecent(context.Background(), "suite-5", 2)
+	require.NoError(t, err)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "run-A", got[0].RunID)
+	assert.Equal(t, "suite-5", got[0].SuiteHash)
 }

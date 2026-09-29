@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,10 +28,10 @@ func getDatabaseStats(t *testing.T, s *server) databaseStatsResponse {
 	return resp
 }
 
-// TestHandleDatabaseStats_ReportsAndCaches covers the report shape and the
-// cache. The report counts every row in every table, so it must not run again
-// on each poll of the admin page.
-func TestHandleDatabaseStats_ReportsAndCaches(t *testing.T) {
+// TestHandleDatabaseStats_IsLive covers the report shape, and that every
+// request builds a fresh one. The report holds no query whose cost grows with
+// the per-test tables, so there is nothing to cache.
+func TestHandleDatabaseStats_IsLive(t *testing.T) {
 	s := newIndexTestServer(t)
 	ctx := context.Background()
 
@@ -46,35 +45,16 @@ func TestHandleDatabaseStats_ReportsAndCaches(t *testing.T) {
 	assert.NotEmpty(t, resp.GatheredAt)
 	assert.Equal(t, "sqlite", resp.Stats.Driver)
 	assert.NotEmpty(t, resp.Stats.Tables)
-	assert.Equal(t, int64(100), resp.Stats.OldestRun)
+	assert.Equal(t, int64(100), resp.Stats.NewestRun)
 	require.Len(t, resp.Stats.TopSuites, 1)
 	assert.Equal(t, "suite-1", resp.Stats.TopSuites[0].SuiteHash)
 
-	// A run added now is not visible until the cache expires.
 	require.NoError(t, s.indexStore.UpsertRun(ctx, &indexstore.Run{
 		DiscoveryPath: "dp", RunID: "run-2",
 		SuiteHash: "suite-1", Timestamp: 200, Status: "completed",
 	}))
 
-	cached := getDatabaseStats(t, s)
-	assert.Equal(t, resp.GatheredAt, cached.GatheredAt)
-	assert.Equal(t, int64(100), cached.Stats.NewestRun)
-
-	// Ageing the cache past its TTL lets the next request rebuild.
-	stale := time.Now().Add(-2 * databaseStatsTTL)
-
-	s.dbStatsMu.Lock()
-	s.dbStatsAt = stale
-	s.dbStatsMu.Unlock()
-
 	fresh := getDatabaseStats(t, s)
-	assert.Equal(t, int64(200), fresh.Stats.NewestRun, "the report rebuilt")
-
-	// GatheredAt has second resolution, so compare the stamp the cache holds
-	// rather than the rendered string, which can repeat within a second.
-	s.dbStatsMu.Lock()
-	gatheredAt := s.dbStatsAt
-	s.dbStatsMu.Unlock()
-
-	assert.True(t, gatheredAt.After(stale), "the cache stamp moved forward")
+	assert.Equal(t, int64(200), fresh.Stats.NewestRun)
+	assert.Equal(t, int64(2), fresh.Stats.TopSuites[0].Runs)
 }

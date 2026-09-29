@@ -356,10 +356,15 @@ It returns:
 - The database file size, its write-ahead log, and the page count.
 - `free_pages * page_size`, which is what a `VACUUM` would hand back. Note that a `VACUUM` needs as much free space again as the database occupies, so it is not a way out of a nearly full volume.
 - The size of the filesystem holding the database, what files occupy on it, and what is still available. Used and available add up to less than the total, because a filesystem reserves a slice for root: a usage share is `used/(used+available)`, the way `df` computes it. Dividing by the total instead would read the deployed volume as 88% full where `df` says 93%, and an empty ext4 volume as 5% full.
-- A row count per table.
-- The suites with the most runs, with the test-stat and block-log rows that deleting each would take with it. This pairs with deleting a suite's runs above.
+- A row count per table. The per-test tables, `test_stats` and `test_stats_block_logs`, get an estimate with `estimated: true` (see below).
+- The suites with the most runs, with `tests`: the sum of `tests_total` over each suite's runs. This is about the number of `test_stats` rows that deleting the suite's runs removes. This pairs with deleting a suite's runs above.
 
-Gathering the report counts every row in every table, which on a large database is seconds of work, so it is cached for five minutes and only one gather runs at a time. Without that, two open admin tabs would each start their own scan on a four-connection read pool and starve `/index` of readers. `gathered_at` says when the figures were taken.
+The API builds the report on each request, and the report uses only cheap queries. The per-test tables hold tens of millions of rows in production, and one `COUNT(*)` on `test_stats` ran for more than 30 minutes. So the report never counts or groups them:
+
+- Their row count is `MAX(id) - MIN(id) + 1`. Each end is one index lookup. It is an upper bound, because a delete in the middle of the ID range does not lower it.
+- The per-suite figures come from the `runs` table only, which has one row per run.
+
+The request has a 30s timeout, so a slow query shows up as a failed request. `gathered_at` says when the figures were taken.
 
 Per-table byte sizes are **not** reported. The SQLite build used here has no `dbstat` virtual table, and an estimate would be worse than an honest omission.
 
