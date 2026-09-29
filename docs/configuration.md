@@ -2114,6 +2114,9 @@ builder:
     # fill_command: [uv, run, fill-stateful]   # argv prefix inside fill_image (this is the default)
     # eest_repo: https://github.com/ethereum/execution-specs.git   # cloned + mounted at /eest (default)
     # eest_ref: forks/amsterdam          # branch, tag, or commit to check out (default: forks/amsterdam)
+    # local_test_files:                  # optional read-only overlays below /eest/tests
+    #   - source: examples/eest/test_access_location_hashdos.py
+    #     target: tests/benchmark/stateful/test_access_location_hashdos.py
     config:                              # shared per-target defaults; targets override when set
       filler_image: ethpandaops/geth:master
       fork: Osaka
@@ -2146,8 +2149,33 @@ builder:
 | `fill_command` | []string | `[uv, run, fill-stateful]` | argv prefix invoked inside `fill_image` before the `fill-stateful` flags. Override if your image exposes the command differently. |
 | `eest_repo` | string | `https://github.com/ethereum/execution-specs.git` | execution-specs repo cloned for filling. |
 | `eest_ref` | string | `forks/amsterdam` | Branch, tag, or commit of `eest_repo`. benchmarkoor always clones the repo at this ref into an on-disk cache at build time and mounts the checkout into the fill container at `/eest` (the `fill_image` carries only the uv/python toolchain, not the repo), so the EEST version is config-driven and changeable without rebuilding the image. The clone is cached and re-fetched only when the ref changes; `uv` builds the venv into the mounted checkout on first use (cached across runs). |
+| `local_test_files` | `{source,target}[]` | – | Optional host files mounted read-only over the cloned execution-specs checkout. `source` may be relative to benchmarkoor's working directory; `target` must be a unique repo-relative path below `tests/`, and its parent directory must exist in the selected EEST revision. File contents and target paths are included in the build fingerprint. |
 | `config` | object | – | Shared defaults for the per-target parameters. See below. |
 | `targets` | []object | – | Required when invoking `benchmarkoor build`. See below. |
+
+Local test overlays make an ad-hoc benchmark reproducible without modifying the
+cached EEST checkout or publishing a temporary execution-specs branch. For
+example, the included AccessLocationTracker collision benchmark can be filled
+at the 200M Glamsterdam target with:
+
+```yaml
+builder:
+  eest_payloads:
+    eest_ref: forks/amsterdam
+    local_test_files:
+      - source: examples/eest/test_access_location_hashdos.py
+        target: tests/benchmark/stateful/test_access_location_hashdos.py
+    config:
+      fork: amsterdam
+      gas_benchmark_values: [200]
+      tests:
+        - tests/benchmark/stateful/test_access_location_hashdos.py
+```
+
+The local file is mounted after `/eest`, so it shadows only its configured
+target. For a new target, benchmarkoor creates an empty mount point and removes
+it after filling, leaving the checkout cache clean. A changed file automatically
+invalidates `--rebuild-on-diff` output.
 
 ### `builder.eest_payloads.config` options
 

@@ -74,6 +74,120 @@ func TestCheckInputs_NonSchelkSource(t *testing.T) {
 	assert.Contains(t, err.Error(), "source_dir")
 }
 
+func TestLocalTestFileMounts(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "test_local.py")
+	require.NoError(t, os.WriteFile(source, []byte("def test_local(): pass\n"), 0o600))
+
+	b := &EESTPayloadsBuilder{cfg: &config.EESTPayloadsConfig{
+		LocalTestFiles: []config.EESTLocalTestFile{{
+			Source: source,
+			Target: "tests/benchmark/stateful/test_local.py",
+		}},
+	}}
+
+	mounts, err := b.localTestFileMounts()
+	require.NoError(t, err)
+	require.Len(t, mounts, 1)
+	assert.Equal(t, source, mounts[0].Source)
+	assert.Equal(t, "/eest/tests/benchmark/stateful/test_local.py", mounts[0].Target)
+	assert.Equal(t, "bind", mounts[0].Type)
+	assert.True(t, mounts[0].ReadOnly)
+
+	b.cfg.LocalTestFiles[0].Target = "tests/../../pyproject.toml"
+	_, err = b.localTestFileMounts()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "relative path below tests/")
+}
+
+func TestPrepareLocalTestFileTargets(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "test_local.py")
+	require.NoError(t, os.WriteFile(source, []byte("test"), 0o600))
+
+	t.Run("new target is removed by cleanup", func(t *testing.T) {
+		repo := t.TempDir()
+		targetDir := filepath.Join(repo, "tests", "benchmark", "stateful")
+		require.NoError(t, os.MkdirAll(targetDir, 0o755))
+		target := filepath.Join(targetDir, "test_local.py")
+
+		b := &EESTPayloadsBuilder{cfg: &config.EESTPayloadsConfig{
+			LocalTestFiles: []config.EESTLocalTestFile{{
+				Source: source,
+				Target: "tests/benchmark/stateful/test_local.py",
+			}},
+		}}
+
+		cleanup, err := b.prepareLocalTestFileTargets(repo)
+		require.NoError(t, err)
+		assert.FileExists(t, target)
+
+		data, err := os.ReadFile(target)
+		require.NoError(t, err)
+		assert.Empty(t, data)
+
+		require.NoError(t, cleanup())
+		assert.NoFileExists(t, target)
+	})
+
+	t.Run("upstream target is preserved", func(t *testing.T) {
+		repo := t.TempDir()
+		targetDir := filepath.Join(repo, "tests", "benchmark")
+		require.NoError(t, os.MkdirAll(targetDir, 0o755))
+		target := filepath.Join(targetDir, "test_existing.py")
+		require.NoError(t, os.WriteFile(target, []byte("upstream"), 0o600))
+
+		b := &EESTPayloadsBuilder{cfg: &config.EESTPayloadsConfig{
+			LocalTestFiles: []config.EESTLocalTestFile{{
+				Source: source,
+				Target: "tests/benchmark/test_existing.py",
+			}},
+		}}
+
+		cleanup, err := b.prepareLocalTestFileTargets(repo)
+		require.NoError(t, err)
+		require.NoError(t, cleanup())
+
+		data, err := os.ReadFile(target)
+		require.NoError(t, err)
+		assert.Equal(t, "upstream", string(data))
+	})
+
+	t.Run("missing parent is rejected and earlier placeholders are cleaned", func(t *testing.T) {
+		repo := t.TempDir()
+		targetDir := filepath.Join(repo, "tests", "benchmark")
+		require.NoError(t, os.MkdirAll(targetDir, 0o755))
+		firstTarget := filepath.Join(targetDir, "test_first.py")
+
+		b := &EESTPayloadsBuilder{cfg: &config.EESTPayloadsConfig{
+			LocalTestFiles: []config.EESTLocalTestFile{
+				{Source: source, Target: "tests/benchmark/test_first.py"},
+				{Source: source, Target: "tests/missing/test_second.py"},
+			},
+		}}
+
+		_, err := b.prepareLocalTestFileTargets(repo)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parent directory must exist")
+		assert.NoFileExists(t, firstTarget)
+	})
+}
+
+func TestCheckInputs_LocalTestFile(t *testing.T) {
+	t.Setenv("SCHELK_STATE", filepath.Join(t.TempDir(), "absent.json"))
+	sourceDir := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "missing.py")
+	b := &EESTPayloadsBuilder{
+		log: noopLogger(),
+		cfg: &config.EESTPayloadsConfig{LocalTestFiles: []config.EESTLocalTestFile{{
+			Source: missing,
+			Target: "tests/benchmark/test_missing.py",
+		}}},
+	}
+
+	err := b.checkInputs(context.Background(), &config.EESTPayloadTarget{SourceDir: sourceDir})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "local_test_files[0].source")
+}
+
 func TestEmbeddedFillDockerfile(t *testing.T) {
 	require.NotEmpty(t, embeddedFillDockerfile, "Dockerfile.eest-filler must be embedded")
 	body := string(embeddedFillDockerfile)

@@ -4604,6 +4604,10 @@ func TestValidateEESTPayloads(t *testing.T) {
 	if err := os.WriteFile(dockerfile, []byte("FROM scratch\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	localTestFile := filepath.Join(dirA, "test_local_benchmark.py")
+	if err := os.WriteFile(localTestFile, []byte("def test_local(): pass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name      string
@@ -4659,6 +4663,79 @@ func TestValidateEESTPayloads(t *testing.T) {
 				EESTRef:   "v1.2.3",
 				Targets:   []EESTPayloadTarget{base(dirA)},
 			},
+		},
+		{
+			name: "local test file is valid",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				LocalTestFiles: []EESTLocalTestFile{{
+					Source: localTestFile,
+					Target: "tests/benchmark/stateful/test_local_benchmark.py",
+				}},
+				Targets: []EESTPayloadTarget{base(dirA)},
+			},
+		},
+		{
+			name: "local test source is required",
+			ep: &EESTPayloadsConfig{
+				FillImage:      "fill:latest",
+				LocalTestFiles: []EESTLocalTestFile{{Target: "tests/benchmark/test_local.py"}},
+				Targets:        []EESTPayloadTarget{base(dirA)},
+			},
+			wantErr:   true,
+			errSubstr: "local_test_files[0].source is required",
+		},
+		{
+			name: "local test source must exist",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				LocalTestFiles: []EESTLocalTestFile{{
+					Source: filepath.Join(dirA, "missing.py"),
+					Target: "tests/benchmark/test_local.py",
+				}},
+				Targets: []EESTPayloadTarget{base(dirA)},
+			},
+			wantErr:   true,
+			errSubstr: "local_test_files[0].source",
+		},
+		{
+			name: "local test target cannot escape tests",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				LocalTestFiles: []EESTLocalTestFile{{
+					Source: localTestFile,
+					Target: "tests/../pyproject.toml",
+				}},
+				Targets: []EESTPayloadTarget{base(dirA)},
+			},
+			wantErr:   true,
+			errSubstr: "relative path below tests/",
+		},
+		{
+			name: "local test target cannot be absolute",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				LocalTestFiles: []EESTLocalTestFile{{
+					Source: localTestFile,
+					Target: "/tests/benchmark/test_local.py",
+				}},
+				Targets: []EESTPayloadTarget{base(dirA)},
+			},
+			wantErr:   true,
+			errSubstr: "relative path below tests/",
+		},
+		{
+			name: "local test targets must be unique",
+			ep: &EESTPayloadsConfig{
+				FillImage: "fill:latest",
+				LocalTestFiles: []EESTLocalTestFile{
+					{Source: localTestFile, Target: "tests/benchmark/test_local.py"},
+					{Source: localTestFile, Target: "tests/benchmark/./test_local.py"},
+				},
+				Targets: []EESTPayloadTarget{base(dirA)},
+			},
+			wantErr:   true,
+			errSubstr: "duplicates local_test_files[0].target",
 		},
 		{
 			name: "invalid container_runtime",
