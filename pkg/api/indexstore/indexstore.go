@@ -71,7 +71,8 @@ type Store interface {
 	SetRunDeletionError(ctx context.Context, runID, msg string) error
 
 	// DatabaseStats reports the size and contents of the index database.
-	// It runs full row counts, so callers should cache the result.
+	// It uses only cheap queries, so it is safe to call per request: the
+	// per-test tables get estimated row counts. See dbstats.go.
 	DatabaseStats(ctx context.Context) (*DatabaseStats, error)
 
 	// Index failures: runs storage exposes that the indexer cannot index,
