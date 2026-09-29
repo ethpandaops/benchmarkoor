@@ -578,6 +578,7 @@ func (r *runner) runContainerLifecycle(
 	var targetCPUs []int // CPUs to apply cpu_freq settings to
 
 	systemInfo := getSystemInfo()
+	systemInfo.Storage = r.inspectStorage(ctx, log, dataMount)
 
 	if r.cfg.FullConfig != nil {
 		resourceLimitsCfg := r.cfg.FullConfig.GetResourceLimits(instance)
@@ -585,7 +586,7 @@ func (r *runner) runContainerLifecycle(
 			var err error
 
 			containerResourceLimits, resolvedResourceLimits, err =
-				buildContainerResourceLimits(resourceLimitsCfg, systemInfo.CPUTopology)
+				buildContainerResourceLimits(resourceLimitsCfg, systemInfo.CPUTopology, systemInfo.Storage)
 			if err != nil {
 				return fmt.Errorf("building resource limits: %w", err)
 			}
@@ -600,11 +601,17 @@ func (r *runner) runContainerLifecycle(
 				fields["cpuset_topology"] = resolvedResourceLimits.CpusetTopology
 			}
 
-			if resolvedResourceLimits.BlkioConfig != nil {
-				fields["blkio_read_bps_devices"] = len(resolvedResourceLimits.BlkioConfig.DeviceReadBps)
-				fields["blkio_write_bps_devices"] = len(resolvedResourceLimits.BlkioConfig.DeviceWriteBps)
-				fields["blkio_read_iops_devices"] = len(resolvedResourceLimits.BlkioConfig.DeviceReadIOps)
-				fields["blkio_write_iops_devices"] = len(resolvedResourceLimits.BlkioConfig.DeviceWriteIOps)
+			if resolvedResourceLimits.DevicePath != "" {
+				fields["device_path"] = resolvedResourceLimits.DevicePath
+				fields["device_read_iops"] = resolvedResourceLimits.DeviceReadIOps
+				fields["device_write_iops"] = resolvedResourceLimits.DeviceWriteIOps
+				fields["device_read_bps"] = resolvedResourceLimits.DeviceReadBps
+				fields["device_write_bps"] = resolvedResourceLimits.DeviceWriteBps
+
+				if !isCgroupV2() {
+					log.Warn("The host uses cgroup v1, which does not throttle buffered writes. " +
+						"The device_* write limits only apply to direct and synchronous I/O")
+				}
 			}
 
 			log.WithFields(fields).Info("Resource limits configured")

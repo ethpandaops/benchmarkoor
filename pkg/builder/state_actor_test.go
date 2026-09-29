@@ -589,6 +589,10 @@ func (m *fakeMgr) GetContainerIP(_ context.Context, _, _ string) (string, error)
 func (m *fakeMgr) CreateVolume(_ context.Context, _ string, _ map[string]string) error {
 	panic("CreateVolume not used in builder tests")
 }
+func (m *fakeMgr) VolumeMountpoint(_ context.Context, _ string) (string, error) {
+	panic("VolumeMountpoint not used in builder tests")
+}
+
 func (m *fakeMgr) RemoveVolume(_ context.Context, _ string) error {
 	panic("RemoveVolume not used in builder tests")
 }

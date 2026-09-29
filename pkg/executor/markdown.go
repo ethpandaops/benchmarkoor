@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/go-units"
+	"github.com/ethpandaops/benchmarkoor/pkg/blockdev"
 	"github.com/ethpandaops/benchmarkoor/pkg/cputopology"
 )
 
@@ -48,6 +50,13 @@ type markdownSystemInfo struct {
 	CPUCacheKB         int               `json:"cpu_cache_kb"`
 	MemoryTotalGB      float64           `json:"memory_total_gb"`
 	CPUTopology        []cputopology.CPU `json:"cpu_topology,omitempty"`
+	Storage            *markdownStorage  `json:"storage,omitempty"`
+}
+
+type markdownStorage struct {
+	Filesystem string                `json:"filesystem,omitempty"`
+	Device     *blockdev.Device      `json:"device,omitempty"`
+	Probe      *blockdev.ProbeResult `json:"probe,omitempty"`
 }
 
 type markdownInstance struct {
@@ -59,13 +68,18 @@ type markdownInstance struct {
 }
 
 type markdownResourceLimits struct {
-	CpusetCpus     string  `json:"cpuset_cpus,omitempty"`
-	CpusetTopology string  `json:"cpuset_topology,omitempty"`
-	Memory         string  `json:"memory,omitempty"`
-	MemoryBytes    int64   `json:"memory_bytes,omitempty"`
-	CPUFreqKHz     *uint64 `json:"cpu_freq_khz,omitempty"`
-	CPUTurboBoost  *bool   `json:"cpu_turboboost,omitempty"`
-	CPUGovernor    string  `json:"cpu_freq_governor,omitempty"`
+	CpusetCpus      string  `json:"cpuset_cpus,omitempty"`
+	CpusetTopology  string  `json:"cpuset_topology,omitempty"`
+	Memory          string  `json:"memory,omitempty"`
+	MemoryBytes     int64   `json:"memory_bytes,omitempty"`
+	CPUFreqKHz      *uint64 `json:"cpu_freq_khz,omitempty"`
+	CPUTurboBoost   *bool   `json:"cpu_turboboost,omitempty"`
+	CPUGovernor     string  `json:"cpu_freq_governor,omitempty"`
+	DevicePath      string  `json:"device_path,omitempty"`
+	DeviceReadBps   uint64  `json:"device_read_bps,omitempty"`
+	DeviceReadIOps  uint64  `json:"device_read_iops,omitempty"`
+	DeviceWriteBps  uint64  `json:"device_write_bps,omitempty"`
+	DeviceWriteIOps uint64  `json:"device_write_iops,omitempty"`
 }
 
 type markdownMetadata struct {
@@ -276,7 +290,48 @@ func writeSystem(sb *strings.Builder, sys *markdownSystemInfo) {
 		fmt.Fprintf(sb, "| Kernel | %s |\n", sys.KernelVersion)
 	}
 
+	writeStorage(sb, sys.Storage)
+
 	sb.WriteByte('\n')
+}
+
+// writeStorage adds the datadir block device rows to the system table.
+func writeStorage(sb *strings.Builder, st *markdownStorage) {
+	if st == nil || st.Device == nil {
+		return
+	}
+
+	dev := st.Device
+	details := make([]string, 0, 3)
+
+	if dev.Kind != "" {
+		details = append(details, dev.Kind)
+	}
+
+	if dev.Model != "" {
+		details = append(details, dev.Model)
+	}
+
+	if dev.SizeBytes > 0 {
+		details = append(details, units.HumanSize(float64(dev.SizeBytes)))
+	}
+
+	value := dev.Path
+	if len(details) > 0 {
+		value += " (" + strings.Join(details, ", ") + ")"
+	}
+
+	fmt.Fprintf(sb, "| Storage Device | %s |\n", value)
+
+	if st.Filesystem != "" {
+		fmt.Fprintf(sb, "| Filesystem | %s |\n", st.Filesystem)
+	}
+
+	if p := st.Probe; p != nil {
+		fmt.Fprintf(sb, "| Disk Random 4K IOPS | %.0f read / %.0f write |\n", p.RandReadIOPS, p.RandWriteIOPS)
+		fmt.Fprintf(sb, "| Disk Sequential | %s/s read / %s/s write |\n",
+			units.BytesSize(p.SeqReadBps), units.BytesSize(p.SeqWriteBps))
+	}
 }
 
 func writeResourceLimits(sb *strings.Builder, inst *markdownInstance, sys *markdownSystemInfo) {
@@ -289,7 +344,7 @@ func writeResourceLimits(sb *strings.Builder, inst *markdownInstance, sys *markd
 	// Check if there's anything to show.
 	if rl.CpusetCpus == "" && rl.Memory == "" &&
 		rl.CPUFreqKHz == nil && rl.CPUTurboBoost == nil &&
-		rl.CPUGovernor == "" {
+		rl.CPUGovernor == "" && rl.DevicePath == "" {
 		return
 	}
 
@@ -334,6 +389,26 @@ func writeResourceLimits(sb *strings.Builder, inst *markdownInstance, sys *markd
 
 	if rl.CPUGovernor != "" {
 		fmt.Fprintf(sb, "| CPU Governor | %s |\n", rl.CPUGovernor)
+	}
+
+	if rl.DevicePath != "" {
+		fmt.Fprintf(sb, "| Disk Device | %s |\n", rl.DevicePath)
+	}
+
+	if rl.DeviceReadIOps > 0 {
+		fmt.Fprintf(sb, "| Disk Read IOPS | %d |\n", rl.DeviceReadIOps)
+	}
+
+	if rl.DeviceWriteIOps > 0 {
+		fmt.Fprintf(sb, "| Disk Write IOPS | %d |\n", rl.DeviceWriteIOps)
+	}
+
+	if rl.DeviceReadBps > 0 {
+		fmt.Fprintf(sb, "| Disk Read Bandwidth | %s/s |\n", units.BytesSize(float64(rl.DeviceReadBps)))
+	}
+
+	if rl.DeviceWriteBps > 0 {
+		fmt.Fprintf(sb, "| Disk Write Bandwidth | %s/s |\n", units.BytesSize(float64(rl.DeviceWriteBps)))
 	}
 
 	sb.WriteByte('\n')
