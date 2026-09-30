@@ -648,7 +648,8 @@ type StorageProbeConfig struct {
 	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
 	// FileSize is the size of the test file, e.g. "4GB". Default 4GB.
 	FileSize string `yaml:"file_size,omitempty" mapstructure:"file_size"`
-	// Duration is the time of each of the 4 workloads. Default 5s.
+	// Duration is the time of each of the 2 QD1 workloads. The EIP-7870
+	// workloads stop after FileSize bytes of I/O instead. Default 5s.
 	Duration string `yaml:"duration,omitempty" mapstructure:"duration"`
 	// IODepth is the number of I/O operations in flight in the EIP-7870
 	// workloads. The QD1 workloads always use 1. Default 64.

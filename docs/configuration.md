@@ -1663,7 +1663,7 @@ runner:
   storage_probe:
     enabled: true
     file_size: 4GB   # size of the test file
-    duration: 5s     # time of each workload
+    duration: 5s     # time of each QD1 workload
     io_depth: 64     # I/O operations in flight
 ```
 
@@ -1671,7 +1671,7 @@ runner:
 |--------|------|---------|-------------|
 | `enabled` | bool | `false` | Run the probe |
 | `file_size` | string | `4GB` | Size of the test file. The minimum is `64MB` |
-| `duration` | string | `5s` | Time of each of the 4 workloads |
+| `duration` | string | `5s` | Time of each of the 2 QD1 workloads |
 | `io_depth` | int | `64` | Number of I/O operations in flight in the EIP-7870 workloads (1-1024) |
 
 The probe uses direct I/O (`O_DIRECT`), which bypasses the page cache:
@@ -1683,7 +1683,13 @@ The probe uses direct I/O (`O_DIRECT`), which bypasses the page cache:
 5. It measures 1 MiB sequential I/O at `io_depth`, with 50% reads and 50% writes in one run.
 6. It deletes the test file.
 
-Steps 4 and 5 follow the fio commands of EIP-7870 (`--rw=randrw --rwmixread=75` and `--rw=readwrite`, `--iodepth=64`, 4 GiB file). The read and write values of each step come from the same run, and the UI compares them with the EIP-7870 recommendations. Probes before this change ran separate read and write workloads, so their values are higher. The UI marks them.
+Steps 4 and 5 use the method of the EIP-7870 fio commands (`--ioengine=libaio --iodepth=64 --size=4G`, with `--rw=randrw --rwmixread=75` and `--rw=readwrite`):
+
+- One thread keeps `io_depth` I/Os in flight with Linux native AIO, and it submits one I/O for each `io_submit` call, as fio does by default.
+- Each I/O is a read or a write at random, with the given share of reads. A sequential run keeps one offset for reads and one for writes.
+- A run stops after `file_size` bytes of reads and writes, as fio `--size` does, or after 2 minutes on a very slow disk.
+
+The read and write values of each step come from the same run, and the UI compares them with the EIP-7870 recommendations. On a fast drive, the CPU time of the one thread can limit the result, as it does for fio. Thus these values can be lower than the drive datasheet. Probes before this change ran separate read and write workloads on 64 threads, so their values are higher. The UI marks them.
 
 The QD1 values show the latency of the drive. A client reads state mostly one key at a time, so QD1 is closer to the client workload than a deep queue. For reference, a consumer NVMe drive lists about 15,000 random read IOPS and 50,000 random write IOPS at QD1. The container limits do not change the QD1 values, because a limit caps the rate and does not add latency.
 

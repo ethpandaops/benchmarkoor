@@ -266,17 +266,25 @@ export function StorageInfoPanel({ storage, limits }: StorageInfoPanelProps) {
       )}
 
       <div className="mt-2 flex flex-col gap-1 text-xs/5 text-gray-500 dark:text-gray-400">
-        {probe && (
+        {probe && probe.rand_read_percent !== undefined && (
+          <p>
+            Host capacity: {formatBytes(probe.file_size_bytes)} of direct I/O for each row pair, at I/O depth{' '}
+            {probe.io_depth} from one thread with native AIO, as in the EIP-7870 fio commands. The read and write values
+            of each row pair come from one mixed run.
+          </p>
+        )}
+        {probe && probe.rand_read_percent === undefined && (
           <p>
             Host capacity: direct I/O on a {formatBytes(probe.file_size_bytes)} file at I/O depth {probe.io_depth},{' '}
-            {probe.duration} per workload.
-            {probe.rand_read_percent
-              ? ' The read and write values of each row pair come from one mixed run, as in the EIP-7870 fio commands.'
-              : ' Separate read and write runs (older probe), so the values are higher than in the EIP-7870 mixed runs.'}
+            {probe.duration} per workload. Separate read and write runs (older probe), so the values are higher than in
+            the EIP-7870 mixed runs.
           </p>
         )}
         {qd1Rows.length > 0 && (
-          <p>QD1: one I/O in flight, as when a client reads state one key at a time. Writes do not use fsync.</p>
+          <p>
+            QD1: one I/O in flight for {probe?.duration} each, as when a client reads state one key at a time. Writes do
+            not use fsync.
+          </p>
         )}
         {!probe && storage?.probe_error && <p>Disk probe failed: {storage.probe_error}</p>}
         {!probe && !storage?.probe_error && storage?.device && (

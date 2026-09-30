@@ -19,7 +19,8 @@ import (
 
 // Probe defaults. The deep workloads follow the fio commands of EIP-7870:
 // a 4 GiB file, 4 KiB random I/O with 75% reads, and 1 MiB sequential I/O
-// with 50% reads, at an I/O depth of 64, with direct I/O.
+// with 50% reads, at an I/O depth of 64 from one thread with native AIO
+// (fio --ioengine=libaio), with direct I/O.
 const (
 	DefaultProbeFileSize = 4 << 30
 	DefaultProbeDuration = 5 * time.Second
@@ -32,6 +33,11 @@ const (
 	// workloads, as fio --rwmixread=75 and fio --rw=readwrite in EIP-7870.
 	randReadPercent = 75
 	seqReadPercent  = 50
+
+	// maxDeepWorkloadDuration caps a deep workload on a very slow disk. The
+	// EIP-7870 fio commands stop after --size bytes of I/O, which can take a
+	// long time on such a disk.
+	maxDeepWorkloadDuration = 2 * time.Minute
 
 	// maxLatencyUs is the top of the latency histogram. A slower I/O counts
 	// as maxLatencyUs, so a percentile above it shows as maxLatencyUs.
@@ -101,6 +107,9 @@ type workload struct {
 	random    bool
 	// readPercent is the share of reads: 100 reads only, 0 writes only.
 	readPercent int
+	// ioBytes stops the workload after this many bytes of reads and writes,
+	// as fio --size does. Zero runs until the time is up.
+	ioBytes int64
 }
 
 // workloadResult is the outcome of a workload.
@@ -184,24 +193,26 @@ func probe(
 
 	// The QD1 workloads come first. They measure latency, and the deep
 	// workloads can leave the drive busy with garbage collection.
-	qd1Read, err := runWorkload(ctx, f, workload{"qd1_rand_read", randBlockSize, true, 100}, size, 1, cfg.Duration)
+	qd1Read, err := runWorkload(ctx, f, workload{"qd1_rand_read", randBlockSize, true, 100, 0}, size, 1, cfg.Duration)
 	if err != nil {
 		return nil, err
 	}
 
-	qd1Write, err := runWorkload(ctx, f, workload{"qd1_rand_write", randBlockSize, true, 0}, size, 1, cfg.Duration)
+	qd1Write, err := runWorkload(ctx, f, workload{"qd1_rand_write", randBlockSize, true, 0, 0}, size, 1, cfg.Duration)
 	if err != nil {
 		return nil, err
 	}
 
-	randMix, err := runWorkload(ctx, f,
-		workload{"rand_mixed", randBlockSize, true, randReadPercent}, size, cfg.IODepth, cfg.Duration)
+	// The deep workloads move the file size in I/O, as the EIP-7870 fio
+	// commands (--size=4G) do, so they do not use cfg.Duration.
+	randMix, err := runDeepWorkload(ctx, f,
+		workload{"rand_mixed", randBlockSize, true, randReadPercent, size}, size, cfg.IODepth, maxDeepWorkloadDuration)
 	if err != nil {
 		return nil, err
 	}
 
-	seqMix, err := runWorkload(ctx, f,
-		workload{"seq_mixed", seqBlockSize, false, seqReadPercent}, size, cfg.IODepth, cfg.Duration)
+	seqMix, err := runDeepWorkload(ctx, f,
+		workload{"seq_mixed", seqBlockSize, false, seqReadPercent, size}, size, cfg.IODepth, maxDeepWorkloadDuration)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +281,9 @@ func fillFile(ctx context.Context, f *os.File, size int64, depth int) error {
 }
 
 // runWorkload runs depth workers for d and returns the reads and writes per
-// second. Each operation is a read with a chance of w.readPercent, as fio
+// second. Each worker does blocking I/O, as fio --ioengine=psync does. The
+// probe uses it for the QD1 workloads, and for the deep workloads outside
+// Linux. Each operation is a read with a chance of w.readPercent, as fio
 // does in a mixed workload. A sequential workload shares one offset counter
 // for each direction between the workers, as a deep queue on one sequential
 // stream does. With depth 1, it also measures the latency of each operation.
@@ -287,8 +300,8 @@ func runWorkload(
 	writes := make([]int64, depth)
 
 	var (
-		nextRead, nextWrite atomic.Int64
-		hist                *latencyHistogram
+		nextRead, nextWrite, issued atomic.Int64
+		hist                        *latencyHistogram
 	)
 
 	if depth == 1 {
@@ -313,6 +326,10 @@ func runWorkload(
 
 				if err := ctx.Err(); err != nil {
 					return err
+				}
+
+				if w.ioBytes > 0 && issued.Add(w.blockSize) > w.ioBytes {
+					return nil
 				}
 
 				read := rng.IntN(100) < w.readPercent

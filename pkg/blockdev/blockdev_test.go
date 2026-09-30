@@ -402,7 +402,7 @@ func TestRunWorkloadMixesReadsAndWrites(t *testing.T) {
 	require.NoError(t, f.Truncate(size))
 
 	res, err := runWorkload(context.Background(), f,
-		workload{"rand_mixed", randBlockSize, true, 75}, size, 4, 50*time.Millisecond)
+		workload{"rand_mixed", randBlockSize, true, 75, 0}, size, 4, 50*time.Millisecond)
 	require.NoError(t, err)
 
 	total := res.readsPerSec + res.writesPerSec
@@ -411,7 +411,7 @@ func TestRunWorkloadMixesReadsAndWrites(t *testing.T) {
 	assert.Nil(t, res.latency, "a deep workload has no latency result")
 
 	res, err = runWorkload(context.Background(), f,
-		workload{"qd1_rand_write", randBlockSize, true, 0}, size, 1, 20*time.Millisecond)
+		workload{"qd1_rand_write", randBlockSize, true, 0, 0}, size, 1, 20*time.Millisecond)
 	require.NoError(t, err)
 
 	assert.Zero(t, res.readsPerSec)
@@ -436,4 +436,26 @@ func TestLatencyHistogramPercentile(t *testing.T) {
 	assert.Equal(t, 10.0, h.percentile(0.98))
 	assert.Equal(t, 500.0, h.percentile(0.99))
 	assert.Equal(t, float64(maxLatencyUs), h.percentile(1))
+}
+
+func TestRunWorkloadStopsAfterIOBytes(t *testing.T) {
+	dir := t.TempDir()
+
+	//nolint:gosec // Test file in a temp dir.
+	f, err := os.OpenFile(filepath.Join(dir, "probe"), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = f.Close() })
+
+	const size = 8 << 20
+
+	require.NoError(t, f.Truncate(size))
+
+	start := time.Now()
+	res, err := runWorkload(context.Background(), f,
+		workload{"rand_mixed", randBlockSize, true, 75, 1 << 20}, size, 4, 10*time.Second)
+	require.NoError(t, err)
+
+	assert.Less(t, time.Since(start), 5*time.Second, "the workload stops after 1 MiB, not after 10s")
+	assert.Positive(t, res.readsPerSec+res.writesPerSec)
 }
