@@ -361,3 +361,20 @@ func TestRandomBufferAlignment(t *testing.T) {
 		assert.Zero(t, alignOffset(buf))
 	}
 }
+
+func TestDeviceKind(t *testing.T) {
+	tests := map[string]string{
+		"nvme0n1": "nvme",
+		"sda":     "scsi",
+		"vdb":     "virtio",
+		"dm-0":    "device-mapper",
+		"md127":   "md",
+		"loop3":   "loop",
+		"ram0":    "ramdisk",
+		"zd0":     "other",
+	}
+
+	for name, want := range tests {
+		assert.Equal(t, want, deviceKind(name), name)
+	}
+}

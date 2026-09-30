@@ -29,7 +29,13 @@ function formatBandwidth(value: number): string {
   return `${formatBytes(value)}/s`
 }
 
+// Runs from before the "ramdisk" kind have "other" for a brd RAM disk.
+function isRamDisk(device: BlockDevice): boolean {
+  return device.kind === 'ramdisk' || /^ram\d+$/.test(device.name)
+}
+
 function deviceType(device: BlockDevice): string {
+  if (isRamDisk(device)) return 'RAM disk'
   const media = device.rotational === undefined ? '' : device.rotational ? 'HDD' : 'SSD'
   switch (device.kind) {
     case 'nvme':
@@ -146,6 +152,12 @@ export function StorageInfoPanel({ storage, limits }: StorageInfoPanelProps) {
                   </span>
                 ))}
               </dd>
+              {device.backing.some(isRamDisk) && (
+                <p className="mt-1 text-xs/5 text-gray-500 dark:text-gray-400">
+                  The RAM disk holds the device mapper metadata, such as the dm-era metadata of schelk. It does not hold
+                  the data, so the probe does not measure it.
+                </p>
+              )}
             </div>
           )}
         </dl>

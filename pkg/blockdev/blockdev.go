@@ -32,7 +32,7 @@ type Device struct {
 	// MajMin is the "major:minor" device number.
 	MajMin string `json:"maj_min,omitempty"`
 	// Kind is the device family: nvme, scsi, virtio, xen, mmc, device-mapper,
-	// md, loop or other.
+	// md, loop, ramdisk or other.
 	Kind string `json:"kind,omitempty"`
 	// DMName is the device-mapper name, e.g. "vg0-root".
 	DMName            string `json:"dm_name,omitempty"`
@@ -218,6 +218,9 @@ func deviceKind(name string) string {
 		return "md"
 	case strings.HasPrefix(name, "loop"):
 		return "loop"
+	case strings.HasPrefix(name, "ram"):
+		// A brd RAM disk, e.g. the dm-era metadata device of schelk.
+		return "ramdisk"
 	default:
 		return "other"
 	}

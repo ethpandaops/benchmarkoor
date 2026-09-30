@@ -274,7 +274,7 @@ export interface BlockDevice {
   name: string
   path: string
   maj_min?: string
-  /** nvme, scsi, virtio, xen, mmc, device-mapper, md, loop or other. */
+  /** nvme, scsi, virtio, xen, mmc, device-mapper, md, loop, ramdisk or other. */
   kind?: string
   dm_name?: string
   model?: string
