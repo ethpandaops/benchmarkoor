@@ -435,7 +435,27 @@ func TestLatencyHistogramPercentile(t *testing.T) {
 	assert.Equal(t, 10.0, h.percentile(0.50))
 	assert.Equal(t, 10.0, h.percentile(0.98))
 	assert.Equal(t, 500.0, h.percentile(0.99))
-	assert.Equal(t, float64(maxLatencyUs), h.percentile(1))
+	assert.Equal(t, 1e6, h.percentile(1), "a slow value is exact, not clamped")
+}
+
+func TestLatencyHistogramSlowPercentiles(t *testing.T) {
+	var h latencyHistogram
+
+	// An HDD: 50 operations of 4 ms and 50 above the top bucket, added out
+	// of order.
+	for range 50 {
+		h.add(4 * time.Millisecond)
+	}
+
+	for i := range 50 {
+		h.add(time.Duration(100-i) * time.Millisecond)
+	}
+
+	assert.Equal(t, 4000.0, h.percentile(0.50))
+	assert.Equal(t, 51_000.0, h.percentile(0.51), "the fastest slow value")
+	assert.Equal(t, 99_000.0, h.percentile(0.99))
+	assert.Equal(t, 100_000.0, h.percentile(1))
+	assert.Len(t, h.slow, 50)
 }
 
 func TestRunWorkloadStopsAfterIOBytes(t *testing.T) {

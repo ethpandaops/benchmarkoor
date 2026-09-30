@@ -8,6 +8,7 @@ import (
 	mrand "math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -39,8 +40,8 @@ const (
 	// long time on such a disk.
 	maxDeepWorkloadDuration = 2 * time.Minute
 
-	// maxLatencyUs is the top of the latency histogram. A slower I/O counts
-	// as maxLatencyUs, so a percentile above it shows as maxLatencyUs.
+	// maxLatencyUs is the top of the 1 µs latency buckets. The histogram
+	// keeps a slower I/O as an exact value.
 	maxLatencyUs = 20_000
 
 	// directIOAlign is the buffer alignment that O_DIRECT needs.
@@ -397,20 +398,25 @@ func runWorkload(
 	return result, nil
 }
 
-// latencyHistogram counts latencies in 1 µs buckets up to maxLatencyUs. It
-// has a fixed size, so a long probe does not grow its memory.
+// latencyHistogram counts latencies in 1 µs buckets up to maxLatencyUs, and
+// it keeps each slower latency as an exact value. The histogram records one
+// I/O in flight, so a run of duration d has at most d / maxLatencyUs slow
+// values (250 in 5s). Thus the memory stays small, and a percentile above
+// maxLatencyUs is still a measured value (an HDD, or a drive busy with GC).
 type latencyHistogram struct {
 	buckets [maxLatencyUs + 1]uint64
+	slow    []int64
 	count   uint64
 }
 
 func (h *latencyHistogram) add(d time.Duration) {
 	us := d.Microseconds()
 	if us > maxLatencyUs {
-		us = maxLatencyUs
+		h.slow = append(h.slow, us)
+	} else {
+		h.buckets[us]++
 	}
 
-	h.buckets[us]++
 	h.count++
 }
 
@@ -435,7 +441,10 @@ func (h *latencyHistogram) percentile(p float64) float64 {
 		}
 	}
 
-	return maxLatencyUs
+	// The rank is in the slow values. They come after all the buckets.
+	slices.Sort(h.slow)
+
+	return float64(h.slow[rank-seen-1])
 }
 
 // randomBuffer returns a buffer of size random bytes, aligned for direct I/O.
