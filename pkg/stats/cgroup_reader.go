@@ -15,6 +15,7 @@ import (
 type cgroupReader struct {
 	log        logrus.FieldLogger
 	cgroupPath string
+	stacked    *stackedDevices
 }
 
 // Ensure interface compliance.
@@ -25,6 +26,7 @@ func newCgroupReader(log logrus.FieldLogger, cgroupPath string) (*cgroupReader, 
 	return &cgroupReader{
 		log:        log.WithField("reader", "cgroup"),
 		cgroupPath: cgroupPath,
+		stacked:    newStackedDevices(defaultSysfsPath),
 	}, nil
 }
 
@@ -118,7 +120,9 @@ func (r *cgroupReader) readCPUUsage() (uint64, error) {
 	return 0, fmt.Errorf("usage_usec not found in cpu.stat")
 }
 
-// readIOStats reads io.stat and sums rbytes/wbytes/rios/wios across all devices.
+// readIOStats reads io.stat and sums rbytes/wbytes/rios/wios across the
+// devices. It skips a device under another device (the NVMe under dm-0 or
+// md), because io.stat counts the same I/O on each layer.
 // Format: 8:0 rbytes=1234 wbytes=5678 rios=10 wios=20 ...
 func (r *cgroupReader) readIOStats() (readBytes, writeBytes, readOps, writeOps uint64, err error) {
 	path := filepath.Join(r.cgroupPath, "io.stat")
@@ -136,9 +140,13 @@ func (r *cgroupReader) readIOStats() (readBytes, writeBytes, readOps, writeOps u
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		line := scanner.Text()
+		fields := strings.Fields(scanner.Text())
+		if len(fields) == 0 || r.stacked.isLower(fields[0]) {
+			continue
+		}
+
 		// Parse each key=value pair on the line.
-		for _, part := range strings.Fields(line) {
+		for _, part := range fields[1:] {
 			if strings.HasPrefix(part, "rbytes=") {
 				if v, parseErr := strconv.ParseUint(part[7:], 10, 64); parseErr == nil {
 					readBytes += v

@@ -42,6 +42,7 @@ const (
 type dockerReader struct {
 	log         logrus.FieldLogger
 	containerID string
+	stacked     *stackedDevices
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -72,6 +73,7 @@ func newDockerReader(
 	r := &dockerReader{
 		log:         log.WithField("reader", "docker"),
 		containerID: containerID,
+		stacked:     newStackedDevices(defaultSysfsPath),
 		cancel:      cancel,
 		done:        make(chan struct{}),
 		ready:       make(chan struct{}),
@@ -181,8 +183,8 @@ func (r *dockerReader) update(ds *container.StatsResponse) {
 		CPUUsage: ds.CPUStats.CPUUsage.TotalUsage / 1000,
 	}
 
-	snapshot.DiskRead, snapshot.DiskWrite = extractBlkioBytes(ds)
-	snapshot.DiskReadOps, snapshot.DiskWriteOps = extractBlkioOps(ds)
+	snapshot.DiskRead, snapshot.DiskWrite = extractBlkioBytes(ds, r.stacked)
+	snapshot.DiskReadOps, snapshot.DiskWriteOps = extractBlkioOps(ds, r.stacked)
 
 	r.mu.Lock()
 	r.latest = snapshot
@@ -205,9 +207,14 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// extractBlkioBytes extracts read/write bytes from BlkioStats.
-func extractBlkioBytes(stats *container.StatsResponse) (readBytes, writeBytes uint64) {
+// extractBlkioBytes extracts read/write bytes from BlkioStats. It skips a
+// device under another device, as readIOStats does.
+func extractBlkioBytes(stats *container.StatsResponse, stacked *stackedDevices) (readBytes, writeBytes uint64) {
 	for _, entry := range stats.BlkioStats.IoServiceBytesRecursive {
+		if stacked.isLower(blkioMajMin(entry)) {
+			continue
+		}
+
 		switch entry.Op {
 		case "Read", "read":
 			readBytes += entry.Value
@@ -219,9 +226,14 @@ func extractBlkioBytes(stats *container.StatsResponse) (readBytes, writeBytes ui
 	return readBytes, writeBytes
 }
 
-// extractBlkioOps extracts read/write I/O operations from BlkioStats.
-func extractBlkioOps(stats *container.StatsResponse) (readOps, writeOps uint64) {
+// extractBlkioOps extracts read/write I/O operations from BlkioStats. It
+// skips a device under another device, as readIOStats does.
+func extractBlkioOps(stats *container.StatsResponse, stacked *stackedDevices) (readOps, writeOps uint64) {
 	for _, entry := range stats.BlkioStats.IoServicedRecursive {
+		if stacked.isLower(blkioMajMin(entry)) {
+			continue
+		}
+
 		switch entry.Op {
 		case "Read", "read":
 			readOps += entry.Value
@@ -231,4 +243,9 @@ func extractBlkioOps(stats *container.StatsResponse) (readOps, writeOps uint64) 
 	}
 
 	return readOps, writeOps
+}
+
+// blkioMajMin returns the "major:minor" device number of a BlkioStats entry.
+func blkioMajMin(entry container.BlkioStatEntry) string {
+	return fmt.Sprintf("%d:%d", entry.Major, entry.Minor)
 }
