@@ -640,16 +640,18 @@ type RunnerConfig struct {
 }
 
 // StorageProbeConfig configures the disk I/O probe. Before the first client
-// starts, the probe measures the random IOPS and the sequential bandwidth of
-// the block device that holds the client datadir. It runs once for each
+// starts, the probe measures the block device that holds the client datadir:
+// the EIP-7870 mixed random and sequential workloads, and the latency of 4 KiB
+// random reads and writes with one I/O in flight. It runs once for each
 // device and filesystem in a benchmarkoor process.
 type StorageProbeConfig struct {
 	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
-	// FileSize is the size of the test file, e.g. "1GB". Default 1GB.
+	// FileSize is the size of the test file, e.g. "4GB". Default 4GB.
 	FileSize string `yaml:"file_size,omitempty" mapstructure:"file_size"`
 	// Duration is the time of each of the 4 workloads. Default 5s.
 	Duration string `yaml:"duration,omitempty" mapstructure:"duration"`
-	// IODepth is the number of I/O operations in flight. Default 64.
+	// IODepth is the number of I/O operations in flight in the EIP-7870
+	// workloads. The QD1 workloads always use 1. Default 64.
 	IODepth int `yaml:"io_depth,omitempty" mapstructure:"io_depth"`
 }
 

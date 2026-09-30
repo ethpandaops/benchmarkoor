@@ -290,12 +290,27 @@ export interface BlockDevice {
   backing?: BlockDevice[]
 }
 
+/** The rate and the latency of a workload with one I/O in flight. */
+export interface StorageLatency {
+  iops: number
+  p50_us: number
+  p99_us: number
+}
+
 /** The measured capacity of the datadir device, outside any container. */
 export interface StorageProbe {
+  /** From one mixed run with rand_read_percent reads, when set. */
   rand_read_iops: number
   rand_write_iops: number
+  /** From one mixed run with seq_read_percent reads, when set. */
   seq_read_bps: number
   seq_write_bps: number
+  /** Share of reads in the mixed runs. Not set: separate read and write runs (older probe). */
+  rand_read_percent?: number
+  seq_read_percent?: number
+  /** 4 KiB random I/O with one I/O in flight. */
+  qd1_rand_read?: StorageLatency
+  qd1_rand_write?: StorageLatency
   file_size_bytes: number
   io_depth: number
   duration: string

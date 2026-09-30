@@ -334,6 +334,15 @@ func TestProbe(t *testing.T) {
 	assert.Positive(t, result.RandWriteIOPS)
 	assert.Positive(t, result.SeqReadBps)
 	assert.Positive(t, result.SeqWriteBps)
+	assert.Equal(t, 75, result.RandReadPercent)
+	assert.Equal(t, 50, result.SeqReadPercent)
+
+	for name, lat := range map[string]*LatencyResult{"read": result.QD1RandRead, "write": result.QD1RandWrite} {
+		require.NotNil(t, lat, name)
+		assert.Positive(t, lat.IOPS, name)
+		assert.LessOrEqual(t, lat.P50Us, lat.P99Us, name)
+	}
+
 	assert.Equal(t, int64(minProbeFileSize), result.FileSizeBytes)
 	assert.Equal(t, 4, result.IODepth)
 	assert.Equal(t, randBlockSize, result.RandBlockSize)
@@ -377,4 +386,54 @@ func TestDeviceKind(t *testing.T) {
 	for name, want := range tests {
 		assert.Equal(t, want, deviceKind(name), name)
 	}
+}
+
+func TestRunWorkloadMixesReadsAndWrites(t *testing.T) {
+	dir := t.TempDir()
+
+	//nolint:gosec // Test file in a temp dir.
+	f, err := os.OpenFile(filepath.Join(dir, "probe"), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = f.Close() })
+
+	const size = 8 << 20
+
+	require.NoError(t, f.Truncate(size))
+
+	res, err := runWorkload(context.Background(), f,
+		workload{"rand_mixed", randBlockSize, true, 75}, size, 4, 50*time.Millisecond)
+	require.NoError(t, err)
+
+	total := res.readsPerSec + res.writesPerSec
+	require.Positive(t, total)
+	assert.InDelta(t, 0.75, res.readsPerSec/total, 0.05, "about 75% of the operations are reads")
+	assert.Nil(t, res.latency, "a deep workload has no latency result")
+
+	res, err = runWorkload(context.Background(), f,
+		workload{"qd1_rand_write", randBlockSize, true, 0}, size, 1, 20*time.Millisecond)
+	require.NoError(t, err)
+
+	assert.Zero(t, res.readsPerSec)
+	require.NotNil(t, res.latency)
+	assert.InDelta(t, res.writesPerSec, res.latency.IOPS, 1e-9)
+}
+
+func TestLatencyHistogramPercentile(t *testing.T) {
+	var h latencyHistogram
+
+	assert.Zero(t, h.percentile(0.5), "an empty histogram")
+
+	// 98 operations of 10 µs, one of 500 µs and one above the top bucket.
+	for range 98 {
+		h.add(10 * time.Microsecond)
+	}
+
+	h.add(500 * time.Microsecond)
+	h.add(time.Second)
+
+	assert.Equal(t, 10.0, h.percentile(0.50))
+	assert.Equal(t, 10.0, h.percentile(0.98))
+	assert.Equal(t, 500.0, h.percentile(0.99))
+	assert.Equal(t, float64(maxLatencyUs), h.percentile(1))
 }

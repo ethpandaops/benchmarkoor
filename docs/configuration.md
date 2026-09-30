@@ -151,7 +151,7 @@ runner:
 | `metadata.labels` | map[string]string | - | Arbitrary key-value labels attached to the run (see [Metadata Labels](#metadata-labels)) |
 | `github_token` | string | - | GitHub token for downloading Actions artifacts via REST API. Not needed if `gh` CLI is installed and authenticated. Requires `actions:read` scope. Can also be set via `BENCHMARKOOR_RUNNER_GITHUB_TOKEN` env var |
 | `live_reporting` | object | - | Stream periodic run-status reports to a benchmarkoor API instance so the UI can display in-progress runs. See [Live Reporting](#live-reporting) |
-| `storage_probe` | object | - | Measure the IOPS and bandwidth of the datadir block device before the first client starts. See [Storage Probe](#storage-probe) |
+| `storage_probe` | object | - | Measure the IOPS, bandwidth and QD1 latency of the datadir block device before the first client starts. See [Storage Probe](#storage-probe) |
 
 #### Live Reporting
 
@@ -1662,7 +1662,7 @@ The storage probe measures the capacity of the datadir block device, before the 
 runner:
   storage_probe:
     enabled: true
-    file_size: 1GB   # size of the test file
+    file_size: 4GB   # size of the test file
     duration: 5s     # time of each workload
     io_depth: 64     # I/O operations in flight
 ```
@@ -1670,16 +1670,22 @@ runner:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | bool | `false` | Run the probe |
-| `file_size` | string | `1GB` | Size of the test file. The minimum is `64MB` |
+| `file_size` | string | `4GB` | Size of the test file. The minimum is `64MB` |
 | `duration` | string | `5s` | Time of each of the 4 workloads |
-| `io_depth` | int | `64` | Number of I/O operations in flight (1-1024) |
+| `io_depth` | int | `64` | Number of I/O operations in flight in the EIP-7870 workloads (1-1024) |
 
-The probe follows the fio commands of EIP-7870. It uses direct I/O (`O_DIRECT`), which bypasses the page cache:
+The probe uses direct I/O (`O_DIRECT`), which bypasses the page cache:
 
 1. It writes the test file with random data.
-2. It measures 1 MiB sequential reads, then 4 KiB random reads.
-3. It measures 1 MiB sequential writes, then 4 KiB random writes.
-4. It deletes the test file.
+2. It measures 4 KiB random reads at QD1 (one I/O in flight): the IOPS, and the p50 and p99 latency.
+3. It measures 4 KiB random writes at QD1 in the same way. The writes do not use `fsync`.
+4. It measures 4 KiB random I/O at `io_depth`, with 75% reads and 25% writes in one run.
+5. It measures 1 MiB sequential I/O at `io_depth`, with 50% reads and 50% writes in one run.
+6. It deletes the test file.
+
+Steps 4 and 5 follow the fio commands of EIP-7870 (`--rw=randrw --rwmixread=75` and `--rw=readwrite`, `--iodepth=64`, 4 GiB file). The read and write values of each step come from the same run, and the UI compares them with the EIP-7870 recommendations. Probes before this change ran separate read and write workloads, so their values are higher. The UI marks them.
+
+The QD1 values show the latency of the drive. A client reads state mostly one key at a time, so QD1 is closer to the client workload than a deep queue. For reference, a consumer NVMe drive lists about 15,000 random read IOPS and 50,000 random write IOPS at QD1. The container limits do not change the QD1 values, because a limit caps the rate and does not add latency.
 
 Notes:
 

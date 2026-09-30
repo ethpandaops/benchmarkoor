@@ -43,12 +43,13 @@ runner:
   # Can also be set via BENCHMARKOOR_RUNNER_GITHUB_TOKEN environment variable.
   # github_token: ${GITHUB_TOKEN:-}
 
-  # Optional: Measure the IOPS and bandwidth of the datadir block device
-  # before the first client starts (Linux only). The probe writes a test
-  # file into the data mount with direct I/O and deletes it after.
+  # Optional: Measure the IOPS, bandwidth and QD1 latency of the datadir
+  # block device before the first client starts (Linux only). The probe
+  # writes a test file into the data mount with direct I/O and deletes it
+  # after. The deep workloads follow the EIP-7870 fio commands.
   # storage_probe:
   #   enabled: true
-  #   file_size: 1GB
+  #   file_size: 4GB
   #   duration: 5s
   #   io_depth: 64
 
