@@ -220,6 +220,21 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
                       && withinTolerance(systems.map((s) => s.storage?.probe?.rand_write_iops))
                     }
                   />
+                  {systems.some((s) => s.storage?.probe?.qd1_rand_read) && (
+                    <DiffRow
+                      label="Disk QD1 Random IOPS (R/W)"
+                      values={systems.map((s) => {
+                        const p = s.storage?.probe
+                        return p?.qd1_rand_read && p.qd1_rand_write
+                          ? `${formatApproxCount(p.qd1_rand_read.iops)} / ${formatApproxCount(p.qd1_rand_write.iops)}`
+                          : ''
+                      })}
+                      same={
+                        withinTolerance(systems.map((s) => s.storage?.probe?.qd1_rand_read?.iops))
+                        && withinTolerance(systems.map((s) => s.storage?.probe?.qd1_rand_write?.iops))
+                      }
+                    />
+                  )}
                   <DiffRow
                     label="Disk Sequential (R/W)"
                     values={systems.map((s) => {

@@ -328,9 +328,23 @@ func writeStorage(sb *strings.Builder, st *markdownStorage) {
 	}
 
 	if p := st.Probe; p != nil {
-		fmt.Fprintf(sb, "| Disk Random 4K IOPS | %.0f read / %.0f write |\n", p.RandReadIOPS, p.RandWriteIOPS)
-		fmt.Fprintf(sb, "| Disk Sequential | %s/s read / %s/s write |\n",
-			units.BytesSize(p.SeqReadBps), units.BytesSize(p.SeqWriteBps))
+		randLabel, seqLabel := "Disk Random 4K IOPS", "Disk Sequential"
+		if p.RandReadPercent > 0 {
+			randLabel += fmt.Sprintf(" (%d/%d mix)", p.RandReadPercent, 100-p.RandReadPercent)
+		}
+
+		if p.SeqReadPercent > 0 {
+			seqLabel += fmt.Sprintf(" (%d/%d mix)", p.SeqReadPercent, 100-p.SeqReadPercent)
+		}
+
+		fmt.Fprintf(sb, "| %s | %.0f read / %.0f write |\n", randLabel, p.RandReadIOPS, p.RandWriteIOPS)
+		fmt.Fprintf(sb, "| %s | %s/s read / %s/s write |\n",
+			seqLabel, units.BytesSize(p.SeqReadBps), units.BytesSize(p.SeqWriteBps))
+
+		if r, w := p.QD1RandRead, p.QD1RandWrite; r != nil && w != nil {
+			fmt.Fprintf(sb, "| Disk QD1 Random 4K IOPS | %.0f read (p99 %.0f µs) / %.0f write (p99 %.0f µs) |\n",
+				r.IOPS, r.P99Us, w.IOPS, w.P99Us)
+		}
 	}
 }
 

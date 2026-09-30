@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import type { BlockDevice, ResourceLimitsConfig, StorageInfo } from '@/api/types'
+import type { BlockDevice, ResourceLimitsConfig, StorageInfo, StorageLatency } from '@/api/types'
 import { formatBytes, formatDiskSize, formatNumber } from '@/utils/format'
 
 interface StorageInfoPanelProps {
@@ -27,6 +27,15 @@ function formatIOPS(value: number): string {
 
 function formatBandwidth(value: number): string {
   return `${formatBytes(value)}/s`
+}
+
+function formatLatency(us: number): string {
+  return us >= 1000 ? `${(us / 1000).toFixed(1)} ms` : `${Math.round(us)} µs`
+}
+
+/** The label suffix of a mixed workload, e.g. " (75/25 mix)". */
+function mixLabel(readPercent?: number): string {
+  return readPercent ? ` (${readPercent}/${100 - readPercent} mix)` : ''
 }
 
 // Runs from before the "ramdisk" kind have "other" for a brd RAM disk.
@@ -78,9 +87,14 @@ export function StorageInfoPanel({ storage, limits }: StorageInfoPanelProps) {
 
   if (!storage && !hasLimits) return null
 
+  const qd1Rows = [
+    { label: 'Random read (4 KiB)', latency: probe?.qd1_rand_read },
+    { label: 'Random write (4 KiB)', latency: probe?.qd1_rand_write },
+  ].filter((row): row is { label: string; latency: StorageLatency } => row.latency !== undefined)
+
   const rows: WorkloadRow[] = [
     {
-      label: 'Random read IOPS (4 KiB)',
+      label: `Random read IOPS (4 KiB${mixLabel(probe?.rand_read_percent)})`,
       measured: probe?.rand_read_iops,
       limit: limits?.device_read_iops,
       recommended: 50_000,
@@ -88,7 +102,7 @@ export function StorageInfoPanel({ storage, limits }: StorageInfoPanelProps) {
       format: formatIOPS,
     },
     {
-      label: 'Random write IOPS (4 KiB)',
+      label: `Random write IOPS (4 KiB${mixLabel(probe?.rand_read_percent)})`,
       measured: probe?.rand_write_iops,
       limit: limits?.device_write_iops,
       recommended: 15_000,
@@ -96,7 +110,7 @@ export function StorageInfoPanel({ storage, limits }: StorageInfoPanelProps) {
       format: formatIOPS,
     },
     {
-      label: 'Sequential read (1 MiB)',
+      label: `Sequential read (1 MiB${mixLabel(probe?.seq_read_percent)})`,
       measured: probe?.seq_read_bps,
       limit: limits?.device_read_bps,
       recommended: 500e6,
@@ -104,7 +118,7 @@ export function StorageInfoPanel({ storage, limits }: StorageInfoPanelProps) {
       format: formatBandwidth,
     },
     {
-      label: 'Sequential write (1 MiB)',
+      label: `Sequential write (1 MiB${mixLabel(probe?.seq_read_percent)})`,
       measured: probe?.seq_write_bps,
       limit: limits?.device_write_bps,
       recommended: 500e6,
@@ -224,11 +238,52 @@ export function StorageInfoPanel({ storage, limits }: StorageInfoPanelProps) {
         </div>
       )}
 
+      {qd1Rows.length > 0 && (
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full text-sm/6 whitespace-nowrap">
+            <thead>
+              <tr className="border-b border-gray-200 text-left text-xs/5 font-medium text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                <th className="py-2 pr-4 font-medium">Workload at QD1</th>
+                <th className="py-2 pr-4 font-medium" title="Measured on the host, with one I/O in flight">
+                  IOPS
+                </th>
+                <th className="py-2 pr-4 font-medium">p50 latency</th>
+                <th className="py-2 font-medium">p99 latency</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+              {qd1Rows.map(({ label, latency }) => (
+                <tr key={label} className="text-gray-900 dark:text-gray-100">
+                  <td className="py-2 pr-4 text-gray-500 dark:text-gray-400">{label}</td>
+                  <td className="py-2 pr-4 font-mono">{formatIOPS(latency.iops)}</td>
+                  <td className="py-2 pr-4 font-mono">{formatLatency(latency.p50_us)}</td>
+                  <td className="py-2 font-mono">{formatLatency(latency.p99_us)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="mt-2 flex flex-col gap-1 text-xs/5 text-gray-500 dark:text-gray-400">
-        {probe && (
+        {probe && probe.rand_read_percent !== undefined && (
+          <p>
+            Host capacity: {formatBytes(probe.file_size_bytes)} of direct I/O for each row pair, at I/O depth{' '}
+            {probe.io_depth} from one thread with native AIO, as in the EIP-7870 fio commands. The read and write values
+            of each row pair come from one mixed run.
+          </p>
+        )}
+        {probe && probe.rand_read_percent === undefined && (
           <p>
             Host capacity: direct I/O on a {formatBytes(probe.file_size_bytes)} file at I/O depth {probe.io_depth},{' '}
-            {probe.duration} per workload.
+            {probe.duration} per workload. Separate read and write runs (older probe), so the values are higher than in
+            the EIP-7870 mixed runs.
+          </p>
+        )}
+        {qd1Rows.length > 0 && (
+          <p>
+            QD1: one I/O in flight for {probe?.duration} each, as when a client reads state one key at a time. Writes do
+            not use fsync.
           </p>
         )}
         {!probe && storage?.probe_error && <p>Disk probe failed: {storage.probe_error}</p>}

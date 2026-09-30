@@ -224,8 +224,9 @@ func TestGenerateRunMarkdown(t *testing.T) {
 		assert.Contains(t, md, "| CPU Layout | 32 threads on 16 physical cores (2 threads per core) |")
 		assert.Contains(t, md, "| Storage Device | /dev/nvme0n1 (nvme, Samsung SSD 990 PRO 4TB, 4.001TB) |")
 		assert.Contains(t, md, "| Filesystem | ext4 |")
-		assert.Contains(t, md, "| Disk Random 4K IOPS | 512346 read / 123457 write |")
-		assert.Contains(t, md, "| Disk Sequential | 7GiB/s read / 6GiB/s write |")
+		assert.Contains(t, md, "| Disk Random 4K IOPS (75/25 mix) | 512346 read / 123457 write |")
+		assert.Contains(t, md, "| Disk Sequential (50/50 mix) | 7GiB/s read / 6GiB/s write |")
+		assert.Contains(t, md, "| Disk QD1 Random 4K IOPS | 14000 read (p99 95 µs) / 52000 write (p99 31 µs) |")
 		assert.Contains(t, md, "## Resource Limits")
 		assert.Contains(t, md, "| CPU Set | 0-3 |")
 		assert.Contains(t, md, "| Disk Device | /dev/nvme0n1 |")
@@ -354,10 +355,14 @@ func writeFixtureConfig(t *testing.T, dir string) {
 					SizeBytes: 4_000_787_030_016,
 				},
 				Probe: &blockdev.ProbeResult{
-					RandReadIOPS:  512345.6,
-					RandWriteIOPS: 123456.7,
-					SeqReadBps:    7 << 30,
-					SeqWriteBps:   6 << 30,
+					RandReadIOPS:    512345.6,
+					RandWriteIOPS:   123456.7,
+					SeqReadBps:      7 << 30,
+					SeqWriteBps:     6 << 30,
+					RandReadPercent: 75,
+					SeqReadPercent:  50,
+					QD1RandRead:     &blockdev.LatencyResult{IOPS: 14000, P50Us: 70, P99Us: 95},
+					QD1RandWrite:    &blockdev.LatencyResult{IOPS: 52000, P50Us: 18, P99Us: 31},
 				},
 			},
 		},

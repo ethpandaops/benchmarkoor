@@ -198,14 +198,26 @@ func (r *runner) probeStorage(
 
 		log.WithError(err).WithField("device", loc.Device.Path).Warn("Disk probe failed")
 	} else {
-		log.WithFields(logrus.Fields{
+		fields := logrus.Fields{
 			"device":          loc.Device.Path,
 			"rand_read_iops":  int64(result.RandReadIOPS),
 			"rand_write_iops": int64(result.RandWriteIOPS),
 			"seq_read":        units.BytesSize(result.SeqReadBps) + "/s",
 			"seq_write":       units.BytesSize(result.SeqWriteBps) + "/s",
 			"took":            time.Since(start).Round(time.Millisecond).String(),
-		}).Info("Disk probe result")
+		}
+
+		if lat := result.QD1RandRead; lat != nil {
+			fields["qd1_read_iops"] = int64(lat.IOPS)
+			fields["qd1_read_p99_us"] = int64(lat.P99Us)
+		}
+
+		if lat := result.QD1RandWrite; lat != nil {
+			fields["qd1_write_iops"] = int64(lat.IOPS)
+			fields["qd1_write_p99_us"] = int64(lat.P99Us)
+		}
+
+		log.WithFields(fields).Info("Disk probe result")
 	}
 
 	probe := storageProbe{result: result, err: err}
