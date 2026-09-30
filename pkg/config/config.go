@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -336,10 +337,34 @@ type EESTPayloadsConfig struct {
 	// version live in config and change without rebuilding the image. Both
 	// default when unset: EESTRepo to the execution-specs URL, EESTRef to
 	// DefaultEESTRef.
-	EESTRepo string               `yaml:"eest_repo,omitempty" mapstructure:"eest_repo"`
-	EESTRef  string               `yaml:"eest_ref,omitempty" mapstructure:"eest_ref"`
-	Config   *EESTPayloadDefaults `yaml:"config,omitempty" mapstructure:"config"`
-	Targets  []EESTPayloadTarget  `yaml:"targets,omitempty" mapstructure:"targets"`
+	EESTRepo string `yaml:"eest_repo,omitempty" mapstructure:"eest_repo"`
+	EESTRef  string `yaml:"eest_ref,omitempty" mapstructure:"eest_ref"`
+	// LocalTestFiles overlays host files onto the cloned execution-specs checkout
+	// for the fill container. This is useful for ad-hoc benchmark tests that have
+	// not yet landed upstream. Targets are repo-relative paths below tests/.
+	LocalTestFiles []EESTLocalTestFile  `yaml:"local_test_files,omitempty" mapstructure:"local_test_files"`
+	Config         *EESTPayloadDefaults `yaml:"config,omitempty" mapstructure:"config"`
+	Targets        []EESTPayloadTarget  `yaml:"targets,omitempty" mapstructure:"targets"`
+}
+
+// EESTLocalTestFile maps one host test file into the execution-specs checkout
+// used by fill-stateful. Source may be relative to benchmarkoor's working
+// directory; Target is a slash-separated path below tests/ in that checkout.
+type EESTLocalTestFile struct {
+	Source string `yaml:"source" mapstructure:"source"`
+	Target string `yaml:"target" mapstructure:"target"`
+}
+
+// CleanTarget returns Target normalized as a slash-separated EEST repo path.
+// It rejects absolute paths and traversal outside the tests tree.
+func (f EESTLocalTestFile) CleanTarget() (string, error) {
+	cleanTarget := path.Clean(f.Target)
+	if f.Target == "" || path.IsAbs(f.Target) ||
+		cleanTarget == "tests" || !strings.HasPrefix(cleanTarget, "tests/") {
+		return "", fmt.Errorf("must be a relative path below tests/, got %q", f.Target)
+	}
+
+	return cleanTarget, nil
 }
 
 const (
@@ -2956,6 +2981,10 @@ func (c *Config) validateEESTPayloads() error {
 		}
 	}
 
+	if err := validateEESTLocalTestFiles(ep.LocalTestFiles); err != nil {
+		return err
+	}
+
 	seenOutputs := make(map[string]int, len(ep.Targets))
 	seenNames := make(map[string]int, len(ep.Targets))
 
@@ -3031,6 +3060,44 @@ func (c *Config) validateEESTPayloads() error {
 		if t.EOAStart != nil && *t.EOAStart == 0 {
 			return fmt.Errorf("%s.eoa_start must be > 0 when set (0 is not a valid key)", prefix)
 		}
+	}
+
+	return nil
+}
+
+// validateEESTLocalTestFiles keeps overlays confined to EEST's tests tree and
+// rejects ambiguous duplicate targets. Source existence is checked here and
+// again at build time so configuration errors fail before any containers start.
+func validateEESTLocalTestFiles(files []EESTLocalTestFile) error {
+	seenTargets := make(map[string]int, len(files))
+
+	for i, file := range files {
+		prefix := fmt.Sprintf("builder.eest_payloads.local_test_files[%d]", i)
+		if file.Source == "" {
+			return fmt.Errorf("%s.source is required", prefix)
+		}
+
+		info, err := os.Stat(file.Source)
+		if err != nil {
+			return fmt.Errorf("%s.source: %w", prefix, err)
+		}
+
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s.source %q is not a regular file", prefix, file.Source)
+		}
+
+		cleanTarget, err := file.CleanTarget()
+		if err != nil {
+			return fmt.Errorf("%s.target: %w", prefix, err)
+		}
+
+		if prev, duplicate := seenTargets[cleanTarget]; duplicate {
+			return fmt.Errorf(
+				"%s.target %q duplicates local_test_files[%d].target", prefix, cleanTarget, prev,
+			)
+		}
+
+		seenTargets[cleanTarget] = i
 	}
 
 	return nil

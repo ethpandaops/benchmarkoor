@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -305,6 +306,11 @@ func (b *EESTPayloadsBuilder) eestFingerprintInputs(target *config.EESTPayloadTa
 		return nil, err
 	}
 
+	localTestFileHashes, err := b.localTestFileHashes()
+	if err != nil {
+		return nil, err
+	}
+
 	return fingerprintInputs{
 		"filler_client":          target.FillerClient,
 		"filler_image":           target.FillerImage,
@@ -326,6 +332,7 @@ func (b *EESTPayloadsBuilder) eestFingerprintInputs(target *config.EESTPayloadTa
 		"fill_command":           b.cfg.ResolveFillCommand(),
 		"fill_image":             b.cfg.FillImage,
 		"fill_dockerfile_sha256": fillDockerfileHash,
+		"local_test_files":       localTestFileHashes,
 		"eest_repo":              b.cfg.ResolveEESTRepo(),
 		"eest_sha":               eestSHA,
 		// source_dir alongside source_fingerprint: the fingerprint catches a
@@ -334,6 +341,33 @@ func (b *EESTPayloadsBuilder) eestFingerprintInputs(target *config.EESTPayloadTa
 		"source_dir":         target.SourceDir,
 		"source_fingerprint": sourceFingerprint,
 	}, nil
+}
+
+// localTestFileHashes returns target-path -> content-hash for every configured
+// EEST overlay. Source paths are deliberately excluded: moving an unchanged
+// file does not change the generated fixtures, while changing its content or
+// in-checkout target does.
+func (b *EESTPayloadsBuilder) localTestFileHashes() (map[string]string, error) {
+	if len(b.cfg.LocalTestFiles) == 0 {
+		return nil, nil
+	}
+
+	hashes := make(map[string]string, len(b.cfg.LocalTestFiles))
+	for i, file := range b.cfg.LocalTestFiles {
+		cleanTarget, err := file.CleanTarget()
+		if err != nil {
+			return nil, fmt.Errorf("local_test_files[%d].target: %w", i, err)
+		}
+
+		hash, err := sha256File(file.Source)
+		if err != nil {
+			return nil, fmt.Errorf("local_test_files[%d].source: %w", i, err)
+		}
+
+		hashes[cleanTarget] = hash
+	}
+
+	return hashes, nil
 }
 
 // addressStubsHash hashes the target's address stubs — the referenced file's
@@ -429,6 +463,19 @@ func (b *EESTPayloadsBuilder) checkInputs(ctx context.Context, t *config.EESTPay
 	if t.AddressStubsFile != "" {
 		if _, err := os.Stat(t.AddressStubsFile); err != nil {
 			return fmt.Errorf("address_stubs_file: %w", err)
+		}
+	}
+
+	if b.cfg != nil {
+		for i, file := range b.cfg.LocalTestFiles {
+			info, err := os.Stat(file.Source)
+			if err != nil {
+				return fmt.Errorf("local_test_files[%d].source: %w", i, err)
+			}
+
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("local_test_files[%d].source %q is not a regular file", i, file.Source)
+			}
 		}
 	}
 
@@ -1030,6 +1077,26 @@ func (b *EESTPayloadsBuilder) runFill(
 		Source: eestRepoPath, Target: fillRepoPath, Type: "bind",
 	})
 
+	cleanupLocalTestTargets, err := b.prepareLocalTestFileTargets(eestRepoPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cleanupErr := cleanupLocalTestTargets(); cleanupErr != nil {
+			log.WithError(cleanupErr).Warn("Failed to clean up local EEST test mount targets")
+		}
+	}()
+
+	localTestMounts, err := b.localTestFileMounts()
+	if err != nil {
+		return err
+	}
+
+	// Nested bind mounts are appended after the checkout mount so each local
+	// file shadows only its target inside /eest. The deferred cleanup above
+	// restores any mount-point files created in the cached checkout.
+	mounts = append(mounts, localTestMounts...)
+
 	suffix, err := randSuffix()
 	if err != nil {
 		return fmt.Errorf("generating container name suffix: %w", err)
@@ -1067,6 +1134,113 @@ func (b *EESTPayloadsBuilder) runFill(
 	log.Info("Build completed")
 
 	return nil
+}
+
+// localTestFileMounts builds read-only nested mounts for ad-hoc EEST tests.
+// Validation normally catches unsafe targets at config load time; the checks
+// here preserve confinement for callers that construct the builder directly.
+func (b *EESTPayloadsBuilder) localTestFileMounts() ([]docker.Mount, error) {
+	mounts := make([]docker.Mount, 0, len(b.cfg.LocalTestFiles))
+
+	for i, file := range b.cfg.LocalTestFiles {
+		cleanTarget, err := file.CleanTarget()
+		if err != nil {
+			return nil, fmt.Errorf("local_test_files[%d].target: %w", i, err)
+		}
+
+		source, err := filepath.Abs(file.Source)
+		if err != nil {
+			return nil, fmt.Errorf("local_test_files[%d].source: resolving absolute path: %w", i, err)
+		}
+
+		mounts = append(mounts, docker.Mount{
+			Source:   source,
+			Target:   path.Join(fillRepoPath, cleanTarget),
+			Type:     "bind",
+			ReadOnly: true,
+		})
+	}
+
+	return mounts, nil
+}
+
+// prepareLocalTestFileTargets creates empty host-side mount points for local
+// tests that do not already exist in the EEST checkout. Docker otherwise
+// creates those placeholders as root while setting up a nested bind mount,
+// leaving the cached checkout dirty. The returned cleanup removes only files
+// created by this call; an upstream file at the same target is never changed.
+func (b *EESTPayloadsBuilder) prepareLocalTestFileTargets(eestRepoPath string) (func() error, error) {
+	created := make([]string, 0, len(b.cfg.LocalTestFiles))
+	cleanup := func() error {
+		var cleanupErr error
+		for i := len(created) - 1; i >= 0; i-- {
+			if err := os.Remove(created[i]); err != nil && !errors.Is(err, os.ErrNotExist) {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("removing %q: %w", created[i], err))
+			}
+		}
+
+		return cleanupErr
+	}
+	fail := func(err error) (func() error, error) {
+		return cleanup, errors.Join(err, cleanup())
+	}
+
+	for i, file := range b.cfg.LocalTestFiles {
+		cleanTarget, err := file.CleanTarget()
+		if err != nil {
+			return fail(fmt.Errorf("local_test_files[%d].target: %w", i, err))
+		}
+
+		target := filepath.Join(eestRepoPath, filepath.FromSlash(cleanTarget))
+		info, err := os.Lstat(target)
+		switch {
+		case err == nil:
+			if !info.Mode().IsRegular() {
+				return fail(fmt.Errorf(
+					"local_test_files[%d].target %q is not a regular file in the EEST checkout",
+					i, file.Target,
+				))
+			}
+
+			continue
+		case !errors.Is(err, os.ErrNotExist):
+			return fail(fmt.Errorf(
+				"local_test_files[%d].target: inspecting EEST checkout: %w", i, err,
+			))
+		}
+
+		parent := filepath.Dir(target)
+		parentInfo, err := os.Stat(parent)
+		if err != nil {
+			return fail(fmt.Errorf(
+				"local_test_files[%d].target: parent directory must exist in the EEST checkout: %w",
+				i, err,
+			))
+		}
+		if !parentInfo.IsDir() {
+			return fail(fmt.Errorf(
+				"local_test_files[%d].target: parent %q is not a directory", i, parent,
+			))
+		}
+
+		mountPoint, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return fail(fmt.Errorf(
+				"local_test_files[%d].target: creating mount point: %w", i, err,
+			))
+		}
+		if err := mountPoint.Close(); err != nil {
+			_ = os.Remove(target)
+
+			return fail(fmt.Errorf(
+				"local_test_files[%d].target: closing mount point: %w", i, err,
+			))
+		}
+
+		created = append(created, target)
+	}
+
+	return cleanup, nil
 }
 
 // labels returns the standard label set for a builder container.
