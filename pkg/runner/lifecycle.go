@@ -25,6 +25,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/genesis"
+	"github.com/ethpandaops/benchmarkoor/pkg/iocost"
 	"github.com/ethpandaops/benchmarkoor/pkg/podman"
 	"github.com/ethpandaops/benchmarkoor/pkg/version"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -608,6 +609,10 @@ func (r *runner) runContainerLifecycle(
 				fields["device_read_bps"] = resolvedResourceLimits.DeviceReadBps
 				fields["device_write_bps"] = resolvedResourceLimits.DeviceWriteBps
 
+				if resolvedResourceLimits.DeviceThrottle != "" {
+					fields["device_throttle"] = resolvedResourceLimits.DeviceThrottle
+				}
+
 				if !isCgroupV2() {
 					log.Warn("The host uses cgroup v1, which does not throttle buffered writes. " +
 						"The device_* write limits only apply to direct and synchronous I/O")
@@ -658,6 +663,35 @@ func (r *runner) runContainerLifecycle(
 				}
 				resolvedResourceLimits.CPUTurboBoost = cpufreqCfg.TurboBoost
 				resolvedResourceLimits.CPUGovernor = cpufreqCfg.Governor
+			}
+
+			// Set the io.cost model on the disk. The storage probe ran
+			// before this, so it measured the disk without the model.
+			if resolvedResourceLimits.DeviceThrottle == config.DeviceThrottleIOCost {
+				if r.iocostMgr == nil {
+					return fmt.Errorf("device_throttle %q needs the io.cost manager", config.DeviceThrottleIOCost)
+				}
+
+				model := iocost.Model{
+					ReadBps:   resolvedResourceLimits.DeviceReadBps,
+					ReadIOPS:  resolvedResourceLimits.DeviceReadIOps,
+					WriteBps:  resolvedResourceLimits.DeviceWriteBps,
+					WriteIOPS: resolvedResourceLimits.DeviceWriteIOps,
+				}
+
+				line, err := r.iocostMgr.Apply(ctx, resolvedResourceLimits.deviceMajMin, model)
+				if err != nil {
+					return fmt.Errorf("applying the io.cost model to %s: %w",
+						resolvedResourceLimits.DevicePath, err)
+				}
+
+				resolvedResourceLimits.DeviceCostModel = line
+
+				localCleanupFuncs = append(localCleanupFuncs, func() {
+					if restoreErr := r.iocostMgr.Restore(context.Background()); restoreErr != nil {
+						log.WithError(restoreErr).Warn("Failed to restore the io.cost settings")
+					}
+				})
 			}
 		}
 	}

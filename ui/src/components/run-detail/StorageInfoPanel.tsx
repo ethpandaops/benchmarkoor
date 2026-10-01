@@ -290,7 +290,15 @@ export function StorageInfoPanel({ storage, limits }: StorageInfoPanelProps) {
         {!probe && !storage?.probe_error && storage?.device && (
           <p>Host capacity was not measured. Set runner.storage_probe.enabled to measure it.</p>
         )}
-        {hasLimits && limits?.device_path && <p>The container limits throttle {limits.device_path}.</p>}
+        {hasLimits && limits?.device_path && limits.device_throttle !== 'io.cost' && (
+          <p>The container limits throttle {limits.device_path}.</p>
+        )}
+        {hasLimits && limits?.device_path && limits.device_throttle === 'io.cost' && (
+          <p>
+            An io.cost model throttles all I/O on {limits.device_path}. Reads and writes share one budget, and a direction
+            without a limit uses almost none of it.
+          </p>
+        )}
       </div>
     </div>
   )

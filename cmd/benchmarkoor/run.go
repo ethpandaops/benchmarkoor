@@ -16,6 +16,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
+	"github.com/ethpandaops/benchmarkoor/pkg/iocost"
 	"github.com/ethpandaops/benchmarkoor/pkg/podman"
 	"github.com/ethpandaops/benchmarkoor/pkg/runner"
 	"github.com/ethpandaops/benchmarkoor/pkg/upload"
@@ -290,6 +291,23 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			log.Info("CPU frequency manager initialized")
 		}
 
+		// Create the io.cost manager if an instance throttles its disk with io.cost.
+		var iocostMgr iocost.Manager
+		if cfg.UsesIOCost() {
+			iocostMgr = iocost.NewManager(log, cacheDir, cfg.GetCgroupPath())
+			if err := iocostMgr.Start(ctx); err != nil {
+				return fmt.Errorf("starting io.cost manager: %w", err)
+			}
+
+			defer func() {
+				if err := iocostMgr.Stop(); err != nil {
+					log.WithError(err).Warn("Failed to stop io.cost manager")
+				}
+			}()
+
+			log.Info("io.cost manager initialized")
+		}
+
 		// Create S3 uploader if configured.
 		var (
 			resultsUploader upload.Uploader
@@ -332,7 +350,9 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 			UploadTimeout:      uploadTimeout,
 		}
 
-		r := runner.NewRunner(log, runnerCfg, containerMgr, registry, exec, cpufreqMgr, resultsUploader, preRunLogBuffer)
+		r := runner.NewRunner(
+			log, runnerCfg, containerMgr, registry, exec, cpufreqMgr, iocostMgr, resultsUploader, preRunLogBuffer,
+		)
 
 		if err := r.Start(ctx); err != nil {
 			return fmt.Errorf("starting runner: %w", err)

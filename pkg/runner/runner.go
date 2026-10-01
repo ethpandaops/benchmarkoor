@@ -21,6 +21,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
+	"github.com/ethpandaops/benchmarkoor/pkg/iocost"
 	"github.com/ethpandaops/benchmarkoor/pkg/livereport"
 	"github.com/ethpandaops/benchmarkoor/pkg/upload"
 	"github.com/ethpandaops/benchmarkoor/pkg/version"
@@ -158,11 +159,20 @@ type ResolvedResourceLimits struct {
 	CPUTurboBoost  *bool   `json:"cpu_turboboost,omitempty"`
 	CPUGovernor    string  `json:"cpu_freq_governor,omitempty"`
 	// DevicePath is the datadir block device that the device_* limits throttle.
+	// With io.cost, it is the whole disk under the datadir device.
 	DevicePath      string `json:"device_path,omitempty"`
 	DeviceReadBps   uint64 `json:"device_read_bps,omitempty"`
 	DeviceReadIOps  uint64 `json:"device_read_iops,omitempty"`
 	DeviceWriteBps  uint64 `json:"device_write_bps,omitempty"`
 	DeviceWriteIOps uint64 `json:"device_write_iops,omitempty"`
+	// DeviceThrottle is "io.cost" when the limits use the io.cost controller.
+	// It is empty for io.max, the default.
+	DeviceThrottle string `json:"device_throttle,omitempty"`
+	// DeviceCostModel is the io.cost.model line that the run wrote.
+	DeviceCostModel string `json:"device_cost_model,omitempty"`
+
+	// deviceMajMin is the device number for the io.cost files.
+	deviceMajMin string
 }
 
 // ResolvedInstance contains the resolved configuration for a client instance.
@@ -205,6 +215,7 @@ func NewRunner(
 	registry client.Registry,
 	exec executor.Executor,
 	cpufreqMgr cpufreq.Manager,
+	iocostMgr iocost.Manager,
 	uploader upload.Uploader,
 	preRunLogBuffer *BufferHook,
 ) Runner {
@@ -220,6 +231,7 @@ func NewRunner(
 		registry:        registry,
 		executor:        exec,
 		cpufreqMgr:      cpufreqMgr,
+		iocostMgr:       iocostMgr,
 		uploader:        uploader,
 		preRunLogBuffer: preRunLogBuffer,
 		storageProbes:   make(map[string]storageProbe, 1),
@@ -235,6 +247,7 @@ type runner struct {
 	registry        client.Registry
 	executor        executor.Executor
 	cpufreqMgr      cpufreq.Manager
+	iocostMgr       iocost.Manager
 	uploader        upload.Uploader
 	preRunLogBuffer *BufferHook // Buffered logs from before RunInstance (may be nil).
 	storageProbesMu sync.Mutex

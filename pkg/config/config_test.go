@@ -5327,6 +5327,17 @@ func TestResourceLimitsDeviceLimits(t *testing.T) {
 		assert.Equal(t, uint64(50000), global.DeviceReadIOps)
 	})
 
+	t.Run("merge takes the instance throttle", func(t *testing.T) {
+		global := &ResourceLimits{DeviceReadIOps: 1, DeviceThrottle: DeviceThrottleIOMax}
+
+		got := global.Merge(&ResourceLimits{DeviceThrottle: DeviceThrottleIOCost})
+		assert.Equal(t, DeviceThrottleIOCost, got.DeviceThrottle)
+		assert.True(t, got.UsesIOCost())
+		assert.False(t, global.UsesIOCost())
+		assert.False(t, (&ResourceLimits{DeviceThrottle: DeviceThrottleIOCost}).UsesIOCost(),
+			"io.cost without limits has nothing to apply")
+	})
+
 	t.Run("has device limits", func(t *testing.T) {
 		assert.False(t, (*ResourceLimits)(nil).HasDeviceLimits())
 		assert.False(t, (&ResourceLimits{Memory: "1g"}).HasDeviceLimits())
@@ -5352,6 +5363,18 @@ func TestResourceLimitsDeviceLimits(t *testing.T) {
 			name:      "device path without limits",
 			limits:    ResourceLimits{DevicePath: "/dev/nvme0n1"},
 			errSubstr: "needs at least one",
+		},
+		{name: "io.cost", limits: ResourceLimits{DeviceThrottle: DeviceThrottleIOCost, DeviceReadIOps: 1}},
+		{name: "io.max", limits: ResourceLimits{DeviceThrottle: DeviceThrottleIOMax, DeviceReadIOps: 1}},
+		{
+			name:      "unknown throttle",
+			limits:    ResourceLimits{DeviceThrottle: "io.weight", DeviceReadIOps: 1},
+			errSubstr: "invalid device_throttle",
+		},
+		{
+			name:      "throttle without limits",
+			limits:    ResourceLimits{DeviceThrottle: DeviceThrottleIOCost},
+			errSubstr: "device_throttle needs at least one",
 		},
 	}
 

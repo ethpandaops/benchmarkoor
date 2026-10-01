@@ -74,6 +74,17 @@ type resolver struct {
 	blockNode blockNodeFunc
 }
 
+// DeviceNumber returns the "major:minor" number of the block device node at
+// path, e.g. "259:0" for /dev/nvme0n1.
+func DeviceNumber(path string) (string, error) {
+	major, minor, err := statBlockNode(path)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%d:%d", major, minor), nil
+}
+
 // Resolve finds the block device that holds path.
 func Resolve(path string) (*Location, error) {
 	if !supported {

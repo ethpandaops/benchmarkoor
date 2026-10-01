@@ -228,7 +228,9 @@ func (r *runner) probeStorage(
 
 // applyDeviceLimits adds the device_* resource limits to the container
 // limits, as throttles on the block device that holds the datadir. An
-// explicit device_path replaces the device that the lookup found.
+// explicit device_path replaces the device that the lookup found. With
+// io.cost, the container gets no throttles: the runner sets a model on the
+// whole disk instead (see applyIOCostLimits).
 func applyDeviceLimits(
 	cfg *config.ResourceLimits,
 	storage *StorageInfo,
@@ -239,16 +241,16 @@ func applyDeviceLimits(
 		return nil
 	}
 
+	resolveDeviceRates(cfg, resolved)
+
+	if cfg.UsesIOCost() {
+		return applyIOCostLimits(cfg, storage, resolved)
+	}
+
 	path := cfg.DevicePath
 	if path == "" {
 		if storage == nil || storage.Device == nil {
-			reason := "block device lookup is only supported on Linux"
-			if storage != nil && storage.Error != "" {
-				reason = storage.Error
-			}
-
-			return fmt.Errorf("resource_limits.device_* limits need the block device of the client datadir, "+
-				"which is unknown: %s (set resource_limits.device_path to name the device)", reason)
+			return unknownDeviceError(storage)
 		}
 
 		path = storage.Device.Path
@@ -256,34 +258,115 @@ func applyDeviceLimits(
 
 	resolved.DevicePath = path
 
-	throttle := func(list *[]docker.BlkioThrottleDevice, rate uint64) {
-		*list = append(*list, docker.BlkioThrottleDevice{Path: path, Rate: rate})
+	for _, t := range []struct {
+		list *[]docker.BlkioThrottleDevice
+		rate uint64
+	}{
+		{&containerLimits.BlkioDeviceReadBps, resolved.DeviceReadBps},
+		{&containerLimits.BlkioDeviceWriteBps, resolved.DeviceWriteBps},
+		{&containerLimits.BlkioDeviceReadIOps, resolved.DeviceReadIOps},
+		{&containerLimits.BlkioDeviceWriteIOps, resolved.DeviceWriteIOps},
+	} {
+		if t.rate != 0 {
+			*t.list = append(*t.list, docker.BlkioThrottleDevice{Path: path, Rate: t.rate})
+		}
 	}
 
+	return nil
+}
+
+// resolveDeviceRates copies the device_* rates into resolved, with the bps
+// sizes in bytes.
+func resolveDeviceRates(cfg *config.ResourceLimits, resolved *ResolvedResourceLimits) {
+	// The config validation parsed the sizes already.
 	if cfg.DeviceReadBps != "" {
-		// The config validation parsed this value already.
 		bps, _ := units.RAMInBytes(cfg.DeviceReadBps)
 		resolved.DeviceReadBps = uint64(bps) //nolint:gosec // Validated as positive.
-		throttle(&containerLimits.BlkioDeviceReadBps, resolved.DeviceReadBps)
 	}
 
 	if cfg.DeviceWriteBps != "" {
 		bps, _ := units.RAMInBytes(cfg.DeviceWriteBps)
 		resolved.DeviceWriteBps = uint64(bps) //nolint:gosec // Validated as positive.
-		throttle(&containerLimits.BlkioDeviceWriteBps, resolved.DeviceWriteBps)
 	}
 
-	if cfg.DeviceReadIOps != 0 {
-		resolved.DeviceReadIOps = cfg.DeviceReadIOps
-		throttle(&containerLimits.BlkioDeviceReadIOps, cfg.DeviceReadIOps)
+	resolved.DeviceReadIOps = cfg.DeviceReadIOps
+	resolved.DeviceWriteIOps = cfg.DeviceWriteIOps
+}
+
+// applyIOCostLimits picks the disk for the io.cost model. io.cost works only
+// on a whole blk-mq disk, so a device-mapper or md device is followed to the
+// one disk under it. The runner writes the model before the client starts.
+func applyIOCostLimits(
+	cfg *config.ResourceLimits,
+	storage *StorageInfo,
+	resolved *ResolvedResourceLimits,
+) error {
+	resolved.DeviceThrottle = config.DeviceThrottleIOCost
+
+	if cfg.DevicePath != "" {
+		majMin, err := blockdev.DeviceNumber(cfg.DevicePath)
+		if err != nil {
+			return fmt.Errorf("reading the device number of device_path %s: %w", cfg.DevicePath, err)
+		}
+
+		resolved.DevicePath = cfg.DevicePath
+		resolved.deviceMajMin = majMin
+
+		return nil
 	}
 
-	if cfg.DeviceWriteIOps != 0 {
-		resolved.DeviceWriteIOps = cfg.DeviceWriteIOps
-		throttle(&containerLimits.BlkioDeviceWriteIOps, cfg.DeviceWriteIOps)
+	if storage == nil || storage.Device == nil {
+		return unknownDeviceError(storage)
 	}
+
+	disk, err := ioCostDisk(storage.Device)
+	if err != nil {
+		return err
+	}
+
+	resolved.DevicePath = disk.Path
+	resolved.deviceMajMin = disk.MajMin
 
 	return nil
+}
+
+// ioCostDisk returns the one physical disk under dev. A stack over more than
+// one disk, such as md RAID0, has no single disk to model.
+func ioCostDisk(dev *blockdev.Device) (*blockdev.Device, error) {
+	disk := dev
+
+	switch len(dev.Backing) {
+	case 0:
+	case 1:
+		disk = &dev.Backing[0]
+	default:
+		names := make([]string, 0, len(dev.Backing))
+		for _, b := range dev.Backing {
+			names = append(names, b.Name)
+		}
+
+		return nil, fmt.Errorf("device_throttle %q needs one disk, but %s is on %d disks (%s); "+
+			"set resource_limits.device_path to name one disk",
+			config.DeviceThrottleIOCost, dev.Path, len(dev.Backing), strings.Join(names, ", "))
+	}
+
+	if disk.MajMin == "" {
+		return nil, fmt.Errorf("device_throttle %q: the device number of %s is unknown",
+			config.DeviceThrottleIOCost, disk.Path)
+	}
+
+	return disk, nil
+}
+
+// unknownDeviceError explains why the device_* limits have no device.
+func unknownDeviceError(storage *StorageInfo) error {
+	reason := "block device lookup is only supported on Linux"
+	if storage != nil && storage.Error != "" {
+		reason = storage.Error
+	}
+
+	return fmt.Errorf("resource_limits.device_* limits need the block device of the client datadir, "+
+		"which is unknown: %s (set resource_limits.device_path to name the device)", reason)
 }
 
 // isCgroupV2 reports if the host uses the unified cgroup hierarchy. Only

@@ -636,6 +636,12 @@ export function RunConfiguration({ instance, system, startBlock, metadata, bench
                   {instance.resource_limits.device_path && (
                     <InfoItem label="Disk Limit Device" value={instance.resource_limits.device_path} />
                   )}
+                  {instance.resource_limits.device_throttle && (
+                    <InfoItem label="Disk Throttle" value={instance.resource_limits.device_throttle} />
+                  )}
+                  {instance.resource_limits.device_cost_model && (
+                    <InfoItem label="Disk Cost Model" value={instance.resource_limits.device_cost_model} />
+                  )}
                 </dl>
               </div>
             )}

@@ -12,6 +12,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
 	"github.com/ethpandaops/benchmarkoor/pkg/docker"
+	"github.com/ethpandaops/benchmarkoor/pkg/iocost"
 	"github.com/ethpandaops/benchmarkoor/pkg/podman"
 	"github.com/spf13/cobra"
 )
@@ -28,7 +29,8 @@ Filesystem resources that may be left behind if the process was killed:
   - ZFS clones and snapshots
   - OverlayFS mounts and temp directories
   - fuse-overlayfs mounts and temp directories
-  - CPU frequency state files (restores original CPU settings)`,
+  - CPU frequency state files (restores original CPU settings)
+  - io.cost state files (restores the original disk throttle settings)`,
 	RunE: runCleanup,
 }
 
@@ -131,13 +133,20 @@ func performCleanup(ctx context.Context, managers []docker.ContainerManager, for
 	}
 
 	// List orphaned CPU frequency state files.
-	cpufreqStateFiles, err := cpufreq.ListOrphanedStateFiles(getCPUFreqCacheDir())
+	cpufreqStateFiles, err := cpufreq.ListOrphanedStateFiles(getStateCacheDir())
 	if err != nil {
 		log.WithError(err).Warn("Failed to list CPU frequency state files")
 	}
 
+	// List orphaned io.cost state files.
+	iocostStateFiles, err := iocost.ListOrphanedStateFiles(getStateCacheDir())
+	if err != nil {
+		log.WithError(err).Warn("Failed to list io.cost state files")
+	}
+
 	if len(containers) == 0 && len(volumes) == 0 && len(networks) == 0 &&
-		len(zfsResources) == 0 && len(overlayMounts) == 0 && len(cpufreqStateFiles) == 0 {
+		len(zfsResources) == 0 && len(overlayMounts) == 0 && len(cpufreqStateFiles) == 0 &&
+		len(iocostStateFiles) == 0 {
 		log.Info("No benchmarkoor resources found")
 
 		return nil
@@ -188,6 +197,14 @@ func performCleanup(ctx context.Context, managers []docker.ContainerManager, for
 		fmt.Printf("\nCPU frequency state files to be restored and removed (%d):\n", len(cpufreqStateFiles))
 
 		for _, sf := range cpufreqStateFiles {
+			fmt.Printf("  - %s (created: %s)\n", sf.Path, sf.Timestamp.Format("2006-01-02 15:04:05"))
+		}
+	}
+
+	if len(iocostStateFiles) > 0 {
+		fmt.Printf("\nio.cost state files to be restored and removed (%d):\n", len(iocostStateFiles))
+
+		for _, sf := range iocostStateFiles {
 			fmt.Printf("  - %s (created: %s)\n", sf.Path, sf.Timestamp.Format("2006-01-02 15:04:05"))
 		}
 	}
@@ -263,6 +280,13 @@ func performCleanup(ctx context.Context, managers []docker.ContainerManager, for
 		}
 	}
 
+	// Restore the io.cost settings from orphaned state files and remove them.
+	if len(iocostStateFiles) > 0 {
+		if err := iocost.CleanupOrphanedState(ctx, log, iocostStateFiles); err != nil {
+			log.WithError(err).Warn("Failed to cleanup io.cost state files")
+		}
+	}
+
 	log.Info("Cleanup completed")
 
 	return nil
@@ -297,8 +321,9 @@ func buildCleanupManagers(ctx context.Context) []docker.ContainerManager {
 	return managers
 }
 
-// getCPUFreqCacheDir returns the cache directory for CPU frequency state files.
-func getCPUFreqCacheDir() string {
+// getStateCacheDir returns the cache directory for the CPU frequency and
+// io.cost state files.
+func getStateCacheDir() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return os.TempDir()

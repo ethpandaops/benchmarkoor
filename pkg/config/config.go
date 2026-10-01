@@ -19,6 +19,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/cpufreq"
 	"github.com/ethpandaops/benchmarkoor/pkg/cputopology"
 	"github.com/ethpandaops/benchmarkoor/pkg/datadir"
+	"github.com/ethpandaops/benchmarkoor/pkg/iocost"
 	"github.com/mitchellh/mapstructure"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/spf13/viper"
@@ -46,6 +47,16 @@ const (
 
 	// DefaultCPUSysfsPath is the default sysfs path for CPU frequency control.
 	DefaultCPUSysfsPath = "/sys/devices/system/cpu"
+
+	// DefaultCgroupPath is the default mount point of the cgroup v2 hierarchy.
+	DefaultCgroupPath = "/sys/fs/cgroup"
+
+	// DeviceThrottleIOMax throttles the container with io.max: one limit for
+	// reads and one for writes.
+	DeviceThrottleIOMax = "io.max"
+	// DeviceThrottleIOCost throttles the whole disk with io.cost: reads and
+	// writes share one budget, as on a real disk.
+	DeviceThrottleIOCost = "io.cost"
 
 	// LogTimestampFormat is the UTC timestamp format for log lines.
 	LogTimestampFormat = "2006-01-02T15:04:05.000Z"
@@ -631,6 +642,7 @@ type RunnerConfig struct {
 	Directories        DirectoriesConfig    `yaml:"directories,omitempty" mapstructure:"directories"`
 	DropCachesPath     string               `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
 	CPUSysfsPath       string               `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
+	CgroupPath         string               `yaml:"cgroup_path,omitempty" mapstructure:"cgroup_path"`
 	GitHubToken        string               `yaml:"github_token,omitempty" mapstructure:"github_token"`
 	LiveReporting      *LiveReportingConfig `yaml:"live_reporting,omitempty" mapstructure:"live_reporting"`
 	StorageProbe       *StorageProbeConfig  `yaml:"storage_probe,omitempty" mapstructure:"storage_probe"`
@@ -1763,7 +1775,9 @@ type ResourceLimits struct {
 	// datadir. benchmarkoor finds the device at run time. DevicePath replaces
 	// that lookup with an explicit device, e.g. "/dev/nvme0n1".
 	// The bps limits take a size with a unit ("500mb"), the iops limits a count.
-	DevicePath      string `yaml:"device_path,omitempty" mapstructure:"device_path" json:"device_path,omitempty"`
+	DevicePath string `yaml:"device_path,omitempty" mapstructure:"device_path" json:"device_path,omitempty"`
+	// DeviceThrottle selects the mechanism: "io.max" (default) or "io.cost".
+	DeviceThrottle  string `yaml:"device_throttle,omitempty" mapstructure:"device_throttle" json:"device_throttle,omitempty"`
 	DeviceReadBps   string `yaml:"device_read_bps,omitempty" mapstructure:"device_read_bps" json:"device_read_bps,omitempty"`
 	DeviceReadIOps  uint64 `yaml:"device_read_iops,omitempty" mapstructure:"device_read_iops" json:"device_read_iops,omitempty"`
 	DeviceWriteBps  string `yaml:"device_write_bps,omitempty" mapstructure:"device_write_bps" json:"device_write_bps,omitempty"`
@@ -1840,6 +1854,10 @@ func (r *ResourceLimits) Merge(override *ResourceLimits) *ResourceLimits {
 		merged.DevicePath = override.DevicePath
 	}
 
+	if override.DeviceThrottle != "" {
+		merged.DeviceThrottle = override.DeviceThrottle
+	}
+
 	if override.RemovedBlkioConfig != nil {
 		merged.RemovedBlkioConfig = override.RemovedBlkioConfig
 	}
@@ -1850,6 +1868,11 @@ func (r *ResourceLimits) Merge(override *ResourceLimits) *ResourceLimits {
 // IsSwapDisabled reports if the limits disable swap.
 func (r *ResourceLimits) IsSwapDisabled() bool {
 	return r != nil && r.SwapDisabled != nil && *r.SwapDisabled
+}
+
+// UsesIOCost reports if the device limits use the io.cost controller.
+func (r *ResourceLimits) UsesIOCost() bool {
+	return r.HasDeviceLimits() && r.DeviceThrottle == DeviceThrottleIOCost
 }
 
 // HasDeviceLimits reports if the limits throttle the datadir block device.
@@ -1937,6 +1960,17 @@ func (r *ResourceLimits) Validate(prefix string) error {
 		if bps <= 0 {
 			return fmt.Errorf("%s: %s must be greater than 0", prefix, key)
 		}
+	}
+
+	switch r.DeviceThrottle {
+	case "", DeviceThrottleIOMax, DeviceThrottleIOCost:
+	default:
+		return fmt.Errorf("%s: invalid device_throttle %q, must be: %s, %s",
+			prefix, r.DeviceThrottle, DeviceThrottleIOMax, DeviceThrottleIOCost)
+	}
+
+	if r.DeviceThrottle != "" && !r.HasDeviceLimits() {
+		return fmt.Errorf("%s: device_throttle needs at least one device_read_*/device_write_* limit", prefix)
 	}
 
 	if r.DevicePath != "" {
@@ -2225,6 +2259,7 @@ func bindEnvKeys(v *viper.Viper) {
 		"runner.github_token",
 		"runner.drop_caches_path",
 		"runner.cpu_sysfs_path",
+		"runner.cgroup_path",
 		// Runner benchmark settings
 		"runner.benchmark.results_dir",
 		"runner.benchmark.results_owner",
@@ -3406,6 +3441,27 @@ func (c *Config) GetDropCachesPath() string {
 	return DefaultDropCachesPath
 }
 
+// GetCgroupPath returns the mount point of the cgroup v2 hierarchy, which
+// holds the io.cost files. Returns the configured path or /sys/fs/cgroup.
+func (c *Config) GetCgroupPath() string {
+	if c.Runner.CgroupPath != "" {
+		return c.Runner.CgroupPath
+	}
+
+	return DefaultCgroupPath
+}
+
+// UsesIOCost reports if any instance throttles its disk with io.cost.
+func (c *Config) UsesIOCost() bool {
+	for i := range c.Runner.Instances {
+		if c.GetResourceLimits(&c.Runner.Instances[i]).UsesIOCost() {
+			return true
+		}
+	}
+
+	return false
+}
+
 // GetCPUSysfsPath returns the sysfs base path for CPU frequency control.
 // Returns the configured path or the default (/sys/devices/system/cpu).
 func (c *Config) GetCPUSysfsPath() string {
@@ -3984,6 +4040,20 @@ func (c *Config) validateDeviceLimits() error {
 			return fmt.Errorf("instance %q: resource_limits.device_* limits do not work with the %q "+
 				"datadir method, because its disk I/O does not run in the container cgroup", instance.ID, dd.Method)
 		}
+	}
+
+	if !c.UsesIOCost() {
+		return nil
+	}
+
+	cgroupPath := c.GetCgroupPath()
+	if !iocost.IsSupported(cgroupPath) {
+		return fmt.Errorf("resource_limits.device_throttle %q needs cgroup v2 with the io.cost "+
+			"controller, but %s has no io.cost.model file", DeviceThrottleIOCost, cgroupPath)
+	}
+
+	if err := iocost.HasWriteAccess(cgroupPath); err != nil {
+		return fmt.Errorf("resource_limits.device_throttle %q: %w", DeviceThrottleIOCost, err)
 	}
 
 	return nil
