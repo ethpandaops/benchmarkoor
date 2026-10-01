@@ -653,6 +653,10 @@ runner:
       #   # Optional: the device to throttle, when the automatic lookup cannot
       #   # find it (e.g. benchmarkoor runs in a container).
       #   # device_path: /dev/nvme0n1
+      #   # Optional: "io.cost" gives reads and writes one shared budget of
+      #   # device time, as on a real disk. It throttles all I/O on the whole
+      #   # disk and needs root. Default: "io.max" (separate caps).
+      #   # device_throttle: io.cost
       #   # CPU frequency management (Linux only, requires root and cpufreq subsystem)
       #   # These settings are applied to the CPUs specified by cpuset/cpuset_count,
       #   # or all online CPUs if neither is specified.

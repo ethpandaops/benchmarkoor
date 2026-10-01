@@ -134,6 +134,7 @@ runner:
     tmp_datadir: /tmp/benchmarkoor
   drop_caches_path: /proc/sys/vm/drop_caches
   cpu_sysfs_path: /sys/devices/system/cpu
+  cgroup_path: /sys/fs/cgroup
 ```
 
 ### Options
@@ -147,6 +148,7 @@ runner:
 | `run_timeout` | string | - | Global timeout for the entire run covering all instances, setup, and teardown. Uses Go duration format (e.g., `4h`, `30m`). See [Runner Run Timeout](#runner-run-timeout) |
 | `directories.tmp_datadir` | string | system temp | Directory for temporary datadir copies. (The shared cache dir is `global.directories.cachedir`.) |
 | `drop_caches_path` | string | `/proc/sys/vm/drop_caches` | Path to Linux drop_caches file (for containerized environments) |
+| `cgroup_path` | string | `/sys/fs/cgroup` | Mount point of the host cgroup v2 hierarchy. The `io.cost` disk throttle writes `io.cost.model` and `io.cost.qos` here. See [io.cost](#iocost-one-budget-for-reads-and-writes) |
 | `cpu_sysfs_path` | string | `/sys/devices/system/cpu` | Base path for CPU sysfs files (for containerized environments where `/sys` is read-only and the host path is bind-mounted elsewhere, e.g., `/host_sys_cpu`) |
 | `metadata.labels` | map[string]string | - | Arbitrary key-value labels attached to the run (see [Metadata Labels](#metadata-labels)) |
 | `github_token` | string | - | GitHub token for downloading Actions artifacts via REST API. Not needed if `gh` CLI is installed and authenticated. Requires `actions:read` scope. Can also be set via `BENCHMARKOOR_RUNNER_GITHUB_TOKEN` env var |
@@ -1601,6 +1603,7 @@ resource_limits:
 | `device_read_bps` | string | Read bandwidth limit on the datadir block device, with a unit: `b`, `k`, `m`, `g` (e.g., `"500mb"`) |
 | `device_write_bps` | string | Write bandwidth limit on the datadir block device, with a unit |
 | `device_path` | string | Block device for the `device_*` limits, e.g. `/dev/nvme0n1`. Omit it to use the device that holds the datadir |
+| `device_throttle` | string | How the `device_*` limits throttle the disk: `io.max` (default) or `io.cost`. See [io.cost](#iocost-one-budget-for-reads-and-writes) |
 
 **Note:** `cpuset_count` and `cpuset` are mutually exclusive. Use one or the other.
 
@@ -1653,6 +1656,38 @@ Notes:
 - Set `device_path` when benchmarkoor cannot find the device, for example when it runs in a container that does not see the data mount. The path must be the device on the host of the container runtime. With `device_path`, benchmarkoor does not check that this device holds the datadir.
 - The `blkio_config` option was removed. A config that still sets it fails validation.
 - The run `config.json` records the throttled device in `instance.resource_limits.device_path`, and the rates in bytes per second or IOPS.
+
+#### io.cost: one budget for reads and writes
+
+By default (`device_throttle: io.max`), each limit is a separate cap. Reads and writes do not share capacity, so a mixed workload can use the full read limit and the full write limit at the same time. A real disk cannot do this.
+
+With `device_throttle: io.cost`, benchmarkoor uses the cgroup v2 `io.cost` controller. The `device_*` values become a model of a reference disk, and reads and writes take device time from one budget:
+
+```yaml
+resource_limits:
+  device_throttle: io.cost
+  # The read peaks of a Samsung 970 EVO Plus 2TB.
+  device_read_iops: 630000
+  device_read_bps: "3408mb"
+  # No write limits: writes then use almost none of the budget.
+```
+
+Before the client starts, benchmarkoor writes the model to `io.cost.model` and fixes the device rate at 100% in `io.cost.qos`. After the instance, it puts back the original settings. A direction without limits gets a very high capacity, so its I/O costs almost nothing. The IOPS values apply to sequential and random I/O.
+
+Choose the mode from the reference disk:
+
+- A disk that does more total throughput in a mixed workload than in one direction does not fit one shared budget. Set limits only for the direction that must be slower, as in the example. In a test against a 970 EVO Plus, this matched the reference disk better than `io.max`.
+- `io.max` on a device-mapper device can limit 1M sequential reads far below the configured `rbps`. `io.cost` does not have this problem.
+
+Notes:
+
+- `io.cost` applies to **all** I/O on the disk, from all processes on the host, not only to the client container. A datadir rollback (for example `schelk recover`) during the run is throttled too.
+- I/O from the root cgroup, for example from kernel threads, is not throttled. Thus the `zfs` datadir method does not work with `io.cost` either.
+- `io.cost` works only on a whole blk-mq disk, such as an NVMe or SCSI disk. benchmarkoor follows a device-mapper or md device to the disk under it. A stack over more than one disk (for example md RAID0) fails. Set `device_path` to one whole disk in that case.
+- benchmarkoor must have write access to the host `io.cost.model` and `io.cost.qos` files. Run it as root. In a container, use the host cgroup namespace and mount the host cgroup hierarchy writable, and set `runner.cgroup_path` to that mount.
+- Instances use the disk one after the other, so each instance can have its own model.
+- benchmarkoor saves the original settings in a state file in the cache directory. If the process is killed, the next run, or the `benchmarkoor cleanup` command, restores them.
+- The run `config.json` records `device_throttle`, the disk in `device_path`, and the written model line in `device_cost_model`.
 
 ### Storage Probe
 

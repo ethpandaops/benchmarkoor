@@ -41,7 +41,14 @@ function DiffRow({ label, values, same }: { label: string; values: string[]; sam
 // diskLimitsKey joins the disk limit fields, to compare them between runs.
 function diskLimitsKey(inst: InstanceConfig): string {
   const rl = inst.resource_limits
-  return [rl?.device_path, rl?.device_read_iops, rl?.device_write_iops, rl?.device_read_bps, rl?.device_write_bps].join('|')
+  return [
+    rl?.device_path,
+    rl?.device_throttle,
+    rl?.device_read_iops,
+    rl?.device_write_iops,
+    rl?.device_read_bps,
+    rl?.device_write_bps,
+  ].join('|')
 }
 
 export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
@@ -283,6 +290,14 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
                     <DiffRow
                       label="Disk Limit Device"
                       values={instances.map((i) => i.resource_limits?.device_path ?? '')}
+                    />
+                  )}
+                  {instances.some((i) => i.resource_limits?.device_throttle) && (
+                    <DiffRow
+                      label="Disk Throttle"
+                      values={instances.map((i) =>
+                        i.resource_limits?.device_path ? (i.resource_limits.device_throttle ?? 'io.max') : '',
+                      )}
                     />
                   )}
                   {instances.some((i) => i.resource_limits?.device_read_iops || i.resource_limits?.device_write_iops) && (

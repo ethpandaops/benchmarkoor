@@ -157,3 +157,62 @@ func TestBuildContainerResourceLimitsDeviceLimits(t *testing.T) {
 		assert.Empty(t, resolved.DevicePath)
 	})
 }
+
+func TestBuildContainerResourceLimitsIOCost(t *testing.T) {
+	cfg := &config.ResourceLimits{
+		DeviceThrottle: config.DeviceThrottleIOCost,
+		DeviceReadIOps: 630000,
+		DeviceReadBps:  "3408mb",
+	}
+
+	t.Run("a dm device is followed to its one disk", func(t *testing.T) {
+		storage := &StorageInfo{Device: &blockdev.Device{
+			Name: "dm-0", Path: "/dev/dm-0", MajMin: "253:0", Kind: "device-mapper",
+			Backing: []blockdev.Device{{Name: "nvme2n1", Path: "/dev/nvme2n1", MajMin: "259:0"}},
+		}}
+
+		limits, resolved, err := buildContainerResourceLimits(cfg, nil, storage)
+		require.NoError(t, err)
+
+		// The container gets no io.max throttles: io.cost covers the disk.
+		assert.Empty(t, limits.BlkioDeviceReadIOps)
+		assert.Empty(t, limits.BlkioDeviceReadBps)
+
+		assert.Equal(t, config.DeviceThrottleIOCost, resolved.DeviceThrottle)
+		assert.Equal(t, "/dev/nvme2n1", resolved.DevicePath)
+		assert.Equal(t, "259:0", resolved.deviceMajMin)
+		assert.Equal(t, uint64(630000), resolved.DeviceReadIOps)
+		assert.Equal(t, uint64(3408<<20), resolved.DeviceReadBps)
+		assert.Zero(t, resolved.DeviceWriteIOps)
+	})
+
+	t.Run("a whole disk is used as it is", func(t *testing.T) {
+		storage := &StorageInfo{Device: &blockdev.Device{Name: "nvme0n1", Path: "/dev/nvme0n1", MajMin: "259:1"}}
+
+		_, resolved, err := buildContainerResourceLimits(cfg, nil, storage)
+		require.NoError(t, err)
+		assert.Equal(t, "/dev/nvme0n1", resolved.DevicePath)
+		assert.Equal(t, "259:1", resolved.deviceMajMin)
+	})
+
+	t.Run("a stack over more than one disk fails", func(t *testing.T) {
+		storage := &StorageInfo{Device: &blockdev.Device{
+			Name: "md0", Path: "/dev/md0", MajMin: "9:0",
+			Backing: []blockdev.Device{
+				{Name: "nvme0n1", Path: "/dev/nvme0n1", MajMin: "259:0"},
+				{Name: "nvme1n1", Path: "/dev/nvme1n1", MajMin: "259:1"},
+			},
+		}}
+
+		_, _, err := buildContainerResourceLimits(cfg, nil, storage)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "nvme0n1, nvme1n1")
+		assert.Contains(t, err.Error(), "device_path")
+	})
+
+	t.Run("an unknown device fails with the reason", func(t *testing.T) {
+		_, _, err := buildContainerResourceLimits(cfg, nil, &StorageInfo{Error: "path not visible"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path not visible")
+	})
+}

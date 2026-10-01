@@ -358,6 +358,10 @@ export interface ResourceLimitsConfig {
   device_read_iops?: number
   device_write_bps?: number
   device_write_iops?: number
+  /** "io.cost" when the limits are an io.cost model of the whole disk. Absent for io.max. */
+  device_throttle?: string
+  /** The io.cost.model line that the run wrote. */
+  device_cost_model?: string
 }
 
 export interface RetryNewPayloadsSyncingConfig {
