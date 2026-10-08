@@ -258,11 +258,14 @@ func TestValidatePreRuns(t *testing.T) {
 		require.ErrorContains(t, c.validatePreRuns(), "base_bundle must be an absolute path")
 	})
 
-	t.Run("base_bundle on a replay target rejected", func(t *testing.T) {
+	t.Run("replay target replays base_bundle then replay_from", func(t *testing.T) {
 		c := base()
-		c.Builder.PreRuns.Targets[0].ReplayFrom = "/release/pre_run_bundle"
-		c.Builder.PreRuns.Targets[0].BaseBundle = "/release/other"
-		require.ErrorContains(t, c.validatePreRuns(), "replays replay_from only")
+		c.Builder.PreRuns.Targets[0].ReplayFrom = "/snapshot/tail/pre_run_bundle"
+		c.Builder.PreRuns.Targets[0].BaseBundle = "/release/pre_run_bundle"
+		require.NoError(t, c.validatePreRuns())
+
+		c.Builder.PreRuns.Targets[0].BaseBundle = "release/pre_run_bundle"
+		require.ErrorContains(t, c.validatePreRuns(), "base_bundle must be an absolute path")
 	})
 
 	t.Run("duplicate output_dir rejected", func(t *testing.T) {

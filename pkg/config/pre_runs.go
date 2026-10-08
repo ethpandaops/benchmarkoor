@@ -178,13 +178,13 @@ type PreRunTarget struct {
 	// a pre_run_bundle directory.
 	ReplayFrom string `yaml:"replay_from,omitempty" mapstructure:"replay_from"`
 
-	// BaseBundle is replayed onto the restored snapshot before a FILL target's
-	// gas bump (an absolute path to a .request file or pre_run_bundle directory),
-	// so the target continues a recorded chain, e.g. a release's pre-run, instead
-	// of starting from the snapshot head. An in-place target restores its schelk
-	// baseline first, so a second target cannot continue the first one's scratch.
-	// Its blocks are not re-recorded: this target's bundle holds only what it
-	// built, to be replayed after BaseBundle.
+	// BaseBundle is replayed onto the restored snapshot first (an absolute path
+	// to a .request file or pre_run_bundle directory), so the target continues a
+	// recorded chain, e.g. a release's pre-run: a fill target bumps from its head,
+	// a replay target replays replay_from after it. An in-place target restores
+	// its schelk baseline first, so a second target cannot continue the first
+	// one's scratch. Its blocks are not re-recorded: a fill target's bundle holds
+	// only what it built, to be replayed after BaseBundle.
 	BaseBundle string `yaml:"base_bundle,omitempty" mapstructure:"base_bundle"`
 
 	// Hoistable fields (mirror PreRunDefaults).
@@ -670,23 +670,19 @@ func (c *Config) validatePreRuns() error {
 		// Replay targets advance by replaying a bundle, not by filling. They can
 		// use any bootable client (incl. non-fillers) and need none of the
 		// fill-specific config below.
-		if t.IsReplay() {
-			if t.BaseBundle != "" {
-				return fmt.Errorf("%s.base_bundle: a replay target replays replay_from only", prefix)
-			}
-
-			if err := validateReplayFrom(&t, prefix, targetIndex, targetIsReplay, i); err != nil {
-				return err
-			}
-
-			continue
-		}
-
 		if t.BaseBundle != "" && !filepath.IsAbs(t.BaseBundle) {
 			return fmt.Errorf(
 				"%s.base_bundle must be an absolute path to a .request file or pre_run_bundle directory, got %q",
 				prefix, t.BaseBundle,
 			)
+		}
+
+		if t.IsReplay() {
+			if err := validateReplayFrom(&t, prefix, targetIndex, targetIsReplay, i); err != nil {
+				return err
+			}
+
+			continue
 		}
 
 		if _, ok := eestFillerSupportedClients[t.FillerClient]; !ok {

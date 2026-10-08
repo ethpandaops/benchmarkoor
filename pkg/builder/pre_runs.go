@@ -824,17 +824,9 @@ func (b *PreRunsBuilder) runReplay(ctx context.Context, log logrus.FieldLogger, 
 		return err
 	}
 
-	lines, err := readRequestLines(bundlePath)
-	if err != nil {
-		return fmt.Errorf("reading replay bundle %q: %w", bundlePath, err)
+	if err := requireBundle(bundlePath); err != nil {
+		return err
 	}
-
-	if len(lines) == 0 {
-		return fmt.Errorf("replay bundle %q is empty", bundlePath)
-	}
-
-	log.WithFields(logrus.Fields{"bundle": bundlePath, "lines": len(lines)}).
-		Info("Replaying pre-run bundle onto snapshot")
 
 	bf, err := b.bootFiller(ctx, log, t, "", true)
 	if err != nil {
@@ -843,17 +835,27 @@ func (b *PreRunsBuilder) runReplay(ctx context.Context, log logrus.FieldLogger, 
 
 	defer bf.cleanup()
 
-	if err := bf.ec.replayBundle(ctx, lines, log); err != nil {
-		return fmt.Errorf("replaying bundle: %w", err)
+	if t.BaseBundle != "" {
+		if err := b.replayBaseBundle(ctx, log, bf, t.BaseBundle); err != nil {
+			return err
+		}
 	}
 
+	log.WithField("bundle", bundlePath).Info("Replaying pre-run bundle onto snapshot")
+
+	n, err := bf.ec.replayBundleFile(ctx, bundlePath, log)
+	if err != nil {
+		return fmt.Errorf("replaying bundle %q: %w", bundlePath, err)
+	}
+
+	log.WithField("lines", n).Info("Replayed pre-run bundle")
 	log.Info("Replay complete; stopping client to flush datadir")
 
 	return nil
 }
 
-// replayBaseBundle replays a fill target's base_bundle onto the booted filler,
-// before recording starts, so the target builds on the bundle's head.
+// replayBaseBundle replays a target's base_bundle onto the booted client,
+// before recording starts, so the target continues from the bundle's head.
 func (b *PreRunsBuilder) replayBaseBundle(
 	ctx context.Context, log logrus.FieldLogger, bf *bootedFiller, baseBundle string,
 ) error {
@@ -862,20 +864,31 @@ func (b *PreRunsBuilder) replayBaseBundle(
 		return fmt.Errorf("base_bundle: %w", err)
 	}
 
-	lines, err := readRequestLines(path)
+	if err := requireBundle(path); err != nil {
+		return err
+	}
+
+	log.WithField("bundle", path).Info("Replaying base_bundle")
+
+	n, err := bf.ec.replayBundleFile(ctx, path, log)
 	if err != nil {
-		return fmt.Errorf("reading base_bundle %q: %w", path, err)
+		return fmt.Errorf("replaying base_bundle %q: %w", path, err)
 	}
 
-	if len(lines) == 0 {
-		return fmt.Errorf("base_bundle %q is empty", path)
+	log.WithField("lines", n).Info("Replayed base_bundle")
+
+	return nil
+}
+
+// requireBundle fails before a client boots on a missing or empty bundle.
+func requireBundle(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("replay bundle: %w", err)
 	}
 
-	log.WithFields(logrus.Fields{"bundle": path, "lines": len(lines)}).
-		Info("Replaying base_bundle before the gas bump")
-
-	if err := bf.ec.replayBundle(ctx, lines, log); err != nil {
-		return fmt.Errorf("replaying base_bundle: %w", err)
+	if info.Size() == 0 {
+		return fmt.Errorf("replay bundle %q is empty", path)
 	}
 
 	return nil

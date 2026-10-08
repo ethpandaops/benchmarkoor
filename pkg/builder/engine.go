@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -8,10 +9,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -495,43 +498,62 @@ func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal,
 	return payloadFields.BlockHash, gl, nil
 }
 
-// replayBundleLogEvery controls how often replayBundle logs progress.
+// replayBundleLogEvery controls how often replayBundleFile logs progress.
 const replayBundleLogEvery = 500
 
-// replaySyncingRetries is how many times replayBundle re-sends a payload that
+// replaySyncingRetries is how many times replayBundleFile re-sends a payload that
 // returns SYNCING/ACCEPTED before giving up (some clients apply blocks async).
 const replaySyncingRetries = 60
 
-// replayBundle replays newline-delimited JSON-RPC request lines (an
-// engine_newPayload + forkchoiceUpdated pair per block, in order) against the
-// engine port, asserting each returns VALID. It advances the booted client's
-// datadir to the bundle's head — the mechanism replay_from targets use to reach
-// the setup head without running the fill.
-func (c *engineClient) replayBundle(ctx context.Context, lines []string, log logrus.FieldLogger) error {
-	for i, line := range lines {
-		var req struct {
-			Method string            `json:"method"`
-			Params []json.RawMessage `json:"params"`
-		}
-		if err := json.Unmarshal([]byte(line), &req); err != nil {
-			return fmt.Errorf("parsing line %d: %w", i, err)
+// replayBundleFile streams a .request bundle (an engine_newPayload +
+// forkchoiceUpdated pair per block, in order) to the engine port, asserting each
+// returns VALID, and returns how many requests it sent. It advances the booted
+// client's datadir to the bundle's head. It reads line by line: a release's
+// pre-run bundle is over 12 GB.
+func (c *engineClient) replayBundleFile(ctx context.Context, path string, log logrus.FieldLogger) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = f.Close() }()
+
+	r := bufio.NewReaderSize(f, 1<<20)
+	n := 0
+
+	for {
+		line, readErr := r.ReadBytes('\n')
+		if len(bytes.TrimSpace(line)) > 0 {
+			var req struct {
+				Method string            `json:"method"`
+				Params []json.RawMessage `json:"params"`
+			}
+			if err := json.Unmarshal(line, &req); err != nil {
+				return n, fmt.Errorf("parsing line %d: %w", n, err)
+			}
+
+			params := make([]any, len(req.Params))
+			for j := range req.Params {
+				params[j] = req.Params[j]
+			}
+
+			if err := c.replayCall(ctx, req.Method, params); err != nil {
+				return n, fmt.Errorf("line %d (%s): %w", n, req.Method, err)
+			}
+
+			n++
+			if log != nil && n%replayBundleLogEvery == 0 {
+				log.WithField("lines", n).Info("Replaying bundle")
+			}
 		}
 
-		params := make([]any, len(req.Params))
-		for j := range req.Params {
-			params[j] = req.Params[j]
+		if errors.Is(readErr, io.EOF) {
+			return n, nil
 		}
 
-		if err := c.replayCall(ctx, req.Method, params); err != nil {
-			return fmt.Errorf("line %d (%s): %w", i, req.Method, err)
-		}
-
-		if log != nil && (i+1)%replayBundleLogEvery == 0 {
-			log.WithField("lines", fmt.Sprintf("%d/%d", i+1, len(lines))).Info("Replaying bundle")
+		if readErr != nil {
+			return n, fmt.Errorf("reading line %d: %w", n, readErr)
 		}
 	}
-
-	return nil
 }
 
 // replayCall sends one engine_newPayload / forkchoiceUpdated request and asserts
