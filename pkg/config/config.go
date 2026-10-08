@@ -1532,7 +1532,9 @@ type DBCompactionConfig struct {
 
 	// Verify runs the client's check of the compacted datadir. geth's fails
 	// when triedb/merkle.journal holds the state of more than the last 128
-	// blocks, which geth would load back into memory on start. Default: true.
+	// blocks, which geth would load back into memory on start. Default: false,
+	// since a node stopped with a non-empty write buffer (any default-cache run)
+	// fails it; benchmarkoor db compact turns it on.
 	Verify *bool `yaml:"verify,omitempty" mapstructure:"verify" json:"verify,omitempty"`
 
 	// ExtraArgs appends arguments to the compaction command, e.g.
@@ -1688,10 +1690,10 @@ func (c *DBCompactionConfig) InspectEnabled() bool {
 }
 
 // VerifyEnabled reports whether to run the client's check of the compacted
-// datadir. Defaults to true.
+// datadir. Defaults to false.
 func (c *DBCompactionConfig) VerifyEnabled() bool {
 	if c == nil || c.Verify == nil {
-		return true
+		return false
 	}
 
 	return *c.Verify

@@ -764,8 +764,8 @@ func TestRunDBCompactionContainers_ToolImage(t *testing.T) {
 }
 
 // TestRunDBCompactionContainers_Verify checks that a failed verification fails
-// the phase before the inspection after it, that verify: false skips it, and
-// that a volume datadir is not verified.
+// the phase before the inspection after it, that it is opt-in, and that a
+// volume datadir is not verified.
 func TestRunDBCompactionContainers_Verify(t *testing.T) {
 	var checked []string
 
@@ -783,6 +783,12 @@ func TestRunDBCompactionContainers_Verify(t *testing.T) {
 	r, resultsDir := dbCompactionTestRunner(t, mgr)
 	req := dbCompactionTestRequest(resultsDir)
 
+	require.NoError(t, r.runDBCompactionContainers(context.Background(), req, cmds, nil, resultsDir, r.log), "unset: off")
+	assert.Empty(t, checked)
+
+	mgr.ran = nil
+	on := true
+	req.Cfg.Verify = &on
 	err := r.runDBCompactionContainers(context.Background(), req, cmds, nil, resultsDir, r.log)
 	require.ErrorContains(t, err, "journal holds 1354 blocks")
 	assert.Equal(t, []string{resultsDir}, checked, "the host path of the datadir")
@@ -792,7 +798,7 @@ func TestRunDBCompactionContainers_Verify(t *testing.T) {
 	req.Cfg.Verify = &off
 	require.NoError(t, r.runDBCompactionContainers(context.Background(), req, cmds, nil, resultsDir, r.log))
 
-	req.Cfg.Verify = nil
+	req.Cfg.Verify = &on
 	req.Mount = docker.Mount{Type: "volume", Source: "vol", Target: "/data"}
 	require.NoError(t, r.runDBCompactionContainers(context.Background(), req, cmds, nil, resultsDir, r.log))
 	assert.Len(t, checked, 1)

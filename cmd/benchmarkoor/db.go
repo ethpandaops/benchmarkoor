@@ -28,6 +28,7 @@ var dbCompactFlags struct {
 	extraArgs []string
 	timeout   string
 	noInspect bool
+	noVerify  bool
 }
 
 var dbCmd = &cobra.Command{
@@ -60,6 +61,7 @@ func init() {
 	f.StringArrayVar(&dbCompactFlags.extraArgs, "extra-arg", nil, "argument appended to the compaction command (repeatable)")
 	f.StringVar(&dbCompactFlags.timeout, "timeout", config.DefaultDBCompactionTimeout, "time limit for the whole compaction")
 	f.BoolVar(&dbCompactFlags.noInspect, "no-inspect", false, "skip the database inspection before and after")
+	f.BoolVar(&dbCompactFlags.noVerify, "no-verify", false, "skip the client's check of the compacted datadir (geth's journal check)")
 
 	_ = dbCompactCmd.MarkFlagRequired("client")
 	_ = dbCompactCmd.MarkFlagRequired("datadir")
@@ -82,6 +84,7 @@ func runDBCompact(cmd *cobra.Command, _ []string) error {
 	}
 
 	inspect := !dbCompactFlags.noInspect
+	verify := !dbCompactFlags.noVerify
 	cfg := &config.DBCompactionConfig{
 		Enabled:   true,
 		Prepare:   dbCompactFlags.prepare,
@@ -89,6 +92,7 @@ func runDBCompact(cmd *cobra.Command, _ []string) error {
 		ExtraArgs: dbCompactFlags.extraArgs,
 		Timeout:   dbCompactFlags.timeout,
 		Inspect:   &inspect,
+		Verify:    &verify,
 	}
 
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
