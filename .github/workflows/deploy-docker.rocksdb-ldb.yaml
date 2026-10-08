@@ -1,0 +1,72 @@
+name: Deploy - Docker (RocksDB ldb)
+
+# The ldb image db_compaction uses for nethermind and besu
+# (client.RocksDBLdbImage). Tagged by RocksDB version, so bump both together.
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - Dockerfile.rocksdb-ldb
+      - .github/workflows/deploy-docker.rocksdb-ldb.yaml
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}-rocksdb-ldb
+  ROCKSDB_VERSION: "11.8.1"
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} image
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Log in to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          docker build . --file Dockerfile.rocksdb-ldb \
+            --build-arg ROCKSDB_VERSION="$ROCKSDB_VERSION" \
+            --platform "linux/${{ matrix.arch }}" \
+            --tag "$IMAGE:$ROCKSDB_VERSION-${{ matrix.arch }}"
+          docker run --rm "$IMAGE:$ROCKSDB_VERSION-${{ matrix.arch }}" --version | grep -F "RocksDB $ROCKSDB_VERSION"
+          docker push "$IMAGE:$ROCKSDB_VERSION-${{ matrix.arch }}"
+
+  manifest:
+    name: Multi-arch manifest
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest
+        run: |
+          docker buildx imagetools create -t "$IMAGE:$ROCKSDB_VERSION" \
+            "$IMAGE:$ROCKSDB_VERSION-amd64" "$IMAGE:$ROCKSDB_VERSION-arm64"

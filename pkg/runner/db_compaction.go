@@ -168,6 +168,21 @@ func (req *dbCompactionRequest) image() string {
 	return req.ImageName
 }
 
+// compactImage returns the image of the compaction container: the tool image
+// of a client compacted by a separate tool, unless db_compaction.image names
+// another.
+func (req *dbCompactionRequest) compactImage(cmds *client.DBMaintenanceCommands) string {
+	if req.Cfg != nil && req.Cfg.Image != "" {
+		return req.Cfg.Image
+	}
+
+	if cmds.CompactImage != "" {
+		return cmds.CompactImage
+	}
+
+	return req.ImageName
+}
+
 // hostPath returns the host path of the datadir mount, or "" when
 // the datadir is a container volume. The marker and the size measurements need
 // a path the runner can read.
@@ -227,7 +242,7 @@ func (r *runner) runDBCompaction(
 	report := &dbCompactionReport{
 		Phase:     req.Phase,
 		Client:    req.Instance.Client,
-		Image:     req.image(),
+		Image:     req.compactImage(cmds),
 		RunID:     req.RunID,
 		StartedAt: started.UTC().Format(time.RFC3339),
 		Persisted: req.Persisting,
@@ -380,11 +395,18 @@ func (r *runner) runDBCompactionContainers(
 	ctx, cancel := context.WithTimeout(ctx, req.Cfg.EffectiveTimeout())
 	defer cancel()
 
+	compactImage := req.compactImage(cmds)
+	if compactImage != req.ImageName {
+		if err := r.containerMgr.PullImage(ctx, compactImage, "if-not-present"); err != nil {
+			return fmt.Errorf("pulling compaction image: %w", err)
+		}
+	}
+
 	if req.Cfg.InspectEnabled() && len(cmds.Inspect) > 0 {
 		log.Info("Inspecting the database before compaction")
 
 		if err := r.runDBMaintenanceContainer(
-			ctx, req, "inspect-before", cmds.Inspect,
+			ctx, req, "inspect-before", req.image(), req.Instance.Entrypoint, cmds.Inspect,
 			filepath.Join(phaseDir, "inspect-before.txt"),
 		); err != nil {
 			log.WithError(err).Warn("Database inspection before compaction failed")
@@ -403,7 +425,7 @@ func (r *runner) runDBCompactionContainers(
 		}).Info("Preparing the database for compaction")
 
 		if err := r.runDBMaintenanceContainer(
-			ctx, req, step.Name, step.Args,
+			ctx, req, step.Name, req.image(), req.Instance.Entrypoint, step.Args,
 			filepath.Join(phaseDir, step.Name+".log"),
 		); err != nil {
 			return fmt.Errorf("preparation step %q: %w", step.Name, err)
@@ -412,10 +434,19 @@ func (r *runner) runDBCompactionContainers(
 
 	log.WithField("timeout", timeout).Info("Compacting the database")
 
+	entrypoint, command := req.Instance.Entrypoint, dbCompactionCommand(cmds, req.Cfg)
+	if cmds.CompactImage != "" {
+		entrypoint, command = command[:1], command[1:]
+	}
+
 	if err := r.runDBMaintenanceContainer(
-		ctx, req, "compact", dbCompactionCommand(cmds, req.Cfg),
+		ctx, req, "compact", compactImage, entrypoint, command,
 		filepath.Join(phaseDir, "compact.log"),
 	); err != nil {
+		return err
+	}
+
+	if err := verifyDBCompaction(req, cmds, log); err != nil {
 		return err
 	}
 
@@ -423,12 +454,38 @@ func (r *runner) runDBCompactionContainers(
 		log.Info("Inspecting the database after compaction")
 
 		if err := r.runDBMaintenanceContainer(
-			ctx, req, "inspect-after", cmds.Inspect,
+			ctx, req, "inspect-after", req.image(), req.Instance.Entrypoint, cmds.Inspect,
 			filepath.Join(phaseDir, "inspect-after.txt"),
 		); err != nil {
 			log.WithError(err).Warn("Database inspection after compaction failed")
 		}
 	}
+
+	return nil
+}
+
+// verifyDBCompaction runs the client's check of the compacted datadir. It
+// needs the datadir on the host, so a container volume is not checked.
+func verifyDBCompaction(
+	req *dbCompactionRequest, cmds *client.DBMaintenanceCommands, log logrus.FieldLogger,
+) error {
+	if cmds.Verify == nil || !req.Cfg.VerifyEnabled() {
+		return nil
+	}
+
+	hostPath := req.hostPath()
+	if hostPath == "" {
+		log.Warn("Not verifying the compacted database: the datadir is a container volume")
+
+		return nil
+	}
+
+	summary, err := cmds.Verify(hostPath)
+	if err != nil {
+		return fmt.Errorf("verifying the compacted database: %w", err)
+	}
+
+	log.WithField("result", summary).Info("Verified the compacted database")
 
 	return nil
 }
@@ -441,8 +498,8 @@ func (r *runner) runDBCompactionContainers(
 func (r *runner) runDBMaintenanceContainer(
 	ctx context.Context,
 	req *dbCompactionRequest,
-	step string,
-	command []string,
+	step, image string,
+	entrypoint, command []string,
 	outputFile string,
 ) error {
 	name := fmt.Sprintf(
@@ -451,8 +508,8 @@ func (r *runner) runDBMaintenanceContainer(
 
 	spec := &docker.ContainerSpec{
 		Name:        name,
-		Image:       req.image(),
-		Entrypoint:  req.Instance.Entrypoint,
+		Image:       image,
+		Entrypoint:  entrypoint,
 		Command:     command,
 		Mounts:      []docker.Mount{req.Mount},
 		NetworkName: r.cfg.ContainerNetwork,
@@ -476,7 +533,7 @@ func (r *runner) runDBMaintenanceContainer(
 	}()
 
 	_, _ = fmt.Fprintf(
-		out, "# %s %s\n# %v\n\n", req.image(), step, command,
+		out, "# %s %s\n# %v\n\n", image, step, append(append([]string{}, entrypoint...), command...),
 	)
 
 	var stdout, stderr io.Writer = out, out
@@ -949,4 +1006,99 @@ func datadirMountFor(
 	}
 
 	return docker.Mount{}, false
+}
+
+// DatadirCompaction is one compaction of a stopped client's host datadir
+// outside a run, as `benchmarkoor db compact` does it.
+type DatadirCompaction struct {
+	Client  client.ClientType
+	DataDir string
+
+	// Image is the client image; empty uses the client's default.
+	Image string
+
+	// Cfg carries the db_compaction settings that apply outside a run:
+	// prepare, extra_args, image, inspect, verify and timeout.
+	Cfg *config.DBCompactionConfig
+}
+
+// CompactDatadir runs what a db_compaction phase runs — the inspections, the
+// preparation steps, the compaction and the verification, each in the same
+// container — against a host datadir. Container output goes to stdout. No
+// marker or report is written: those belong to a run.
+func CompactDatadir(
+	ctx context.Context, log *logrus.Logger, mgr docker.ContainerManager, c *DatadirCompaction,
+) error {
+	spec, err := client.NewRegistry().Get(c.Client)
+	if err != nil {
+		return err
+	}
+
+	cmds := spec.DBMaintenanceCommands(spec.DataDir())
+	if cmds == nil || len(cmds.Compact) == 0 {
+		return fmt.Errorf("client %s has no database compaction command", c.Client)
+	}
+
+	steps, err := dbCompactionSelectedSteps(cmds, c.Cfg)
+	if err != nil {
+		return err
+	}
+
+	dataDir, err := filepath.Abs(c.DataDir)
+	if err != nil {
+		return err
+	}
+
+	if info, err := os.Stat(dataDir); err != nil {
+		return err
+	} else if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dataDir)
+	}
+
+	image := c.Image
+	if image == "" {
+		image = spec.DefaultImage()
+	}
+
+	logDir, err := os.MkdirTemp("", "benchmarkoor-db-compact-")
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = os.RemoveAll(logDir) }()
+
+	r := &runner{
+		logger:       log,
+		log:          log.WithField("component", "db-compact"),
+		cfg:          &Config{ClientLogsToStdout: true},
+		containerMgr: mgr,
+	}
+
+	req := &dbCompactionRequest{
+		Instance:  &config.ClientInstance{ID: string(c.Client), Client: string(c.Client)},
+		Spec:      spec,
+		Cfg:       c.Cfg,
+		Phase:     "cli",
+		ImageName: image,
+		RunID:     time.Now().UTC().Format("20060102T150405Z"),
+		Mount:     docker.Mount{Type: "bind", Source: dataDir, Target: spec.DataDir()},
+	}
+
+	usesClientImage := req.compactImage(cmds) == image || len(steps) > 0 ||
+		(c.Cfg.InspectEnabled() && len(cmds.Inspect) > 0)
+	if usesClientImage && c.Cfg.Image == "" {
+		if err := mgr.PullImage(ctx, image, "if-not-present"); err != nil {
+			return fmt.Errorf("pulling client image: %w", err)
+		}
+	}
+
+	started := time.Now()
+
+	if err := r.runDBCompactionContainers(ctx, req, cmds, steps, logDir, r.log); err != nil {
+		return err
+	}
+
+	r.log.WithField("duration", time.Since(started).Round(time.Second)).Info("Database compaction completed")
+
+	return nil
 }

@@ -106,8 +106,9 @@ func (s *nethermindSpec) SnapshotPrepareArgs() []string {
 	return nil
 }
 
-// DBMaintenanceCommands returns nil; benchmarkoor has no offline
-// compaction command for Nethermind yet.
-func (s *nethermindSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
-	return nil
+// DBMaintenanceCommands compacts Nethermind's databases with RocksDB's ldb:
+// Nethermind ships no offline compaction command. Each database (state, code,
+// blocks, receipts, ...) is its own RocksDB directory under the datadir.
+func (s *nethermindSpec) DBMaintenanceCommands(dataDir string) *DBMaintenanceCommands {
+	return rocksDBCompactCommands(dataDir)
 }
