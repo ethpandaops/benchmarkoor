@@ -68,7 +68,7 @@ Run it as a user that can read every file in the datadir.
 
 | client | archive root | excluded |
 |---|---|---|
-| geth | `geth/`, **prefix kept** (`<datadir>/geth/triedb/merkle.journal` holds the journaled state and is only read from there) | |
+| geth | the contents of `<datadir>/geth`, **no prefix**, as snapshots.ethpandaops.io publishes it: consumers extract into `<datadir>/geth`, where geth reads `triedb/merkle.journal` (extracted flat, geth opens `chaindata/` but misses the journal and rewinds its head) | |
 | erigon | `./` | |
 | reth | `./` | `discovery-secret`, `known-peers.json` |
 | besu | `./` | `key` |
@@ -77,7 +77,7 @@ Run it as a user that can read every file in the datadir.
 
 Every client also excludes `nodekey`, `LOCK`, `nodes/`, `logs/`, `.download-cache/`
 (the snapshot downloader's) and `_snapshot_*` (a previous publish's files) from the top of its archive root. All excludes match
-from the archive root, so a database's own `LOCK` (e.g. `geth/chaindata/LOCK`) is
+from the archive root, so a database's own `LOCK` (e.g. `chaindata/LOCK`) is
 kept.
 
 ## Archive name

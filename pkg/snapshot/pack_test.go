@@ -37,8 +37,8 @@ func TestBuildManifestExcludes(t *testing.T) {
 				"geth/chaindata/LOCK": "", "geth/chaindata/000001.sst": "s", "geth/triedb/merkle.journal": "j",
 				"keystore/UTC--x": "outside geth/, never packed", "geth/logs/geth.log": "",
 			},
-			want: []string{"geth", "geth/chaindata", "geth/chaindata/000001.sst", "geth/chaindata/LOCK",
-				"geth/triedb", "geth/triedb/merkle.journal"},
+			want: []string{".", "./chaindata", "./chaindata/000001.sst", "./chaindata/LOCK",
+				"./triedb", "./triedb/merkle.journal"},
 		},
 		{
 			client: "reth",
@@ -81,7 +81,12 @@ func TestBuildManifestExcludes(t *testing.T) {
 			m, err := BuildManifest(tc.client, dir)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, m.Members)
-			assert.Equal(t, dir, m.Dir)
+			want := dir
+			if tc.client == "geth" {
+				want = filepath.Join(dir, "geth")
+			}
+
+			assert.Equal(t, want, m.Dir, "tar runs in the packed root")
 		})
 	}
 }
@@ -138,8 +143,8 @@ func TestPackListsManifestInOrder(t *testing.T) {
 	cmd.Stdin = bytes.NewReader(tarball)
 	out, err := cmd.Output()
 	require.NoError(t, err)
-	assert.Equal(t, "geth/\ngeth/a/\ngeth/a/y\ngeth/a/z\ngeth/b\ngeth/link\n", string(out),
-		"--sort=name order, geth/ prefix kept, the symlink kept as a link, nodekey and LOCK left out")
+	assert.Equal(t, "./\n./a/\n./a/y\n./a/z\n./b\n./link\n", string(out),
+		"--sort=name order, geth/'s contents with no prefix, the symlink kept as a link, nodekey and LOCK left out")
 
 	assert.Equal(t, tarball, packToTar(t, m), "packing is deterministic")
 }

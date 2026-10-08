@@ -166,8 +166,10 @@ func TestExportIntegration(t *testing.T) {
 	assert.True(t, strings.HasSuffix(strings.Trim(*head.ETag, `"`), "-3"), "a three-part upload, ETag %s", *head.ETag)
 
 	t.Run("archive extracts to the datadir minus the excludes", func(t *testing.T) {
+		// Consumers extract a geth archive into <datadir>/geth.
 		out := t.TempDir()
-		cmd := exec.Command("sh", "-c", "zstd -dc | tar -xf - -C "+out)
+		require.NoError(t, os.Mkdir(filepath.Join(out, "geth"), 0o755))
+		cmd := exec.Command("sh", "-c", "zstd -dc | tar -xf - -C "+filepath.Join(out, "geth"))
 		cmd.Stdin = bytes.NewReader(getObject(t, client, res.ArchiveKey))
 		require.NoError(t, cmd.Run())
 

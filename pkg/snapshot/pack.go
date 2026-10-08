@@ -19,8 +19,8 @@ const tarEntryOverhead = 1024
 
 // client describes how one client's datadir is packed.
 type client struct {
-	// sub is the directory under the datadir that is packed, and kept as the
-	// archive's top-level prefix. Empty packs the datadir itself as "./".
+	// sub is the directory under the datadir whose contents are packed as the
+	// archive root "./". Empty packs the datadir itself.
 	sub string
 	// exclude lists slash-separated globs, relative to the packed root, of
 	// node identity, peer tables, locks and logs a published image must not
@@ -34,8 +34,10 @@ type client struct {
 var common = []string{"nodekey", "LOCK", "nodes", "logs", "_snapshot_*", ".download-cache"}
 
 var clients = map[string]client{
-	// geth keeps its geth/ prefix: <datadir>/geth/triedb/merkle.journal holds
-	// the journaled state and is only read from there.
+	// geth packs its instance dir <datadir>/geth (chaindata/, triedb/) with no
+	// prefix, as snapshots.ethpandaops.io does: consumers extract it into
+	// <datadir>/geth, where geth reads triedb/merkle.journal. Extracted flat, geth
+	// still opens chaindata/ but misses the journal and rewinds its head.
 	"geth":       {sub: "geth"},
 	"erigon":     {},
 	"reth":       {exclude: []string{"discovery-secret", "known-peers.json"}},
@@ -107,12 +109,7 @@ func BuildManifest(clientName, datadir string) (*Manifest, error) {
 		return nil, fmt.Errorf("%s datadir %s is not a directory", clientName, root)
 	}
 
-	prefix := c.sub
-	if prefix == "" {
-		prefix = "."
-	}
-
-	m := &Manifest{Dir: datadir}
+	m := &Manifest{Dir: root}
 
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -134,9 +131,9 @@ func BuildManifest(clientName, datadir string) (*Manifest, error) {
 		}
 
 		if rel == "." {
-			m.Members = append(m.Members, prefix)
+			m.Members = append(m.Members, ".")
 		} else {
-			m.Members = append(m.Members, prefix+"/"+rel)
+			m.Members = append(m.Members, "./"+rel)
 		}
 
 		if d.Type().IsRegular() {
