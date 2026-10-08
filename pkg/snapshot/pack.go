@@ -29,9 +29,13 @@ type client struct {
 }
 
 // common is excluded for every client: node identity, the instance lock,
-// peer tables, logs, a previous publish's _snapshot_* files and the snapshot
-// downloader's .download-cache.
-var common = []string{"nodekey", "LOCK", "nodes", "logs", "_snapshot_*", ".download-cache"}
+// peer tables, logs, a previous publish's _snapshot_* files and what the snapshot
+// downloader left behind (.download-cache, its .snapshot_fetcher_* markers and
+// the download_snapshot.sh it ran from — all found in published images).
+var common = []string{
+	"nodekey", "LOCK", "nodes", "logs", "_snapshot_*",
+	".download-cache", ".snapshot_fetcher_*", "download_snapshot.sh",
+}
 
 var clients = map[string]client{
 	// geth packs its instance dir <datadir>/geth (chaindata/, triedb/) with no

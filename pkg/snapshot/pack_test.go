@@ -33,7 +33,7 @@ func TestBuildManifestExcludes(t *testing.T) {
 		{
 			client: "geth",
 			files: map[string]string{
-				"geth/nodekey": "k", "geth/LOCK": "", "geth/nodes/x": "", "geth/_snapshot_metadata.json": "",
+				"geth/nodekey": "k", "geth/LOCK": "", "geth/nodes/x": "", "geth/_snapshot_metadata.json": "", "geth/.snapshot_fetcher_started": "", "geth/download_snapshot.sh": "",
 				"geth/chaindata/LOCK": "", "geth/chaindata/000001.sst": "s", "geth/triedb/merkle.journal": "j",
 				"keystore/UTC--x": "outside geth/, never packed", "geth/logs/geth.log": "",
 			},
