@@ -23,6 +23,16 @@ label() {
 	esac
 }
 
+# levels <db> <cf>: the family's non-empty levels as L<n>=<files>/<MB>, then
+# its SST bytes. Logged before and after, so the run output shows what the
+# compaction did, not only that it ran.
+levels() {
+	ldb --db="$1" --try_load_options --column_family="$2" get_property rocksdb.levelstats </dev/null |
+		awk 'NR > 2 && $2 > 0 { printf "L%s=%s/%sMB ", $1, $2, $3 }'
+	ldb --db="$1" --try_load_options --column_family="$2" get_property rocksdb.total-sst-files-size </dev/null |
+		sed 's/.*: /sst_bytes=/'
+}
+
 dbs=$(find "$root" -type f -name 'OPTIONS-*' -exec dirname {} \; | sort -u)
 [ -n "$dbs" ] || { echo "no RocksDB database (no OPTIONS-* file) under $root" >&2; exit 1; }
 
@@ -54,15 +64,18 @@ echo "$dbs" | while IFS= read -r db; do
 		*) cf=$cfs; cfs= ;;
 		esac
 
-		echo "compacting $db column_family=$(label "$cf")"
+		echo "compacting $db column_family=$(label "$cf") $(levels "$db" "$cf")"
+		start=$(date +%s)
 		ldb --db="$db" --try_load_options --column_family="$cf" "$@" compact </dev/null
 
 		# `compact` falls back to the default family for an unknown name and
 		# still exits 0; get_property does not, and an empty level 0 is what a
 		# finished full compaction leaves.
-		l0=$(ldb --db="$db" --try_load_options --column_family="$cf" \
-			get_property rocksdb.num-files-at-level0 </dev/null)
-		[ "${l0##*: }" = 0 ] || { echo "$db column_family=$(label "$cf"): $l0 after compaction" >&2; exit 1; }
+		after=$(levels "$db" "$cf")
+		case $after in
+		*"L0="*) echo "$db column_family=$(label "$cf"): level 0 not empty after compaction: $after" >&2; exit 1 ;;
+		esac
+		echo "compacted $db column_family=$(label "$cf") $after duration=$(( $(date +%s) - start ))s"
 
 		[ -n "$cfs" ] || break
 	done

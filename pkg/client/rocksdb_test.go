@@ -30,13 +30,19 @@ func TestRocksDBClientsCompactWithLdb(t *testing.T) {
 }
 
 // stubLdb answers list_column_families with `listing` (raw bytes, as ldb
-// prints them), get_property with `level0`, and records every compact argv,
+// prints them), get_property levelstats with $LDB_LEVEL0 files at level 0 and
+// two at level 6, and records every compact argv,
 // NUL-separated with one line per call, in $LDB_CALLS.
 const stubLdb = `#!/bin/sh
 for a in "$@"; do
 	case $a in
 	list_column_families) printf '%s' "$LDB_LISTING"; exit 0 ;;
-	get_property) echo "rocksdb.num-files-at-level0: $LDB_LEVEL0"; exit 0 ;;
+	get_property)
+		case "$*" in
+		*levelstats*) printf 'rocksdb.levelstats: Level Files Size(MB)\n--------------------\n  0        %s        0\n  6        2       10\n' "$LDB_LEVEL0" ;;
+		*total-sst-files-size*) echo "rocksdb.total-sst-files-size: 4096" ;;
+		esac
+		exit 0 ;;
 	compact) for b in "$@"; do printf '%s\0' "$b"; done >>"$LDB_CALLS"; echo >>"$LDB_CALLS"; exit 0 ;;
 	esac
 done
@@ -117,7 +123,8 @@ func TestRocksDBCompactScript_ParsesColumnFamilies(t *testing.T) {
 
 	assert.Equal(t, besu, s.compacted(t))
 	assert.Contains(t, out, "column_family=0x0a")
-	assert.Contains(t, out, "column_family=default")
+	assert.Contains(t, out, "column_family=default L6=2/10MB sst_bytes=4096\n", "levels before")
+	assert.Regexp(t, `compacted \S+ column_family=default L6=2/10MB sst_bytes=4096 duration=\d+s`, out, "levels and duration after")
 }
 
 func TestRocksDBCompactScript_EveryDatabase(t *testing.T) {
@@ -162,7 +169,7 @@ func TestRocksDBCompactScript_Failures(t *testing.T) {
 
 		out, err := s.run(t)
 		require.Error(t, err)
-		assert.Contains(t, out, "rocksdb.num-files-at-level0: 2 after compaction")
+		assert.Contains(t, out, "level 0 not empty after compaction: L0=2/0MB L6=2/10MB sst_bytes=4096")
 	})
 
 	t.Run("a merge operator ldb does not have", func(t *testing.T) {
