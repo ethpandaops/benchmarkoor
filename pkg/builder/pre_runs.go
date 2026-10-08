@@ -60,6 +60,25 @@ type fillerExitState struct {
 // pebble unclosed — precisely the state that must never be shipped.
 const fillerFlushStopTimeoutSec = 15 * 60
 
+// classifyFillerExit reads how a filler that was asked to stop ended. 0 is a
+// clean exit; so are 130 and 143 (128 + SIGINT/SIGTERM), the codes nethermind
+// (dotnet) and besu (java) return after the signal our stop sends, having
+// logged a complete shutdown ("All DBs closed"). 137 is docker's SIGKILL after
+// the grace period, the one code that means the client never finished.
+func classifyFillerExit(info docker.ContainerExitInfo, timeoutSec int) fillerExitState {
+	switch {
+	case info.OOMKilled:
+		return fillerExitState{detail: "the client was OOM-killed"}
+	case info.ExitCode == 137:
+		return fillerExitState{detail: fmt.Sprintf(
+			"the client did not exit within %ds and was SIGKILLed", timeoutSec)}
+	case info.ExitCode == 0, info.ExitCode == 130, info.ExitCode == 143:
+		return fillerExitState{graceful: true}
+	default:
+		return fillerExitState{detail: fmt.Sprintf("the client exited with code %d", info.ExitCode)}
+	}
+}
+
 // stopFillerRecordingExit stops the filler and reports whether it shut down on
 // its own. It watches the container's exit before asking it to stop, so a
 // SIGKILL fallback (exit 137) or an OOM kill is visible rather than indistinct
@@ -79,17 +98,7 @@ func (b *PreRunsBuilder) stopFillerRecordingExit(
 
 	select {
 	case info := <-statusCh:
-		switch {
-		case info.OOMKilled:
-			state.detail = "the client was OOM-killed"
-		case info.ExitCode == 137:
-			state.detail = fmt.Sprintf(
-				"the client did not exit within %ds and was SIGKILLed", timeoutSec)
-		case info.ExitCode != 0:
-			state.detail = fmt.Sprintf("the client exited with code %d", info.ExitCode)
-		default:
-			state.graceful = true
-		}
+		state = classifyFillerExit(info, timeoutSec)
 	case err := <-errCh:
 		state.detail = fmt.Sprintf("could not observe how the client exited: %v", err)
 	case <-time.After(time.Duration(timeoutSec+30) * time.Second):
