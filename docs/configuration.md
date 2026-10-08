@@ -2069,8 +2069,8 @@ builder:
 
 1. Builds a **funding block** crediting `funding_accounts` (and any `funding_pools`) via beacon withdrawals.
 2. Optionally runs a **`predeploy`**: deploys the target fork's system contracts while the chain is still on the *pre*-fork.
-3. **Gas-bumps** with empty blocks until the head gas limit reaches `gas_limit` (default 1 TGas), capped by `gas_bump_max_blocks`.
-4. Runs `fill-stateful --no-reset-between-tests` on the configured setup `tests`, so deployed state persists across them.
+3. **Gas-bumps** with empty blocks until the head gas limit reaches `gas_limit` (default 1 TGas), capped by `gas_bump_max_blocks`. A `gas_limit` below the head's ramps it **down**, which needs Amsterdam blocks (the `targetGasLimit` payload attribute overrides the filler's miner ceiling); it fails on the first block otherwise.
+4. Runs `fill-stateful --no-reset-between-tests` on the configured setup `tests`, so deployed state persists across them. With `fill: false` this step is skipped and `tests` is not needed: the pre-run is just the funding block and the gas ramp, e.g. to walk a released head's 1 TGas back down to a realistic limit.
 5. Writes `<bundle_dir>/pre_run_bundle/pre-run.request` plus a `pre-run.meta.json` sidecar describing it.
 
 Only `geth`, `besu` and `nethermind` can act as the filler. A target with `replay_from` set instead *consumes* a bundle: it boots any client (including non-fillers like reth/ethrex, since replay only needs the engine API) and replays the recorded payloads onto its own snapshot.
@@ -2114,7 +2114,8 @@ builder:
 | `genesis` | string | – | Boot genesis for the filler. Local path or http(s) URL. |
 | `genesis_fork_override` | map | – | Schedules forks by name (`{amsterdam: <ts>}`) in a **geth-format** genesis. |
 | `genesis_eip_override` | object | – | Schedules per-EIP transitions at a timestamp in a **parity/nethermind chainspec**. |
-| `gas_limit` | uint | `1000000000000` | Gas-bump target. |
+| `gas_limit` | uint | `1000000000000` | Gas-bump target. Below the head's gas limit it ramps down (Amsterdam only). |
+| `fill` | bool | `true` | Run the `fill-stateful` step. `false` makes `tests` optional and records only the funding block and gas ramp. Hoistable from `config`. |
 | `gas_bump_max_blocks` | int | `20000` | Safety cap on empty gas-bump blocks. |
 | `funding_accounts` | list | – | Addresses credited in the funding block. Empty skips the block. |
 | `funding_pools` | list | – | Credits a derived sender pool (`base_key_seed` + `count`), matching EEST's `SENDER_BASE_KEY` derivation, for benchmarks drawing senders from a pool. |
@@ -2215,7 +2216,7 @@ Every field below is also available per-target; a non-nil/non-empty value on a t
 |---|---|---|---|
 | `filler_image` | string | – | Docker image for the filler client (e.g. `ethpandaops/geth:master`). |
 | `fork` | string | – | Fork to fill against, e.g. `Osaka` (passed to `fill-stateful --fork`). |
-| `tests` | string[] | – | pytest paths inside the fill image, e.g. `tests/benchmark/compute`. Required after resolution — set here or per-target. |
+| `tests` | string[] | – | pytest paths inside the fill image, e.g. `tests/benchmark/compute`. Required after resolution — set here or per-target (a `pre_runs` target with `fill: false` needs none). |
 | `filter` | string | – | pytest `-k` expression (substring/node-id selection). |
 | `marker` | string | – | pytest `-m` marker expression, orthogonal to `filter`'s `-k`, e.g. `repricing` / `not repricing`. |
 | `address_stubs` | map | – | Inline `--address-stubs` map: stub name → arbitrary string fields (e.g. `addr`, `pkey`). Materialised to a temp JSON file at build time. Mutually exclusive with `address_stubs_file`. |
