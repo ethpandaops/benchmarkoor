@@ -394,17 +394,28 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 		"gas_limit":     t.ResolveGasLimit(),
 	}).Info("Generating pre-run datadir")
 
-	// Fill needs the EEST repo (fill-stateful runs from it).
-	repo, ref := b.cfg.ResolveEESTRepo(), b.cfg.ResolveEESTRef()
+	// A pre-run without tests only ramps the gas limit (and funds, if asked): e.g.
+	// walking a pre-run's head back down to a devnet's gas limit, recorded as a
+	// bundle the other clients replay. It needs no EEST checkout and no fill.
+	fill := len(t.Tests) > 0
 
-	eestRepoPath, err := gitrepo.CloneOrUpdate(ctx, log, repo, ref, b.eest.repoCache)
-	if err != nil {
-		return fmt.Errorf("cloning EEST repo %s@%s: %w", repo, ref, err)
+	var eestRepoPath string
+
+	if fill {
+		// Fill needs the EEST repo (fill-stateful runs from it).
+		repo, ref := b.cfg.ResolveEESTRepo(), b.cfg.ResolveEESTRef()
+
+		var err error
+
+		eestRepoPath, err = gitrepo.CloneOrUpdate(ctx, log, repo, ref, b.eest.repoCache)
+		if err != nil {
+			return fmt.Errorf("cloning EEST repo %s@%s: %w", repo, ref, err)
+		}
+
+		sha, _ := gitrepo.HeadSHA(ctx, eestRepoPath)
+		log.WithFields(logrus.Fields{"repo": repo, "ref": ref, "commit": sha}).
+			Info("Using cloned EEST repo for fill")
 	}
-
-	sha, _ := gitrepo.HeadSHA(ctx, eestRepoPath)
-	log.WithFields(logrus.Fields{"repo": repo, "ref": ref, "commit": sha}).
-		Info("Using cloned EEST repo for fill")
 
 	// Throwaway fixtures dir for the fill container's --output (setup fixtures
 	// are not consumed by the benchmark, which recomputes CREATE2 addresses).
@@ -453,9 +464,15 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 		return fmt.Errorf("fetching post-funding head hash: %w", err)
 	}
 
-	log.WithField("start_block", snapshotHash).Info("Running fill-stateful on setup tests")
+	var fillErr error
 
-	fillErr := b.runFill(ctx, log, bf.et, t.FillEnv, bf.ip, bf.spec, bf.jwtPath, snapshotHash, eestRepoPath)
+	if fill {
+		log.WithField("start_block", snapshotHash).Info("Running fill-stateful on setup tests")
+
+		fillErr = b.runFill(ctx, log, bf.et, t.FillEnv, bf.ip, bf.spec, bf.jwtPath, snapshotHash, eestRepoPath)
+	} else {
+		log.WithField("head", snapshotHash).Info("No tests configured; pre-run is the gas ramp and funding only")
+	}
 
 	// Export the replayable payload bundle (bump/funding blocks recorded above +
 	// the setup blocks from the fixtures) so replay_from targets and the runner

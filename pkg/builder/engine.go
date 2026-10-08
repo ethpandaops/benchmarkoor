@@ -54,6 +54,11 @@ type engineClient struct {
 	// a replayable bundle for non-filler clients.
 	recording bool
 	recorded  []recordedPayload
+
+	// targetGasLimit, when non-zero, is sent as payload attribute targetGasLimit
+	// on Amsterdam blocks: the gas limit the CL asks the block to move toward.
+	// bumpGasLimit sets it while ramping the limit down (see there).
+	targetGasLimit uint64
 }
 
 // recordedPayload is one engine_newPayload request captured for replay: the
@@ -219,37 +224,56 @@ func (c *engineClient) call(ctx context.Context, url string, useJWT bool, method
 	return rpcResp.Result, nil
 }
 
-// latestBlock returns the current head's hash, timestamp, and gas limit.
-func (c *engineClient) latestBlock(ctx context.Context) (hash string, timestamp, gasLimit uint64, err error) {
+// chainHead is the filler's current head, as eth_getBlockByNumber reports it.
+type chainHead struct {
+	hash      string
+	timestamp uint64
+	gasLimit  uint64
+	// slotNumber is the EIP-7843 slot number; nil on a pre-Amsterdam block.
+	slotNumber *uint64
+}
+
+// latestBlock returns the current head.
+func (c *engineClient) latestBlock(ctx context.Context) (chainHead, error) {
 	res, err := c.call(ctx, c.rpcURL, false, "eth_getBlockByNumber", []any{"latest", false})
 	if err != nil {
-		return "", 0, 0, err
+		return chainHead{}, err
 	}
 
 	var block struct {
-		Hash      string `json:"hash"`
-		Timestamp string `json:"timestamp"`
-		GasLimit  string `json:"gasLimit"`
+		Hash       string  `json:"hash"`
+		Timestamp  string  `json:"timestamp"`
+		GasLimit   string  `json:"gasLimit"`
+		SlotNumber *string `json:"slotNumber"`
 	}
 	if err := json.Unmarshal(res, &block); err != nil {
-		return "", 0, 0, fmt.Errorf("parsing latest block: %w", err)
+		return chainHead{}, fmt.Errorf("parsing latest block: %w", err)
 	}
 
 	if block.Hash == "" {
-		return "", 0, 0, fmt.Errorf("latest block has no hash (client not ready?)")
+		return chainHead{}, fmt.Errorf("latest block has no hash (client not ready?)")
 	}
 
-	ts, err := hexToUint64(block.Timestamp)
-	if err != nil {
-		return "", 0, 0, fmt.Errorf("parsing block timestamp: %w", err)
+	h := chainHead{hash: block.Hash}
+
+	if h.timestamp, err = hexToUint64(block.Timestamp); err != nil {
+		return chainHead{}, fmt.Errorf("parsing block timestamp: %w", err)
 	}
 
-	gl, err := hexToUint64(block.GasLimit)
-	if err != nil {
-		return "", 0, 0, fmt.Errorf("parsing block gasLimit: %w", err)
+	if h.gasLimit, err = hexToUint64(block.GasLimit); err != nil {
+		return chainHead{}, fmt.Errorf("parsing block gasLimit: %w", err)
 	}
 
-	return block.Hash, ts, gl, nil
+	if block.SlotNumber != nil {
+		slot, err := hexToUint64(*block.SlotNumber)
+		if err != nil {
+			return chainHead{}, fmt.Errorf("parsing block slotNumber: %w", err)
+		}
+
+		h.slotNumber = &slot
+	}
+
+	return h, nil
 }
 
 // chainID returns the filler's chain id via eth_chainId, for signing deploy txs.
@@ -346,12 +370,21 @@ func (c *engineClient) code(ctx context.Context, addr string) ([]byte, error) {
 // blocks (deploy) and post-fork blocks (fill) with one client. It returns the
 // new head's block hash and gas limit.
 func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal, rawTxs [][]byte) (blockHash string, gasLimit uint64, err error) {
-	parentHash, parentTS, _, err := c.latestBlock(ctx)
+	parent, err := c.latestBlock(ctx)
 	if err != nil {
 		return "", 0, err
 	}
 
+	parentHash, parentTS := parent.hash, parent.timestamp
+
+	// An Amsterdam parent's slot number continues; otherwise count from this
+	// client's first block. The two agree on every chain this client built from a
+	// pre-Amsterdam snapshot, and the first keeps a chain that is already past
+	// Amsterdam (a pre-run on top of another) from restarting at slot 1.
 	c.slot++
+	if parent.slotNumber != nil {
+		c.slot = *parent.slotNumber + 1
+	}
 
 	if withdrawals == nil {
 		withdrawals = []withdrawal{}
@@ -369,6 +402,10 @@ func (c *engineClient) buildBlock(ctx context.Context, withdrawals []withdrawal,
 	}
 	if strings.EqualFold(blockFork, "amsterdam") {
 		attrs["slotNumber"] = uintToHex(c.slot)
+
+		if c.targetGasLimit != 0 {
+			attrs["targetGasLimit"] = uintToHex(c.targetGasLimit)
+		}
 	}
 
 	// testing_buildBlockV1's transactions param is a list of hex-encoded raw
@@ -555,24 +592,46 @@ func payloadStatusFromResult(method string, result json.RawMessage) (string, err
 }
 
 // bumpGasLimit builds empty blocks until the head's gas limit reaches target or
-// maxBlocks blocks have been built. Each block can raise the limit by at most
-// 1/1024, so a ramp from a small snapshot limit to the target takes many
-// blocks. Returns the number of blocks built.
+// maxBlocks blocks have been built. Each block can move the limit by at most
+// 1/1024, so a ramp takes many blocks. Returns the number of blocks built.
+//
+// Up, the filler follows its own (very high) miner gas ceiling and the ramp
+// stops once the limit passes target. Down, each block carries payload
+// attribute targetGasLimit=target, the CL's gas limit target since Amsterdam: a
+// pre-Amsterdam block has no such attribute and keeps rising, so a ramp down is
+// refused unless the very first block comes back lower.
 func (c *engineClient) bumpGasLimit(ctx context.Context, target uint64, maxBlocks int, log logrus.FieldLogger) (int, error) {
-	_, _, gasLimit, err := c.latestBlock(ctx)
+	head, err := c.latestBlock(ctx)
 	if err != nil {
 		return 0, err
 	}
 
-	if gasLimit >= target {
+	gasLimit := head.gasLimit
+	down := gasLimit > target
+
+	if gasLimit == target || (!down && gasLimit >= target) {
 		log.WithFields(logrus.Fields{"gas_limit": gasLimit, "target": target}).
-			Info("Head gas limit already at/above target; skipping gas bump")
+			Info("Head gas limit already at target; skipping gas bump")
 
 		return 0, nil
 	}
 
-	log.WithFields(logrus.Fields{"from": gasLimit, "target": target, "max_blocks": maxBlocks}).
-		Info("Bumping block gas limit")
+	reached := func(gl uint64) bool {
+		if down {
+			return gl <= target
+		}
+
+		return gl >= target
+	}
+
+	if down {
+		c.targetGasLimit = target
+
+		defer func() { c.targetGasLimit = 0 }()
+	}
+
+	log.WithFields(logrus.Fields{"from": gasLimit, "target": target, "max_blocks": maxBlocks, "down": down}).
+		Info("Ramping block gas limit")
 
 	built := 0
 	lastLog := time.Now()
@@ -589,10 +648,17 @@ func (c *engineClient) bumpGasLimit(ctx context.Context, target uint64, maxBlock
 			return built, fmt.Errorf("building gas-bump block %d: %w", built+1, buildErr)
 		}
 
+		if down && built == 0 && gl >= gasLimit {
+			return built + 1, fmt.Errorf(
+				"gas limit did not fall (%d -> %d): lowering it needs an Amsterdam block, "+
+					"whose payload attributes carry targetGasLimit", gasLimit, gl,
+			)
+		}
+
 		built++
 		gasLimit = gl
 
-		if gasLimit >= target {
+		if reached(gasLimit) {
 			break
 		}
 
@@ -604,10 +670,10 @@ func (c *engineClient) bumpGasLimit(ctx context.Context, target uint64, maxBlock
 		}
 	}
 
-	if gasLimit < target {
+	if !reached(gasLimit) {
 		return built, fmt.Errorf(
-			"gas limit reached %d after %d blocks, still below target %d "+
-				"(raise gas_bump_max_blocks or lower gas_limit)",
+			"gas limit reached %d after %d blocks, not yet at target %d "+
+				"(raise gas_bump_max_blocks)",
 			gasLimit, built, target,
 		)
 	}

@@ -121,7 +121,9 @@ type PreRunDefaults struct {
 	// deployment txs into blocks of this size). Passed as fill-stateful's
 	// --gas-benchmark-values.
 	GasBenchmarkValues []int `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
-	// GasLimit is the gas-bump target (default DefaultPreRunGasLimit).
+	// GasLimit is the gas-bump target (default DefaultPreRunGasLimit). Below the
+	// head's limit the pre-run ramps it down instead, which needs Amsterdam blocks
+	// (their payload attributes carry targetGasLimit).
 	GasLimit *uint64 `yaml:"gas_limit,omitempty" mapstructure:"gas_limit"`
 	// GasBumpMaxBlocks caps the empty gas-bump blocks (default
 	// DefaultPreRunGasBumpMaxBlocks).
@@ -656,14 +658,6 @@ func (c *Config) validatePreRuns() error {
 				"%s.filler_client: %q cannot act as the fill-stateful filler "+
 					"(supported: geth, besu, nethermind)",
 				prefix, t.FillerClient,
-			)
-		}
-
-		if len(t.Tests) == 0 {
-			return fmt.Errorf(
-				"%s.tests is required (at least one pytest path, e.g. "+
-					"tests/benchmark/stateful/bloatnet/test_setup_contracts.py)",
-				prefix,
 			)
 		}
 

@@ -217,10 +217,10 @@ func TestValidatePreRuns(t *testing.T) {
 		require.ErrorContains(t, c.validatePreRuns(), "must be an absolute path")
 	})
 
-	t.Run("missing tests rejected", func(t *testing.T) {
+	t.Run("no tests is a gas-ramp-only pre-run", func(t *testing.T) {
 		c := base()
 		c.Builder.PreRuns.Config.Tests = nil
-		require.ErrorContains(t, c.validatePreRuns(), "tests is required")
+		require.NoError(t, c.validatePreRuns())
 	})
 
 	t.Run("duplicate output_dir rejected", func(t *testing.T) {
