@@ -1486,7 +1486,8 @@ const (
 // the global one; it does not merge field by field.
 //
 // Only clients whose spec returns compaction commands support this. Today
-// that is geth and erigon.
+// that is geth, erigon, nethermind and besu; the last two have no offline
+// compactor of their own and are compacted with RocksDB's ldb.
 type DBCompactionConfig struct {
 	Enabled bool `yaml:"enabled" mapstructure:"enabled" json:"enabled"`
 
@@ -1525,7 +1526,8 @@ type DBCompactionConfig struct {
 
 	// Image overrides the image of the compaction container. Empty uses the
 	// instance image, which keeps the tool version and the client version
-	// identical.
+	// identical, or for nethermind and besu the RocksDB ldb image
+	// (client.RocksDBLdbImage).
 	Image string `yaml:"image,omitempty" mapstructure:"image" json:"image,omitempty"`
 
 	// ExtraArgs appends arguments to the compaction command, e.g.

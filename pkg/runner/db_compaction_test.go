@@ -191,7 +191,6 @@ func TestErigonDBMaintenanceCommands(t *testing.T) {
 
 func TestSupportsDBCompaction_UnsupportedClients(t *testing.T) {
 	for _, other := range []client.ClientType{
-		client.ClientBesu, client.ClientNethermind,
 		client.ClientReth, client.ClientNimbus, client.ClientEthrex,
 	} {
 		assert.False(t, client.SupportsDBCompaction(other), string(other))
@@ -359,13 +358,22 @@ type fakeDBMaintenanceMgr struct {
 	// failCommand fails any container whose command starts with this word.
 	failCommand string
 
-	ran []string
+	ran    []string
+	specs  []*docker.ContainerSpec
+	pulled []string
+}
+
+func (f *fakeDBMaintenanceMgr) PullImage(_ context.Context, image, _ string) error {
+	f.pulled = append(f.pulled, image)
+
+	return nil
 }
 
 func (f *fakeDBMaintenanceMgr) RunInitContainer(
 	_ context.Context, spec *docker.ContainerSpec, stdout, _ io.Writer,
 ) error {
 	f.ran = append(f.ran, strings.Join(spec.Command, " "))
+	f.specs = append(f.specs, spec)
 
 	_, _ = fmt.Fprintln(stdout, "fake container output")
 
@@ -712,4 +720,45 @@ func TestDBCompactionMarkerRecordsTheOverriddenImage(t *testing.T) {
 
 	entry := marker.Phases[config.DBCompactionBeforePreRuns]
 	assert.Equal(t, "erigontech/erigon:v3.7.0", entry.Image)
+}
+
+// TestRunDBCompactionContainers_ToolImage pins how a client compacted by a
+// separate tool runs: the compaction in the tool image with Compact[0] as the
+// entrypoint and extra_args after the rest, everything else in the client
+// image, and the tool image pulled first.
+func TestRunDBCompactionContainers_ToolImage(t *testing.T) {
+	mgr := &fakeDBMaintenanceMgr{}
+	r, resultsDir := dbCompactionTestRunner(t, mgr)
+
+	cmds := &client.DBMaintenanceCommands{
+		Compact:      []string{"sh", "-c", "script", "rocksdb-compact", "/data"},
+		Inspect:      []string{"storage", "rocksdb", "usage"},
+		CompactImage: "ldb:11.8.1",
+	}
+
+	req := dbCompactionTestRequest(resultsDir)
+	req.Instance.Entrypoint = []string{"/opt/besu/bin/besu"}
+	req.Cfg.ExtraArgs = []string{"--max_open_files=-1"}
+
+	require.NoError(t, r.runDBCompactionContainers(
+		context.Background(), req, cmds, nil, resultsDir, r.log,
+	))
+
+	assert.Equal(t, []string{"ldb:11.8.1"}, mgr.pulled)
+	require.Len(t, mgr.specs, 3)
+
+	compact := mgr.specs[1]
+	assert.Equal(t, "ldb:11.8.1", compact.Image)
+	assert.Equal(t, []string{"sh"}, compact.Entrypoint)
+	assert.Equal(t, []string{"-c", "script", "rocksdb-compact", "/data", "--max_open_files=-1"}, compact.Command)
+
+	for _, inspect := range []*docker.ContainerSpec{mgr.specs[0], mgr.specs[2]} {
+		assert.Equal(t, req.ImageName, inspect.Image)
+		assert.Equal(t, req.Instance.Entrypoint, inspect.Entrypoint)
+	}
+
+	// db_compaction.image overrides the tool image too.
+	req.Cfg.Image = "my-ldb:dev"
+	assert.Equal(t, "my-ldb:dev", req.compactImage(cmds))
+	assert.Equal(t, req.ImageName, (&dbCompactionRequest{ImageName: req.ImageName}).compactImage(&client.DBMaintenanceCommands{}))
 }

@@ -1135,18 +1135,28 @@ runner:
 
 ##### Database Compaction
 
-The `db_compaction` option compacts the client database before the run measures anything. Compaction needs exclusive access to the database, so the client is never running while it happens: the runner runs the client's own offline command in a one-shot container against the datadir.
+The `db_compaction` option compacts the client database before the run measures anything. Compaction needs exclusive access to the database, so the client is never running while it happens: the runner runs an offline command — the client's own, or RocksDB's `ldb` for clients without one — in a one-shot container against the datadir.
 
-Only clients that ship an offline compaction command support this. Today that is **geth** and **erigon**; every other client fails validation with a clear message.
+Supported clients are **geth**, **erigon**, **nethermind** and **besu**; every other client fails validation with a clear message. reth needs no compaction: MDBX is persisted every block.
 
-| Client | Compaction | Inspection |
-|--------|------------|------------|
-| geth | `geth db compact` | `geth db inspect` |
-| erigon | `erigon db compact` | `erigon seg du --verbose` |
+| Client | Compaction | Inspection | Check after |
+|--------|------------|------------|-------------|
+| geth | `geth db compact` | `geth db inspect` | - |
+| erigon | `erigon db compact` | `erigon seg du --verbose` | - |
+| nethermind, besu | RocksDB `ldb compact`, every column family of every database | - | level 0 of every column family is empty |
 
 `erigon db compact` rewrites every mdbx database of the datadir without its free pages. It needs **Erigon 3.7.0-dev or newer** (September 2026); an older binary, including every pinned glamsterdam-devnet image, fails the step with `command db not found`.
 
 > **On erigon, `before_benchmarks` needs `--exec.no-prune` on the instance.** That phase stops and restarts the client, and erigon refuses to reopen a datadir whose receipt domain it pruned past the snapshot files: `[snapshots] gap between snapshot files and DB for domain receipt: files end at txNum 0 but the DB was pruned up to 390625`. A synthetic snapshot has no snapshot files, so the client's own pruning is enough to create the gap. `--exec.no-prune` disables the state-aggregator pruning that advances the marker. Erigon documents the flag for diagnostic and perf-comparison use, which is what a benchmark is, and it removes housekeeping the benchmark does not want anyway. `before_pre_runs` needs no flag: it compacts before the client ever boots, so nothing restarts.
+
+###### nethermind and besu: RocksDB `ldb`
+
+Neither client ships an offline compaction command, so their databases are compacted with RocksDB's own `ldb`, run from a separate image (`ghcr.io/ethpandaops/benchmarkoor-rocksdb-ldb:11.8.1`, built from [`Dockerfile.rocksdb-ldb`](../Dockerfile.rocksdb-ldb); `image` overrides it). Every directory under the datadir holding an `OPTIONS-*` file is a database — nethermind has one per store (state, code, blocks, receipts, ...), besu one with a column family per segment — and each of its column families is compacted with `--try_load_options`, i.e. with the options the client wrote it with. `extra_args` reach every `ldb compact`.
+
+RocksDB 11.8.1 is the version nethermind binds; besu's rocksdbjni 10.6.2 databases open with it too. Nethermind 2.1.0 and Besu 26.9.0 each reopened a compacted mainnet-genesis datadir and served genesis block and state from it. Two guards make a wrong compaction fail rather than pass:
+
+- A database whose `OPTIONS` names a merge operator `ldb` does not have (e.g. nethermind's log index, off by default) is refused: `ldb` would merge its operands with a string-append operator instead.
+- `ldb compact` falls back to the default column family for a name it does not know, so after each family its level 0 must be empty.
 
 ###### Preparation steps (`prepare`)
 
@@ -1165,8 +1175,6 @@ db_compaction:
 On a **real synced erigon datadir** this is the pairing erigon documents, and it is where the compaction reclaims most of its space. A step you name is one you asked for, so its failure fails the phase unless `continue_on_error` is set. Naming a step the client does not offer fails validation, which lists the alternatives and what each one needs.
 
 > **Do not enable `seg-retire` for a state-actor or otherwise synthetic snapshot.** Its history is far shorter than one step, so the retire finds nothing to freeze but prunes anyway, and erigon then refuses to reopen its own datadir with the gap error above. Verified in CI on a snapshot advanced to block 39: `retiring blocks from=0 to=39`, `Build state history snapshots` (nothing to build), `Prune state history` (marker advances regardless). The compaction alone is worth running there — it took that datadir's `chaindata` from 2.0GB to 32MB.
-
-Besu was checked and cannot be supported yet: as of Besu 26.6.1, `besu storage` has no compaction subcommand. `trie-log prune` deletes trie logs below the retention limit instead of rewriting the database, which is a different operation and removes history the Bonsai rollback needs.
 
 ```yaml
 runner:
@@ -1187,7 +1195,7 @@ runner:
 | `inspect` | bool | No | `true` | Run the client database inspection before and after each compaction. A failed inspection is logged and never fails the run |
 | `prepare` | []string | No | - | Client preparation steps to run before each compaction, in order (see [Preparation steps](#preparation-steps-prepare)) |
 | `timeout` | string | No | `3h` | Cap for one phase's work — every preparation step, the compaction, and both inspections (Go duration). Applies per phase |
-| `image` | string | No | the instance image | Image of the compaction container. The default keeps the tool version and the client version identical |
+| `image` | string | No | the instance image; the `ldb` image for nethermind and besu | Image of the compaction container. The default keeps the tool version and the client version identical |
 | `extra_args` | []string | No | - | Extra arguments for the compaction command, e.g. `--cache=16384` |
 | `continue_on_error` | bool | No | `false` | Downgrade a compaction failure to a warning. A failed compaction makes the results incomparable, so the run fails by default |
 | `skip_if_marked` | bool | No | `true` with `persist`, else `false` | Skip a phase the datadir marker already names (see below) |

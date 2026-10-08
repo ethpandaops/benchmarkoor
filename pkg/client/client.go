@@ -76,6 +76,11 @@ type DBMaintenanceCommands struct {
 	// compaction. Optional: a client that can compact but not inspect leaves
 	// it nil.
 	Inspect []string
+
+	// CompactImage runs Compact in this image instead of the client's, with
+	// Compact[0] as the entrypoint. It is set for a client that ships no
+	// offline compactor and is compacted by a separate tool.
+	CompactImage string
 }
 
 // Spec provides client-specific container configuration.

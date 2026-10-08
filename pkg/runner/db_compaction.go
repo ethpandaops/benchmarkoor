@@ -168,6 +168,21 @@ func (req *dbCompactionRequest) image() string {
 	return req.ImageName
 }
 
+// compactImage returns the image of the compaction container: the tool image
+// of a client compacted by a separate tool, unless db_compaction.image names
+// another.
+func (req *dbCompactionRequest) compactImage(cmds *client.DBMaintenanceCommands) string {
+	if req.Cfg != nil && req.Cfg.Image != "" {
+		return req.Cfg.Image
+	}
+
+	if cmds.CompactImage != "" {
+		return cmds.CompactImage
+	}
+
+	return req.ImageName
+}
+
 // hostPath returns the host path of the datadir mount, or "" when
 // the datadir is a container volume. The marker and the size measurements need
 // a path the runner can read.
@@ -227,7 +242,7 @@ func (r *runner) runDBCompaction(
 	report := &dbCompactionReport{
 		Phase:     req.Phase,
 		Client:    req.Instance.Client,
-		Image:     req.image(),
+		Image:     req.compactImage(cmds),
 		RunID:     req.RunID,
 		StartedAt: started.UTC().Format(time.RFC3339),
 		Persisted: req.Persisting,
@@ -380,11 +395,18 @@ func (r *runner) runDBCompactionContainers(
 	ctx, cancel := context.WithTimeout(ctx, req.Cfg.EffectiveTimeout())
 	defer cancel()
 
+	compactImage := req.compactImage(cmds)
+	if compactImage != req.ImageName {
+		if err := r.containerMgr.PullImage(ctx, compactImage, "if-not-present"); err != nil {
+			return fmt.Errorf("pulling compaction image: %w", err)
+		}
+	}
+
 	if req.Cfg.InspectEnabled() && len(cmds.Inspect) > 0 {
 		log.Info("Inspecting the database before compaction")
 
 		if err := r.runDBMaintenanceContainer(
-			ctx, req, "inspect-before", cmds.Inspect,
+			ctx, req, "inspect-before", req.image(), req.Instance.Entrypoint, cmds.Inspect,
 			filepath.Join(phaseDir, "inspect-before.txt"),
 		); err != nil {
 			log.WithError(err).Warn("Database inspection before compaction failed")
@@ -403,7 +425,7 @@ func (r *runner) runDBCompactionContainers(
 		}).Info("Preparing the database for compaction")
 
 		if err := r.runDBMaintenanceContainer(
-			ctx, req, step.Name, step.Args,
+			ctx, req, step.Name, req.image(), req.Instance.Entrypoint, step.Args,
 			filepath.Join(phaseDir, step.Name+".log"),
 		); err != nil {
 			return fmt.Errorf("preparation step %q: %w", step.Name, err)
@@ -412,8 +434,13 @@ func (r *runner) runDBCompactionContainers(
 
 	log.WithField("timeout", timeout).Info("Compacting the database")
 
+	entrypoint, command := req.Instance.Entrypoint, dbCompactionCommand(cmds, req.Cfg)
+	if cmds.CompactImage != "" {
+		entrypoint, command = command[:1], command[1:]
+	}
+
 	if err := r.runDBMaintenanceContainer(
-		ctx, req, "compact", dbCompactionCommand(cmds, req.Cfg),
+		ctx, req, "compact", compactImage, entrypoint, command,
 		filepath.Join(phaseDir, "compact.log"),
 	); err != nil {
 		return err
@@ -423,7 +450,7 @@ func (r *runner) runDBCompactionContainers(
 		log.Info("Inspecting the database after compaction")
 
 		if err := r.runDBMaintenanceContainer(
-			ctx, req, "inspect-after", cmds.Inspect,
+			ctx, req, "inspect-after", req.image(), req.Instance.Entrypoint, cmds.Inspect,
 			filepath.Join(phaseDir, "inspect-after.txt"),
 		); err != nil {
 			log.WithError(err).Warn("Database inspection after compaction failed")
@@ -441,8 +468,8 @@ func (r *runner) runDBCompactionContainers(
 func (r *runner) runDBMaintenanceContainer(
 	ctx context.Context,
 	req *dbCompactionRequest,
-	step string,
-	command []string,
+	step, image string,
+	entrypoint, command []string,
 	outputFile string,
 ) error {
 	name := fmt.Sprintf(
@@ -451,8 +478,8 @@ func (r *runner) runDBMaintenanceContainer(
 
 	spec := &docker.ContainerSpec{
 		Name:        name,
-		Image:       req.image(),
-		Entrypoint:  req.Instance.Entrypoint,
+		Image:       image,
+		Entrypoint:  entrypoint,
 		Command:     command,
 		Mounts:      []docker.Mount{req.Mount},
 		NetworkName: r.cfg.ContainerNetwork,
@@ -476,7 +503,7 @@ func (r *runner) runDBMaintenanceContainer(
 	}()
 
 	_, _ = fmt.Fprintf(
-		out, "# %s %s\n# %v\n\n", req.image(), step, command,
+		out, "# %s %s\n# %v\n\n", image, step, append(append([]string{}, entrypoint...), command...),
 	)
 
 	var stdout, stderr io.Writer = out, out
