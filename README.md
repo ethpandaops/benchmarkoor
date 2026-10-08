@@ -12,6 +12,7 @@ Benchmarkoor is a benchmarking tool for Ethereum execution clients. It runs stan
 
 - [Configuration Reference](docs/configuration.md) - All configuration options explained
 - [Docker Guide](docs/docker.md) - Docker setup, requirements, and troubleshooting
+- [Snapshot Export](docs/snapshot-export.md) - Publish a stopped datadir in the snapshots.ethpandaops.io layout
 
 ## Docker Quickstart
 
