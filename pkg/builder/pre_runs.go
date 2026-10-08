@@ -51,11 +51,13 @@ type fillerExitState struct {
 	detail string
 }
 
-// fillerFlushStopTimeoutSec is the graceful-stop window used when the datadir is
-// about to be promoted. geth persists its dirty trie on shutdown and a large
-// archive datadir can take minutes; the default 30s window is short enough that
-// a real flush gets SIGKILLed, which is precisely the state that must never
-// become the golden image.
+// fillerFlushStopTimeoutSec is the graceful-stop window for a pre-run's filler.
+// A pre-run's datadir is always its product (promoted, exported or read as
+// output_dir), and geth persists its dirty trie and waits for its background
+// indexers on shutdown, nethermind flushes its state db: minutes on a large
+// archive datadir. The fill's default 30s window SIGKILLed a geth v1.17.7 that
+// had written its journal and was waiting on its history indexer, leaving
+// pebble unclosed — precisely the state that must never be shipped.
 const fillerFlushStopTimeoutSec = 15 * 60
 
 // stopFillerRecordingExit stops the filler and reports whether it shut down on
@@ -229,10 +231,14 @@ func (b *PreRunsBuilder) Build(ctx context.Context, name string, opts BuildOptio
 			return false, err
 		}
 
-		return false, nil
+		return false, b.requireCleanStop()
 	}
 
 	if err := b.run(ctx, log, target); err != nil {
+		return false, err
+	}
+
+	if err := b.requireCleanStop(); err != nil {
 		return false, err
 	}
 
@@ -247,25 +253,31 @@ func (b *PreRunsBuilder) Build(ctx context.Context, name string, opts BuildOptio
 	return false, nil
 }
 
+// requireCleanStop fails the target when its filler did not shut down on its
+// own. The datadir is the pre-run's product — promoted, exported or read as
+// output_dir — and a client that was killed may not have flushed, so an OK here
+// would hand an incomplete datadir to whatever consumes it. The bundle is
+// unaffected: it was written before the stop.
+func (b *PreRunsBuilder) requireCleanStop() error {
+	if b.fillerExit.graceful {
+		return nil
+	}
+
+	return fmt.Errorf("the filler did not stop cleanly: %s, so the datadir may be incomplete "+
+		"(the pre-run bundle is complete; rerun with a client that stops within %ds)",
+		b.fillerExit.detail, fillerFlushStopTimeoutSec)
+}
+
 // promoteIfRequested persists the advanced datadir as the new schelk baseline
 // when the target asked for it, so later restores land on the advanced state and
 // no bundle replay is needed. A no-op unless schelk_options.promote is set.
-//
-// It refuses when the filler did not shut down cleanly: promote overwrites the
-// virgin volume irreversibly, and a client that was killed may not have flushed,
-// so persisting that would trade a good golden image for an unusable one.
+// requireCleanStop has already refused a killed filler: promote overwrites the
+// virgin volume irreversibly.
 func (b *PreRunsBuilder) promoteIfRequested(
 	ctx context.Context, log logrus.FieldLogger, t *config.PreRunTarget,
 ) error {
 	if !t.ShouldPromote() {
 		return nil
-	}
-
-	if !b.fillerExit.graceful {
-		return fmt.Errorf(
-			"refusing to `schelk promote`: %s, so its datadir may be incomplete "+
-				"(promote overwrites the virgin baseline irreversibly)", b.fillerExit.detail,
-		)
 	}
 
 	log.WithField("source_dir", t.SourceDir).
@@ -755,17 +767,10 @@ func (b *PreRunsBuilder) bootFiller(
 		return nil, err
 	}
 
-	// A promote turns whatever is on disk into the irreversible golden image, so
-	// that path needs the client to finish flushing: give it a far longer window
-	// than the default (a large archive datadir can take minutes to persist) and
-	// record how it exited, so promotion can be refused if it was killed.
-	stopTimeout := fillerStopTimeoutSec
-	if t.ShouldPromote() {
-		stopTimeout = fillerFlushStopTimeoutSec
-	}
-
+	// The datadir is the product, so the client gets the flush window and how it
+	// exited is recorded: requireCleanStop fails the target if it was killed.
 	cleanups = append(cleanups, configCleanup, func() {
-		b.fillerExit = b.stopFillerRecordingExit(log, fillerID, stopTimeout)
+		b.fillerExit = b.stopFillerRecordingExit(log, fillerID, fillerFlushStopTimeoutSec)
 	})
 
 	log.Info("Waiting for filler client RPC to become ready")

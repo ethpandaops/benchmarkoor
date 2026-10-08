@@ -2073,6 +2073,8 @@ builder:
 4. Runs `fill-stateful --no-reset-between-tests` on the configured setup `tests`, so deployed state persists across them. With `fill: false` this step is skipped and `tests` is not needed: the pre-run is just the funding block and the gas ramp, e.g. to walk a released head's 1 TGas back down to a realistic limit.
 5. Writes `<bundle_dir>/pre_run_bundle/pre-run.request` plus a `pre-run.meta.json` sidecar describing it.
 
+The filler then gets **15 minutes** to stop on its own — geth persists its journal and waits for its background indexers, nethermind flushes its state db — and a filler that had to be killed **fails the target**: the datadir is the pre-run's product (promoted, exported or read as `output_dir`) and may be incomplete. The bundle is written before the stop and is unaffected.
+
 Only `geth`, `besu` and `nethermind` can act as the filler. A target with `replay_from` set instead *consumes* a bundle: it boots any client (including non-fillers like reth/ethrex, since replay only needs the engine API) and replays the recorded payloads onto its own snapshot.
 
 ```yaml
