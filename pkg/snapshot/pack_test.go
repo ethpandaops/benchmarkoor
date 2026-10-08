@@ -61,8 +61,9 @@ func TestBuildManifestExcludes(t *testing.T) {
 		{
 			client: "nethermind",
 			files: map[string]string{
-				"mainnet/peers/SimpleFileDb.db": "", "mainnet/discoveryNodes/SimpleFileDb.db": "",
-				"mainnet/state/0/CURRENT": "", "_snapshot_web3_clientVersion.json": "",
+				"nethermind_db/mainnet/peers/SimpleFileDb.db": "", "nethermind_db/mainnet/discoveryNodes/SimpleFileDb.db": "",
+				"nethermind_db/mainnet/state/0/CURRENT": "", "nethermind_db/_snapshot_web3_clientVersion.json": "",
+				"keystore/key": "outside nethermind_db, never packed", "logs/nethermind.log": "",
 			},
 			want: []string{".", "./mainnet", "./mainnet/state", "./mainnet/state/0", "./mainnet/state/0/CURRENT"},
 		},
@@ -81,11 +82,7 @@ func TestBuildManifestExcludes(t *testing.T) {
 			m, err := BuildManifest(tc.client, dir)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, m.Members)
-			want := dir
-			if tc.client == "geth" {
-				want = filepath.Join(dir, "geth")
-			}
-
+			want := filepath.Join(dir, map[string]string{"geth": "geth", "nethermind": "nethermind_db"}[tc.client])
 			assert.Equal(t, want, m.Dir, "tar runs in the packed root")
 		})
 	}

@@ -43,7 +43,10 @@ var clients = map[string]client{
 	"reth":       {exclude: []string{"discovery-secret", "known-peers.json"}},
 	"besu":       {exclude: []string{"key"}},
 	"ethrex":     {exclude: []string{"node.key", "node_config.json"}},
-	"nethermind": {exclude: []string{"peers", "*/peers", "discoveryNodes", "*/discoveryNodes"}},
+	// nethermind: <datadir>/nethermind_db/<chain>/<store>; the archive root is
+	// nethermind_db, so it holds mainnet/ as jochemnet's does and extracts into
+	// <datadir>/nethermind_db (--Init.BaseDbPath=nethermind_db/mainnet).
+	"nethermind": {sub: "nethermind_db", exclude: []string{"*/peers", "*/discoveryNodes"}},
 }
 
 // Clients lists the clients Pack knows how to pack.
