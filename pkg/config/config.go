@@ -1530,6 +1530,11 @@ type DBCompactionConfig struct {
 	// (client.RocksDBLdbImage).
 	Image string `yaml:"image,omitempty" mapstructure:"image" json:"image,omitempty"`
 
+	// Verify runs the client's check of the compacted datadir. geth's fails
+	// when triedb/merkle.journal holds the state of more than the last 128
+	// blocks, which geth would load back into memory on start. Default: true.
+	Verify *bool `yaml:"verify,omitempty" mapstructure:"verify" json:"verify,omitempty"`
+
 	// ExtraArgs appends arguments to the compaction command, e.g.
 	// ["--cache=16384"] for geth.
 	ExtraArgs []string `yaml:"extra_args,omitempty" mapstructure:"extra_args" json:"extra_args,omitempty"`
@@ -1680,6 +1685,16 @@ func (c *DBCompactionConfig) InspectEnabled() bool {
 	}
 
 	return *c.Inspect
+}
+
+// VerifyEnabled reports whether to run the client's check of the compacted
+// datadir. Defaults to true.
+func (c *DBCompactionConfig) VerifyEnabled() bool {
+	if c == nil || c.Verify == nil {
+		return true
+	}
+
+	return *c.Verify
 }
 
 // PrepareSteps returns the preparation steps to run before each compaction, in

@@ -81,6 +81,10 @@ type DBMaintenanceCommands struct {
 	// Compact[0] as the entrypoint. It is set for a client that ships no
 	// offline compactor and is compacted by a separate tool.
 	CompactImage string
+
+	// Verify checks the datadir after the compaction, given its host path, and
+	// returns a one-line summary of what it found. Optional.
+	Verify func(hostDataDir string) (string, error)
 }
 
 // Spec provides client-specific container configuration.

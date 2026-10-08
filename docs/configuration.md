@@ -1141,7 +1141,7 @@ Supported clients are **geth**, **erigon**, **nethermind** and **besu**; every o
 
 | Client | Compaction | Inspection | Check after |
 |--------|------------|------------|-------------|
-| geth | `geth db compact` | `geth db inspect` | - |
+| geth | `geth db compact` | `geth db inspect` | `triedb/merkle.journal` holds at most the last 128 blocks |
 | erigon | `erigon db compact` | `erigon seg du --verbose` | - |
 | nethermind, besu | RocksDB `ldb compact`, every column family of every database | - | level 0 of every column family is empty |
 
@@ -1157,6 +1157,10 @@ RocksDB 11.8.1 is the version nethermind binds; besu's rocksdbjni 10.6.2 databas
 
 - A database whose `OPTIONS` names a merge operator `ldb` does not have (e.g. nethermind's log index, off by default) is refused: `ldb` would merge its operands with a string-append operator instead.
 - `ldb compact` falls back to the default column family for a name it does not know, so after each family its level 0 must be empty.
+
+###### geth: the journal check
+
+geth's path scheme keeps the last 128 blocks as in-memory diff layers and older, not yet flushed state in a write buffer (up to 256 MiB). A clean stop writes both to `<datadir>/geth/triedb/merkle.journal`, and the next start loads them back into memory, so that state is never read from the database a compaction just rewrote. After the compaction the runner parses the journal (layout version 3, written by geth v1.17.7) and fails the phase if the write buffer is not empty or there are more than 128 diff layers. To pass, run geth with `--cache.gc=0` (a 0-byte buffer) for at least 128 blocks before it stops. `verify: false` skips the check; a datadir on a container volume is not checked.
 
 ###### Preparation steps (`prepare`)
 
@@ -1196,6 +1200,7 @@ runner:
 | `prepare` | []string | No | - | Client preparation steps to run before each compaction, in order (see [Preparation steps](#preparation-steps-prepare)) |
 | `timeout` | string | No | `3h` | Cap for one phase's work — every preparation step, the compaction, and both inspections (Go duration). Applies per phase |
 | `image` | string | No | the instance image; the `ldb` image for nethermind and besu | Image of the compaction container. The default keeps the tool version and the client version identical |
+| `verify` | bool | No | `true` | Run the client's check of the compacted datadir (geth's journal check) |
 | `extra_args` | []string | No | - | Extra arguments for the compaction command, e.g. `--cache=16384` |
 | `continue_on_error` | bool | No | `false` | Downgrade a compaction failure to a warning. A failed compaction makes the results incomparable, so the run fails by default |
 | `skip_if_marked` | bool | No | `true` with `persist`, else `false` | Skip a phase the datadir marker already names (see below) |

@@ -762,3 +762,38 @@ func TestRunDBCompactionContainers_ToolImage(t *testing.T) {
 	assert.Equal(t, "my-ldb:dev", req.compactImage(cmds))
 	assert.Equal(t, req.ImageName, (&dbCompactionRequest{ImageName: req.ImageName}).compactImage(&client.DBMaintenanceCommands{}))
 }
+
+// TestRunDBCompactionContainers_Verify checks that a failed verification fails
+// the phase before the inspection after it, that verify: false skips it, and
+// that a volume datadir is not verified.
+func TestRunDBCompactionContainers_Verify(t *testing.T) {
+	var checked []string
+
+	cmds := &client.DBMaintenanceCommands{
+		Compact: []string{"db", "compact"},
+		Inspect: []string{"db", "inspect"},
+		Verify: func(dir string) (string, error) {
+			checked = append(checked, dir)
+
+			return "", fmt.Errorf("journal holds 1354 blocks")
+		},
+	}
+
+	mgr := &fakeDBMaintenanceMgr{}
+	r, resultsDir := dbCompactionTestRunner(t, mgr)
+	req := dbCompactionTestRequest(resultsDir)
+
+	err := r.runDBCompactionContainers(context.Background(), req, cmds, nil, resultsDir, r.log)
+	require.ErrorContains(t, err, "journal holds 1354 blocks")
+	assert.Equal(t, []string{resultsDir}, checked, "the host path of the datadir")
+	assert.Equal(t, []string{"db inspect", "db compact"}, mgr.ran)
+
+	off := false
+	req.Cfg.Verify = &off
+	require.NoError(t, r.runDBCompactionContainers(context.Background(), req, cmds, nil, resultsDir, r.log))
+
+	req.Cfg.Verify = nil
+	req.Mount = docker.Mount{Type: "volume", Source: "vol", Target: "/data"}
+	require.NoError(t, r.runDBCompactionContainers(context.Background(), req, cmds, nil, resultsDir, r.log))
+	assert.Len(t, checked, 1)
+}

@@ -24,6 +24,7 @@ func TestRocksDBClientsCompactWithLdb(t *testing.T) {
 		assert.Equal(t, []string{"sh", "-c", rocksDBCompactScript, "rocksdb-compact", "/data"}, cmds.Compact, ct)
 		assert.Empty(t, cmds.Prepare, ct)
 		assert.Empty(t, cmds.Inspect, ct)
+		assert.Nil(t, cmds.Verify, ct)
 		assert.True(t, SupportsDBCompaction(ct), ct)
 	}
 }

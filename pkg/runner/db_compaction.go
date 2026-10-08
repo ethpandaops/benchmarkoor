@@ -446,6 +446,10 @@ func (r *runner) runDBCompactionContainers(
 		return err
 	}
 
+	if err := verifyDBCompaction(req, cmds, log); err != nil {
+		return err
+	}
+
 	if req.Cfg.InspectEnabled() && len(cmds.Inspect) > 0 {
 		log.Info("Inspecting the database after compaction")
 
@@ -456,6 +460,32 @@ func (r *runner) runDBCompactionContainers(
 			log.WithError(err).Warn("Database inspection after compaction failed")
 		}
 	}
+
+	return nil
+}
+
+// verifyDBCompaction runs the client's check of the compacted datadir. It
+// needs the datadir on the host, so a container volume is not checked.
+func verifyDBCompaction(
+	req *dbCompactionRequest, cmds *client.DBMaintenanceCommands, log logrus.FieldLogger,
+) error {
+	if cmds.Verify == nil || !req.Cfg.VerifyEnabled() {
+		return nil
+	}
+
+	hostPath := req.hostPath()
+	if hostPath == "" {
+		log.Warn("Not verifying the compacted database: the datadir is a container volume")
+
+		return nil
+	}
+
+	summary, err := cmds.Verify(hostPath)
+	if err != nil {
+		return fmt.Errorf("verifying the compacted database: %w", err)
+	}
+
+	log.WithField("result", summary).Info("Verified the compacted database")
 
 	return nil
 }
