@@ -45,6 +45,19 @@ type ExportOptions struct {
 	Concurrency int
 }
 
+// Validate checks the layout and the options Export does not default.
+func (o ExportOptions) Validate() error {
+	if err := o.Layout.Validate(); err != nil {
+		return err
+	}
+
+	if o.VerifyBlocks < 0 {
+		return fmt.Errorf("verify blocks must be >= 0, got %d", o.VerifyBlocks)
+	}
+
+	return nil
+}
+
 // Result reports what was published.
 type Result struct {
 	ArchiveKey   string

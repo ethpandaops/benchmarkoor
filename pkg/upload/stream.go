@@ -2,8 +2,10 @@ package upload
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
@@ -61,6 +63,22 @@ func UploadStream(
 		ContentType: aws.String("application/octet-stream"),
 	})
 	if err != nil {
+		// The SDK aborts with the upload's own context, which a Ctrl-C has
+		// already canceled: abort again on one that outlives it.
+		var mu manager.MultiUploadFailure //nolint:staticcheck // SA1019: successor is pre-v1
+		if errors.As(err, &mu) && mu.UploadID() != "" {
+			abortCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancel()
+
+			if _, aerr := client.AbortMultipartUpload(abortCtx, &s3.AbortMultipartUploadInput{
+				Bucket:   aws.String(bucket),
+				Key:      aws.String(key),
+				UploadId: aws.String(mu.UploadID()),
+			}); aerr != nil {
+				err = errors.Join(err, fmt.Errorf("aborting upload %s: %w", mu.UploadID(), aerr))
+			}
+		}
+
 		return fmt.Errorf("uploading s3://%s/%s: %w", bucket, key, err)
 	}
 

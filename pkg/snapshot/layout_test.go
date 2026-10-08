@@ -43,3 +43,11 @@ func TestLayoutValidate(t *testing.T) {
 		assert.Error(t, l.Validate(), name)
 	}
 }
+
+func TestExportOptionsValidate(t *testing.T) {
+	o := ExportOptions{Layout: Layout{Network: "mainnet", Client: "geth"}}
+	require.NoError(t, o.Validate())
+
+	o.VerifyBlocks = -1
+	require.ErrorContains(t, o.Validate(), "verify blocks")
+}
