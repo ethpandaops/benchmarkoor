@@ -245,6 +245,26 @@ func TestValidatePreRuns(t *testing.T) {
 		require.False(t, resolved.FillEnabled())
 	})
 
+	t.Run("base_bundle continues a recorded chain", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].Fill = ptrBool(false)
+		c.Builder.PreRuns.Targets[0].BaseBundle = "/release/pre-runs/geth/pre_run_bundle"
+		require.NoError(t, c.validatePreRuns())
+	})
+
+	t.Run("relative base_bundle rejected", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].BaseBundle = "pre_run_bundle"
+		require.ErrorContains(t, c.validatePreRuns(), "base_bundle must be an absolute path")
+	})
+
+	t.Run("base_bundle on a replay target rejected", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].ReplayFrom = "/release/pre_run_bundle"
+		c.Builder.PreRuns.Targets[0].BaseBundle = "/release/other"
+		require.ErrorContains(t, c.validatePreRuns(), "replays replay_from only")
+	})
+
 	t.Run("duplicate output_dir rejected", func(t *testing.T) {
 		c := base()
 		c.Builder.PreRuns.Targets = append(c.Builder.PreRuns.Targets, PreRunTarget{

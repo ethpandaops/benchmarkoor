@@ -8,10 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
 
+	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -201,4 +204,33 @@ func TestBumpGasLimit_AtTargetBuildsNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, built)
 	assert.Empty(t, f.attrs)
+}
+
+// A base_bundle is replayed before the bump, so the ramp starts from its head.
+func TestReplayBaseBundle_RampContinuesFromItsHead(t *testing.T) {
+	slot := uint64(9)
+	f := &fakeFiller{number: 100, gasLimit: 60_000_000, slot: &slot, amsterdam: true, minerCeil: 1_000_000_000_000}
+	c := newFakeFillerClient(t, f, "amsterdam")
+
+	head := fmt.Sprintf("0x%064x", 0xbeef)
+	f.built[head] = 400_000_000
+	f.nextSlotOf[head] = &slot
+
+	dir := t.TempDir()
+	bundle := filepath.Join(dir, preRunBundleFile)
+	require.NoError(t, os.WriteFile(bundle, []byte(
+		`{"jsonrpc":"2.0","id":1,"method":"engine_newPayloadV5","params":[{"blockHash":"`+head+`"}]}`+"\n"+
+			`{"jsonrpc":"2.0","id":2,"method":"engine_forkchoiceUpdatedV3","params":[{"headBlockHash":"`+head+`"}]}`+"\n"), 0o644))
+
+	b := &PreRunsBuilder{cfg: &config.PreRunsConfig{}}
+	require.NoError(t, b.replayBaseBundle(context.Background(), logrus.New(), &bootedFiller{ec: c}, dir))
+	assert.Equal(t, uint64(400_000_000), f.gasLimit, "the bundle's head is the chain head")
+	assert.Empty(t, c.recorded, "replayed blocks are not re-recorded")
+
+	_, err := c.bumpGasLimit(context.Background(), 200_000_000, 10_000, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, uint64(200_000_000), f.gasLimit)
+
+	require.NoError(t, os.WriteFile(bundle, nil, 0o644))
+	require.ErrorContains(t, b.replayBaseBundle(context.Background(), logrus.New(), &bootedFiller{ec: c}, dir), "is empty")
 }

@@ -369,6 +369,12 @@ runner:
 #       #   source_dir: /data/snapshots/reth
 #       #   output_dir: /data/pre-runs/reth
 #       #   replay_from: pre-run-geth
+#       # Continue a recorded chain (e.g. a release's pre-run), then ramp the gas
+#       # limit down; the new bundle holds only the ramp, replayed after the base.
+#       # - name: ramp-geth
+#       #   base_bundle: /data/release/pre-runs/geth/pre_run_bundle
+#       #   fill: false
+#       #   gas_limit: 200000000
 #
 #   # ---------------------------------------------------------------------------
 #   # Boots a filler client on a copy of a snapshot datadir (e.g. a state_actor

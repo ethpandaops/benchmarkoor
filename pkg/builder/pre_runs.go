@@ -433,6 +433,12 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 
 	defer bf.cleanup()
 
+	if t.BaseBundle != "" {
+		if err := b.replayBaseBundle(ctx, log, bf, t.BaseBundle); err != nil {
+			return err
+		}
+	}
+
 	// Gas-bump + funding block via the Engine API (benchmarkoor-driven), then
 	// fill the setup tests anchored at the resulting head. Record every block so
 	// the pre-run exports a replayable payload bundle.
@@ -842,6 +848,35 @@ func (b *PreRunsBuilder) runReplay(ctx context.Context, log logrus.FieldLogger, 
 	}
 
 	log.Info("Replay complete; stopping client to flush datadir")
+
+	return nil
+}
+
+// replayBaseBundle replays a fill target's base_bundle onto the booted filler,
+// before recording starts, so the target builds on the bundle's head.
+func (b *PreRunsBuilder) replayBaseBundle(
+	ctx context.Context, log logrus.FieldLogger, bf *bootedFiller, baseBundle string,
+) error {
+	path, err := b.resolveReplayBundle(baseBundle)
+	if err != nil {
+		return fmt.Errorf("base_bundle: %w", err)
+	}
+
+	lines, err := readRequestLines(path)
+	if err != nil {
+		return fmt.Errorf("reading base_bundle %q: %w", path, err)
+	}
+
+	if len(lines) == 0 {
+		return fmt.Errorf("base_bundle %q is empty", path)
+	}
+
+	log.WithFields(logrus.Fields{"bundle": path, "lines": len(lines)}).
+		Info("Replaying base_bundle before the gas bump")
+
+	if err := bf.ec.replayBundle(ctx, lines, log); err != nil {
+		return fmt.Errorf("replaying base_bundle: %w", err)
+	}
 
 	return nil
 }
