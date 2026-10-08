@@ -38,11 +38,11 @@ var clients = map[string]client{
 	// prefix, as snapshots.ethpandaops.io does: consumers extract it into
 	// <datadir>/geth, where geth reads triedb/merkle.journal. Extracted flat, geth
 	// still opens chaindata/ but misses the journal and rewinds its head.
-	"geth":       {sub: "geth"},
-	"erigon":     {},
-	"reth":       {exclude: []string{"discovery-secret", "known-peers.json"}},
-	"besu":       {exclude: []string{"key"}},
-	"ethrex":     {exclude: []string{"node.key", "node_config.json"}},
+	"geth":   {sub: "geth"},
+	"erigon": {},
+	"reth":   {exclude: []string{"discovery-secret", "known-peers.json"}},
+	"besu":   {exclude: []string{"key"}},
+	"ethrex": {exclude: []string{"node.key", "node_config.json"}},
 	// nethermind: <datadir>/nethermind_db/<chain>/<store>; the archive root is
 	// nethermind_db, so it holds mainnet/ as jochemnet's does and extracts into
 	// <datadir>/nethermind_db (--Init.BaseDbPath=nethermind_db/mainnet).

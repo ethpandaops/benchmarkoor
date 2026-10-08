@@ -117,7 +117,9 @@ func Export(ctx context.Context, log logrus.FieldLogger, client *s3.Client, o Ex
 	body := &checkedReader{r: stream, wait: wait}
 	hasher := NewBlockHasher(blockSize)
 
-	if err := upload.UploadStream(ctx, client, o.Bucket, key, io.TeeReader(body, hasher), partSize, concurrency); err != nil {
+	tee := io.TeeReader(body, io.MultiWriter(hasher, newProgress(log, ProgressEvery)))
+
+	if err := upload.UploadStream(ctx, client, o.Bucket, key, tee, partSize, concurrency); err != nil {
 		cancel()
 
 		if !body.done {
