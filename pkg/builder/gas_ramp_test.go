@@ -151,7 +151,22 @@ func TestBumpGasLimit_RampsDownOnAmsterdam(t *testing.T) {
 		require.Equal(t, uintToHex(41_001+uint64(i)), a["slotNumber"], "block %d continues the head's slot", i)
 	}
 
-	assert.Zero(t, c.targetGasLimit, "the target is cleared after the ramp")
+}
+
+// The non-predeploy pre-run builds its funding block after the bump: it must not
+// climb back toward the filler's miner ceiling.
+func TestBumpGasLimit_RampDownHoldsForLaterBlocks(t *testing.T) {
+	slot := uint64(7)
+	f := &fakeFiller{number: 100, gasLimit: 400_000_000, slot: &slot, amsterdam: true, minerCeil: 1_000_000_000_000}
+	c := newFakeFillerClient(t, f, "amsterdam")
+
+	_, err := c.bumpGasLimit(context.Background(), 200_000_000, 10_000, logrus.New())
+	require.NoError(t, err)
+
+	_, gl, err := c.buildBlock(context.Background(), []withdrawal{{Index: "0x1", ValidatorIndex: "0x1",
+		Address: "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf", Amount: "0x1"}}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(200_000_000), gl, "the funding block keeps the ramped-down limit")
 }
 
 func TestBumpGasLimit_RampDownRefusedBeforeAmsterdam(t *testing.T) {

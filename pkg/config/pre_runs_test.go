@@ -217,10 +217,32 @@ func TestValidatePreRuns(t *testing.T) {
 		require.ErrorContains(t, c.validatePreRuns(), "must be an absolute path")
 	})
 
-	t.Run("no tests is a gas-ramp-only pre-run", func(t *testing.T) {
+	t.Run("missing tests rejected", func(t *testing.T) {
 		c := base()
 		c.Builder.PreRuns.Config.Tests = nil
+		require.ErrorContains(t, c.validatePreRuns(), "tests is required")
+	})
+
+	t.Run("fill false needs no tests", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Config.Tests = nil
+		c.Builder.PreRuns.Targets[0].Fill = ptrBool(false)
 		require.NoError(t, c.validatePreRuns())
+	})
+
+	t.Run("fill false on a target overrides shared tests", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].Fill = ptrBool(false)
+		require.NoError(t, c.validatePreRuns())
+		resolved := c.Builder.PreRuns.ResolveTarget(0)
+		require.False(t, resolved.FillEnabled(), "a target opts out even with config.tests set")
+	})
+
+	t.Run("fill is hoisted from the shared config", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Config.Fill = ptrBool(false)
+		resolved := c.Builder.PreRuns.ResolveTarget(0)
+		require.False(t, resolved.FillEnabled())
 	})
 
 	t.Run("duplicate output_dir rejected", func(t *testing.T) {
@@ -670,3 +692,5 @@ func TestValidatePreRunsSinglePromoter(t *testing.T) {
 		require.ErrorContains(t, c.validatePreRuns(), "only one target may promote")
 	})
 }
+
+func ptrBool(b bool) *bool { return &b }

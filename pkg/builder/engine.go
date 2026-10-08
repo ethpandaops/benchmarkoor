@@ -57,7 +57,9 @@ type engineClient struct {
 
 	// targetGasLimit, when non-zero, is sent as payload attribute targetGasLimit
 	// on Amsterdam blocks: the gas limit the CL asks the block to move toward.
-	// bumpGasLimit sets it while ramping the limit down (see there).
+	// A ramp down sets it and leaves it set, so the blocks this client builds
+	// after the ramp (the funding block) hold the limit instead of climbing back
+	// toward the filler's miner ceiling.
 	targetGasLimit uint64
 }
 
@@ -626,8 +628,6 @@ func (c *engineClient) bumpGasLimit(ctx context.Context, target uint64, maxBlock
 
 	if down {
 		c.targetGasLimit = target
-
-		defer func() { c.targetGasLimit = 0 }()
 	}
 
 	log.WithFields(logrus.Fields{"from": gasLimit, "target": target, "max_blocks": maxBlocks, "down": down}).

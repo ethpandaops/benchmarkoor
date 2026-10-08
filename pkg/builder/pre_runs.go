@@ -394,10 +394,10 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 		"gas_limit":     t.ResolveGasLimit(),
 	}).Info("Generating pre-run datadir")
 
-	// A pre-run without tests only ramps the gas limit (and funds, if asked): e.g.
+	// fill: false makes the pre-run a pure gas ramp (and funding, if asked): e.g.
 	// walking a pre-run's head back down to a devnet's gas limit, recorded as a
 	// bundle the other clients replay. It needs no EEST checkout and no fill.
-	fill := len(t.Tests) > 0
+	fill := t.FillEnabled()
 
 	var eestRepoPath string
 
@@ -471,7 +471,7 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 
 		fillErr = b.runFill(ctx, log, bf.et, t.FillEnv, bf.ip, bf.spec, bf.jwtPath, snapshotHash, eestRepoPath)
 	} else {
-		log.WithField("head", snapshotHash).Info("No tests configured; pre-run is the gas ramp and funding only")
+		log.WithField("head", snapshotHash).Info("fill: false; pre-run is the gas ramp and funding only")
 	}
 
 	// Export the replayable payload bundle (bump/funding blocks recorded above +

@@ -97,9 +97,15 @@ type PreRunFundingPool struct {
 // under builder.pre_runs.config. Every field is also present on PreRunTarget; a
 // non-nil/non-empty value on the target wins. See ResolveTarget.
 type PreRunDefaults struct {
-	FillerImage      string                       `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
-	Fork             string                       `yaml:"fork,omitempty" mapstructure:"fork"`
-	Tests            []string                     `yaml:"tests,omitempty" mapstructure:"tests"`
+	FillerImage string   `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
+	Fork        string   `yaml:"fork,omitempty" mapstructure:"fork"`
+	Tests       []string `yaml:"tests,omitempty" mapstructure:"tests"`
+	// Fill runs fill-stateful on Tests after the gas bump and funding block
+	// (default true). false makes the pre-run a pure gas ramp (plus funding, if
+	// any), recorded as a bundle like any other: e.g. walking a replayed pre-run's
+	// head down to a devnet's gas limit. An empty Tests cannot say this, since it
+	// inherits the shared default.
+	Fill             *bool                        `yaml:"fill,omitempty" mapstructure:"fill"`
 	Filter           string                       `yaml:"filter,omitempty" mapstructure:"filter"`
 	Marker           string                       `yaml:"marker,omitempty" mapstructure:"marker"`
 	AddressStubsFile string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
@@ -176,6 +182,7 @@ type PreRunTarget struct {
 	FillerImage        string                       `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
 	Fork               string                       `yaml:"fork,omitempty" mapstructure:"fork"`
 	Tests              []string                     `yaml:"tests,omitempty" mapstructure:"tests"`
+	Fill               *bool                        `yaml:"fill,omitempty" mapstructure:"fill"`
 	Filter             string                       `yaml:"filter,omitempty" mapstructure:"filter"`
 	Marker             string                       `yaml:"marker,omitempty" mapstructure:"marker"`
 	AddressStubsFile   string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
@@ -260,6 +267,10 @@ func (p *PreRunsConfig) ResolveTarget(i int) PreRunTarget {
 
 	if len(t.Tests) == 0 {
 		t.Tests = g.Tests
+	}
+
+	if t.Fill == nil {
+		t.Fill = g.Fill
 	}
 
 	if t.Filter == "" {
@@ -420,6 +431,11 @@ func (t *PreRunTarget) ResolveGasLimit() uint64 {
 	}
 
 	return DefaultPreRunGasLimit
+}
+
+// FillEnabled reports whether the pre-run fills its setup tests (Fill unset or true).
+func (t *PreRunTarget) FillEnabled() bool {
+	return t.Fill == nil || *t.Fill
 }
 
 // ResolveEOAStart returns the fill-stateful --eoa-start value for the pre-run
@@ -658,6 +674,15 @@ func (c *Config) validatePreRuns() error {
 				"%s.filler_client: %q cannot act as the fill-stateful filler "+
 					"(supported: geth, besu, nethermind)",
 				prefix, t.FillerClient,
+			)
+		}
+
+		if t.FillEnabled() && len(t.Tests) == 0 {
+			return fmt.Errorf(
+				"%s.tests is required (at least one pytest path, e.g. "+
+					"tests/benchmark/stateful/bloatnet/test_setup_contracts.py), "+
+					"or fill: false for a pre-run that only ramps the gas limit",
+				prefix,
 			)
 		}
 
