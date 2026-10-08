@@ -1162,6 +1162,16 @@ RocksDB 11.8.1 is the version nethermind binds; besu's rocksdbjni 10.6.2 databas
 
 geth's path scheme keeps the last 128 blocks as in-memory diff layers and older, not yet flushed state in a write buffer (up to 256 MiB). A clean stop writes both to `<datadir>/geth/triedb/merkle.journal`, and the next start loads them back into memory, so that state is never read from the database a compaction just rewrote. After the compaction the runner parses the journal (layout version 3, written by geth v1.17.7) and fails the phase if the write buffer is not empty or there are more than 128 diff layers. To pass, run geth with `--cache.gc=0` (a 0-byte buffer) for at least 128 blocks before it stops. `verify: false` skips the check; a datadir on a container volume is not checked.
 
+###### Outside a run: `benchmarkoor db compact`
+
+The same containers and checks run against a stopped client's datadir without a config file, e.g. when producing a snapshot:
+
+```bash
+benchmarkoor db compact --client <geth|nethermind|besu|erigon|reth|ethrex> --datadir <dir> [--prepare <step>]...
+```
+
+It exits non-zero on any failure, the geth journal check included. reth is a no-op with a log line; a client without offline compaction (ethrex) is an error. `--image` picks the client image (default: the client's default image), `--compaction-image` the compaction container's (as `image`), and `--extra-arg`, `--timeout` and `--no-inspect` mirror `extra_args`, `timeout` and `inspect`. No marker is written: that belongs to a run. The journal check reads the datadir from the host, so the CLI needs read access to it.
+
 ###### Preparation steps (`prepare`)
 
 A client can offer steps that run before the compaction to make it reclaim more. None run unless `prepare` names them, because a step that helps one datadir can ruin another.

@@ -1007,3 +1007,98 @@ func datadirMountFor(
 
 	return docker.Mount{}, false
 }
+
+// DatadirCompaction is one compaction of a stopped client's host datadir
+// outside a run, as `benchmarkoor db compact` does it.
+type DatadirCompaction struct {
+	Client  client.ClientType
+	DataDir string
+
+	// Image is the client image; empty uses the client's default.
+	Image string
+
+	// Cfg carries the db_compaction settings that apply outside a run:
+	// prepare, extra_args, image, inspect, verify and timeout.
+	Cfg *config.DBCompactionConfig
+}
+
+// CompactDatadir runs what a db_compaction phase runs — the inspections, the
+// preparation steps, the compaction and the verification, each in the same
+// container — against a host datadir. Container output goes to stdout. No
+// marker or report is written: those belong to a run.
+func CompactDatadir(
+	ctx context.Context, log *logrus.Logger, mgr docker.ContainerManager, c *DatadirCompaction,
+) error {
+	spec, err := client.NewRegistry().Get(c.Client)
+	if err != nil {
+		return err
+	}
+
+	cmds := spec.DBMaintenanceCommands(spec.DataDir())
+	if cmds == nil || len(cmds.Compact) == 0 {
+		return fmt.Errorf("client %s has no database compaction command", c.Client)
+	}
+
+	steps, err := dbCompactionSelectedSteps(cmds, c.Cfg)
+	if err != nil {
+		return err
+	}
+
+	dataDir, err := filepath.Abs(c.DataDir)
+	if err != nil {
+		return err
+	}
+
+	if info, err := os.Stat(dataDir); err != nil {
+		return err
+	} else if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dataDir)
+	}
+
+	image := c.Image
+	if image == "" {
+		image = spec.DefaultImage()
+	}
+
+	logDir, err := os.MkdirTemp("", "benchmarkoor-db-compact-")
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = os.RemoveAll(logDir) }()
+
+	r := &runner{
+		logger:       log,
+		log:          log.WithField("component", "db-compact"),
+		cfg:          &Config{ClientLogsToStdout: true},
+		containerMgr: mgr,
+	}
+
+	req := &dbCompactionRequest{
+		Instance:  &config.ClientInstance{ID: string(c.Client), Client: string(c.Client)},
+		Spec:      spec,
+		Cfg:       c.Cfg,
+		Phase:     "cli",
+		ImageName: image,
+		RunID:     time.Now().UTC().Format("20060102T150405Z"),
+		Mount:     docker.Mount{Type: "bind", Source: dataDir, Target: spec.DataDir()},
+	}
+
+	usesClientImage := req.compactImage(cmds) == image || len(steps) > 0 ||
+		(c.Cfg.InspectEnabled() && len(cmds.Inspect) > 0)
+	if usesClientImage && c.Cfg.Image == "" {
+		if err := mgr.PullImage(ctx, image, "if-not-present"); err != nil {
+			return fmt.Errorf("pulling client image: %w", err)
+		}
+	}
+
+	started := time.Now()
+
+	if err := r.runDBCompactionContainers(ctx, req, cmds, steps, logDir, r.log); err != nil {
+		return err
+	}
+
+	r.log.WithField("duration", time.Since(started).Round(time.Second)).Info("Database compaction completed")
+
+	return nil
+}
