@@ -29,8 +29,9 @@ type client struct {
 }
 
 // common is excluded for every client: node identity, the instance lock,
-// peer tables, logs and a previous publish's _snapshot_* files.
-var common = []string{"nodekey", "LOCK", "nodes", "logs", "_snapshot_*"}
+// peer tables, logs, a previous publish's _snapshot_* files and the snapshot
+// downloader's .download-cache.
+var common = []string{"nodekey", "LOCK", "nodes", "logs", "_snapshot_*", ".download-cache"}
 
 var clients = map[string]client{
 	// geth keeps its geth/ prefix: <datadir>/geth/triedb/merkle.journal holds

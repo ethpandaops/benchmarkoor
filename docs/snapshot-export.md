@@ -75,8 +75,8 @@ Run it as a user that can read every file in the datadir.
 | ethrex | `./` | `node.key`, `node_config.json` |
 | nethermind | `./` | `peers`, `discoveryNodes` (top level or one below, e.g. `mainnet/peers`) |
 
-Every client also excludes `nodekey`, `LOCK`, `nodes/`, `logs/` and `_snapshot_*`
-(a previous publish's files) from the top of its archive root. All excludes match
+Every client also excludes `nodekey`, `LOCK`, `nodes/`, `logs/`, `.download-cache/`
+(the snapshot downloader's) and `_snapshot_*` (a previous publish's files) from the top of its archive root. All excludes match
 from the archive root, so a database's own `LOCK` (e.g. `geth/chaindata/LOCK`) is
 kept.
 

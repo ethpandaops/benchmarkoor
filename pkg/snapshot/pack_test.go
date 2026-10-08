@@ -44,7 +44,7 @@ func TestBuildManifestExcludes(t *testing.T) {
 			client: "reth",
 			files: map[string]string{
 				"discovery-secret": "", "known-peers.json": "", "reth.toml": "", "db/mdbx.dat": "d",
-				"_snapshot_eth_getBlockByNumber.json": "", "logs/reth.log": "", "static_files/known-peers.json": "kept",
+				"_snapshot_eth_getBlockByNumber.json": "", "logs/reth.log": "", ".download-cache/part-0": "", "static_files/known-peers.json": "kept",
 			},
 			want: []string{".", "./db", "./db/mdbx.dat", "./reth.toml", "./static_files", "./static_files/known-peers.json"},
 		},
