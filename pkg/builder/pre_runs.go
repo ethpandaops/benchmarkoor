@@ -51,12 +51,33 @@ type fillerExitState struct {
 	detail string
 }
 
-// fillerFlushStopTimeoutSec is the graceful-stop window used when the datadir is
-// about to be promoted. geth persists its dirty trie on shutdown and a large
-// archive datadir can take minutes; the default 30s window is short enough that
-// a real flush gets SIGKILLed, which is precisely the state that must never
-// become the golden image.
+// fillerFlushStopTimeoutSec is the graceful-stop window for a pre-run's filler.
+// A pre-run's datadir is always its product (promoted, exported or read as
+// output_dir), and geth persists its dirty trie and waits for its background
+// indexers on shutdown, nethermind flushes its state db: minutes on a large
+// archive datadir. The fill's default 30s window SIGKILLed a geth v1.17.7 that
+// had written its journal and was waiting on its history indexer, leaving
+// pebble unclosed — precisely the state that must never be shipped.
 const fillerFlushStopTimeoutSec = 15 * 60
+
+// classifyFillerExit reads how a filler that was asked to stop ended. 0 is a
+// clean exit; so are 130 and 143 (128 + SIGINT/SIGTERM), the codes nethermind
+// (dotnet) and besu (java) return after the signal our stop sends, having
+// logged a complete shutdown ("All DBs closed"). 137 is docker's SIGKILL after
+// the grace period, the one code that means the client never finished.
+func classifyFillerExit(info docker.ContainerExitInfo, timeoutSec int) fillerExitState {
+	switch {
+	case info.OOMKilled:
+		return fillerExitState{detail: "the client was OOM-killed"}
+	case info.ExitCode == 137:
+		return fillerExitState{detail: fmt.Sprintf(
+			"the client did not exit within %ds and was SIGKILLed", timeoutSec)}
+	case info.ExitCode == 0, info.ExitCode == 130, info.ExitCode == 143:
+		return fillerExitState{graceful: true}
+	default:
+		return fillerExitState{detail: fmt.Sprintf("the client exited with code %d", info.ExitCode)}
+	}
+}
 
 // stopFillerRecordingExit stops the filler and reports whether it shut down on
 // its own. It watches the container's exit before asking it to stop, so a
@@ -77,17 +98,7 @@ func (b *PreRunsBuilder) stopFillerRecordingExit(
 
 	select {
 	case info := <-statusCh:
-		switch {
-		case info.OOMKilled:
-			state.detail = "the client was OOM-killed"
-		case info.ExitCode == 137:
-			state.detail = fmt.Sprintf(
-				"the client did not exit within %ds and was SIGKILLed", timeoutSec)
-		case info.ExitCode != 0:
-			state.detail = fmt.Sprintf("the client exited with code %d", info.ExitCode)
-		default:
-			state.graceful = true
-		}
+		state = classifyFillerExit(info, timeoutSec)
 	case err := <-errCh:
 		state.detail = fmt.Sprintf("could not observe how the client exited: %v", err)
 	case <-time.After(time.Duration(timeoutSec+30) * time.Second):
@@ -229,10 +240,14 @@ func (b *PreRunsBuilder) Build(ctx context.Context, name string, opts BuildOptio
 			return false, err
 		}
 
-		return false, nil
+		return false, b.requireCleanStop()
 	}
 
 	if err := b.run(ctx, log, target); err != nil {
+		return false, err
+	}
+
+	if err := b.requireCleanStop(); err != nil {
 		return false, err
 	}
 
@@ -247,25 +262,31 @@ func (b *PreRunsBuilder) Build(ctx context.Context, name string, opts BuildOptio
 	return false, nil
 }
 
+// requireCleanStop fails the target when its filler did not shut down on its
+// own. The datadir is the pre-run's product — promoted, exported or read as
+// output_dir — and a client that was killed may not have flushed, so an OK here
+// would hand an incomplete datadir to whatever consumes it. The bundle is
+// unaffected: it was written before the stop.
+func (b *PreRunsBuilder) requireCleanStop() error {
+	if b.fillerExit.graceful {
+		return nil
+	}
+
+	return fmt.Errorf("the filler did not stop cleanly: %s, so the datadir may be incomplete "+
+		"(the pre-run bundle is complete; rerun with a client that stops within %ds)",
+		b.fillerExit.detail, fillerFlushStopTimeoutSec)
+}
+
 // promoteIfRequested persists the advanced datadir as the new schelk baseline
 // when the target asked for it, so later restores land on the advanced state and
 // no bundle replay is needed. A no-op unless schelk_options.promote is set.
-//
-// It refuses when the filler did not shut down cleanly: promote overwrites the
-// virgin volume irreversibly, and a client that was killed may not have flushed,
-// so persisting that would trade a good golden image for an unusable one.
+// requireCleanStop has already refused a killed filler: promote overwrites the
+// virgin volume irreversibly.
 func (b *PreRunsBuilder) promoteIfRequested(
 	ctx context.Context, log logrus.FieldLogger, t *config.PreRunTarget,
 ) error {
 	if !t.ShouldPromote() {
 		return nil
-	}
-
-	if !b.fillerExit.graceful {
-		return fmt.Errorf(
-			"refusing to `schelk promote`: %s, so its datadir may be incomplete "+
-				"(promote overwrites the virgin baseline irreversibly)", b.fillerExit.detail,
-		)
 	}
 
 	log.WithField("source_dir", t.SourceDir).
@@ -394,17 +415,28 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 		"gas_limit":     t.ResolveGasLimit(),
 	}).Info("Generating pre-run datadir")
 
-	// Fill needs the EEST repo (fill-stateful runs from it).
-	repo, ref := b.cfg.ResolveEESTRepo(), b.cfg.ResolveEESTRef()
+	// fill: false makes the pre-run a pure gas ramp (and funding, if asked): e.g.
+	// walking a pre-run's head back down to a devnet's gas limit, recorded as a
+	// bundle the other clients replay. It needs no EEST checkout and no fill.
+	fill := t.FillEnabled()
 
-	eestRepoPath, err := gitrepo.CloneOrUpdate(ctx, log, repo, ref, b.eest.repoCache)
-	if err != nil {
-		return fmt.Errorf("cloning EEST repo %s@%s: %w", repo, ref, err)
+	var eestRepoPath string
+
+	if fill {
+		// Fill needs the EEST repo (fill-stateful runs from it).
+		repo, ref := b.cfg.ResolveEESTRepo(), b.cfg.ResolveEESTRef()
+
+		var err error
+
+		eestRepoPath, err = gitrepo.CloneOrUpdate(ctx, log, repo, ref, b.eest.repoCache)
+		if err != nil {
+			return fmt.Errorf("cloning EEST repo %s@%s: %w", repo, ref, err)
+		}
+
+		sha, _ := gitrepo.HeadSHA(ctx, eestRepoPath)
+		log.WithFields(logrus.Fields{"repo": repo, "ref": ref, "commit": sha}).
+			Info("Using cloned EEST repo for fill")
 	}
-
-	sha, _ := gitrepo.HeadSHA(ctx, eestRepoPath)
-	log.WithFields(logrus.Fields{"repo": repo, "ref": ref, "commit": sha}).
-		Info("Using cloned EEST repo for fill")
 
 	// Throwaway fixtures dir for the fill container's --output (setup fixtures
 	// are not consumed by the benchmark, which recomputes CREATE2 addresses).
@@ -421,6 +453,12 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 	}
 
 	defer bf.cleanup()
+
+	if t.BaseBundle != "" {
+		if err := b.replayBaseBundle(ctx, log, bf, t.BaseBundle); err != nil {
+			return err
+		}
+	}
 
 	// Gas-bump + funding block via the Engine API (benchmarkoor-driven), then
 	// fill the setup tests anchored at the resulting head. Record every block so
@@ -453,9 +491,15 @@ func (b *PreRunsBuilder) run(ctx context.Context, log logrus.FieldLogger, t *con
 		return fmt.Errorf("fetching post-funding head hash: %w", err)
 	}
 
-	log.WithField("start_block", snapshotHash).Info("Running fill-stateful on setup tests")
+	var fillErr error
 
-	fillErr := b.runFill(ctx, log, bf.et, t.FillEnv, bf.ip, bf.spec, bf.jwtPath, snapshotHash, eestRepoPath)
+	if fill {
+		log.WithField("start_block", snapshotHash).Info("Running fill-stateful on setup tests")
+
+		fillErr = b.runFill(ctx, log, bf.et, t.FillEnv, bf.ip, bf.spec, bf.jwtPath, snapshotHash, eestRepoPath)
+	} else {
+		log.WithField("head", snapshotHash).Info("fill: false; pre-run is the gas ramp and funding only")
+	}
 
 	// Export the replayable payload bundle (bump/funding blocks recorded above +
 	// the setup blocks from the fixtures) so replay_from targets and the runner
@@ -732,17 +776,10 @@ func (b *PreRunsBuilder) bootFiller(
 		return nil, err
 	}
 
-	// A promote turns whatever is on disk into the irreversible golden image, so
-	// that path needs the client to finish flushing: give it a far longer window
-	// than the default (a large archive datadir can take minutes to persist) and
-	// record how it exited, so promotion can be refused if it was killed.
-	stopTimeout := fillerStopTimeoutSec
-	if t.ShouldPromote() {
-		stopTimeout = fillerFlushStopTimeoutSec
-	}
-
+	// The datadir is the product, so the client gets the flush window and how it
+	// exited is recorded: requireCleanStop fails the target if it was killed.
 	cleanups = append(cleanups, configCleanup, func() {
-		b.fillerExit = b.stopFillerRecordingExit(log, fillerID, stopTimeout)
+		b.fillerExit = b.stopFillerRecordingExit(log, fillerID, fillerFlushStopTimeoutSec)
 	})
 
 	log.Info("Waiting for filler client RPC to become ready")
@@ -801,17 +838,9 @@ func (b *PreRunsBuilder) runReplay(ctx context.Context, log logrus.FieldLogger, 
 		return err
 	}
 
-	lines, err := readRequestLines(bundlePath)
-	if err != nil {
-		return fmt.Errorf("reading replay bundle %q: %w", bundlePath, err)
+	if err := requireBundle(bundlePath); err != nil {
+		return err
 	}
-
-	if len(lines) == 0 {
-		return fmt.Errorf("replay bundle %q is empty", bundlePath)
-	}
-
-	log.WithFields(logrus.Fields{"bundle": bundlePath, "lines": len(lines)}).
-		Info("Replaying pre-run bundle onto snapshot")
 
 	bf, err := b.bootFiller(ctx, log, t, "", true)
 	if err != nil {
@@ -820,11 +849,61 @@ func (b *PreRunsBuilder) runReplay(ctx context.Context, log logrus.FieldLogger, 
 
 	defer bf.cleanup()
 
-	if err := bf.ec.replayBundle(ctx, lines, log); err != nil {
-		return fmt.Errorf("replaying bundle: %w", err)
+	if t.BaseBundle != "" {
+		if err := b.replayBaseBundle(ctx, log, bf, t.BaseBundle); err != nil {
+			return err
+		}
 	}
 
+	log.WithField("bundle", bundlePath).Info("Replaying pre-run bundle onto snapshot")
+
+	n, err := bf.ec.replayBundleFile(ctx, bundlePath, log)
+	if err != nil {
+		return fmt.Errorf("replaying bundle %q: %w", bundlePath, err)
+	}
+
+	log.WithField("lines", n).Info("Replayed pre-run bundle")
 	log.Info("Replay complete; stopping client to flush datadir")
+
+	return nil
+}
+
+// replayBaseBundle replays a target's base_bundle onto the booted client,
+// before recording starts, so the target continues from the bundle's head.
+func (b *PreRunsBuilder) replayBaseBundle(
+	ctx context.Context, log logrus.FieldLogger, bf *bootedFiller, baseBundle string,
+) error {
+	path, err := b.resolveReplayBundle(baseBundle)
+	if err != nil {
+		return fmt.Errorf("base_bundle: %w", err)
+	}
+
+	if err := requireBundle(path); err != nil {
+		return err
+	}
+
+	log.WithField("bundle", path).Info("Replaying base_bundle")
+
+	n, err := bf.ec.replayBundleFile(ctx, path, log)
+	if err != nil {
+		return fmt.Errorf("replaying base_bundle %q: %w", path, err)
+	}
+
+	log.WithField("lines", n).Info("Replayed base_bundle")
+
+	return nil
+}
+
+// requireBundle fails before a client boots on a missing or empty bundle.
+func requireBundle(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("replay bundle: %w", err)
+	}
+
+	if info.Size() == 0 {
+		return fmt.Errorf("replay bundle %q is empty", path)
+	}
 
 	return nil
 }

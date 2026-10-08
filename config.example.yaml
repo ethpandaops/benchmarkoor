@@ -319,7 +319,8 @@ runner:
 #     config:                          # shared defaults; targets override when set
 #       fork: amsterdam                # the TARGET fork being filled
 #       datadir_method: schelk         # schelk advances source_dir IN PLACE (no copy)
-#       gas_limit: 1000000000000       # gas-bump target (default 1 TGas)
+#       gas_limit: 1000000000000       # gas-bump target (default 1 TGas); below the head ramps down (Amsterdam)
+#       # fill: false                  # skip fill-stateful: a gas-ramp-only pre-run, no tests needed
 #       rpc_seed_key: "0x0000000000000000000000000000000000000000000000000000000000000001"
 #       # eoa_start: 1000000000        # first key of fill-stateful's EOA iterator (--eoa-start);
 #                                      # kept clear of the eest_payloads fill on the same datadir
@@ -368,6 +369,12 @@ runner:
 #       #   source_dir: /data/snapshots/reth
 #       #   output_dir: /data/pre-runs/reth
 #       #   replay_from: pre-run-geth
+#       # Continue a recorded chain (e.g. a release's pre-run), then ramp the gas
+#       # limit down; the new bundle holds only the ramp, replayed after the base.
+#       # - name: ramp-geth
+#       #   base_bundle: /data/release/pre-runs/geth/pre_run_bundle
+#       #   fill: false
+#       #   gas_limit: 200000000
 #
 #   # ---------------------------------------------------------------------------
 #   # Boots a filler client on a copy of a snapshot datadir (e.g. a state_actor

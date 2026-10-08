@@ -223,6 +223,51 @@ func TestValidatePreRuns(t *testing.T) {
 		require.ErrorContains(t, c.validatePreRuns(), "tests is required")
 	})
 
+	t.Run("fill false needs no tests", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Config.Tests = nil
+		c.Builder.PreRuns.Targets[0].Fill = ptrBool(false)
+		require.NoError(t, c.validatePreRuns())
+	})
+
+	t.Run("fill false on a target overrides shared tests", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].Fill = ptrBool(false)
+		require.NoError(t, c.validatePreRuns())
+		resolved := c.Builder.PreRuns.ResolveTarget(0)
+		require.False(t, resolved.FillEnabled(), "a target opts out even with config.tests set")
+	})
+
+	t.Run("fill is hoisted from the shared config", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Config.Fill = ptrBool(false)
+		resolved := c.Builder.PreRuns.ResolveTarget(0)
+		require.False(t, resolved.FillEnabled())
+	})
+
+	t.Run("base_bundle continues a recorded chain", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].Fill = ptrBool(false)
+		c.Builder.PreRuns.Targets[0].BaseBundle = "/release/pre-runs/geth/pre_run_bundle"
+		require.NoError(t, c.validatePreRuns())
+	})
+
+	t.Run("relative base_bundle rejected", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].BaseBundle = "pre_run_bundle"
+		require.ErrorContains(t, c.validatePreRuns(), "base_bundle must be an absolute path")
+	})
+
+	t.Run("replay target replays base_bundle then replay_from", func(t *testing.T) {
+		c := base()
+		c.Builder.PreRuns.Targets[0].ReplayFrom = "/snapshot/tail/pre_run_bundle"
+		c.Builder.PreRuns.Targets[0].BaseBundle = "/release/pre_run_bundle"
+		require.NoError(t, c.validatePreRuns())
+
+		c.Builder.PreRuns.Targets[0].BaseBundle = "release/pre_run_bundle"
+		require.ErrorContains(t, c.validatePreRuns(), "base_bundle must be an absolute path")
+	})
+
 	t.Run("duplicate output_dir rejected", func(t *testing.T) {
 		c := base()
 		c.Builder.PreRuns.Targets = append(c.Builder.PreRuns.Targets, PreRunTarget{
@@ -670,3 +715,5 @@ func TestValidatePreRunsSinglePromoter(t *testing.T) {
 		require.ErrorContains(t, c.validatePreRuns(), "only one target may promote")
 	})
 }
+
+func ptrBool(b bool) *bool { return &b }

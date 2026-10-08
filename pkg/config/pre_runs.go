@@ -97,9 +97,15 @@ type PreRunFundingPool struct {
 // under builder.pre_runs.config. Every field is also present on PreRunTarget; a
 // non-nil/non-empty value on the target wins. See ResolveTarget.
 type PreRunDefaults struct {
-	FillerImage      string                       `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
-	Fork             string                       `yaml:"fork,omitempty" mapstructure:"fork"`
-	Tests            []string                     `yaml:"tests,omitempty" mapstructure:"tests"`
+	FillerImage string   `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
+	Fork        string   `yaml:"fork,omitempty" mapstructure:"fork"`
+	Tests       []string `yaml:"tests,omitempty" mapstructure:"tests"`
+	// Fill runs fill-stateful on Tests after the gas bump and funding block
+	// (default true). false makes the pre-run a pure gas ramp (plus funding, if
+	// any), recorded as a bundle like any other: e.g. walking a replayed pre-run's
+	// head down to a devnet's gas limit. An empty Tests cannot say this, since it
+	// inherits the shared default.
+	Fill             *bool                        `yaml:"fill,omitempty" mapstructure:"fill"`
 	Filter           string                       `yaml:"filter,omitempty" mapstructure:"filter"`
 	Marker           string                       `yaml:"marker,omitempty" mapstructure:"marker"`
 	AddressStubsFile string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
@@ -121,7 +127,9 @@ type PreRunDefaults struct {
 	// deployment txs into blocks of this size). Passed as fill-stateful's
 	// --gas-benchmark-values.
 	GasBenchmarkValues []int `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
-	// GasLimit is the gas-bump target (default DefaultPreRunGasLimit).
+	// GasLimit is the gas-bump target (default DefaultPreRunGasLimit). Below the
+	// head's limit the pre-run ramps it down instead, which needs Amsterdam blocks
+	// (their payload attributes carry targetGasLimit).
 	GasLimit *uint64 `yaml:"gas_limit,omitempty" mapstructure:"gas_limit"`
 	// GasBumpMaxBlocks caps the empty gas-bump blocks (default
 	// DefaultPreRunGasBumpMaxBlocks).
@@ -170,10 +178,20 @@ type PreRunTarget struct {
 	// a pre_run_bundle directory.
 	ReplayFrom string `yaml:"replay_from,omitempty" mapstructure:"replay_from"`
 
+	// BaseBundle is replayed onto the restored snapshot first (an absolute path
+	// to a .request file or pre_run_bundle directory), so the target continues a
+	// recorded chain, e.g. a release's pre-run: a fill target bumps from its head,
+	// a replay target replays replay_from after it. An in-place target restores
+	// its schelk baseline first, so a second target cannot continue the first
+	// one's scratch. Its blocks are not re-recorded: a fill target's bundle holds
+	// only what it built, to be replayed after BaseBundle.
+	BaseBundle string `yaml:"base_bundle,omitempty" mapstructure:"base_bundle"`
+
 	// Hoistable fields (mirror PreRunDefaults).
 	FillerImage        string                       `yaml:"filler_image,omitempty" mapstructure:"filler_image"`
 	Fork               string                       `yaml:"fork,omitempty" mapstructure:"fork"`
 	Tests              []string                     `yaml:"tests,omitempty" mapstructure:"tests"`
+	Fill               *bool                        `yaml:"fill,omitempty" mapstructure:"fill"`
 	Filter             string                       `yaml:"filter,omitempty" mapstructure:"filter"`
 	Marker             string                       `yaml:"marker,omitempty" mapstructure:"marker"`
 	AddressStubsFile   string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
@@ -258,6 +276,10 @@ func (p *PreRunsConfig) ResolveTarget(i int) PreRunTarget {
 
 	if len(t.Tests) == 0 {
 		t.Tests = g.Tests
+	}
+
+	if t.Fill == nil {
+		t.Fill = g.Fill
 	}
 
 	if t.Filter == "" {
@@ -418,6 +440,11 @@ func (t *PreRunTarget) ResolveGasLimit() uint64 {
 	}
 
 	return DefaultPreRunGasLimit
+}
+
+// FillEnabled reports whether the pre-run fills its setup tests (Fill unset or true).
+func (t *PreRunTarget) FillEnabled() bool {
+	return t.Fill == nil || *t.Fill
 }
 
 // ResolveEOAStart returns the fill-stateful --eoa-start value for the pre-run
@@ -643,6 +670,13 @@ func (c *Config) validatePreRuns() error {
 		// Replay targets advance by replaying a bundle, not by filling. They can
 		// use any bootable client (incl. non-fillers) and need none of the
 		// fill-specific config below.
+		if t.BaseBundle != "" && !filepath.IsAbs(t.BaseBundle) {
+			return fmt.Errorf(
+				"%s.base_bundle must be an absolute path to a .request file or pre_run_bundle directory, got %q",
+				prefix, t.BaseBundle,
+			)
+		}
+
 		if t.IsReplay() {
 			if err := validateReplayFrom(&t, prefix, targetIndex, targetIsReplay, i); err != nil {
 				return err
@@ -659,10 +693,11 @@ func (c *Config) validatePreRuns() error {
 			)
 		}
 
-		if len(t.Tests) == 0 {
+		if t.FillEnabled() && len(t.Tests) == 0 {
 			return fmt.Errorf(
 				"%s.tests is required (at least one pytest path, e.g. "+
-					"tests/benchmark/stateful/bloatnet/test_setup_contracts.py)",
+					"tests/benchmark/stateful/bloatnet/test_setup_contracts.py), "+
+					"or fill: false for a pre-run that only ramps the gas limit",
 				prefix,
 			)
 		}
