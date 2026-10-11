@@ -435,7 +435,7 @@ func (r *runner) runDBCompactionContainers(
 	log.WithField("timeout", timeout).Info("Compacting the database")
 
 	entrypoint, command := req.Instance.Entrypoint, dbCompactionCommand(cmds, req.Cfg)
-	if cmds.CompactImage != "" {
+	if cmds.CompactImage != "" || cmds.OwnEntrypoint {
 		entrypoint, command = command[:1], command[1:]
 	}
 

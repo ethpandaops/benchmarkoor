@@ -13,12 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// dbCompactionUnneeded names the clients whose database an offline
-// compaction has nothing to do for.
-var dbCompactionUnneeded = map[client.ClientType]string{
-	client.ClientReth: "MDBX, persisted every block",
-}
-
 var dbCompactFlags struct {
 	client    string
 	datadir   string
@@ -69,12 +63,6 @@ func init() {
 
 func runDBCompact(cmd *cobra.Command, _ []string) error {
 	ct := client.ClientType(dbCompactFlags.client)
-	if why, ok := dbCompactionUnneeded[ct]; ok {
-		log.WithField("client", ct).Infof("Nothing to compact: %s", why)
-
-		return nil
-	}
-
 	if !client.SupportsDBCompaction(ct) {
 		return fmt.Errorf("client %q has no offline database compaction", ct)
 	}

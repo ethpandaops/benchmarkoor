@@ -189,9 +189,28 @@ func TestErigonDBMaintenanceCommands(t *testing.T) {
 	assert.True(t, client.SupportsDBCompaction(client.ClientErigon))
 }
 
+// TestRethDBMaintenanceCommands: reth compacts with a copy-and-swap shell
+// around `reth db copy --compact`, so the script is the entrypoint.
+func TestRethDBMaintenanceCommands(t *testing.T) {
+	spec, err := client.NewRegistry().Get(client.ClientReth)
+	require.NoError(t, err)
+
+	cmds := spec.DBMaintenanceCommands("/data")
+	require.NotNil(t, cmds)
+
+	assert.True(t, cmds.OwnEntrypoint)
+	require.Len(t, cmds.Compact, 5)
+	assert.Equal(t, "sh", cmds.Compact[0])
+	assert.Contains(t, cmds.Compact[2], "reth db copy --compact")
+	assert.Equal(t, "/data", cmds.Compact[4])
+	assert.Equal(t, []string{"db", "stats", "--datadir=/data"}, cmds.Inspect)
+	assert.Empty(t, cmds.CompactImage, "runs in the client's own image")
+	assert.True(t, client.SupportsDBCompaction(client.ClientReth))
+}
+
 func TestSupportsDBCompaction_UnsupportedClients(t *testing.T) {
 	for _, other := range []client.ClientType{
-		client.ClientReth, client.ClientNimbus, client.ClientEthrex,
+		client.ClientNimbus, client.ClientEthrex,
 	} {
 		assert.False(t, client.SupportsDBCompaction(other), string(other))
 	}
