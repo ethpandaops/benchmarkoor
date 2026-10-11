@@ -1,4 +1,4 @@
-.PHONY: build build-core build-ui clean test-core test-coverage-core lint-core lint-core-all lint-ui fmt-core tidy-core install-core deps-ui run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-down docker-run docker-run-ui docker-run-api docker-run-benchmark
+.PHONY: build build-core build-ui clean test-core test-integration-core test-coverage-core lint-core lint-core-all lint-ui fmt-core tidy-core install-core deps-ui run-core version-core run-ui help docker-build docker-build-core docker-build-ui docker-down docker-run docker-run-ui docker-run-api docker-run-benchmark
 
 # Build variables
 BINARY_NAME=benchmarkoor
@@ -50,6 +50,10 @@ clean:
 ## test-core: Run Go tests
 test-core:
 	go test -tags "$(GO_BUILD_TAGS)" -race -v ./...
+
+## test-integration-core: Run Go tests that need docker (a local MinIO)
+test-integration-core:
+	go test -tags "$(GO_BUILD_TAGS),integration" -race -v -run Integration ./...
 
 ## test-coverage-core: Run Go tests with coverage
 test-coverage-core:
