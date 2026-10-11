@@ -1,5 +1,7 @@
 package client
 
+import "fmt"
+
 type gethSpec struct{}
 
 // NewGethSpec creates a new Geth client specification.
@@ -120,9 +122,30 @@ func (s *gethSpec) SnapshotPrepareArgs() []string {
 // lock, so a running node makes it fail. The commands take --datadir rather
 // than inheriting the one in DefaultCommand, since a datadir config may mount
 // the data somewhere other than /data.
+//
+// Verify fails a datadir whose path-scheme journal holds more than the last
+// GethMaxDiffLayers blocks: geth loads that state into memory on start, so
+// the compaction never reaches it.
 func (s *gethSpec) DBMaintenanceCommands(dataDir string) *DBMaintenanceCommands {
 	return &DBMaintenanceCommands{
 		Compact: []string{"db", "compact", "--datadir=" + dataDir},
 		Inspect: []string{"db", "inspect", "--datadir=" + dataDir},
+		Verify:  verifyGethJournal,
 	}
+}
+
+func verifyGethJournal(hostDataDir string) (string, error) {
+	j, err := CheckGethJournal(hostDataDir)
+	if err != nil {
+		return "", err
+	}
+
+	if j == nil {
+		return "no " + GethJournalFile + ": no state is loaded into memory on start", nil
+	}
+
+	return fmt.Sprintf(
+		"%s: %d diff layers (blocks %d-%d), write buffer empty",
+		GethJournalFile, j.DiffLayers, j.FirstBlock, j.LastBlock,
+	), nil
 }

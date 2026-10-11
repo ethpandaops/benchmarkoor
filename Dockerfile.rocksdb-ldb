@@ -1,0 +1,18 @@
+# RocksDB's ldb, which db_compaction uses to compact nethermind and besu: neither
+# ships an offline compaction command. The compaction script (pkg/client/
+# rocksdb_compact.sh) also needs sh, find, sort, grep and od, which the base has.
+# Release build: a default `make ldb` links the debug tools library.
+FROM debian:bookworm AS build
+ARG ROCKSDB_VERSION=11.8.1
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+      ca-certificates git build-essential libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone -q --depth 1 -b "v${ROCKSDB_VERSION}" https://github.com/facebook/rocksdb /rocksdb \
+    && cd /rocksdb && DEBUG_LEVEL=0 PORTABLE=1 make -j"$(nproc)" ldb
+
+FROM debian:bookworm-slim
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+      libsnappy1v5 zlib1g libbz2-1.0 liblz4-1 libzstd1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /rocksdb/ldb /usr/local/bin/ldb
+ENTRYPOINT ["ldb"]

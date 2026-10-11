@@ -76,6 +76,21 @@ type DBMaintenanceCommands struct {
 	// compaction. Optional: a client that can compact but not inspect leaves
 	// it nil.
 	Inspect []string
+
+	// CompactImage runs Compact in this image instead of the client's, with
+	// Compact[0] as the entrypoint. It is set for a client that ships no
+	// offline compactor and is compacted by a separate tool.
+	CompactImage string
+
+	// OwnEntrypoint runs Compact in the client's image with Compact[0] as the
+	// entrypoint instead of as an argument to the client's: the command is a
+	// shell around the client binary (reth's copy-and-swap). CompactImage
+	// implies it.
+	OwnEntrypoint bool
+
+	// Verify checks the datadir after the compaction, given its host path, and
+	// returns a one-line summary of what it found. Optional.
+	Verify func(hostDataDir string) (string, error)
 }
 
 // Spec provides client-specific container configuration.
