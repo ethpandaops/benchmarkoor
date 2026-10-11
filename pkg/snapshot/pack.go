@@ -46,7 +46,11 @@ var clients = map[string]client{
 	"erigon": {},
 	"reth":   {exclude: []string{"discovery-secret", "known-peers.json"}},
 	"besu":   {exclude: []string{"key"}},
-	"ethrex": {exclude: []string{"node.key", "node_config.json"}},
+	// ethrex keeps a chain-id-1 custom-genesis db at <datadir>/chain-1 (sst, blob
+	// and metadata.json at its root); jochemnet's archive is that directory's
+	// contents and msf-2 extracts it into /data/ethrex/chain-1, so the root is
+	// chain-1 — the datadir itself would nest a second chain-1/.
+	"ethrex": {sub: "chain-1", exclude: []string{"node.key", "node_config.json"}},
 	// nethermind: <datadir>/nethermind_db/<chain>/<store>; the archive root is
 	// nethermind_db, so it holds mainnet/ as jochemnet's does and extracts into
 	// <datadir>/nethermind_db (--Init.BaseDbPath=nethermind_db/mainnet).

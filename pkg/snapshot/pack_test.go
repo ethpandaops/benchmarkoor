@@ -55,8 +55,11 @@ func TestBuildManifestExcludes(t *testing.T) {
 		},
 		{
 			client: "ethrex",
-			files:  map[string]string{"node.key": "", "node_config.json": "", "store/data": ""},
-			want:   []string{".", "./store", "./store/data"},
+			files: map[string]string{
+				"node.key": "", "node_config.json": "", "chain-1/CURRENT": "c", "chain-1/000030.sst": "s",
+				"chain-1/metadata.json": "m", "chain-1/.snapshot_fetcher_started": "",
+			},
+			want: []string{".", "./000030.sst", "./CURRENT", "./metadata.json"},
 		},
 		{
 			client: "nethermind",
