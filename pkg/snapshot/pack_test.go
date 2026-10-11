@@ -85,7 +85,7 @@ func TestBuildManifestExcludes(t *testing.T) {
 			m, err := BuildManifest(tc.client, dir)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, m.Members)
-			want := filepath.Join(dir, map[string]string{"geth": "geth", "nethermind": "nethermind_db"}[tc.client])
+			want := filepath.Join(dir, map[string]string{"geth": "geth", "nethermind": "nethermind_db", "ethrex": "chain-1"}[tc.client])
 			assert.Equal(t, want, m.Dir, "tar runs in the packed root")
 		})
 	}
