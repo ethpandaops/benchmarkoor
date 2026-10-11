@@ -107,8 +107,8 @@ func (s *rethSpec) SnapshotPrepareArgs() []string {
 }
 
 // DBMaintenanceCommands compacts Reth's MDBX database with `reth db copy
-// --compact` (mdbx_copy -c, bundled since Reth 2.7.0): the database is
-// rewritten without its free pages into <datadir>/db.compact and swapped in.
+// --compact` (mdbx_copy -c, bundled since Reth 2.7.0): the database file is
+// rewritten without its free pages to <datadir>/db.compact and swapped in.
 // The static files are append-only segments and are left alone.
 //
 // MDBX never shrinks: the pages a replay frees stay in mdbx.dat, and in every
@@ -126,9 +126,10 @@ func (s *rethSpec) DBMaintenanceCommands(dataDir string) *DBMaintenanceCommands 
 }
 
 // rethCompactScript is the copy-and-swap around `reth db copy --compact`, in
-// the reth image's /bin/sh. $1 is the datadir. mdbx_env_copy creates the
-// destination directory itself and fails with EEXIST on an existing one;
-// database.version lives next to mdbx.dat and is carried over.
+// the reth image's /bin/sh. $1 is the datadir. Reth opens MDBX in no-subdir
+// mode (<datadir>/db/mdbx.dat), so mdbx_env_copy writes one file at the
+// destination path and fails with EEXIST if it exists; the file then replaces
+// db/mdbx.dat and the stale db/mdbx.lck goes.
 const rethCompactScript = `set -eu
 d=$1
 dat=$d/db/mdbx.dat
@@ -136,10 +137,9 @@ dat=$d/db/mdbx.dat
 size=$(stat -c %s "$dat")
 free=$(df -B1 --output=avail "$d" | tail -n 1)
 [ "$free" -gt "$size" ] || { echo "need $size bytes free under $d for the compacted copy, have $free" >&2; exit 1; }
-rm -rf "$d/db.compact"
+rm -f "$d/db.compact"
 reth db --datadir="$d" copy --compact "$d/db.compact"
-[ -f "$d/db.compact/mdbx.dat" ] || { echo "reth db copy wrote no $d/db.compact/mdbx.dat" >&2; exit 1; }
-[ ! -f "$d/db/database.version" ] || cp "$d/db/database.version" "$d/db.compact/"
-mv "$d/db" "$d/db.old" && mv "$d/db.compact" "$d/db" && rm -rf "$d/db.old"
-echo "reth-compact: mdbx.dat $size -> $(stat -c %s "$d/db/mdbx.dat") bytes"
+[ -s "$d/db.compact" ] || { echo "reth db copy wrote no $d/db.compact" >&2; exit 1; }
+mv "$dat" "$dat.old" && mv "$d/db.compact" "$dat" && rm -f "$dat.old" "$d/db/mdbx.lck"
+echo "reth-compact: mdbx.dat $size -> $(stat -c %s "$dat") bytes"
 `
