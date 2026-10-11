@@ -126,9 +126,9 @@ func (s *rethSpec) DBMaintenanceCommands(dataDir string) *DBMaintenanceCommands 
 }
 
 // rethCompactScript is the copy-and-swap around `reth db copy --compact`, in
-// the reth image's /bin/sh. $1 is the datadir. The destination must be an
-// existing empty directory (mdbx_env_copy in subdir mode); database.version
-// lives next to mdbx.dat and is carried over.
+// the reth image's /bin/sh. $1 is the datadir. mdbx_env_copy creates the
+// destination directory itself and fails with EEXIST on an existing one;
+// database.version lives next to mdbx.dat and is carried over.
 const rethCompactScript = `set -eu
 d=$1
 dat=$d/db/mdbx.dat
@@ -136,7 +136,7 @@ dat=$d/db/mdbx.dat
 size=$(stat -c %s "$dat")
 free=$(df -B1 --output=avail "$d" | tail -n 1)
 [ "$free" -gt "$size" ] || { echo "need $size bytes free under $d for the compacted copy, have $free" >&2; exit 1; }
-rm -rf "$d/db.compact" && mkdir "$d/db.compact"
+rm -rf "$d/db.compact"
 reth db --datadir="$d" copy --compact "$d/db.compact"
 [ -f "$d/db.compact/mdbx.dat" ] || { echo "reth db copy wrote no $d/db.compact/mdbx.dat" >&2; exit 1; }
 [ ! -f "$d/db/database.version" ] || cp "$d/db/database.version" "$d/db.compact/"
