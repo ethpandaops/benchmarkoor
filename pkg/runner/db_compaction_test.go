@@ -201,9 +201,9 @@ func TestRethDBMaintenanceCommands(t *testing.T) {
 	assert.True(t, cmds.OwnEntrypoint)
 	require.Len(t, cmds.Compact, 5)
 	assert.Equal(t, "sh", cmds.Compact[0])
-	assert.Contains(t, cmds.Compact[2], "reth db copy --compact")
+	assert.Contains(t, cmds.Compact[2], "reth db --datadir=\"$d\" copy --compact")
 	assert.Equal(t, "/data", cmds.Compact[4])
-	assert.Equal(t, []string{"db", "stats", "--datadir=/data"}, cmds.Inspect)
+	assert.Equal(t, []string{"db", "--datadir=/data", "stats"}, cmds.Inspect)
 	assert.Empty(t, cmds.CompactImage, "runs in the client's own image")
 	assert.True(t, client.SupportsDBCompaction(client.ClientReth))
 }

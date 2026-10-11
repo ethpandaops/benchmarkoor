@@ -116,11 +116,12 @@ func (s *rethSpec) SnapshotPrepareArgs() []string {
 // script fails before copying when the filesystem has less than the file's size.
 //
 // `reth db stats` is the inspection: tables, entries, sizes and the freelist.
+// --datadir belongs to `db`, not to its subcommands (clap rejects it there).
 func (s *rethSpec) DBMaintenanceCommands(dataDir string) *DBMaintenanceCommands {
 	return &DBMaintenanceCommands{
 		Compact:       []string{"sh", "-c", rethCompactScript, "reth-compact", dataDir},
 		OwnEntrypoint: true,
-		Inspect:       []string{"db", "stats", "--datadir=" + dataDir},
+		Inspect:       []string{"db", "--datadir=" + dataDir, "stats"},
 	}
 }
 
@@ -136,7 +137,7 @@ size=$(stat -c %s "$dat")
 free=$(df -B1 --output=avail "$d" | tail -n 1)
 [ "$free" -gt "$size" ] || { echo "need $size bytes free under $d for the compacted copy, have $free" >&2; exit 1; }
 rm -rf "$d/db.compact" && mkdir "$d/db.compact"
-reth db copy --compact --datadir="$d" "$d/db.compact"
+reth db --datadir="$d" copy --compact "$d/db.compact"
 [ -f "$d/db.compact/mdbx.dat" ] || { echo "reth db copy wrote no $d/db.compact/mdbx.dat" >&2; exit 1; }
 [ ! -f "$d/db/database.version" ] || cp "$d/db/database.version" "$d/db.compact/"
 mv "$d/db" "$d/db.old" && mv "$d/db.compact" "$d/db" && rm -rf "$d/db.old"
