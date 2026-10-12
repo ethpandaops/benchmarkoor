@@ -1143,7 +1143,7 @@ Supported clients are **geth**, **erigon**, **reth**, **nethermind** and **besu*
 |--------|------------|------------|-------------|
 | geth | `geth db compact` | `geth db inspect` | `triedb/merkle.journal` holds at most the last 128 blocks |
 | erigon | `erigon db compact` | `erigon seg du --verbose` | - |
-| reth | `reth db copy --compact`, then swap the MDBX file | - | copy must finish before the original is replaced |
+| reth | `reth db copy --compact`, then swap the MDBX file | `reth db stats` | copy must finish before the original is replaced |
 | nethermind, besu | RocksDB `ldb compact`, every column family of every database | - | level 0 of every column family is empty |
 
 `erigon db compact` rewrites every mdbx database of the datadir without its free pages. It needs **Erigon 3.7.0-dev or newer** (September 2026); an older binary, including every pinned glamsterdam-devnet image, fails the step with `command db not found`.
