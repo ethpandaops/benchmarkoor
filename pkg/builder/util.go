@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,8 +29,18 @@ func mountTempDir() string {
 	return os.TempDir()
 }
 
-// isPopulated reports whether dir exists and contains at least one
-// entry. A missing dir returns (false, nil).
+// sidecarPrefix marks the bookkeeping files benchmarkoor itself writes into an
+// output_dir (the build fingerprint, the eest fill result, the pytest report).
+// They describe a build rather than being its product.
+const sidecarPrefix = ".benchmarkoor-"
+
+// isPopulated reports whether dir exists and holds at least one entry a builder
+// actually produced. A missing dir returns (false, nil).
+//
+// benchmarkoor's own sidecars don't count: they are written even when a build
+// fails before producing anything, so a dir holding nothing else must still read
+// as empty — otherwise the next build would skip it as "already populated" and
+// the target would never be produced.
 func isPopulated(dir string) (bool, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -40,7 +51,13 @@ func isPopulated(dir string) (bool, error) {
 		return false, fmt.Errorf("reading output_dir %q: %w", dir, err)
 	}
 
-	return len(entries) > 0, nil
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), sidecarPrefix) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // prepareOutputDir ensures dir exists. When force is true the directory is

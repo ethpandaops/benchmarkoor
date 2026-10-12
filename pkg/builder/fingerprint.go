@@ -15,7 +15,7 @@ import (
 // at an output_dir root after a successful build. When --rebuild-on-diff is set,
 // the next build compares the current config fingerprint against this file to
 // decide whether the output is stale and must be rebuilt.
-const buildSidecarFile = ".benchmarkoor-build.json"
+const buildSidecarFile = sidecarPrefix + "build.json"
 
 // buildFingerprintSchema versions the sidecar format so a future change can
 // invalidate old sidecars deliberately.
