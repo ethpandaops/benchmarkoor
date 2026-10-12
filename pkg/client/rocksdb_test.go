@@ -39,6 +39,12 @@ for a in "$@"; do
 	list_column_families) printf '%s' "$LDB_LISTING"; exit 0 ;;
 	get_property)
 		case "$*" in
+		*"$LDB_FAIL_PROPERTY"*)
+			if [ -n "$LDB_FAIL_PROPERTY" ] && { [ "$LDB_FAIL_PHASE" = before ] || [ -f "$LDB_CALLS" ]; }; then
+				echo "property read failed" >&2; exit 1
+			fi ;;
+		esac
+		case "$*" in
 		*levelstats*) printf 'rocksdb.levelstats: Level Files Size(MB)\n--------------------\n  0        %s        0\n  6        2       10\n' "$LDB_LEVEL0" ;;
 		*total-sst-files-size*) echo "rocksdb.total-sst-files-size: 4096" ;;
 		esac
@@ -74,6 +80,8 @@ func newLdbStub(t *testing.T, listing string, dbs ...string) *ldbStub {
 		"LDB_LISTING="+listing,
 		"LDB_LEVEL0=0",
 		"LDB_CALLS="+s.calls,
+		"LDB_FAIL_PROPERTY=",
+		"LDB_FAIL_PHASE=",
 	)
 
 	return s
@@ -146,6 +154,25 @@ func TestRocksDBCompactScript_EveryDatabase(t *testing.T) {
 }
 
 func TestRocksDBCompactScript_Failures(t *testing.T) {
+	for _, property := range []string{"levelstats", "total-sst-files-size"} {
+		for _, phase := range []string{"before", "after"} {
+			t.Run(property+" fails "+phase+" compaction", func(t *testing.T) {
+				s := newLdbStub(t, "Column families in db: \n{default}\n", "db")
+				s.env = append(s.env, "LDB_FAIL_PROPERTY="+property, "LDB_FAIL_PHASE="+phase)
+
+				out, err := s.run(t)
+				require.Error(t, err, out)
+				assert.Contains(t, out, "property read failed")
+				assert.NotContains(t, out, "compacted ")
+				if phase == "before" {
+					assert.NoFileExists(t, s.calls, "no compaction without readable properties")
+				} else {
+					assert.Equal(t, []string{"default"}, s.compacted(t))
+				}
+			})
+		}
+	}
+
 	t.Run("no database", func(t *testing.T) {
 		s := newLdbStub(t, "")
 

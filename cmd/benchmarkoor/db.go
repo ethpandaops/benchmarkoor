@@ -34,10 +34,10 @@ var dbCompactCmd = &cobra.Command{
 	Use:   "compact",
 	Short: "Compact a stopped client's datadir, as db_compaction does in a run",
 	Long: `Compact a stopped client's datadir with the same containers a run's
-db_compaction phase uses: the client's own command for geth and erigon, RocksDB's
+db_compaction phase uses: the client's own command for geth, erigon and reth, RocksDB's
 ldb over every column family for nethermind and besu. geth's datadir then fails
 if triedb/merkle.journal holds the state of more than the last 128 blocks.
-reth needs nothing (MDBX, persisted every block).`,
+reth copies and swaps its MDBX file, requiring free space for the compacted copy.`,
 	Args: cobra.NoArgs,
 	RunE: runDBCompact,
 }

@@ -1137,15 +1137,18 @@ runner:
 
 The `db_compaction` option compacts the client database before the run measures anything. Compaction needs exclusive access to the database, so the client is never running while it happens: the runner runs an offline command — the client's own, or RocksDB's `ldb` for clients without one — in a one-shot container against the datadir.
 
-Supported clients are **geth**, **erigon**, **nethermind** and **besu**; every other client fails validation with a clear message. reth needs no compaction: MDBX is persisted every block.
+Supported clients are **geth**, **erigon**, **reth**, **nethermind** and **besu**; every other client fails validation with a clear message.
 
 | Client | Compaction | Inspection | Check after |
 |--------|------------|------------|-------------|
 | geth | `geth db compact` | `geth db inspect` | `triedb/merkle.journal` holds at most the last 128 blocks |
 | erigon | `erigon db compact` | `erigon seg du --verbose` | - |
+| reth | `reth db copy --compact`, then swap the MDBX file | - | copy must finish before the original is replaced |
 | nethermind, besu | RocksDB `ldb compact`, every column family of every database | - | level 0 of every column family is empty |
 
 `erigon db compact` rewrites every mdbx database of the datadir without its free pages. It needs **Erigon 3.7.0-dev or newer** (September 2026); an older binary, including every pinned glamsterdam-devnet image, fails the step with `command db not found`.
+
+Reth compaction needs **Reth 2.7.0 or newer** and enough free disk for a compacted copy of `db/mdbx.dat`. It writes the copy to a separate file before swapping it into place; static files are unchanged.
 
 > **On erigon, `before_benchmarks` needs `--exec.no-prune` on the instance.** That phase stops and restarts the client, and erigon refuses to reopen a datadir whose receipt domain it pruned past the snapshot files: `[snapshots] gap between snapshot files and DB for domain receipt: files end at txNum 0 but the DB was pruned up to 390625`. A synthetic snapshot has no snapshot files, so the client's own pruning is enough to create the gap. `--exec.no-prune` disables the state-aggregator pruning that advances the marker. Erigon documents the flag for diagnostic and perf-comparison use, which is what a benchmark is, and it removes housekeeping the benchmark does not want anyway. `before_pre_runs` needs no flag: it compacts before the client ever boots, so nothing restarts.
 
@@ -1170,7 +1173,7 @@ The same containers and checks run against a stopped client's datadir without a 
 benchmarkoor db compact --client <geth|nethermind|besu|erigon|reth|ethrex> --datadir <dir> [--prepare <step>]...
 ```
 
-It exits non-zero on any failure, the geth journal check included. reth is a no-op with a log line; a client without offline compaction (ethrex) is an error. `--image` picks the client image (default: the client's default image), `--compaction-image` the compaction container's (as `image`), and `--extra-arg`, `--timeout` and `--no-inspect` mirror `extra_args`, `timeout` and `inspect`. No marker is written: that belongs to a run. The journal check reads the datadir from the host, so the CLI needs read access to it.
+It exits non-zero on any failure, the geth journal check included. reth copies and swaps its MDBX file; a client without offline compaction (ethrex) is an error. `--image` picks the client image (default: the client's default image), `--compaction-image` the compaction container's (as `image`), and `--extra-arg`, `--timeout` and `--no-inspect` mirror `extra_args`, `timeout` and `inspect`. No marker is written: that belongs to a run. The journal check reads the datadir from the host, so the CLI needs read access to it.
 
 ###### Preparation steps (`prepare`)
 

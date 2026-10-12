@@ -27,9 +27,13 @@ label() {
 # its SST bytes. Logged before and after, so the run output shows what the
 # compaction did, not only that it ran.
 levels() {
-	ldb --db="$1" --try_load_options --column_family="$2" get_property rocksdb.levelstats </dev/null |
+	# Capture each command separately: POSIX pipelines hide an ldb failure
+	# behind awk/sed's successful exit status.
+	level_stats=$(ldb --db="$1" --try_load_options --column_family="$2" get_property rocksdb.levelstats </dev/null) || return 1
+	sst_bytes=$(ldb --db="$1" --try_load_options --column_family="$2" get_property rocksdb.total-sst-files-size </dev/null) || return 1
+	printf '%s\n' "$level_stats" |
 		awk 'NR > 2 && $2 > 0 { printf "L%s=%s/%sMB ", $1, $2, $3 }'
-	ldb --db="$1" --try_load_options --column_family="$2" get_property rocksdb.total-sst-files-size </dev/null |
+	printf '%s\n' "$sst_bytes" |
 		sed 's/.*: /sst_bytes=/'
 }
 
@@ -64,7 +68,8 @@ echo "$dbs" | while IFS= read -r db; do
 		*) cf=$cfs; cfs= ;;
 		esac
 
-		echo "compacting $db column_family=$(label "$cf") $(levels "$db" "$cf")"
+		before=$(levels "$db" "$cf")
+		echo "compacting $db column_family=$(label "$cf") $before"
 		start=$(date +%s)
 		ldb --db="$db" --try_load_options --column_family="$cf" "$@" compact </dev/null
 
