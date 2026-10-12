@@ -109,7 +109,12 @@ func BuildManifest(clientName, datadir string) (*Manifest, error) {
 		return nil, err
 	}
 
-	root := filepath.Join(datadir, c.sub)
+	// WalkDir does not follow a symlinked root, unlike Stat. Resolve only the
+	// root so links inside the archive remain links.
+	root, err := filepath.EvalSymlinks(filepath.Join(datadir, c.sub))
+	if err != nil {
+		return nil, fmt.Errorf("%s datadir: %w", clientName, err)
+	}
 
 	st, err := os.Stat(root)
 	if err != nil {

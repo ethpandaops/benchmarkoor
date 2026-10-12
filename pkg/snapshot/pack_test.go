@@ -109,6 +109,35 @@ func TestBuildManifestBytes(t *testing.T) {
 	assert.Equal(t, int64(8+6*tarEntryOverhead), m.MaxArchiveBytes())
 }
 
+func TestBuildManifestSymlinkRoot(t *testing.T) {
+	for _, name := range []string{"geth", "erigon"} {
+		t.Run(name, func(t *testing.T) {
+			realDir := t.TempDir()
+			writeTree(t, realDir, map[string]string{"db/state": "state", "nodekey": "excluded"})
+			require.NoError(t, os.Symlink("db/state", filepath.Join(realDir, "link")))
+
+			datadir := filepath.Join(t.TempDir(), "datadir")
+			root := datadir
+			if name == "geth" {
+				require.NoError(t, os.Mkdir(datadir, 0o755))
+				root = filepath.Join(datadir, "geth")
+			}
+
+			require.NoError(t, os.Symlink(realDir, root))
+			m, err := BuildManifest(name, datadir)
+			require.NoError(t, err)
+			assert.Equal(t, []string{".", "./db", "./db/state", "./link"}, m.Members)
+			assert.Equal(t, int64(5), m.Bytes)
+
+			cmd := exec.Command("tar", "-xOf", "-", "./db/state")
+			cmd.Stdin = bytes.NewReader(packToTar(t, m))
+			contents, err := cmd.Output()
+			require.NoError(t, err)
+			assert.Equal(t, "state", string(contents))
+		})
+	}
+}
+
 func packToTar(t *testing.T, m *Manifest) []byte {
 	t.Helper()
 

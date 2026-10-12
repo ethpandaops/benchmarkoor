@@ -72,7 +72,7 @@ Run it as a user that can read every file in the datadir.
 | erigon | `./` | |
 | reth | `./` | `discovery-secret`, `known-peers.json` |
 | besu | `./` | `key` |
-| ethrex | `./` | `node.key`, `node_config.json` |
+| ethrex | `<datadir>/chain-1`, no prefix | `node.key`, `node_config.json` |
 | nethermind | the contents of `<datadir>/nethermind_db`, **no prefix**: `mainnet/` at the root, as jochemnet's tarball; consumers extract into `<datadir>/nethermind_db` and run `--Init.BaseDbPath=nethermind_db/mainnet` | `*/peers`, `*/discoveryNodes` |
 
 Every client also excludes `nodekey`, `LOCK`, `nodes/`, `logs/`, `.download-cache/`, `.snapshot_fetcher_*`,
