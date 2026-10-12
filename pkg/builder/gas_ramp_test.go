@@ -181,6 +181,42 @@ func TestBumpGasLimit_RampDownRefusedBeforeAmsterdam(t *testing.T) {
 	assert.Equal(t, 1, built, "fails on the first block, not after the cap")
 }
 
+func TestBumpGasLimit_RampDownCrossesAmsterdam(t *testing.T) {
+	f := &fakeFiller{number: 100, gasLimit: 201_000_000, amsterdam: true, minerCeil: 1_000_000_000_000}
+	c := newFakeFillerClient(t, f, "amsterdam").withCrossing("osaka", 1104)
+
+	built, err := c.bumpGasLimit(context.Background(), 200_000_000, 100, logrus.New())
+	require.NoError(t, err)
+	assert.Greater(t, built, 3)
+	assert.Equal(t, uint64(200_000_000), f.gasLimit)
+	for i, attrs := range f.attrs {
+		if i < 3 {
+			assert.NotContains(t, attrs, "targetGasLimit")
+		} else {
+			assert.Equal(t, uintToHex(200_000_000), attrs["targetGasLimit"])
+		}
+	}
+}
+
+func TestBumpGasLimit_RampDownChecksFirstAmsterdamBlock(t *testing.T) {
+	// The filler ignores the target, even once Amsterdam attributes are sent.
+	f := &fakeFiller{number: 100, gasLimit: 201_000_000, minerCeil: 1_000_000_000_000}
+	c := newFakeFillerClient(t, f, "amsterdam").withCrossing("osaka", 1104)
+
+	built, err := c.bumpGasLimit(context.Background(), 200_000_000, 100, logrus.New())
+	require.ErrorContains(t, err, "gas limit did not fall")
+	assert.Equal(t, 4, built)
+}
+
+func TestBumpGasLimit_RampDownCrossingRespectsBlockCap(t *testing.T) {
+	f := &fakeFiller{number: 100, gasLimit: 201_000_000, amsterdam: true, minerCeil: 1_000_000_000_000}
+	c := newFakeFillerClient(t, f, "amsterdam").withCrossing("osaka", 1104)
+
+	built, err := c.bumpGasLimit(context.Background(), 200_000_000, 2, logrus.New())
+	require.ErrorContains(t, err, "raise gas_bump_max_blocks")
+	assert.Equal(t, 2, built)
+}
+
 func TestBumpGasLimit_UpIsUnchanged(t *testing.T) {
 	f := &fakeFiller{number: 100, gasLimit: 60_000_000, minerCeil: 1_000_000_000_000}
 	c := newFakeFillerClient(t, f, "osaka")

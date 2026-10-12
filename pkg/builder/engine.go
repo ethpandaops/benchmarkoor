@@ -622,8 +622,8 @@ func payloadStatusFromResult(method string, result json.RawMessage) (string, err
 // Up, the filler follows its own (very high) miner gas ceiling and the ramp
 // stops once the limit passes target. Down, each block carries payload
 // attribute targetGasLimit=target, the CL's gas limit target since Amsterdam: a
-// pre-Amsterdam block has no such attribute and keeps rising, so a ramp down is
-// refused unless the very first block comes back lower.
+// pre-Amsterdam block has no such attribute and can keep rising until a configured
+// Amsterdam crossing. Once active, the limit must fall on each ramp-down block.
 func (c *engineClient) bumpGasLimit(ctx context.Context, target uint64, maxBlocks int, log logrus.FieldLogger) (int, error) {
 	head, err := c.latestBlock(ctx)
 	if err != nil {
@@ -670,7 +670,12 @@ func (c *engineClient) bumpGasLimit(ctx context.Context, target uint64, maxBlock
 			return built, fmt.Errorf("building gas-bump block %d: %w", built+1, buildErr)
 		}
 
-		if down && built == 0 && gl >= gasLimit {
+		// buildBlock advances the parent timestamp by one second. A predeploy
+		// target may need several such blocks to reach its Amsterdam activation.
+		blockTS := head.timestamp + uint64(built) + 1
+		waitingForAmsterdam := c.preFork != "" && strings.EqualFold(c.fork, "amsterdam") &&
+			blockTS < c.activationTS
+		if down && !waitingForAmsterdam && gl >= gasLimit {
 			return built + 1, fmt.Errorf(
 				"gas limit did not fall (%d -> %d): lowering it needs an Amsterdam block, "+
 					"whose payload attributes carry targetGasLimit", gasLimit, gl,
