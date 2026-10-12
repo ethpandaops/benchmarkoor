@@ -100,3 +100,14 @@ func TestCompactDatadir_Failures(t *testing.T) {
 		})
 	}
 }
+
+func TestCompactDatadir_RejectsEmptyDatadir(t *testing.T) {
+	mgr := &cliCompactionMgr{}
+	err := CompactDatadir(context.Background(), logrus.New(), mgr, &DatadirCompaction{
+		Client: client.ClientGeth, Image: "client:pinned",
+		Cfg: &config.DBCompactionConfig{},
+	})
+	require.ErrorContains(t, err, "datadir must not be empty")
+	assert.Empty(t, mgr.pulled)
+	assert.Empty(t, mgr.specs)
+}

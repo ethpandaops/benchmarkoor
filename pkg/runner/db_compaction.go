@@ -987,6 +987,10 @@ func CompactDatadir(
 		return err
 	}
 
+	if c.DataDir == "" {
+		return fmt.Errorf("datadir must not be empty")
+	}
+
 	dataDir, err := filepath.Abs(c.DataDir)
 	if err != nil {
 		return err

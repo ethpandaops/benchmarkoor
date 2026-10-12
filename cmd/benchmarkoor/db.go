@@ -61,8 +61,17 @@ func runDBCompact(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("client %q has no offline database compaction", ct)
 	}
 
-	if _, err := time.ParseDuration(dbCompactFlags.timeout); err != nil {
+	if dbCompactFlags.datadir == "" {
+		return fmt.Errorf("--datadir must not be empty")
+	}
+
+	timeout, err := time.ParseDuration(dbCompactFlags.timeout)
+	if err != nil {
 		return fmt.Errorf("--timeout: %w", err)
+	}
+
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be positive")
 	}
 
 	inspect := !dbCompactFlags.noInspect
