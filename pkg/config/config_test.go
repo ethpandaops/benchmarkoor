@@ -3763,7 +3763,7 @@ func TestValidateDBCompaction(t *testing.T) {
 		},
 		{
 			name:      "unsupported client",
-			client:    "ethrex",
+			client:    "besu",
 			cfg:       &DBCompactionConfig{Enabled: true},
 			wantErr:   true,
 			errSubstr: "not supported for client",
@@ -3997,7 +3997,7 @@ func TestValidateDBCompaction_SkipsInactiveInstances(t *testing.T) {
 			Client: ClientConfig{
 				Config: ClientDefaults{DBCompaction: &DBCompactionConfig{Enabled: true}},
 			},
-			Instances: []ClientInstance{{ID: "ethrex", Client: "ethrex"}},
+			Instances: []ClientInstance{{ID: "besu", Client: "besu"}},
 		},
 	}
 

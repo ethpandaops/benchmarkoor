@@ -98,11 +98,8 @@ func (s *ethrexSpec) SnapshotPrepareArgs() []string {
 	return nil
 }
 
-// DBMaintenanceCommands returns nil: Ethrex (29.x) is one RocksDB with a
-// column family, TRANSACTION_LOCATIONS, under its own merge operator
-// (tx_locations_merge). ldb has only a string-append operator and would fold
-// that family's operands wrongly, so the generic ldb compaction refuses the
-// database, and ethrex ships no offline compactor of its own.
+// DBMaintenanceCommands returns nil; benchmarkoor has no offline
+// compaction command for Ethrex yet.
 func (s *ethrexSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
 	return nil
 }

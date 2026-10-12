@@ -18,11 +18,9 @@ var dbCompactFlags struct {
 	datadir   string
 	prepare   []string
 	image     string
-	toolImage string
 	extraArgs []string
 	timeout   string
 	noInspect bool
-	noVerify  bool
 }
 
 var dbCmd = &cobra.Command{
@@ -33,11 +31,9 @@ var dbCmd = &cobra.Command{
 var dbCompactCmd = &cobra.Command{
 	Use:   "compact",
 	Short: "Compact a stopped client's datadir, as db_compaction does in a run",
-	Long: `Compact a stopped client's datadir with the same containers a run's
-db_compaction phase uses: the client's own command for geth, erigon and reth, RocksDB's
-ldb over every column family for nethermind and besu. geth's datadir then fails
-if triedb/merkle.journal holds the state of more than the last 128 blocks.
-reth copies and swaps its MDBX file, requiring free space for the compacted copy.`,
+	Long: `Compact a stopped client's datadir using the client's own offline command.
+Supported clients are geth and erigon. Use --image to select the same client
+version that wrote the datadir. Other clients return an unsupported error.`,
 	Args: cobra.NoArgs,
 	RunE: runDBCompact,
 }
@@ -47,15 +43,13 @@ func init() {
 	dbCmd.AddCommand(dbCompactCmd)
 
 	f := dbCompactCmd.Flags()
-	f.StringVar(&dbCompactFlags.client, "client", "", "client that wrote the datadir (geth, nethermind, besu, erigon, reth, ethrex)")
+	f.StringVar(&dbCompactFlags.client, "client", "", "client that wrote the datadir (geth or erigon)")
 	f.StringVar(&dbCompactFlags.datadir, "datadir", "", "host path of the datadir; the client must be stopped")
 	f.StringArrayVar(&dbCompactFlags.prepare, "prepare", nil, "preparation step to run before the compaction (repeatable, e.g. erigon's seg-retire)")
 	f.StringVar(&dbCompactFlags.image, "image", "", "client image (default: the client's default image)")
-	f.StringVar(&dbCompactFlags.toolImage, "compaction-image", "", "image of the compaction container, as db_compaction.image")
 	f.StringArrayVar(&dbCompactFlags.extraArgs, "extra-arg", nil, "argument appended to the compaction command (repeatable)")
 	f.StringVar(&dbCompactFlags.timeout, "timeout", config.DefaultDBCompactionTimeout, "time limit for the whole compaction")
 	f.BoolVar(&dbCompactFlags.noInspect, "no-inspect", false, "skip the database inspection before and after")
-	f.BoolVar(&dbCompactFlags.noVerify, "no-verify", false, "skip the client's check of the compacted datadir (geth's journal check)")
 
 	_ = dbCompactCmd.MarkFlagRequired("client")
 	_ = dbCompactCmd.MarkFlagRequired("datadir")
@@ -72,15 +66,12 @@ func runDBCompact(cmd *cobra.Command, _ []string) error {
 	}
 
 	inspect := !dbCompactFlags.noInspect
-	verify := !dbCompactFlags.noVerify
 	cfg := &config.DBCompactionConfig{
 		Enabled:   true,
 		Prepare:   dbCompactFlags.prepare,
-		Image:     dbCompactFlags.toolImage,
 		ExtraArgs: dbCompactFlags.extraArgs,
 		Timeout:   dbCompactFlags.timeout,
 		Inspect:   &inspect,
-		Verify:    &verify,
 	}
 
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
