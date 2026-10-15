@@ -88,6 +88,9 @@ type LiveTestStats struct {
 	Passed            bool
 	GasUsed           int64
 	GasUsedDurationNs int64
+	// RejectedDurationNs is the time the client took to reject the test's
+	// expected-invalid payloads (0 when it has none). Such a test has no gas.
+	RejectedDurationNs int64
 }
 
 // BlockLogCollector is an interface for capturing JSON payloads from client logs.
@@ -353,11 +356,12 @@ func (e *executor) GetLiveTests() map[string]LiveTestStats {
 // recordTestCompletion writes a single completed test into the live map.
 // Called from the test loop once per iteration regardless of pass/fail.
 // Failed tests carry zero gas data so the heatmap can render fail tiles.
-func (e *executor) recordTestCompletion(name string, passed bool, gasUsed, gasUsedDurationNs int64) {
+func (e *executor) recordTestCompletion(name string, passed bool, gasUsed, gasUsedDurationNs, rejectedDurationNs int64) {
 	stats := LiveTestStats{
-		Passed:            passed,
-		GasUsed:           gasUsed,
-		GasUsedDurationNs: gasUsedDurationNs,
+		Passed:             passed,
+		GasUsed:            gasUsed,
+		GasUsedDurationNs:  gasUsedDurationNs,
+		RejectedDurationNs: rejectedDurationNs,
 	}
 
 	e.liveTestsMu.Lock()
@@ -566,8 +570,9 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 		// out of the test-step branch so we can also feed the per-test
 		// live record at the bottom of the loop.
 		var (
-			testGasUsed           int64
-			testGasUsedDurationNs int64
+			testGasUsed            int64
+			testGasUsedDurationNs  int64
+			testRejectedDurationNs int64
 		)
 
 		// Run setup step if present.
@@ -641,6 +646,8 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 					testGasUsed = int64(stats.GasUsedTotal) //nolint:gosec // gas values fit comfortably in int64
 					testGasUsedDurationNs = stats.GasUsedTimeTotal
 				}
+
+				testRejectedDurationNs = stats.RejectedTimeTotal
 			}
 		}
 
@@ -741,7 +748,7 @@ func (e *executor) ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*Exe
 			e.progressGasUsedDuration.Add(testGasUsedDurationNs)
 		}
 
-		e.recordTestCompletion(test.Name, testPassed, testGasUsed, testGasUsedDurationNs)
+		e.recordTestCompletion(test.Name, testPassed, testGasUsed, testGasUsedDurationNs, testRejectedDurationNs)
 	}
 
 writeResults:

@@ -526,9 +526,10 @@ func (r *runner) liveSnapshotter(
 				report.Tests = make(map[string]indexstore.LiveTestStats, len(live))
 				for name, t := range live {
 					report.Tests[name] = indexstore.LiveTestStats{
-						Passed:            t.Passed,
-						GasUsed:           t.GasUsed,
-						GasUsedDurationNs: t.GasUsedDurationNs,
+						Passed:             t.Passed,
+						GasUsed:            t.GasUsed,
+						GasUsedDurationNs:  t.GasUsedDurationNs,
+						RejectedDurationNs: t.RejectedDurationNs,
 					}
 				}
 			}

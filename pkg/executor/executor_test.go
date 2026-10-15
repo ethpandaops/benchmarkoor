@@ -153,7 +153,7 @@ func TestExecutor_LiveTests(t *testing.T) {
 	assert.Empty(t, e.GetLiveTests())
 
 	// Record a successful test.
-	e.recordTestCompletion("alpha", true, 1_000_000, 500_000_000)
+	e.recordTestCompletion("alpha", true, 1_000_000, 500_000_000, 0)
 	live := e.GetLiveTests()
 	require.Contains(t, live, "alpha")
 	assert.True(t, live["alpha"].Passed)
@@ -162,11 +162,17 @@ func TestExecutor_LiveTests(t *testing.T) {
 
 	// Failed tests are recorded with zero gas so the heatmap can render
 	// fail tiles in real time.
-	e.recordTestCompletion("beta", false, 0, 0)
+	e.recordTestCompletion("beta", false, 0, 0, 0)
 	live = e.GetLiveTests()
 	assert.Len(t, live, 2)
 	assert.False(t, live["beta"].Passed)
 	assert.Equal(t, int64(0), live["beta"].GasUsed)
+
+	// A test whose payload the client rejected keeps the time to reject.
+	e.recordTestCompletion("gamma", true, 0, 0, 61_000_000)
+	live = e.GetLiveTests()
+	assert.True(t, live["gamma"].Passed)
+	assert.Equal(t, int64(61_000_000), live["gamma"].RejectedDurationNs)
 
 	// GetLiveTests returns a defensive copy — mutating it must not leak.
 	live["beta"] = LiveTestStats{Passed: true}

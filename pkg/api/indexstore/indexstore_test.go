@@ -443,6 +443,7 @@ func TestStore_UpsertLiveRun_GasAndTestsRoundTrip(t *testing.T) {
 		Tests: map[string]indexstore.LiveTestStats{
 			"alpha": {Passed: true, GasUsed: 1_000, GasUsedDurationNs: 500_000},
 			"beta":  {Passed: false},
+			"gamma": {Passed: true, RejectedDurationNs: 61_000_000},
 		},
 	}))
 
@@ -456,10 +457,11 @@ func TestStore_UpsertLiveRun_GasAndTestsRoundTrip(t *testing.T) {
 
 	var decoded map[string]indexstore.LiveTestStats
 	require.NoError(t, json.Unmarshal([]byte(got.TestsJSON), &decoded))
-	require.Len(t, decoded, 2)
+	require.Len(t, decoded, 3)
 	assert.True(t, decoded["alpha"].Passed)
 	assert.Equal(t, int64(1_000), decoded["alpha"].GasUsed)
 	assert.False(t, decoded["beta"].Passed)
+	assert.Equal(t, int64(61_000_000), decoded["gamma"].RejectedDurationNs)
 
 	// A nil Tests map means "no update" — the previously-stored map
 	// stays put rather than being wiped to "{}".

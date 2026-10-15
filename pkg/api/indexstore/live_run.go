@@ -136,4 +136,7 @@ type LiveTestStats struct {
 	Passed            bool  `json:"passed"`
 	GasUsed           int64 `json:"gas_used,omitempty"`
 	GasUsedDurationNs int64 `json:"gas_used_duration_ns,omitempty"`
+	// RejectedDurationNs is the time the client took to reject the test's
+	// expected-invalid payloads; such a test has no gas.
+	RejectedDurationNs int64 `json:"rejected_duration_ns,omitempty"`
 }

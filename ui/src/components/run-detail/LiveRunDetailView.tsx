@@ -10,7 +10,8 @@ import {
   MIN_THRESHOLD,
   SLOW_STEP_MS,
 } from '@/utils/perfThreshold'
-import type { LiveRun, LiveTestStats, TestEntry, AggregatedStats } from '@/api/types'
+import type { LiveRun } from '@/api/types'
+import { liveTestsToHeatmapEntries } from '@/utils/liveTests'
 import { ClientStat } from '@/components/shared/ClientStat'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { RunConfiguration } from '@/components/run-detail/RunConfiguration'
@@ -391,41 +392,6 @@ export function LiveRunDetailView({ run }: LiveRunDetailViewProps) {
       )}
     </div>
   )
-}
-
-// liveTestsToHeatmapEntries adapts the live per-test gas map into the
-// Record<string, TestEntry> shape that the existing TestHeatmap consumes.
-// Only the `test` step's aggregated gas/duration is populated — that's
-// all the heatmap reads when DEFAULT_INDEX_STEP_FILTER is active. Failed
-// tests carry zero gas (rendered as no-data tiles by the heatmap).
-function liveTestsToHeatmapEntries(tests: Record<string, LiveTestStats>): Record<string, TestEntry> {
-  const out: Record<string, TestEntry> = {}
-
-  for (const [name, t] of Object.entries(tests)) {
-    out[name] = {
-      dir: '',
-      steps: {
-        test: { aggregated: liveTestStatsToAggregated(t) },
-      },
-    }
-  }
-
-  return out
-}
-
-function liveTestStatsToAggregated(t: LiveTestStats): AggregatedStats {
-  const gasUsed = t.gas_used ?? 0
-  const gasUsedDurationNs = t.gas_used_duration_ns ?? 0
-
-  return {
-    time_total: gasUsedDurationNs,
-    gas_used_total: gasUsed,
-    gas_used_time_total: gasUsedDurationNs,
-    success: t.passed ? 1 : 0,
-    fail: t.passed ? 0 : 1,
-    msg_count: 0,
-    method_stats: { times: {}, mgas_s: {} },
-  }
 }
 
 // useAnimatedNumber tweens between successive `target` values via

@@ -46,6 +46,8 @@ export interface LiveTestStats {
   passed: boolean
   gas_used?: number
   gas_used_duration_ns?: number
+  // Time to reject of an invalid-payload benchmark (it has no gas).
+  rejected_duration_ns?: number
 }
 
 export interface IndexEntry {
