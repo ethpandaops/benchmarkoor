@@ -201,6 +201,50 @@ func TestCollectFailedTests(t *testing.T) {
 	})
 }
 
+func TestCollectRejectedTests(t *testing.T) {
+	assert.Nil(t, collectRejectedTests(nil))
+
+	result := &RunResult{
+		Tests: map[string]*TestEntry{
+			"valid": {
+				Steps: &StepsResult{
+					Test: &StepResult{Aggregated: &AggregatedStats{Succeeded: 1}},
+				},
+			},
+			"zz_invalid": {
+				Steps: &StepsResult{
+					Test: &StepResult{Aggregated: &AggregatedStats{
+						Succeeded: 1, Rejected: 1, RejectedTimeTotal: 61_000_000,
+					}},
+				},
+			},
+			"aa_invalid": {
+				Steps: &StepsResult{
+					Test: &StepResult{Aggregated: &AggregatedStats{
+						Succeeded: 2, Rejected: 2, RejectedTimeTotal: 2_000_000_000,
+					}},
+				},
+			},
+		},
+	}
+
+	rejected := collectRejectedTests(result)
+	require.Len(t, rejected, 2)
+	assert.Equal(t, rejectedTestInfo{Name: "aa_invalid", Payloads: 2, DurationNs: 2_000_000_000}, rejected[0])
+	assert.Equal(t, "zz_invalid", rejected[1].Name)
+
+	var sb strings.Builder
+
+	writeRejectedTests(&sb, rejected, 0)
+	assert.Contains(t, sb.String(), "## Rejected Payloads")
+	assert.Contains(t, sb.String(), "| aa_invalid | 2 | 2s |")
+	assert.Contains(t, sb.String(), "| zz_invalid | 1 | 61ms |")
+
+	sb.Reset()
+	writeRejectedTests(&sb, rejected, 1)
+	assert.Contains(t, sb.String(), "*2 more rejected test(s) not shown")
+}
+
 func TestGenerateRunMarkdown(t *testing.T) {
 	t.Run("full run with result", func(t *testing.T) {
 		dir := t.TempDir()

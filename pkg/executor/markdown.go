@@ -98,6 +98,14 @@ type markdownTestCounts struct {
 	Failed int `json:"failed"`
 }
 
+// rejectedTestInfo holds the payloads of a test that the client rejected as
+// the fixture expects.
+type rejectedTestInfo struct {
+	Name       string
+	Payloads   int
+	DurationNs int64
+}
+
 // failedTestInfo holds information about a single failed test.
 type failedTestInfo struct {
 	Name        string
@@ -170,7 +178,9 @@ func GenerateRunMarkdown(
 	writeResourceLimits(&sb, cfg.Instance, cfg.System)
 	writeMetadata(&sb, cfg.Metadata)
 
-	// Failed tests section is last — it gets truncated if needed.
+	// The per-test sections are last — they get truncated if needed.
+	writeRejectedTests(&sb, collectRejectedTests(result), maxChars)
+
 	failed := collectFailedTests(result)
 	writeFailedTests(&sb, failed, maxChars)
 
@@ -553,6 +563,77 @@ func writeFailedTests(
 
 		sb.WriteString(row)
 	}
+}
+
+// writeRejectedTests lists the tests whose payloads the client rejected as
+// the fixture expects, with the time the client took to reject them.
+func writeRejectedTests(
+	sb *strings.Builder,
+	rejected []rejectedTestInfo,
+	maxChars int,
+) {
+	if len(rejected) == 0 {
+		return
+	}
+
+	sb.WriteString("## Rejected Payloads\n\n")
+	sb.WriteString("Expected rejections: the client must reject these payloads.\n\n")
+	sb.WriteString("| Test | Payloads | Time to Reject |\n")
+	sb.WriteString("|---|---|---|\n")
+
+	// Reserve space for the truncation message.
+	const reserveChars = 100
+
+	for i, rt := range rejected {
+		row := fmt.Sprintf("| %s | %d | %s |\n",
+			rt.Name, rt.Payloads, formatDurationNs(rt.DurationNs))
+
+		if maxChars > 0 && sb.Len()+len(row)+reserveChars > maxChars {
+			fmt.Fprintf(sb,
+				"\n*%d more rejected test(s) not shown "+
+					"(output truncated at %d chars)*\n\n",
+				len(rejected)-i, maxChars)
+
+			return
+		}
+
+		sb.WriteString(row)
+	}
+
+	sb.WriteByte('\n')
+}
+
+// collectRejectedTests returns, sorted by name, the tests whose test step
+// has payloads that the client rejected as the fixture expects.
+func collectRejectedTests(result *RunResult) []rejectedTestInfo {
+	if result == nil {
+		return nil
+	}
+
+	rejected := make([]rejectedTestInfo, 0)
+
+	for name, test := range result.Tests {
+		if test.Steps == nil || test.Steps.Test == nil {
+			continue
+		}
+
+		agg := test.Steps.Test.Aggregated
+		if agg == nil || agg.Rejected == 0 {
+			continue
+		}
+
+		rejected = append(rejected, rejectedTestInfo{
+			Name:       name,
+			Payloads:   agg.Rejected,
+			DurationNs: agg.RejectedTimeTotal,
+		})
+	}
+
+	sort.Slice(rejected, func(i, j int) bool {
+		return rejected[i].Name < rejected[j].Name
+	})
+
+	return rejected
 }
 
 // collectFailedTests iterates the result and returns a sorted list of
