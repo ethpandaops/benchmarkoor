@@ -1,16 +1,18 @@
-# Building data directories and EEST FULL STATEFUL (bloatnet / repricing) payloads — AMSTERDAM fill.
+# Building data directories and EEST FULL STATEFUL (bloatnet / repricing) payloads —
+# AMSTERDAM fill on glamsterdam-devnet-8.
 #
 # This is the "full" counterpart of config.state-actor-eest.simple.amsterdam.stateful.yaml:
-# a large repricing prestate (jochem-brouwer's production-minimum spec,
-# https://gist.github.com/jochem-brouwer/5da19ef1e96edcf645b3dd590b5604bd) that
-# backs the tests/benchmark/stateful/bloatnet repricing benchmarks. The geth
-# snapshot alone is ~77 GB on disk and takes 30-90 min to build.
+# the large repricing prestate that backs the tests/benchmark/stateful/bloatnet
+# benchmarks. The prestate, EEST branch and client builds are those of
+# ethpandaops/benchmarkoor-tests state-actor/v2 (configs/datadirs/state-actor/v2
+# and configs/contexts/repricing/state-actor/v2/glamsterdam-devnet-8). Each
+# client's snapshot is ~520-720 GB on disk.
 #
 # ── Run this in a Linux env with a COW datadir method (overlayfs/zfs/schelk) ──
-# macOS has none of these, and `copy` is infeasible at 77 GB (copied per fill and
-# per client per run). Provision an OrbStack Linux machine with .hack/orbstack.sh
-# (dedicated dockerd + overlayfs + a native benchmarkoor build), then run as root
-# INSIDE the machine (overlayfs mount needs CAP_SYS_ADMIN):
+# macOS has none of these, and `copy` is infeasible at this size (copied per fill
+# and per client per run). Provision an OrbStack Linux machine with
+# .hack/orbstack.sh (dedicated dockerd + overlayfs + a native benchmarkoor build),
+# then run as root INSIDE the machine (overlayfs mount needs CAP_SYS_ADMIN):
 #
 #   .hack/orbstack.sh bench
 #   orb -m bench sudo benchmarkoor build --config $(pwd)/examples/configuration/config.state-actor-eest.full.amsterdam.stateful.yaml --force
@@ -18,18 +20,7 @@
 #
 # Amsterdam is activated exactly as in the other configs: geth/erigon via the
 # --override.amsterdam flag, besu/reth/ethrex via genesis_fork_override,
-# nethermind via genesis_eip_override. (Per the assume-Amsterdam decision; the
-# gist itself notes the repricing actually ships in glamsterdam.)
-#
-# NB: geth, nethermind, ethrex, reth and besu are enabled by default — each
-# client needs its OWN multi-hundred-GB snapshot (state-actor builds one per
-# target), ~1.7 TB for these five. erigon is left commented out: its state-actor
-# build OOMs a 58 GB VM in the commitment phase — re-enable with more RAM.
-#
-# STATUS: validated end-to-end in the OrbStack VM — geth fills 225 bloatnet
-# cases (0 failed) against this prestate, and the geth/nethermind genesis state
-# roots match. The excluded tests (see the filter note on the geth target) need
-# prestate/stub coverage this gist doesn't provide.
+# nethermind via genesis_eip_override.
 #
 global:
   log_level: info
@@ -40,35 +31,31 @@ global:
     STATE_DIR: /tmp/benchmarkoor/state-actor/full-amsterdam-stateful
     EEST_FIXTURES_DIR: /tmp/benchmarkoor/eest-fixtures/full-amsterdam-stateful
     EEST_FIXTURES_RUNNER_SOURCE: geth   # which filler's fixtures the runner replays
+    AMSTERDAM_ACTIVATION_TS: "1"
 
 builder:
   ## Stage 1: Building the large repricing datadir using state-actor
   state_actor:
+    # f171c26 is the merge of ethereum/state-actor#153, which makes the
+    # code_pattern runtimes on demand. Before #153, state-actor kept all of
+    # them in memory (~19 GiB for this spec), and the nethermind, reth and
+    # besu builds were OOM-killed on 61 GB hosts. Do not go back before it.
     images:
-      geth: ghcr.io/ethereum/state-actor:main
-      nethermind: ghcr.io/ethereum/state-actor-nethermind:main
-      ethrex: ghcr.io/ethereum/state-actor-ethrex:main
-      reth: ghcr.io/ethereum/state-actor-reth:main
-      besu: ghcr.io/ethereum/state-actor-besu:main
-      # erigon: ghcr.io/ethereum/state-actor-erigon:main
+      geth: ghcr.io/ethereum/state-actor:main-f171c26
+      nethermind: ghcr.io/ethereum/state-actor-nethermind:main-f171c26
+      ethrex: ghcr.io/ethereum/state-actor-ethrex:main-f171c26
+      reth: ghcr.io/ethereum/state-actor-reth:main-f171c26
+      besu: ghcr.io/ethereum/state-actor-besu:main-f171c26
+      erigon: ghcr.io/ethereum/state-actor-erigon:main-f171c26
     pull_policy: always
     config:
-      seed: 42                  # gist uses --seed=42 (reproducible addresses)
-      fork: osaka               # snapshot baseline (amsterdam is forked in at fill/run)
+      seed: 42
+      fork: osaka
       chain: 1337
-      # gist minimum is 85M (an amsterdam max-size code deploy needs gas_limit
-      # >= 67M). 1000M (1 G) gives generous headroom for the benchmark setup
-      # blocks. NB: this does NOT make test_deep_branch fillable — its worst-case
-      # deep-MPT setup needs a single block > 1 G, and EIP-1559 caps the per-block
-      # ramp to +/-1/1024, so the limit can't jump there (verified at 1000M; deep
-      # stays excluded below). All 225 other bloatnet cases fill fine at any of
-      # these values; the funding fixes, not the gas_limit, are what matter.
-      gas_limit: 1000000000
-      # Must exceed the prestate size (~77 GB) or state-actor truncates entities.
-      target_size: 200GB
-    # jochem-brouwer's production-minimum repricing prestate. The big cost is
-    # entity "storage-pattern-10gb" (335M slots ≈ 73 GB); the 150000-count knobs
-    # give 300M-gas cold-access headroom (count >= gas/2000).
+      # 1 TGas. geth adds the gas limit of each transaction to the block
+      # total, so at 1 GGas the setup blocks fail with "gas limit reached".
+      gas_limit: 1000000000000
+      target_size: 350GB
     spec:
       entities:
         # Pre-funded seed for fill-stateful — Hardhat/Anvil dev key #0
@@ -100,14 +87,67 @@ builder:
           name: create2-factory
           template: create2_factory
           address: 0x4e59b44847b379578588920cA78FbF26c0B4956C
-        # 150000 CREATE2 contracts with UNIQUE 24KB runtime (cold-contract access
-        # / test_transaction_types). ~3.7 GB resident code during build.
+        # CREATE2 receivers, one entity per AccountMode initcode and code size.
+        #
+        # 24 KiB (Osaka max code size). These are the v1 entities, so the
+        # receivers keep their v1 addresses. The minimal
+        # initcode 0x60016000f3 (PUSH1 1, PUSH1 0, RETURN) deploys the 1-byte
+        # STOP runtime — byte-identical to EEST's MinimalContractInitcode. It
+        # has no code size, so the 64 KiB block below has no minimal entity.
         - kind: contract
-          name: create2-deploys-300m
+          name: create2-minimal-300m
+          template: create2_deploys
+          parameters:
+            initcode: "0x60016000f3"
+            runtime: "0x00"
+            salt_count: 150000 # 150K
+        - kind: contract
+          name: create2-same-300m
+          template: create2_deploys
+          parameters:
+            code_pattern: max_same_pre_amsterdam
+            salt_count: 150000 # 150K
+        - kind: contract
+          name: create2-diff-300m
+          template: create2_deploys
+          parameters:
+            code_pattern: max_diff_pre_amsterdam
+            salt_count: 150000 # 150K
+        - kind: contract
+          name: create2-jumpdest-300m
           template: create2_deploys
           parameters:
             code_pattern: unique_jumpdest_pre_amsterdam
-            salt_count: 150000
+            salt_count: 150000 # 150K
+        # 64 KiB (Amsterdam max code size, EIP-7954). code_size makes
+        # state-actor build the same initcode as EEST's
+        # StopJumpdestInitcode / JochemnetPredeployContractInitcode at
+        # code_size=65536, so the CREATE2 addresses agree. 100K salts, the
+        # same count as the jochemnet pre-run (BLOATNET_RECEIVER_CONTRACT_COUNT)
+        # that filled the devnet-8 suites at 300M. Each unique runtime stays
+        # in memory during the build: 100K x 64 KiB ≈ 6.1 GiB for each of
+        # diff and jumpdest.
+        - kind: contract
+          name: create2-same-64kib
+          template: create2_deploys
+          parameters:
+            code_pattern: max_same
+            code_size: 65536
+            salt_count: 100000 # 100K
+        - kind: contract
+          name: create2-diff-64kib
+          template: create2_deploys
+          parameters:
+            code_pattern: max_diff
+            code_size: 65536
+            salt_count: 100000 # 100K
+        - kind: contract
+          name: create2-jumpdest-64kib
+          template: create2_deploys
+          parameters:
+            code_pattern: unique_jumpdest
+            code_size: 65536
+            salt_count: 100000 # 100K
         # Sender pool for test_ether_transfers_onchain_receivers, which derives
         # senders as EOA(key=SENDER_BASE_KEY + i) and assumes them pre-funded.
         # SENDER_BASE_KEY = keccak256("gas-repricings-private-key") on this EEST
@@ -131,36 +171,72 @@ builder:
             runtime: "0x606060405236156100495763ffffffff7c01000000000000000000000000000000000000000000000000000000006000350416636ea056a98114610052578063c0ee0b8a14610092575b6100505b5b565b005b341561005a57fe5b61007e73ffffffffffffffffffffffffffffffffffffffff60043516602435610104565b604080519115158252519081900360200190f35b341561009a57fe5b604080516020600460443581810135601f810184900484028501840190955284845261005094823573ffffffffffffffffffffffffffffffffffffffff169460248035956064949293919092019181908401838280828437509496506101ef95505050505050565b005b6000805460408051602090810184905281517f3c18d31800000000000000000000000000000000000000000000000000000000815273ffffffffffffffffffffffffffffffffffffffff878116600483015292519290931692633c18d318926024808301939282900301818787803b151561017b57fe5b6102c65a03f1151561018957fe5b5050506040518051905073ffffffffffffffffffffffffffffffffffffffff1660003660006040516020015260405180838380828437820191505092505050602060405180830381856102c65a03f415156101e057fe5b50506040515190505b92915050565b5b5050505600a165627a7a723058204cdd69fdcf3cf6cbee9677fe380fa5f044048aa9e060ec5619a21ca5a5bd4cd10029"
             storage_init:
               "0x0": "0xa3c1e324ca1ce40db73ed6026c4a177f099b5770"
+        # EIP-7702 delegations: authority i delegates to the max_diff receiver i
+        # (EXISTING_CONTRACT_DIFF_MAX) of the same code size. An authority can
+        # carry only one delegation, so each code size has its own key range:
+        #   start_pkey = keccak256("gas-repricings-7702-delegate" ++ uint256(code_size))
+        # (execution-specs delegate_base_key). v1's single range,
+        # keccak256("gas-repricings-7702-delegate") = 0x959a…c64e, is not read
+        # by these benchmarks and is left out.
+        - kind: contract
+          name: delegations-24kib
+          template: sequential_pkey_delegations
+          parameters:
+            start_pkey: "0x12bfac886c352268c54211c3b5613fef58d4e559fd0891c0ca534e47efed694e"
+            code_pattern: max_diff_pre_amsterdam
+            count: 150000 # 150K, paired with create2-diff-300m
+            balance: "1000000000000000000"
+        - kind: contract
+          name: delegations-64kib
+          template: sequential_pkey_delegations
+          parameters:
+            start_pkey: "0x839457a98a77bfdf20fcb7ada1fed618bec69a4dc46d6811f60f2e4d41b59206"
+            code_pattern: max_diff
+            code_size: 65536
+            count: 100000 # 100K, paired with create2-diff-64kib
+            balance: "1000000000000000000"
+        # EIP-8282 builder-execution-request predeploys (system-called at end of
+        # every block since amsterdam). devnet-8 clients reject every block if
+        # these have no code; predeploy the bytecode so the end-of-block system
+        # call returns empty requests (queue empty).
+        - kind: contract
+          name: eip8282-builder-deposit-requests
+          address: 0x0000bff46984e3725691fa540a8c7589300d8282
+          nonce: 1
+          code: "0x3373fffffffffffffffffffffffffffffffffffffffe1461011c575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146102705760015460088111605257506058565b60089003015b601190600182026001905f5b5f821115607f57810190830284830290049160010191906064565b90939004925050503660b814609f57366102705734610270575f5260205ff35b8034106102705760383567ffffffffffffffff1680633b9aca001161027057633b9aca00029034031061027057600154600101600155600354806006026004015f358155600101602035815560010160403581556001016060358155600101608035815560010160a035905560b85f5f3760b85fa0600101600355005b60035460025480820380604011610131575060405b5f5b8181146101d7578281016006026004018160b8028154815260200181600101548152602001816002015480825260401c67ffffffffffffffff16816010018160381c81600701538160301c81600601538160281c81600501538160201c81600401538160181c81600301538160101c81600201538160081c816001015353602001816003015481526020018160040154815260200190600501549052600101610133565b91018092146101e957906002556101f4565b90505f6002555f6003555b36610242575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1461023057600882820111610238575b50505f610264565b0160089003610264565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f60015560b8025ff35b5f5ffd"
+        - kind: contract
+          name: eip8282-builder-exit-requests
+          address: 0x000064d678505ad48f8ccb093bc65613800e8282
+          nonce: 1
+          code: "0x3373fffffffffffffffffffffffffffffffffffffffe1460e1575f54807fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101c65760015460028111605157506057565b60029003015b601190600182026001905f5b5f821115607e57810190830284830290049160010191906063565b909390049250505036603014609e57366101c657346101c6575f5260205ff35b34106101c657600154600101600155600354806003026004013381556001015f35815560010160203590553360601b5f5260305f60143760445fa0600101600355005b6003546002548082038060101160f5575060105b5f5b81811461012d5782810160030260040181604402815460601b8152601401816001015481526020019060020154905260010160f7565b910180921461013f579060025561014a565b90505f6002555f6003555b36610198575f54600154817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff146101865760028282011161018e575b50505f6101ba565b01600290036101ba565b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff5b5f555f6001556044025ff35b5f5ffd"
+
     targets:
       - client: geth
-        output_dir: ${STATE_DIR}/geth          # ~338 GB on disk once built
+        output_dir: ${STATE_DIR}/geth          # ~554 GB
       - client: nethermind
-        output_dir: ${STATE_DIR}/nethermind    # ~248 GB on disk once built
+        output_dir: ${STATE_DIR}/nethermind    # ~520 GB
       - client: ethrex
-        output_dir: ${STATE_DIR}/ethrex        # ~436 GB; snapshot only (ethrex isn't a fill-stateful filler)
+        output_dir: ${STATE_DIR}/ethrex        # ~720 GB
       - client: reth
-        output_dir: ${STATE_DIR}/reth          # ~353 GB; snapshot only (reth isn't a fill-stateful filler)
+        output_dir: ${STATE_DIR}/reth          # ~588 GB
       - client: besu
-        output_dir: ${STATE_DIR}/besu          # ~329 GB
-      # - client: erigon   # OOMs the state-actor build on a 58 GB VM (huge-storage commitment phase)
-      #   output_dir: ${STATE_DIR}/erigon
+        output_dir: ${STATE_DIR}/besu          # ~534 GB
+      - client: erigon
+        output_dir: ${STATE_DIR}/erigon        # ~517 GB
 
   ## Stage 2: Building EEST bloatnet/repricing fixtures
   eest_payloads:
     # Fill image defaults to a Dockerfile embedded in the binary; set fill_image
     # to pull a pre-built one, or fill_dockerfile to build from a custom Dockerfile.
     pull_policy: always
-    eest_repo: https://github.com/ethereum/execution-specs.git
-    # devnets/bal/7-bench carries the BAL benchmark tooling plus the fill-stateful
-    # fixes that let nethermind drive fill-stateful (debug_resetHead fallback,
-    # receipt `error` strip, and start_block-not-"latest" nonce/rewind reads).
-    # Geth filling is unaffected by them.
-    eest_ref: devnets/bal/7-bench
+    # The fill-stateful branch the devnet-8 benchmarks fill from.
+    eest_repo: https://github.com/skylenet/execution-specs.git
+    eest_ref: fix/genesis-head-slot-number
     config:
       fork: amsterdam
       # Hardhat/Anvil dev key #0 → 0xf39Fd6…2266 (the pre-funded seed above).
       rpc_seed_key: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-      # The bloatnet prestate has ample gas headroom; start lower for faster fills.
+      # The prestate is sized for 300M gas; start lower for faster fills.
       gas_benchmark_values: [30]
       # COW is mandatory at this size — overlayfs (Linux/OrbStack). On the host
       # this would be `copy` (infeasible). See .hack/orbstack.sh.
@@ -176,37 +252,47 @@ builder:
         bloated_eoa_10GB:
           addr: "0x87a6314da5ac8832f6e7a176c8fb133b19f5be04"
           pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
+      # test_deploy_existing_contracts is a pre-run setup, not a benchmark: it
+      # deploys the receivers and delegations the prestate above already has,
+      # so every CREATE2 deploy collides.
       filter: >-
-        not erc20
-        and not test_multi_opcode
-        and not test_setup_contracts
-        and not test_deep_branch
-        and not test_extcodesize_bytecode_sizes
-        and not test_sload_bloated_prefetch_miss
-        and not (test_sstore_variants and zero_to_nonzero)
-        and not (test_sload_bloated_multi_contract and existing_slots_True)
+        not test_deploy_existing_contracts
     targets:
       # Geth
       - name: payload-generator-geth-stateful-full
         filler_client: geth
-        filler_image: skylenet/geth:bal-devnet-7-amsterdam-override
+        filler_image: ethpandaops/geth:glamsterdam-devnet-8
         source_dir: ${STATE_DIR}/geth
+        output_dir: ${EEST_FIXTURES_DIR}/geth
         # geth boots from the snapshot datadir; activate amsterdam at block 0's
         # timestamp (0) + 1 via the override flag — same as the runner geth instance.
         filler_extra_args:
-          - --override.amsterdam=1
-        output_dir: ${EEST_FIXTURES_DIR}/geth
+          - --override.amsterdam=${AMSTERDAM_ACTIVATION_TS}
+          - --engine.maxreorgdepth=1024    # Long-chain benchmarks exceed the 512 default
+          - --rpc.batch-request-limit=16384 # Default 1000
+          - --rpc.http-body-limit=128       # Default 5 (megabytes)
 
       # Nethermind
       - name: payload-generator-nethermind-stateful-full
         filler_client: nethermind
-        filler_image: nethermindeth/nethermind:master
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-8
         source_dir: ${STATE_DIR}/nethermind
         # nethermind reads a parity chainspec; amsterdam is activated via the
-        # per-instance genesis_eip_override (same EIP set as the runner instance).
+        # genesis_eip_override (same EIP set as the runner instance).
         genesis: ${STATE_DIR}/nethermind/parity-chainspec.json
-        genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
+        genesis_eip_override:
+          timestamp: ${AMSTERDAM_ACTIVATION_TS}
+          eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282]
         output_dir: ${EEST_FIXTURES_DIR}/nethermind
+        filler_extra_args:
+          - --FlatDb.Enabled=true
+          - --FlatDb.CompactionOffset=0
+          - --FlatDb.MinReorgDepth=1024
+          - --FlatDb.MaxReorgDepth=1024
+          - --JsonRpc.MaxBatchSize=16384 # Default 1024
+          - --Init.AutoDump=None
+          - --Merge.NewPayloadBlockProcessingTimeout=70000
+          - --Blocks.CachePrecompilesOnBlockProcessing=false
 
 ## Stage 3: Run the bloatnet/repricing benchmarks
 runner:
@@ -231,7 +317,7 @@ runner:
           fixtures_subdir: blockchain_tests_stateful_engine
   client:
     config:
-      # rollback_strategy: container-recreate  # recreate the container and rollback snapshot datadir
+      rollback_strategy: container-recreate  # recreate the container and rollback snapshot datadir
       bootstrap_fcu:
         enabled: true
         max_retries: 10
@@ -243,9 +329,9 @@ runner:
       genesis:
         nethermind: ${STATE_DIR}/nethermind/parity-chainspec.json
         ethrex: ${STATE_DIR}/ethrex/ethrex-genesis.json
-        reth:  ${STATE_DIR}/reth/chainspec.json
+        reth: ${STATE_DIR}/reth/chainspec.json
         besu: ${STATE_DIR}/besu/besu-chainspec.json
-        # erigon: ${STATE_DIR}/erigon/chainspec.json
+        erigon: ${STATE_DIR}/erigon/chainspec.json
     datadirs:
       geth:
         source_dir: ${STATE_DIR}/geth
@@ -264,40 +350,66 @@ runner:
       besu:
         source_dir: ${STATE_DIR}/besu
         method: overlayfs
-      # erigon: { source_dir: ${STATE_DIR}/erigon, method: overlayfs }
+      erigon:
+        source_dir: ${STATE_DIR}/erigon
+        method: overlayfs
 
+  # The devnet-8 client builds, in BAL "full" mode. Each client needs its own
+  # snapshot (state_actor target above) + the genesis/override wiring — see
+  # config.state-actor-eest.simple.amsterdam.stateful.yaml for the notes.
   instances:
     - id: geth
       client: geth
-      image: skylenet/geth:bal-devnet-7-amsterdam-override
+      image: ethpandaops/geth:master
       extra_args:
-        - --override.amsterdam=1
-    # Other clients need their own snapshot (state_actor target above) + their
-    # genesis/override wiring — mirror config.state-actor-eest.simple.amsterdam.stateful.yaml.
+        - --cache.noprecompile
+        - --engine.maxreorgdepth=1024
+        - --override.amsterdam=${AMSTERDAM_ACTIVATION_TS}
+        - --debug.logslowblock=0
     - id: reth
       client: reth
-      image: ethpandaops/reth:bal-devnet-7
-      genesis_fork_override: { amsterdam: 1 }
+      image: ethpandaops/reth:glamsterdam-devnet-8
+      genesis_fork_override:
+        amsterdam: ${AMSTERDAM_ACTIVATION_TS}
       extra_args: [--engine.slow-block-threshold=0]
       retry_new_payloads_failed_state: { enabled: true, max_retries: 10, backoff: 1s }
     - id: nethermind
       client: nethermind
-      image: nethermindeth/nethermind:master
-      genesis_eip_override: { timestamp: 1, eips: [7708, 7778, 7843, 7928, 7954, 7976, 7981, 8024, 8037] }
-      extra_args: [--Init.BaseDbPath=/data, --Blocks.ParallelExecution=true, --Blocks.ParallelExecutionBatchRead=true]
+      image: ethpandaops/nethermind:master
+      genesis_eip_override:
+        timestamp: ${AMSTERDAM_ACTIVATION_TS}
+        eips: [2780, 7708, 7778, 7843, 7928, 7954, 7976, 7981, 7997, 8024, 8037, 8038, 8246, 8282]
+      extra_args:
+        - --Init.BaseDbPath=/data
+        - --FlatDb.Enabled=true
+        - --FlatDb.CompactionOffset=0
+        - --FlatDb.MinReorgDepth=1024
+        - --FlatDb.MaxReorgDepth=1024
+        - --Blocks.ParallelExecution=true
+        - --Blocks.ParallelExecutionBatchRead=true
+      retry_new_payloads_syncing_state: { enabled: true, max_retries: 10, backoff: 2s }
     - id: besu
       client: besu
-      image: ethpandaops/besu:bal-devnet-7
-      genesis_fork_override: { amsterdam: 1 }
+      image: ethpandaops/besu:main-cf89071
+      genesis_fork_override:
+        amsterdam: ${AMSTERDAM_ACTIVATION_TS}
       environment: { BESU_OPTS: "-Xms8g -Xmx8g -XX:+AlwaysPreTouch" }
-      extra_args: [--p2p-enabled=true, --Xplugin-rocksdb-high-spec-enabled=true, --Xbal-perfect-parallelization-enabled=true, --Xbal-state-root-enabled=true, --Xbal-prefetch-reading-enabled=true, --Xbal-prefetch-batch-size=8, --Xbal-processing-timeout=-1, --Xbal-state-root-timeout=-1]
+      extra_args: [--Xplugin-rocksdb-high-spec-enabled=true, --Xbal-perfect-parallelization-enabled=true, --Xbal-state-root-enabled=true]
     - id: ethrex
       client: ethrex
-      image: ethpandaops/ethrex:bal-devnet-7
-      genesis_fork_override: { amsterdam: 1 }
+      image: ethpandaops/ethrex:main
+      genesis_fork_override:
+        amsterdam: ${AMSTERDAM_ACTIVATION_TS}
       extra_args: [--skip-genesis-validation, --no-precompile-cache]
-    # - id: erigon
-    #   client: erigon
-    #   image: ethpandaops/erigon:bal-devnet-7
-    #   extra_args: [--override.amsterdam=1, --fcu.background.commit=false, --exec.no-merge=true, --exec.no-prune=true, --exec.no-background-maintenance]
-    #   bootstrap_fcu: { enabled: true, max_retries: 120, backoff: 30s }
+    - id: erigon
+      client: erigon
+      image: ethpandaops/erigon:main
+      extra_args:
+        - --debug.slow-block-threshold=0
+        - --override.amsterdam=${AMSTERDAM_ACTIVATION_TS}
+        - --exec.no-merge=true
+        - --exec.no-prune=true
+        - --exec.no-background-maintenance
+        - --experimental.parallel-commitment
+      bootstrap_fcu: { enabled: true, max_retries: 120, backoff: 30s }
+      retry_new_payloads_syncing_state: { enabled: true, max_retries: 240, backoff: 30s }

@@ -1,5 +1,7 @@
 # PRE-RUN payload bundle + EEST STATEFUL payloads on an EXISTING (OSAKA) snapshot
-# dir — nethermind and geth each advance their own, crossing OSAKA → AMSTERDAM.
+# dir — nethermind and geth each advance their own, crossing OSAKA → AMSTERDAM,
+# with glamsterdam-devnet-8 clients (the builds of ethpandaops/benchmarkoor-tests
+# jochemnet/v1/glamsterdam-devnet-8).
 #
 # Sibling of config.state-actor-eest.simple.amsterdam.stateful.pre-runs.yaml, but
 # with NO state_actor stage: instead of synthesising a snapshot, this advances an
@@ -36,16 +38,14 @@
 # │ CREATE from our deployer would land the code at the deployer's CREATE         │
 # │ addresses instead — the wrong place.                                          │
 # │                                                                              │
-# │ So the predeploy below REPLAYS glamsterdam-devnet-7's own deployment          │
-# │ calldata against the deterministic-deployment proxy (CREATE2) at              │
+# │ So the predeploy below REPLAYS the live devnet's own deployment calldata      │
+# │ against the deterministic-deployment proxy (CREATE2) at                       │
 # │ 0x4e59b448…c0B4956C. A CREATE2 address is                                     │
 # │   keccak256(0xff ++ factory ++ salt ++ keccak256(initcode))[12:]              │
 # │ with no msg.sender in the preimage, so ANY funded sender reproduces the       │
-# │ canonical pair devnet-7 clients system-call:                                  │
+# │ canonical pair devnet-8 clients system-call:                                  │
 # │   deposit 0x0000bFF46984e3725691FA540a8C7589300D8282                          │
 # │   exit    0x000064D678505ad48F8cCb093BC65613800E8282                          │
-# │ (devnet-6 used 0x0000884d…D9008282 / 0x000014574A…0f008282 — a different      │
-# │ salt+initcode, so do not pair this calldata with a devnet-6 image.)           │
 # │                                                                              │
 # │ This is why no relaxed/patched client build is needed here. It does require   │
 # │ the CREATE2 factory to already exist on the chain: it is not in the mainnet   │
@@ -126,8 +126,9 @@ global:
     # is the schelk scratch, and the runner's own `schelk restore` — the one that
     # rolls back to the baseline the bundle replays onto — would discard it.
     PRERUN_BUNDLE_DIR: /tmp/benchmarkoor/pre-runs/existing-snapshot/geth
-    EEST_REPO: https://github.com/LouisTsai-Csie/execution-specs.git
-    EEST_REF: feat-deploy-script
+    # The fill-stateful branch the devnet-8 benchmarks fill from.
+    EEST_REPO: https://github.com/skylenet/execution-specs.git
+    EEST_REF: fix/genesis-head-slot-number
 
 builder:
   ## Stage 1.5: pre-run — deploy the 8282 contracts on osaka, cross to amsterdam,
@@ -215,7 +216,7 @@ builder:
         pre_fork: osaka
         deployer_key: "0x0000000000000000000000000000000000000000000000000000000000000002"
         contracts:
-          # Replay of glamsterdam-devnet-7's OWN EIP-8282 deployment txs, sent to
+          # Replay of the live devnet's OWN EIP-8282 deployment txs, sent to
           # the deterministic-deployment proxy (CREATE2) at 0x4e59b448…c0B4956C.
           # data is the factory's calldata: 32-byte mined salt then initcode.
           # Because a CREATE2 address is
@@ -225,7 +226,7 @@ builder:
           # is what makes the fixed-address problem go away. Running the real
           # initcode also sets the constructor storage (excess = EXCESS_INHIBITOR)
           # rather than installing runtime code over empty storage.
-          # Source txs on devnet-7:
+          # Source deployment txs:
           #   deposit 0x89703ec01488d08c9bf6a29a623396c88152f7df6f6cf06b1d7c9e4805c781dd
           #   exit    0xeb17df81c87dfae5ab110feeac385d296245a9983ecdb1c301c6caed2f0b9770
           # address is verified against the deployed code after the block builds.
@@ -238,7 +239,7 @@ builder:
     targets:
       - name: pre-run-nethermind
         filler_client: nethermind
-        filler_image: ethpandaops/nethermind:glamsterdam-devnet-7
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-8
         source_dir: ${SNAPSHOT_DIR}
         genesis: ${NETHERMIND_CHAINSPEC}
         # No output_dir: schelk advances source_dir in place (see the note above).
@@ -273,7 +274,7 @@ builder:
       # exactly there, so geth needs no patched build either.
       - name: pre-run-geth
         filler_client: geth
-        filler_image: ethpandaops/geth:glamsterdam-devnet-7
+        filler_image: ethpandaops/geth:glamsterdam-devnet-8
         source_dir: ${GETH_SNAPSHOT_DIR}
         # Write the replay bundle off the schelk scratch (see PRERUN_BUNDLE_DIR).
         # Without this it lands in the advanced datadir — i.e. on the scratch —
@@ -343,8 +344,8 @@ builder:
           pkey: "0x4da32d29f6dcffa26e09dc4e102033f2d105de1444fb893493ae703289275e0e"
       # DISABLED: run every repricing variant and see what actually fails here.
       # The exclusion list below is kept for reference only — it was established
-      # at 300 Mgas against a glamsterdam-devnet-6 nethermind build, so neither
-      # its membership nor its count is expected to hold at 100 Mgas on devnet-7
+      # at 300 Mgas against an older nethermind build, so neither its
+      # membership nor its count is expected to hold at 100 Mgas on devnet-8
       # geth. Re-enable (and re-derive) it only if the failures reproduce.
       # EEST's per-op gas model under-predicts
       # what the client charges for value-bearing calls to CONTRACT accounts, so the
@@ -362,7 +363,7 @@ builder:
     targets:
       - name: payload-generator-nethermind-stateful
         filler_client: nethermind
-        filler_image: ethpandaops/nethermind:glamsterdam-devnet-7
+        filler_image: ethpandaops/nethermind:glamsterdam-devnet-8
         source_dir: ${SNAPSHOT_DIR}
         genesis: ${NETHERMIND_CHAINSPEC}
         output_dir: ${EEST_FIXTURES_DIR}/nethermind
@@ -381,7 +382,7 @@ builder:
       # FlatDb flags geth would reject.
       - name: payload-generator-geth-stateful
         filler_client: geth
-        filler_image: ethpandaops/geth:glamsterdam-devnet-7
+        filler_image: ethpandaops/geth:glamsterdam-devnet-8
         source_dir: ${GETH_SNAPSHOT_DIR}
         output_dir: ${EEST_FIXTURES_DIR}/geth
         filler_extra_args:
@@ -442,7 +443,7 @@ runner:
   instances:
     - id: nethermind
       client: nethermind
-      image: ethpandaops/nethermind:glamsterdam-devnet-7
+      image: ethpandaops/nethermind:master
       # Same amsterdam schedule as the build stages so the datadir head is
       # recognised as amsterdam at run time.
       genesis_eip_override:
@@ -466,7 +467,7 @@ runner:
 
     - id: geth
       client: geth
-      image: ethpandaops/geth:glamsterdam-devnet-7
+      image: ethpandaops/geth:master
       # geth's counterpart of the nethermind genesis_eip_override above: patch
       # amsterdam into the geth-format genesis at the SAME timestamp the build
       # stages used, so this boot recognises the advanced head as amsterdam.

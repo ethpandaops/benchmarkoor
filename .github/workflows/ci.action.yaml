@@ -335,8 +335,8 @@ jobs:
                     # EIP-8282 builder-execution-request predeploys. Amsterdam
                     # system-calls both at the end of every block, and a strict
                     # client rejects a block whose system contracts have no code.
-                    # The addresses and code are the glamsterdam-devnet-7/8 pair;
-                    # do NOT reuse the devnet-6 one.
+                    # The addresses and code are the pair glamsterdam-devnet-8
+                    # clients system-call (EIP-8282's fixed addresses).
                     - kind: contract
                       name: eip8282-builder-deposit-requests
                       address: 0x0000bFF46984e3725691FA540a8C7589300D8282
