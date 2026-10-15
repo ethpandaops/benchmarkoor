@@ -565,14 +565,20 @@ export function TestHeatmap({
       // Per-payload durations, so a test with several blocks is marked
       // slow only when a single block is above the limit.
       const payloads = getPayloadTimes(entry, stepFilter)
+      // A rejected test has no MGas/s, but its time to reject is a payload
+      // time: it can be slow, and it counts in the duration range.
+      const rejectedNs = noData && statsFiltered?.rejected ? statsFiltered.rejected_time_total ?? 0 : undefined
+      const payloadNs = noData ? rejectedNs : payloads.maxNs
 
-      const isSlow = !noData && isSlowPayload(payloads.maxNs, slowMs)
+      const isSlow = payloadNs !== undefined && isSlowPayload(payloadNs, slowMs)
 
       if (!noData) {
         minMgas = Math.min(minMgas, mgasPerSec)
         maxMgas = Math.max(maxMgas, mgasPerSec)
-        minPayloadNs = Math.min(minPayloadNs, payloads.maxNs)
-        maxPayloadNs = Math.max(maxPayloadNs, payloads.maxNs)
+      }
+      if (payloadNs !== undefined) {
+        minPayloadNs = Math.min(minPayloadNs, payloadNs)
+        maxPayloadNs = Math.max(maxPayloadNs, payloadNs)
         if (isSlow) slowTestCount++
       }
 
@@ -583,12 +589,12 @@ export function TestHeatmap({
         mgasPerSec: mgasPerSec ?? 0,
         gasUsedTotal: statsFiltered?.gas_used_total ?? 0,
         gasUsedTimeTotal: statsFiltered?.gas_used_time_total ?? 0,
-        maxPayloadNs: payloads.maxNs,
+        maxPayloadNs: payloadNs ?? 0,
         payloadCount: payloads.count,
         isSlow,
         hasFail: statsAll ? statsAll.fail > 0 : false,
         noData,
-        rejectedNs: noData && statsFiltered?.rejected ? statsFiltered.rejected_time_total ?? 0 : undefined,
+        rejectedNs,
         notProcessed: false,
       })
     }
@@ -713,8 +719,15 @@ export function TestHeatmap({
   // same multiples of their limit, so the chart keeps its shape: in
   // MGas/s mode the slow tests sit on the left, in Duration mode on the
   // right, because a long payload is a bad one.
+  // Tests with a value in the active colour mode. A rejected test has no
+  // MGas/s, but in Duration mode its time to reject counts.
+  const testsWithValue = useMemo(
+    () => filteredTestData.filter((t) => !t.noData || (colorMode === 'duration' && t.rejectedNs !== undefined)),
+    [filteredTestData, colorMode],
+  )
+
   const histogramData = useMemo(() => {
-    const testsWithData = filteredTestData.filter((t) => !t.noData)
+    const testsWithData = testsWithValue
     if (testsWithData.length === 0) return []
 
     // Create bins based on the limit: 0, 0.25x, 0.5x, 0.75x, 1x, 1.25x, 1.5x, 1.75x, 2x, 2.5x, 3x+
@@ -754,17 +767,16 @@ export function TestHeatmap({
           : getColorByThreshold(midpoint, threshold),
       }
     })
-  }, [filteredTestData, threshold, colorMode, slowMs])
+  }, [testsWithValue, threshold, colorMode, slowMs])
 
   // Slow / fast split for the counters next to the histogram, in the
   // unit of the active colour mode.
   const { slowCount, fastCount } = useMemo(() => {
-    const withData = filteredTestData.filter((t) => !t.noData)
     const slow = colorMode === 'duration'
-      ? withData.filter((t) => t.isSlow).length
-      : withData.filter((t) => t.mgasPerSec < threshold).length
-    return { slowCount: slow, fastCount: withData.length - slow }
-  }, [filteredTestData, colorMode, threshold])
+      ? testsWithValue.filter((t) => t.isSlow).length
+      : testsWithValue.filter((t) => t.mgasPerSec < threshold).length
+    return { slowCount: slow, fastCount: testsWithValue.length - slow }
+  }, [testsWithValue, colorMode, threshold])
 
   const handleMouseEnter = (test: TestData, event: React.MouseEvent) => {
     const rect = event.currentTarget.getBoundingClientRect()

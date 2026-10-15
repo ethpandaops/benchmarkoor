@@ -14,6 +14,10 @@ interface StepSamples {
   gasUsedTotal: number[]
   gasUsedTimeTotal: number[]
   timeTotal: number[]
+  // Payloads the client rejected as expected, per run, and the time to
+  // reject of the runs that rejected (a run that failed has none).
+  rejected: number[]
+  rejectedTimeTotal: number[]
   success: number[]
   fail: number[]
   msgCount: number[]
@@ -32,6 +36,8 @@ function emptyStepSamples(): StepSamples {
     gasUsedTotal: [],
     gasUsedTimeTotal: [],
     timeTotal: [],
+    rejected: [],
+    rejectedTimeTotal: [],
     success: [],
     fail: [],
     msgCount: [],
@@ -111,6 +117,8 @@ export function averageResults(
         samples.gasUsedTotal.push(aggregated.gas_used_total)
         samples.gasUsedTimeTotal.push(aggregated.gas_used_time_total)
         samples.timeTotal.push(aggregated.time_total)
+        samples.rejected.push(aggregated.rejected ?? 0)
+        if ((aggregated.rejected ?? 0) > 0) samples.rejectedTimeTotal.push(aggregated.rejected_time_total ?? 0)
         samples.success.push(aggregated.success)
         samples.fail.push(aggregated.fail)
         samples.msgCount.push(aggregated.msg_count)
@@ -158,6 +166,13 @@ export function averageResults(
         gas_used_total: agg(samples.gasUsedTotal),
         gas_used_time_total: agg(samples.gasUsedTimeTotal),
         time_total: agg(samples.timeTotal),
+        // Without these, an averaged rejected test would read as "no data".
+        ...(samples.rejectedTimeTotal.length > 0
+          ? {
+              rejected: Math.max(1, Math.round(agg(samples.rejected))),
+              rejected_time_total: agg(samples.rejectedTimeTotal),
+            }
+          : {}),
         success: Math.round(agg(samples.success)),
         fail: Math.round(agg(samples.fail)),
         msg_count: Math.round(agg(samples.msgCount)),

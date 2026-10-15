@@ -127,7 +127,9 @@ export function DimensionInsights({
     //    heatmap. Both are collected in one pass, so the metric toggle
     //    only picks which set of numbers to render.
     const matchesQuery = searchQuery ? compileQuery(searchQuery) : null
-    const samples: { name: string; mgas: number; durationNs: number }[] = []
+    // A rejected test (an invalid-payload benchmark) has no MGas/s, but its
+    // time to reject is its payload duration.
+    const samples: { name: string; mgas?: number; durationNs?: number }[] = []
     for (const [name, entry] of Object.entries(tests)) {
       if (matchesQuery && !matchesQuery(name)) continue
       const stats = getAggregatedStats(entry, stepFilter)
@@ -139,14 +141,15 @@ export function DimensionInsights({
         if (statusFilter === 'failed' && all.fail === 0) continue
       }
       const mgas = calculateMGasPerSec(stats.gas_used_total, stats.gas_used_time_total)
-      if (mgas === undefined) continue
-      samples.push({ name, mgas, durationNs: getPayloadTimes(entry, stepFilter).maxNs })
+      const rejectedNs = mgas === undefined && stats.rejected ? stats.rejected_time_total : undefined
+      if (mgas === undefined && rejectedNs === undefined) continue
+      samples.push({ name, mgas, durationNs: mgas !== undefined ? getPayloadTimes(entry, stepFilter).maxNs : rejectedNs })
     }
 
     // 2. Bucket samples by (dimension, value), keeping both metric arrays
     //    and the source test names so a 1-test bucket can deep-link to the
     //    test detail modal on click.
-    type Bucket = { mgas: number[]; durationNs: number[]; names: string[] }
+    type Bucket = { mgas: number[]; durationNs: number[]; mgasNames: string[]; durationNames: string[] }
     const byDim = new Map<string, Map<string, Bucket>>()
     const bump = (dim: string, value: string | undefined, sample: (typeof samples)[number]) => {
       if (!value) return
@@ -157,12 +160,17 @@ export function DimensionInsights({
       }
       let bucket = inner.get(value)
       if (!bucket) {
-        bucket = { mgas: [], durationNs: [], names: [] }
+        bucket = { mgas: [], durationNs: [], mgasNames: [], durationNames: [] }
         inner.set(value, bucket)
       }
-      bucket.mgas.push(sample.mgas)
-      bucket.durationNs.push(sample.durationNs)
-      bucket.names.push(sample.name)
+      if (sample.mgas !== undefined) {
+        bucket.mgas.push(sample.mgas)
+        bucket.mgasNames.push(sample.name)
+      }
+      if (sample.durationNs !== undefined) {
+        bucket.durationNs.push(sample.durationNs)
+        bucket.durationNames.push(sample.name)
+      }
     }
     for (const s of samples) {
       const p = parseEESTName(s.name)
@@ -188,28 +196,31 @@ export function DimensionInsights({
       ...TRAILING_DIMENSIONS,
     ].filter((d) => byDim.has(d.key))
 
-    // 4. Roll up per-value stats. Skip dimensions with only one value — no
-    //    comparison to make.
+    // 4. Roll up per-value stats for the active metric: a value counts the
+    //    tests with a number in that metric. Skip dimensions with fewer than
+    //    two such values — no comparison to make.
     const result: DimensionAgg[] = []
     for (const def of ordered) {
       const inner = byDim.get(def.key)!
-      if (inner.size < 2) continue
 
       const values: ValueAgg[] = []
       for (const [value, bucket] of inner) {
+        const names = metric === 'mgas' ? bucket.mgasNames : bucket.durationNames
+        if (names.length === 0) continue
         values.push({
           value,
-          count: bucket.names.length,
+          count: names.length,
           mgas: aggregate(bucket.mgas),
           duration: aggregate(bucket.durationNs),
-          singleTestName: bucket.names.length === 1 ? bucket.names[0] : undefined,
+          singleTestName: names.length === 1 ? names[0] : undefined,
         })
       }
+      if (values.length < 2) continue
       result.push({ def, values })
     }
 
     return result
-  }, [tests, stepFilter, searchQuery, statusFilter])
+  }, [tests, stepFilter, searchQuery, statusFilter, metric])
 
   // Pick a default dimension for the table view once we have data.
   const groupByDim = groupByKey ?? dimensions[0]?.def.key ?? null
