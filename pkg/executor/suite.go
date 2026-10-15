@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
 	"github.com/ethpandaops/benchmarkoor/pkg/eest"
@@ -82,6 +83,10 @@ type SuiteFile struct {
 // SuiteTestEEST contains EEST-specific metadata for a test.
 type SuiteTestEEST struct {
 	Info *eest.FixtureInfo `json:"info"`
+	// ExpectedRejections lists the exceptions of the payloads the client must
+	// reject (e.g. "BlockException.INVALID_GAS_USED"), sorted and without
+	// duplicates. Empty for a test whose payloads are all valid.
+	ExpectedRejections []string `json:"expected_rejections,omitempty"`
 }
 
 // SuiteTest represents a test with its optional steps in the suite output.
@@ -236,7 +241,10 @@ func CreateSuiteOutput(
 			}
 
 			if test.EESTInfo != nil {
-				suiteTest.EEST = &SuiteTestEEST{Info: test.EESTInfo}
+				suiteTest.EEST = &SuiteTestEEST{
+					Info:               test.EESTInfo,
+					ExpectedRejections: expectedRejections(test),
+				}
 				suiteTest.OpcodeCount = test.EESTInfo.AggregatedOpcodeCount()
 			}
 
@@ -557,4 +565,35 @@ func mergeOpcodeData(existing []SuiteTest, prepared *PreparedSource) {
 			existing[i].OpcodeCount = counts
 		}
 	}
+}
+
+// expectedRejections returns the exceptions of the payloads a test's client
+// must reject, from all of its steps, sorted and without duplicates.
+func expectedRejections(test *TestWithSteps) []string {
+	seen := make(map[string]struct{}, 1)
+
+	for _, step := range []*StepFile{test.Setup, test.Test, test.Cleanup} {
+		if step == nil {
+			continue
+		}
+
+		for _, rejection := range step.Rejections {
+			if rejection.ValidationError != "" {
+				seen[rejection.ValidationError] = struct{}{}
+			}
+		}
+	}
+
+	if len(seen) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+
+	sort.Strings(out)
+
+	return out
 }

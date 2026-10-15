@@ -24,13 +24,16 @@ type TestDurations struct {
 
 // RunDuration contains timing information for a single run of a test.
 type RunDuration struct {
-	ID       string                 `json:"id"`
-	Client   string                 `json:"client"`
-	GasUsed  uint64                 `json:"gas_used"`
-	Time     int64                  `json:"time_ns"`
-	RunStart int64                  `json:"run_start"`
-	RunEnd   int64                  `json:"run_end,omitempty"`
-	Steps    *RunDurationStepsStats `json:"steps,omitempty"`
+	ID      string `json:"id"`
+	Client  string `json:"client"`
+	GasUsed uint64 `json:"gas_used"`
+	Time    int64  `json:"time_ns"`
+	// RejectedTime sums the time the client took to reject the test's
+	// expected-invalid payloads (0 when it has none).
+	RejectedTime int64                  `json:"rejected_time_ns,omitempty"`
+	RunStart     int64                  `json:"run_start"`
+	RunEnd       int64                  `json:"run_end,omitempty"`
+	Steps        *RunDurationStepsStats `json:"steps,omitempty"`
 }
 
 // RunDurationStepsStats contains per-step gas and time data.
@@ -44,6 +47,7 @@ type RunDurationStepsStats struct {
 type RunDurationStepStats struct {
 	GasUsed        uint64          `json:"gas_used"`
 	Time           int64           `json:"time_ns"`
+	RejectedTime   int64           `json:"rejected_time_ns,omitempty"`
 	RPCCallsCount  int             `json:"rpc_calls_count,omitempty"`
 	ResourceTotals *ResourceTotals `json:"resource_totals,omitempty"`
 }
@@ -162,6 +166,8 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 		var totalGasUsed uint64
 		var totalGasUsedTime int64
 
+		var totalRejectedTime int64
+
 		// Build per-step stats.
 		stepsStats := &RunDurationStepsStats{}
 
@@ -170,11 +176,13 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 			stepsStats.Setup = &RunDurationStepStats{
 				GasUsed:        agg.GasUsedTotal,
 				Time:           agg.GasUsedTimeTotal,
+				RejectedTime:   agg.RejectedTimeTotal,
 				RPCCallsCount:  agg.TotalMsgs,
 				ResourceTotals: agg.ResourceTotals,
 			}
 			totalGasUsed += agg.GasUsedTotal
 			totalGasUsedTime += agg.GasUsedTimeTotal
+			totalRejectedTime += agg.RejectedTimeTotal
 		}
 
 		if testEntry.Steps.Test != nil && testEntry.Steps.Test.Aggregated != nil {
@@ -182,11 +190,13 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 			stepsStats.Test = &RunDurationStepStats{
 				GasUsed:        agg.GasUsedTotal,
 				Time:           agg.GasUsedTimeTotal,
+				RejectedTime:   agg.RejectedTimeTotal,
 				RPCCallsCount:  agg.TotalMsgs,
 				ResourceTotals: agg.ResourceTotals,
 			}
 			totalGasUsed += agg.GasUsedTotal
 			totalGasUsedTime += agg.GasUsedTimeTotal
+			totalRejectedTime += agg.RejectedTimeTotal
 		}
 
 		if testEntry.Steps.Cleanup != nil && testEntry.Steps.Cleanup.Aggregated != nil {
@@ -194,11 +204,13 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 			stepsStats.Cleanup = &RunDurationStepStats{
 				GasUsed:        agg.GasUsedTotal,
 				Time:           agg.GasUsedTimeTotal,
+				RejectedTime:   agg.RejectedTimeTotal,
 				RPCCallsCount:  agg.TotalMsgs,
 				ResourceTotals: agg.ResourceTotals,
 			}
 			totalGasUsed += agg.GasUsedTotal
 			totalGasUsedTime += agg.GasUsedTimeTotal
+			totalRejectedTime += agg.RejectedTimeTotal
 		}
 
 		if (*stats)[testName] == nil {
@@ -208,13 +220,14 @@ func AccumulateRunResult(stats *SuiteStats, resultData []byte, run RunInfo) {
 		}
 
 		(*stats)[testName].Durations = append((*stats)[testName].Durations, &RunDuration{
-			ID:       run.RunID,
-			Client:   run.Client,
-			GasUsed:  totalGasUsed,
-			Time:     totalGasUsedTime,
-			RunStart: run.Timestamp,
-			RunEnd:   run.TimestampEnd,
-			Steps:    stepsStats,
+			ID:           run.RunID,
+			Client:       run.Client,
+			GasUsed:      totalGasUsed,
+			Time:         totalGasUsedTime,
+			RejectedTime: totalRejectedTime,
+			RunStart:     run.Timestamp,
+			RunEnd:       run.TimestampEnd,
+			Steps:        stepsStats,
 		})
 	}
 }

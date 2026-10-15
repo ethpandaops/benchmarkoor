@@ -39,6 +39,9 @@ type StepFile struct {
 	Path     string       // Full absolute path (empty if using provider)
 	Name     string       // Relative path from base or logical name
 	Provider StepProvider // Optional provider for in-memory steps
+	// Rejections holds the engine_newPayload calls the client must reject,
+	// keyed by lower-case block hash (nil when there are none).
+	Rejections map[string]*eest.Rejection
 }
 
 // TestWithSteps represents a test with its optional setup/test/cleanup steps.

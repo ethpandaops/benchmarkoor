@@ -3,6 +3,7 @@ package eest
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // ConvertedTest represents a test converted from EEST fixture format.
@@ -11,8 +12,58 @@ type ConvertedTest struct {
 	SetupLines   []string // JSON-RPC calls for setup (all payloads except last)
 	TestLines    []string // JSON-RPC calls for test (last payload only)
 	GenesisHash  string   // Genesis block hash for forkchoiceUpdated calls
-	FinalHash    string   // Final block hash after all payloads
+	FinalHash    string   // Head block hash after all payloads (the last valid block)
 	PayloadCount int      // Total number of payloads in the fixture
+	// Rejections holds the payloads the client must reject, keyed by
+	// lower-case block hash. Nil when the fixture has none.
+	Rejections map[string]*Rejection
+}
+
+// Rejection is the answer a client must give to a payload the fixture marks
+// invalid.
+type Rejection struct {
+	// ValidationError names the EEST exceptions behind the rejection,
+	// pipe-joined. Informational: clients word their errors differently.
+	ValidationError string
+	// ErrorCode, when set, is the JSON-RPC error code the client must
+	// answer with in place of an INVALID payload status.
+	ErrorCode *int
+	// ParentHash is the parent of the rejected block. A client that executed
+	// the block reports it as latestValidHash.
+	ParentHash string
+}
+
+// addRejection records payload in r.Rejections when the client must reject it.
+func (r *ConvertedTest) addRejection(payload *EngineNewPayload) {
+	if !payload.ExpectsRejection() {
+		return
+	}
+
+	if r.Rejections == nil {
+		r.Rejections = make(map[string]*Rejection, 1)
+	}
+
+	r.Rejections[strings.ToLower(payload.ExecutionPayload.BlockHash)] = &Rejection{
+		ValidationError: payload.ValidationError,
+		ErrorCode:       payload.ErrorCode,
+		ParentHash:      payload.ExecutionPayload.ParentHash,
+	}
+}
+
+// finalHash returns the head after all payloads: the fixture's lastblockhash
+// when set, else the last payload the client accepts.
+func finalHash(lastBlockHash string, payloads []*EngineNewPayload) string {
+	if lastBlockHash != "" {
+		return lastBlockHash
+	}
+
+	for i := len(payloads) - 1; i >= 0; i-- {
+		if !payloads[i].ExpectsRejection() {
+			return payloads[i].ExecutionPayload.BlockHash
+		}
+	}
+
+	return ""
 }
 
 // ConvertFixture converts an EEST fixture to JSON-RPC calls.
@@ -20,7 +71,8 @@ type ConvertedTest struct {
 //  1. engine_newPayloadV{version}(params)
 //  2. engine_forkchoiceUpdatedV{version}({headBlockHash, safeBlockHash, finalizedBlockHash}, null)
 //
-// All payloads except the last become setup steps.
+// A payload the client must reject gets no forkchoiceUpdated: the head stays
+// on its parent. All payloads except the last become setup steps.
 // The last payload becomes the test step.
 func ConvertFixture(name string, fixture *Fixture) (*ConvertedTest, error) {
 	if fixture == nil {
@@ -54,11 +106,14 @@ func ConvertFixture(name string, fixture *Fixture) (*ConvertedTest, error) {
 
 		if isLastPayload {
 			result.TestLines = append(result.TestLines, lines...)
-			result.FinalHash = payload.ExecutionPayload.BlockHash
 		} else {
 			result.SetupLines = append(result.SetupLines, lines...)
 		}
+
+		result.addRejection(payload)
 	}
+
+	result.FinalHash = finalHash(fixture.LastBlockHash, fixture.EngineNewPayloads)
 
 	return result, nil
 }
@@ -120,6 +175,7 @@ func ConvertStatefulFixture(name string, fixture *Fixture, preRun *StatefulPreRu
 		}
 
 		result.SetupLines = append(result.SetupLines, lines...)
+		result.addRejection(payload)
 	}
 
 	for i, payload := range fixture.EngineNewPayloads {
@@ -129,8 +185,10 @@ func ConvertStatefulFixture(name string, fixture *Fixture, preRun *StatefulPreRu
 		}
 
 		result.TestLines = append(result.TestLines, lines...)
-		result.FinalHash = payload.ExecutionPayload.BlockHash
+		result.addRejection(payload)
 	}
+
+	result.FinalHash = finalHash(fixture.LastBlockHash, fixture.EngineNewPayloads)
 
 	return result, nil
 }
@@ -145,7 +203,9 @@ func preRunPayloadCount(preRun *StatefulPreRun) int {
 	return len(preRun.EngineNewPayloads)
 }
 
-// convertPayload generates JSON-RPC lines for a single payload.
+// convertPayload generates JSON-RPC lines for a single payload. A payload the
+// client must reject gets no forkchoiceUpdated: pointing the head at a block
+// the client marked invalid fails, and the next payload builds on its parent.
 func convertPayload(payload *EngineNewPayload, id int) ([]string, error) {
 	if payload.ExecutionPayload == nil {
 		return nil, fmt.Errorf("execution payload is nil")
@@ -160,6 +220,10 @@ func convertPayload(payload *EngineNewPayload, id int) ([]string, error) {
 	}
 
 	lines = append(lines, newPayloadLine)
+
+	if payload.ExpectsRejection() {
+		return lines, nil
+	}
 
 	// Generate engine_forkchoiceUpdatedVX call.
 	fcuLine, err := buildForkchoiceUpdatedCall(payload, id)

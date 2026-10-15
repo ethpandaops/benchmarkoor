@@ -77,11 +77,14 @@ func (e *executor) extractTestOpcodes(
 
 	// Pre-count newPayload* lines so progress logs can show "i/total"
 	// instead of just the absolute line number, which is more useful
-	// when a step has interleaved FCUs we skip over.
+	// when a step has interleaved FCUs we skip over. A payload the client
+	// rejects never becomes a block, so there is nothing to trace.
 	totalPayloads := 0
 
 	for _, l := range lines {
-		if m, err := extractMethod(l); err == nil && strings.HasPrefix(m, "engine_newPayload") {
+		m, err := extractMethod(l)
+		if err == nil && strings.HasPrefix(m, "engine_newPayload") &&
+			lookupRejection(test.Test.Rejections, m, l) == nil {
 			totalPayloads++
 		}
 	}
@@ -116,7 +119,8 @@ func (e *executor) extractTestOpcodes(
 			continue
 		}
 
-		if !strings.HasPrefix(method, "engine_newPayload") {
+		if !strings.HasPrefix(method, "engine_newPayload") ||
+			lookupRejection(test.Test.Rejections, method, line) != nil {
 			continue
 		}
 

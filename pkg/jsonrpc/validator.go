@@ -61,6 +61,64 @@ func (v *NewPayloadValidator) Validate(method string, resp *Response) error {
 	return nil
 }
 
+// ErrPayloadAccepted is returned when a client accepts a payload that it must
+// reject. It points at a client that skips a validity check.
+var ErrPayloadAccepted = errors.New("client accepted a payload that it must reject")
+
+// ValidateRejectedNewPayload checks the response to an engine_newPayload call
+// whose payload the client must reject. With errorCode nil the client must
+// answer status INVALID. With errorCode set it must answer that JSON-RPC
+// error.
+//
+// Some INVALID answers do not come from the block itself, and the call then
+// measures nothing, so they fail too:
+//   - INVALID_BLOCK_HASH: the client never executed the block.
+//   - a latestValidHash other than parentHash: an ancestor is invalid, so the
+//     client rejected the block without executing it. An empty
+//     latestValidHash or parentHash skips this check.
+func ValidateRejectedNewPayload(resp *Response, errorCode *int, parentHash string) error {
+	if errorCode != nil {
+		if resp.Error == nil {
+			return fmt.Errorf("expected JSON-RPC error %d, got a result", *errorCode)
+		}
+
+		if resp.Error.Code != *errorCode {
+			return fmt.Errorf("expected JSON-RPC error %d, got %d: %s",
+				*errorCode, resp.Error.Code, resp.Error.Message)
+		}
+
+		return nil
+	}
+
+	if resp.Error != nil {
+		return fmt.Errorf("JSON-RPC error %d: %s", resp.Error.Code, resp.Error.Message)
+	}
+
+	var result NewPayloadResult
+	if err := resp.ParseResult(&result); err != nil {
+		return fmt.Errorf("parsing newPayload result: %w", err)
+	}
+
+	switch result.Status {
+	case "INVALID":
+		if result.LatestValidHash != "" && parentHash != "" &&
+			!strings.EqualFold(result.LatestValidHash, parentHash) {
+			return fmt.Errorf("newPayload status is INVALID with latestValidHash %s, "+
+				"not the parent %s: the client rejected an invalid ancestor, "+
+				"not this block", result.LatestValidHash, parentHash)
+		}
+
+		return nil
+	case "VALID":
+		return fmt.Errorf("%w: newPayload status is VALID", ErrPayloadAccepted)
+	case "INVALID_BLOCK_HASH":
+		return fmt.Errorf("newPayload status is INVALID_BLOCK_HASH, expected INVALID: " +
+			"the client rejected the block hash without executing the block")
+	default:
+		return fmt.Errorf("newPayload status is %s, expected INVALID", result.Status)
+	}
+}
+
 // ForkchoiceUpdatedValidator fails if engine_forkchoiceUpdated* responses don't have VALID status.
 type ForkchoiceUpdatedValidator struct{}
 

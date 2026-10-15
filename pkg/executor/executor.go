@@ -24,6 +24,7 @@ import (
 	"github.com/docker/docker/client"
 	clientpkg "github.com/ethpandaops/benchmarkoor/pkg/client"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/eest"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/jsonrpc"
 	"github.com/ethpandaops/benchmarkoor/pkg/stats"
@@ -826,7 +827,7 @@ func (e *executor) runStepFile(
 	// Use provider if available, otherwise read from file.
 	if step.Provider != nil {
 		return e.runStepLines(ctx, opts, step.Name, newSliceLineSource(step.Provider.Lines()), result,
-			captureBlockLogs, betweenLineSleep, stepType)
+			captureBlockLogs, betweenLineSleep, stepType, step.Rejections)
 	}
 
 	return e.runStepFromFile(ctx, opts, step, result, captureBlockLogs, betweenLineSleep, stepType)
@@ -854,13 +855,15 @@ func (e *executor) runStepFromFile(
 	defer func() { _ = src.Close() }()
 
 	return e.runStepLines(ctx, opts, step.Name, src, result, captureBlockLogs,
-		betweenLineSleep, stepType)
+		betweenLineSleep, stepType, step.Rejections)
 }
 
 // runStepLines executes JSON-RPC lines.
 // If captureBlockLogs is true, blockHashes from engine_newPayload calls are registered for log matching.
 // betweenLineSleep, when > 0, sleeps for that duration between each RPC call (after the call completes,
 // before the next one starts). Skipped after the final call. Cancellable via ctx.
+// rejections holds the engine_newPayload calls the client must reject, keyed by
+// lower-case block hash; see eest.Rejection.
 func (e *executor) runStepLines(
 	ctx context.Context,
 	opts *ExecuteOptions,
@@ -870,6 +873,7 @@ func (e *executor) runStepLines(
 	captureBlockLogs bool,
 	betweenLineSleep time.Duration,
 	stepType StepType,
+	rejections map[string]*eest.Rejection,
 ) error {
 	stepStart := time.Now()
 
@@ -962,6 +966,8 @@ func (e *executor) runStepLines(
 			}
 		}
 
+		rejection := lookupRejection(rejections, method, line)
+
 		// Register blockHash BEFORE the RPC call for engine_newPayload methods.
 		if captureBlockLogs && strings.HasPrefix(method, "engine_newPayload") &&
 			opts.BlockLogCollector != nil && result != nil {
@@ -1013,7 +1019,7 @@ func (e *executor) runStepLines(
 		// SYNCING from other failure modes.
 		var validationErr error
 
-		if succeeded && e.validator != nil && response != "" {
+		if succeeded && (e.validator != nil || rejection != nil) && response != "" {
 			if resp, parseErr := jsonrpc.Parse(response); parseErr != nil {
 				e.log.WithFields(logrus.Fields{
 					"line":   lineNum + 1,
@@ -1022,6 +1028,12 @@ func (e *executor) runStepLines(
 				}).WithError(parseErr).Warn("Failed to parse JSON-RPC response")
 
 				succeeded = false
+			} else if rejection != nil {
+				if validationErr = jsonrpc.ValidateRejectedNewPayload(resp, rejection.ErrorCode, rejection.ParentHash); validationErr != nil {
+					succeeded = false
+				} else {
+					e.logRejection(resp, rejection, stepName, lineNum, duration)
+				}
 			} else if validationErr = e.validator.Validate(method, resp); validationErr != nil {
 				succeeded = false
 			}
@@ -1031,8 +1043,10 @@ func (e *executor) runStepLines(
 		// take the SYNCING retry config when enabled; everything else
 		// (RPC/network error, parse error, INVALID/INVALID_BLOCK_HASH,
 		// JSON-RPC error) takes the failed-state retry config when enabled.
-		// Non-newPayload methods are not retried.
-		if !succeeded && strings.HasPrefix(method, "engine_newPayload") {
+		// Non-newPayload methods are not retried. Neither is a payload the
+		// client must reject: a client remembers a bad block and answers a
+		// resend at once, so a retry would measure nothing.
+		if !succeeded && strings.HasPrefix(method, "engine_newPayload") && rejection == nil {
 			isSyncing := validationErr != nil && jsonrpc.IsSyncingError(validationErr)
 
 			switch {
@@ -1075,7 +1089,11 @@ func (e *executor) runStepLines(
 		}
 
 		if result != nil {
-			result.AddResult(method, line, response, duration, succeeded, resourceDelta)
+			if rejection != nil {
+				result.AddRejectedResult(method, line, response, duration, succeeded, resourceDelta)
+			} else {
+				result.AddResult(method, line, response, duration, succeeded, resourceDelta)
+			}
 		}
 
 		if !succeeded && opts.FailFast {
@@ -1096,6 +1114,47 @@ func (e *executor) runStepLines(
 	}
 
 	return nil
+}
+
+// lookupRejection returns the rejection the client must give to line, or nil
+// when line is not an engine_newPayload call the client must reject.
+func lookupRejection(rejections map[string]*eest.Rejection, method, line string) *eest.Rejection {
+	if len(rejections) == 0 || !strings.HasPrefix(method, "engine_newPayload") {
+		return nil
+	}
+
+	blockHash, err := extractBlockHash(line)
+	if err != nil {
+		return nil
+	}
+
+	return rejections[strings.ToLower(blockHash)]
+}
+
+// logRejection logs a payload that the client rejected as expected, with the
+// exception the fixture expects next to the error the client gave.
+func (e *executor) logRejection(
+	resp *jsonrpc.Response,
+	rejection *eest.Rejection,
+	stepName string,
+	lineNum int,
+	duration int64,
+) {
+	fields := logrus.Fields{
+		"line":     lineNum + 1,
+		"step":     stepName,
+		"duration": time.Duration(duration),
+		"expected": rejection.ValidationError,
+	}
+
+	var status jsonrpc.NewPayloadResult
+	if resp.Error != nil {
+		fields["client_error"] = resp.Error.Message
+	} else if err := resp.ParseResult(&status); err == nil {
+		fields["client_error"] = status.ValidationError
+	}
+
+	e.log.WithFields(fields).Info("Client rejected the payload as expected")
 }
 
 // estimateETA returns the projected remaining duration to finish a step,

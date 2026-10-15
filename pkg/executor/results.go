@@ -210,14 +210,19 @@ type ResourceTotals struct {
 
 // AggregatedStats contains the full aggregated output.
 type AggregatedStats struct {
-	TotalTime        int64              `json:"time_total"`
-	GasUsedTotal     uint64             `json:"gas_used_total"`
-	GasUsedTimeTotal int64              `json:"gas_used_time_total"`
-	Succeeded        int                `json:"success"`
-	Failed           int                `json:"fail"`
-	TotalMsgs        int                `json:"msg_count"`
-	ResourceTotals   *ResourceTotals    `json:"resource_totals,omitempty"`
-	MethodStats      *MethodsAggregated `json:"method_stats"`
+	TotalTime        int64  `json:"time_total"`
+	GasUsedTotal     uint64 `json:"gas_used_total"`
+	GasUsedTimeTotal int64  `json:"gas_used_time_total"`
+	// Rejected counts the engine_newPayload calls that the client rejected as
+	// the fixture expects, and RejectedTimeTotal sums their durations: the
+	// time to reject, which replaces MGas/s for such a payload.
+	Rejected          int                `json:"rejected,omitempty"`
+	RejectedTimeTotal int64              `json:"rejected_time_total,omitempty"`
+	Succeeded         int                `json:"success"`
+	Failed            int                `json:"fail"`
+	TotalMsgs         int                `json:"msg_count"`
+	ResourceTotals    *ResourceTotals    `json:"resource_totals,omitempty"`
+	MethodStats       *MethodsAggregated `json:"method_stats"`
 }
 
 // StepResult contains the result for a single step.
@@ -261,8 +266,11 @@ type TestResult struct {
 	MethodDiskWriteBytes map[string][]int64
 	MethodDiskReadOps    map[string][]int64
 	MethodDiskWriteOps   map[string][]int64
-	Succeeded            int
-	Failed               int
+	// Rejected lists the positions of engine_newPayload calls whose payload
+	// the client must reject. They carry a duration but no gas or MGas/s.
+	Rejected  []int
+	Succeeded int
+	Failed    int
 }
 
 // ResultDetails contains per-call timing and status for JSON output.
@@ -272,6 +280,9 @@ type ResultDetails struct {
 	MGasPerSec map[int]float64        `json:"mgas_s"`
 	GasUsed    map[int]uint64         `json:"gas_used"`
 	Resources  map[int]*ResourceDelta `json:"resources,omitempty"`
+	// Rejected lists the positions of the calls whose payload the client must
+	// reject (the time to reject is in DurationNS; there is no gas figure).
+	Rejected []int `json:"rejected,omitempty"`
 	// OriginalTestName stores the original test name when using hashed filenames.
 	OriginalTestName string `json:"original_test_name,omitempty"`
 	// FilenameHash stores the truncated+hash filename when the original was too long.
@@ -305,6 +316,31 @@ func (r *TestResult) AddResult(
 	succeeded bool,
 	resources *ResourceDelta,
 ) {
+	r.addResult(method, request, response, elapsed, succeeded, resources, false)
+}
+
+// AddRejectedResult adds the result of an engine_newPayload call whose payload
+// the client must reject. succeeded tells whether the client rejected it as
+// expected. The call records its duration but no gas or MGas/s: the client may
+// stop part way through the block, and the header gasUsed can be the
+// corrupted field.
+func (r *TestResult) AddRejectedResult(
+	method, request, response string,
+	elapsed int64,
+	succeeded bool,
+	resources *ResourceDelta,
+) {
+	r.Rejected = append(r.Rejected, len(r.Times))
+	r.addResult(method, request, response, elapsed, succeeded, resources, true)
+}
+
+func (r *TestResult) addResult(
+	method, request, response string,
+	elapsed int64,
+	succeeded bool,
+	resources *ResourceDelta,
+	rejected bool,
+) {
 	// Get position before appending.
 	pos := len(r.Times)
 
@@ -330,7 +366,7 @@ func (r *TestResult) AddResult(
 	}
 
 	// Calculate MGas/s for successful engine_newPayload calls.
-	if succeeded && strings.HasPrefix(method, "engine_newPayload") {
+	if succeeded && !rejected && strings.HasPrefix(method, "engine_newPayload") {
 		if gasUsed, err := extractGasUsed(request); err == nil && elapsed > 0 {
 			r.GasUsed[pos] = gasUsed
 			mgasPerSec := float64(gasUsed) * 1000 / float64(elapsed)
@@ -455,6 +491,15 @@ func (r *TestResult) CalculateStats() *AggregatedStats {
 
 		stats.GasUsedTotal += g
 		stats.GasUsedTimeTotal += r.Times[idx]
+	}
+
+	for _, idx := range r.Rejected {
+		if r.Statuses[idx] != 0 {
+			continue
+		}
+
+		stats.Rejected++
+		stats.RejectedTimeTotal += r.Times[idx]
 	}
 
 	// Aggregate resource metrics.
@@ -666,6 +711,7 @@ func WriteStepResults(
 		MGasPerSec: result.MGasPerSec,
 		GasUsed:    result.GasUsed,
 		Resources:  result.Resources,
+		Rejected:   result.Rejected,
 	}
 
 	detailsJSON, err := json.MarshalIndent(details, "", "  ")

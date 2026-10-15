@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -242,4 +243,90 @@ func TestDefaultValidator(t *testing.T) {
 
 	err = validator.Validate("engine_newPayloadV3", resp)
 	assert.NoError(t, err)
+}
+
+func TestValidateRejectedNewPayload(t *testing.T) {
+	code := -32602
+
+	tests := []struct {
+		name         string
+		response     string
+		errorCode    *int
+		parentHash   string
+		wantErr      bool
+		wantAccepted bool
+	}{
+		{
+			name:     "INVALID passes",
+			response: `{"jsonrpc":"2.0","id":1,"result":{"status":"INVALID","validationError":"invalid gas used"}}`,
+		},
+		{
+			name: "INVALID with the parent as latestValidHash passes",
+			response: `{"jsonrpc":"2.0","id":1,"result":{"status":"INVALID",` +
+				`"latestValidHash":"0xABC","validationError":"invalid gas used"}}`,
+			parentHash: "0xabc",
+		},
+		{
+			name: "INVALID because of an invalid ancestor fails",
+			response: `{"jsonrpc":"2.0","id":1,"result":{"status":"INVALID",` +
+				`"latestValidHash":"0x123","validationError":"part of an invalid chain"}}`,
+			parentHash: "0xabc",
+			wantErr:    true,
+		},
+		{
+			name:         "VALID fails as an accepted payload",
+			response:     `{"jsonrpc":"2.0","id":1,"result":{"status":"VALID"}}`,
+			wantErr:      true,
+			wantAccepted: true,
+		},
+		{
+			name:     "INVALID_BLOCK_HASH fails",
+			response: `{"jsonrpc":"2.0","id":1,"result":{"status":"INVALID_BLOCK_HASH"}}`,
+			wantErr:  true,
+		},
+		{
+			name:     "SYNCING fails",
+			response: `{"jsonrpc":"2.0","id":1,"result":{"status":"SYNCING"}}`,
+			wantErr:  true,
+		},
+		{
+			name:     "unexpected JSON-RPC error fails",
+			response: `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"bad params"}}`,
+			wantErr:  true,
+		},
+		{
+			name:      "expected JSON-RPC error passes",
+			response:  `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"bad params"}}`,
+			errorCode: &code,
+		},
+		{
+			name:      "other JSON-RPC error code fails",
+			response:  `{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"server error"}}`,
+			errorCode: &code,
+			wantErr:   true,
+		},
+		{
+			name:      "status in place of the expected error fails",
+			response:  `{"jsonrpc":"2.0","id":1,"result":{"status":"INVALID"}}`,
+			errorCode: &code,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := Parse(tt.response)
+			require.NoError(t, err)
+
+			err = ValidateRejectedNewPayload(resp, tt.errorCode, tt.parentHash)
+			if !tt.wantErr {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Equal(t, tt.wantAccepted, errors.Is(err, ErrPayloadAccepted))
+		})
+	}
 }

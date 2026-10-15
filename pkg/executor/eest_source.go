@@ -985,16 +985,18 @@ func (s *EESTSource) discoverTests() (*PreparedSource, error) {
 			// Create setup step if there are setup lines.
 			if len(converted.SetupLines) > 0 {
 				test.Setup = &StepFile{
-					Name:     testName + "/setup",
-					Provider: &linesProvider{lines: converted.SetupLines},
+					Name:       testName + "/setup",
+					Provider:   &linesProvider{lines: converted.SetupLines},
+					Rejections: converted.Rejections,
 				}
 			}
 
 			// Create test step.
 			if len(converted.TestLines) > 0 {
 				test.Test = &StepFile{
-					Name:     testName + "/test",
-					Provider: &linesProvider{lines: converted.TestLines},
+					Name:       testName + "/test",
+					Provider:   &linesProvider{lines: converted.TestLines},
+					Rejections: converted.Rejections,
 				}
 			}
 

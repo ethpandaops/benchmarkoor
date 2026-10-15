@@ -63,6 +63,10 @@ type FixtureMetadata struct {
 	// EngineNewPayloads block: OpcodeCounts[i] is the count for
 	// EngineNewPayloads[i], or nil when its trace was unavailable.
 	OpcodeCounts []map[string]int `json:"opcode_counts,omitempty"`
+	// BenchmarkGasUsed is the gas the benchmark transactions use. EEST writes
+	// it for a fixture whose block the client must reject: such a block has
+	// no receipts, and its header gasUsed may be the corrupted field.
+	BenchmarkGasUsed *uint64 `json:"benchmark_gas_used,omitempty"`
 }
 
 // AggregatedOpcodeCount returns the fixture's per-opcode execution counts as a
@@ -146,8 +150,8 @@ type EngineNewPayloadRaw struct {
 	NewPayloadVersion        string            `json:"newPayloadVersion"`
 	ForkchoiceUpdatedVersion string            `json:"forkchoiceUpdatedVersion"`
 	Params                   []json.RawMessage `json:"params"`
-	ValidationError          *ValidationError  `json:"validationError,omitempty"`
-	ErrorCode                *int              `json:"errorCode,omitempty"`
+	ValidationError          string            `json:"validationError,omitempty"`
+	ErrorCode                json.RawMessage   `json:"errorCode,omitempty"`
 }
 
 // EngineNewPayload represents a parsed engine_newPayload RPC call entry.
@@ -158,13 +162,18 @@ type EngineNewPayload struct {
 	ExecutionRequests        []string
 	NewPayloadVersion        int
 	ForkchoiceUpdatedVersion int
-	ValidationError          *ValidationError
-	ErrorCode                *int
+	// ValidationError names the exceptions the client must reject the
+	// payload with, pipe-joined (e.g. "BlockException.INVALID_GAS_USED").
+	// Empty for a payload the client must accept.
+	ValidationError string
+	// ErrorCode is the JSON-RPC error code the client must answer with in
+	// place of a payload status, or nil.
+	ErrorCode *int
 }
 
-// ValidationError represents an expected validation error.
-type ValidationError struct {
-	Message string `json:"message,omitempty"`
+// ExpectsRejection reports whether the client must reject this payload.
+func (e *EngineNewPayload) ExpectsRejection() bool {
+	return e.ValidationError != "" || e.ErrorCode != nil
 }
 
 // UnmarshalJSON implements custom unmarshaling for EngineNewPayload.
@@ -188,7 +197,13 @@ func (e *EngineNewPayload) UnmarshalJSON(data []byte) error {
 	e.NewPayloadVersion = npVersion
 	e.ForkchoiceUpdatedVersion = fcuVersion
 	e.ValidationError = raw.ValidationError
-	e.ErrorCode = raw.ErrorCode
+
+	errorCode, err := parseErrorCode(raw.ErrorCode)
+	if err != nil {
+		return fmt.Errorf("parsing errorCode: %w", err)
+	}
+
+	e.ErrorCode = errorCode
 
 	// Parse params based on position.
 	// params[0] = execution payload (always present)
@@ -229,6 +244,27 @@ func (e *EngineNewPayload) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+// parseErrorCode reads an errorCode field. EEST writes the code as a decimal
+// string ("-32602"); a plain JSON number is accepted too. A missing or null
+// field gives nil.
+func parseErrorCode(data json.RawMessage) (*int, error) {
+	if len(data) == 0 || string(data) == "null" {
+		return nil, nil
+	}
+
+	var text string
+	if err := json.Unmarshal(data, &text); err != nil {
+		text = string(data)
+	}
+
+	code, err := strconv.Atoi(text)
+	if err != nil {
+		return nil, fmt.Errorf("invalid error code %s: %w", data, err)
+	}
+
+	return &code, nil
 }
 
 // ExecutionPayload represents the execution payload in an engine_newPayload call.

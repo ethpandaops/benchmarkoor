@@ -609,6 +609,17 @@ tests:
 - Only includes fixtures with `fixture-format: blockchain_test_engine_x`
 - Auto-resolves genesis files per client type from the release/artifact/local source
 
+**Invalid payloads:**
+
+A fixture marks a payload that the client must reject with `validationError` (and, as an option, `errorCode`) on its `engineNewPayloads` entry. For such a payload, benchmarkoor does these steps:
+
+- It sends the `engine_newPayload` call, but no `engine_forkchoiceUpdated` call. The head stays on the parent block.
+- It passes the call when the client answers `INVALID`, or the JSON-RPC error in `errorCode`. It fails the call on `VALID`, `INVALID_BLOCK_HASH`, `SYNCING` or `ACCEPTED`.
+- It does not retry the call. A client keeps a list of bad blocks and answers a resend at once, so a retry measures nothing.
+- It records the time to reject the payload, but no gas used and no MGas/s. The client can stop part way through the block, and the header `gasUsed` can be the corrupted field. The `rejected` list in `<step>.result-details.json` holds the positions of these calls.
+
+EEST writes the real gas of the benchmark transactions to `_info.metadata.benchmark_gas_used`.
+
 **Genesis file resolution:**
 
 When using EEST fixtures, genesis files are automatically resolved based on client type. You don't need to configure `runner.client.config.genesis` unless you want to override the defaults.
