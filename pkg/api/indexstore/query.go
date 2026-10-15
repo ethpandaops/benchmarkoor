@@ -59,23 +59,24 @@ var allowedRunColumns = map[string]bool{
 // allowedTestStatColumns lists columns that may be filtered, sorted, or
 // selected on the test_stats table.
 var allowedTestStatColumns = map[string]bool{
-	"id":             true,
-	"suite_hash":     true,
-	"test_name":      true,
-	"run_id":         true,
-	"client":         true,
-	"total_gas_used": true,
-	"total_time_ns":  true,
-	"total_mgas_s":   true,
-	"setup_gas_used": true,
-	"setup_time_ns":  true,
-	"setup_mgas_s":   true,
-	"test_gas_used":  true,
-	"test_time_ns":   true,
-	"test_mgas_s":    true,
-	"test_rejected":  true,
-	"run_start":      true,
-	"run_end":        true,
+	"id":                     true,
+	"suite_hash":             true,
+	"test_name":              true,
+	"run_id":                 true,
+	"client":                 true,
+	"total_gas_used":         true,
+	"total_time_ns":          true,
+	"total_mgas_s":           true,
+	"setup_gas_used":         true,
+	"setup_time_ns":          true,
+	"setup_mgas_s":           true,
+	"test_gas_used":          true,
+	"test_time_ns":           true,
+	"test_mgas_s":            true,
+	"setup_rejected_time_ns": true,
+	"test_rejected_time_ns":  true,
+	"run_start":              true,
+	"run_end":                true,
 	// Setup resource stats.
 	"setup_rpc_calls_count":             true,
 	"setup_resource_cpu_usec":           true,
@@ -223,6 +224,7 @@ type TestStatResponse struct {
 	SetupGasUsed              uint64  `json:"setup_gas_used"`
 	SetupTimeNs               int64   `json:"setup_time_ns"`
 	SetupMGasS                float64 `json:"setup_mgas_s"`
+	SetupRejectedTimeNs       int64   `json:"setup_rejected_time_ns"`
 	SetupRPCCallsCount        int     `json:"setup_rpc_calls_count"`
 	SetupResourceCPUUsec      uint64  `json:"setup_resource_cpu_usec"`
 	SetupResourceMemDelta     int64   `json:"setup_resource_memory_delta_bytes"`
@@ -235,7 +237,7 @@ type TestStatResponse struct {
 	TestGasUsed              uint64  `json:"test_gas_used"`
 	TestTimeNs               int64   `json:"test_time_ns"`
 	TestMGasS                float64 `json:"test_mgas_s"`
-	TestRejected             bool    `json:"test_rejected"`
+	TestRejectedTimeNs       int64   `json:"test_rejected_time_ns"`
 	TestRPCCallsCount        int     `json:"test_rpc_calls_count"`
 	TestResourceCPUUsec      uint64  `json:"test_resource_cpu_usec"`
 	TestResourceMemDelta     int64   `json:"test_resource_memory_delta_bytes"`
@@ -579,6 +581,7 @@ func toTestStatResponse(d *TestStat) TestStatResponse {
 		SetupGasUsed:              d.SetupGasUsed,
 		SetupTimeNs:               d.SetupTimeNs,
 		SetupMGasS:                d.SetupMGasS,
+		SetupRejectedTimeNs:       d.SetupRejectedTimeNs,
 		SetupRPCCallsCount:        d.SetupRPCCallsCount,
 		SetupResourceCPUUsec:      d.SetupResourceCPUUsec,
 		SetupResourceMemDelta:     d.SetupResourceMemDelta,
@@ -591,7 +594,7 @@ func toTestStatResponse(d *TestStat) TestStatResponse {
 		TestGasUsed:              d.TestGasUsed,
 		TestTimeNs:               d.TestTimeNs,
 		TestMGasS:                d.TestMGasS,
-		TestRejected:             d.TestRejected,
+		TestRejectedTimeNs:       d.TestRejectedTimeNs,
 		TestRPCCallsCount:        d.TestRPCCallsCount,
 		TestResourceCPUUsec:      d.TestResourceCPUUsec,
 		TestResourceMemDelta:     d.TestResourceMemDelta,

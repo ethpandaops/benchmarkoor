@@ -22,7 +22,7 @@ const RUNS_COLUMN_GROUPS: ColumnGroup[] = [
 const TEST_STAT_COLUMN_GROUPS: ColumnGroup[] = [
   { label: 'Identity', columns: ['id', 'suite_hash', 'run_id', 'test_name', 'client'] },
   { label: 'Totals', columns: ['total_gas_used', 'total_time_ns', 'total_mgas_s'] },
-  { label: 'Setup', columns: ['setup_gas_used', 'setup_time_ns', 'setup_mgas_s', 'setup_rpc_calls_count'] },
+  { label: 'Setup', columns: ['setup_gas_used', 'setup_time_ns', 'setup_mgas_s', 'setup_rejected_time_ns', 'setup_rpc_calls_count'] },
   {
     label: 'Setup Resources',
     columns: [
@@ -31,7 +31,7 @@ const TEST_STAT_COLUMN_GROUPS: ColumnGroup[] = [
       'setup_resource_disk_read_iops', 'setup_resource_disk_write_iops',
     ],
   },
-  { label: 'Test', columns: ['test_gas_used', 'test_time_ns', 'test_mgas_s', 'test_rejected', 'test_rpc_calls_count'] },
+  { label: 'Test', columns: ['test_gas_used', 'test_time_ns', 'test_mgas_s', 'test_rejected_time_ns', 'test_rpc_calls_count'] },
   {
     label: 'Test Resources',
     columns: [

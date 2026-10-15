@@ -945,6 +945,7 @@ func (idx *indexer) indexTestStats(
 					ts.SetupMGasS = indexstore.ComputeMGasS(
 						dur.Steps.Setup.GasUsed, dur.Steps.Setup.Time,
 					)
+					ts.SetupRejectedTimeNs = dur.Steps.Setup.RejectedTime
 					ts.SetupRPCCallsCount = dur.Steps.Setup.RPCCallsCount
 
 					if dur.Steps.Setup.ResourceTotals != nil {
@@ -965,6 +966,7 @@ func (idx *indexer) indexTestStats(
 					ts.TestMGasS = indexstore.ComputeMGasS(
 						dur.Steps.Test.GasUsed, dur.Steps.Test.Time,
 					)
+					ts.TestRejectedTimeNs = dur.Steps.Test.RejectedTime
 					ts.TestRPCCallsCount = dur.Steps.Test.RPCCallsCount
 
 					if dur.Steps.Test.ResourceTotals != nil {
@@ -980,14 +982,10 @@ func (idx *indexer) indexTestStats(
 				}
 			}
 
-			// A test whose payloads the client must reject reports no gas, so
-			// its test time is the time to reject, and the total adds it.
+			// A payload the client must reject reports no gas, so its time
+			// to reject is apart from the step times. The total adds it;
 			// TotalMGasS (set above) stays on the gas-reporting time.
-			if dur.Steps != nil && dur.Steps.Test != nil && dur.Steps.Test.RejectedTime > 0 {
-				ts.TestRejected = true
-				ts.TestTimeNs = dur.Steps.Test.RejectedTime
-				ts.TotalTimeNs = dur.Time + dur.Steps.Test.RejectedTime
-			}
+			ts.TotalTimeNs += ts.SetupRejectedTimeNs + ts.TestRejectedTimeNs
 
 			testStats = append(testStats, ts)
 		}

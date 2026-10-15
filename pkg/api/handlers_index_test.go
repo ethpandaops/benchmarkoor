@@ -393,12 +393,13 @@ func TestHandleSuiteStats_RejectedTest(t *testing.T) {
 		Client:       "geth",
 		RunStart:     100,
 		TotalGasUsed: 10_000_000,
-		TotalTimeNs:  67_000_000,
+		TotalTimeNs:  80_000_000,
 		TotalMGasS:   500,
 		SetupGasUsed: 10_000_000,
 		SetupTimeNs:  20_000_000,
-		TestTimeNs:   47_000_000,
-		TestRejected: true,
+		// A rejected payload in each step.
+		SetupRejectedTimeNs: 13_000_000,
+		TestRejectedTimeNs:  47_000_000,
 	}}))
 
 	rctx := chi.NewRouteContext()
@@ -416,8 +417,9 @@ func TestHandleSuiteStats_RejectedTest(t *testing.T) {
 
 	d := stats["invalid"].Durations[0]
 	assert.Equal(t, int64(20_000_000), d.Time)
-	assert.Equal(t, int64(47_000_000), d.RejectedTime)
+	assert.Equal(t, int64(60_000_000), d.RejectedTime)
 	assert.Equal(t, int64(0), d.Steps.Test.Time)
 	assert.Equal(t, int64(47_000_000), d.Steps.Test.RejectedTime)
 	assert.Equal(t, int64(20_000_000), d.Steps.Setup.Time)
+	assert.Equal(t, int64(13_000_000), d.Steps.Setup.RejectedTime)
 }

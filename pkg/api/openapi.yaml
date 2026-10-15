@@ -494,12 +494,16 @@ paths:
         **Filter columns:** id, suite_hash, test_name, run_id, client,
         total_gas_used, total_time_ns, total_mgas_s, setup_gas_used,
         setup_time_ns, setup_mgas_s, test_gas_used, test_time_ns,
-        test_mgas_s, test_rejected, run_start, run_end
+        test_mgas_s, setup_rejected_time_ns, test_rejected_time_ns,
+        run_start, run_end
 
-        For a rejected test (`test_rejected=is.true`, an invalid-payload
-        benchmark), `test_gas_used` and `test_mgas_s` are 0, `test_time_ns`
-        is the time the client took to reject the payloads, and
-        `total_time_ns` includes it.
+        `setup_rejected_time_ns` and `test_rejected_time_ns` are the time the
+        client took to reject the step's payloads that the fixture marks
+        invalid (for example `test_rejected_time_ns=gt.0`). A rejected payload
+        reports no gas, so this time is not in `setup_time_ns` or
+        `test_time_ns`, which stay the denominator of the step MGas/s.
+        `total_time_ns` includes it, and `total_mgas_s` uses only the
+        gas-reporting time.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -2477,6 +2481,12 @@ components:
         setup_mgas_s:
           type: number
           format: double
+        setup_rejected_time_ns:
+          type: integer
+          format: int64
+          description: |
+            Time the client took to reject the setup step's payloads that the
+            fixture marks invalid. 0 when the step has none.
         test_gas_used:
           type: integer
           format: uint64
@@ -2486,12 +2496,13 @@ components:
         test_mgas_s:
           type: number
           format: double
-        test_rejected:
-          type: boolean
+        test_rejected_time_ns:
+          type: integer
+          format: int64
           description: |
-            True when the client must reject the test's payloads (an
-            invalid-payload benchmark). test_gas_used and test_mgas_s are then
-            0, and test_time_ns is the time to reject.
+            Time the client took to reject the test step's payloads that the
+            fixture marks invalid. 0 when the step has none. It is not in
+            test_time_ns, which stays the denominator of test_mgas_s.
         run_start:
           type: integer
           format: int64
