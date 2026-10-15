@@ -8,6 +8,8 @@ import { Pagination } from '@/components/shared/Pagination'
 import { Spinner } from '@/components/shared/Spinner'
 import { Badge } from '@/components/shared/Badge'
 import { Modal } from '@/components/shared/Modal'
+import { TestNavControls } from '@/components/shared/TestNavControls'
+import { useTestNavigation } from '@/hooks/useTestNavigation'
 import { TestName } from '@/components/shared/TestName'
 import { getOpcodeCategory, getCategoryColor } from '@/utils/opcodeCategories'
 import { testNameMatches, toggleSearchTerm, TEST_FILTER_HINT } from '@/utils/eestNameFilter'
@@ -818,6 +820,14 @@ export function TestFilesList({
   const totalPages = Math.ceil(sortedItems.length / pageSize)
   const paginatedItems = sortedItems.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
+  // Prev/next in the detail modal walks the list as shown (search and sort),
+  // across pages.
+  const navigation = useTestNavigation(
+    sortedItems.map((item) => item.originalIndex),
+    detailIndex,
+    (index: number) => onDetailChange?.(index),
+  )
+
   const setCurrentPage = (page: number) => {
     if (onPageChange) {
       onPageChange(page)
@@ -930,6 +940,7 @@ export function TestFilesList({
               isOpen={!!selectedFileItem}
               onClose={() => onDetailChange?.(undefined)}
               title={detailIndex != null ? `Test #${detailIndex}` : undefined}
+              headerActions={<TestNavControls navigation={navigation} />}
             >
               {selectedFileItem && (
                 <FileContent suiteHash={suiteHash} stepType="pre_run_steps" file={selectedFileItem} />
@@ -1152,6 +1163,7 @@ export function TestFilesList({
             isOpen={!!selectedTestItem}
             onClose={() => onDetailChange?.(undefined)}
             title={detailIndex != null ? `Test #${detailIndex}` : undefined}
+            headerActions={<TestNavControls navigation={navigation} />}
           >
             {selectedTestItem && (
               <TestStepsContent suiteHash={suiteHash} test={selectedTestItem} opcodeSort={opcodeSort} onOpcodeSortChange={handleOpcodeSortChange} />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { Check, Copy, Download } from 'lucide-react'
@@ -6,6 +6,8 @@ import type { TestEntry, SuiteTest, AggregatedStats, MethodsAggregated, StepResu
 import { fetchHead } from '@/api/client'
 import { ColorScaleLegend } from '@/components/shared/ColorScaleLegend'
 import { Modal } from '@/components/shared/Modal'
+import { TestNavControls } from '@/components/shared/TestNavControls'
+import { useTestNavigation } from '@/hooks/useTestNavigation'
 import { TestName } from '@/components/shared/TestName'
 import { compileQuery, testNameMatches, toggleSearchTerm } from '@/utils/eestNameFilter'
 import { TimeBreakdown } from './TimeBreakdown'
@@ -293,6 +295,18 @@ function PostTestDumps({ runId, testName, calls }: { runId: string; testName: st
   )
 }
 
+/** Whether a tile passes the status and search filters (the rest dim). */
+function tileMatchesFilter(test: TestData, statusFilter: TestStatusFilter, searchQuery?: string): boolean {
+  const matchesStatusFilter =
+    statusFilter === 'all' ||
+    // Not-processed tiles are neither "passed" nor "failed" — exclude
+    // them from those filters so the user can isolate ran-and-passed /
+    // ran-and-failed tests cleanly.
+    (!test.notProcessed && statusFilter === 'passed' && !test.hasFail) ||
+    (!test.notProcessed && statusFilter === 'failed' && test.hasFail)
+  return matchesStatusFilter && (!searchQuery || testNameMatches(test.testKey, searchQuery))
+}
+
 function HeatmapCell({
   test,
   threshold,
@@ -326,15 +340,7 @@ function HeatmapCell({
   onMouseEnter: (test: TestData, event: React.MouseEvent) => void
   onMouseLeave: () => void
 }) {
-  const matchesStatusFilter =
-    statusFilter === 'all' ||
-    // Not-processed tiles are neither "passed" nor "failed" — exclude
-    // them from those filters so the user can isolate ran-and-passed /
-    // ran-and-failed tests cleanly.
-    (!test.notProcessed && statusFilter === 'passed' && !test.hasFail) ||
-    (!test.notProcessed && statusFilter === 'failed' && test.hasFail)
-  const matchesSearchQuery = !searchQuery || testNameMatches(test.testKey, searchQuery)
-  const matchesFilter = matchesStatusFilter && matchesSearchQuery
+  const matchesFilter = tileMatchesFilter(test, statusFilter, searchQuery)
   let baseStyle: React.CSSProperties
   if (test.notProcessed) {
     baseStyle = NOT_PROCESSED_STYLE
@@ -675,6 +681,17 @@ export function TestHeatmap({
       tests: items,
     }))
   }, [sortedData, groupMode, suiteTests])
+
+  // Prev/next in the test modal follows the tiles as shown: the sort, the
+  // gas blocks, and the status and search filters.
+  const navOrder = useMemo(() => {
+    const shown = groupedData ? groupedData.flatMap((g) => g.tests) : sortedData
+    return shown
+      .filter((t) => !t.notProcessed && tileMatchesFilter(t, statusFilter, searchQuery))
+      .map((t) => t.testKey)
+  }, [groupedData, sortedData, statusFilter, searchQuery])
+  const selectTest = useCallback((testKey: string) => onSelectedTestChange?.(testKey), [onSelectedTestChange])
+  const navigation = useTestNavigation(navOrder, selectedTest, selectTest)
 
   // Distribution / above-threshold / below-threshold counts respect the
   // page-level status + search filter so the histogram reflects what the
@@ -1081,6 +1098,7 @@ export function TestHeatmap({
             isOpen={!!selectedTest}
             onClose={() => onSelectedTestChange?.(undefined)}
             title={`Test #${executionOrder.get(selectedTest) ?? '?'}`}
+            headerActions={<TestNavControls navigation={navigation} />}
           >
             <div className="flex flex-col gap-6">
               <div className="flex flex-col gap-2">

@@ -374,6 +374,16 @@ export function CompareGroupsPage() {
     (mode: GroupMode) => updateSearch({ heatmapGroup: mode === 'none' ? undefined : mode }),
     [updateSearch],
   )
+  // Tests in the heatmap's display order, for prev/next in the test modal.
+  // A new array with the same tests keeps the old one: the heatmap reports
+  // its order after every render, and a fresh array would render the page
+  // (and the heatmap) again, without end.
+  const [heatmapOrder, setHeatmapOrder] = useState<string[]>([])
+  const handleHeatmapOrder = useCallback((names: string[]) => {
+    setHeatmapOrder((prev) =>
+      prev.length === names.length && prev.every((name, i) => name === names[i]) ? prev : names,
+    )
+  }, [])
   const [sharedZoom, setSharedZoom] = useState(true)
   const [chartZoom, setChartZoom] = useState({ start: 0, end: 100 })
   const tableSortBy = (search.sort ?? 'order') as 'order' | 'name' | 'gasUsed' | 'avgValue' | `run-${number}`
@@ -838,6 +848,7 @@ export function CompareGroupsPage() {
             onSortModeChange={setHeatmapSort}
             groupMode={heatmapGroup}
             onGroupModeChange={setHeatmapGroup}
+            onDisplayOrderChange={handleHeatmapOrder}
             testNameFilter={testNameFilter}
             onTestClick={setSelectedTest}
             highlightGroupIdx={highlightGroupIdx}
@@ -949,6 +960,8 @@ export function CompareGroupsPage() {
       {selectedTest && hasResults && (
         <TestDetailModal
           testName={selectedTest}
+          navOrder={heatmapOrder}
+          onSelectTest={setSelectedTest}
           testOrder={(() => {
             const idx = suite?.tests?.findIndex((t) => t.name === selectedTest) ?? -1
             return idx >= 0 ? idx + 1 : undefined

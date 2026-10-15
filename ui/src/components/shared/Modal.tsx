@@ -6,11 +6,13 @@ interface ModalProps {
   isOpen: boolean
   onClose: () => void
   title?: string
+  /** Controls shown in the header next to the close button (e.g. prev/next). */
+  headerActions?: React.ReactNode
   children: React.ReactNode
   className?: string
 }
 
-export function Modal({ isOpen, onClose, title, children, className }: ModalProps) {
+export function Modal({ isOpen, onClose, title, headerActions, children, className }: ModalProps) {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -39,12 +41,15 @@ export function Modal({ isOpen, onClose, title, children, className }: ModalProp
         {title && (
           <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
             <h3 className="text-sm/6 font-bold text-gray-900 dark:text-gray-100">{title}</h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-            >
-              <X className="size-5" />
-            </button>
+            <div className="flex items-center gap-3">
+              {headerActions}
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
           </div>
         )}
         <div className="overflow-auto p-4">{children}</div>

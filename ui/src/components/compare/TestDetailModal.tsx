@@ -1,10 +1,12 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { GitCompareArrows, Medal, X } from 'lucide-react'
 import clsx from 'clsx'
 import type { RunResult, SuiteTest } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { TestName } from '@/components/shared/TestName'
+import { TestNavControls } from '@/components/shared/TestNavControls'
+import { useTestNavigation } from '@/hooks/useTestNavigation'
 import { Badge } from '@/components/shared/Badge'
 import { EESTInfoContent, InvalidPayloadNote, PayloadSizesContent, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { ExecutionsList } from '@/components/run-detail/ExecutionsList'
@@ -22,6 +24,10 @@ interface TestDetailModalProps {
   testOrder?: number
   /** The suite entry of the test, for its EEST info and opcode counts. */
   suiteTest?: SuiteTest
+  /** Tests in the order the page shows them, for prev/next (arrow keys). */
+  navOrder?: string[]
+  /** Opens another test; with navOrder, enables prev/next. */
+  onSelectTest?: (testName: string) => void
   /** Suite the groups share. The step payloads come from its request files. */
   suiteHash?: string
   groups: GroupDef[]
@@ -119,6 +125,8 @@ function summarize(values: number[], average: number | undefined, points: RunPoi
 export function TestDetailModal({
   testName,
   testOrder,
+  navOrder,
+  onSelectTest,
   suiteTest,
   suiteHash,
   groups,
@@ -169,6 +177,9 @@ export function TestDetailModal({
   // sections at once. The popover stays with the section under the mouse.
   const [hoveredRunId, setHoveredRunId] = useState<string | null>(null)
   const [runsGroupBy, setRunsGroupBy] = useState<RunsGroupBy>('none')
+  // Prev/next (and the arrow keys) through the tests as the page shows them.
+  const selectTest = useCallback((name: string) => onSelectTest?.(name), [onSelectTest])
+  const navigation = useTestNavigation(onSelectTest ? navOrder ?? [] : [], testName, selectTest)
   const [sortKey, setSortKey] = useState<SortKey>('run')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
@@ -248,9 +259,12 @@ export function TestDetailModal({
               <TestName name={testName} showRawBelow showCopy onChipClick={onChipFilterToggle} activeQuery={searchQuery} />
             </div>
           </div>
-          <button onClick={onClose} className="shrink-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
-            <X className="size-5" />
-          </button>
+          <div className="flex shrink-0 items-center gap-3">
+            <TestNavControls navigation={navigation} />
+            <button onClick={onClose} className="shrink-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
+              <X className="size-5" />
+            </button>
+          </div>
         </div>
 
         {/* Body */}

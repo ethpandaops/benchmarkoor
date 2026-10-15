@@ -108,6 +108,8 @@ interface GroupHeatmapProps {
   /** Whether the matrix splits into one block per benchmark gas value. The page owns it so the URL keeps it. */
   groupMode?: GroupMode
   onGroupModeChange?: (mode: GroupMode) => void
+  /** Reports the tests in display order (sort and gas blocks), for prev/next in the test modal. */
+  onDisplayOrderChange?: (testNames: string[]) => void
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -225,6 +227,7 @@ export function GroupHeatmap({
   onSortModeChange,
   groupMode = 'none',
   onGroupModeChange,
+  onDisplayOrderChange,
 }: GroupHeatmapProps) {
   const { metric, mode, threshold, slowMs } = model
   // The sliders fire on every tick and each tick recolours every tile.
@@ -371,6 +374,19 @@ export function GroupHeatmap({
       stanzas: chunk(items),
     }))
   }, [tests, perRow, groupMode])
+
+  // The tests in display order, independent of the width: the sort, then
+  // the gas blocks.
+  const displayOrder = useMemo(() => {
+    if (groupMode === 'none') return tests.map((t) => t.name)
+    const groupOf = groupMode === 'benchmark'
+      ? (t: HeatmapTest) => benchmarkGasGroup(t.name)
+      : (t: HeatmapTest) => gasUsedGroup(t.gasUsed)
+    return groupByGas(tests, groupOf).flatMap(({ items }) => items.map((t) => t.name))
+  }, [tests, groupMode])
+  useEffect(() => {
+    onDisplayOrderChange?.(displayOrder)
+  }, [displayOrder, onDisplayOrderChange])
 
   // The highlighted group's position in `runs`, or -1 when none or when
   // the group has no result.
