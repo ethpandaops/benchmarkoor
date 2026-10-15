@@ -27,6 +27,7 @@ import { GroupBuilder } from '@/components/compare/GroupBuilder'
 import { type GroupDef, parseGroupsParam, encodeGroupsParam, selectGroupRuns } from '@/components/compare/groupUtils'
 import { averageResults } from '@/utils/averageResults'
 import { TestDetailModal } from '@/components/compare/TestDetailModal'
+import { parseHeatmapGroupMode } from '@/utils/gasGroup'
 
 function parseStepFilter(param: string | undefined): StepTypeOption[] {
   if (!param) return DEFAULT_STEP_FILTER
@@ -368,7 +369,7 @@ export function CompareGroupsPage() {
     [updateSearch],
   )
   // Heatmap blocks: 'none' is the default, so it stays out of the URL.
-  const heatmapGroup: GroupMode = search.heatmapGroup === 'gas' ? 'gas' : 'none'
+  const heatmapGroup: GroupMode = parseHeatmapGroupMode(search.heatmapGroup)
   const setHeatmapGroup = useCallback(
     (mode: GroupMode) => updateSearch({ heatmapGroup: mode === 'none' ? undefined : mode }),
     [updateSearch],

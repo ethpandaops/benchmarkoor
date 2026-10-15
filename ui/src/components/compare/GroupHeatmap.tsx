@@ -28,31 +28,16 @@ import { formatDuration } from '@/utils/format'
 import { positionTooltip } from '@/utils/tooltipPosition'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import { type HeatmapColorModel, baselineRatio, formatRatio, heatmapColor } from './heatmapColor'
-import { isRejectedOnly, payloadTimeNs } from './compareMetrics'
-import { parseEESTName } from '@/utils/eestName'
+import { fixtureGasByTest, isRejectedOnly, payloadTimeNs } from './compareMetrics'
+import { type HeatmapGroupMode, benchmarkGasGroup, gasUsedGroup, groupByGas } from '@/utils/gasGroup'
 
 // One row per group, one column per test. When the tests do not fit the
 // width, the matrix wraps into stanzas: each stanza repeats the group
 // rows for its slice of tests, so a column is the same test in every row.
 
 export type SortMode = 'order' | 'spread' | 'avg'
-/** Tests in one matrix, or one matrix per benchmark gas value. */
-export type GroupMode = 'none' | 'gas'
-
-const GAS_UNITS: Record<string, number> = { K: 1e3, M: 1e6, G: 1e9 }
-
-/**
- * The benchmark gas of a test, from its name (e.g. "60M" in
- * `benchmark-gas-value_60M`): the same value the filter facets show. The
- * name is the one source that every test has: a rejected test reports no
- * gas, and the gas a test uses varies a little around its benchmark value.
- */
-function benchmarkGas(name: string): { label: string; gas: number } | undefined {
-  const label = parseEESTName(name).benchmark
-  const match = label?.match(/^(\d+)([KMG]?)$/)
-  if (!label || !match) return undefined
-  return { label, gas: Number(match[1]) * (GAS_UNITS[match[2]] ?? 1) }
-}
+/** Tests in one matrix, or one matrix per gas value (see HeatmapGroupMode). */
+export type GroupMode = HeatmapGroupMode
 
 // Same tile as the run-detail heatmap. The logo is the tile size too,
 // so it does not set a taller row pitch than the tiles.
@@ -80,6 +65,11 @@ interface HeatmapTest {
   durations: (number | undefined)[]
   /** Whether the group's payloads for this test are all ones it must reject (no MGas/s). */
   rejected: boolean[]
+  /**
+   * Gas the test really used, from the first group that reports it. A
+   * rejected test reports none; its fixture records the gas instead.
+   */
+  gasUsed?: number
   /** Whether the group reported failed executions for this test. */
   fails: boolean[]
   /** Positions in `runs` with the highest MGas/s, when at least two groups have a value. Same rule as the ranking. */
@@ -287,11 +277,16 @@ export function GroupHeatmap({
         test.mgas[gi] = calculateMGasPerSec(stats)
         test.durations[gi] = payloadTimeNs(stats)
         test.rejected[gi] = isRejectedOnly(stats)
+        if (test.gasUsed === undefined && stats && stats.gas_used_total > 0) test.gasUsed = stats.gas_used_total
         test.fails[gi] = (stats?.fail ?? 0) > 0
       }
     })
 
     const list = [...byName.values()]
+    const fixtureGas = fixtureGasByTest(suiteTests)
+    for (const test of list) {
+      if (test.gasUsed === undefined && test.rejected.some(Boolean)) test.gasUsed = fixtureGas.get(test.name)
+    }
     for (const test of list) {
       const known = (metric === 'mgas' ? test.mgas : test.durations).filter((v): v is number => v !== undefined)
       if (known.length >= 2) test.spread = Math.max(...known) / Math.min(...known) - 1
@@ -356,9 +351,9 @@ export function GroupHeatmap({
     [tests, slowMs],
   )
 
-  // The matrix blocks: one with every test, or one per benchmark gas value
-  // (most gas first, as on the run page). Each block keeps the sort order
-  // and wraps into stanzas of its own.
+  // The matrix blocks: one with every test, or one per gas value (most gas
+  // first, as on the run page). Each block keeps the sort order and wraps
+  // into stanzas of its own.
   const blocks = useMemo(() => {
     const chunk = (list: HeatmapTest[]) => {
       const out: HeatmapTest[][] = []
@@ -366,17 +361,15 @@ export function GroupHeatmap({
       return out
     }
     if (groupMode === 'none') return [{ key: 'all', label: undefined, count: tests.length, stanzas: chunk(tests) }]
-
-    const byGas = new Map<string, { label: string; gas: number; tests: HeatmapTest[] }>()
-    for (const test of tests) {
-      const gas = benchmarkGas(test.name) ?? { label: 'Unknown', gas: -1 }
-      const group = byGas.get(gas.label) ?? { ...gas, tests: [] }
-      group.tests.push(test)
-      byGas.set(gas.label, group)
-    }
-    return [...byGas.values()]
-      .sort((a, b) => b.gas - a.gas)
-      .map((g) => ({ key: g.label, label: g.gas >= 0 ? `${g.label} gas` : 'Unknown gas', count: g.tests.length, stanzas: chunk(g.tests) }))
+    const groupOf = groupMode === 'benchmark'
+      ? (t: HeatmapTest) => benchmarkGasGroup(t.name)
+      : (t: HeatmapTest) => gasUsedGroup(t.gasUsed)
+    return groupByGas(tests, groupOf).map(({ group, items }) => ({
+      key: group.key,
+      label: group.label,
+      count: items.length,
+      stanzas: chunk(items),
+    }))
   }, [tests, perRow, groupMode])
 
   // The highlighted group's position in `runs`, or -1 when none or when
@@ -502,7 +495,8 @@ export function GroupHeatmap({
             onChange={onGroupModeChange}
             options={[
               { value: 'none', label: 'None' },
-              { value: 'gas', label: 'Gas Used', title: 'One block per benchmark gas value, from the test name' },
+              { value: 'benchmark', label: 'Benchmark Gas', title: 'One block per benchmark gas value, from the test name' },
+              { value: 'gas', label: 'Gas Used', title: 'One block per gas the test really used, in 1M steps' },
             ]}
           />
         )}

@@ -34,6 +34,8 @@ import {
   thresholdStepRange,
 } from '@/utils/perfThreshold'
 import { getPayloadTimes } from '@/utils/payloadTime'
+import { type HeatmapGroupMode, benchmarkGasGroup, gasUsedGroup, groupByGas } from '@/utils/gasGroup'
+import { fixtureGasByTest } from '@/components/compare/compareMetrics'
 
 // Aggregate stats from selected steps of a test entry
 function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL_STEP_TYPES): AggregatedStats | undefined {
@@ -111,7 +113,8 @@ function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL
 }
 
 export type SortMode = 'order' | 'mgas' | 'gas' | 'duration'
-export type GroupMode = 'none' | 'gas'
+/** See HeatmapGroupMode: no blocks, blocks per benchmark gas, or per gas used. */
+export type GroupMode = HeatmapGroupMode
 // ColorMode selects the metric behind the tile colours and the
 // distribution histogram: throughput or payload duration.
 export type ColorMode = 'mgas' | 'duration'
@@ -121,16 +124,6 @@ const SORT_CAPTIONS: Record<SortMode, string> = {
   mgas: '(by MGas/s, slowest first)',
   gas: '(by gas used, most first)',
   duration: '(by slowest payload, longest first)',
-}
-
-const GAS_GROUP_STEP = 30_000_000 // 30M gas per group
-
-function getGasGroup(gasUsed: number): number {
-  return Math.round(gasUsed / GAS_GROUP_STEP) * GAS_GROUP_STEP
-}
-
-function formatGasGroup(gasGroup: number): string {
-  return `${Math.round(gasGroup / 1_000_000)}M`
 }
 
 interface TestHeatmapProps {
@@ -668,29 +661,20 @@ export function TestHeatmap({
     return sorted
   }, [testData, sortMode])
 
+  // Blocks by gas, most gas first; each keeps the sort order. A rejected
+  // test reports no gas used: its fixture records the gas instead.
   const groupedData = useMemo(() => {
     if (groupMode === 'none') return null
-
-    const groups = new Map<number, TestData[]>()
-    for (const test of sortedData) {
-      const group = getGasGroup(test.gasUsedTotal)
-      const existing = groups.get(group)
-      if (existing) {
-        existing.push(test)
-      } else {
-        groups.set(group, [test])
-      }
-    }
-
-    // Sort groups by gas amount descending
-    return [...groups.entries()]
-      .sort(([a], [b]) => b - a)
-      .map(([gasGroup, items]) => ({
-        label: formatGasGroup(gasGroup),
-        gasGroup,
-        tests: items,
-      }))
-  }, [sortedData, groupMode])
+    const fixtureGas = fixtureGasByTest(suiteTests)
+    const groupOf = groupMode === 'benchmark'
+      ? (t: TestData) => benchmarkGasGroup(t.testKey)
+      : (t: TestData) => gasUsedGroup(t.gasUsedTotal > 0 ? t.gasUsedTotal : t.rejectedNs !== undefined ? fixtureGas.get(t.testKey) : undefined)
+    return groupByGas(sortedData, groupOf).map(({ group, items }) => ({
+      label: group.label,
+      key: group.key,
+      tests: items,
+    }))
+  }, [sortedData, groupMode, suiteTests])
 
   // Distribution / above-threshold / below-threshold counts respect the
   // page-level status + search filter so the histogram reflects what the
@@ -837,7 +821,8 @@ export function TestHeatmap({
             onChange={handleGroupModeChange}
             options={[
               { value: 'none', label: 'None' },
-              { value: 'gas', label: 'Gas Used' },
+              { value: 'benchmark', label: 'Benchmark Gas', title: 'One block per benchmark gas value, from the test name' },
+              { value: 'gas', label: 'Gas Used', title: 'One block per gas the test really used, in 1M steps' },
             ]}
           />
         </div>
@@ -870,14 +855,15 @@ export function TestHeatmap({
       <div className="flex flex-col gap-1">
         <div className="text-xs/5 font-medium text-gray-500 dark:text-gray-400">
           Tests {SORT_CAPTIONS[sortMode]}
-          {groupMode !== 'none' && ' — grouped by gas used (30M steps)'}
+          {groupMode === 'benchmark' && ' — grouped by benchmark gas (from the test name)'}
+          {groupMode === 'gas' && ' — grouped by gas used (1M steps)'}
         </div>
         {groupedData ? (
           <div className="flex flex-col gap-2">
             {groupedData.map((group) => (
-              <div key={group.gasGroup} className="flex flex-col gap-0.5">
+              <div key={group.key} className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs/5 font-medium text-gray-600 dark:text-gray-300">{group.label} gas</span>
+                  <span className="text-xs/5 font-medium text-gray-600 dark:text-gray-300">{group.label}</span>
                   <span className="text-xs/5 text-gray-400 dark:text-gray-500">({group.tests.length})</span>
                 </div>
                 <div className="flex flex-wrap gap-0.5">

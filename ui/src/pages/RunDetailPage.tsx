@@ -52,6 +52,7 @@ import { Flame, Download, SquareStack, GitCompareArrows, Trash2 } from 'lucide-r
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 import { useAuth } from '@/hooks/useAuth'
 import { useCancelDeleteRuns, useDeleteRuns } from '@/api/hooks/useAdmin'
+import { parseHeatmapGroupMode } from '@/utils/gasGroup'
 
 // Per-test opcode diff between this run and the suite. Only opcodes
 // where suite count != run count are listed.
@@ -912,7 +913,7 @@ export function RunDetailPage() {
               postTestRPCCalls={config.instance.post_test_rpc_calls}
               onSelectedTestChange={handleTestModalChange}
               onSortModeChange={handleHeatmapSortChange}
-              groupMode={heatmapGroup}
+              groupMode={parseHeatmapGroupMode(heatmapGroup)}
               onGroupModeChange={handleHeatmapGroupChange}
               onColorModeChange={handleHeatmapColorModeChange}
               onSearchChange={handleSearchChange}
