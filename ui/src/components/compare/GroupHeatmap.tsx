@@ -29,12 +29,30 @@ import { positionTooltip } from '@/utils/tooltipPosition'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import { type HeatmapColorModel, baselineRatio, formatRatio, heatmapColor } from './heatmapColor'
 import { isRejectedOnly, payloadTimeNs } from './compareMetrics'
+import { parseEESTName } from '@/utils/eestName'
 
 // One row per group, one column per test. When the tests do not fit the
 // width, the matrix wraps into stanzas: each stanza repeats the group
 // rows for its slice of tests, so a column is the same test in every row.
 
 export type SortMode = 'order' | 'spread' | 'avg'
+/** Tests in one matrix, or one matrix per benchmark gas value. */
+export type GroupMode = 'none' | 'gas'
+
+const GAS_UNITS: Record<string, number> = { K: 1e3, M: 1e6, G: 1e9 }
+
+/**
+ * The benchmark gas of a test, from its name (e.g. "60M" in
+ * `benchmark-gas-value_60M`): the same value the filter facets show. The
+ * name is the one source that every test has: a rejected test reports no
+ * gas, and the gas a test uses varies a little around its benchmark value.
+ */
+function benchmarkGas(name: string): { label: string; gas: number } | undefined {
+  const label = parseEESTName(name).benchmark
+  const match = label?.match(/^(\d+)([KMG]?)$/)
+  if (!label || !match) return undefined
+  return { label, gas: Number(match[1]) * (GAS_UNITS[match[2]] ?? 1) }
+}
 
 // Same tile as the run-detail heatmap. The logo is the tile size too,
 // so it does not set a taller row pitch than the tiles.
@@ -97,6 +115,9 @@ interface GroupHeatmapProps {
   /** Test order of the matrix. The page owns it so the URL keeps it. */
   sortMode: SortMode
   onSortModeChange: (mode: SortMode) => void
+  /** Whether the matrix splits into one block per benchmark gas value. The page owns it so the URL keeps it. */
+  groupMode?: GroupMode
+  onGroupModeChange?: (mode: GroupMode) => void
 }
 
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
@@ -212,6 +233,8 @@ export function GroupHeatmap({
   onHighlightChange,
   sortMode,
   onSortModeChange,
+  groupMode = 'none',
+  onGroupModeChange,
 }: GroupHeatmapProps) {
   const { metric, mode, threshold, slowMs } = model
   // The sliders fire on every tick and each tick recolours every tile.
@@ -333,11 +356,28 @@ export function GroupHeatmap({
     [tests, slowMs],
   )
 
-  const stanzas = useMemo(() => {
-    const out: HeatmapTest[][] = []
-    for (let i = 0; i < tests.length; i += perRow) out.push(tests.slice(i, i + perRow))
-    return out
-  }, [tests, perRow])
+  // The matrix blocks: one with every test, or one per benchmark gas value
+  // (most gas first, as on the run page). Each block keeps the sort order
+  // and wraps into stanzas of its own.
+  const blocks = useMemo(() => {
+    const chunk = (list: HeatmapTest[]) => {
+      const out: HeatmapTest[][] = []
+      for (let i = 0; i < list.length; i += perRow) out.push(list.slice(i, i + perRow))
+      return out
+    }
+    if (groupMode === 'none') return [{ key: 'all', label: undefined, count: tests.length, stanzas: chunk(tests) }]
+
+    const byGas = new Map<string, { label: string; gas: number; tests: HeatmapTest[] }>()
+    for (const test of tests) {
+      const gas = benchmarkGas(test.name) ?? { label: 'Unknown', gas: -1 }
+      const group = byGas.get(gas.label) ?? { ...gas, tests: [] }
+      group.tests.push(test)
+      byGas.set(gas.label, group)
+    }
+    return [...byGas.values()]
+      .sort((a, b) => b.gas - a.gas)
+      .map((g) => ({ key: g.label, label: g.gas >= 0 ? `${g.label} gas` : 'Unknown gas', count: g.tests.length, stanzas: chunk(g.tests) }))
+  }, [tests, perRow, groupMode])
 
   // The highlighted group's position in `runs`, or -1 when none or when
   // the group has no result.
@@ -455,6 +495,17 @@ export function GroupHeatmap({
             },
           ]}
         />
+        {onGroupModeChange && (
+          <ModeGroup
+            label="Group by:"
+            value={groupMode}
+            onChange={onGroupModeChange}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'gas', label: 'Gas Used', title: 'One block per benchmark gas value, from the test name' },
+            ]}
+          />
+        )}
         {mode === 'baseline' && runs.length >= 2 && (
           <div className="flex items-center gap-2 text-xs/5 text-gray-500 dark:text-gray-400">
             <span>Baseline:</span>
@@ -500,34 +551,46 @@ export function GroupHeatmap({
 
       {/* Grid */}
       <div ref={gridRef} className="flex flex-col gap-3">
-        {stanzas.map((stanza, si) => (
-          // No vertical gap: the tiles of one test stack into one bar, so a
-          // column reads as one test across the groups.
-          <div key={si} className="flex flex-col">
-            {runs.map((run, gi) => (
-              <div key={run.index} className="flex items-center" style={{ gap: GAP_PX }}>
-                <img
-                  src={`/img/clients/${run.config.instance.client}.jpg`}
-                  alt={run.config.instance.client}
-                  title={formatRunLabel(RUN_SLOTS[run.index], run, labelMode)}
-                  className="shrink-0 rounded-full object-cover"
-                  style={{ width: TILE_PX, height: TILE_PX, marginRight: LABEL_PX - TILE_PX - GAP_PX }}
-                />
-                {stanza.map((test) => (
-                  <button
-                    key={test.name}
-                    onClick={() => onTestClick?.(test.name)}
-                    onMouseEnter={(e) => setTooltip({ test, anchor: e.currentTarget.getBoundingClientRect() })}
-                    onMouseLeave={() => setTooltip(null)}
-                    className={clsx(
-                      'relative shrink-0 cursor-pointer transition-transform hover:z-10 hover:scale-150 hover:ring-2 hover:ring-gray-500 dark:hover:ring-gray-300',
-                      test.fails[gi] && 'ring-1 ring-inset ring-red-500',
-                    )}
-                    style={{ width: TILE_PX, height: TILE_PX, ...tileStyle(test, gi) }}
-                  />
-                ))}
+        {blocks.map((block) => (
+          <div key={block.key} className="flex flex-col gap-1">
+            {block.label && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs/5 font-medium text-gray-600 dark:text-gray-300">{block.label}</span>
+                <span className="text-xs/5 text-gray-400 dark:text-gray-500">({block.count})</span>
               </div>
-            ))}
+            )}
+            <div className="flex flex-col gap-3">
+              {block.stanzas.map((stanza, si) => (
+                // No vertical gap: the tiles of one test stack into one bar, so a
+                // column reads as one test across the groups.
+                <div key={si} className="flex flex-col">
+                  {runs.map((run, gi) => (
+                    <div key={run.index} className="flex items-center" style={{ gap: GAP_PX }}>
+                      <img
+                        src={`/img/clients/${run.config.instance.client}.jpg`}
+                        alt={run.config.instance.client}
+                        title={formatRunLabel(RUN_SLOTS[run.index], run, labelMode)}
+                        className="shrink-0 rounded-full object-cover"
+                        style={{ width: TILE_PX, height: TILE_PX, marginRight: LABEL_PX - TILE_PX - GAP_PX }}
+                      />
+                      {stanza.map((test) => (
+                        <button
+                          key={test.name}
+                          onClick={() => onTestClick?.(test.name)}
+                          onMouseEnter={(e) => setTooltip({ test, anchor: e.currentTarget.getBoundingClientRect() })}
+                          onMouseLeave={() => setTooltip(null)}
+                          className={clsx(
+                            'relative shrink-0 cursor-pointer transition-transform hover:z-10 hover:scale-150 hover:ring-2 hover:ring-gray-500 dark:hover:ring-gray-300',
+                            test.fails[gi] && 'ring-1 ring-inset ring-red-500',
+                          )}
+                          style={{ width: TILE_PX, height: TILE_PX, ...tileStyle(test, gi) }}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>

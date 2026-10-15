@@ -14,7 +14,7 @@ import { CompareDimensionInsights } from '@/components/compare/CompareDimensionI
 import { type StepTypeOption, ALL_STEP_TYPES, DEFAULT_STEP_FILTER, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type CompareRun, type ChartType, CHART_TYPE_OPTIONS } from '@/components/compare/constants'
 import { TestMetricChart } from '@/components/compare/TestMetricChart'
-import { type SortMode, GroupHeatmap } from '@/components/compare/GroupHeatmap'
+import { type GroupMode, type SortMode, GroupHeatmap } from '@/components/compare/GroupHeatmap'
 import { GroupRanking } from '@/components/compare/GroupRanking'
 import { computeMetrics, fixtureGasByTest, payloadTimeNs, testGasForFilter } from '@/components/compare/compareMetrics'
 import { type HeatmapColorModel } from '@/components/compare/heatmapColor'
@@ -56,6 +56,7 @@ export function CompareGroupsPage() {
     heatmapThreshold?: string
     heatmapSlowMs?: string
     heatmapSort?: string
+    heatmapGroup?: string
     testModal?: string
     testExpand?: string
   }
@@ -93,6 +94,7 @@ export function CompareGroupsPage() {
           heatmapThreshold: search.heatmapThreshold,
           heatmapSlowMs: search.heatmapSlowMs,
           heatmapSort: search.heatmapSort,
+          heatmapGroup: search.heatmapGroup,
           testModal: search.testModal,
           testExpand: search.testExpand,
           ...patch,
@@ -363,6 +365,12 @@ export function CompareGroupsPage() {
   const heatmapSort: SortMode = search.heatmapSort === 'spread' || search.heatmapSort === 'avg' ? search.heatmapSort : 'order'
   const setHeatmapSort = useCallback(
     (mode: SortMode) => updateSearch({ heatmapSort: mode === 'order' ? undefined : mode }),
+    [updateSearch],
+  )
+  // Heatmap blocks: 'none' is the default, so it stays out of the URL.
+  const heatmapGroup: GroupMode = search.heatmapGroup === 'gas' ? 'gas' : 'none'
+  const setHeatmapGroup = useCallback(
+    (mode: GroupMode) => updateSearch({ heatmapGroup: mode === 'none' ? undefined : mode }),
     [updateSearch],
   )
   const [sharedZoom, setSharedZoom] = useState(true)
@@ -827,6 +835,8 @@ export function CompareGroupsPage() {
             onModelChange={updateHeatmapModel}
             sortMode={heatmapSort}
             onSortModeChange={setHeatmapSort}
+            groupMode={heatmapGroup}
+            onGroupModeChange={setHeatmapGroup}
             testNameFilter={testNameFilter}
             onTestClick={setSelectedTest}
             highlightGroupIdx={highlightGroupIdx}
