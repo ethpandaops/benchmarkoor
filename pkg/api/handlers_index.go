@@ -381,6 +381,14 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 	for i := range durations {
 		d := &durations[i]
 
+		// test_stats keeps a rejected test's time to reject in TestTimeNs
+		// (and in TotalTimeNs). The suite stats shape keeps it apart from
+		// the gas time, as stats.json does.
+		testTime, rejectedTime := d.TestTimeNs, int64(0)
+		if d.TestRejected {
+			testTime, rejectedTime = 0, d.TestTimeNs
+		}
+
 		steps := &executor.RunDurationStepsStats{
 			Setup: &executor.RunDurationStepStats{
 				GasUsed:       d.SetupGasUsed,
@@ -398,7 +406,8 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 			},
 			Test: &executor.RunDurationStepStats{
 				GasUsed:       d.TestGasUsed,
-				Time:          d.TestTimeNs,
+				Time:          testTime,
+				RejectedTime:  rejectedTime,
 				RPCCallsCount: d.TestRPCCallsCount,
 				ResourceTotals: &executor.ResourceTotals{
 					CPUUsec:        d.TestResourceCPUUsec,
@@ -413,13 +422,14 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 		}
 
 		rd := &executor.RunDuration{
-			ID:       d.RunID,
-			Client:   d.Client,
-			GasUsed:  d.TotalGasUsed,
-			Time:     d.TotalTimeNs,
-			RunStart: d.RunStart,
-			RunEnd:   d.RunEnd,
-			Steps:    steps,
+			ID:           d.RunID,
+			Client:       d.Client,
+			GasUsed:      d.TotalGasUsed,
+			Time:         d.TotalTimeNs - rejectedTime,
+			RejectedTime: rejectedTime,
+			RunStart:     d.RunStart,
+			RunEnd:       d.RunEnd,
+			Steps:        steps,
 		}
 
 		if stats[d.TestName] == nil {

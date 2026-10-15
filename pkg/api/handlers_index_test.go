@@ -11,12 +11,14 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/api/indexstore"
 	"github.com/ethpandaops/benchmarkoor/pkg/config"
+	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 )
 
 func newIndexTestServer(t *testing.T) *server {
@@ -367,4 +369,55 @@ func TestETagMatches(t *testing.T) {
 			assert.Equal(t, tt.want, etagMatches(tt.ifNoneMatch, etag))
 		})
 	}
+}
+
+// The suite stats endpoint turns a rejected row back into the stats.json
+// shape: the time to reject is rejected_time_ns, apart from the gas time.
+func TestHandleSuiteStats_RejectedTest(t *testing.T) {
+	s := newIndexTestServer(t)
+	ctx := context.Background()
+
+	// The query picks the suite's recent runs from the runs table.
+	require.NoError(t, s.indexStore.UpsertRun(ctx, &indexstore.Run{
+		DiscoveryPath: "dp",
+		RunID:         "run-1",
+		Timestamp:     100,
+		SuiteHash:     "suite",
+		Status:        "completed",
+		Client:        "geth",
+	}))
+	require.NoError(t, s.indexStore.ReplaceTestStats(ctx, "run-1", []*indexstore.TestStat{{
+		SuiteHash:    "suite",
+		RunID:        "run-1",
+		TestName:     "invalid",
+		Client:       "geth",
+		RunStart:     100,
+		TotalGasUsed: 10_000_000,
+		TotalTimeNs:  67_000_000,
+		TotalMGasS:   500,
+		SetupGasUsed: 10_000_000,
+		SetupTimeNs:  20_000_000,
+		TestTimeNs:   47_000_000,
+		TestRejected: true,
+	}}))
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("hash", "suite")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/suites/suite/stats", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+	s.handleSuiteStats(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var stats executor.SuiteStats
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stats))
+	require.Contains(t, stats, "invalid")
+	require.Len(t, stats["invalid"].Durations, 1)
+
+	d := stats["invalid"].Durations[0]
+	assert.Equal(t, int64(20_000_000), d.Time)
+	assert.Equal(t, int64(47_000_000), d.RejectedTime)
+	assert.Equal(t, int64(0), d.Steps.Test.Time)
+	assert.Equal(t, int64(47_000_000), d.Steps.Test.RejectedTime)
+	assert.Equal(t, int64(20_000_000), d.Steps.Setup.Time)
 }

@@ -980,6 +980,15 @@ func (idx *indexer) indexTestStats(
 				}
 			}
 
+			// A test whose payloads the client must reject reports no gas, so
+			// its test time is the time to reject, and the total adds it.
+			// TotalMGasS (set above) stays on the gas-reporting time.
+			if dur.Steps != nil && dur.Steps.Test != nil && dur.Steps.Test.RejectedTime > 0 {
+				ts.TestRejected = true
+				ts.TestTimeNs = dur.Steps.Test.RejectedTime
+				ts.TotalTimeNs = dur.Time + dur.Steps.Test.RejectedTime
+			}
+
 			testStats = append(testStats, ts)
 		}
 	}

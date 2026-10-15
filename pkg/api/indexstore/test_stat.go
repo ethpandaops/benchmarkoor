@@ -10,10 +10,16 @@ type TestStat struct {
 	RunStart  int64 `gorm:"index:idx_ts_suite_run_start;index:idx_ts_suite_start_ttime"`
 	RunEnd    int64
 
-	// Total (sum of all steps).
+	// Total (sum of all steps). TotalTimeNs includes the test step's time to
+	// reject when TestRejected; TotalMGasS uses only the gas-reporting time.
 	TotalGasUsed uint64
 	TotalTimeNs  int64
 	TotalMGasS   float64 `gorm:"column:total_mgas_s"`
+
+	// TestRejected marks a test whose payloads the client must reject (an
+	// invalid-payload benchmark). Its test step has no gas and no MGas/s, and
+	// TestTimeNs holds the time the client took to reject the payloads.
+	TestRejected bool `gorm:"column:test_rejected;not null;default:false"`
 
 	// Setup step.
 	SetupGasUsed              uint64

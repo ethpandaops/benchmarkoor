@@ -31,7 +31,7 @@ const TEST_STAT_COLUMN_GROUPS: ColumnGroup[] = [
       'setup_resource_disk_read_iops', 'setup_resource_disk_write_iops',
     ],
   },
-  { label: 'Test', columns: ['test_gas_used', 'test_time_ns', 'test_mgas_s', 'test_rpc_calls_count'] },
+  { label: 'Test', columns: ['test_gas_used', 'test_time_ns', 'test_mgas_s', 'test_rejected', 'test_rpc_calls_count'] },
   {
     label: 'Test Resources',
     columns: [

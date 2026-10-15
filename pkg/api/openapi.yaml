@@ -494,7 +494,12 @@ paths:
         **Filter columns:** id, suite_hash, test_name, run_id, client,
         total_gas_used, total_time_ns, total_mgas_s, setup_gas_used,
         setup_time_ns, setup_mgas_s, test_gas_used, test_time_ns,
-        test_mgas_s, run_start, run_end
+        test_mgas_s, test_rejected, run_start, run_end
+
+        For a rejected test (`test_rejected=is.true`, an invalid-payload
+        benchmark), `test_gas_used` and `test_mgas_s` are 0, `test_time_ns`
+        is the time the client took to reject the payloads, and
+        `total_time_ns` includes it.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -2481,6 +2486,12 @@ components:
         test_mgas_s:
           type: number
           format: double
+        test_rejected:
+          type: boolean
+          description: |
+            True when the client must reject the test's payloads (an
+            invalid-payload benchmark). test_gas_used and test_mgas_s are then
+            0, and test_time_ns is the time to reject.
         run_start:
           type: integer
           format: int64

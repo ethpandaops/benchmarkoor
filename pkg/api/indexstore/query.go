@@ -73,6 +73,7 @@ var allowedTestStatColumns = map[string]bool{
 	"test_gas_used":  true,
 	"test_time_ns":   true,
 	"test_mgas_s":    true,
+	"test_rejected":  true,
 	"run_start":      true,
 	"run_end":        true,
 	// Setup resource stats.
@@ -234,6 +235,7 @@ type TestStatResponse struct {
 	TestGasUsed              uint64  `json:"test_gas_used"`
 	TestTimeNs               int64   `json:"test_time_ns"`
 	TestMGasS                float64 `json:"test_mgas_s"`
+	TestRejected             bool    `json:"test_rejected"`
 	TestRPCCallsCount        int     `json:"test_rpc_calls_count"`
 	TestResourceCPUUsec      uint64  `json:"test_resource_cpu_usec"`
 	TestResourceMemDelta     int64   `json:"test_resource_memory_delta_bytes"`
@@ -589,6 +591,7 @@ func toTestStatResponse(d *TestStat) TestStatResponse {
 		TestGasUsed:              d.TestGasUsed,
 		TestTimeNs:               d.TestTimeNs,
 		TestMGasS:                d.TestMGasS,
+		TestRejected:             d.TestRejected,
 		TestRPCCallsCount:        d.TestRPCCallsCount,
 		TestResourceCPUUsec:      d.TestResourceCPUUsec,
 		TestResourceMemDelta:     d.TestResourceMemDelta,
