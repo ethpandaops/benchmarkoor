@@ -88,6 +88,8 @@ export function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[
   let timeTotal = 0
   let gasUsedTotal = 0
   let gasUsedTimeTotal = 0
+  let rejected = 0
+  let rejectedTimeTotal = 0
   let success = 0
   let fail = 0
   let msgCount = 0
@@ -98,6 +100,8 @@ export function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[
       timeTotal += step.aggregated.time_total
       gasUsedTotal += step.aggregated.gas_used_total
       gasUsedTimeTotal += step.aggregated.gas_used_time_total
+      rejected += step.aggregated.rejected ?? 0
+      rejectedTimeTotal += step.aggregated.rejected_time_total ?? 0
       success += step.aggregated.success
       fail += step.aggregated.fail
       msgCount += step.aggregated.msg_count
@@ -116,6 +120,8 @@ export function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[
     time_total: timeTotal,
     gas_used_total: gasUsedTotal,
     gas_used_time_total: gasUsedTimeTotal,
+    rejected,
+    rejected_time_total: rejectedTimeTotal,
     success,
     fail,
     msg_count: msgCount,
@@ -458,6 +464,8 @@ export function RunDetailPage() {
   const totalGasUsed = aggregatedStats.reduce((sum, s) => sum + s.gas_used_total, 0)
   const totalGasUsedTime = aggregatedStats.reduce((sum, s) => sum + s.gas_used_time_total, 0)
   const mgasPerSec = totalGasUsedTime > 0 ? (totalGasUsed * 1000) / totalGasUsedTime : undefined
+  const totalRejected = aggregatedStats.reduce((sum, s) => sum + (s.rejected ?? 0), 0)
+  const totalRejectedTime = aggregatedStats.reduce((sum, s) => sum + (s.rejected_time_total ?? 0), 0)
   const totalMsgCount = aggregatedStats.reduce((sum, s) => sum + s.msg_count, 0)
   const methodCounts = aggregatedStats.reduce<Record<string, number>>((acc, s) => {
     Object.entries(s.method_stats.times).forEach(([method, stats]) => {
@@ -701,6 +709,14 @@ export function RunDetailPage() {
                     </span>
                     {' '}in <Duration nanoseconds={totalGasUsedTime} />
                   </p>
+                  {totalRejected > 0 && (
+                    <p
+                      className="text-xs/5 text-blue-600 dark:text-blue-400"
+                      title="Payloads the client must reject have no MGas/s; this is their summed time to reject"
+                    >
+                      {totalRejected} rejected payload{totalRejected === 1 ? '' : 's'} in <Duration nanoseconds={totalRejectedTime} />
+                    </p>
+                  )}
                 </div>
                 <div className="rounded-sm bg-white p-4 shadow-xs dark:bg-gray-800">
                   <p className="text-sm/6 font-medium text-gray-500 dark:text-gray-400">Calls</p>

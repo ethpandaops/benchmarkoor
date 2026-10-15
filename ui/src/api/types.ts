@@ -492,6 +492,10 @@ export interface AggregatedStats {
   time_total: number
   gas_used_total: number
   gas_used_time_total: number
+  // engine_newPayload calls the client rejected as the fixture expects, and
+  // their summed duration (the time to reject; there is no MGas/s for them).
+  rejected?: number
+  rejected_time_total?: number
   success: number
   fail: number
   msg_count: number
@@ -544,6 +548,7 @@ export interface ResultDetails {
   mgas_s: Record<string, number> // map of index -> MGas/s value
   gas_used: Record<string, number> // map of index -> gas used value
   resources?: Record<string, ResourceDelta> // map of index -> resource delta
+  rejected?: number[] // indexes of calls whose payload the client must reject
   original_test_name?: string // original test name when using hashed filenames
   filename_hash?: string // truncated+hash filename when original was too long
 }
@@ -562,6 +567,8 @@ export interface RunDuration {
   client: string
   gas_used: number
   time_ns: number
+  // Time the client took to reject the test's expected-invalid payloads.
+  rejected_time_ns?: number
   run_start: number
   run_end?: number
   steps?: RunDurationStepsStats
@@ -576,6 +583,7 @@ export interface RunDurationStepsStats {
 export interface RunDurationStepStats {
   gas_used: number
   time_ns: number
+  rejected_time_ns?: number
 }
 
 // summary.json per suite
@@ -594,6 +602,11 @@ export interface SuiteInfo {
 }
 
 export interface SuiteTestEEST {
+  /**
+   * Exceptions of the payloads the client must reject (e.g.
+   * "BlockException.INVALID_GAS_USED"). Set for an invalid-payload benchmark.
+   */
+  expected_rejections?: string[]
   info?: {
     'fixture-format': string
     hash?: string
@@ -609,6 +622,12 @@ export interface SuiteTestEEST {
        * aggregates these into the test's top-level opcode_count.
        */
       opcode_counts?: (Record<string, number> | null)[]
+      /**
+       * Gas the benchmark transactions use. Set for a fixture whose block the
+       * client must reject: such a block has no receipts, and its header
+       * gasUsed may be the corrupted field.
+       */
+      benchmark_gas_used?: number
     }
   }
 }

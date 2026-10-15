@@ -6,7 +6,7 @@ import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { formatDuration, formatNumber } from '@/utils/format'
 import { formatDurationSeconds } from '@/utils/date'
 import { type CompareRun, type LabelMode, MEDAL_CLASSES, MEDAL_SIZES, RUN_SLOTS, formatRunLabel } from './constants'
-import { computeMetrics, formatGas } from './compareMetrics'
+import { computeMetrics, isRejectedOnly, payloadTimeNs, formatGas } from './compareMetrics'
 
 interface GroupRankingProps {
   /** One synthetic run per group. */
@@ -42,7 +42,9 @@ function Delta({ value, base, higherIsBetter }: { value: number | undefined; bas
 
 /**
  * GroupRanking counts, for every test, which group had the highest
- * MGas/s, and ranks the groups by the number of tests they won. The
+ * MGas/s, and ranks the groups by the number of tests they won. A test
+ * whose payloads the clients must reject has no MGas/s; the fastest
+ * rejection wins it, the same rule as the heatmap. The
  * summary metrics of each group sit on the same row, with their change
  * against the baseline. A test counts only when at least two groups have
  * a value for it.
@@ -58,8 +60,10 @@ export function GroupRanking({
   onHighlightChange,
 }: GroupRankingProps) {
   const { ranking, testCount } = useMemo(() => {
-    // MGas/s per test per group, in `runs` order.
+    // MGas/s per test per group, in `runs` order; the time to reject
+    // per group for a rejected test.
     const byTest = new Map<string, (number | undefined)[]>()
+    const rejectedByTest = new Map<string, (number | undefined)[]>()
     runs.forEach((run, gi) => {
       if (!run.result) return
       for (const [name, entry] of Object.entries(run.result.tests)) {
@@ -69,20 +73,39 @@ export function GroupRanking({
           values = new Array<number | undefined>(runs.length).fill(undefined)
           byTest.set(name, values)
         }
-        values[gi] = calculateMGasPerSec(getAggregatedStats(entry, stepFilter))
+        const stats = getAggregatedStats(entry, stepFilter)
+        values[gi] = calculateMGasPerSec(stats)
+        if (isRejectedOnly(stats)) {
+          let times = rejectedByTest.get(name)
+          if (!times) {
+            times = new Array<number | undefined>(runs.length).fill(undefined)
+            rejectedByTest.set(name, times)
+          }
+          times[gi] = payloadTimeNs(stats)
+        }
       }
     })
 
     const wins = new Array<number>(runs.length).fill(0)
     let testCount = 0
-    for (const values of byTest.values()) {
+    for (const [name, values] of byTest) {
       const known = values.filter((v): v is number => v !== undefined)
-      if (known.length < 2) continue
+      if (known.length >= 2) {
+        testCount++
+        const best = Math.max(...known)
+        // A tie is a win for every group on the best value.
+        values.forEach((v, gi) => {
+          if (v === best) wins[gi]++
+        })
+        continue
+      }
+      const times = rejectedByTest.get(name) ?? []
+      const knownTimes = times.filter((v): v is number => v !== undefined)
+      if (knownTimes.length < 2) continue
       testCount++
-      const best = Math.max(...known)
-      // A tie is a win for every group on the best value.
-      values.forEach((v, gi) => {
-        if (v === best) wins[gi]++
+      const fastest = Math.min(...knownTimes)
+      times.forEach((v, gi) => {
+        if (v === fastest) wins[gi]++
       })
     }
 
@@ -107,7 +130,7 @@ export function GroupRanking({
           <Trophy className="size-4 text-gray-400 dark:text-gray-500" />
           <h3 className="text-sm/6 font-medium text-gray-900 dark:text-gray-100">Ranking</h3>
           <span className="text-xs/5 text-gray-500 dark:text-gray-400">
-            tests won by the highest MGas/s, over {testCount} tests · click a group to highlight its won tests on the heatmap
+            tests won by the highest MGas/s (or the fastest rejection of an invalid payload), over {testCount} tests · click a group to highlight its won tests on the heatmap
           </span>
         </div>
         <div className="flex items-center gap-1.5 text-xs/5 text-gray-500 dark:text-gray-400">

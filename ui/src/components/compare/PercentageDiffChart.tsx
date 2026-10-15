@@ -5,7 +5,9 @@ import type { SuiteTest, AggregatedStats } from '@/api/types'
 import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type ChartType, type CompareRun, type LabelMode, type ZoomRange, RUN_SLOTS, formatRunLabel } from './constants'
 import { useChartAreaClick } from './useChartAreaClick'
+import { isRejectedOnly, payloadTimeNs, speedupVsBaselinePct } from './compareMetrics'
 import { formatTestNameLong } from '@/utils/eestName'
+import { formatDuration } from '@/utils/format'
 import { useNameDisplayMode } from '@/hooks/useNameDisplayMode'
 
 interface PercentageDiffChartProps {
@@ -49,7 +51,10 @@ interface TestDiffPoint {
   testName: string
   baselineValue: number
   diffs: (number | null)[] // % diff per non-baseline run
-  values: (number | null)[] // absolute MGas/s per non-baseline run
+  values: (number | null)[] // absolute MGas/s per non-baseline run, or time to reject (ns)
+  // The test's payloads are rejected: baselineValue and values are times to
+  // reject, and a diff compares those times.
+  rejected: boolean
 }
 
 function buildDiffData(
@@ -75,14 +80,16 @@ function buildDiffData(
     }
   }
 
-  const entries: { name: string; order: number; baselineValue: number; diffs: (number | null)[]; values: (number | null)[] }[] = []
+  const entries: { name: string; order: number; baselineValue: number; diffs: (number | null)[]; values: (number | null)[]; rejected: boolean }[] = []
 
   for (const name of allTestNames) {
     if (nameFilter && !nameFilter(name)) continue
     const baseEntry = baselineResult.tests[name]
     const baseStats = baseEntry ? getAggregatedStats(baseEntry, stepFilter) : undefined
-    const baseMGas = calculateMGasPerSec(baseStats)
-    if (baseMGas === undefined || baseMGas <= 0) continue
+    const rejected = isRejectedOnly(baseStats)
+    const valueOf = rejected ? payloadTimeNs : calculateMGasPerSec
+    const baseValue = valueOf(baseStats)
+    if (baseValue === undefined || baseValue <= 0) continue
 
     const order = suiteOrder.get(name) ?? (baseEntry ? parseInt(baseEntry.dir, 10) || 0 : 0)
     const diffs: (number | null)[] = []
@@ -92,17 +99,18 @@ function buildDiffData(
       if (i === baselineIdx) continue
       const entry = runs[i].result?.tests[name]
       const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
-      const mgas = calculateMGasPerSec(stats)
-      if (mgas === undefined) {
+      const value = valueOf(stats)
+      const diff = speedupVsBaselinePct(stats, baseStats)
+      if (value === undefined || diff === undefined) {
         diffs.push(null)
         values.push(null)
       } else {
-        diffs.push(((mgas - baseMGas) / baseMGas) * 100)
-        values.push(mgas)
+        diffs.push(diff)
+        values.push(value)
       }
     }
 
-    entries.push({ name, order, baselineValue: baseMGas, diffs, values })
+    entries.push({ name, order, baselineValue: baseValue, diffs, values, rejected })
   }
 
   entries.sort((a, b) => a.order - b.order)
@@ -113,6 +121,7 @@ function buildDiffData(
     baselineValue: e.baselineValue,
     diffs: e.diffs,
     values: e.values,
+    rejected: e.rejected,
   }))
 }
 
@@ -182,13 +191,16 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
         textStyle: { color: textColor },
         extraCssText: 'max-width: 350px; white-space: normal;',
         formatter: (
-          // value: [testIndex, %diff, testName, baselineMGas, absoluteMGas]
-          params: Array<{ seriesName: string; color: string; value: [number, number, string, number, number, number] }>,
+          // value: [testIndex, %diff, testName, baselineValue, absoluteValue, testOrder, rejected]
+          // The values are MGas/s, or times to reject (ns) when rejected is 1.
+          params: Array<{ seriesName: string; color: string; value: [number, number, string, number, number, number, number] }>,
         ) => {
           if (!params.length) return ''
           const testName = params[0].value[2]
           const baseValue = params[0].value[3]
           const testOrder = params[0].value[5]
+          const rejected = params[0].value[6] === 1
+          const fmt = (v: number) => rejected ? `${formatDuration(v)} to reject` : `${v.toFixed(2)} MGas/s`
           highlightedTestRef.current = testName
           const baseSlot = RUN_SLOTS[runs[baselineIdx].index]
           const baseClient = runs[baselineIdx].config.instance.client
@@ -196,7 +208,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
 
           let content = `<strong>Test #${testOrder}</strong>`
           if (testName) content += `<br/><span style="font-size: 10px; color: ${isDark ? '#9ca3af' : '#6b7280'};">${formatTestNameLong(testName, nameMode)}</span>`
-          content += `<br/>${baseImg}<span style="font-size: 11px;">Baseline ${baseSlot.label}: ${baseValue.toFixed(2)} MGas/s</span><br/>`
+          content += `<br/>${baseImg}<span style="font-size: 11px;">Baseline ${baseSlot.label}: ${fmt(baseValue)}</span><br/>`
 
           params.forEach((p) => {
             const diff = p.value[1]
@@ -207,7 +219,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
             const seriesRunIdx = otherRunIndices.find((ri) => `vs ${formatRunLabel(RUN_SLOTS[runs[ri].index], runs[ri], labelMode)}` === p.seriesName)
             const client = seriesRunIdx !== undefined ? runs[seriesRunIdx].config.instance.client : undefined
             const clientImg = client ? `<img src="/img/clients/${client}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />` : ''
-            content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${absMGas.toFixed(2)} MGas/s <span style="color:${color};font-weight:600;">(${sign}${diff.toFixed(1)}% ${label})</span><br/>`
+            content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${fmt(absMGas)} <span style="color:${color};font-weight:600;">(${sign}${diff.toFixed(1)}% ${label})</span><br/>`
           })
           return content
         },
@@ -298,7 +310,7 @@ export function PercentageDiffChart({ runs, suiteTests, stepFilter, baselineIdx,
             if (diffFilter === 'faster' && diff < 0) return null
             if (diffFilter === 'slower' && diff > 0) return null
             return {
-              value: [d.testIndex, diff, d.testName, d.baselineValue, absMGas, d.testOrder],
+              value: [d.testIndex, diff, d.testName, d.baselineValue, absMGas, d.testOrder, d.rejected ? 1 : 0],
             }
           }).filter(Boolean)
           const base = {

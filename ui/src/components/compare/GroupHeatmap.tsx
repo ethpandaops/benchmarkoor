@@ -12,6 +12,8 @@ import {
   MAX_THRESHOLD,
   MIN_SLOW_MS,
   MIN_THRESHOLD,
+  REJECTED_OVERLAY_IMAGE,
+  REJECTED_TILE_STYLE,
   SLOW_COLOR,
   SLOW_STEP_MS,
   THRESHOLD_COLORS,
@@ -26,6 +28,7 @@ import { formatDuration } from '@/utils/format'
 import { positionTooltip } from '@/utils/tooltipPosition'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
 import { type HeatmapColorModel, baselineRatio, formatRatio, heatmapColor } from './heatmapColor'
+import { isRejectedOnly, payloadTimeNs } from './compareMetrics'
 
 // One row per group, one column per test. When the tests do not fit the
 // width, the matrix wraps into stanzas: each stanza repeats the group
@@ -52,8 +55,13 @@ interface HeatmapTest {
   order: number
   /** MGas/s per group, in `runs` order. */
   mgas: (number | undefined)[]
-  /** Total engine_newPayload time per group in nanoseconds, in `runs` order. */
+  /**
+   * Total engine_newPayload time per group in nanoseconds, in `runs` order.
+   * For a rejected test it is the time the client took to reject the payloads.
+   */
   durations: (number | undefined)[]
+  /** Whether the group's payloads for this test are all ones it must reject (no MGas/s). */
+  rejected: boolean[]
   /** Whether the group reported failed executions for this test. */
   fails: boolean[]
   /** Positions in `runs` with the highest MGas/s, when at least two groups have a value. Same rule as the ranking. */
@@ -244,6 +252,7 @@ export function GroupHeatmap({
             order: suiteOrder.get(name) ?? (parseInt(entry.dir, 10) || 0),
             mgas: new Array<number | undefined>(runs.length).fill(undefined),
             durations: new Array<number | undefined>(runs.length).fill(undefined),
+            rejected: new Array<boolean>(runs.length).fill(false),
             fails: new Array<boolean>(runs.length).fill(false),
             winners: new Set(),
             spread: 0,
@@ -253,7 +262,8 @@ export function GroupHeatmap({
         }
         const stats = getAggregatedStats(entry, stepFilter)
         test.mgas[gi] = calculateMGasPerSec(stats)
-        test.durations[gi] = stats && stats.gas_used_time_total > 0 ? stats.gas_used_time_total : undefined
+        test.durations[gi] = payloadTimeNs(stats)
+        test.rejected[gi] = isRejectedOnly(stats)
         test.fails[gi] = (stats?.fail ?? 0) > 0
       }
     })
@@ -269,6 +279,13 @@ export function GroupHeatmap({
         const best = Math.max(...knownMgas)
         test.mgas.forEach((v, gi) => {
           if (v === best) test.winners.add(gi)
+        })
+      } else if (test.rejected.filter(Boolean).length >= 2) {
+        // A rejected test has no MGas/s: the fastest rejection wins.
+        const times = test.durations.filter((v, gi): v is number => v !== undefined && test.rejected[gi])
+        const best = Math.min(...times)
+        test.durations.forEach((v, gi) => {
+          if (test.rejected[gi] && v === best) test.winners.add(gi)
         })
       }
     }
@@ -335,7 +352,11 @@ export function GroupHeatmap({
   const tileStyle = (test: HeatmapTest, gi: number): React.CSSProperties => {
     const values = valuesOf(test, deferredModel.metric)
     const color = heatmapColor(values[gi], values[baselineIdx], deferredModel)
-    const style: React.CSSProperties = color ? { backgroundColor: color } : { ...NO_DATA_STYLE }
+    // A rejected tile with a colour (its time to reject, in duration mode)
+    // keeps the colour under the blue stripes of the rejected legend.
+    const style: React.CSSProperties = color
+      ? { backgroundColor: color, ...(test.rejected[gi] ? { backgroundImage: REJECTED_OVERLAY_IMAGE } : {}) }
+      : test.rejected[gi] ? { ...REJECTED_TILE_STYLE } : { ...NO_DATA_STYLE }
     // With a highlighted group, every column it does not win dims, the
     // same treatment as a filtered-out tile on the run page.
     if (highlightPos >= 0 && !test.winners.has(highlightPos)) style.opacity = 0.15
@@ -540,6 +561,18 @@ export function GroupHeatmap({
           <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-inset ring-red-500" style={{ backgroundColor: THRESHOLD_COLORS[THRESHOLD_LIMIT_STEP] }} />
           Failed executions
         </span>
+        {tests.some((t) => t.rejected.some(Boolean)) && (
+          <span
+            className="flex items-center"
+            title="The client rejected the invalid payload as expected. It has no MGas/s. In the Duration mode the tile keeps the colour of its time to reject, with a blue corner."
+          >
+            <span
+              className="mr-1 inline-block size-3 rounded-xs"
+              style={metric === 'duration' ? { backgroundColor: THRESHOLD_COLORS[0], backgroundImage: REJECTED_OVERLAY_IMAGE } : REJECTED_TILE_STYLE}
+            />
+            Rejected (invalid payload)
+          </span>
+        )}
         <span className="flex items-center" title={`Payload time above ${formatSlowMs(slowMs)}`}>
           <span
             className="mr-1 inline-block size-3 rounded-xs"
@@ -575,9 +608,14 @@ export function GroupHeatmap({
                           {formatRunLabel(slot, run, labelMode)}
                         </span>
                       </td>
-                      <td className="pr-2 text-right font-mono">{value === undefined ? '—' : formatValue(value)}</td>
+                      <td className="pr-2 text-right font-mono">
+                        {value !== undefined
+                          ? formatValue(value)
+                          : tooltip.test.rejected[gi] ? <span className="text-blue-600 dark:text-blue-400">rejected</span> : '—'}
+                      </td>
                       <td className="pr-2 text-right font-mono text-gray-400 dark:text-gray-500">
                         {other !== undefined && (metric === 'mgas' ? formatDuration(other) : `${other.toFixed(1)} MGas/s`)}
+                        {metric === 'duration' && tooltip.test.rejected[gi] && 'to reject'}
                       </td>
                       <td className="text-right font-mono text-gray-500 dark:text-gray-400">
                         {value !== undefined && base !== undefined && gi !== baselineIdx && formatRatio(baselineRatio(value, base, metric))}

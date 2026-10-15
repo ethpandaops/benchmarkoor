@@ -9,6 +9,7 @@ import { TestName } from '@/components/shared/TestName'
 import { compareOptional } from '@/components/run-detail/block-logs-dashboard/hooks/useProcessedData'
 import { formatDuration } from '@/utils/format'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
+import { isRejectedOnly, payloadTimeNs } from './compareMetrics'
 
 interface TestComparisonTableProps {
   runs: CompareRun[]
@@ -40,6 +41,9 @@ interface ComparedTest {
   gasUsed: number | undefined
   values: (number | undefined)[]
   avgValue: number | undefined
+  // Per run: the time the client took to reject the test's payloads, when
+  // all of them are payloads it must reject (they have no MGas/s).
+  rejectedTimes: (number | undefined)[]
 }
 
 interface MetricTab {
@@ -94,13 +98,6 @@ function getDiffColor(diff: number, ref: number): string {
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
   if (!stats || stats.gas_used_time_total <= 0 || stats.gas_used_total <= 0) return undefined
   return (stats.gas_used_total * 1000) / stats.gas_used_time_total
-}
-
-// Total engine_newPayload time of the test, in nanoseconds. The same
-// number the performance heatmap colours.
-function payloadTime(stats: AggregatedStats | undefined): number | undefined {
-  if (!stats || stats.gas_used_time_total <= 0) return undefined
-  return stats.gas_used_time_total
 }
 
 /** Where a metric comes from, for the tab tooltip. */
@@ -204,13 +201,17 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
     const tests: ComparedTest[] = []
     for (const name of allTestNames) {
       const values: (number | undefined)[] = []
+      const rejectedTimes: (number | undefined)[] = []
       let order = suiteOrder.get(name) ?? 0
 
       if (isRunMetric) {
         for (const run of runs) {
           const entry = run.result?.tests[name]
           const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
-          values.push(activeTab === 'mgas' ? calculateMGasPerSec(stats) : payloadTime(stats))
+          // Total engine_newPayload time (or time to reject), in ns: the
+          // same number the performance heatmap colours.
+          values.push(activeTab === 'mgas' ? calculateMGasPerSec(stats) : payloadTimeNs(stats))
+          rejectedTimes.push(isRejectedOnly(stats) ? payloadTimeNs(stats) : undefined)
           if (order === 0 && entry) {
             order = parseInt(entry.dir, 10) || 0
           }
@@ -241,7 +242,7 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
         }
       }
 
-      tests.push({ name, order, gasUsed, values, avgValue })
+      tests.push({ name, order, gasUsed, values, avgValue, rejectedTimes })
     }
     return tests
   }, [runs, suiteOrder, stepFilter, activeTab, blockLogsPerRun])
@@ -459,6 +460,17 @@ export function TestComparisonTable({ runs, suiteTests, stepFilter, blockLogsPer
                                 {' '}({diff >= 0 ? '+' : '-'}{((Math.abs(diff) / refValue!) * 100).toFixed(1)}%)
                               </div>
                             )}
+                          </Link>
+                        ) : test.rejectedTimes[i] !== undefined ? (
+                          <Link
+                            to="/runs/$runId"
+                            params={{ runId: runs[i].runId }}
+                            search={{ testModal: test.name }}
+                            target="_blank"
+                            className="block text-blue-600 hover:underline dark:text-blue-400"
+                            title="The client rejected this invalid payload as expected. There is no MGas/s for a rejected payload; this is its time to reject."
+                          >
+                            rejected in {formatDuration(test.rejectedTimes[i]!)}
                           </Link>
                         ) : (
                           <div className="text-gray-500 dark:text-gray-400">-</div>

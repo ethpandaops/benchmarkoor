@@ -305,6 +305,25 @@ function MetaChip({ label, value, title, href, copy }: {
   )
 }
 
+/**
+ * Note for an invalid-payload benchmark: the client must reject the test's
+ * block, so its times are times to reject and it has no MGas/s.
+ */
+export function InvalidPayloadNote({ exceptions }: { exceptions?: string[] }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-sm border border-blue-200 bg-blue-50 px-3 py-2 text-sm/6 text-blue-900 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-100">
+      <span className="font-medium">Invalid payload benchmark</span>
+      <span className="text-xs/5 text-blue-800 dark:text-blue-200">
+        The client must reject this block
+        {exceptions && exceptions.length > 0 && (
+          <> with <code className="font-mono">{exceptions.join(' | ')}</code></>
+        )}
+        . Its times are times to reject: from engine_newPayload to the INVALID answer. A rejected payload has no MGas/s.
+      </span>
+    </div>
+  )
+}
+
 // EEST fixture info and opcode counts. The prose leads, the facts follow
 // as chips, and the opcode charts close the panel.
 export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test: SuiteTest; opcodeSort: OpcodeSortMode; onOpcodeSortChange: (sort: OpcodeSortMode) => void }) {
@@ -315,9 +334,11 @@ export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test
   const tool = info?.['filling-transition-tool']
   const fork = tool?.match(/fork=([^\];,\s]+)/)?.[1]
   const hasProse = !!(info?.description || info?.comment)
-  const hasFacts = !!(info?.['fixture-format'] || tool || info?.hash || info?.url)
+  const expectedRejections = test.eest?.expected_rejections
+  const benchmarkGas = info?.metadata?.benchmark_gas_used
+  const hasFacts = !!(info?.['fixture-format'] || tool || info?.hash || info?.url || benchmarkGas)
 
-  if (!hasProse && !hasFacts && !hasOpcodes) return null
+  if (!hasProse && !hasFacts && !hasOpcodes && !expectedRejections?.length) return null
 
   return (
     <div className="flex flex-col gap-3">
@@ -325,6 +346,7 @@ export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test
         <Badge variant="default">{info ? 'EEST Info' : 'Opcode Info'}</Badge>
       </div>
       <div className="flex flex-col gap-3 rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        {expectedRejections && expectedRejections.length > 0 && <InvalidPayloadNote exceptions={expectedRejections} />}
         {hasProse && (
           <div className="flex flex-col gap-1">
             {info?.description && <p className="text-sm/6 text-gray-800 dark:text-gray-100">{info.description}</p>}
@@ -338,6 +360,13 @@ export function EESTInfoContent({ test, opcodeSort, onOpcodeSortChange }: { test
             {tool && <MetaChip label="filled by" value={fillingToolLabel(tool)} title={tool} />}
             {info?.hash && <MetaChip label="hash" value={shortHash(info.hash)} title={info.hash} copy={info.hash} />}
             {info?.url && <MetaChip label="source" value={sourceLabel(info.url)} href={info.url} />}
+            {benchmarkGas !== undefined && (
+              <MetaChip
+                label="benchmark gas"
+                value={`${(benchmarkGas / 1e6).toFixed(2)}M`}
+                title={`${benchmarkGas.toLocaleString()} gas used by the benchmark transactions. The fixture records it because the client must reject this block, so the block header cannot be trusted for it.`}
+              />
+            )}
           </div>
         )}
         {hasOpcodes && <OpcodeBreakdown opcodes={opcodes!} sort={opcodeSort} onSortChange={onOpcodeSortChange} />}

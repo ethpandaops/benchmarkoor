@@ -154,6 +154,10 @@ interface LazyLineInfo {
 
 interface ExecutionRowProps {
   index: number
+  /** True when the client must reject this call's payload (an invalid-payload benchmark). */
+  rejected?: boolean
+  /** Widen the status column so a REJECTED badge fits; set for every row of a list that has one. */
+  wideStatus?: boolean
   request?: string
   requestSize?: number
   /** Method name from partial fetch (used when full request is unavailable). */
@@ -182,28 +186,37 @@ interface ExecutionRowProps {
   slowMs: number
 }
 
-function StatusIndicator({ status }: { status?: number }) {
+function StatusIndicator({ status, rejected = false }: { status?: number; rejected?: boolean }) {
   if (status === undefined) return null
 
   const isSuccess = status === 0
+  // A payload the client must reject passes when the client rejects it.
+  const isRejected = isSuccess && rejected
 
   return (
     <span
       className={clsx(
         'shrink-0 rounded-full px-2 py-0.5 text-xs/5 font-medium',
-        isSuccess
-          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+        isRejected
+          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+          : isSuccess
+            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+            : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
       )}
+      title={rejected
+        ? isSuccess
+          ? 'The client rejected the invalid payload as expected'
+          : 'The client did not reject the invalid payload as expected'
+        : undefined}
     >
-      {isSuccess ? 'OK' : 'FAIL'}
+      {isRejected ? 'REJECTED' : isSuccess ? 'OK' : 'FAIL'}
     </span>
   )
 }
 
 const MAX_LAZY_LINE_SIZE = 1_000_000 // 1MB — lazy-load lines up to this size
 
-function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, txCount, payloadSize, responseViewerUrl, requestViewerUrl, requestsOnly = false, threshold, slowMs, expanded: expandedProp, onExpandedChange }: ExecutionRowProps & { expanded?: boolean; onExpandedChange?: (index: number, expanded: boolean) => void }) {
+function ExecutionRow({ index, rejected = false, wideStatus = false, request, requestSize, methodName, requestLineInfo, response, responseSize, time, status, mgasPerSec, gasUsed, txCount, payloadSize, responseViewerUrl, requestViewerUrl, requestsOnly = false, threshold, slowMs, expanded: expandedProp, onExpandedChange }: ExecutionRowProps & { expanded?: boolean; onExpandedChange?: (index: number, expanded: boolean) => void }) {
   const [expandedLocal, setExpandedLocal] = useState(false)
   const expanded = expandedProp ?? expandedLocal
   const setExpanded = (v: boolean) => {
@@ -229,8 +242,9 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
   const effectiveResponseSize = responseSize ?? (response ? new Blob([response]).size : undefined)
   const canExpand = !!effectiveRequest || !!response || !!responseViewerUrl || !!requestViewerUrl || canLazyLoad
   const isFail = status !== undefined && status !== 0
-  // A call that reports gas is a payload submission.
-  const isPayload = mgasPerSec !== undefined
+  // A call that reports gas, or whose payload the client must reject, is a
+  // payload submission.
+  const isPayload = mgasPerSec !== undefined || rejected
 
   return (
     <div className={clsx(
@@ -287,6 +301,13 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
                   </span>
                 )}
               </>
+            ) : rejected ? (
+              <span
+                className="font-normal text-blue-600 dark:text-blue-400"
+                title="The client must reject this payload, so the call has a time to reject but no MGas/s"
+              >
+                no MGas/s (rejected)
+              </span>
             ) : ''}
           </span>
         )}
@@ -340,8 +361,8 @@ function ExecutionRow({ index, request, requestSize, methodName, requestLineInfo
           )}
         </span>
         {!requestsOnly && (
-          <span className="w-12 shrink-0 text-right">
-            <StatusIndicator status={status} />
+          <span className={clsx('shrink-0 text-right', wideStatus ? 'w-24' : 'w-12')}>
+            <StatusIndicator status={status} rejected={rejected} />
           </span>
         )}
       </button>
@@ -460,6 +481,7 @@ export function ExecutionsList({ runId = '', suiteHash, testName, stepType, expa
   const safeRequests = requestsError ? undefined : requests
   const safeResponses = responsesError ? undefined : responses
   const safeDetails = detailsError ? undefined : resultDetails
+  const rejectedIndexes = new Set(safeDetails?.rejected ?? [])
 
   // Wait for at least one data source (details or requests) to be ready.
   // The suite-only list has the requests as its one source.
@@ -566,6 +588,8 @@ export function ExecutionsList({ runId = '', suiteHash, testName, stepType, expa
               responseSize={responseSummaries?.[index]?.size}
               time={safeDetails?.duration_ns[index]}
               status={safeDetails?.status[index]}
+              rejected={rejectedIndexes.has(index)}
+              wideStatus={rejectedIndexes.size > 0}
               mgasPerSec={safeDetails?.mgas_s[String(index)]}
               gasUsed={safeDetails?.gas_used[String(index)]}
               txCount={txCountOf(index)}

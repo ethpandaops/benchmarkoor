@@ -14,6 +14,7 @@ import { ResourceCharts } from '@/components/suite-detail/ResourceCharts'
 import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/RunsHeatmap'
 import { CompareToolbar } from '@/components/suite-detail/CompareToolbar'
 import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
+import { RejectionTimesTable } from '@/components/suite-detail/RejectionTimesTable'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { EESTMetadata } from '@/components/suite-detail/EESTMetadata'
 import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
@@ -1456,6 +1457,7 @@ export function SuiteDetailPage() {
                 <TestHeatmap stats={suiteStats!} testFiles={suite.tests ?? []} isDark={isDark} isLoading={suiteStatsLoading} suiteHash={suiteHash} suiteName={suite.metadata?.labels?.name} stepFilter={stepFilter} searchQuery={q} onSearchChange={handleSearchChange} showTestName={hn === '1'} onShowTestNameChange={handleHeatmapShowNameChange} showClientStat={hCs === '1'} onShowClientStatChange={handleHeatmapClientStatChange} useRegex={hr === '1'} onUseRegexChange={handleHeatmapRegexChange} fullscreen={hFs === '1'} onFullscreenChange={handleHeatmapFullscreenChange} histogramStat={(hStat as 'avgMgas' | 'minMgas' | 'p99Mgas') || undefined} onHistogramStatChange={handleHeatmapStatChange} threshold={hTh ? Number(hTh) : undefined} onThresholdChange={handleHeatmapThresholdChange} runsPerClient={hRpc ? Number(hRpc) : undefined} onRunsPerClientChange={handleHeatmapRunsPerClientChange} pageSize={hPs ? Number(hPs) : undefined} onPageSizeChange={handleHeatmapPageSizeChange} />
               )
             )}
+            {!suiteStatsLoading && suiteStats && <RejectionTimesTable stats={suiteStats} />}
             {suite.tests?.some((t) => { const oc = t.opcode_count ?? t.eest?.info?.opcode_count; return oc && Object.keys(oc).length > 0 }) && (
               <div className="overflow-hidden rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
                 <OpcodeHeatmap

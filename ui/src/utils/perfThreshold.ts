@@ -142,3 +142,20 @@ export function formatSlowMs(slowMs: number): string {
   const seconds = slowMs / 1000
   return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`
 }
+
+/**
+ * Tile style for a test whose payloads the client rejected as the fixture
+ * expects (an invalid-payload benchmark). Such a test has a time to reject but
+ * no MGas/s, so it gets its own style in the MGas/s colour mode.
+ */
+export const REJECTED_TILE_STYLE = {
+  backgroundColor: '#1d4ed8',
+  backgroundImage: 'repeating-linear-gradient(-45deg, transparent, transparent 2px, #3b82f6 2px, #3b82f6 4px)',
+}
+
+/**
+ * Blue corner marker for a rejected test whose tile keeps its own colour (the
+ * duration colour mode). It covers only the top-left corner, so the duration
+ * colour stays readable.
+ */
+export const REJECTED_OVERLAY_IMAGE = 'linear-gradient(135deg, #3b82f6 0 26%, transparent 26%)'

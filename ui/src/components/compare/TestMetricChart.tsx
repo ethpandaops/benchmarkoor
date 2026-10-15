@@ -6,6 +6,7 @@ import { type StepTypeOption, getAggregatedStats } from '@/pages/RunDetailPage'
 import { type ChartType, type CompareRun, type LabelMode, type ZoomRange, RUN_SLOTS, formatRunLabel } from './constants'
 import { type HeatmapMetric } from './heatmapColor'
 import { useChartAreaClick } from './useChartAreaClick'
+import { isRejectedOnly, payloadTimeNs } from './compareMetrics'
 import { formatTestNameLong } from '@/utils/eestName'
 import { formatDuration } from '@/utils/format'
 import { SLOW_COLOR, formatSlowMs } from '@/utils/perfThreshold'
@@ -30,11 +31,6 @@ interface TestMetricChartProps {
 function calculateMGasPerSec(stats: AggregatedStats | undefined): number | undefined {
   if (!stats || stats.gas_used_time_total <= 0 || stats.gas_used_total <= 0) return undefined
   return (stats.gas_used_total * 1000) / stats.gas_used_time_total
-}
-
-function payloadTime(stats: AggregatedStats | undefined): number | undefined {
-  if (!stats || stats.gas_used_time_total <= 0) return undefined
-  return stats.gas_used_time_total
 }
 
 /** Short duration for an axis label, e.g. "250ms" or "1.5s". */
@@ -63,7 +59,9 @@ const METRIC_META = {
     title: 'Duration per Test',
     icon: Timer,
     axisName: 'Payload time',
-    value: payloadTime,
+    // A rejected-only test has no MGas/s, but its time to reject is a
+    // payload time, so it shows on the duration chart.
+    value: payloadTimeNs,
     axisLabel: formatAxisDuration,
     tooltip: formatDuration,
   },
@@ -88,6 +86,8 @@ interface MetricDataPoint {
   testOrder: number
   testName: string
   value: number
+  // The value is the time the client took to reject the test's payloads.
+  rejected: boolean
 }
 
 function buildMetricData(
@@ -103,18 +103,18 @@ function buildMetricData(
   }
 
   const valueOf = METRIC_META[metric].value
-  const entries: { name: string; order: number; value: number }[] = []
+  const entries: { name: string; order: number; value: number; rejected: boolean }[] = []
   for (const [name, entry] of Object.entries(result.tests)) {
     if (nameFilter && !nameFilter(name)) continue
     const stats = getAggregatedStats(entry, stepFilter)
     const value = valueOf(stats)
     if (value === undefined) continue
     const order = suiteOrder.get(name) ?? (parseInt(entry.dir, 10) || 0)
-    entries.push({ name, order, value })
+    entries.push({ name, order, value, rejected: isRejectedOnly(stats) })
   }
 
   entries.sort((a, b) => a.order - b.order)
-  return entries.map((e, i) => ({ testIndex: i + 1, testOrder: e.order, testName: e.name, value: e.value }))
+  return entries.map((e, i) => ({ testIndex: i + 1, testOrder: e.order, testName: e.name, value: e.value, rejected: e.rejected }))
 }
 
 export function TestMetricChart({ runs, suiteTests, stepFilter, labelMode, testNameFilter, zoomRange: externalZoom, onZoomChange, chartType = 'line', onTestClick, metric = 'mgas', slowMs }: TestMetricChartProps) {
@@ -204,7 +204,7 @@ export function TestMetricChart({ runs, suiteTests, stepFilter, labelMode, testN
         textStyle: { color: textColor },
         extraCssText: 'max-width: 300px; white-space: normal;',
         formatter: (
-          params: Array<{ seriesName: string; color: string; value: [number, number, string, number] }>,
+          params: Array<{ seriesName: string; color: string; value: [number, number, string, number, number] }>,
         ) => {
           if (!params.length) return ''
           const testOrder = params[0].value[3]
@@ -217,7 +217,7 @@ export function TestMetricChart({ runs, suiteTests, stepFilter, labelMode, testN
             const value = p.value[1]
             const client = clientBySeriesName.get(p.seriesName)
             const clientImg = client ? `<img src="/img/clients/${client}.jpg" style="display:inline-block;width:14px;height:14px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;" />` : ''
-            content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${meta.tooltip(value)}<br/>`
+            content += `${clientImg}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.seriesName}: ${meta.tooltip(value)}${p.value[4] ? ' (time to reject)' : ''}<br/>`
           })
           return content
         },
@@ -284,7 +284,7 @@ export function TestMetricChart({ runs, suiteTests, stepFilter, labelMode, testN
         // comes from run.index, not from the position in the array.
         const slot = RUN_SLOTS[run.index]
         const points = pointsPerRun[i]
-        const data = points.map((d) => [d.testIndex, d.value, d.testName, d.testOrder])
+        const data = points.map((d) => [d.testIndex, d.value, d.testName, d.testOrder, d.rejected ? 1 : 0])
         const base = {
           name: `Run ${formatRunLabel(slot, runs[i], labelMode)}`,
           data,

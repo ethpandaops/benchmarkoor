@@ -16,7 +16,7 @@ import { type CompareRun, type ChartType, CHART_TYPE_OPTIONS } from '@/component
 import { TestMetricChart } from '@/components/compare/TestMetricChart'
 import { type SortMode, GroupHeatmap } from '@/components/compare/GroupHeatmap'
 import { GroupRanking } from '@/components/compare/GroupRanking'
-import { computeMetrics } from '@/components/compare/compareMetrics'
+import { computeMetrics, fixtureGasByTest, payloadTimeNs, testGasForFilter } from '@/components/compare/compareMetrics'
 import { type HeatmapColorModel } from '@/components/compare/heatmapColor'
 import { DEFAULT_SLOW_MS, DEFAULT_THRESHOLD, MAX_SLOW_MS, MAX_THRESHOLD, MIN_SLOW_MS, MIN_THRESHOLD } from '@/utils/perfThreshold'
 import { CVComparisonChart } from '@/components/compare/CVComparisonChart'
@@ -387,12 +387,13 @@ export function CompareGroupsPage() {
     const map = new Map<string, number>()
     const result = syntheticRuns.find((r) => r.result)?.result
     if (!result) return map
+    const fixtureGas = fixtureGasByTest(suite?.tests)
     for (const [name, entry] of Object.entries(result.tests)) {
       const step = entry.steps?.test
-      if (step) map.set(name, step.aggregated.gas_used_total)
+      if (step) map.set(name, testGasForFilter(step.aggregated, fixtureGas.get(name)))
     }
     return map
-  }, [syntheticRuns])
+  }, [syntheticRuns, suite?.tests])
 
   const availableGasBuckets = useMemo(() => {
     const buckets = new Set<number>()
@@ -499,9 +500,10 @@ export function CompareGroupsPage() {
     for (const run of syntheticRuns) {
       const entry = run.result?.tests[selectedTest]
       const stats = entry ? getAggregatedStats(entry, stepFilter) : undefined
+      // A rejected test has a time to reject but no MGas/s.
+      durations[run.index] = payloadTimeNs(stats)
       if (!stats || stats.gas_used_time_total <= 0) continue
       mgas[run.index] = (stats.gas_used_total * 1000) / stats.gas_used_time_total
-      durations[run.index] = stats.gas_used_time_total
     }
     return { mgas, durations }
   }, [selectedTest, groups.length, syntheticRuns, stepFilter])

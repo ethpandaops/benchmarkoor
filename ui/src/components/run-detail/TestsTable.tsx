@@ -47,6 +47,8 @@ function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL
   let timeTotal = 0
   let gasUsedTotal = 0
   let gasUsedTimeTotal = 0
+  let rejected = 0
+  let rejectedTimeTotal = 0
   let success = 0
   let fail = 0
 
@@ -55,6 +57,8 @@ function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL
       timeTotal += step.aggregated.time_total
       gasUsedTotal += step.aggregated.gas_used_total
       gasUsedTimeTotal += step.aggregated.gas_used_time_total
+      rejected += step.aggregated.rejected ?? 0
+      rejectedTimeTotal += step.aggregated.rejected_time_total ?? 0
       success += step.aggregated.success
       fail += step.aggregated.fail
     }
@@ -64,6 +68,8 @@ function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL
     time_total: timeTotal,
     gas_used_total: gasUsedTotal,
     gas_used_time_total: gasUsedTimeTotal,
+    rejected,
+    rejected_time_total: rejectedTimeTotal,
     success,
     fail,
     msg_count: 0,
@@ -424,6 +430,18 @@ export function TestsTable({
                     const mgas = statsFiltered
                       ? calculateMGasPerSec(statsFiltered.gas_used_total, statsFiltered.gas_used_time_total)
                       : undefined
+                    // A payload the client must reject has no MGas/s: the client can stop
+                    // part way through the block. Show its time to reject instead.
+                    if (mgas === undefined && statsFiltered?.rejected) {
+                      return (
+                        <td
+                          className="whitespace-nowrap px-4 py-3 text-right text-sm/6"
+                          title={`The client rejected ${statsFiltered.rejected} invalid payload(s) as expected. Time to reject: ${formatDuration(statsFiltered.rejected_time_total ?? 0)}. There is no MGas/s for a rejected payload.`}
+                        >
+                          <Badge variant="info">REJECTED</Badge>
+                        </td>
+                      )
+                    }
                     return (
                       <td
                         className={clsx(

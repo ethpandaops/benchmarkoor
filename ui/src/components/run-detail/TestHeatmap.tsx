@@ -21,6 +21,8 @@ import { useBlockLogs } from '@/api/hooks/useBlockLogs'
 import {
   DEFAULT_SLOW_MS,
   DEFAULT_THRESHOLD,
+  REJECTED_OVERLAY_IMAGE,
+  REJECTED_TILE_STYLE,
   SLOW_COLOR,
   THRESHOLD_COLORS,
   THRESHOLD_LIMIT_STEP,
@@ -54,6 +56,8 @@ function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL
   let timeTotal = 0
   let gasUsedTotal = 0
   let gasUsedTimeTotal = 0
+  let rejected = 0
+  let rejectedTimeTotal = 0
   let success = 0
   let fail = 0
 
@@ -66,6 +70,8 @@ function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL
       timeTotal += step.aggregated.time_total
       gasUsedTotal += step.aggregated.gas_used_total
       gasUsedTimeTotal += step.aggregated.gas_used_time_total
+      rejected += step.aggregated.rejected ?? 0
+      rejectedTimeTotal += step.aggregated.rejected_time_total ?? 0
       success += step.aggregated.success
       fail += step.aggregated.fail
 
@@ -95,6 +101,8 @@ function getAggregatedStats(entry: TestEntry, stepFilter: StepTypeOption[] = ALL
     time_total: timeTotal,
     gas_used_total: gasUsedTotal,
     gas_used_time_total: gasUsedTimeTotal,
+    rejected,
+    rejected_time_total: rejectedTimeTotal,
     success,
     fail,
     msg_count: 0,
@@ -205,6 +213,10 @@ interface TestData {
   isSlow: boolean
   hasFail: boolean
   noData: boolean
+  // rejectedNs is the time the client took to reject the test's
+  // expected-invalid payloads, or undefined when it has none. Such a test
+  // has no MGas/s (noData), but it does have a payload time.
+  rejectedNs?: number
   // notProcessed is true when the test is part of the suite but no
   // result entry exists for it yet (live run still in progress, run
   // canceled, etc). Distinct from noData (test ran but produced no gas
@@ -333,6 +345,11 @@ function HeatmapCell({
   let baseStyle: React.CSSProperties
   if (test.notProcessed) {
     baseStyle = NOT_PROCESSED_STYLE
+  } else if (test.rejectedNs !== undefined) {
+    // The time to reject is a real payload time, so duration mode colours it.
+    baseStyle = colorMode === 'duration'
+      ? { backgroundColor: getColorByDuration(test.rejectedNs, slowMs), backgroundImage: REJECTED_OVERLAY_IMAGE }
+      : REJECTED_TILE_STYLE
   } else if (test.noData) {
     baseStyle = NO_DATA_STYLE
   } else if (colorMode === 'duration') {
@@ -572,6 +589,7 @@ export function TestHeatmap({
         isSlow,
         hasFail: statsAll ? statsAll.fail > 0 : false,
         noData,
+        rejectedNs: noData && statsFiltered?.rejected ? statsFiltered.rejected_time_total ?? 0 : undefined,
         notProcessed: false,
       })
     }
@@ -980,6 +998,13 @@ export function TestHeatmap({
           <span className="mr-1 inline-block size-3 rounded-xs" style={NO_DATA_STYLE} />
           No data
         </span>
+        <span title="The client rejected the expected-invalid payload. There is no MGas/s. In duration mode the tile keeps the colour of its time to reject, with a blue corner.">
+          <span
+            className="mr-1 inline-block size-3 rounded-xs"
+            style={isDurationMode ? { backgroundColor: THRESHOLD_COLORS[0], backgroundImage: REJECTED_OVERLAY_IMAGE } : REJECTED_TILE_STYLE}
+          />
+          Rejected (invalid payload)
+        </span>
         <span>
           <span className="mr-1 inline-block size-3 rounded-xs ring-1 ring-gray-300 dark:ring-gray-700" style={NOT_PROCESSED_STYLE} />
           Not processed
@@ -1016,10 +1041,15 @@ export function TestHeatmap({
               MGas/s:{' '}
               {tooltip.test.notProcessed
                 ? 'Not processed yet'
-                : tooltip.test.noData
-                  ? 'No data'
-                  : tooltip.test.mgasPerSec.toFixed(2)}
+                : tooltip.test.rejectedNs !== undefined
+                  ? 'n/a (payload rejected)'
+                  : tooltip.test.noData
+                    ? 'No data'
+                    : tooltip.test.mgasPerSec.toFixed(2)}
             </div>
+            {tooltip.test.rejectedNs !== undefined && (
+              <div>Time to reject: {formatDuration(tooltip.test.rejectedNs)}</div>
+            )}
             {!tooltip.test.noData && (
               <>
                 <div>Gas used: {(tooltip.test.gasUsedTotal / 1_000_000).toFixed(2)} MGas</div>
@@ -1041,6 +1071,8 @@ export function TestHeatmap({
             <TooltipFilename name={tooltip.test.filename} />
             {tooltip.test.notProcessed ? (
               <div className="text-gray-500 dark:text-gray-400">Test was not run</div>
+            ) : tooltip.test.rejectedNs !== undefined ? (
+              <div className="text-blue-600 dark:text-blue-400">The client rejected the invalid payload as expected</div>
             ) : tooltip.test.noData ? (
               <div className="text-gray-500 dark:text-gray-400">No gas usage data available</div>
             ) : null}
