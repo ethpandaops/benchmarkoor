@@ -41,7 +41,7 @@ import { DEFAULT_RESOURCE_STEP, RESOURCE_STEP_OPTIONS, type ResourceStep } from 
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 import { useAuth } from '@/hooks/useAuth'
 
-const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500, 1000] as const
 const DEFAULT_PAGE_SIZE = 100
 
 // Parse step filter from URL (comma-separated string) or use default
