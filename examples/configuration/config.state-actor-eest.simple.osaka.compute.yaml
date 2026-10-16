@@ -24,6 +24,7 @@ builder:
       nethermind: ghcr.io/ethereum/state-actor-nethermind:main
       ethrex: ghcr.io/ethereum/state-actor-ethrex:main
       erigon: ghcr.io/ethereum/state-actor-erigon:main
+      nimbus: ghcr.io/ethereum/state-actor-nimbus:main
     pull_policy: always
     config:
       seed: 1234
@@ -53,6 +54,8 @@ builder:
         output_dir: ${STATE_DIR}/ethrex
       - client: erigon
         output_dir: ${STATE_DIR}/erigon
+      - client: nimbus
+        output_dir: ${STATE_DIR}/nimbus
 
   ## Stage 2: Building EEST stateful fixtures
   eest_payloads:
@@ -139,6 +142,7 @@ runner:
         # erigon image.
         erigon: ${STATE_DIR}/erigon/chainspec.json
         #erigon: ${STATE_DIR}/geth/geth-genesis.json
+        nimbus: ${STATE_DIR}/nimbus/nimbus-genesis.json
 
     datadirs:
       geth:
@@ -158,6 +162,9 @@ runner:
         method: copy
       erigon:
         source_dir: ${STATE_DIR}/erigon
+        method: copy
+      nimbus:
+        source_dir: ${STATE_DIR}/nimbus
         method: copy
 
   instances:
@@ -205,3 +212,13 @@ runner:
       # 3.4.x) panics on it with "cannot unmarshal \"1337\" into a *big.Int";
       # ethpandaops/erigon:main reads it (as in benchmarkoor-tests state-actor/v2).
       image: ethpandaops/erigon:main
+    - id: nimbus
+      client: nimbus
+      # state-actor writes nimbus's current Aristo format, which only
+      # nimbus-eth1 master builds read (no tagged release does yet).
+      image: statusim/nimbus-eth1:master
+      extra_args:
+        # --debug-rewrite-datadir-id: the emitted nimbus-genesis.json has an
+        # empty alloc (the state is in the snapshot), so skip nimbus's check
+        # that the genesis it rebuilds matches the datadir.
+        - --debug-rewrite-datadir-id

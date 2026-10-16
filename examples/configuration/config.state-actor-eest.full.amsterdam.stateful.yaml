@@ -19,8 +19,11 @@
 #   orb -m bench sudo benchmarkoor run   --config $(pwd)/examples/configuration/config.state-actor-eest.full.amsterdam.stateful.yaml --limit-instance-id=geth
 #
 # Amsterdam is activated exactly as in the other configs: geth/erigon via the
-# --override.amsterdam flag, besu/reth/ethrex via genesis_fork_override,
+# --override.amsterdam flag, besu/reth/ethrex/nimbus via genesis_fork_override,
 # nethermind via genesis_eip_override.
+#
+# nimbus is commented out below: its state-actor build has only been tested on
+# small snapshots (see the simple configs). Enable it to try it at this size.
 #
 global:
   log_level: info
@@ -47,6 +50,7 @@ builder:
       reth: ghcr.io/ethereum/state-actor-reth:main-f171c26
       besu: ghcr.io/ethereum/state-actor-besu:main-f171c26
       erigon: ghcr.io/ethereum/state-actor-erigon:main-f171c26
+      # nimbus: ghcr.io/ethereum/state-actor-nimbus:main-6dd2e8f
     pull_policy: always
     config:
       seed: 42
@@ -223,6 +227,8 @@ builder:
         output_dir: ${STATE_DIR}/besu          # ~534 GB
       - client: erigon
         output_dir: ${STATE_DIR}/erigon        # ~517 GB
+      # - client: nimbus
+      #   output_dir: ${STATE_DIR}/nimbus
 
   ## Stage 2: Building EEST bloatnet/repricing fixtures
   eest_payloads:
@@ -332,6 +338,7 @@ runner:
         reth: ${STATE_DIR}/reth/chainspec.json
         besu: ${STATE_DIR}/besu/besu-chainspec.json
         erigon: ${STATE_DIR}/erigon/chainspec.json
+        # nimbus: ${STATE_DIR}/nimbus/nimbus-genesis.json
     datadirs:
       geth:
         source_dir: ${STATE_DIR}/geth
@@ -353,6 +360,9 @@ runner:
       erigon:
         source_dir: ${STATE_DIR}/erigon
         method: overlayfs
+      # nimbus:
+      #   source_dir: ${STATE_DIR}/nimbus
+      #   method: overlayfs
 
   # The devnet-8 client builds, in BAL "full" mode. Each client needs its own
   # snapshot (state_actor target above) + the genesis/override wiring — see
@@ -413,3 +423,11 @@ runner:
         - --experimental.parallel-commitment
       bootstrap_fcu: { enabled: true, max_retries: 120, backoff: 30s }
       retry_new_payloads_syncing_state: { enabled: true, max_retries: 240, backoff: 30s }
+    # - id: nimbus
+    #   client: nimbus
+    #   # state-actor writes nimbus's current Aristo format, which the
+    #   # glamsterdam-devnet-8 image cannot read (DeblobWrongType).
+    #   image: statusim/nimbus-eth1:master
+    #   genesis_fork_override:
+    #     amsterdam: ${AMSTERDAM_ACTIVATION_TS}
+    #   extra_args: [--debug-rewrite-datadir-id]

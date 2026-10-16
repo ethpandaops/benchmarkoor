@@ -4148,6 +4148,7 @@ func TestValidateBuilder(t *testing.T) {
 		"nethermind": "ghcr.io/ethereum/state-actor-nethermind:latest",
 		"ethrex":     "ghcr.io/ethereum/state-actor-ethrex:latest",
 		"erigon":     "ghcr.io/ethereum/state-actor-erigon:latest",
+		"nimbus":     "ghcr.io/ethereum/state-actor-nimbus:latest",
 	}
 
 	// mkCfg builds a Config with just the builder block populated so the
@@ -4209,13 +4210,20 @@ func TestValidateBuilder(t *testing.T) {
 			},
 		},
 		{
-			name: "unsupported client nimbus",
+			name: "supported client nimbus",
 			sa: &StateActorConfig{
 				Images:  allImages,
 				Targets: []StateActorTarget{{Client: "nimbus", OutputDir: dirA, TargetSize: "5GB"}},
 			},
+		},
+		{
+			name: "unsupported client",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "lodestar", OutputDir: dirA, TargetSize: "5GB"}},
+			},
 			wantErr:   true,
-			errSubstr: "nimbus",
+			errSubstr: "not supported by state-actor",
 		},
 		{
 			name: "missing output_dir",
@@ -4375,6 +4383,15 @@ func TestValidateBuilder(t *testing.T) {
 			sa: &StateActorConfig{
 				Images:  allImages,
 				Targets: []StateActorTarget{{Client: "besu", OutputDir: dirA, TargetSize: "5GB", Archive: boolPtr(true)}},
+			},
+			wantErr:   true,
+			errSubstr: "archive",
+		},
+		{
+			name: "archive on nimbus rejected",
+			sa: &StateActorConfig{
+				Images:  allImages,
+				Targets: []StateActorTarget{{Client: "nimbus", OutputDir: dirA, TargetSize: "5GB", Archive: boolPtr(true)}},
 			},
 			wantErr:   true,
 			errSubstr: "archive",

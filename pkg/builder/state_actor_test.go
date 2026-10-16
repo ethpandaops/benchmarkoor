@@ -66,6 +66,17 @@ func TestBuildArgs(t *testing.T) {
 			},
 		},
 		{
+			name:     "nimbus_spec_and_target_size",
+			t:        config.StateActorTarget{Client: "nimbus", OutputDir: "/srv/nb", TargetSize: "256MB"},
+			specPath: "/etc/spec.yaml",
+			want: []string{
+				"--db=/srv/nb",
+				"--client=nimbus",
+				"--target-size=256MB",
+				"--spec=/etc/spec.yaml",
+			},
+		},
+		{
 			name: "nethermind_full_pointers",
 			t: config.StateActorTarget{
 				Client: "nethermind", OutputDir: "/srv/n", TargetSize: "10GB",
@@ -119,6 +130,8 @@ func TestDBPath(t *testing.T) {
 		dbPath(&config.StateActorTarget{Client: "besu", OutputDir: "/data"}))
 	assert.Equal(t, "/data",
 		dbPath(&config.StateActorTarget{Client: "nethermind", OutputDir: "/data"}))
+	assert.Equal(t, "/data",
+		dbPath(&config.StateActorTarget{Client: "nimbus", OutputDir: "/data"}))
 }
 
 func TestStateActorBuilder_Targets(t *testing.T) {
