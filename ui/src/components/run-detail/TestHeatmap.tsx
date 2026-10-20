@@ -7,6 +7,7 @@ import { fetchHead } from '@/api/client'
 import { ColorScaleLegend } from '@/components/shared/ColorScaleLegend'
 import { Modal } from '@/components/shared/Modal'
 import { TestNavControls } from '@/components/shared/TestNavControls'
+import { TestHistoryLink } from '@/components/shared/TestHistoryLink'
 import { useTestNavigation } from '@/hooks/useTestNavigation'
 import { TestName } from '@/components/shared/TestName'
 import { compileQuery, testNameMatches, toggleSearchTerm } from '@/utils/eestNameFilter'
@@ -1110,7 +1111,12 @@ export function TestHeatmap({
             isOpen={!!selectedTest}
             onClose={() => onSelectedTestChange?.(undefined)}
             title={`Test #${executionOrder.get(selectedTest) ?? '?'}`}
-            headerActions={<TestNavControls navigation={navigation} />}
+            headerActions={
+              <>
+                {suiteHash && <TestHistoryLink suiteHash={suiteHash} testName={selectedTest} />}
+                <TestNavControls navigation={navigation} />
+              </>
+            }
           >
             <div className="flex flex-col gap-6">
               <div className="flex flex-col gap-2">

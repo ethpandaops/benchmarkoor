@@ -423,3 +423,71 @@ func TestHandleSuiteStats_RejectedTest(t *testing.T) {
 	assert.Equal(t, int64(20_000_000), d.Steps.Setup.Time)
 	assert.Equal(t, int64(13_000_000), d.Steps.Setup.RejectedTime)
 }
+
+// The test history endpoint returns one test's results newest first, in the
+// stats.json shape plus the client image of each run.
+func TestHandleTestHistory(t *testing.T) {
+	s := newIndexTestServer(t)
+	ctx := context.Background()
+
+	for _, run := range []struct {
+		id    string
+		ts    int64
+		image string
+	}{
+		{id: "run-1", ts: 100, image: "geth:v1"},
+		{id: "run-2", ts: 200, image: "geth:v2"},
+	} {
+		require.NoError(t, s.indexStore.UpsertRun(ctx, &indexstore.Run{
+			DiscoveryPath: "dp",
+			RunID:         run.id,
+			Timestamp:     run.ts,
+			SuiteHash:     "suite",
+			Status:        "completed",
+			Client:        "geth",
+			Image:         run.image,
+		}))
+		require.NoError(t, s.indexStore.ReplaceTestStats(ctx, run.id, []*indexstore.TestStat{
+			{
+				SuiteHash: "suite", RunID: run.id, TestName: "t1", Client: "geth",
+				RunStart: run.ts, TotalGasUsed: 10_000_000, TotalTimeNs: run.ts * 1_000_000,
+			},
+			{
+				SuiteHash: "suite", RunID: run.id, TestName: "t2", Client: "geth",
+				RunStart: run.ts,
+			},
+		}))
+	}
+
+	call := func(query string) *httptest.ResponseRecorder {
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("hash", "suite")
+		req := httptest.NewRequest(http.MethodGet,
+			"/api/v1/index/suites/suite/tests/history"+query, nil)
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+		rec := httptest.NewRecorder()
+		s.handleTestHistory(rec, req)
+
+		return rec
+	}
+
+	rec := call("?test=t1")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Durations []struct {
+			executor.RunDuration
+			Image string `json:"image"`
+		} `json:"durations"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Durations, 2)
+
+	assert.Equal(t, "run-2", resp.Durations[0].ID)
+	assert.Equal(t, "geth:v2", resp.Durations[0].Image)
+	assert.Equal(t, int64(200_000_000), resp.Durations[0].Time)
+	assert.Equal(t, "run-1", resp.Durations[1].ID)
+	assert.Equal(t, "geth:v1", resp.Durations[1].Image)
+
+	assert.Equal(t, http.StatusBadRequest, call("").Code)
+}

@@ -576,6 +576,17 @@ export interface RunDuration {
   steps?: RunDurationStepsStats
 }
 
+// One run of a test in the test history. The API adds the client image of the
+// run; the static stats.json does not have it.
+export interface TestHistoryDuration extends RunDuration {
+  image?: string
+}
+
+// Response of /index/suites/{hash}/tests/history, newest run first.
+export interface TestHistory {
+  durations: TestHistoryDuration[]
+}
+
 export interface RunDurationStepsStats {
   setup?: RunDurationStepStats
   test?: RunDurationStepStats
