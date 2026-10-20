@@ -9,6 +9,7 @@ import { Spinner } from '@/components/shared/Spinner'
 import { Badge } from '@/components/shared/Badge'
 import { Modal } from '@/components/shared/Modal'
 import { TestNavControls } from '@/components/shared/TestNavControls'
+import { TestHistoryLink } from '@/components/shared/TestHistoryLink'
 import { useTestNavigation } from '@/hooks/useTestNavigation'
 import { TestName } from '@/components/shared/TestName'
 import { getOpcodeCategory, getCategoryColor } from '@/utils/opcodeCategories'
@@ -1163,7 +1164,12 @@ export function TestFilesList({
             isOpen={!!selectedTestItem}
             onClose={() => onDetailChange?.(undefined)}
             title={detailIndex != null ? `Test #${detailIndex}` : undefined}
-            headerActions={<TestNavControls navigation={navigation} />}
+            headerActions={
+              <>
+                {selectedTestItem && <TestHistoryLink suiteHash={suiteHash} testName={selectedTestItem.name} />}
+                <TestNavControls navigation={navigation} />
+              </>
+            }
           >
             {selectedTestItem && (
               <TestStepsContent suiteHash={suiteHash} test={selectedTestItem} opcodeSort={opcodeSort} onOpcodeSortChange={handleOpcodeSortChange} />

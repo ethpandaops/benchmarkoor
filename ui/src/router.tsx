@@ -5,6 +5,7 @@ import { RunDetailPage } from '@/pages/RunDetailPage'
 import { FileViewerPage } from '@/pages/FileViewerPage'
 import { SuitesPage } from '@/pages/SuitesPage'
 import { SuiteDetailPage } from '@/pages/SuiteDetailPage'
+import { TestHistoryPage } from '@/pages/TestHistoryPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { ApiKeysPage } from '@/pages/ApiKeysPage'
@@ -53,6 +54,12 @@ const suiteDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/suites/$suiteHash',
   component: SuiteDetailPage,
+})
+
+const testHistoryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/suites/$suiteHash/history',
+  component: TestHistoryPage,
 })
 
 const loginRoute = createRoute({
@@ -104,6 +111,7 @@ const routeTree = rootRoute.addChildren([
   fileViewerRoute,
   suitesRoute,
   suiteDetailRoute,
+  testHistoryRoute,
   loginRoute,
   adminRoute,
   apiKeysRoute,

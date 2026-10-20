@@ -380,54 +380,7 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 
 	for i := range durations {
 		d := &durations[i]
-
-		// TotalTimeNs includes the time to reject; the suite stats shape
-		// keeps it apart from the gas time, as stats.json does.
-		rejectedTime := d.SetupRejectedTimeNs + d.TestRejectedTimeNs
-
-		steps := &executor.RunDurationStepsStats{
-			Setup: &executor.RunDurationStepStats{
-				GasUsed:       d.SetupGasUsed,
-				Time:          d.SetupTimeNs,
-				RejectedTime:  d.SetupRejectedTimeNs,
-				RPCCallsCount: d.SetupRPCCallsCount,
-				ResourceTotals: &executor.ResourceTotals{
-					CPUUsec:        d.SetupResourceCPUUsec,
-					MemoryDelta:    d.SetupResourceMemDelta,
-					MemoryBytes:    d.SetupResourceMemBytes,
-					DiskReadBytes:  d.SetupResourceDiskReadB,
-					DiskWriteBytes: d.SetupResourceDiskWriteB,
-					DiskReadIOPS:   d.SetupResourceDiskReadOps,
-					DiskWriteIOPS:  d.SetupResourceDiskWriteOps,
-				},
-			},
-			Test: &executor.RunDurationStepStats{
-				GasUsed:       d.TestGasUsed,
-				Time:          d.TestTimeNs,
-				RejectedTime:  d.TestRejectedTimeNs,
-				RPCCallsCount: d.TestRPCCallsCount,
-				ResourceTotals: &executor.ResourceTotals{
-					CPUUsec:        d.TestResourceCPUUsec,
-					MemoryDelta:    d.TestResourceMemDelta,
-					MemoryBytes:    d.TestResourceMemBytes,
-					DiskReadBytes:  d.TestResourceDiskReadB,
-					DiskWriteBytes: d.TestResourceDiskWriteB,
-					DiskReadIOPS:   d.TestResourceDiskReadOps,
-					DiskWriteIOPS:  d.TestResourceDiskWriteOps,
-				},
-			},
-		}
-
-		rd := &executor.RunDuration{
-			ID:           d.RunID,
-			Client:       d.Client,
-			GasUsed:      d.TotalGasUsed,
-			Time:         d.TotalTimeNs - rejectedTime,
-			RejectedTime: rejectedTime,
-			RunStart:     d.RunStart,
-			RunEnd:       d.RunEnd,
-			Steps:        steps,
-		}
+		rd := runDurationFromTestStat(d)
 
 		if stats[d.TestName] == nil {
 			stats[d.TestName] = &executor.TestDurations{
@@ -448,6 +401,115 @@ func (s *server) handleSuiteStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, stats)
+}
+
+// testHistoryDuration is one run of a test in the history response: the
+// stats.json shape plus the client image of the run.
+type testHistoryDuration struct {
+	*executor.RunDuration
+	Image string `json:"image,omitempty"`
+}
+
+type testHistoryResponse struct {
+	Durations []testHistoryDuration `json:"durations"`
+}
+
+// handleTestHistory returns the results of one test of a suite over the
+// most recent runs per client, newest first.
+func (s *server) handleTestHistory(w http.ResponseWriter, r *http.Request) {
+	suiteHash := chi.URLParam(r, "hash")
+	testName := r.URL.Query().Get("test")
+
+	if suiteHash == "" || testName == "" {
+		writeJSON(w, http.StatusBadRequest,
+			errorResponse{"suite hash and test are required"})
+
+		return
+	}
+
+	// Parse max_runs_per_client: default 100, clamp to [1, 1000].
+	maxRuns := 100
+	if v := r.URL.Query().Get("max_runs_per_client"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			maxRuns = n
+		}
+	}
+
+	maxRuns = max(1, min(1000, maxRuns))
+
+	entries, err := s.indexStore.ListTestHistory(
+		r.Context(), suiteHash, testName, maxRuns,
+	)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			errorResponse{"listing test history: " + err.Error()})
+
+		return
+	}
+
+	resp := testHistoryResponse{
+		Durations: make([]testHistoryDuration, 0, len(entries)),
+	}
+
+	for i := range entries {
+		resp.Durations = append(resp.Durations, testHistoryDuration{
+			RunDuration: runDurationFromTestStat(&entries[i].TestStat),
+			Image:       entries[i].Image,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// runDurationFromTestStat turns a test_stats row into the stats.json shape.
+func runDurationFromTestStat(d *indexstore.TestStat) *executor.RunDuration {
+	// TotalTimeNs includes the time to reject; the suite stats shape
+	// keeps it apart from the gas time, as stats.json does.
+	rejectedTime := d.SetupRejectedTimeNs + d.TestRejectedTimeNs
+
+	steps := &executor.RunDurationStepsStats{
+		Setup: &executor.RunDurationStepStats{
+			GasUsed:       d.SetupGasUsed,
+			Time:          d.SetupTimeNs,
+			RejectedTime:  d.SetupRejectedTimeNs,
+			RPCCallsCount: d.SetupRPCCallsCount,
+			ResourceTotals: &executor.ResourceTotals{
+				CPUUsec:        d.SetupResourceCPUUsec,
+				MemoryDelta:    d.SetupResourceMemDelta,
+				MemoryBytes:    d.SetupResourceMemBytes,
+				DiskReadBytes:  d.SetupResourceDiskReadB,
+				DiskWriteBytes: d.SetupResourceDiskWriteB,
+				DiskReadIOPS:   d.SetupResourceDiskReadOps,
+				DiskWriteIOPS:  d.SetupResourceDiskWriteOps,
+			},
+		},
+		Test: &executor.RunDurationStepStats{
+			GasUsed:       d.TestGasUsed,
+			Time:          d.TestTimeNs,
+			RejectedTime:  d.TestRejectedTimeNs,
+			RPCCallsCount: d.TestRPCCallsCount,
+			ResourceTotals: &executor.ResourceTotals{
+				CPUUsec:        d.TestResourceCPUUsec,
+				MemoryDelta:    d.TestResourceMemDelta,
+				MemoryBytes:    d.TestResourceMemBytes,
+				DiskReadBytes:  d.TestResourceDiskReadB,
+				DiskWriteBytes: d.TestResourceDiskWriteB,
+				DiskReadIOPS:   d.TestResourceDiskReadOps,
+				DiskWriteIOPS:  d.TestResourceDiskWriteOps,
+			},
+		},
+	}
+
+	return &executor.RunDuration{
+		ID:           d.RunID,
+		Client:       d.Client,
+		GasUsed:      d.TotalGasUsed,
+		Time:         d.TotalTimeNs - rejectedTime,
+		RejectedTime: rejectedTime,
+		RunStart:     d.RunStart,
+		RunEnd:       d.RunEnd,
+		Steps:        steps,
+	}
 }
 
 // handleQueryRuns handles PostgREST-style queries against the runs table.

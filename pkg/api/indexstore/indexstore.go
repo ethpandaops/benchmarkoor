@@ -47,6 +47,9 @@ type Store interface {
 	ListTestStatsBySuiteRecent(
 		ctx context.Context, suiteHash string, maxRunsPerClient int,
 	) ([]TestStat, error)
+	ListTestHistory(
+		ctx context.Context, suiteHash, testName string, maxRunsPerClient int,
+	) ([]TestHistoryEntry, error)
 	DeleteTestStatsForRun(ctx context.Context, runID string) error
 
 	ListAllRuns(ctx context.Context) ([]Run, error)
@@ -823,6 +826,107 @@ func (s *store) ListTestStatsBySuiteRecent(
 	}
 
 	return stats, nil
+}
+
+// TestHistoryEntry is the test stat of one test in one run, with the client
+// image of that run.
+type TestHistoryEntry struct {
+	TestStat
+	Image string
+}
+
+// historyRunRow is one run of a suite, as listed by ListTestHistory.
+type historyRunRow struct {
+	Client   string
+	RunID    string
+	RunStart int64
+	Image    string
+}
+
+// ListTestHistory returns the test stats of one test for the N most recent
+// runs per client that ran it, newest first.
+//
+// It never scans test_stats. It lists the suite's runs from the runs table,
+// then looks up the test in each run with one seek on idx_td_suite_test_run
+// (suite_hash, run_id, test_name). It walks the runs newest first in batches
+// and stops when every client has N entries, so a run without the test does
+// not take a slot and old runs are not read.
+func (s *store) ListTestHistory(
+	ctx context.Context, suiteHash, testName string, maxRunsPerClient int,
+) ([]TestHistoryEntry, error) {
+	// A run indexed under two discovery paths has two runs rows. The group
+	// keeps one row for it.
+	var runs []historyRunRow
+	if err := s.readDB.WithContext(ctx).
+		Model(&Run{}).
+		Select("client, run_id, MAX(timestamp) AS run_start, "+
+			"MAX(image) AS image").
+		Where("suite_hash = ?", suiteHash).
+		Group("client, run_id").
+		Order("run_start DESC, run_id DESC").
+		Find(&runs).Error; err != nil {
+		return nil, fmt.Errorf("listing suite runs: %w", err)
+	}
+
+	clientRuns := make(map[string]int, 8)
+	for i := range runs {
+		clientRuns[runs[i].Client] = 0
+	}
+
+	fullClients := 0
+	history := make([]TestHistoryEntry, 0, min(len(runs), maxRunsPerClient*len(clientRuns)))
+
+	const batchSize = 500
+
+	for i := 0; i < len(runs) && fullClients < len(clientRuns); i += batchSize {
+		batch := runs[i:min(i+batchSize, len(runs))]
+
+		runIDs := make([]string, 0, len(batch))
+		for j := range batch {
+			if clientRuns[batch[j].Client] < maxRunsPerClient {
+				runIDs = append(runIDs, batch[j].RunID)
+			}
+		}
+
+		if len(runIDs) == 0 {
+			continue
+		}
+
+		var stats []TestStat
+		if err := s.readDB.WithContext(ctx).
+			Where("suite_hash = ? AND run_id IN ? AND test_name = ?",
+				suiteHash, runIDs, testName).
+			Find(&stats).Error; err != nil {
+			return nil, fmt.Errorf("listing test stats for runs: %w", err)
+		}
+
+		byRun := make(map[string]*TestStat, len(stats))
+		for j := range stats {
+			byRun[stats[j].RunID] = &stats[j]
+		}
+
+		// Keep the batch order, so the per-client cap keeps the newest runs.
+		for j := range batch {
+			run := &batch[j]
+
+			stat, ok := byRun[run.RunID]
+			if !ok || clientRuns[run.Client] >= maxRunsPerClient {
+				continue
+			}
+
+			clientRuns[run.Client]++
+			if clientRuns[run.Client] == maxRunsPerClient {
+				fullClients++
+			}
+
+			history = append(history, TestHistoryEntry{
+				TestStat: *stat,
+				Image:    run.Image,
+			})
+		}
+	}
+
+	return history, nil
 }
 
 // DeleteTestStatsForRun removes all test stat entries for a run ID.

@@ -705,7 +705,19 @@ export function TestHeatmap({ stats, testFiles, isDark, isLoading, suiteHash, su
                   className={clsx('sticky left-0 z-10 px-2 py-1.5 text-right font-mono text-xs/5 text-gray-500 dark:text-gray-400', fullscreen ? 'bg-white dark:bg-gray-900' : 'bg-white dark:bg-gray-800')}
                   title={test.name}
                 >
-                  {test.testNumber ?? '-'}
+                  {suiteHash ? (
+                    <Link
+                      to="/suites/$suiteHash/history"
+                      params={{ suiteHash }}
+                      search={{ test: test.name }}
+                      className="hover:text-blue-600 hover:underline dark:hover:text-blue-400"
+                      title={`Show the history of ${test.name}`}
+                    >
+                      {test.testNumber ?? '-'}
+                    </Link>
+                  ) : (
+                    test.testNumber ?? '-'
+                  )}
                 </td>
                 {clients.map((client) => {
                   const runs = test.clientRuns[client]

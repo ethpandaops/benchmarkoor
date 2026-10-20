@@ -421,6 +421,60 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /index/suites/{hash}/tests/history:
+    get:
+      operationId: getTestHistory
+      tags: [index]
+      summary: Results of one test over the recent runs of a suite
+      description: |
+        Returns the results of one test for the most recent runs per client
+        that ran it. Durations are sorted by `run_start` descending. Each
+        duration has the `stats.json` shape plus the client image of the run.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+        - {}
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Suite hash
+        - name: test
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Test name
+        - name: max_runs_per_client
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+          description: Maximum number of runs per client
+      responses:
+        "200":
+          description: Test history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestHistoryResponse"
+        "400":
+          description: Missing suite hash or test
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /index/query/runs:
     get:
       operationId: queryRuns
@@ -2308,6 +2362,20 @@ components:
             type: array
             items:
               $ref: "#/components/schemas/RunDuration"
+
+    TestHistoryResponse:
+      type: object
+      properties:
+        durations:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/RunDuration"
+              - type: object
+                properties:
+                  image:
+                    type: string
+                    description: Client image of the run
 
     RunDuration:
       type: object
