@@ -16,14 +16,16 @@ import { LoadingState } from '@/components/shared/Spinner'
 import { TestName } from '@/components/shared/TestName'
 import { TestHistoryChart, type HistoryXAxis } from '@/components/test-history/TestHistoryChart'
 import { formatNumber } from '@/utils/format'
+import { classifyChange, DEFAULT_REGRESSION_THRESHOLD, significantChange } from '@/utils/regressions'
 import {
   BASELINE_RUNS,
+  CHANGE_WINDOW_OPTIONS,
   buildHistoryPoints,
+  DEFAULT_CHANGE_WINDOW,
   formatHistoryValue,
   hasRejectedTime,
   HISTORY_METRIC_LABELS,
   historyMetricValue,
-  isHigherBetter,
   summarizeClient,
   type ClientHistorySummary,
   type HistoryMetric,
@@ -33,15 +35,16 @@ const RUNS_PER_CLIENT_OPTIONS = [25, 50, 100, 250, 500, 1000] as const
 const DEFAULT_RUNS_PER_CLIENT = 100
 const TABLE_PAGE_SIZE = 50
 
-// A change smaller than this, in percent, shows as neutral.
-const CHANGE_THRESHOLD_PCT = 5
-
 interface TestHistorySearch {
   test?: string
   n?: number
   metric?: HistoryMetric
   x?: HistoryXAxis
   steps?: string
+  // Comma-separated clients to show. All clients show when it is not set.
+  clients?: string
+  // The number of recent runs per client that the step search looks at.
+  w?: number
 }
 
 function parseStepFilter(param: string | undefined): IndexStepType[] {
@@ -60,24 +63,40 @@ function serializeStepFilter(steps: IndexStepType[]): string | undefined {
   return steps.join(',')
 }
 
-function ChangeBadge({ change, metric }: { change: number | undefined; metric: HistoryMetric }) {
-  if (change === undefined) {
+// ChangeBadge colors the change since the latest step with the rule of the
+// suite's regressions tab: red or green only when the change is significant.
+function ChangeBadge({
+  summary,
+  metric,
+  stepWindow,
+}: {
+  summary: ClientHistorySummary
+  metric: HistoryMetric
+  stepWindow: number
+}) {
+  const { baseline, since } = summary
+  if (baseline === undefined || since === undefined) {
     return <span className="text-xs/5 text-gray-400 dark:text-gray-500">not enough runs</span>
   }
 
-  const better = isHigherBetter(metric) ? change > 0 : change < 0
-  const neutral = Math.abs(change) < CHANGE_THRESHOLD_PCT
+  const { change } = baseline
+  const direction = classifyChange(baseline, metric, DEFAULT_REGRESSION_THRESHOLD)
+  const sinceLabel =
+    baseline.stepRuns === 1
+      ? 'The latest run'
+      : `The ${baseline.stepRuns} runs since ${new Date(since.runStart * 1000).toLocaleString()}`
 
   return (
     <span
       className={clsx(
         'rounded-xs px-1.5 py-0.5 font-mono text-xs/5 font-medium',
-        neutral && 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-        !neutral && better && 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300',
-        !neutral && !better && 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300',
+        !direction && 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+        direction === 'improvement' && 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300',
+        direction === 'regression' && 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300',
       )}
-      title={`Latest run against the median of the ${BASELINE_RUNS} runs before it`}
+      title={`${sinceLabel}, against the median of the ${baseline.runs} runs before (up to ${BASELINE_RUNS}). The step search looks at the last ${stepWindow} runs. Normal spread ±${baseline.noise.toFixed(1)}%, so a change counts from ${significantChange(baseline, DEFAULT_REGRESSION_THRESHOLD).toFixed(1)}%.`}
     >
+      {direction === 'regression' && 'Regression '}
       {change > 0 ? '+' : ''}
       {change.toFixed(1)}%
     </span>
@@ -87,11 +106,13 @@ function ChangeBadge({ change, metric }: { change: number | undefined; metric: H
 function ClientSummaryCard({
   summary,
   metric,
+  stepWindow,
   hidden,
   onToggle,
 }: {
   summary: ClientHistorySummary
   metric: HistoryMetric
+  stepWindow: number
   hidden: boolean
   onToggle: () => void
 }) {
@@ -108,7 +129,7 @@ function ClientSummaryCard({
     >
       <div className="flex items-center justify-between gap-2">
         <ClientBadge client={summary.client} />
-        <ChangeBadge change={summary.change} metric={metric} />
+        <ChangeBadge summary={summary} metric={metric} stepWindow={stepWindow} />
       </div>
       <div className="flex flex-col">
         <span className="text-xs/5 text-gray-500 dark:text-gray-400">Latest</span>
@@ -151,12 +172,14 @@ export function TestHistoryPage() {
     ? search.n!
     : DEFAULT_RUNS_PER_CLIENT
   const xAxis: HistoryXAxis = search.x === 'runCount' ? 'runCount' : 'time'
+  const stepWindow = CHANGE_WINDOW_OPTIONS.includes(search.w as (typeof CHANGE_WINDOW_OPTIONS)[number])
+    ? search.w!
+    : DEFAULT_CHANGE_WINDOW
   const stepFilter = parseStepFilter(search.steps)
 
   const { data: suite } = useSuite(suiteHash)
   const { data: history, isLoading, error, refetch } = useTestHistory(suiteHash, testName, runsPerClient)
 
-  const [hiddenClients, setHiddenClients] = useState<Set<string>>(new Set())
   const [tablePage, setTablePage] = useState(1)
 
   const [isDark, setIsDark] = useState(() => {
@@ -183,10 +206,18 @@ export function TestHistoryPage() {
   const summaries = useMemo(
     () =>
       [...pointsByClient.entries()]
-        .map(([client, points]) => summarizeClient(client, points))
+        .map(([client, points]) => summarizeClient(client, points, stepWindow))
         .filter((s): s is ClientHistorySummary => s !== undefined),
-    [pointsByClient],
+    [pointsByClient, stepWindow],
   )
+
+  // Clients hidden by the clients search param. The summary cards still show
+  // them, dimmed, so the user can add them back.
+  const hiddenClients = useMemo(() => {
+    const shown = search.clients?.split(',').filter(Boolean) ?? []
+    if (shown.length === 0) return new Set<string>()
+    return new Set([...pointsByClient.keys()].filter((client) => !shown.includes(client)))
+  }, [search.clients, pointsByClient])
 
   const visiblePoints = useMemo(
     () => new Map([...pointsByClient.entries()].filter(([client]) => !hiddenClients.has(client))),
@@ -212,12 +243,10 @@ export function TestHistoryPage() {
   }
 
   const toggleClient = (client: string) => {
-    setHiddenClients((prev) => {
-      const next = new Set(prev)
-      if (next.has(client)) next.delete(client)
-      else next.add(client)
-      return next
-    })
+    const shown = [...pointsByClient.keys()].filter((c) => (c === client ? hiddenClients.has(c) : !hiddenClients.has(c)))
+    setTablePage(1)
+    // Hiding the last client, or showing all of them, clears the filter.
+    updateSearch({ clients: shown.length === 0 || shown.length === pointsByClient.size ? undefined : shown.join(',') })
   }
 
   const openRun = (runId: string) => {
@@ -359,6 +388,7 @@ export function TestHistoryPage() {
                     <ClientSummaryCard
                       key={summary.client}
                       summary={summary}
+                      stepWindow={stepWindow}
                       metric={metric}
                       hidden={hiddenClients.has(summary.client)}
                       onToggle={() => toggleClient(summary.client)}

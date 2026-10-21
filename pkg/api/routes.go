@@ -90,6 +90,7 @@ func (s *server) buildRouter() http.Handler {
 
 				r.Get("/", s.handleIndex)
 				r.Get("/suites/{hash}/stats", s.handleSuiteStats)
+				r.Get("/suites/{hash}/changes", s.handleSuiteChanges)
 				r.Get("/suites/{hash}/tests/history", s.handleTestHistory)
 				r.Get("/live_runs", s.handleListLiveRuns)
 				r.Get("/live_runs/{run_id}/logs/ws", s.handleLiveRunLogsWS)

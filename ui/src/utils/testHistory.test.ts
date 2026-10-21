@@ -79,26 +79,28 @@ describe('median', () => {
 })
 
 describe('summarizeClient', () => {
-  it('compares the latest run with the median of the earlier runs', () => {
+  it('compares the latest level with the median of the runs before it', () => {
     const summary = summarizeClient('geth', [point(1, 100), point(2, 110), point(3, 90), point(4, 80)])!
 
     expect(summary.count).toBe(4)
     expect(summary.latest.value).toBe(80)
     expect(summary.min).toBe(80)
     expect(summary.max).toBe(110)
-    expect(summary.change).toBeCloseTo(-20)
+    expect(summary.baseline?.change).toBeCloseTo(-20)
+    expect(summary.since?.value).toBe(80)
   })
 
-  it('uses only the most recent earlier runs as the baseline', () => {
+  it('compares a step after an older step with the level before it', () => {
     const old = Array.from({ length: 20 }, (_, i) => point(i, 1000))
     const recent = Array.from({ length: 10 }, (_, i) => point(100 + i, 100))
     const summary = summarizeClient('geth', [...old, ...recent, point(200, 110)])!
 
-    expect(summary.change).toBeCloseTo(10)
+    expect(summary.baseline?.change).toBeCloseTo(10)
+    expect(summary.baseline?.runs).toBe(10)
   })
 
   it('has no change with too few earlier runs', () => {
-    expect(summarizeClient('geth', [point(1, 100), point(2, 50)])!.change).toBeUndefined()
+    expect(summarizeClient('geth', [point(1, 100), point(2, 50)])!.baseline).toBeUndefined()
     expect(summarizeClient('geth', [])).toBeUndefined()
   })
 })

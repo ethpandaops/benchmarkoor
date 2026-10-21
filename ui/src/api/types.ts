@@ -587,6 +587,51 @@ export interface TestHistory {
   durations: TestHistoryDuration[]
 }
 
+// The latest run of a client in /index/suites/{hash}/changes.
+// The latest level of a client and test: the runs since its last step.
+export interface ChangeStep {
+  // The first run of the level.
+  run_id: string
+  run_start: number
+  // Runs since the step, the latest run included.
+  runs: number
+  // Median MGas/s, or the median time to reject in nanoseconds.
+  median: number
+  // Median time of the selected steps, or 0 when no run has one.
+  duration_ns: number
+}
+
+// The runs before the step that the runs since the step are compared with.
+export interface BaselineStats {
+  median: number
+  runs: number
+  // Change of the median since the step against the median before it, in
+  // percent.
+  change: number
+  // Normal spread, in percent of the median.
+  noise: number
+  // Median time of the selected steps, or 0 when no run has one.
+  duration_ns: number
+}
+
+export interface ClientChange {
+  client: string
+  step: ChangeStep
+  baseline: BaselineStats
+}
+
+export interface SuiteTestChanges {
+  name: string
+  // Invalid-payload tests have no MGas/s, so they use the time to reject.
+  metric: 'mgas' | 'rejected'
+  clients: ClientChange[]
+}
+
+// Response of /index/suites/{hash}/changes.
+export interface SuiteChanges {
+  tests: SuiteTestChanges[]
+}
+
 export interface RunDurationStepsStats {
   setup?: RunDurationStepStats
   test?: RunDurationStepStats

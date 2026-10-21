@@ -62,6 +62,13 @@ type server struct {
 	// rebuild or re-encode it. See handleIndex.
 	indexCacheMu sync.Mutex
 	indexCache   *indexCacheEntry
+
+	// changeCache holds rendered suite changes responses (body, gzipped body
+	// and ETags), keyed by the suite, the steps, the window and the runs
+	// they cover.
+	// See handleSuiteChanges.
+	changeCacheMu sync.Mutex
+	changeCache   map[string]*indexCacheEntry
 }
 
 // NewServer creates a new API server.

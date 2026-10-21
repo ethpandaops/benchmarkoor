@@ -2,8 +2,10 @@ package indexstore
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -50,6 +52,13 @@ type Store interface {
 	ListTestHistory(
 		ctx context.Context, suiteHash, testName string, maxRunsPerClient int,
 	) ([]TestHistoryEntry, error)
+	ListRecentRunIDs(
+		ctx context.Context, suiteHash string, maxRunsPerClient int,
+	) ([]string, error)
+	ScanTestChangeStats(
+		ctx context.Context, suiteHash string, runIDs []string,
+		fn func(*TestChangeStat),
+	) error
 	DeleteTestStatsForRun(ctx context.Context, runID string) error
 
 	ListAllRuns(ctx context.Context) ([]Run, error)
@@ -750,6 +759,41 @@ type clientRunRow struct {
 func (s *store) ListTestStatsBySuiteRecent(
 	ctx context.Context, suiteHash string, maxRunsPerClient int,
 ) ([]TestStat, error) {
+	runIDs, err := s.ListRecentRunIDs(ctx, suiteHash, maxRunsPerClient)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch full test_stats for the selected run_ids. Batch the IN clause to
+	// stay within SQLite's bind variable limit.
+	stats := make([]TestStat, 0, len(runIDs)*100)
+
+	for batch := range slices.Chunk(runIDs, testStatsBatchSize) {
+		var batchStats []TestStat
+		if err := s.readDB.WithContext(ctx).
+			Where("suite_hash = ? AND run_id IN ?",
+				suiteHash, batch).
+			Find(&batchStats).Error; err != nil {
+			return nil, fmt.Errorf(
+				"listing test stats for recent runs: %w", err,
+			)
+		}
+
+		stats = append(stats, batchStats...)
+	}
+
+	return stats, nil
+}
+
+// testStatsBatchSize caps the run IDs in one IN clause, to stay within
+// SQLite's bind variable limit.
+const testStatsBatchSize = 500
+
+// ListRecentRunIDs returns the IDs of the N most recent runs per client of a
+// suite that have test stats, newest first.
+func (s *store) ListRecentRunIDs(
+	ctx context.Context, suiteHash string, maxRunsPerClient int,
+) ([]string, error) {
 	// Step 1: list the suite's runs, newest first, from the runs table.
 	//
 	// The indexer writes a run's test_stats with the client and run_start of
@@ -798,34 +842,100 @@ func (s *store) ListTestStatsBySuiteRecent(
 		runIDs = append(runIDs, rows[i].RunID)
 	}
 
-	if len(runIDs) == 0 {
-		return nil, nil
+	return runIDs, nil
+}
+
+// TestChangeStat is the part of a test stat that the change detection
+// reads: the gas, the time and the time to reject of each step.
+type TestChangeStat struct {
+	TestName            string
+	Client              string
+	RunID               string
+	RunStart            int64
+	SetupGasUsed        uint64
+	SetupTimeNs         int64
+	SetupRejectedTimeNs int64
+	TestGasUsed         uint64
+	TestTimeNs          int64
+	TestRejectedTimeNs  int64
+}
+
+// ScanTestChangeStats calls fn with the change columns of each test stat
+// of the given runs of a suite. It reads 10 of the about 40 columns, so it is
+// much cheaper than ListTestStatsBySuiteRecent for a suite with many tests.
+//
+// A large suite has more than a million of these rows, so they are not
+// collected in a slice: fn keeps what it needs. The stat is only valid during
+// the call, but its strings stay valid.
+func (s *store) ScanTestChangeStats(
+	ctx context.Context, suiteHash string, runIDs []string,
+	fn func(*TestChangeStat),
+) error {
+	// Each test name, client and run ID repeats in many rows. One copy of
+	// each keeps a large read at a fraction of the memory.
+	strs := make(map[string]string, 4096)
+
+	for batch := range slices.Chunk(runIDs, testStatsBatchSize) {
+		if err := s.scanTestChangeStats(ctx, strs, suiteHash, batch, fn); err != nil {
+			return fmt.Errorf("listing change test stats: %w", err)
+		}
 	}
 
-	// Step 3: fetch full test_stats for the selected run_ids.
-	// Batch the IN clause to stay within SQLite's bind variable limit.
-	const batchSize = 500
+	return nil
+}
 
-	stats := make([]TestStat, 0, len(runIDs)*100)
+// scanTestChangeStats reads the change columns of one batch of runs. It
+// scans the rows by hand, because the reflection of Find doubles the time of
+// the read. strs holds one copy of each string.
+func (s *store) scanTestChangeStats(
+	ctx context.Context, strs map[string]string, suiteHash string, runIDs []string,
+	fn func(*TestChangeStat),
+) error {
+	// Most columns allow NULL, which Scan cannot put into a number. Find
+	// read a NULL as zero, and so does the COALESCE.
+	rows, err := s.readDB.WithContext(ctx).
+		Model(&TestStat{}).
+		Select("test_name, COALESCE(client, ''), run_id, COALESCE(run_start, 0), "+
+			"COALESCE(setup_gas_used, 0), COALESCE(setup_time_ns, 0), setup_rejected_time_ns, "+
+			"COALESCE(test_gas_used, 0), COALESCE(test_time_ns, 0), test_rejected_time_ns").
+		Where("suite_hash = ? AND run_id IN ?", suiteHash, runIDs).
+		Rows()
+	if err != nil {
+		return err
+	}
 
-	for i := 0; i < len(runIDs); i += batchSize {
-		end := min(i+batchSize, len(runIDs))
-		batch := runIDs[i:end]
+	defer func() { _ = rows.Close() }()
 
-		var batchStats []TestStat
-		if err := s.readDB.WithContext(ctx).
-			Where("suite_hash = ? AND run_id IN ?",
-				suiteHash, batch).
-			Find(&batchStats).Error; err != nil {
-			return nil, fmt.Errorf(
-				"listing test stats for recent runs: %w", err,
-			)
+	intern := func(b sql.RawBytes) string {
+		if v, ok := strs[string(b)]; ok {
+			return v
 		}
 
-		stats = append(stats, batchStats...)
+		v := string(b)
+		strs[v] = v
+
+		return v
 	}
 
-	return stats, nil
+	var (
+		st                      TestChangeStat
+		testName, client, runID sql.RawBytes
+	)
+
+	for rows.Next() {
+		if err := rows.Scan(
+			&testName, &client, &runID, &st.RunStart,
+			&st.SetupGasUsed, &st.SetupTimeNs, &st.SetupRejectedTimeNs,
+			&st.TestGasUsed, &st.TestTimeNs, &st.TestRejectedTimeNs,
+		); err != nil {
+			return err
+		}
+
+		st.TestName, st.Client, st.RunID = intern(testName), intern(client), intern(runID)
+		fn(&st)
+	}
+
+	return rows.Err()
 }
 
 // TestHistoryEntry is the test stat of one test in one run, with the client
