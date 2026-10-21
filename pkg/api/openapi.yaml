@@ -421,6 +421,64 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /index/suites/{hash}/changes:
+    get:
+      operationId: getSuiteChanges
+      tags: [index]
+      summary: Latest step of each test against the runs before it
+      description: |
+        Finds the latest step of each client and test in its recent runs:
+        the run where its level changed. It splits the series where two
+        levels fit best, and splits the later part again while each split is
+        a real step (at least 5% and 3x the normal spread). It compares the
+        median since the step with the median of the up to 10 runs before
+        it. With no real step, the latest run is compared with the runs
+        before it. A client needs at least 4 runs.
+
+        This is the data behind the regressions list. It reads only the
+        window of most recent runs per client, so it is much smaller than
+        the suite stats for a suite with many tests.
+
+        MGas/s is the metric. A test with a time to reject in any run is an
+        invalid-payload test and uses the time to reject, in nanoseconds.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+        - {}
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Suite hash
+        - name: steps
+          in: query
+          schema:
+            type: string
+            default: test
+          description: Comma-separated steps whose gas and time count (setup, test)
+        - name: window
+          in: query
+          schema:
+            type: integer
+            enum: [30, 50, 100]
+            default: 30
+          description: Recent runs per client to look at. Other values give the default.
+      responses:
+        "200":
+          description: Latest change of each test of the suite
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuiteChangesResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /index/suites/{hash}/tests/history:
     get:
       operationId: getTestHistory
@@ -2362,6 +2420,71 @@ components:
             type: array
             items:
               $ref: "#/components/schemas/RunDuration"
+
+    SuiteChangesResponse:
+      type: object
+      properties:
+        tests:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              metric:
+                type: string
+                enum: [mgas, rejected]
+              clients:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    client:
+                      type: string
+                    step:
+                      type: object
+                      description: The runs since the latest step
+                      properties:
+                        run_id:
+                          type: string
+                          description: First run since the step
+                        run_start:
+                          type: integer
+                          format: int64
+                        runs:
+                          type: integer
+                          description: Number of runs since the step, the latest run included
+                        median:
+                          type: number
+                          description: Median MGas/s, or median time to reject in nanoseconds
+                        duration_ns:
+                          type: number
+                          description: Median time of the selected steps, or 0
+                    baseline:
+                      type: object
+                      description: The runs before the step
+                      properties:
+                        median:
+                          type: number
+                          description: Median value of the runs before the step
+                        runs:
+                          type: integer
+                          description: Number of runs before the step in the baseline
+                        change:
+                          type: number
+                          description: Change of the median since the step against the median before it, in percent
+                        noise:
+                          type: number
+                          description: Normal spread, in percent of the median
+                        duration_ns:
+                          type: number
+                          description: Median time of the selected steps before the step, or 0
+                        last_run_id:
+                          type: string
+                          description: Last run before the step
+                        last_run_start:
+                          type: integer
+                          format: int64
 
     TestHistoryResponse:
       type: object

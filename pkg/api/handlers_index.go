@@ -179,17 +179,25 @@ func (s *server) buildIndex(
 		return nil, fmt.Errorf("encoding index: %w", err)
 	}
 
+	return newIndexCacheEntry(s.log, gen, body), nil
+}
+
+// newIndexCacheEntry builds a cache entry for a rendered JSON body: the body,
+// its gzip-encoded copy and their entity tags.
+func newIndexCacheEntry(
+	log logrus.FieldLogger, gen uint64, body []byte,
+) *indexCacheEntry {
 	digest := indexETagDigest(body)
 
 	return &indexCacheEntry{
 		gen:     gen,
 		body:    body,
-		gzipped: gzipIndexBody(s.log, body),
+		gzipped: gzipIndexBody(log, body),
 		etag:    `"` + digest + `"`,
 		// The "-gzip" suffix is the convention Apache's mod_deflate set and
 		// the one intermediaries expect for an encoded variant.
 		gzipETag: `"` + digest + `-gzip"`,
-	}, nil
+	}
 }
 
 // writeIndexResponse serves a cached entry. It picks the representation the

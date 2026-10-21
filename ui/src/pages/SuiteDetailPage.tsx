@@ -6,6 +6,7 @@ import { ChevronRight, LayoutGrid, Clock, Trash2, Plus, X } from 'lucide-react'
 import { type IndexEntry, type IndexStepType, ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER } from '@/api/types'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useSuiteStats } from '@/api/hooks/useSuiteStats'
+import { useSuiteChanges } from '@/api/hooks/useSuiteChanges'
 import { useIndex, useLiveRuns } from '@/api/hooks/useIndex'
 import { useDeleteRuns } from '@/api/hooks/useAdmin'
 import { DurationChart, type XAxisMode } from '@/components/suite-detail/DurationChart'
@@ -15,6 +16,7 @@ import { RunsHeatmap, type ColorNormalization } from '@/components/suite-detail/
 import { CompareToolbar } from '@/components/suite-detail/CompareToolbar'
 import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { RejectionTimesTable } from '@/components/suite-detail/RejectionTimesTable'
+import { RegressionsPanel } from '@/components/suite-detail/RegressionsPanel'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { EESTMetadata } from '@/components/suite-detail/EESTMetadata'
 import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
@@ -40,6 +42,15 @@ import { SegmentedControl } from '@/components/shared/SegmentedControl'
 import { DEFAULT_RESOURCE_STEP, RESOURCE_STEP_OPTIONS, type ResourceStep } from '@/utils/resourceStep'
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 import { useAuth } from '@/hooks/useAuth'
+import {
+  DEFAULT_MIN_DURATION_MS,
+  DEFAULT_REGRESSION_THRESHOLD,
+  findTestChanges,
+  MIN_DURATION_OPTIONS_MS,
+  REGRESSION_THRESHOLD_OPTIONS,
+  type ChangeDirection,
+} from '@/utils/regressions'
+import { CHANGE_WINDOW_OPTIONS, DEFAULT_CHANGE_WINDOW } from '@/utils/testHistory'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500, 1000] as const
 const DEFAULT_PAGE_SIZE = 100
@@ -302,6 +313,10 @@ export function SuiteDetailPage() {
     psortDir?: 'asc' | 'desc'
     psOrder?: 'index' | 'size'
     psEncoding?: 'ssz' | 'json'
+    rth?: number
+    rmin?: number
+    rdir?: ChangeDirection
+    rwin?: number
   }
   const { tab, client, image, status = 'all', sortBy = 'timestamp', sortDir = 'desc', filesPage, detail, opcodeSort, q, chartMode = 'runCount', heatmapColor = 'suite', hq, hn, hr, hFs, hStat, hCs, hTh, hRpc, hPs, groupBy, testView } = search
   // Parse the payload-sizes sort from the URL. Defaults to no sort (null).
@@ -316,9 +331,31 @@ export function SuiteDetailPage() {
   const psEncoding: 'ssz' | 'json' = search.psEncoding === 'json' ? 'json' : 'ssz'
   const chartPassingOnly = search.chartPassingOnly !== 'false'
   const stepFilter = parseStepFilter(search.steps)
+  const regressionThreshold = REGRESSION_THRESHOLD_OPTIONS.includes(
+    search.rth as (typeof REGRESSION_THRESHOLD_OPTIONS)[number],
+  )
+    ? search.rth!
+    : DEFAULT_REGRESSION_THRESHOLD
+  const regressionMinDurationMs = MIN_DURATION_OPTIONS_MS.includes(
+    search.rmin as (typeof MIN_DURATION_OPTIONS_MS)[number],
+  )
+    ? search.rmin!
+    : DEFAULT_MIN_DURATION_MS
+  const regressionDirection: ChangeDirection = search.rdir === 'improvement' ? 'improvement' : 'regression'
+  const regressionWindow = CHANGE_WINDOW_OPTIONS.includes(search.rwin as (typeof CHANGE_WINDOW_OPTIONS)[number])
+    ? search.rwin!
+    : DEFAULT_CHANGE_WINDOW
   const labelFilters = parseLabelFilters(search.labels)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
-  const { data: suiteStats, isLoading: suiteStatsLoading } = useSuiteStats(suiteHash)
+  // The full stats are large for a suite with many tests, and only the Tests
+  // tab shows them. The regressions use the much smaller changes.
+  const { data: suiteStats, isLoading: suiteStatsLoading } = useSuiteStats(suiteHash, tab === 'tests')
+  const {
+    data: suiteChanges,
+    isLoading: changesLoading,
+    error: changesError,
+    refetch: refetchChanges,
+  } = useSuiteChanges(suiteHash, stepFilter, regressionWindow)
   const { data: index, isLoading: indexLoading } = useIndex()
   const { data: liveRuns } = useLiveRuns()
   const [runsPage, setRunsPage] = useState(1)
@@ -555,6 +592,15 @@ export function SuiteDetailPage() {
     return Array.from(clientSet).sort()
   }, [suiteRunsAll])
 
+  const testChanges = useMemo(
+    () =>
+      suiteChanges
+        ? findTestChanges(suiteChanges, { threshold: regressionThreshold, minDurationMs: regressionMinDurationMs })
+        : [],
+    [suiteChanges, regressionThreshold, regressionMinDurationMs],
+  )
+  const regressionCount = useMemo(() => testChanges.filter((c) => c.direction === 'regression').length, [testChanges])
+
   // Group compare URL: pre-fills suite + one group per client.
   const groupCompareUrl = useMemo(() => {
     if (clients.length < 2) return undefined
@@ -674,33 +720,43 @@ export function SuiteDetailPage() {
   // EEST build metadata renders as a section inside the Source tab when present.
   const hasEestMeta = !!suite.eest_metadata
 
-  // Tab order: runs(0), tests(1), pre_run_steps(2, conditional), source(last)
-  const sourceTabIndex = hasPreRunSteps ? 3 : 2
+  // The tabs in display order. The TabPanels below must use the same order.
+  const tabKeys = ['runs', 'tests', 'regressions', ...(hasPreRunSteps ? ['pre_run_steps'] : []), 'source']
 
-  const getTabIndex = () => {
-    if (tab === 'tests') return 1
-    if (tab === 'pre_run_steps' && hasPreRunSteps) return 2
-    if (tab === 'source') return sourceTabIndex
-    return 0 // runs is default
-  }
+  // An unknown tab opens runs, the default.
+  const getTabIndex = () => Math.max(0, tabKeys.indexOf(tab ?? 'runs'))
 
   const handleTabChange = (index: number) => {
-    let newTab: string
-    if (index === 0) {
-      newTab = 'runs'
-    } else if (index === 1) {
-      newTab = 'tests'
-    } else if (index === sourceTabIndex) {
-      newTab = 'source'
-    } else {
-      newTab = 'pre_run_steps'
-    }
+    const newTab = tabKeys[index] ?? 'runs'
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
       search: { tab: newTab, client, image, status, sortBy, sortDir, filesPage: undefined, detail: undefined, opcodeSort: undefined, q: undefined, groupBy },
     })
   }
+
+  // The regression settings live in the URL. A default value is left out.
+  // The other params stay, so the filters of the other tabs survive.
+  const updateRegressionSearch = (patch: Pick<typeof search, 'rth' | 'rmin' | 'rdir' | 'rwin'>) => {
+    navigate({
+      to: '/suites/$suiteHash',
+      params: { suiteHash },
+      search: { ...search, ...patch },
+      replace: true,
+    })
+  }
+
+  const handleRegressionThresholdChange = (threshold: number) =>
+    updateRegressionSearch({ rth: threshold === DEFAULT_REGRESSION_THRESHOLD ? undefined : threshold })
+
+  const handleRegressionDirectionChange = (direction: ChangeDirection) =>
+    updateRegressionSearch({ rdir: direction === 'regression' ? undefined : direction })
+
+  const handleRegressionMinDurationChange = (minDurationMs: number) =>
+    updateRegressionSearch({ rmin: minDurationMs === DEFAULT_MIN_DURATION_MS ? undefined : minDurationMs })
+
+  const handleRegressionWindowChange = (stepWindow: number) =>
+    updateRegressionSearch({ rwin: stepWindow === DEFAULT_CHANGE_WINDOW ? undefined : stepWindow })
 
   const handleSortChange = (newSortBy: SortColumn, newSortDir: SortDirection) => {
     setRunsPage(1)
@@ -996,6 +1052,19 @@ export function SuiteDetailPage() {
           >
             Tests
             <Badge variant="default">{suite.tests?.length ?? 0}</Badge>
+          </Tab>
+          <Tab
+            className={({ selected }) =>
+              clsx(
+                'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xs px-2.5 py-1.5 text-xs/5 font-medium transition-colors focus:outline-hidden sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/6',
+                selected
+                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+              )
+            }
+          >
+            Regressions
+            {suiteChanges && <Badge variant={regressionCount > 0 ? 'error' : 'default'}>{regressionCount}</Badge>}
           </Tab>
           {hasPreRunSteps && (
             <Tab
@@ -1509,6 +1578,27 @@ export function SuiteDetailPage() {
               onPayloadSortChange={handlePayloadSortChange}
               hideSearchInput
             />
+          </TabPanel>
+          <TabPanel className="flex flex-col gap-4">
+            {changesLoading ? (
+              <LoadingState message="Loading test results..." />
+            ) : changesError ? (
+              <ErrorState message={changesError.message} retry={() => refetchChanges()} />
+            ) : (
+              <RegressionsPanel
+                changes={testChanges}
+                suiteHash={suiteHash}
+                steps={search.steps}
+                threshold={regressionThreshold}
+                onThresholdChange={handleRegressionThresholdChange}
+                minDurationMs={regressionMinDurationMs}
+                onMinDurationChange={handleRegressionMinDurationChange}
+                direction={regressionDirection}
+                onDirectionChange={handleRegressionDirectionChange}
+                stepWindow={regressionWindow}
+                onStepWindowChange={handleRegressionWindowChange}
+              />
+            )}
           </TabPanel>
           {hasPreRunSteps && (
             <TabPanel className="flex flex-col gap-4">
