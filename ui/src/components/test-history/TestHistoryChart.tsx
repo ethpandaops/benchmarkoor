@@ -20,9 +20,12 @@ interface TestHistoryChartProps {
   onRunClick: (runId: string) => void
 }
 
-// Above this many points, a client line hides its symbols. The chart adds a
-// zoom slider when a client has this many points.
+// Above this many points, a client line has small symbols and a thin line,
+// and the chart adds a zoom slider.
 const LARGE_SERIES = 30
+// Above this many points, a client line hides its symbols. They would cover
+// the line.
+const DENSE_SERIES = 100
 
 // [x, value, runId, image, runStart, runNumber]
 type ChartDatum = [number, number, string, string, number, number]
@@ -45,6 +48,7 @@ export function TestHistoryChart({ pointsByClient, metric, xAxis, isDark, onRunC
 
     const series = [...pointsByClient.entries()].flatMap(([client, points]) => {
       const large = points.length > LARGE_SERIES
+      const dense = points.length > DENSE_SERIES
       // On the time axis, the line breaks at a gap of days between runs.
       const gaps = xAxis === 'time' ? findRunGaps(points.map((p) => p.runStart)) : new Set<number>()
       const data: (ChartDatum | GapDatum)[] = []
@@ -76,14 +80,14 @@ export function TestHistoryChart({ pointsByClient, metric, xAxis, isDark, onRunC
         name,
         type: 'line' as const,
         data,
-        showSymbol: !large,
+        showSymbol: !dense,
         symbolSize: large ? 4 : 7,
         lineStyle: { width: large ? 1.5 : 2 },
         itemStyle: { color },
         emphasis: { focus: 'series' as const },
         cursor: 'pointer',
       }
-      if (!large || isolated.length === 0) return [line]
+      if (!dense || isolated.length === 0) return [line]
 
       // The same name, so the legend shows and hides both series together.
       return [

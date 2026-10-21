@@ -171,7 +171,9 @@ export function TestHistoryPage() {
   const runsPerClient = RUNS_PER_CLIENT_OPTIONS.includes(search.n as (typeof RUNS_PER_CLIENT_OPTIONS)[number])
     ? search.n!
     : DEFAULT_RUNS_PER_CLIENT
-  const xAxis: HistoryXAxis = search.x === 'runCount' ? 'runCount' : 'time'
+  // Run # is the default: it spaces the runs evenly, so a gap of days between
+  // runs does not squeeze the recent runs.
+  const xAxis: HistoryXAxis = search.x === 'time' ? 'time' : 'runCount'
   const stepWindow = CHANGE_WINDOW_OPTIONS.includes(search.w as (typeof CHANGE_WINDOW_OPTIONS)[number])
     ? search.w!
     : DEFAULT_CHANGE_WINDOW
@@ -348,10 +350,10 @@ export function TestHistoryPage() {
                 ariaLabel="X axis"
                 value={xAxis}
                 options={[
-                  { value: 'time', label: 'Time' },
                   { value: 'runCount', label: 'Run #' },
+                  { value: 'time', label: 'Time' },
                 ]}
-                onChange={(value) => updateSearch({ x: value === 'time' ? undefined : value })}
+                onChange={(value) => updateSearch({ x: value === 'runCount' ? undefined : value })}
               />
             </div>
             <label className="flex items-center gap-2">
