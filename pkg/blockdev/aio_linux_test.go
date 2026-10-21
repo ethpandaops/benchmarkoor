@@ -36,7 +36,7 @@ func TestRunAIOWorkloadRandomMix(t *testing.T) {
 	f := newAIOTestFile(t, size)
 
 	res, err := runAIOWorkload(context.Background(), f,
-		workload{"rand_mixed", randBlockSize, true, 75, 0}, size, 16, 100*time.Millisecond)
+		workload{"rand_mixed", randBlockSize, true, 75, 0, 0}, size, 16, 100*time.Millisecond)
 	require.NoError(t, err)
 
 	total := res.readsPerSec + res.writesPerSec
@@ -51,7 +51,7 @@ func TestRunAIOWorkloadSequentialMix(t *testing.T) {
 	f := newAIOTestFile(t, size)
 
 	res, err := runAIOWorkload(context.Background(), f,
-		workload{"seq_mixed", seqBlockSize, false, 50, 0}, size, 8, 100*time.Millisecond)
+		workload{"seq_mixed", seqBlockSize, false, 50, 0, 0}, size, 8, 100*time.Millisecond)
 	require.NoError(t, err)
 
 	assert.Positive(t, res.readsPerSec)
@@ -66,7 +66,7 @@ func TestRunAIOWorkloadCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := runAIOWorkload(ctx, f, workload{"rand_mixed", randBlockSize, true, 75, 0}, size, 16, time.Second)
+	_, err := runAIOWorkload(ctx, f, workload{"rand_mixed", randBlockSize, true, 75, 0, 0}, size, 16, time.Second)
 	require.ErrorIs(t, err, context.Canceled)
 }
 
@@ -77,7 +77,7 @@ func TestRunAIOWorkloadBadFile(t *testing.T) {
 	require.NoError(t, f.Close())
 
 	_, err := runAIOWorkload(context.Background(), f,
-		workload{"rand_mixed", randBlockSize, true, 75, 0}, size, 4, 50*time.Millisecond)
+		workload{"rand_mixed", randBlockSize, true, 75, 0, 0}, size, 4, 50*time.Millisecond)
 	require.Error(t, err, "a closed file fails the submit")
 }
 
@@ -88,9 +88,19 @@ func TestRunAIOWorkloadStopsAfterIOBytes(t *testing.T) {
 
 	start := time.Now()
 	res, err := runAIOWorkload(context.Background(), f,
-		workload{"rand_mixed", randBlockSize, true, 75, 1 << 20}, size, 16, 10*time.Second)
+		workload{"rand_mixed", randBlockSize, true, 75, 1 << 20, 0}, size, 16, 10*time.Second)
 	require.NoError(t, err)
 
 	assert.Less(t, time.Since(start), 5*time.Second, "the workload stops after 1 MiB, not after 10s")
 	assert.Positive(t, res.readsPerSec+res.writesPerSec)
+
+	// With a minimum time, the workload goes on after 1 MiB.
+	start = time.Now()
+	_, err = runAIOWorkload(context.Background(), f,
+		workload{"rand_mixed", randBlockSize, true, 75, 1 << 20, 300 * time.Millisecond}, size, 16, 10*time.Second)
+	require.NoError(t, err)
+
+	elapsed := time.Since(start)
+	assert.GreaterOrEqual(t, elapsed, 300*time.Millisecond, "the workload runs for its minimum time")
+	assert.Less(t, elapsed, 5*time.Second, "the workload stops soon after its minimum time")
 }

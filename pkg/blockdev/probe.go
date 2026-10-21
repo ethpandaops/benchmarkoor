@@ -111,6 +111,14 @@ type workload struct {
 	// ioBytes stops the workload after this many bytes of reads and writes,
 	// as fio --size does. Zero runs until the time is up.
 	ioBytes int64
+	// minTime keeps a workload with ioBytes running for at least this long.
+	minTime time.Duration
+}
+
+// done reports if a workload with ioBytes has issued enough I/O: ioBytes
+// bytes, and for at least minTime since start.
+func (w workload) done(issued int64, start time.Time) bool {
+	return w.ioBytes > 0 && issued >= w.ioBytes && time.Since(start) >= w.minTime
 }
 
 // workloadResult is the outcome of a workload.
@@ -194,26 +202,30 @@ func probe(
 
 	// The QD1 workloads come first. They measure latency, and the deep
 	// workloads can leave the drive busy with garbage collection.
-	qd1Read, err := runWorkload(ctx, f, workload{"qd1_rand_read", randBlockSize, true, 100, 0}, size, 1, cfg.Duration)
+	qd1Read, err := runWorkload(ctx, f, workload{"qd1_rand_read", randBlockSize, true, 100, 0, 0}, size, 1, cfg.Duration)
 	if err != nil {
 		return nil, err
 	}
 
-	qd1Write, err := runWorkload(ctx, f, workload{"qd1_rand_write", randBlockSize, true, 0, 0}, size, 1, cfg.Duration)
+	qd1Write, err := runWorkload(ctx, f, workload{"qd1_rand_write", randBlockSize, true, 0, 0, 0}, size, 1, cfg.Duration)
 	if err != nil {
 		return nil, err
 	}
 
 	// The deep workloads move the file size in I/O, as the EIP-7870 fio
-	// commands (--size=4G) do, so they do not use cfg.Duration.
+	// commands (--size=4G) do. They also run for at least cfg.Duration: a
+	// fast drive moves a small file in less than a second, and the drive
+	// state (write cache, garbage collection) then sets the result.
 	randMix, err := runDeepWorkload(ctx, f,
-		workload{"rand_mixed", randBlockSize, true, randReadPercent, size}, size, cfg.IODepth, maxDeepWorkloadDuration)
+		workload{"rand_mixed", randBlockSize, true, randReadPercent, size, cfg.Duration},
+		size, cfg.IODepth, maxDeepWorkloadDuration)
 	if err != nil {
 		return nil, err
 	}
 
 	seqMix, err := runDeepWorkload(ctx, f,
-		workload{"seq_mixed", seqBlockSize, false, seqReadPercent, size}, size, cfg.IODepth, maxDeepWorkloadDuration)
+		workload{"seq_mixed", seqBlockSize, false, seqReadPercent, size, cfg.Duration},
+		size, cfg.IODepth, maxDeepWorkloadDuration)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +341,7 @@ func runWorkload(
 					return err
 				}
 
-				if w.ioBytes > 0 && issued.Add(w.blockSize) > w.ioBytes {
+				if w.done(issued.Add(w.blockSize)-w.blockSize, start) {
 					return nil
 				}
 

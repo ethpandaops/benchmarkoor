@@ -10,6 +10,7 @@ import {
   formatDiskSize,
   formatFrequency,
   formatNumber,
+  PROBE_TOLERANCE,
   withinTolerance,
 } from '@/utils/format'
 import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './constants'
@@ -240,7 +241,7 @@ export function ConfigDiff({ runs, labelMode, labels, onlyDifferences = false }:
                     })}
                   />
                 )}
-                {/* A probe row shows a difference only above the measurement tolerance. */}
+                {/* A probe row shows a difference only above the measurement tolerance of its values. */}
                 {systems.some((s) => s.storage?.probe) && (
                   <>
                     <DiffRow
@@ -250,8 +251,8 @@ export function ConfigDiff({ runs, labelMode, labels, onlyDifferences = false }:
                         return p ? `${formatApproxCount(p.rand_read_iops)} / ${formatApproxCount(p.rand_write_iops)}` : ''
                       })}
                       same={
-                        withinTolerance(systems.map((s) => s.storage?.probe?.rand_read_iops))
-                        && withinTolerance(systems.map((s) => s.storage?.probe?.rand_write_iops))
+                        withinTolerance(systems.map((s) => s.storage?.probe?.rand_read_iops), PROBE_TOLERANCE.random)
+                        && withinTolerance(systems.map((s) => s.storage?.probe?.rand_write_iops), PROBE_TOLERANCE.random)
                       }
                     />
                     {systems.some((s) => s.storage?.probe?.qd1_rand_read) && (
@@ -264,8 +265,8 @@ export function ConfigDiff({ runs, labelMode, labels, onlyDifferences = false }:
                             : ''
                         })}
                         same={
-                          withinTolerance(systems.map((s) => s.storage?.probe?.qd1_rand_read?.iops))
-                          && withinTolerance(systems.map((s) => s.storage?.probe?.qd1_rand_write?.iops))
+                          withinTolerance(systems.map((s) => s.storage?.probe?.qd1_rand_read?.iops), PROBE_TOLERANCE.qd1)
+                          && withinTolerance(systems.map((s) => s.storage?.probe?.qd1_rand_write?.iops), PROBE_TOLERANCE.qd1)
                         }
                       />
                     )}
@@ -276,8 +277,8 @@ export function ConfigDiff({ runs, labelMode, labels, onlyDifferences = false }:
                         return p ? `${formatApproxBandwidth(p.seq_read_bps)} / ${formatApproxBandwidth(p.seq_write_bps)}` : ''
                       })}
                       same={
-                        withinTolerance(systems.map((s) => s.storage?.probe?.seq_read_bps))
-                        && withinTolerance(systems.map((s) => s.storage?.probe?.seq_write_bps))
+                        withinTolerance(systems.map((s) => s.storage?.probe?.seq_read_bps), PROBE_TOLERANCE.sequential)
+                        && withinTolerance(systems.map((s) => s.storage?.probe?.seq_write_bps), PROBE_TOLERANCE.sequential)
                       }
                     />
                   </>
