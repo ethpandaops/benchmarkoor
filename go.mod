@@ -1,8 +1,6 @@
 module github.com/ethpandaops/benchmarkoor
 
-go 1.26.0
-
-toolchain go1.26.9
+go 1.26.10
 
 require (
 	github.com/OffchainLabs/prysm/v6 v6.0.5-rc.1.0.20250917172223-c2bea8a504ca
