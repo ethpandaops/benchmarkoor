@@ -6,6 +6,8 @@ import {
   findRunGaps,
   historyMetricValue,
   median,
+  previousRuns,
+  sortHistoryRuns,
   summarizeClient,
   type HistoryPoint,
 } from './testHistory'
@@ -133,5 +135,49 @@ describe('findRunGaps', () => {
 
   it('needs at least two intervals', () => {
     expect(findRunGaps([0, 10 * day]).size).toBe(0)
+  })
+})
+
+describe('sortHistoryRuns', () => {
+  // The test step takes timeNs for 100M gas, so 1s is 100 MGas/s.
+  const run = (id: string, client: string, runStart: number, timeNs: number) =>
+    duration({ id, client, run_start: runStart, steps: { test: { gas_used: 100_000_000, time_ns: timeNs } } })
+  const runs = [run('a', 'reth', 3, 2e9), run('b', 'geth', 2, 1e9), run('c', 'besu', 1, 4e9)]
+  const ids = (rows: TestHistoryDuration[]) => rows.map((d) => d.id)
+
+  it('sorts by time, client and MGas/s', () => {
+    expect(ids(sortHistoryRuns(runs, 'time', 'asc', ['test']))).toEqual(['c', 'b', 'a'])
+    expect(ids(sortHistoryRuns(runs, 'client', 'asc', ['test']))).toEqual(['c', 'b', 'a'])
+    expect(ids(sortHistoryRuns(runs, 'mgas', 'desc', ['test']))).toEqual(['b', 'a', 'c'])
+    expect(ids(sortHistoryRuns(runs, 'duration', 'asc', ['test']))).toEqual(['b', 'a', 'c'])
+  })
+
+  it('puts a run with no value last in both directions', () => {
+    // No time in the test step, so no MGas/s.
+    const rows = [...runs, run('d', 'geth', 4, 0)]
+    expect(ids(sortHistoryRuns(rows, 'mgas', 'asc', ['test']))[3]).toBe('d')
+    expect(ids(sortHistoryRuns(rows, 'mgas', 'desc', ['test']))[3]).toBe('d')
+  })
+
+  it('keeps the newest run first in a tie', () => {
+    const rows = [run('old', 'geth', 1, 1e9), run('new', 'geth', 2, 1e9)]
+    expect(ids(sortHistoryRuns(rows, 'mgas', 'asc', ['test']))).toEqual(['new', 'old'])
+  })
+})
+
+describe('previousRuns', () => {
+  it('maps each run to the last run of the same client before it', () => {
+    const rows = [
+      duration({ id: 'g3', client: 'geth', run_start: 3 }),
+      duration({ id: 'r2', client: 'reth', run_start: 2 }),
+      duration({ id: 'g1', client: 'geth', run_start: 1 }),
+      duration({ id: 'g2', client: 'geth', run_start: 2 }),
+    ]
+    const previous = previousRuns(rows)
+
+    expect(previous.get('g3')?.id).toBe('g2')
+    expect(previous.get('g2')?.id).toBe('g1')
+    expect(previous.has('g1')).toBe(false)
+    expect(previous.has('r2')).toBe(false)
   })
 })
