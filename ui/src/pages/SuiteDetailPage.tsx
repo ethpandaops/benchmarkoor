@@ -736,11 +736,12 @@ export function SuiteDetailPage() {
   }
 
   // The regression settings live in the URL. A default value is left out.
+  // The other params stay, so the filters of the other tabs survive.
   const updateRegressionSearch = (patch: Pick<typeof search, 'rth' | 'rmin' | 'rdir' | 'rwin'>) => {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
-      search: { tab, steps: search.steps, rth: search.rth, rmin: search.rmin, rdir: search.rdir, rwin: search.rwin, ...patch },
+      search: { ...search, ...patch },
       replace: true,
     })
   }
