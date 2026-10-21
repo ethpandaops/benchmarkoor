@@ -43,9 +43,11 @@ import { DEFAULT_RESOURCE_STEP, RESOURCE_STEP_OPTIONS, type ResourceStep } from 
 import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constants'
 import { useAuth } from '@/hooks/useAuth'
 import {
+  DEFAULT_MIN_DURATION_MS,
   DEFAULT_MIN_GAS_M,
   DEFAULT_REGRESSION_THRESHOLD,
   findTestChanges,
+  MIN_DURATION_OPTIONS_MS,
   MIN_GAS_OPTIONS_M,
   REGRESSION_THRESHOLD_OPTIONS,
   type ChangeDirection,
@@ -315,6 +317,7 @@ export function SuiteDetailPage() {
     psEncoding?: 'ssz' | 'json'
     rth?: number
     rgas?: number
+    rmin?: number
     rdir?: ChangeDirection
     rwin?: number
   }
@@ -339,6 +342,11 @@ export function SuiteDetailPage() {
   const regressionMinGasM = MIN_GAS_OPTIONS_M.includes(search.rgas as (typeof MIN_GAS_OPTIONS_M)[number])
     ? search.rgas!
     : DEFAULT_MIN_GAS_M
+  const regressionMinDurationMs = MIN_DURATION_OPTIONS_MS.includes(
+    search.rmin as (typeof MIN_DURATION_OPTIONS_MS)[number],
+  )
+    ? search.rmin!
+    : DEFAULT_MIN_DURATION_MS
   const regressionDirection: ChangeDirection = search.rdir === 'improvement' ? 'improvement' : 'regression'
   const regressionWindow = CHANGE_WINDOW_OPTIONS.includes(search.rwin as (typeof CHANGE_WINDOW_OPTIONS)[number])
     ? search.rwin!
@@ -593,9 +601,13 @@ export function SuiteDetailPage() {
   const testChanges = useMemo(
     () =>
       suiteChanges
-        ? findTestChanges(suiteChanges, { threshold: regressionThreshold, minGasM: regressionMinGasM })
+        ? findTestChanges(suiteChanges, {
+            threshold: regressionThreshold,
+            minGasM: regressionMinGasM,
+            minDurationMs: regressionMinDurationMs,
+          })
         : [],
-    [suiteChanges, regressionThreshold, regressionMinGasM],
+    [suiteChanges, regressionThreshold, regressionMinGasM, regressionMinDurationMs],
   )
   const regressionCount = useMemo(() => testChanges.filter((c) => c.direction === 'regression').length, [testChanges])
 
@@ -735,7 +747,7 @@ export function SuiteDetailPage() {
 
   // The regression settings live in the URL. A default value is left out.
   // The other params stay, so the filters of the other tabs survive.
-  const updateRegressionSearch = (patch: Pick<typeof search, 'rth' | 'rgas' | 'rdir' | 'rwin'>) => {
+  const updateRegressionSearch = (patch: Pick<typeof search, 'rth' | 'rgas' | 'rmin' | 'rdir' | 'rwin'>) => {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
@@ -752,6 +764,9 @@ export function SuiteDetailPage() {
 
   const handleRegressionMinGasChange = (minGasM: number) =>
     updateRegressionSearch({ rgas: minGasM === DEFAULT_MIN_GAS_M ? undefined : minGasM })
+
+  const handleRegressionMinDurationChange = (minDurationMs: number) =>
+    updateRegressionSearch({ rmin: minDurationMs === DEFAULT_MIN_DURATION_MS ? undefined : minDurationMs })
 
   const handleRegressionWindowChange = (stepWindow: number) =>
     updateRegressionSearch({ rwin: stepWindow === DEFAULT_CHANGE_WINDOW ? undefined : stepWindow })
@@ -1591,6 +1606,8 @@ export function SuiteDetailPage() {
                 onThresholdChange={handleRegressionThresholdChange}
                 minGasM={regressionMinGasM}
                 onMinGasChange={handleRegressionMinGasChange}
+                minDurationMs={regressionMinDurationMs}
+                onMinDurationChange={handleRegressionMinDurationChange}
                 direction={regressionDirection}
                 onDirectionChange={handleRegressionDirectionChange}
                 stepWindow={regressionWindow}

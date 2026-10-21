@@ -30,9 +30,24 @@ export const DEFAULT_REGRESSION_THRESHOLD = 10
 export const MIN_GAS_OPTIONS_M = [0, 10, 50, 100, 200] as const
 export const DEFAULT_MIN_GAS_M = 50
 
+// A change in a fast block does not matter much either: 59ms to 11ms is still
+// fast, and timer noise is large at that scale. A change counts only when the
+// test takes at least this long, since the step or before it. In
+// milliseconds; 0 keeps all tests. Invalid-payload tests use the time to
+// reject.
+export const MIN_DURATION_OPTIONS_MS = [0, 25, 50, 100, 250, 500] as const
+export const DEFAULT_MIN_DURATION_MS = 100
+
 // A change must also be this many times the normal spread of the baseline
 // runs. This keeps noisy tests out of the list.
 export const NOISE_FACTOR = 3
+
+// With fewer than SHORT_BASELINE_RUNS runs before the step, the normal spread
+// is a weak estimate, and a small change can pass the noise limit by chance.
+// Such a change must be SHORT_BASELINE_FACTOR times the threshold. A step soon
+// after another step has a short baseline, so a large change still counts.
+export const SHORT_BASELINE_RUNS = 5
+export const SHORT_BASELINE_FACTOR = 2
 
 export type ChangeDirection = 'regression' | 'improvement'
 
@@ -51,11 +66,14 @@ export interface ChangeOptions {
   threshold: number
   // The smallest test that counts, in millions of gas.
   minGasM: number
+  // The shortest test that counts, in milliseconds.
+  minDurationMs: number
 }
 
 // Returns the smallest change, in percent, that counts for this baseline.
 export function significantChange(baseline: BaselineComparison, threshold: number): number {
-  return Math.max(threshold, NOISE_FACTOR * baseline.noise)
+  const minChange = baseline.runs < SHORT_BASELINE_RUNS ? threshold * SHORT_BASELINE_FACTOR : threshold
+  return Math.max(minChange, NOISE_FACTOR * baseline.noise)
 }
 
 // Returns the direction of the change, or undefined when the change is
@@ -156,10 +174,11 @@ export function buildSuiteChanges(
 // Returns the significant changes of the suite. The largest changes come first.
 export function findTestChanges(
   suiteChanges: SuiteChanges,
-  { threshold, minGasM }: ChangeOptions,
+  { threshold, minGasM, minDurationMs }: ChangeOptions,
 ): TestChange[] {
   const changes: TestChange[] = []
   const minGas = minGasM * 1_000_000
+  const minDurationNs = minDurationMs * 1_000_000
 
   for (const test of suiteChanges.tests) {
     for (const { client, step, baseline } of test.clients) {
@@ -167,6 +186,7 @@ export function findTestChanges(
       if (!direction) continue
       // An invalid payload reports no gas, so the gas limit does not apply.
       if (test.metric !== 'rejected' && Math.max(step.gas_used, baseline.gas_used) < minGas) continue
+      if (Math.max(step.duration_ns, baseline.duration_ns) < minDurationNs) continue
 
       changes.push({ testName: test.name, client, metric: test.metric, step, baseline, direction })
     }
