@@ -142,7 +142,8 @@ func TestBuildSuiteChanges(t *testing.T) {
 
 	// An invalid-payload test is compared on the time to reject.
 	for i, rejectedNs := range []int64{1000, 1000, 1000, 1000, 1900} {
-		stats = append(stats, stat("invalid_test", "geth", int64(i+1), 1e6, rejectedNs))
+		// The client reports no gas for the invalid payload, so no step time.
+		stats = append(stats, stat("invalid_test", "geth", int64(i+1), 0, rejectedNs))
 	}
 
 	resp := buildSuiteChanges(stats, parseChangeSteps("test"))
@@ -155,6 +156,9 @@ func TestBuildSuiteChanges(t *testing.T) {
 	require.Len(t, invalid.Clients, 1)
 	assert.InDelta(t, 1900, invalid.Clients[0].Step.Median, 1e-9)
 	assert.InDelta(t, 90, invalid.Clients[0].Baseline.Change, 1e-9)
+	// The min. block time compares with the time to reject.
+	assert.InDelta(t, 1900, invalid.Clients[0].Step.DurationNs, 1e-9)
+	assert.InDelta(t, 1000, invalid.Clients[0].Baseline.DurationNs, 1e-9)
 
 	assert.Equal(t, "mgas_test", mgas.Name)
 	assert.Equal(t, changeMetricMGas, mgas.Metric)
@@ -285,4 +289,26 @@ func TestHandleSuiteChanges(t *testing.T) {
 	s.handleSuiteChanges(rec, req)
 	assert.Equal(t, http.StatusNotModified, rec.Code)
 	assert.Zero(t, rec.Body.Len())
+
+	// A re-index rewrites the stats of runs but keeps the run list. Stats of
+	// another suite do not touch this suite's cache.
+	entries := len(s.changeCache)
+
+	require.NoError(t, s.indexStore.ReplaceTestStats(ctx, "other-run", []*indexstore.TestStat{{
+		SuiteHash: "other", RunID: "other-run", TestName: "t1", Client: "geth",
+	}}))
+	call("")
+	assert.Len(t, s.changeCache, entries, "served from the cache")
+
+	for _, i := range []int{35, 36} {
+		runID := fmt.Sprintf("run-%d", i)
+		require.NoError(t, s.indexStore.ReplaceTestStats(ctx, runID, []*indexstore.TestStat{{
+			SuiteHash: "suite", RunID: runID, TestName: "t1", Client: "geth",
+			RunStart: int64(i), TestGasUsed: 100_000_000, TestTimeNs: 1e9,
+		}}))
+	}
+
+	geth = call("").Tests[0].Clients[0]
+	assert.Equal(t, "run-36", geth.Step.RunID)
+	assert.InDelta(t, 0, geth.Baseline.Change, 1e-9)
 }

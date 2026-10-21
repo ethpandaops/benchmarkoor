@@ -83,16 +83,24 @@ export function buildSuiteChanges(
   window: number = DEFAULT_CHANGE_WINDOW,
 ): SuiteChanges {
   const tests: SuiteTestChanges[] = []
+  // The index has no cleanup stats, so the API ignores the cleanup step. Do
+  // the same, so both give the same series.
+  const steps = stepFilter.filter((s) => s !== 'cleanup')
+  if (steps.length === 0) steps.push('test')
 
   for (const [name, { durations }] of Object.entries(stats)) {
     const metric = hasRejectedTime(durations) ? 'rejected' : 'mgas'
+    const pointsByClient = buildHistoryPoints(durations, metric, steps)
+    // An invalid payload reports no gas, so its step time is 0. Its time to
+    // reject is the time that the min. block time is compared with.
     const durationByRun = new Map<string, number>()
-    for (const points of buildHistoryPoints(durations, 'duration', stepFilter).values()) {
+    const durationPoints = metric === 'rejected' ? pointsByClient : buildHistoryPoints(durations, 'duration', steps)
+    for (const points of durationPoints.values()) {
       for (const p of points) durationByRun.set(p.runId, p.value)
     }
     const clients: ClientChange[] = []
 
-    for (const [client, allPoints] of buildHistoryPoints(durations, metric, stepFilter)) {
+    for (const [client, allPoints] of pointsByClient) {
       // Like the API, which reads only the last runs of each client.
       const points = allPoints.slice(-window)
       const comparison = compareWithBaseline(points, window)

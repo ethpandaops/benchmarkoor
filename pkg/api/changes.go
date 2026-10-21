@@ -64,7 +64,8 @@ type changeStep struct {
 	// Median is the median value of the runs since the step.
 	Median float64 `json:"median"`
 	// DurationNs is the median time of the selected steps since the step, or
-	// 0 when no run has a time.
+	// 0 when no run has a time. For an invalid-payload test it is the time
+	// to reject.
 	DurationNs float64 `json:"duration_ns"`
 }
 
@@ -79,7 +80,8 @@ type baselineComparison struct {
 	// their median.
 	Noise float64 `json:"noise"`
 	// DurationNs is the median time of the selected steps before the step,
-	// or 0 when no run has a time.
+	// or 0 when no run has a time. For an invalid-payload test it is the
+	// time to reject.
 	DurationNs float64 `json:"duration_ns"`
 }
 
@@ -159,7 +161,8 @@ type seriesPoint struct {
 	runID    string
 	runStart int64
 	value    float64
-	// durationNs is the time of the selected steps, or 0 when there is none.
+	// durationNs is the time of the selected steps, or the time to reject
+	// for an invalid-payload test, or 0 when there is none.
 	durationNs float64
 }
 
@@ -420,8 +423,16 @@ func (b *changeBuilder) build() suiteChangesResponse {
 					continue
 				}
 
+				// An invalid payload reports no gas, so its step time is 0. Its
+				// time to reject is the time that the min. block time is
+				// compared with.
+				durationNs := run.timeNs
+				if metric == changeMetricRejected {
+					durationNs = run.rejectedNs
+				}
+
 				points = append(points,
-					seriesPoint{run.runID, run.runStart, value, float64(max(run.timeNs, 0))})
+					seriesPoint{run.runID, run.runStart, value, float64(max(durationNs, 0))})
 			}
 
 			sortPoints(points)
@@ -476,14 +487,16 @@ func parseChangeWindow(param string) int {
 	return window
 }
 
-// changeCacheKey identifies a response. The run IDs make the key change
-// when a run gets its test stats, so a cached response is never stale.
+// changeCacheKey identifies a response. The run IDs make the key change when
+// a run gets its first test stats or loses them. The test stats generation
+// makes it change when a re-index rewrites the stats of a run.
 func changeCacheKey(
-	suiteHash string, steps changeStepFilter, window int, runIDs []string,
+	suiteHash string, steps changeStepFilter, window int, gen uint64, runIDs []string,
 ) string {
 	sum := sha256.Sum256([]byte(strings.Join(runIDs, "\x00")))
 
-	return fmt.Sprintf("%s|%s|%d|%s", suiteHash, steps, window, hex.EncodeToString(sum[:]))
+	return fmt.Sprintf("%s|%s|%d|%d|%s",
+		suiteHash, steps, window, gen, hex.EncodeToString(sum[:]))
 }
 
 // handleSuiteChanges finds the latest step of each client and test of a
@@ -501,6 +514,10 @@ func (s *server) handleSuiteChanges(w http.ResponseWriter, r *http.Request) {
 	steps := parseChangeSteps(r.URL.Query().Get("steps"))
 	window := parseChangeWindow(r.URL.Query().Get("window"))
 
+	// Read the generation before the stats. A write between the two then
+	// caches new stats under the old key, which is only a wasted entry.
+	gen := s.indexStore.TestStatsGeneration(suiteHash)
+
 	// The run list comes from the runs table, so it is cheap. It is the
 	// cache key, and the input of the expensive test_stats read below.
 	runIDs, err := s.indexStore.ListRecentRunIDs(r.Context(), suiteHash, window)
@@ -511,7 +528,7 @@ func (s *server) handleSuiteChanges(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := changeCacheKey(suiteHash, steps, window, runIDs)
+	key := changeCacheKey(suiteHash, steps, window, gen, runIDs)
 
 	s.changeCacheMu.Lock()
 	entry, ok := s.changeCache[key]

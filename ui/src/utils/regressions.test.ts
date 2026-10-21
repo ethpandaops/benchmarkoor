@@ -208,6 +208,33 @@ describe('findTestChanges', () => {
     expect(change.baseline.duration_ns).toBe(100_000_000)
   })
 
+  it('compares an invalid-payload test with the min. block time on its time to reject', () => {
+    // No gas, so no step time. The time to reject goes from 600ms to 1.2s.
+    const durations = [1, 2, 3, 4]
+      .map((i) => run('geth', i, 0, 600_000_000))
+      .concat(run('geth', 5, 0, 1_200_000_000))
+
+    const [change] = changesOf({ invalid_test: { durations } }, { threshold: 10, minDurationMs: 500 })
+
+    expect(change.direction).toBe('regression')
+    expect(change.step.duration_ns).toBe(1_200_000_000)
+    expect(change.baseline.duration_ns).toBe(600_000_000)
+  })
+
+  it('ignores the cleanup step, as the API does', () => {
+    // A slow cleanup step must not change the test series.
+    const durations = runsAt('geth', [100, 100, 100, 100, 50]).map((d) => ({
+      ...d,
+      steps: { ...d.steps, cleanup: { gas_used: 100_000_000, time_ns: 10e9 } },
+    }))
+
+    const [geth] = buildSuiteChanges({ t: { durations } }, ['test', 'cleanup']).tests[0].clients
+    const [onlyCleanup] = buildSuiteChanges({ t: { durations } }, ['cleanup']).tests[0].clients
+
+    expect(geth.baseline.change).toBeCloseTo(-50)
+    expect(onlyCleanup).toEqual(geth)
+  })
+
   it('skips a client with too few runs', () => {
     const stats: SuiteStats = { 'test_a': { durations: runsAt('geth', [100, 100, 50]) } }
 

@@ -168,7 +168,7 @@ export function RegressionsPanel({
           when it is at least {threshold}% and at least {NOISE_FACTOR}× the normal spread. A row stays until the level
           changes back or the step leaves the window.{' '}
           {minDurationMs > 0 && `The test must also take at least ${formatMs(minDurationMs)} before or since the step. `}
-          Invalid-payload tests use the time to reject.
+          Invalid-payload tests use the time to reject, also for the min. block time.
         </p>
         {countByClient.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">

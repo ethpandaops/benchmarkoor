@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -67,6 +68,12 @@ type Store interface {
 	// mutation of the runs table. Callers can use it as a cheap cache key to
 	// detect whether the runs list has changed since a prior read.
 	RunsGeneration() uint64
+
+	// TestStatsGeneration returns a counter that is bumped each time the
+	// test stats of a run of the suite are replaced. Callers use it with the
+	// run list as a cache key: a re-index rewrites the stats of a run but
+	// keeps the run list the same.
+	TestStatsGeneration(suiteHash string) uint64
 
 	GetRunByRunID(ctx context.Context, runID string) (*Run, error)
 	DeleteRun(ctx context.Context, runID string) error
@@ -154,6 +161,10 @@ type store struct {
 	// runsGen is bumped on every runs-table mutation so readers can cheaply
 	// detect staleness. See RunsGeneration.
 	runsGen atomic.Uint64
+
+	// testStatsGen holds a counter per suite hash. See TestStatsGeneration.
+	testStatsGenMu sync.Mutex
+	testStatsGen   map[string]uint64
 }
 
 // migratedModels is every model the index database owns, in the order they
@@ -527,6 +538,37 @@ func (s *store) ListAllRuns(ctx context.Context) ([]Run, error) {
 // RunsGeneration returns the current runs-table generation counter.
 func (s *store) RunsGeneration() uint64 {
 	return s.runsGen.Load()
+}
+
+// TestStatsGeneration returns the test stats counter of a suite.
+func (s *store) TestStatsGeneration(suiteHash string) uint64 {
+	s.testStatsGenMu.Lock()
+	defer s.testStatsGenMu.Unlock()
+
+	return s.testStatsGen[suiteHash]
+}
+
+// bumpTestStatsGeneration bumps the counter of each suite of stats. It runs
+// after the write commits: a reader that reads the counter before the stats
+// then never caches old stats under the new value.
+func (s *store) bumpTestStatsGeneration(stats []*TestStat) {
+	s.testStatsGenMu.Lock()
+	defer s.testStatsGenMu.Unlock()
+
+	if s.testStatsGen == nil {
+		s.testStatsGen = make(map[string]uint64, 16)
+	}
+
+	bumped := make(map[string]struct{}, 1)
+
+	for _, st := range stats {
+		if _, ok := bumped[st.SuiteHash]; ok {
+			continue
+		}
+
+		bumped[st.SuiteHash] = struct{}{}
+		s.testStatsGen[st.SuiteHash]++
+	}
 }
 
 // GetRunByRunID returns a single run by its run ID.
@@ -1057,7 +1099,7 @@ func (s *store) DeleteTestStatsForRun(
 func (s *store) ReplaceTestStats(
 	ctx context.Context, runID string, stats []*TestStat,
 ) error {
-	return s.withRetry(func() error {
+	err := s.withRetry(func() error {
 		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			if err := tx.Where("run_id = ?", runID).
 				Delete(&TestStat{}).Error; err != nil {
@@ -1087,6 +1129,15 @@ func (s *store) ReplaceTestStats(
 			return nil
 		})
 	})
+	if err != nil {
+		return err
+	}
+
+	// A run with no stats left drops out of the suite's run list, which
+	// changes a cache key on its own. Only a run with stats needs the bump.
+	s.bumpTestStatsGeneration(stats)
+
+	return nil
 }
 
 // ReplaceTestStatsBlockLogs atomically deletes old block logs for a run
