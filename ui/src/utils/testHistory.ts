@@ -324,6 +324,67 @@ export function findRunGaps(runStarts: number[]): Set<number> {
   return gaps
 }
 
+export type HistorySortColumn = 'time' | 'client' | 'mgas' | 'duration' | 'rejected' | 'gas'
+export type SortDirection = 'asc' | 'desc'
+export const HISTORY_SORT_COLUMNS: HistorySortColumn[] = ['time', 'client', 'mgas', 'duration', 'rejected', 'gas']
+
+// The sort value of a run, or undefined when it has none for the column.
+function sortValue(
+  d: TestHistoryDuration,
+  column: HistorySortColumn,
+  stepFilter: IndexStepType[],
+): number | string | undefined {
+  switch (column) {
+    case 'time':
+      return d.run_start
+    case 'client':
+      return d.client
+    case 'gas':
+      return getRunDurationAggregatedStats(d, stepFilter).gasUsed
+    default:
+      return historyMetricValue(d, column, stepFilter)
+  }
+}
+
+// Sorts the runs of a test history by a column. A run with no value for the
+// column comes last in both directions. Ties keep the newest run first.
+export function sortHistoryRuns(
+  durations: TestHistoryDuration[],
+  column: HistorySortColumn,
+  direction: SortDirection,
+  stepFilter: IndexStepType[],
+): TestHistoryDuration[] {
+  const sign = direction === 'asc' ? 1 : -1
+  return durations
+    .map((d) => ({ d, v: sortValue(d, column, stepFilter) }))
+    .sort((a, b) => {
+      if (a.v === undefined || b.v === undefined) {
+        if (a.v === b.v) return b.d.run_start - a.d.run_start
+        return a.v === undefined ? 1 : -1
+      }
+      const order = typeof a.v === 'string' ? a.v.localeCompare(b.v as string) : a.v - (b.v as number)
+      return sign * order || b.d.run_start - a.d.run_start || a.d.id.localeCompare(b.d.id)
+    })
+    .map(({ d }) => d)
+}
+
+// Returns, for each run, the last run of the same client before it.
+export function previousRuns(durations: TestHistoryDuration[]): Map<string, TestHistoryDuration> {
+  const byClient = new Map<string, TestHistoryDuration[]>()
+  for (const d of durations) {
+    const runs = byClient.get(d.client)
+    if (runs) runs.push(d)
+    else byClient.set(d.client, [d])
+  }
+
+  const previous = new Map<string, TestHistoryDuration>()
+  for (const runs of byClient.values()) {
+    runs.sort((a, b) => a.run_start - b.run_start || a.id.localeCompare(b.id))
+    for (let i = 1; i < runs.length; i++) previous.set(runs[i].id, runs[i - 1])
+  }
+  return previous
+}
+
 // Formats a metric value for display.
 export function formatHistoryValue(value: number, metric: HistoryMetric): string {
   return metric === 'mgas' ? `${value.toFixed(2)} MGas/s` : formatDuration(Math.round(value))

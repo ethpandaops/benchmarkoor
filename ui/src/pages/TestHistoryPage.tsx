@@ -4,18 +4,17 @@ import clsx from 'clsx'
 import { ExternalLink } from 'lucide-react'
 import { useSuite } from '@/api/hooks/useSuite'
 import { useTestHistory } from '@/api/hooks/useTestHistory'
-import { ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, getRunDurationAggregatedStats, type IndexStepType } from '@/api/types'
+import { ALL_INDEX_STEP_TYPES, DEFAULT_INDEX_STEP_FILTER, type IndexStepType } from '@/api/types'
 import { Card } from '@/components/shared/Card'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { JDenticon } from '@/components/shared/JDenticon'
-import { Pagination } from '@/components/shared/Pagination'
 import { SegmentedControl } from '@/components/shared/SegmentedControl'
 import { LoadingState } from '@/components/shared/Spinner'
 import { TestName } from '@/components/shared/TestName'
+import { HistoryRunsTable } from '@/components/test-history/HistoryRunsTable'
 import { TestHistoryChart, type HistoryXAxis } from '@/components/test-history/TestHistoryChart'
-import { formatNumber } from '@/utils/format'
 import { classifyChange, DEFAULT_REGRESSION_THRESHOLD, significantChange } from '@/utils/regressions'
 import {
   BASELINE_RUNS,
@@ -25,15 +24,16 @@ import {
   formatHistoryValue,
   hasRejectedTime,
   HISTORY_METRIC_LABELS,
-  historyMetricValue,
+  HISTORY_SORT_COLUMNS,
   summarizeClient,
   type ClientHistorySummary,
   type HistoryMetric,
+  type HistorySortColumn,
+  type SortDirection,
 } from '@/utils/testHistory'
 
 const RUNS_PER_CLIENT_OPTIONS = [25, 50, 100, 250, 500, 1000] as const
 const DEFAULT_RUNS_PER_CLIENT = 100
-const TABLE_PAGE_SIZE = 50
 
 interface TestHistorySearch {
   test?: string
@@ -45,6 +45,9 @@ interface TestHistorySearch {
   clients?: string
   // The number of recent runs per client that the step search looks at.
   w?: number
+  // The sort of the runs table. The newest run first is the default.
+  sort?: HistorySortColumn
+  dir?: SortDirection
 }
 
 function parseStepFilter(param: string | undefined): IndexStepType[] {
@@ -108,20 +111,23 @@ function ClientSummaryCard({
   metric,
   stepWindow,
   hidden,
+  filtered,
   onToggle,
 }: {
   summary: ClientHistorySummary
   metric: HistoryMetric
   stepWindow: number
   hidden: boolean
+  // True when the clients filter is on, so some clients are hidden.
+  filtered: boolean
   onToggle: () => void
 }) {
   return (
     <button
       type="button"
       onClick={onToggle}
-      aria-pressed={!hidden}
-      title={hidden ? 'Show this client' : 'Hide this client'}
+      aria-pressed={filtered && !hidden}
+      title={!filtered ? 'Show only this client' : hidden ? 'Show this client' : 'Hide this client'}
       className={clsx(
         'flex flex-col gap-2 rounded-sm bg-white p-3 text-left shadow-xs transition-opacity hover:ring-2 hover:ring-gray-300 dark:bg-gray-800 dark:hover:ring-gray-600',
         hidden && 'opacity-40',
@@ -178,11 +184,11 @@ export function TestHistoryPage() {
     ? search.w!
     : DEFAULT_CHANGE_WINDOW
   const stepFilter = parseStepFilter(search.steps)
+  const tableSort: HistorySortColumn = HISTORY_SORT_COLUMNS.includes(search.sort!) ? search.sort! : 'time'
+  const tableSortDir: SortDirection = search.dir === 'asc' ? 'asc' : 'desc'
 
   const { data: suite } = useSuite(suiteHash)
   const { data: history, isLoading, error, refetch } = useTestHistory(suiteHash, testName, runsPerClient)
-
-  const [tablePage, setTablePage] = useState(1)
 
   const [isDark, setIsDark] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -226,11 +232,7 @@ export function TestHistoryPage() {
     [pointsByClient, hiddenClients],
   )
 
-  // The API returns the newest run first; stats.json is sorted the same way by the hook.
   const tableRows = useMemo(() => durations.filter((d) => !hiddenClients.has(d.client)), [durations, hiddenClients])
-  const totalTablePages = Math.max(1, Math.ceil(tableRows.length / TABLE_PAGE_SIZE))
-  const currentTablePage = Math.min(tablePage, totalTablePages)
-  const pagedRows = tableRows.slice((currentTablePage - 1) * TABLE_PAGE_SIZE, currentTablePage * TABLE_PAGE_SIZE)
 
   const testIndex = suite?.tests?.findIndex((t) => t.name === testName) ?? -1
   const testNumber = testIndex >= 0 ? testIndex + 1 : undefined
@@ -245,8 +247,13 @@ export function TestHistoryPage() {
   }
 
   const toggleClient = (client: string) => {
+    // With all clients shown, a click picks one client. After that, a click
+    // adds or removes a client.
+    if (hiddenClients.size === 0) {
+      updateSearch({ clients: pointsByClient.size > 1 ? client : undefined })
+      return
+    }
     const shown = [...pointsByClient.keys()].filter((c) => (c === client ? hiddenClients.has(c) : !hiddenClients.has(c)))
-    setTablePage(1)
     // Hiding the last client, or showing all of them, clears the filter.
     updateSearch({ clients: shown.length === 0 || shown.length === pointsByClient.size ? undefined : shown.join(',') })
   }
@@ -362,7 +369,6 @@ export function TestHistoryPage() {
                 value={runsPerClient}
                 onChange={(e) => {
                   const n = Number(e.target.value)
-                  setTablePage(1)
                   updateSearch({ n: n === DEFAULT_RUNS_PER_CLIENT ? undefined : n })
                 }}
                 className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-xs/5 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
@@ -393,6 +399,7 @@ export function TestHistoryPage() {
                       stepWindow={stepWindow}
                       metric={metric}
                       hidden={hiddenClients.has(summary.client)}
+                      filtered={hiddenClients.size > 0}
                       onToggle={() => toggleClient(summary.client)}
                     />
                   ))}
@@ -416,73 +423,26 @@ export function TestHistoryPage() {
               </Card>
 
               <Card title="Runs" headerExtra={<span className="text-xs/5 text-gray-500 dark:text-gray-400">{tableRows.length} runs</span>}>
-                <div className="flex flex-col gap-4">
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm/6">
-                      <thead>
-                        <tr className="border-b border-gray-200 text-left text-xs/5 font-medium text-gray-500 uppercase dark:border-gray-700 dark:text-gray-400">
-                          <th className="px-2 py-2">Time</th>
-                          <th className="px-2 py-2">Client</th>
-                          <th className="px-2 py-2">Image</th>
-                          <th className="px-2 py-2 text-right">MGas/s</th>
-                          <th className="px-2 py-2 text-right">Duration</th>
-                          {showRejected && <th className="px-2 py-2 text-right">Reject time</th>}
-                          <th className="px-2 py-2 text-right">Gas used</th>
-                          <th className="px-2 py-2" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                        {pagedRows.map((d) => {
-                          const mgas = historyMetricValue(d, 'mgas', stepFilter)
-                          const duration = historyMetricValue(d, 'duration', stepFilter)
-                          const rejected = historyMetricValue(d, 'rejected', stepFilter)
-                          const { gasUsed } = getRunDurationAggregatedStats(d, stepFilter)
-                          return (
-                            <tr key={d.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                              <td className="px-2 py-1.5 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                                {new Date(d.run_start * 1000).toLocaleString()}
-                              </td>
-                              <td className="px-2 py-1.5">
-                                <ClientBadge client={d.client} />
-                              </td>
-                              <td
-                                className="max-w-2xs truncate px-2 py-1.5 font-mono text-xs/5 text-gray-500 dark:text-gray-400"
-                                title={d.image}
-                              >
-                                {d.image ?? '-'}
-                              </td>
-                              <td className="px-2 py-1.5 text-right font-mono text-gray-900 dark:text-gray-100">
-                                {mgas !== undefined ? mgas.toFixed(2) : '-'}
-                              </td>
-                              <td className="px-2 py-1.5 text-right font-mono text-gray-900 dark:text-gray-100">
-                                {duration !== undefined ? formatHistoryValue(duration, 'duration') : '-'}
-                              </td>
-                              {showRejected && (
-                                <td className="px-2 py-1.5 text-right font-mono text-gray-900 dark:text-gray-100">
-                                  {rejected !== undefined ? formatHistoryValue(rejected, 'rejected') : '-'}
-                                </td>
-                              )}
-                              <td className="px-2 py-1.5 text-right font-mono text-gray-500 dark:text-gray-400">
-                                {formatNumber(gasUsed)}
-                              </td>
-                              <td className="px-2 py-1.5 text-right">
-                                <Link
-                                  to="/runs/$runId"
-                                  params={{ runId: d.id }}
-                                  search={{ testModal: testName }}
-                                  className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                                >
-                                  Open run
-                                </Link>
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <Pagination currentPage={currentTablePage} totalPages={totalTablePages} onPageChange={setTablePage} />
-                </div>
+                {/* A new runs or clients filter starts the table on page 1. */}
+                <HistoryRunsTable
+                  key={`${runsPerClient}|${search.clients ?? ''}`}
+                  runs={tableRows}
+                  allRuns={durations}
+                  suiteHash={suiteHash}
+                  testName={testName}
+                  stepFilter={stepFilter}
+                  steps={search.steps}
+                  showRejected={showRejected}
+                  historyRuns={runsPerClient}
+                  sort={tableSort}
+                  sortDir={tableSortDir}
+                  onSortChange={(sort, dir) =>
+                    updateSearch({
+                      sort: sort === 'time' && dir === 'desc' ? undefined : sort,
+                      dir: sort === 'time' && dir === 'desc' ? undefined : dir,
+                    })
+                  }
+                />
               </Card>
             </>
           )}

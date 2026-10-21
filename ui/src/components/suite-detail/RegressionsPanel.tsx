@@ -6,7 +6,7 @@ import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Pagination } from '@/components/shared/Pagination'
 import { SegmentedControl } from '@/components/shared/SegmentedControl'
 import { TestName } from '@/components/shared/TestName'
-import { RegressionDetail } from './RegressionDetail'
+import { PreviousRunDiff } from '@/components/compare/PreviousRunDiff'
 import { formatDuration } from '@/utils/format'
 import {
   MIN_DURATION_OPTIONS_MS,
@@ -357,7 +357,19 @@ export function RegressionsPanel({
                         <tr className="bg-gray-50 dark:bg-gray-900/30">
                           <td colSpan={8} className="p-0">
                             <div className="sticky left-0 w-[100cqw]">
-                              <RegressionDetail change={c} suiteHash={suiteHash} steps={steps} stepWindow={stepWindow} />
+                              {/* The step lies inside the step window, so the test
+                                  history of that many runs holds the runs to search
+                                  for the same host. */}
+                              <PreviousRunDiff
+                                suiteHash={suiteHash}
+                                testName={c.testName}
+                                client={c.client}
+                                runId={c.step.run_id}
+                                runStart={c.step.run_start}
+                                previousRunId={c.baseline.last_run_id}
+                                steps={steps}
+                                historyRuns={stepWindow}
+                              />
                             </div>
                           </td>
                         </tr>

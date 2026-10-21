@@ -8,35 +8,52 @@ import { useTestHistory } from '@/api/hooks/useTestHistory'
 import { ConfigDiff } from '@/components/compare/ConfigDiff'
 import { SegmentedControl } from '@/components/shared/SegmentedControl'
 import { Spinner } from '@/components/shared/Spinner'
-import { MAX_SAME_HOST_LOOKBACK, sameHostCandidates, type TestChange } from '@/utils/regressions'
+import { MAX_SAME_HOST_LOOKBACK, sameHostCandidates } from '@/utils/regressions'
 
 type Reference = 'previous' | 'sameHost'
 
-interface RegressionDetailProps {
-  change: TestChange
+interface PreviousRunDiffProps {
   suiteHash: string
-  // The steps search param of the suite page, passed on to the compare page.
+  testName: string
+  client: string
+  // The run to explain, and the last run of the same client before it.
+  runId: string
+  runStart: number
+  previousRunId: string
+  // The steps search param, passed on to the compare page.
   steps?: string
-  // The window of the step search. The step lies inside it, so the test
-  // history of this many runs holds the runs to search for the same host.
-  stepWindow: number
+  // The runs per client of the test history that holds runId. The search
+  // for a run on the same host reads this history.
+  historyRuns: number
+  // The column labels of the two runs, before their start times.
+  labels?: [before: string, after: string]
 }
 
 function formatRunStart(runStart: number): string {
   return new Date(runStart * 1000).toLocaleString()
 }
 
-// RegressionDetail compares the config of the first run since a step with the
-// last run before it, and with the last run before it on the same host. A
-// pool of runners can differ a little in hardware, so the same-host diff
-// shows a config change without the hardware noise.
-export function RegressionDetail({ change, suiteHash, steps, stepWindow }: RegressionDetailProps) {
+// PreviousRunDiff compares the config of a run with the last run of the same
+// client before it, and with the last run before it on the same host. A pool
+// of runners can differ a little in hardware, so the same-host diff shows a
+// config change without the hardware noise.
+export function PreviousRunDiff({
+  suiteHash,
+  testName,
+  client,
+  runId,
+  runStart,
+  previousRunId,
+  steps,
+  historyRuns,
+  labels = ['Before', 'Since'],
+}: PreviousRunDiffProps) {
   const queryClient = useQueryClient()
   const [reference, setReference] = useState<Reference>('previous')
   const [onlyDifferences, setOnlyDifferences] = useState(true)
 
-  const sinceRunId = change.step.run_id
-  const lastRunId = change.baseline.last_run_id
+  const sinceRunId = runId
+  const lastRunId = previousRunId
   const since = useRunConfig(sinceRunId)
   const last = useRunConfig(lastRunId)
 
@@ -45,9 +62,9 @@ export function RegressionDetail({ change, suiteHash, steps, stepWindow }: Regre
 
   // Search older runs only when the last run before the step ran elsewhere.
   const needsSearch = !!since.data && !!last.data && !lastOnSameHost
-  const history = useTestHistory(suiteHash, needsSearch ? change.testName : undefined, stepWindow)
+  const history = useTestHistory(suiteHash, needsSearch ? testName : undefined, historyRuns)
   const candidates = history.data
-    ? sameHostCandidates(history.data.durations, change.client, sinceRunId, lastRunId)
+    ? sameHostCandidates(history.data.durations, client, sinceRunId, lastRunId)
     : undefined
 
   const sameHost = useQuery({
@@ -84,7 +101,7 @@ export function RegressionDetail({ change, suiteHash, steps, stepWindow }: Regre
   if (!since.data || !last.data) {
     return (
       <p className="px-4 py-3 text-xs/5 text-gray-500 dark:text-gray-400">
-        The config of {since.data ? 'the last run before the step' : 'the first run since the step'} is not available.
+        The config of {since.data ? 'the previous run' : 'this run'} is not available.
       </p>
     )
   }
@@ -143,7 +160,7 @@ export function RegressionDetail({ change, suiteHash, steps, stepWindow }: Regre
         </div>
       ) : showSameHost && !sameHost.data ? (
         <p className="text-xs/5 text-gray-500 dark:text-gray-400">
-          No run on {host} in the {MAX_SAME_HOST_LOOKBACK} runs before the step.
+          No run on {host} in the {MAX_SAME_HOST_LOOKBACK} runs before this run.
         </p>
       ) : (
         <ConfigDiff
@@ -153,8 +170,8 @@ export function RegressionDetail({ change, suiteHash, steps, stepWindow }: Regre
           ]}
           labelMode="default"
           labels={[
-            `Before · ${formatRunStart(otherRun.config.timestamp)}`,
-            `Since · ${formatRunStart(change.step.run_start)}`,
+            `${labels[0]} · ${formatRunStart(otherRun.config.timestamp)}`,
+            `${labels[1]} · ${formatRunStart(runStart)}`,
           ]}
           onlyDifferences={onlyDifferences}
         />
