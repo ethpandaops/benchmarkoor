@@ -9,7 +9,7 @@ import { TestName } from '@/components/shared/TestName'
 import { RegressionDetail } from './RegressionDetail'
 import { formatDuration } from '@/utils/format'
 import {
-  MIN_DURATION_OPTIONS_MS,
+  MIN_GAS_OPTIONS_M,
   NOISE_FACTOR,
   REGRESSION_THRESHOLD_OPTIONS,
   significantChange,
@@ -26,11 +26,6 @@ import {
 
 const PAGE_SIZE = 50
 
-// Formats a whole number of milliseconds as a short label, such as 500ms or 1s.
-function formatMs(ms: number): string {
-  return ms >= 1000 ? `${ms / 1000}s` : `${ms}ms`
-}
-
 interface RegressionsPanelProps {
   changes: TestChange[]
   suiteHash: string
@@ -38,8 +33,9 @@ interface RegressionsPanelProps {
   steps?: string
   threshold: number
   onThresholdChange: (threshold: number) => void
-  minDurationMs: number
-  onMinDurationChange: (minDurationMs: number) => void
+  // The smallest test that counts, in millions of gas.
+  minGasM: number
+  onMinGasChange: (minGasM: number) => void
   direction: ChangeDirection
   onDirectionChange: (direction: ChangeDirection) => void
   // The number of recent runs per client that the step search looks at.
@@ -55,8 +51,8 @@ export function RegressionsPanel({
   steps,
   threshold,
   onThresholdChange,
-  minDurationMs,
-  onMinDurationChange,
+  minGasM,
+  onMinGasChange,
   direction,
   onDirectionChange,
   stepWindow,
@@ -155,18 +151,18 @@ export function RegressionsPanel({
               </select>
             </label>
             <label className="flex items-center gap-2">
-              <span className="text-xs/5 font-medium text-gray-700 sm:text-sm/6 dark:text-gray-300">Min. block time:</span>
+              <span className="text-xs/5 font-medium text-gray-700 sm:text-sm/6 dark:text-gray-300">Min. gas:</span>
               <select
-                value={minDurationMs}
+                value={minGasM}
                 onChange={(e) => {
                   setPage(1)
-                  onMinDurationChange(Number(e.target.value))
+                  onMinGasChange(Number(e.target.value))
                 }}
                 className="rounded-xs border border-gray-300 bg-white px-2 py-1 text-xs/5 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               >
-                {MIN_DURATION_OPTIONS_MS.map((ms) => (
-                  <option key={ms} value={ms}>
-                    {ms === 0 ? 'Any' : formatMs(ms)}
+                {MIN_GAS_OPTIONS_M.map((m) => (
+                  <option key={m} value={m}>
+                    {m === 0 ? 'Any' : `${m}M`}
                   </option>
                 ))}
               </select>
@@ -178,8 +174,9 @@ export function RegressionsPanel({
           compares the median since that run with the median of up to {BASELINE_RUNS} runs before it. A change counts
           when it is at least {threshold}% and at least {NOISE_FACTOR}× the normal spread. A row stays until the level
           changes back or the step leaves the window.{' '}
-          {minDurationMs > 0 && `The test must also take at least ${formatMs(minDurationMs)} before or since the step. `}
-          Invalid-payload tests use the time to reject, also for the min. block time.
+          {minGasM > 0 &&
+            `The test must also use at least ${minGasM}M gas before or since the step, except an invalid-payload test. `}
+          Invalid-payload tests use the time to reject.
         </p>
         {countByClient.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">

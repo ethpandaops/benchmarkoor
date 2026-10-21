@@ -214,10 +214,32 @@ function levelChange(before: number[], after: number[]): BaselineComparison | un
   }
 }
 
+// A split of a series into before and after is a real step when the change is
+// at least MIN_STEP_CHANGE percent and at least STEP_NOISE_FACTOR times the
+// normal spread.
+function isStep(before: number[], after: number[]): boolean {
+  const c = levelChange(before, after)
+  return !!c && Math.abs(c.change) >= Math.max(MIN_STEP_CHANGE, STEP_NOISE_FACTOR * c.noise)
+}
+
+// Returns the start of the level that ends at end: the latest real step in
+// values[from..end) with at least MIN_BASELINE_RUNS values after it, or from. A
+// before part that spans two levels has a large spread, and a real step after
+// it then looks like noise.
+function levelStart(values: number[], from: number, end: number): number {
+  for (;;) {
+    const split = bestSplit(values.slice(from, end))
+    if (split < 0 || end - (from + split) < MIN_BASELINE_RUNS) return from
+    if (!isStep(values.slice(from, from + split), values.slice(from + split, end))) return from
+    from += split
+  }
+}
+
 // Returns the start of the latest level of a series and the start of the level
 // before it. It splits the series where it fits two levels best, and splits
-// the after part again while each split is a real step. With no real step, the
-// latest value is its own level.
+// the after part again while each split is a real step. The before part of a
+// split starts at its own latest step. With no real step, the latest value is
+// its own level.
 function findStep(values: number[]): { step: number; start: number } {
   let step = values.length - 1
   let start = 0
@@ -227,11 +249,11 @@ function findStep(values: number[]): { step: number; start: number } {
     if (split < 0) return { step, start }
 
     const k = split + from
-    const c = levelChange(values.slice(from, k), values.slice(k))
-    if (!c || Math.abs(c.change) < Math.max(MIN_STEP_CHANGE, STEP_NOISE_FACTOR * c.noise)) return { step, start }
+    const levelFrom = levelStart(values, from, k)
+    if (!isStep(values.slice(levelFrom, k), values.slice(k))) return { step, start }
 
     step = k
-    start = from
+    start = levelFrom
     from = k
   }
 }

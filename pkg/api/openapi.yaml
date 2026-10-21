@@ -2460,6 +2460,9 @@ components:
                         duration_ns:
                           type: number
                           description: Median time of the selected steps, or 0
+                        gas_used:
+                          type: number
+                          description: Median gas of the selected steps, or 0
                     baseline:
                       type: object
                       description: The runs before the step
@@ -2479,6 +2482,9 @@ components:
                         duration_ns:
                           type: number
                           description: Median time of the selected steps before the step, or 0
+                        gas_used:
+                          type: number
+                          description: Median gas of the selected steps before the step, or 0
                         last_run_id:
                           type: string
                           description: Last run before the step
