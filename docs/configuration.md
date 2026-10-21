@@ -1721,7 +1721,7 @@ runner:
   storage_probe:
     enabled: true
     file_size: 4GB   # size of the test file
-    duration: 5s     # time of each QD1 workload
+    duration: 5s     # time of each QD1 workload, and the minimum time of the others
     io_depth: 64     # I/O operations in flight
 ```
 
@@ -1729,7 +1729,7 @@ runner:
 |--------|------|---------|-------------|
 | `enabled` | bool | `false` | Run the probe |
 | `file_size` | string | `4GB` | Size of the test file. The minimum is `64MB` |
-| `duration` | string | `5s` | Time of each of the 2 QD1 workloads |
+| `duration` | string | `5s` | Time of each of the 2 QD1 workloads, and the minimum time of steps 4 and 5 |
 | `io_depth` | int | `64` | Number of I/O operations in flight in the EIP-7870 workloads (1-1024) |
 
 The probe uses direct I/O (`O_DIRECT`), which bypasses the page cache:
@@ -1746,6 +1746,7 @@ Steps 4 and 5 use the method of the EIP-7870 fio commands (`--ioengine=libaio --
 - One thread keeps `io_depth` I/Os in flight with Linux native AIO, and it submits one I/O for each `io_submit` call, as fio does by default.
 - Each I/O is a read or a write at random, with the given share of reads. A sequential run keeps one offset for reads and one for writes.
 - A run stops after `file_size` bytes of reads and writes, as fio `--size` does, or after 2 minutes on a very slow disk.
+- A run also takes at least `duration`. A fast drive moves a small file in less than a second, and the drive state (write cache, garbage collection) then sets the result. The sequential result of a 1GB file at 2 GB/s varied by up to 2x between runs on the same host.
 
 The read and write values of each step come from the same run, and the UI compares them with the EIP-7870 recommendations. On a fast drive, the CPU time of the one thread can limit the result, as it does for fio. Thus these values can be lower than the drive datasheet. Probes before this change ran separate read and write workloads on 64 threads, so their values are higher. The UI marks them.
 

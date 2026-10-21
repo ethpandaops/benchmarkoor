@@ -117,8 +117,8 @@ func runAIOWorkload(
 
 	var nextRead, nextWrite, reads, writes, issued int64
 
-	// done tells if the workload has issued its ioBytes.
-	done := func() bool { return w.ioBytes > 0 && issued >= w.ioBytes }
+	// done tells if the workload has issued its ioBytes, for its minTime.
+	done := func() bool { return w.done(issued, start) }
 
 	prepare := func(slot int) {
 		issued += w.blockSize

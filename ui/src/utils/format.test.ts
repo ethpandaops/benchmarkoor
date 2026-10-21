@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatApproxBandwidth, formatApproxCount, formatBytes, formatDiskSize, withinTolerance } from './format'
+import {
+  formatApproxBandwidth,
+  formatApproxCount,
+  formatBytes,
+  formatDiskSize,
+  PROBE_TOLERANCE,
+  withinTolerance,
+} from './format'
 
 describe('formatBytes', () => {
   it('formats byte counts by magnitude', () => {
@@ -54,5 +61,12 @@ describe('withinTolerance', () => {
   it('handles zero', () => {
     expect(withinTolerance([0, 0])).toBe(true)
     expect(withinTolerance([0, 5])).toBe(false)
+  })
+
+  it('takes the sequential noise of one host, but not another drive', () => {
+    // benchmark-ci-9 measured 1,706 to 2,544 MB/s on the same drive.
+    expect(withinTolerance([1706e6, 2544e6], PROBE_TOLERANCE.sequential)).toBe(true)
+    // benchmark-ci-10 has a drive that tops out at about 1,100 MB/s.
+    expect(withinTolerance([1100e6, 2000e6], PROBE_TOLERANCE.sequential)).toBe(false)
   })
 })
