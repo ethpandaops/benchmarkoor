@@ -2,7 +2,13 @@ import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { getClientChartColor } from '@/utils/client-colors'
 import { formatDuration } from '@/utils/format'
-import { formatHistoryValue, HISTORY_METRIC_LABELS, type HistoryMetric, type HistoryPoint } from '@/utils/testHistory'
+import {
+  findRunGaps,
+  formatHistoryValue,
+  HISTORY_METRIC_LABELS,
+  type HistoryMetric,
+  type HistoryPoint,
+} from '@/utils/testHistory'
 
 export type HistoryXAxis = 'time' | 'runCount'
 
@@ -14,12 +20,17 @@ interface TestHistoryChartProps {
   onRunClick: (runId: string) => void
 }
 
-// Above this many points per client, the chart hides the symbols and adds a
-// zoom slider.
+// Above this many points, a client line has small symbols and a thin line,
+// and the chart adds a zoom slider.
 const LARGE_SERIES = 30
+// Above this many points, a client line hides its symbols. They would cover
+// the line.
+const DENSE_SERIES = 100
 
 // [x, value, runId, image, runStart, runNumber]
 type ChartDatum = [number, number, string, string, number, number]
+// A point with no value breaks the line.
+type GapDatum = [number, null]
 
 function capitalizeFirst(str: string): string {
   return str ? str.charAt(0).toUpperCase() + str.slice(1) : str
@@ -35,21 +46,63 @@ export function TestHistoryChart({ pointsByClient, metric, xAxis, isDark, onRunC
     const maxSeriesLength = Math.max(0, ...[...pointsByClient.values()].map((p) => p.length))
     const isLarge = maxSeriesLength > LARGE_SERIES
 
-    const series = [...pointsByClient.entries()].map(([client, points]) => ({
-      name: capitalizeFirst(client),
-      type: 'line' as const,
-      // Run #1 is the most recent run of the client.
-      data: points.map((p, i): ChartDatum => {
+    const series = [...pointsByClient.entries()].flatMap(([client, points]) => {
+      const large = points.length > LARGE_SERIES
+      const dense = points.length > DENSE_SERIES
+      // On the time axis, the line breaks at a gap of days between runs.
+      const gaps = xAxis === 'time' ? findRunGaps(points.map((p) => p.runStart)) : new Set<number>()
+      const data: (ChartDatum | GapDatum)[] = []
+      // The points with a gap on both sides. A line with hidden symbols does
+      // not show them, so a scatter series does.
+      const isolated: ChartDatum[] = []
+
+      points.forEach((p, i) => {
+        // Run #1 is the most recent run of the client.
         const runNumber = points.length - i
-        return [xAxis === 'time' ? p.runStart * 1000 : runNumber, p.value, p.runId, p.image ?? '', p.runStart, runNumber]
-      }),
-      showSymbol: !isLarge,
-      symbolSize: isLarge ? 4 : 7,
-      lineStyle: { width: isLarge ? 1.5 : 2 },
-      itemStyle: { color: getClientChartColor(client) },
-      emphasis: { focus: 'series' as const },
-      cursor: 'pointer',
-    }))
+        const datum: ChartDatum = [
+          xAxis === 'time' ? p.runStart * 1000 : runNumber,
+          p.value,
+          p.runId,
+          p.image ?? '',
+          p.runStart,
+          runNumber,
+        ]
+
+        if (gaps.has(i)) data.push([datum[0], null])
+        data.push(datum)
+
+        if ((i === 0 || gaps.has(i)) && (i === points.length - 1 || gaps.has(i + 1))) isolated.push(datum)
+      })
+
+      const name = capitalizeFirst(client)
+      const color = getClientChartColor(client)
+      const line = {
+        name,
+        type: 'line' as const,
+        data,
+        showSymbol: !dense,
+        symbolSize: large ? 4 : 7,
+        lineStyle: { width: large ? 1.5 : 2 },
+        itemStyle: { color },
+        emphasis: { focus: 'series' as const },
+        cursor: 'pointer',
+      }
+      if (!dense || isolated.length === 0) return [line]
+
+      // The same name, so the legend shows and hides both series together.
+      return [
+        line,
+        {
+          name,
+          type: 'scatter' as const,
+          data: isolated,
+          symbolSize: 5,
+          itemStyle: { color },
+          emphasis: { focus: 'series' as const },
+          cursor: 'pointer',
+        },
+      ]
+    })
 
     const xAxisConfig =
       xAxis === 'time'
