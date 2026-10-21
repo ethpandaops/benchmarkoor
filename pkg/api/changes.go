@@ -83,6 +83,10 @@ type baselineComparison struct {
 	// or 0 when no run has a time. For an invalid-payload test it is the
 	// time to reject.
 	DurationNs float64 `json:"duration_ns"`
+	// LastRunID and LastRunStart are the last run before the step. The UI
+	// compares its config with the first run since the step.
+	LastRunID    string `json:"last_run_id"`
+	LastRunStart int64  `json:"last_run_start"`
 }
 
 type clientChange struct {
@@ -319,6 +323,8 @@ func compareWithBaseline(points []seriesPoint) (changeStep, baselineComparison, 
 
 	since := points[step:]
 	baseline.DurationNs = medianDuration(points[step-baseline.Runs : step])
+	baseline.LastRunID = points[step-1].runID
+	baseline.LastRunStart = points[step-1].runStart
 
 	return changeStep{
 		RunID:      since[0].runID,

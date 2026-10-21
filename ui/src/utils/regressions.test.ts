@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import type { RunDuration, SuiteStats } from '@/api/types'
-import { buildSuiteChanges, classifyChange, findTestChanges, NOISE_FACTOR, type ChangeOptions } from './regressions'
+import {
+  buildSuiteChanges,
+  classifyChange,
+  findTestChanges,
+  NOISE_FACTOR,
+  sameHostCandidates,
+  type ChangeOptions,
+} from './regressions'
 import { compareWithBaseline, type HistoryPoint } from './testHistory'
 
 const ALL = { threshold: 10, minDurationMs: 0 }
@@ -167,6 +174,7 @@ describe('findTestChanges', () => {
       ['test_a', 'geth', 'regression'],
     ])
     expect(changes[0].step.run_id).toBe('geth-5')
+    expect(changes[0].baseline.last_run_id).toBe('geth-4')
     expect(changes[0].baseline.change).toBeCloseTo(-50)
   })
 
@@ -239,5 +247,28 @@ describe('findTestChanges', () => {
     const stats: SuiteStats = { 'test_a': { durations: runsAt('geth', [100, 100, 50]) } }
 
     expect(changesOf(stats, ALL)).toEqual([])
+  })
+})
+
+describe('sameHostCandidates', () => {
+  const durations = [
+    { id: 'g1', client: 'geth', run_start: 1 },
+    { id: 'r1', client: 'reth', run_start: 2 },
+    { id: 'g3', client: 'geth', run_start: 3 },
+    { id: 'g2', client: 'geth', run_start: 2 },
+    { id: 'g4', client: 'geth', run_start: 4 },
+    { id: 'g5', client: 'geth', run_start: 5 },
+  ]
+
+  it('lists the runs of the client before the step, newest first, without the last run', () => {
+    expect(sameHostCandidates(durations, 'geth', 'g4', 'g3')).toEqual(['g2', 'g1'])
+  })
+
+  it('stops at the limit', () => {
+    expect(sameHostCandidates(durations, 'geth', 'g5', 'g4', 2)).toEqual(['g3', 'g2'])
+  })
+
+  it('is empty when the step run is not in the history', () => {
+    expect(sameHostCandidates(durations, 'geth', 'gone', 'g4')).toEqual([])
   })
 })

@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
-import { History } from 'lucide-react'
+import { ChevronRight, History } from 'lucide-react'
 import { ClientBadge } from '@/components/shared/ClientBadge'
 import { Pagination } from '@/components/shared/Pagination'
 import { SegmentedControl } from '@/components/shared/SegmentedControl'
 import { TestName } from '@/components/shared/TestName'
+import { RegressionDetail } from './RegressionDetail'
 import { formatDuration } from '@/utils/format'
 import {
   MIN_DURATION_OPTIONS_MS,
@@ -63,6 +64,16 @@ export function RegressionsPanel({
 }: RegressionsPanelProps) {
   const [selectedClients, setSelectedClients] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
+  // Rows open to show the config diff, keyed by test and client.
+  const [openRows, setOpenRows] = useState<Set<string>>(new Set())
+
+  const toggleRow = (key: string) =>
+    setOpenRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   const inDirection = useMemo(() => changes.filter((c) => c.direction === direction), [changes, direction])
 
@@ -204,11 +215,16 @@ export function RegressionsPanel({
         </p>
       ) : (
         <div className="flex flex-col gap-4 pb-4">
-          <div className="overflow-x-auto">
+          {/* The container query lets an open row's detail take the visible
+              width, not the width of the scrolled table. */}
+          <div className="@container overflow-x-auto">
             <table className="min-w-full text-sm/6">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-xs/5 font-medium text-gray-500 uppercase dark:border-gray-700 dark:text-gray-400">
-                  <th className="py-2 pr-2 pl-4">Client</th>
+                  <th className="py-2 pr-0 pl-2">
+                    <span className="sr-only">Details</span>
+                  </th>
+                  <th className="py-2 pr-2 pl-2">Client</th>
                   <th className="px-2 py-2 text-right">Change</th>
                   <th className="px-2 py-2">Test</th>
                   <th className="px-2 py-2 text-right">Now</th>
@@ -218,82 +234,108 @@ export function RegressionsPanel({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                {pagedRows.map((c) => (
-                  <tr key={`${c.testName}\0${c.client}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="py-1.5 pr-2 pl-4">
-                      <ClientBadge client={c.client} />
-                    </td>
-                    <td
-                      className="px-2 py-1.5 text-right"
-                      title={`Normal spread ±${c.baseline.noise.toFixed(1)}%, so the change must be at least ${significantChange(c.baseline, threshold).toFixed(1)}%`}
-                    >
-                      <span
-                        className={clsx(
-                          'rounded-xs px-1.5 py-0.5 font-mono text-xs/5 font-medium',
-                          c.direction === 'regression'
-                            ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300'
-                            : 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300',
-                        )}
-                      >
-                        {c.baseline.change > 0 ? '+' : ''}
-                        {c.baseline.change.toFixed(1)}%
-                      </span>
-                    </td>
-                    <td className="max-w-md min-w-64 px-2 py-1.5">
-                      <TestName name={c.testName} />
-                    </td>
-                    <td
-                      className="px-2 py-1.5 text-right font-mono whitespace-nowrap text-gray-900 dark:text-gray-100"
-                      title={`Median ${HISTORY_METRIC_LABELS[c.metric]} of the ${c.step.runs} runs since the step`}
-                    >
-                      {formatHistoryValue(c.step.median, c.metric)}
-                      {c.metric === 'mgas' && (
-                        <div className="text-xs/5 text-gray-500 dark:text-gray-400">{formatDuration(c.step.duration_ns)}</div>
+                {pagedRows.map((c) => {
+                  const key = `${c.testName}\0${c.client}`
+                  const open = openRows.has(key)
+                  return (
+                    <Fragment key={key}>
+                      <tr className={clsx('hover:bg-gray-50 dark:hover:bg-gray-700/50', open && 'bg-gray-50 dark:bg-gray-700/30')}>
+                        <td className="py-1.5 pr-0 pl-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleRow(key)}
+                            aria-expanded={open}
+                            title={open ? 'Hide the config diff' : 'Show the config diff to the run before the step'}
+                            className="rounded-xs p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-600 dark:hover:text-gray-100"
+                          >
+                            <ChevronRight className={clsx('size-4 transition-transform', open && 'rotate-90')} />
+                          </button>
+                        </td>
+                        <td className="py-1.5 pr-2 pl-2">
+                          <ClientBadge client={c.client} />
+                        </td>
+                        <td
+                          className="px-2 py-1.5 text-right"
+                          title={`Normal spread ±${c.baseline.noise.toFixed(1)}%, so the change must be at least ${significantChange(c.baseline, threshold).toFixed(1)}%`}
+                        >
+                          <span
+                            className={clsx(
+                              'rounded-xs px-1.5 py-0.5 font-mono text-xs/5 font-medium',
+                              c.direction === 'regression'
+                                ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300'
+                                : 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300',
+                            )}
+                          >
+                            {c.baseline.change > 0 ? '+' : ''}
+                            {c.baseline.change.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="max-w-md min-w-64 px-2 py-1.5">
+                          <TestName name={c.testName} />
+                        </td>
+                        <td
+                          className="px-2 py-1.5 text-right font-mono whitespace-nowrap text-gray-900 dark:text-gray-100"
+                          title={`Median ${HISTORY_METRIC_LABELS[c.metric]} of the ${c.step.runs} runs since the step`}
+                        >
+                          {formatHistoryValue(c.step.median, c.metric)}
+                          {c.metric === 'mgas' && (
+                            <div className="text-xs/5 text-gray-500 dark:text-gray-400">{formatDuration(c.step.duration_ns)}</div>
+                          )}
+                        </td>
+                        <td
+                          className="px-2 py-1.5 text-right font-mono whitespace-nowrap text-gray-500 dark:text-gray-400"
+                          title={`Median of the ${c.baseline.runs} runs before the step`}
+                        >
+                          {formatHistoryValue(c.baseline.median, c.metric)}
+                          {c.metric === 'mgas' && (
+                            <div className="text-xs/5 text-gray-500 dark:text-gray-400">{formatDuration(c.baseline.duration_ns)}</div>
+                          )}
+                        </td>
+                        <td className="px-2 py-1.5 whitespace-nowrap">
+                          <Link
+                            to="/runs/$runId"
+                            params={{ runId: c.step.run_id }}
+                            search={{ testModal: c.testName }}
+                            className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                            title="Open the first run since the step"
+                          >
+                            {new Date(c.step.run_start * 1000).toLocaleString()}
+                          </Link>
+                          <div className="text-xs/5 text-gray-500 dark:text-gray-400">
+                            {c.step.runs === 1 ? 'latest run only' : `${c.step.runs} runs`}
+                          </div>
+                        </td>
+                        <td className="px-4 py-1.5 text-right">
+                          <Link
+                            to="/suites/$suiteHash/history"
+                            params={{ suiteHash }}
+                            search={{
+                              test: c.testName,
+                              steps,
+                              metric: c.metric === 'mgas' ? undefined : c.metric,
+                              clients: c.client,
+                              w: stepWindow === DEFAULT_CHANGE_WINDOW ? undefined : stepWindow,
+                            }}
+                            className="inline-flex items-center gap-1 text-xs/5 font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                            title={`Show the history of this test for ${c.client}`}
+                          >
+                            <History className="size-4" />
+                            History
+                          </Link>
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="bg-gray-50 dark:bg-gray-900/30">
+                          <td colSpan={8} className="p-0">
+                            <div className="sticky left-0 w-[100cqw]">
+                              <RegressionDetail change={c} suiteHash={suiteHash} steps={steps} stepWindow={stepWindow} />
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td
-                      className="px-2 py-1.5 text-right font-mono whitespace-nowrap text-gray-500 dark:text-gray-400"
-                      title={`Median of the ${c.baseline.runs} runs before the step`}
-                    >
-                      {formatHistoryValue(c.baseline.median, c.metric)}
-                      {c.metric === 'mgas' && (
-                        <div className="text-xs/5 text-gray-500 dark:text-gray-400">{formatDuration(c.baseline.duration_ns)}</div>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5 whitespace-nowrap">
-                      <Link
-                        to="/runs/$runId"
-                        params={{ runId: c.step.run_id }}
-                        search={{ testModal: c.testName }}
-                        className="text-xs/5 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                        title="Open the first run since the step"
-                      >
-                        {new Date(c.step.run_start * 1000).toLocaleString()}
-                      </Link>
-                      <div className="text-xs/5 text-gray-500 dark:text-gray-400">
-                        {c.step.runs === 1 ? 'latest run only' : `${c.step.runs} runs`}
-                      </div>
-                    </td>
-                    <td className="px-4 py-1.5 text-right">
-                      <Link
-                        to="/suites/$suiteHash/history"
-                        params={{ suiteHash }}
-                        search={{
-                          test: c.testName,
-                          steps,
-                          metric: c.metric === 'mgas' ? undefined : c.metric,
-                          clients: c.client,
-                          w: stepWindow === DEFAULT_CHANGE_WINDOW ? undefined : stepWindow,
-                        }}
-                        className="inline-flex items-center gap-1 text-xs/5 font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                        title={`Show the history of this test for ${c.client}`}
-                      >
-                        <History className="size-4" />
-                        History
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  )
+                })}
               </tbody>
             </table>
           </div>

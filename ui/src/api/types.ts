@@ -587,7 +587,6 @@ export interface TestHistory {
   durations: TestHistoryDuration[]
 }
 
-// The latest run of a client in /index/suites/{hash}/changes.
 // The latest level of a client and test: the runs since its last step.
 export interface ChangeStep {
   // The first run of the level.
@@ -612,6 +611,9 @@ export interface BaselineStats {
   noise: number
   // Median time of the selected steps, or 0 when no run has one.
   duration_ns: number
+  // The last run before the step.
+  last_run_id: string
+  last_run_start: number
 }
 
 export interface ClientChange {

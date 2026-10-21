@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import clsx from 'clsx'
 import { Settings, ChevronDown } from 'lucide-react'
 import type { InstanceConfig } from '@/api/types'
@@ -17,14 +17,33 @@ import { type CompareRun, type LabelMode, RUN_SLOTS, formatRunLabel } from './co
 interface ConfigDiffProps {
   runs: CompareRun[]
   labelMode: LabelMode
+  // Column headers in place of "Run A", "Run B", ...
+  labels?: string[]
+  // Show only the rows that differ.
+  onlyDifferences?: boolean
 }
+
+const OnlyDifferencesContext = createContext(false)
+
+// A row that differs carries data-diff. With only the differences shown, CSS
+// hides the other rows, a section with no row left, and the whole table when
+// nothing differs.
+const sectionClass = (onlyDifferences: boolean) =>
+  clsx(
+    'divide-y divide-gray-100 dark:divide-gray-700/50',
+    onlyDifferences && '[&:not(:has(tr[data-diff]))]:hidden',
+  )
 
 // same overrides the text comparison, for measured values that change a
 // little on each run.
 function DiffRow({ label, values, same }: { label: string; values: string[]; same?: boolean }) {
+  const onlyDifferences = useContext(OnlyDifferencesContext)
   const allSame = same ?? values.every((v) => v === values[0])
   return (
-    <tr className={clsx(!allSame && 'bg-yellow-50/50 dark:bg-yellow-900/10')}>
+    <tr
+      data-diff={allSame ? undefined : ''}
+      className={clsx(!allSame && 'bg-yellow-50/50 dark:bg-yellow-900/10', onlyDifferences && allSame && 'hidden')}
+    >
       <td className="px-3 py-1.5 text-xs/5 font-medium text-gray-500 dark:text-gray-400">{label}</td>
       {values.map((val, i) => {
         const slot = RUN_SLOTS[i]
@@ -51,7 +70,7 @@ function diskLimitsKey(inst: InstanceConfig): string {
   ].join('|')
 }
 
-export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
+export function ConfigDiff({ runs, labelMode, labels, onlyDifferences = false }: ConfigDiffProps) {
   const [expanded, setExpanded] = useState(true)
 
   const instances = runs.map((r) => r.config.instance)
@@ -98,167 +117,176 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
         <ChevronDown className={clsx('size-5 shrink-0 text-gray-500 transition-transform', expanded && 'rotate-180')} />
       </button>
       {expanded && (
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b border-gray-200 dark:border-gray-700">
-                <th className="px-3 py-2 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Field</th>
-                {runs.map((run) => {
-                  const slot = RUN_SLOTS[run.index]
-                  return (
-                    <th key={slot.label} className={clsx('px-3 py-2 text-left text-xs/5 font-medium uppercase tracking-wider', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
-                      <span title={formatRunLabel(slot, run, labelMode)}>Run {slot.label}</span>
-                    </th>
-                  )
-                })}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-              {/* Instance */}
-              <tr><td colSpan={colCount} className="px-3 pt-3 pb-1 text-xs/5 font-semibold uppercase tracking-wider text-gray-900 dark:text-gray-100">Instance</td></tr>
-              <DiffRow label="Client" values={instances.map((i) => i.client)} />
-              <DiffRow label="Image" values={instances.map((i) => i.image)} />
-              {instances.some((i) => i.image_sha256) && (
-                <DiffRow label="Image SHA256" values={instances.map((i) => i.image_sha256 ?? '')} />
-              )}
-              {instances.some((i) => i.client_version) && (
-                <DiffRow label="Client Version" values={instances.map((i) => i.client_version ?? '')} />
-              )}
-              {instances.some((i) => i.container_runtime) && (
-                <DiffRow label="Container Runtime" values={instances.map((i) => i.container_runtime ?? '')} />
-              )}
-              {instances.some((i) => i.entrypoint) && (
-                <DiffRow label="Entrypoint" values={instances.map((i) => i.entrypoint?.join(' ') ?? '')} />
-              )}
-              {instances.some((i) => i.command) && (
-                <DiffRow label="Command" values={instances.map((i) => i.command?.join(' ') ?? '')} />
-              )}
-              {instances.some((i) => i.extra_args) && (
-                <DiffRow label="Extra Args" values={instances.map((i) => i.extra_args?.join(' ') ?? '')} />
-              )}
-              {instances.some((i) => i.rollback_strategy) && (
-                <DiffRow label="Rollback Strategy" values={instances.map((i) => i.rollback_strategy ?? 'none')} />
-              )}
-              {instances.some((i) => i.retry_new_payloads_syncing_state) && (
-                <DiffRow
-                  label="Retry on SYNCING"
-                  values={instances.map((i) => {
-                    const r = i.retry_new_payloads_syncing_state
-                    if (!r || !r.enabled) return 'disabled'
-                    return `enabled (max=${r.max_retries}, backoff=${r.backoff})`
+        <OnlyDifferencesContext.Provider value={onlyDifferences}>
+          <div className="group/diff overflow-x-auto">
+            {onlyDifferences && (
+              <p className="px-4 py-3 text-xs/5 text-gray-500 group-has-[tr[data-diff]]/diff:hidden dark:text-gray-400">
+                The configurations are the same.
+              </p>
+            )}
+            <table className={clsx('min-w-full', onlyDifferences && '[&:not(:has(tr[data-diff]))]:hidden')}>
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="px-3 py-2 text-left text-xs/5 font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Field</th>
+                  {runs.map((run) => {
+                    const slot = RUN_SLOTS[run.index]
+                    return (
+                      <th key={slot.label} className={clsx('px-3 py-2 text-left text-xs/5 font-medium uppercase tracking-wider', slot.textClass, `dark:${slot.textDarkClass.replace('text-', 'text-')}`)}>
+                        <span title={formatRunLabel(slot, run, labelMode)}>{labels?.[run.index] ?? `Run ${slot.label}`}</span>
+                      </th>
+                    )
                   })}
-                />
-              )}
-              {instances.some((i) => i.retry_new_payloads_failed_state) && (
-                <DiffRow
-                  label="Retry on Failure"
-                  values={instances.map((i) => {
-                    const r = i.retry_new_payloads_failed_state
-                    if (!r || !r.enabled) return 'disabled'
-                    return `enabled (max=${r.max_retries}, backoff=${r.backoff})`
-                  })}
-                />
-              )}
-              {instances.some((i) => i.environment) && (
-                <DiffRow
-                  label="Environment"
-                  values={instances.map((i) => i.environment ? Object.entries(i.environment).map(([k, v]) => `${k}=${v}`).join(', ') : '')}
-                />
-              )}
-              {instances.some((i) => i.datadir) && (
-                <>
-                  <DiffRow label="Data Dir Source" values={instances.map((i) => i.datadir?.source_dir ?? '')} />
-                  <DiffRow label="Data Dir Method" values={instances.map((i) => i.datadir?.method ?? '')} />
-                </>
-              )}
-
-              {/* System Info */}
-              <tr><td colSpan={colCount} className="px-3 pt-4 pb-1 text-xs/5 font-semibold uppercase tracking-wider text-gray-900 dark:text-gray-100">System</td></tr>
-              <DiffRow label="Hostname" values={systems.map((s) => s.hostname)} />
-              <DiffRow label="OS" values={systems.map((s) => `${s.platform} ${s.platform_version}`)} />
-              <DiffRow label="Kernel" values={systems.map((s) => s.kernel_version)} />
-              <DiffRow label="Arch" values={systems.map((s) => s.arch)} />
-              <DiffRow label="CPU Model" values={systems.map((s) => s.cpu_model)} />
-              <DiffRow label="CPU Cores" values={systems.map((s) => String(s.cpu_cores))} />
-              {systems.some((s) => s.cpu_threads !== undefined) && (
-                <DiffRow label="CPU Threads" values={systems.map((s) => s.cpu_threads !== undefined ? String(s.cpu_threads) : '')} />
-              )}
-              <DiffRow label="CPU MHz" values={systems.map((s) => s.cpu_mhz.toFixed(0))} />
-              <DiffRow label="Memory" values={systems.map((s) => `${s.memory_total_gb.toFixed(1)} GB`)} />
-              {systems.some((s) => s.storage?.device) && (
-                <DiffRow
-                  label="Storage Device"
-                  values={systems.map((s) => {
-                    const d = s.storage?.device
-                    return d ? [d.path, d.kind, d.model].filter(Boolean).join(' · ') : ''
-                  })}
-                />
-              )}
-              {systems.some((s) => s.storage?.device?.size_bytes) && (
-                <DiffRow
-                  label="Storage Size"
-                  values={systems.map((s) => {
-                    const size = s.storage?.device?.size_bytes
-                    return size ? formatDiskSize(size) : ''
-                  })}
-                />
-              )}
-              {systems.some((s) => s.storage?.filesystem) && (
-                <DiffRow
-                  label="Filesystem"
-                  values={systems.map((s) => {
-                    const st = s.storage
-                    if (!st?.filesystem) return ''
-                    return st.partition ? `${st.filesystem} on ${st.partition}` : st.filesystem
-                  })}
-                />
-              )}
-              {/* A probe row shows a difference only above the measurement tolerance. */}
-              {systems.some((s) => s.storage?.probe) && (
-                <>
+                </tr>
+              </thead>
+              <tbody className={sectionClass(onlyDifferences)}>
+                {/* Instance */}
+                <tr><td colSpan={colCount} className="px-3 pt-3 pb-1 text-xs/5 font-semibold uppercase tracking-wider text-gray-900 dark:text-gray-100">Instance</td></tr>
+                <DiffRow label="Client" values={instances.map((i) => i.client)} />
+                <DiffRow label="Image" values={instances.map((i) => i.image)} />
+                {instances.some((i) => i.image_sha256) && (
+                  <DiffRow label="Image SHA256" values={instances.map((i) => i.image_sha256 ?? '')} />
+                )}
+                {instances.some((i) => i.client_version) && (
+                  <DiffRow label="Client Version" values={instances.map((i) => i.client_version ?? '')} />
+                )}
+                {instances.some((i) => i.container_runtime) && (
+                  <DiffRow label="Container Runtime" values={instances.map((i) => i.container_runtime ?? '')} />
+                )}
+                {instances.some((i) => i.entrypoint) && (
+                  <DiffRow label="Entrypoint" values={instances.map((i) => i.entrypoint?.join(' ') ?? '')} />
+                )}
+                {instances.some((i) => i.command) && (
+                  <DiffRow label="Command" values={instances.map((i) => i.command?.join(' ') ?? '')} />
+                )}
+                {instances.some((i) => i.extra_args) && (
+                  <DiffRow label="Extra Args" values={instances.map((i) => i.extra_args?.join(' ') ?? '')} />
+                )}
+                {instances.some((i) => i.rollback_strategy) && (
+                  <DiffRow label="Rollback Strategy" values={instances.map((i) => i.rollback_strategy ?? 'none')} />
+                )}
+                {instances.some((i) => i.retry_new_payloads_syncing_state) && (
                   <DiffRow
-                    label="Disk Random IOPS (R/W)"
-                    values={systems.map((s) => {
-                      const p = s.storage?.probe
-                      return p ? `${formatApproxCount(p.rand_read_iops)} / ${formatApproxCount(p.rand_write_iops)}` : ''
+                    label="Retry on SYNCING"
+                    values={instances.map((i) => {
+                      const r = i.retry_new_payloads_syncing_state
+                      if (!r || !r.enabled) return 'disabled'
+                      return `enabled (max=${r.max_retries}, backoff=${r.backoff})`
                     })}
-                    same={
-                      withinTolerance(systems.map((s) => s.storage?.probe?.rand_read_iops))
-                      && withinTolerance(systems.map((s) => s.storage?.probe?.rand_write_iops))
-                    }
                   />
-                  {systems.some((s) => s.storage?.probe?.qd1_rand_read) && (
+                )}
+                {instances.some((i) => i.retry_new_payloads_failed_state) && (
+                  <DiffRow
+                    label="Retry on Failure"
+                    values={instances.map((i) => {
+                      const r = i.retry_new_payloads_failed_state
+                      if (!r || !r.enabled) return 'disabled'
+                      return `enabled (max=${r.max_retries}, backoff=${r.backoff})`
+                    })}
+                  />
+                )}
+                {instances.some((i) => i.environment) && (
+                  <DiffRow
+                    label="Environment"
+                    values={instances.map((i) => i.environment ? Object.entries(i.environment).map(([k, v]) => `${k}=${v}`).join(', ') : '')}
+                  />
+                )}
+                {instances.some((i) => i.datadir) && (
+                  <>
+                    <DiffRow label="Data Dir Source" values={instances.map((i) => i.datadir?.source_dir ?? '')} />
+                    <DiffRow label="Data Dir Method" values={instances.map((i) => i.datadir?.method ?? '')} />
+                  </>
+                )}
+
+              </tbody>
+              <tbody className={sectionClass(onlyDifferences)}>
+                {/* System Info */}
+                <tr><td colSpan={colCount} className="px-3 pt-4 pb-1 text-xs/5 font-semibold uppercase tracking-wider text-gray-900 dark:text-gray-100">System</td></tr>
+                <DiffRow label="Hostname" values={systems.map((s) => s.hostname)} />
+                <DiffRow label="OS" values={systems.map((s) => `${s.platform} ${s.platform_version}`)} />
+                <DiffRow label="Kernel" values={systems.map((s) => s.kernel_version)} />
+                <DiffRow label="Arch" values={systems.map((s) => s.arch)} />
+                <DiffRow label="CPU Model" values={systems.map((s) => s.cpu_model)} />
+                <DiffRow label="CPU Cores" values={systems.map((s) => String(s.cpu_cores))} />
+                {systems.some((s) => s.cpu_threads !== undefined) && (
+                  <DiffRow label="CPU Threads" values={systems.map((s) => s.cpu_threads !== undefined ? String(s.cpu_threads) : '')} />
+                )}
+                <DiffRow label="CPU MHz" values={systems.map((s) => s.cpu_mhz.toFixed(0))} />
+                <DiffRow label="Memory" values={systems.map((s) => `${s.memory_total_gb.toFixed(1)} GB`)} />
+                {systems.some((s) => s.storage?.device) && (
+                  <DiffRow
+                    label="Storage Device"
+                    values={systems.map((s) => {
+                      const d = s.storage?.device
+                      return d ? [d.path, d.kind, d.model].filter(Boolean).join(' · ') : ''
+                    })}
+                  />
+                )}
+                {systems.some((s) => s.storage?.device?.size_bytes) && (
+                  <DiffRow
+                    label="Storage Size"
+                    values={systems.map((s) => {
+                      const size = s.storage?.device?.size_bytes
+                      return size ? formatDiskSize(size) : ''
+                    })}
+                  />
+                )}
+                {systems.some((s) => s.storage?.filesystem) && (
+                  <DiffRow
+                    label="Filesystem"
+                    values={systems.map((s) => {
+                      const st = s.storage
+                      if (!st?.filesystem) return ''
+                      return st.partition ? `${st.filesystem} on ${st.partition}` : st.filesystem
+                    })}
+                  />
+                )}
+                {/* A probe row shows a difference only above the measurement tolerance. */}
+                {systems.some((s) => s.storage?.probe) && (
+                  <>
                     <DiffRow
-                      label="Disk QD1 Random IOPS (R/W)"
+                      label="Disk Random IOPS (R/W)"
                       values={systems.map((s) => {
                         const p = s.storage?.probe
-                        return p?.qd1_rand_read && p.qd1_rand_write
-                          ? `${formatApproxCount(p.qd1_rand_read.iops)} / ${formatApproxCount(p.qd1_rand_write.iops)}`
-                          : ''
+                        return p ? `${formatApproxCount(p.rand_read_iops)} / ${formatApproxCount(p.rand_write_iops)}` : ''
                       })}
                       same={
-                        withinTolerance(systems.map((s) => s.storage?.probe?.qd1_rand_read?.iops))
-                        && withinTolerance(systems.map((s) => s.storage?.probe?.qd1_rand_write?.iops))
+                        withinTolerance(systems.map((s) => s.storage?.probe?.rand_read_iops))
+                        && withinTolerance(systems.map((s) => s.storage?.probe?.rand_write_iops))
                       }
                     />
-                  )}
-                  <DiffRow
-                    label="Disk Sequential (R/W)"
-                    values={systems.map((s) => {
-                      const p = s.storage?.probe
-                      return p ? `${formatApproxBandwidth(p.seq_read_bps)} / ${formatApproxBandwidth(p.seq_write_bps)}` : ''
-                    })}
-                    same={
-                      withinTolerance(systems.map((s) => s.storage?.probe?.seq_read_bps))
-                      && withinTolerance(systems.map((s) => s.storage?.probe?.seq_write_bps))
-                    }
-                  />
-                </>
-              )}
+                    {systems.some((s) => s.storage?.probe?.qd1_rand_read) && (
+                      <DiffRow
+                        label="Disk QD1 Random IOPS (R/W)"
+                        values={systems.map((s) => {
+                          const p = s.storage?.probe
+                          return p?.qd1_rand_read && p.qd1_rand_write
+                            ? `${formatApproxCount(p.qd1_rand_read.iops)} / ${formatApproxCount(p.qd1_rand_write.iops)}`
+                            : ''
+                        })}
+                        same={
+                          withinTolerance(systems.map((s) => s.storage?.probe?.qd1_rand_read?.iops))
+                          && withinTolerance(systems.map((s) => s.storage?.probe?.qd1_rand_write?.iops))
+                        }
+                      />
+                    )}
+                    <DiffRow
+                      label="Disk Sequential (R/W)"
+                      values={systems.map((s) => {
+                        const p = s.storage?.probe
+                        return p ? `${formatApproxBandwidth(p.seq_read_bps)} / ${formatApproxBandwidth(p.seq_write_bps)}` : ''
+                      })}
+                      same={
+                        withinTolerance(systems.map((s) => s.storage?.probe?.seq_read_bps))
+                        && withinTolerance(systems.map((s) => s.storage?.probe?.seq_write_bps))
+                      }
+                    />
+                  </>
+                )}
+              </tbody>
 
               {/* Resource Limits */}
               {instances.some((i) => i.resource_limits) && (
-                <>
+                <tbody className={sectionClass(onlyDifferences)}>
                   <tr><td colSpan={colCount} className="px-3 pt-4 pb-1 text-xs/5 font-semibold uppercase tracking-wider text-gray-900 dark:text-gray-100">Resource Limits</td></tr>
                   <DiffRow
                     label="CPU Pinning"
@@ -322,12 +350,12 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
                       })}
                     />
                   )}
-                </>
+                </tbody>
               )}
 
               {/* Start Block */}
               {runs.some((r) => r.config.start_block) && (
-                <>
+                <tbody className={sectionClass(onlyDifferences)}>
                   <tr><td colSpan={colCount} className="px-3 pt-4 pb-1 text-xs/5 font-semibold uppercase tracking-wider text-gray-900 dark:text-gray-100">Start Block</td></tr>
                   <DiffRow
                     label="Number"
@@ -337,11 +365,11 @@ export function ConfigDiff({ runs, labelMode }: ConfigDiffProps) {
                     label="Hash"
                     values={runs.map((r) => r.config.start_block?.hash ?? '')}
                   />
-                </>
+                </tbody>
               )}
-            </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        </OnlyDifferencesContext.Provider>
       )}
     </div>
   )

@@ -60,6 +60,8 @@ func TestCompareWithBaseline(t *testing.T) {
 		require.True(t, ok)
 
 		assert.Equal(t, "run-20", step.RunID)
+		assert.Equal(t, "run-19", baseline.LastRunID)
+		assert.Equal(t, int64(19), baseline.LastRunStart)
 		assert.Equal(t, 10, step.Runs)
 		assert.InDelta(t, 70, step.Median, 1e-9)
 		assert.InDelta(t, 100, baseline.Median, 1e-9)

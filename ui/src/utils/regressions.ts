@@ -124,6 +124,8 @@ export function buildSuiteChanges(
         },
         baseline: {
           ...baseline,
+          last_run_id: before[before.length - 1].runId,
+          last_run_start: before[before.length - 1].runStart,
           duration_ns: medianDuration(
             before.map((p) => p.runId),
             durationByRun,
@@ -167,4 +169,32 @@ export function findTestChanges(
 function severity(change: TestChange): number {
   const ratio = 1 + change.baseline.change / 100
   return Math.abs(Math.log(ratio))
+}
+
+// The most runs before a step that the search for a run on the same host
+// reads. Each one is a config.json download.
+export const MAX_SAME_HOST_LOOKBACK = 20
+
+// Returns the runs of a client before the step run, newest first, and leaves
+// out the last run before the step, which the caller already has. These are
+// the runs to search for a run on the same host as the step run.
+export function sameHostCandidates(
+  durations: { id: string; client: string; run_start: number }[],
+  client: string,
+  stepRunId: string,
+  lastRunId: string,
+  max: number = MAX_SAME_HOST_LOOKBACK,
+): string[] {
+  const runs = durations
+    .filter((d) => d.client === client)
+    .sort((a, b) => a.run_start - b.run_start || a.id.localeCompare(b.id))
+  const stepIndex = runs.findIndex((d) => d.id === stepRunId)
+  if (stepIndex < 0) return []
+
+  return runs
+    .slice(0, stepIndex)
+    .reverse()
+    .map((d) => d.id)
+    .filter((id) => id !== lastRunId)
+    .slice(0, max)
 }
