@@ -44,9 +44,11 @@ import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constan
 import { useAuth } from '@/hooks/useAuth'
 import {
   DEFAULT_MIN_DURATION_MS,
+  DEFAULT_MIN_GAS_M,
   DEFAULT_REGRESSION_THRESHOLD,
   findTestChanges,
   MIN_DURATION_OPTIONS_MS,
+  MIN_GAS_OPTIONS_M,
   REGRESSION_THRESHOLD_OPTIONS,
   type ChangeDirection,
 } from '@/utils/regressions'
@@ -314,6 +316,7 @@ export function SuiteDetailPage() {
     psOrder?: 'index' | 'size'
     psEncoding?: 'ssz' | 'json'
     rth?: number
+    rgas?: number
     rmin?: number
     rdir?: ChangeDirection
     rwin?: number
@@ -336,6 +339,9 @@ export function SuiteDetailPage() {
   )
     ? search.rth!
     : DEFAULT_REGRESSION_THRESHOLD
+  const regressionMinGasM = MIN_GAS_OPTIONS_M.includes(search.rgas as (typeof MIN_GAS_OPTIONS_M)[number])
+    ? search.rgas!
+    : DEFAULT_MIN_GAS_M
   const regressionMinDurationMs = MIN_DURATION_OPTIONS_MS.includes(
     search.rmin as (typeof MIN_DURATION_OPTIONS_MS)[number],
   )
@@ -595,9 +601,13 @@ export function SuiteDetailPage() {
   const testChanges = useMemo(
     () =>
       suiteChanges
-        ? findTestChanges(suiteChanges, { threshold: regressionThreshold, minDurationMs: regressionMinDurationMs })
+        ? findTestChanges(suiteChanges, {
+            threshold: regressionThreshold,
+            minGasM: regressionMinGasM,
+            minDurationMs: regressionMinDurationMs,
+          })
         : [],
-    [suiteChanges, regressionThreshold, regressionMinDurationMs],
+    [suiteChanges, regressionThreshold, regressionMinGasM, regressionMinDurationMs],
   )
   const regressionCount = useMemo(() => testChanges.filter((c) => c.direction === 'regression').length, [testChanges])
 
@@ -737,7 +747,7 @@ export function SuiteDetailPage() {
 
   // The regression settings live in the URL. A default value is left out.
   // The other params stay, so the filters of the other tabs survive.
-  const updateRegressionSearch = (patch: Pick<typeof search, 'rth' | 'rmin' | 'rdir' | 'rwin'>) => {
+  const updateRegressionSearch = (patch: Pick<typeof search, 'rth' | 'rgas' | 'rmin' | 'rdir' | 'rwin'>) => {
     navigate({
       to: '/suites/$suiteHash',
       params: { suiteHash },
@@ -751,6 +761,9 @@ export function SuiteDetailPage() {
 
   const handleRegressionDirectionChange = (direction: ChangeDirection) =>
     updateRegressionSearch({ rdir: direction === 'regression' ? undefined : direction })
+
+  const handleRegressionMinGasChange = (minGasM: number) =>
+    updateRegressionSearch({ rgas: minGasM === DEFAULT_MIN_GAS_M ? undefined : minGasM })
 
   const handleRegressionMinDurationChange = (minDurationMs: number) =>
     updateRegressionSearch({ rmin: minDurationMs === DEFAULT_MIN_DURATION_MS ? undefined : minDurationMs })
@@ -1591,6 +1604,8 @@ export function SuiteDetailPage() {
                 steps={search.steps}
                 threshold={regressionThreshold}
                 onThresholdChange={handleRegressionThresholdChange}
+                minGasM={regressionMinGasM}
+                onMinGasChange={handleRegressionMinGasChange}
                 minDurationMs={regressionMinDurationMs}
                 onMinDurationChange={handleRegressionMinDurationChange}
                 direction={regressionDirection}

@@ -82,6 +82,24 @@ func TestCompareWithBaseline(t *testing.T) {
 		assert.InDelta(t, -20, baseline.Change, 1e-9)
 	})
 
+	t.Run("a step soon after a step", func(t *testing.T) {
+		// Up from 100 to 130 for 4 runs, then down to 55. The 10 runs before
+		// the latest step span both levels, so the baseline starts at the
+		// step up: with both levels, the spread hides the step down.
+		values := append(append(
+			[]float64{100, 104, 97, 102, 95, 101, 99, 103, 96, 100, 98, 102, 97, 101, 99, 100},
+			131, 128, 133, 129), 55, 60)
+
+		step, baseline, ok := compareWithBaseline(points(values...))
+		require.True(t, ok)
+
+		assert.Equal(t, "run-20", step.RunID)
+		assert.Equal(t, 2, step.Runs)
+		assert.Equal(t, 4, baseline.Runs, "only the runs since the step up")
+		assert.InDelta(t, 130, baseline.Median, 1e-9)
+		assert.InDelta(t, (57.5-130)/130*100, baseline.Change, 1e-9)
+	})
+
 	t.Run("a fixed regression", func(t *testing.T) {
 		// Down to 70 for 10 runs, then back at 100: the latest level is the
 		// fix, an improvement against 70.
@@ -114,7 +132,8 @@ func TestParseChangeSteps(t *testing.T) {
 	assert.Equal(t, "setup,test", parseChangeSteps("test,setup,cleanup").String())
 }
 
-// stat is one run of a test with 100M gas in the test step that takes timeNs.
+// stat is one run of a test with 50M gas in the setup step and 100M gas in the
+// test step that takes timeNs.
 func stat(test, client string, runStart, timeNs, rejectedNs int64) indexstore.TestChangeStat {
 	return indexstore.TestChangeStat{
 		TestName:           test,
@@ -174,6 +193,8 @@ func TestBuildSuiteChanges(t *testing.T) {
 	assert.InDelta(t, -50, geth.Baseline.Change, 1e-9)
 	assert.InDelta(t, 2e9, geth.Step.DurationNs, 1e-9)
 	assert.InDelta(t, 1e9, geth.Baseline.DurationNs, 1e-9)
+	assert.InDelta(t, 100e6, geth.Step.GasUsed, 1e-9)
+	assert.InDelta(t, 100e6, geth.Baseline.GasUsed, 1e-9)
 
 	// With the setup step, each run has 50M more gas and 1s more time.
 	withSetup := buildSuiteChanges(stats, parseChangeSteps("setup,test"))
@@ -181,6 +202,7 @@ func TestBuildSuiteChanges(t *testing.T) {
 	assert.InDelta(t, 50, geth.Step.Median, 1e-9, "150M gas in 3s")
 	assert.InDelta(t, 75, geth.Baseline.Median, 1e-9, "150M gas in 2s")
 	assert.InDelta(t, 3e9, geth.Step.DurationNs, 1e-9)
+	assert.InDelta(t, 150e6, geth.Step.GasUsed, 1e-9)
 }
 
 func TestHandleSuiteChanges(t *testing.T) {

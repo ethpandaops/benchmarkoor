@@ -67,6 +67,9 @@ type changeStep struct {
 	// 0 when no run has a time. For an invalid-payload test it is the time
 	// to reject.
 	DurationNs float64 `json:"duration_ns"`
+	// GasUsed is the median gas of the selected steps since the step, or 0
+	// when no run has gas, as for an invalid-payload test.
+	GasUsed float64 `json:"gas_used"`
 }
 
 type baselineComparison struct {
@@ -83,6 +86,9 @@ type baselineComparison struct {
 	// or 0 when no run has a time. For an invalid-payload test it is the
 	// time to reject.
 	DurationNs float64 `json:"duration_ns"`
+	// GasUsed is the median gas of the selected steps before the step, or 0
+	// when no run has gas.
+	GasUsed float64 `json:"gas_used"`
 	// LastRunID and LastRunStart are the last run before the step. The UI
 	// compares its config with the first run since the step.
 	LastRunID    string `json:"last_run_id"`
@@ -168,6 +174,8 @@ type seriesPoint struct {
 	// durationNs is the time of the selected steps, or the time to reject
 	// for an invalid-payload test, or 0 when there is none.
 	durationNs float64
+	// gas is the gas of the selected steps, or 0 when there is none.
+	gas float64
 }
 
 func medianOf(values []float64) float64 {
@@ -276,11 +284,40 @@ func levelChange(before, after []float64) (baselineComparison, bool) {
 	}, true
 }
 
+// isStep reports if the split of a series into before and after is a real
+// step: the change is at least minStepChange percent and at least
+// stepNoiseFactor times the normal spread.
+func isStep(before, after []float64) bool {
+	c, ok := levelChange(before, after)
+
+	return ok && math.Abs(c.Change) >= max(minStepChange, stepNoiseFactor*c.Noise)
+}
+
+// levelStart returns the start of the level that ends at end: the latest real
+// step in values[from:end] with at least minBaselineRuns values after it, or
+// from. A before part that spans two levels has a large spread, and a real
+// step after it then looks like noise.
+func levelStart(values []float64, from, end int) int {
+	for {
+		k := bestSplit(values[from:end])
+		if k < 0 || end-(from+k) < minBaselineRuns {
+			return from
+		}
+
+		if !isStep(values[from:from+k], values[from+k:end]) {
+			return from
+		}
+
+		from += k
+	}
+}
+
 // findStep returns the start of the latest level of a series, and the start of
 // the level before it. It splits the series where it fits two levels best,
-// and splits the after part again while each split is a real step. With no
-// real step, the latest value is its own level, as in a plain comparison of
-// the latest run with the runs before it.
+// and splits the after part again while each split is a real step. The before
+// part of a split starts at its own latest step. With no real step, the latest
+// value is its own level, as in a plain comparison of the latest run with the
+// runs before it.
 func findStep(values []float64) (step, start int) {
 	step = len(values) - 1
 
@@ -291,13 +328,13 @@ func findStep(values []float64) (step, start int) {
 		}
 
 		k += from
+		levelFrom := levelStart(values, from, k)
 
-		c, ok := levelChange(values[from:k], values[k:])
-		if !ok || math.Abs(c.Change) < max(minStepChange, stepNoiseFactor*c.Noise) {
+		if !isStep(values[levelFrom:k], values[k:]) {
 			return step, start
 		}
 
-		step, start, from = k, from, k
+		step, start, from = k, levelFrom, k
 	}
 }
 
@@ -322,7 +359,9 @@ func compareWithBaseline(points []seriesPoint) (changeStep, baselineComparison, 
 	}
 
 	since := points[step:]
-	baseline.DurationNs = medianDuration(points[step-baseline.Runs : step])
+	before := points[step-baseline.Runs : step]
+	baseline.DurationNs = medianPositive(before, func(p seriesPoint) float64 { return p.durationNs })
+	baseline.GasUsed = medianPositive(before, func(p seriesPoint) float64 { return p.gas })
 	baseline.LastRunID = points[step-1].runID
 	baseline.LastRunStart = points[step-1].runStart
 
@@ -331,25 +370,27 @@ func compareWithBaseline(points []seriesPoint) (changeStep, baselineComparison, 
 		RunStart:   since[0].runStart,
 		Runs:       len(since),
 		Median:     medianOf(values[step:]),
-		DurationNs: medianDuration(since),
+		DurationNs: medianPositive(since, func(p seriesPoint) float64 { return p.durationNs }),
+		GasUsed:    medianPositive(since, func(p seriesPoint) float64 { return p.gas }),
 	}, baseline, true
 }
 
-// medianDuration returns the median time of the points that have one, or 0.
-func medianDuration(points []seriesPoint) float64 {
-	durations := make([]float64, 0, len(points))
+// medianPositive returns the median of the positive values of the points, or
+// 0 when there is none.
+func medianPositive(points []seriesPoint, value func(seriesPoint) float64) float64 {
+	values := make([]float64, 0, len(points))
 
 	for i := range points {
-		if points[i].durationNs > 0 {
-			durations = append(durations, points[i].durationNs)
+		if v := value(points[i]); v > 0 {
+			values = append(values, v)
 		}
 	}
 
-	if len(durations) == 0 {
+	if len(values) == 0 {
 		return 0
 	}
 
-	return medianOf(durations)
+	return medianOf(values)
 }
 
 // sortPoints orders points oldest first, with the run ID as a tie-breaker.
@@ -438,7 +479,7 @@ func (b *changeBuilder) build() suiteChangesResponse {
 				}
 
 				points = append(points,
-					seriesPoint{run.runID, run.runStart, value, float64(max(durationNs, 0))})
+					seriesPoint{run.runID, run.runStart, value, float64(max(durationNs, 0)), float64(run.gas)})
 			}
 
 			sortPoints(points)

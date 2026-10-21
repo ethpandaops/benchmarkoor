@@ -6,12 +6,14 @@ import {
   classifyChange,
   findTestChanges,
   NOISE_FACTOR,
+  SHORT_BASELINE_FACTOR,
+  SHORT_BASELINE_RUNS,
   sameHostCandidates,
   type ChangeOptions,
 } from './regressions'
 import { compareWithBaseline, type HistoryPoint } from './testHistory'
 
-const ALL = { threshold: 10, minDurationMs: 0 }
+const ALL = { threshold: 10, minGasM: 0, minDurationMs: 0 }
 
 function changesOf(stats: SuiteStats, opts: ChangeOptions) {
   return findTestChanges(buildSuiteChanges(stats, ['test']), opts)
@@ -33,6 +35,11 @@ function run(client: string, runStart: number, timeNs: number, rejectedNs?: numb
 // Runs with the given MGas/s values, oldest first.
 function runsAt(client: string, mgas: number[]): RunDuration[] {
   return mgas.map((v, i) => run(client, i + 1, 100_000_000_000 / v))
+}
+
+// The same runs with gasUsed in the test step instead of 100M gas.
+function withGas(durations: RunDuration[], gasUsed: number): RunDuration[] {
+  return durations.map((d) => ({ ...d, gas_used: gasUsed, steps: { test: { ...d.steps!.test!, gas_used: gasUsed } } }))
 }
 
 function points(values: number[]): HistoryPoint[] {
@@ -81,6 +88,20 @@ describe('compareWithBaseline', () => {
     expect(baseline.change).toBeCloseTo(-20)
   })
 
+  it('starts the baseline at a step soon before the latest step', () => {
+    // Up from 100 to 130 for 4 runs, then down to 55. The 10 runs before the
+    // latest step span both levels, and with both levels the spread hides
+    // the step down.
+    const values = [100, 104, 97, 102, 95, 101, 99, 103, 96, 100, 98, 102, 97, 101, 99, 100, 131, 128, 133, 129, 55, 60]
+    const baseline = compareWithBaseline(points(values))!
+
+    expect(baseline.stepIndex).toBe(20)
+    expect(baseline.stepRuns).toBe(2)
+    expect(baseline.runs).toBe(4)
+    expect(baseline.median).toBe(130)
+    expect(baseline.change).toBeCloseTo(((57.5 - 130) / 130) * 100)
+  })
+
   it('sees a fixed regression as an improvement against the slow level', () => {
     const baseline = compareWithBaseline(points([...repeat(100, 15), ...repeat(70, 10), ...repeat(100, 5)]))!
 
@@ -107,7 +128,7 @@ describe('compareWithBaseline', () => {
 })
 
 describe('classifyChange', () => {
-  const steady = compareWithBaseline(points([100, 100, 100, 100, 85]))!
+  const steady = compareWithBaseline(points([100, 100, 100, 100, 100, 85]))!
 
   it('marks a drop in MGas/s as a regression', () => {
     expect(classifyChange(steady, 'mgas', 10)).toBe('regression')
@@ -122,13 +143,24 @@ describe('classifyChange', () => {
   })
 
   it('ignores a change inside the normal spread of the baseline', () => {
-    // The spread is about 7.4%, so a change must be about 22% to count.
-    const noisy = compareWithBaseline(points([90, 100, 110, 100, 80]))!
-    expect(noisy.noise * NOISE_FACTOR).toBeGreaterThan(20)
+    // The spread is about 14.8%, so a change must be about 44% to count.
+    const noisy = compareWithBaseline(points([90, 100, 110, 90, 110, 70]))!
+    expect(noisy.noise * NOISE_FACTOR).toBeGreaterThan(40)
     expect(classifyChange(noisy, 'mgas', 10)).toBeUndefined()
 
-    const bigDrop = compareWithBaseline(points([90, 100, 110, 100, 70]))!
+    const bigDrop = compareWithBaseline(points([90, 100, 110, 90, 110, 50]))!
     expect(classifyChange(bigDrop, 'mgas', 10)).toBe('regression')
+  })
+
+  it('needs a larger change with few runs before the step', () => {
+    // 4 runs before the step, so the change must be at least 2 × 10%.
+    const small = compareWithBaseline(points([100, 100, 100, 100, 85]))!
+    expect(small.runs).toBe(SHORT_BASELINE_RUNS - 1)
+    expect(SHORT_BASELINE_FACTOR * 10).toBe(20)
+    expect(classifyChange(small, 'mgas', 10)).toBeUndefined()
+
+    const large = compareWithBaseline(points([100, 100, 100, 100, 75]))!
+    expect(classifyChange(large, 'mgas', 10)).toBe('regression')
   })
 })
 
@@ -152,6 +184,8 @@ describe('buildSuiteChanges', () => {
     expect(geth.baseline.median).toBeCloseTo(75)
     expect(geth.step.duration_ns).toBe(3e9)
     expect(geth.baseline.duration_ns).toBe(2e9)
+    expect(geth.step.gas_used).toBe(150_000_000)
+    expect(geth.baseline.gas_used).toBe(150_000_000)
   })
 
   it('leaves out a test where no client has a baseline', () => {
@@ -162,8 +196,12 @@ describe('buildSuiteChanges', () => {
 describe('findTestChanges', () => {
   it('finds the changes of each client and test, largest first', () => {
     const stats: SuiteStats = {
-      'test_a': { durations: [...runsAt('geth', [100, 100, 100, 100, 80]), ...runsAt('reth', [100, 100, 100, 100, 100])] },
-      'test_b': { durations: [...runsAt('geth', [100, 100, 100, 100, 50]), ...runsAt('reth', [100, 100, 100, 100, 130])] },
+      'test_a': {
+        durations: [...runsAt('geth', [100, 100, 100, 100, 100, 80]), ...runsAt('reth', [100, 100, 100, 100, 100, 100])],
+      },
+      'test_b': {
+        durations: [...runsAt('geth', [100, 100, 100, 100, 100, 50]), ...runsAt('reth', [100, 100, 100, 100, 100, 130])],
+      },
     }
 
     const changes = changesOf(stats, ALL)
@@ -173,17 +211,17 @@ describe('findTestChanges', () => {
       ['test_b', 'reth', 'improvement'],
       ['test_a', 'geth', 'regression'],
     ])
-    expect(changes[0].step.run_id).toBe('geth-5')
-    expect(changes[0].baseline.last_run_id).toBe('geth-4')
+    expect(changes[0].step.run_id).toBe('geth-6')
+    expect(changes[0].baseline.last_run_id).toBe('geth-5')
     expect(changes[0].baseline.change).toBeCloseTo(-50)
   })
 
   it('ranks a slowdown the same for MGas/s and for time', () => {
     // Half the MGas/s and twice the reject time are the same slowdown.
     const stats: SuiteStats = {
-      'mgas_test': { durations: runsAt('geth', [100, 100, 100, 100, 50]) },
+      'mgas_test': { durations: runsAt('geth', [100, 100, 100, 100, 100, 50]) },
       'invalid_test': {
-        durations: [1, 2, 3, 4].map((i) => run('geth', i, 1_000, 1_000)).concat(run('geth', 5, 1_000, 1_900)),
+        durations: [1, 2, 3, 4, 5].map((i) => run('geth', i, 1_000, 1_000)).concat(run('geth', 6, 1_000, 1_900)),
       },
     }
 
@@ -196,35 +234,58 @@ describe('findTestChanges', () => {
     expect(changes[1].direction).toBe('regression')
   })
 
-  it('skips a test faster than the minimum duration', () => {
-    // 100M gas at 1000 MGas/s takes 100ms. At 500 MGas/s it takes 200ms.
-    const fast: SuiteStats = { 'test_a': { durations: runsAt('geth', [1000, 1000, 1000, 1000, 500]) } }
-    const opts = { threshold: 10, minDurationMs: 250 }
+  it('skips a test with less gas than the minimum', () => {
+    const small: SuiteStats = { 'test_a': { durations: withGas(runsAt('geth', [100, 100, 100, 100, 100, 50]), 10_000_000) } }
+    const opts = { threshold: 10, minGasM: 50, minDurationMs: 0 }
+
+    expect(changesOf(small, opts)).toEqual([])
+    expect(changesOf(small, { ...opts, minGasM: 10 })).toHaveLength(1)
+  })
+
+  it('keeps a large test of a fast client', () => {
+    // 100M gas at 1000 MGas/s takes 100ms, and 250ms at 400 MGas/s. A fast
+    // block still counts when it has enough gas.
+    const stats: SuiteStats = { 'test_a': { durations: runsAt('nethermind', [1000, 1000, 1000, 1000, 1000, 400]) } }
+
+    const [change] = changesOf(stats, { threshold: 10, minGasM: 50, minDurationMs: 100 })
+
+    expect(change.direction).toBe('regression')
+    expect(change.step.gas_used).toBe(100_000_000)
+    expect(change.step.duration_ns).toBe(250_000_000)
+  })
+
+  it('skips a test faster than the min. block time on both sides of the step', () => {
+    // 100M gas at 2000 MGas/s takes 50ms. At 10000 MGas/s it takes 10ms.
+    const fast: SuiteStats = { 'test_a': { durations: runsAt('geth', [2000, 2000, 2000, 2000, 2000, 10000]) } }
+    const opts = { threshold: 10, minGasM: 50, minDurationMs: 100 }
 
     expect(changesOf(fast, opts)).toEqual([])
-    expect(changesOf(fast, { ...opts, minDurationMs: 200 })).toHaveLength(1)
+    expect(changesOf(fast, { ...opts, minDurationMs: 50 })).toHaveLength(1)
   })
 
   it('keeps a fast test that became slow', () => {
-    // From 100ms in the baseline to 1s in the latest run.
-    const stats: SuiteStats = { 'test_a': { durations: runsAt('geth', [1000, 1000, 1000, 1000, 100]) } }
+    // From 50ms before the step to 500ms since the step.
+    const stats: SuiteStats = { 'test_a': { durations: runsAt('geth', [2000, 2000, 2000, 2000, 2000, 200]) } }
 
-    const [change] = changesOf(stats, { threshold: 10, minDurationMs: 500 })
+    const [change] = changesOf(stats, { threshold: 10, minGasM: 50, minDurationMs: 100 })
 
     expect(change.direction).toBe('regression')
-    expect(change.step.duration_ns).toBe(1_000_000_000)
-    expect(change.baseline.duration_ns).toBe(100_000_000)
+    expect(change.step.duration_ns).toBe(500_000_000)
+    expect(change.baseline.duration_ns).toBe(50_000_000)
   })
 
-  it('compares an invalid-payload test with the min. block time on its time to reject', () => {
-    // No gas, so no step time. The time to reject goes from 600ms to 1.2s.
-    const durations = [1, 2, 3, 4]
-      .map((i) => run('geth', i, 0, 600_000_000))
-      .concat(run('geth', 5, 0, 1_200_000_000))
+  it('keeps an invalid-payload test, which reports no gas', () => {
+    // The time to reject goes from 600ms to 1.2s.
+    const durations = withGas(
+      [1, 2, 3, 4, 5].map((i) => run('geth', i, 0, 600_000_000)).concat(run('geth', 6, 0, 1_200_000_000)),
+      0,
+    )
 
-    const [change] = changesOf({ invalid_test: { durations } }, { threshold: 10, minDurationMs: 500 })
+    // The min. block time compares with the time to reject.
+    const [change] = changesOf({ invalid_test: { durations } }, { threshold: 10, minGasM: 200, minDurationMs: 500 })
 
     expect(change.direction).toBe('regression')
+    expect(change.step.gas_used).toBe(0)
     expect(change.step.duration_ns).toBe(1_200_000_000)
     expect(change.baseline.duration_ns).toBe(600_000_000)
   })

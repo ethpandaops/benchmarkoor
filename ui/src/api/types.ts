@@ -598,6 +598,8 @@ export interface ChangeStep {
   median: number
   // Median time of the selected steps, or 0 when no run has one.
   duration_ns: number
+  // Median gas of the selected steps, or 0 when no run has gas.
+  gas_used: number
 }
 
 // The runs before the step that the runs since the step are compared with.
@@ -611,6 +613,8 @@ export interface BaselineStats {
   noise: number
   // Median time of the selected steps, or 0 when no run has one.
   duration_ns: number
+  // Median gas of the selected steps, or 0 when no run has gas.
+  gas_used: number
   // The last run before the step.
   last_run_id: string
   last_run_start: number
