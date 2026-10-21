@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import type { TestHistoryDuration } from '@/api/types'
-import { buildHistoryPoints, historyMetricValue, median, summarizeClient, type HistoryPoint } from './testHistory'
+import {
+  buildHistoryPoints,
+  findRunGaps,
+  historyMetricValue,
+  median,
+  summarizeClient,
+  type HistoryPoint,
+} from './testHistory'
 
 function duration(overrides: Partial<TestHistoryDuration>): TestHistoryDuration {
   return {
@@ -102,5 +109,29 @@ describe('summarizeClient', () => {
   it('has no change with too few earlier runs', () => {
     expect(summarizeClient('geth', [point(1, 100), point(2, 50)])!.baseline).toBeUndefined()
     expect(summarizeClient('geth', [])).toBeUndefined()
+  })
+})
+
+describe('findRunGaps', () => {
+  const hour = 3600
+  const day = 24 * hour
+
+  it('breaks the line at a gap of days between runs every few hours', () => {
+    // One run, a gap of 5 days, then a run every 7 hours.
+    expect([...findRunGaps([0, 5 * day, 5 * day + 7 * hour, 5 * day + 14 * hour])]).toEqual([1])
+  })
+
+  it('keeps a steady series in one line', () => {
+    expect(findRunGaps([0, day, 2 * day, 3 * day, 4 * day]).size).toBe(0)
+  })
+
+  it('ignores a short gap between frequent runs', () => {
+    // Runs every 30 minutes, with one 4 hour gap: below the 6 hour minimum.
+    const starts = [0, 1800, 3600, 3600 + 4 * hour, 5400 + 4 * hour]
+    expect(findRunGaps(starts).size).toBe(0)
+  })
+
+  it('needs at least two intervals', () => {
+    expect(findRunGaps([0, 10 * day]).size).toBe(0)
   })
 })

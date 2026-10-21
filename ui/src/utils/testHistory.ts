@@ -282,6 +282,26 @@ export function summarizeClient(
   }
 }
 
+// A gap between two runs breaks the chart line when it is GAP_FACTOR times the
+// median interval of the client, and at least MIN_GAP_SECONDS. A line across
+// a gap of days looks like a slow trend, but there are no runs in it.
+const GAP_FACTOR = 5
+const MIN_GAP_SECONDS = 6 * 3600
+
+// Returns the indexes of the points that start a new line after a gap. The
+// run starts must be in Unix seconds, oldest first.
+export function findRunGaps(runStarts: number[]): Set<number> {
+  const intervals = runStarts.slice(1).map((t, i) => t - runStarts[i])
+  const gaps = new Set<number>()
+  if (intervals.length < 2) return gaps
+
+  const limit = Math.max(GAP_FACTOR * median(intervals), MIN_GAP_SECONDS)
+  intervals.forEach((interval, i) => {
+    if (interval > limit) gaps.add(i + 1)
+  })
+  return gaps
+}
+
 // Formats a metric value for display.
 export function formatHistoryValue(value: number, metric: HistoryMetric): string {
   return metric === 'mgas' ? `${value.toFixed(2)} MGas/s` : formatDuration(Math.round(value))
