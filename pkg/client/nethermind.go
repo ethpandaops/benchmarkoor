@@ -122,6 +122,8 @@ var _ MempoolProfile = (*nethermindSpec)(nil)
 // limit, the per-sender limit stays unlimited (as geth's account slots are a
 // guarantee, not a cap), and the price bumps are fixed in the client.
 // AcceptTxWhenNotSynced lets the pool take txs before the first head update.
+// BlobsSupport is the default StorageWithReorgs, set explicitly: InMemory
+// does not keep blob txs for reorgs.
 func (s *nethermindSpec) MempoolCommand(settings MempoolSettings) []string {
 	l := settings.Limits
 
@@ -130,7 +132,7 @@ func (s *nethermindSpec) MempoolCommand(settings MempoolSettings) []string {
 		"--Network.P2PPort=":              fmt.Sprintf("--Network.P2PPort=%d", settings.P2PPort),
 		"--TxPool.Size=":                  fmt.Sprintf("--TxPool.Size=%d", l.GlobalSlots),
 		"--TxPool.AcceptTxWhenNotSynced=": "--TxPool.AcceptTxWhenNotSynced=true",
-		"--TxPool.BlobsSupport=":          "--TxPool.BlobsSupport=InMemory",
+		"--TxPool.BlobsSupport=":          "--TxPool.BlobsSupport=StorageWithReorgs",
 		"--Blocks.TargetBlockGasLimit=":   fmt.Sprintf("--Blocks.TargetBlockGasLimit=%d", settings.GasLimit),
 		"--Blocks.MinGasPrice=":           "--Blocks.MinGasPrice=1",
 	})

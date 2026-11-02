@@ -287,12 +287,14 @@ func (s *eviction) Run(ctx context.Context, env *Env) error {
 		return fmt.Errorf("hog: %w", err)
 	}
 
-	if err := s.gapped(ctx, env, timeout); err != nil {
-		return fmt.Errorf("gapped: %w", err)
-	}
-
+	// The account-queue case needs a clean queue, so it runs before the
+	// gapped flood: those txs can never be included, so nothing drains them.
 	if err := s.queueLimit(ctx, env, timeout); err != nil {
 		return fmt.Errorf("queue limit: %w", err)
+	}
+
+	if err := s.gapped(ctx, env, timeout); err != nil {
+		return fmt.Errorf("gapped: %w", err)
 	}
 
 	return s.bigTxs(ctx, env, timeout)
