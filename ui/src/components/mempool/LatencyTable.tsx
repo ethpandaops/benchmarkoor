@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import type { MempoolLatency } from '@/api/types'
-import { formatDuration, formatSig, histogramBuckets, humanizeGroup } from './mempoolUtils'
+import { explainText, formatDuration, formatSig, histogramBuckets, humanizeGroup } from './mempoolUtils'
+import { ExplainButton, Explanation } from './Explain'
 
 const SPARK_WIDTH = 120
 const SPARK_HEIGHT = 28
@@ -88,6 +89,7 @@ function groupHint(l: MempoolLatency, multiGroup: boolean): string | undefined {
 
 export function LatencyTable({ latencies }: { latencies: MempoolLatency[] }) {
   const multiGroup = new Set(latencies.map((l) => l.group ?? '')).size > 1
+  const [openKey, setOpenKey] = useState<string | null>(null)
 
   return (
     <div className="overflow-x-auto">
@@ -107,12 +109,17 @@ export function LatencyTable({ latencies }: { latencies: MempoolLatency[] }) {
         <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
           {latencies.map((l) => {
             const hint = groupHint(l, multiGroup)
+            const open = openKey === l.key
             return (
-              <tr key={l.key}>
+              <Fragment key={l.key}>
+              <tr>
                 <td className="py-1.5 pr-4 text-gray-900 dark:text-gray-100">
-                  <div className="flex flex-col">
-                    <span className="break-words">{l.label}</span>
-                    {hint && <span className="text-xs/5 text-gray-500 dark:text-gray-400">{hint}</span>}
+                  <div className="flex items-start gap-1.5">
+                    <div className="flex min-w-0 flex-col" title={explainText(l.explain, 'metric')}>
+                      <span className="break-words">{l.label}</span>
+                      {hint && <span className="text-xs/5 text-gray-500 dark:text-gray-400">{hint}</span>}
+                    </div>
+                    {l.explain && <ExplainButton open={open} onClick={() => setOpenKey(open ? null : l.key)} kind="metric" label={false} />}
                   </div>
                 </td>
                 <td className="px-3 py-1.5 text-right whitespace-nowrap text-gray-500 tabular-nums dark:text-gray-400">
@@ -127,6 +134,14 @@ export function LatencyTable({ latencies }: { latencies: MempoolLatency[] }) {
                   <HistogramSparkline latency={l} />
                 </td>
               </tr>
+              {open && l.explain && (
+                <tr>
+                  <td colSpan={COLUMNS.length + 3} className="pb-2">
+                    <Explanation explain={l.explain} kind="metric" title={l.label} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             )
           })}
         </tbody>

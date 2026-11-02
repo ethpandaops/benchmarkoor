@@ -443,6 +443,12 @@ export function classifyObservation(value: string | undefined): ObservationOutco
   return 'rejected'
 }
 
+// OUTCOME_CLASS colors the outcome chip of an observation.
+export const OUTCOME_CLASS: Record<Exclude<ObservationOutcome, 'value'>, string> = {
+  accepted: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:ring-blue-800/60',
+  rejected: 'bg-gray-100 text-gray-700 ring-1 ring-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:ring-gray-600',
+}
+
 export interface AssertionDifference {
   name: string
   severity: 'hard' | 'soft'
@@ -607,10 +613,44 @@ export function eventHelp(kind: string): string {
   return EVENT_HELP[kind] ?? `A "${kind}" action of the harness.`
 }
 
-// explainText is a check (or, with observation set, an observation)
-// explanation as plain text, for a tooltip.
-export function explainText(e: MempoolCheckExplanation | undefined, observation = false): string | undefined {
+// ExplainKind picks the labels of an explanation: a check tests something,
+// an observation records a value, a metric (or latency) measures one.
+export type ExplainKind = 'check' | 'observation' | 'metric'
+
+export const EXPLAIN_LABELS: Record<ExplainKind, [string, string, string]> = {
+  check: ['What it tests', 'Why it matters', 'OK results'],
+  observation: ['What it records', 'Why it matters', 'How to read it'],
+  metric: ['What it measures', 'Why it matters', 'How to read it'],
+}
+
+// explainText is an explanation as plain text, for a tooltip. A boolean
+// kind is the older form: true means an observation.
+export function explainText(e: MempoolCheckExplanation | undefined, kind: ExplainKind | boolean = 'check'): string | undefined {
   if (!e) return undefined
-  const [what, ok] = observation ? ['What it records', 'How to read it'] : ['What it tests', 'OK results']
-  return `${what}: ${e.what}\n\nWhy it matters: ${e.why}\n\n${ok}: ${e.ok}`
+  const k: ExplainKind = kind === true ? 'observation' : kind === false ? 'check' : kind
+  const [what, why, ok] = EXPLAIN_LABELS[k]
+  return `${what}: ${e.what}\n\n${why}: ${e.why}\n\n${ok}: ${e.ok}`
+}
+
+// ---------------------------------------------------------------------------
+// Blocks and fees
+
+// feeUnit picks gwei for fees of 0.01 gwei and more, else wei, so a blob
+// base fee of a few wei does not show as "0.000000001".
+export function feeUnit(maxWei: number): { unit: 'gwei' | 'wei'; scale: number } {
+  return maxWei >= 1e7 ? { unit: 'gwei', scale: 1e9 } : { unit: 'wei', scale: 1 }
+}
+
+// blockAt returns the last block imported at or before t_ms. blocks must be
+// sorted by t_ms.
+export function blockAt<T extends { t_ms: number }>(blocks: T[] | undefined, tMs: number): T | undefined {
+  if (!blocks || blocks.length === 0 || blocks[0].t_ms > tMs) return undefined
+  let lo = 0
+  let hi = blocks.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (blocks[mid].t_ms <= tMs) lo = mid
+    else hi = mid - 1
+  }
+  return blocks[lo]
 }

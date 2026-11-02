@@ -30,11 +30,14 @@ export function CheckIcon({ state, className }: { state: CheckState; className?:
 }
 
 // CheckChip is CheckIcon on a small tinted square, for table cells.
-export function CheckChip({ state }: { state: CheckState }) {
+export function CheckChip({ state, size = 'md', title }: { state: CheckState; size?: 'sm' | 'md'; title?: string }) {
   const Icon = ICON[state]
   return (
-    <span title={CHECK_STATE_LABEL[state]} className={clsx('inline-flex size-6 items-center justify-center rounded-xs', CHIP_COLOR[state])}>
-      <Icon aria-label={CHECK_STATE_LABEL[state]} className="size-3.5" />
+    <span
+      title={title ?? CHECK_STATE_LABEL[state]}
+      className={clsx('inline-flex items-center justify-center rounded-xs', size === 'sm' ? 'size-5' : 'size-6', CHIP_COLOR[state])}
+    >
+      <Icon aria-label={CHECK_STATE_LABEL[state]} className={size === 'sm' ? 'size-3' : 'size-3.5'} />
     </span>
   )
 }

@@ -853,6 +853,8 @@ export interface MempoolMetric {
   value: number
   group?: string
   better?: 'lower' | 'higher'
+  // For a metric, "ok" says how to read the number. Older runs have none.
+  explain?: MempoolCheckExplanation
 }
 
 export interface MempoolLatency {
@@ -868,6 +870,8 @@ export interface MempoolLatency {
   p99: number
   max: number
   histogram: { le: number; count: number }[]
+  // For a latency, "ok" says how to read the numbers. Older runs have none.
+  explain?: MempoolCheckExplanation
 }
 
 export interface MempoolTimelinePoint {
@@ -900,6 +904,9 @@ export interface MempoolAssertion {
   expected?: string
   actual?: string
   explain?: MempoolCheckExplanation
+  // Milliseconds since the scenario start when the harness recorded the
+  // check. Older runs have none.
+  t_ms?: number
 }
 
 export interface MempoolObservation {
@@ -926,6 +933,23 @@ export interface MempoolScenarioResult {
   events: MempoolEvent[]
   assertions: MempoolAssertion[]
   observations: MempoolObservation[]
+  // One entry per imported block, at import time. Older runs have none.
+  blocks?: MempoolBlock[]
+}
+
+// MempoolBlock is a block the client imported during a scenario.
+export interface MempoolBlock {
+  // Milliseconds since the scenario start.
+  t_ms: number
+  number: number
+  txs: number
+  gas_used: number
+  gas_limit: number
+  // Wei.
+  base_fee: number
+  blob_gas_used: number
+  // Wei.
+  blob_base_fee: number
 }
 
 export interface SuiteFile {

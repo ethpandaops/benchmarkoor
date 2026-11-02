@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { fetchData } from '../client'
 import type { RunConfig } from '../types'
 
@@ -26,4 +26,22 @@ export function useRunConfig(runId: string, enabled = true) {
     enabled: !!runId && enabled,
     retry: 1,
   })
+}
+
+// useRunConfigs fetches config.json for several runs at once. The data list
+// follows the order of runIds; a missing config is undefined.
+export function useRunConfigs(runIds: string[]) {
+  return useQueries({
+    queries: runIds.map((runId) => ({
+      queryKey: runConfigQueryKey(runId),
+      queryFn: () => fetchRunConfig(runId),
+      enabled: !!runId,
+      retry: 1,
+    })),
+    combine: combineConfigs,
+  })
+}
+
+function combineConfigs(results: UseQueryResult<RunConfig>[]) {
+  return { data: results.map((r) => r.data) }
 }

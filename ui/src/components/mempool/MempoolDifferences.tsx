@@ -9,6 +9,7 @@ import {
   type ObservationOutcome,
   type ScenarioDifferences,
   explainText,
+  OUTCOME_CLASS,
 } from './mempoolUtils'
 import { CheckChip, SeverityTag } from './CheckIcon'
 
@@ -20,10 +21,6 @@ interface MempoolDifferencesProps {
 
 const CURRENT_COL = 'bg-blue-50/60 dark:bg-blue-900/15'
 
-const OUTCOME_CLASS: Record<Exclude<ObservationOutcome, 'value'>, string> = {
-  accepted: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:ring-blue-800/60',
-  rejected: 'bg-gray-100 text-gray-700 ring-1 ring-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:ring-gray-600',
-}
 
 function ObservationCell({ value, outcome }: { value: string | undefined; outcome: ObservationOutcome | undefined }) {
   if (value === undefined || outcome === undefined) return <span className="text-gray-400 dark:text-gray-500">-</span>

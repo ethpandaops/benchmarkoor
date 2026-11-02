@@ -1,13 +1,22 @@
 import { useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { MempoolEvent, MempoolTimelinePoint } from '@/api/types'
+import type { MempoolBlock, MempoolEvent, MempoolTimelinePoint } from '@/api/types'
 import { formatBytes } from '@/utils/format'
-import { eventHelp, formatSig, groupEventsByKind } from './mempoolUtils'
+import { blockAt, eventHelp, feeUnit, formatSig, groupEventsByKind } from './mempoolUtils'
 import { chartTheme, eventKindColor, SERIES_COLORS, useIsDark } from './chartTheme'
+
+// TimelineMark is a vertical line with a label on the pool plot, e.g. the
+// time a check was recorded.
+export interface TimelineMark {
+  t_ms: number
+  label: string
+}
 
 interface PoolTimelineChartProps {
   timeline: MempoolTimelinePoint[]
   events: MempoolEvent[]
+  blocks?: MempoolBlock[]
+  marks?: TimelineMark[]
 }
 
 function formatSeconds(ms: number): string {
@@ -23,8 +32,9 @@ const GRID_LEFT = 76
 const GRID_RIGHT = 16
 const LANE_ROW = 14
 const POOL_HEIGHT = 170
-const MEMORY_HEIGHT = 56
-const CPU_HEIGHT = 56
+const SMALL_HEIGHT = 56
+const TITLE_GAP = 18
+const TITLE_HEIGHT = 22
 const SLIDER_HEIGHT = 22
 // Events nearer than this share of the time range to the crosshair go in
 // the tooltip.
@@ -40,29 +50,65 @@ function Swatch({ color, label }: { color: string; label: string }) {
   )
 }
 
+type PlotName = 'lane' | 'pool' | 'baseFee' | 'blobFee' | 'memory' | 'cpu'
+
+interface Plot {
+  name: PlotName
+  title?: string
+  top: number
+  height: number
+  titleTop?: number
+}
+
+// layoutPlots stacks the plots from the top. Each small plot below the
+// pool plot has a title above it.
+function layoutPlots(defs: { name: PlotName; title?: string; height: number }[], gap: number): { plots: Plot[]; bottom: number } {
+  const plots: Plot[] = []
+  let y = 8
+  for (const d of defs) {
+    if (d.name === 'lane') {
+      plots.push({ ...d, top: y })
+      y += d.height + 10
+    } else if (d.title) {
+      const titleTop = y + TITLE_GAP
+      plots.push({ ...d, titleTop, top: titleTop + TITLE_HEIGHT })
+      y = titleTop + TITLE_HEIGHT + d.height
+    } else {
+      plots.push({ ...d, top: y + gap })
+      y += gap + d.height
+    }
+  }
+  return { plots, bottom: y + 26 }
+}
+
 // PoolTimelineChart draws the pending and queued pool sizes over the
 // scenario time. Events sit as thin ticks in a lane per kind above the
-// plot. Client memory and CPU, when present, are separate small plots below
-// with their own scales (no dual axis). One crosshair runs through all.
-export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) {
+// plot. The base fee and blob base fee (when the run has blocks), client
+// memory and CPU are separate small plots below with their own scales (no
+// dual axis). One crosshair and one zoom run through all.
+export function PoolTimelineChart({ timeline, events, blocks, marks }: PoolTimelineChartProps) {
   const isDark = useIsDark()
   const hasMemory = timeline.some((p) => p.memory_bytes !== undefined && p.memory_bytes !== null)
   const hasCPU = timeline.some((p) => p.cpu_percent !== undefined && p.cpu_percent !== null)
+  const sortedBlocks = useMemo(() => [...(blocks ?? [])].sort((a, b) => a.t_ms - b.t_ms), [blocks])
+  const hasBaseFee = sortedBlocks.length > 0
+  const hasBlobFee = sortedBlocks.some((b) => b.blob_base_fee > 1)
   const lanes = useMemo(() => groupEventsByKind(events), [events])
+  const hasMarks = (marks ?? []).length > 0
 
-  const laneHeight = lanes.length * LANE_ROW
-  const poolTop = lanes.length > 0 ? laneHeight + 18 : 12
-  const memoryTitleTop = poolTop + POOL_HEIGHT + 18
-  const memoryTop = memoryTitleTop + 22
-  // The zoom slider sits under the last plot.
-  const cpuTitleTop = (hasMemory ? memoryTop + MEMORY_HEIGHT : poolTop + POOL_HEIGHT) + 18
-  const cpuTop = cpuTitleTop + 22
-  const plotsBottom = hasCPU
-    ? cpuTop + CPU_HEIGHT + 26
-    : hasMemory
-      ? memoryTop + MEMORY_HEIGHT + 26
-      : poolTop + POOL_HEIGHT + 26
-  const height = plotsBottom + SLIDER_HEIGHT + 8
+  const { plots, bottom } = useMemo(
+    () =>
+      layoutPlots([
+        ...(lanes.length > 0 ? [{ name: 'lane' as const, height: lanes.length * LANE_ROW }] : []),
+        { name: 'pool' as const, height: POOL_HEIGHT },
+        ...(hasBaseFee ? [{ name: 'baseFee' as const, title: 'Base fee (gwei)', height: SMALL_HEIGHT }] : []),
+        ...(hasBlobFee ? [{ name: 'blobFee' as const, title: 'Blob base fee', height: SMALL_HEIGHT }] : []),
+        ...(hasMemory ? [{ name: 'memory' as const, title: 'Client memory', height: SMALL_HEIGHT }] : []),
+        ...(hasCPU ? [{ name: 'cpu' as const, title: 'Client CPU (100% = one core)', height: SMALL_HEIGHT }] : []),
+      ], hasMarks ? 14 : 4),
+    [lanes.length, hasBaseFee, hasBlobFee, hasMemory, hasCPU, hasMarks],
+  )
+  const height = bottom + SLIDER_HEIGHT + 8
 
   const chartRef = useRef<ReactECharts>(null)
   const [zoomed, setZoomed] = useState(false)
@@ -84,29 +130,35 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
 
   const option = useMemo(() => {
     const t = chartTheme(isDark)
-    const maxT = Math.max(timeline.length > 0 ? timeline[timeline.length - 1].t_ms : 0, ...(events ?? []).map((e) => e.t_ms))
+    const maxT = Math.max(
+      timeline.length > 0 ? timeline[timeline.length - 1].t_ms : 0,
+      ...(events ?? []).map((e) => e.t_ms),
+      ...sortedBlocks.map((b) => b.t_ms),
+      ...(marks ?? []).map((m) => m.t_ms),
+    )
+    const blobUnit = feeUnit(Math.max(0, ...sortedBlocks.map((b) => b.blob_base_fee)))
+    const gridIndex = (name: PlotName) => plots.findIndex((g) => g.name === name)
+    const last = plots.length - 1
 
-    type Grid = { name: 'lane' | 'pool' | 'memory' | 'cpu'; top: number; height: number }
-    const grids: Grid[] = []
-    if (lanes.length > 0) grids.push({ name: 'lane', top: 8, height: laneHeight })
-    grids.push({ name: 'pool', top: poolTop, height: POOL_HEIGHT })
-    if (hasMemory) grids.push({ name: 'memory', top: memoryTop, height: MEMORY_HEIGHT })
-    if (hasCPU) grids.push({ name: 'cpu', top: cpuTop, height: CPU_HEIGHT })
-    const gridIndex = (name: Grid['name']) => grids.findIndex((g) => g.name === name)
-    const last = grids.length - 1
-
-    const xAxis = grids.map((_, i) => ({
+    const xAxis = plots.map((g, i) => ({
       type: 'value' as const,
       gridIndex: i,
       min: 0,
       max: maxT,
       axisLabel: { show: i === last, color: t.muted, fontSize: 11, formatter: formatSeconds },
-      axisLine: { show: i === last || grids[i].name !== 'lane', lineStyle: { color: t.axisLine } },
+      axisLine: { show: i === last || g.name !== 'lane', lineStyle: { color: t.axisLine } },
       axisTick: { show: i === last },
       splitLine: { show: false },
     }))
 
-    const yAxis = grids.map((g, i) => {
+    const smallFormatter: Partial<Record<PlotName, (v: number) => string>> = {
+      memory: (v) => formatBytes(v),
+      cpu: (v) => `${formatSig(v)}%`,
+      baseFee: (v) => formatSig(v),
+      blobFee: (v) => `${formatSig(v)} ${blobUnit.unit}`,
+    }
+
+    const yAxis = plots.map((g, i) => {
       if (g.name === 'lane') {
         return {
           type: 'category' as const,
@@ -123,69 +175,75 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
       return {
         type: 'value' as const,
         gridIndex: i,
-        splitNumber: g.name === 'memory' || g.name === 'cpu' ? 2 : 4,
-        axisLabel: {
-          color: t.muted,
-          fontSize: 11,
-          formatter:
-            g.name === 'memory'
-              ? (v: number) => formatBytes(v)
-              : g.name === 'cpu'
-                ? (v: number) => `${formatSig(v)}%`
-                : (v: number) => formatSig(v),
-        },
+        scale: g.name === 'baseFee' || g.name === 'blobFee',
+        splitNumber: g.name === 'pool' ? 4 : 2,
+        axisLabel: { color: t.muted, fontSize: 11, formatter: smallFormatter[g.name] ?? ((v: number) => formatSig(v)) },
         splitLine: { lineStyle: { color: t.splitLine, opacity: 0.6 } },
         axisPointer: { show: false },
       }
     })
 
+    const markColor = isDark ? SERIES_COLORS.markDark : SERIES_COLORS.mark
+    const markLine =
+      marks && marks.length > 0
+        ? {
+            symbol: 'none',
+            silent: true,
+            animation: false,
+            lineStyle: { color: markColor, width: 1, type: 'dashed' },
+            // The label is the time only, flat above the plot; the legend
+            // row names the check.
+            label: { show: true, position: 'end', distance: 2, color: markColor, fontSize: 10, formatter: (p: { name: string }) => p.name },
+            data: marks.map((m) => ({
+              xAxis: m.t_ms,
+              name: formatSeconds(m.t_ms),
+            })),
+          }
+        : undefined
+
+    const line = (name: string, plot: PlotName, color: string, data: (number | undefined)[][], extra: object = {}) => ({
+      name,
+      type: 'line',
+      xAxisIndex: gridIndex(plot),
+      yAxisIndex: gridIndex(plot),
+      showSymbol: false,
+      lineStyle: { width: 2 },
+      itemStyle: { color },
+      data,
+      ...extra,
+    })
+
+    // A step line holds each block's fee until the next block; the last
+    // fee holds to the end of the scenario.
+    const stepData = (value: (b: MempoolBlock) => number) => {
+      const pts = sortedBlocks.map((b) => [b.t_ms, value(b)])
+      if (pts.length > 0 && pts[pts.length - 1][0] < maxT) pts.push([maxT, pts[pts.length - 1][1]])
+      return pts
+    }
+
     const series: object[] = [
-      {
-        name: 'Pending',
-        type: 'line',
-        xAxisIndex: gridIndex('pool'),
-        yAxisIndex: gridIndex('pool'),
-        showSymbol: false,
-        lineStyle: { width: 2 },
-        itemStyle: { color: SERIES_COLORS.pending },
-        data: timeline.map((p) => [p.t_ms, p.pending]),
-      },
-      {
-        name: 'Queued',
-        type: 'line',
-        xAxisIndex: gridIndex('pool'),
-        yAxisIndex: gridIndex('pool'),
-        showSymbol: false,
-        lineStyle: { width: 2 },
-        itemStyle: { color: SERIES_COLORS.queued },
-        data: timeline.map((p) => [p.t_ms, p.queued]),
-      },
+      line('Pending', 'pool', SERIES_COLORS.pending, timeline.map((p) => [p.t_ms, p.pending]), markLine ? { markLine } : {}),
+      line('Queued', 'pool', SERIES_COLORS.queued, timeline.map((p) => [p.t_ms, p.queued])),
     ]
+    if (hasBaseFee) {
+      series.push(line('Base fee', 'baseFee', SERIES_COLORS.baseFee, stepData((b) => b.base_fee / 1e9), { step: 'end' }))
+    }
+    if (hasBlobFee) {
+      series.push(line('Blob base fee', 'blobFee', SERIES_COLORS.blobFee, stepData((b) => b.blob_base_fee / blobUnit.scale), { step: 'end' }))
+    }
     if (hasMemory) {
-      series.push({
-        name: 'Client memory',
-        type: 'line',
-        xAxisIndex: gridIndex('memory'),
-        yAxisIndex: gridIndex('memory'),
-        showSymbol: false,
-        lineStyle: { width: 2 },
-        itemStyle: { color: SERIES_COLORS.memory },
-        areaStyle: { opacity: 0.08, color: SERIES_COLORS.memory },
-        data: timeline.filter((p) => p.memory_bytes != null).map((p) => [p.t_ms, p.memory_bytes]),
-      })
+      series.push(
+        line('Client memory', 'memory', SERIES_COLORS.memory, timeline.filter((p) => p.memory_bytes != null).map((p) => [p.t_ms, p.memory_bytes]), {
+          areaStyle: { opacity: 0.08, color: SERIES_COLORS.memory },
+        }),
+      )
     }
     if (hasCPU) {
-      series.push({
-        name: 'Client CPU',
-        type: 'line',
-        xAxisIndex: gridIndex('cpu'),
-        yAxisIndex: gridIndex('cpu'),
-        showSymbol: false,
-        lineStyle: { width: 2 },
-        itemStyle: { color: SERIES_COLORS.cpu },
-        areaStyle: { opacity: 0.08, color: SERIES_COLORS.cpu },
-        data: timeline.filter((p) => p.cpu_percent != null).map((p) => [p.t_ms, p.cpu_percent]),
-      })
+      series.push(
+        line('Client CPU', 'cpu', SERIES_COLORS.cpu, timeline.filter((p) => p.cpu_percent != null).map((p) => [p.t_ms, p.cpu_percent]), {
+          areaStyle: { opacity: 0.08, color: SERIES_COLORS.cpu },
+        }),
+      )
     }
     lanes.forEach((lane, i) => {
       series.push({
@@ -204,15 +262,20 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
     const allEvents = lanes.flatMap((l, i) => l.events.map((e) => ({ e, color: eventKindColor(l.kind, i, isDark) })))
     const dot = (color: string) =>
       `<span style="display:inline-block;width:8px;height:2px;border-radius:1px;background-color:${color};margin-right:6px;vertical-align:middle;"></span>`
+    const valueText: Record<string, (v: number) => string> = {
+      'Client memory': (v) => formatBytes(v),
+      'Client CPU': (v) => `${formatSig(v)}%`,
+      'Base fee': (v) => `${formatSig(v)} gwei`,
+      'Blob base fee': (v) => `${formatSig(v)} ${blobUnit.unit}`,
+    }
 
     return {
       backgroundColor: 'transparent',
       textStyle: { color: t.text },
       animation: false,
-      title: [
-        ...(hasMemory ? [{ text: 'Client memory', top: memoryTitleTop }] : []),
-        ...(hasCPU ? [{ text: 'Client CPU (100% = one core)', top: cpuTitleTop }] : []),
-      ].map((x) => ({ ...x, left: GRID_LEFT - 4, textStyle: { color: t.muted, fontSize: 11, fontWeight: 500 } })),
+      title: plots
+        .filter((g) => g.title)
+        .map((g) => ({ text: g.title, top: g.titleTop, left: GRID_LEFT - 4, textStyle: { color: t.muted, fontSize: 11, fontWeight: 500 } })),
       tooltip: {
         trigger: 'axis',
         backgroundColor: t.tooltipBg,
@@ -223,15 +286,19 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
           const ps = Array.isArray(params) ? params : [params]
           if (ps.length === 0) return ''
           const at = Number(ps[0].axisValue ?? ps[0].value[0])
-          let html = `<strong>${formatSeconds(at)}</strong><br/>`
+          let html = `<strong>${formatSeconds(at)}</strong>`
+          const head = blockAt(sortedBlocks, at)
+          if (head) {
+            const gas = head.gas_limit > 0 ? `, ${formatSig((head.gas_used / head.gas_limit) * 100, 2)}% gas` : ''
+            html += ` <span style="opacity:.8">· block #${head.number.toLocaleString()} (${head.txs.toLocaleString()} txs${gas})</span>`
+          }
+          html += '<br/>'
+          // Step lines give one value per series; skip duplicates at a step.
+          const seen = new Set<string>()
           for (const p of ps) {
-            if (p.seriesName.startsWith('event:')) continue
-            const v =
-              p.seriesName === 'Client memory'
-                ? formatBytes(p.value[1])
-                : p.seriesName === 'Client CPU'
-                  ? `${formatSig(p.value[1])}%`
-                  : p.value[1].toLocaleString()
+            if (p.seriesName.startsWith('event:') || seen.has(p.seriesName)) continue
+            seen.add(p.seriesName)
+            const v = valueText[p.seriesName]?.(p.value[1]) ?? p.value[1].toLocaleString()
             html += `${dot(p.color)}${p.seriesName}: <strong>${v}</strong><br/>`
           }
           const near = allEvents
@@ -253,7 +320,7 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
       dataZoom: [
         {
           type: 'inside',
-          xAxisIndex: grids.map((_, i) => i),
+          xAxisIndex: plots.map((_, i) => i),
           filterMode: 'none',
           zoomOnMouseWheel: 'ctrl',
           moveOnMouseWheel: false,
@@ -261,7 +328,7 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
         },
         {
           type: 'slider',
-          xAxisIndex: grids.map((_, i) => i),
+          xAxisIndex: plots.map((_, i) => i),
           filterMode: 'none',
           left: GRID_LEFT,
           right: GRID_RIGHT,
@@ -284,12 +351,12 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
           textStyle: { color: t.muted },
         },
       ],
-      grid: grids.map((g) => ({ left: GRID_LEFT, right: GRID_RIGHT, top: g.top, height: g.height })),
+      grid: plots.map((g) => ({ left: GRID_LEFT, right: GRID_RIGHT, top: g.top, height: g.height })),
       xAxis,
       yAxis,
       series,
     }
-  }, [isDark, timeline, events, lanes, hasMemory, hasCPU, laneHeight, poolTop, memoryTop, memoryTitleTop, cpuTop, cpuTitleTop])
+  }, [isDark, timeline, events, lanes, plots, sortedBlocks, hasBaseFee, hasBlobFee, hasMemory, hasCPU, marks])
 
   if (timeline.length === 0) {
     return <p className="text-sm/6 text-gray-500 dark:text-gray-400">No pool timeline recorded.</p>
@@ -300,6 +367,15 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-19 text-xs/5 text-gray-600 dark:text-gray-300">
         <Swatch color={SERIES_COLORS.pending} label="Pending" />
         <Swatch color={SERIES_COLORS.queued} label="Queued" />
+        {hasBaseFee && <Swatch color={SERIES_COLORS.baseFee} label="Base fee" />}
+        {hasBlobFee && <Swatch color={SERIES_COLORS.blobFee} label="Blob base fee" />}
+        {(marks ?? []).map((m) => (
+          <span key={`${m.t_ms}-${m.label}`} title={m.label} className="inline-flex max-w-md min-w-0 items-center gap-1.5 font-medium text-gray-900 dark:text-gray-100">
+            <span className="h-3 shrink-0 border-l border-dashed border-gray-900 dark:border-gray-100" />
+            <span className="shrink-0 tabular-nums">{formatSeconds(m.t_ms)}</span>
+            <span className="truncate font-normal text-gray-600 dark:text-gray-300">{m.label}</span>
+          </span>
+        ))}
         {lanes.length > 0 && (
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400">
             <span>Events:</span>

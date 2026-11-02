@@ -20,6 +20,7 @@ import { RegressionsPanel } from '@/components/suite-detail/RegressionsPanel'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
 import { MempoolSuiteSource } from '@/components/mempool/MempoolSuiteSource'
 import { MempoolBadge } from '@/components/mempool/MempoolBadge'
+import { MempoolBehaviours } from '@/components/mempool/MempoolBehaviours'
 import { isMempoolMode } from '@/components/mempool/mempoolUtils'
 import { EESTMetadata } from '@/components/suite-detail/EESTMetadata'
 import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
@@ -736,7 +737,7 @@ export function SuiteDetailPage() {
   const hasEestMeta = !!suite.eest_metadata
 
   // The tabs in display order. The TabPanels below must use the same order.
-  const tabKeys = ['runs', 'tests', 'regressions', ...(hasPreRunSteps ? ['pre_run_steps'] : []), 'source']
+  const tabKeys = ['runs', ...(suiteIsMempool ? ['behaviours'] : []), 'tests', 'regressions', ...(hasPreRunSteps ? ['pre_run_steps'] : []), 'source']
 
   // An unknown tab opens runs, the default.
   const getTabIndex = () => Math.max(0, tabKeys.indexOf(tab ?? 'runs'))
@@ -1059,6 +1060,20 @@ export function SuiteDetailPage() {
             Runs
             <Badge variant="info">{suiteRunsAll.length}</Badge>
           </Tab>
+          {suiteIsMempool && (
+            <Tab
+              className={({ selected }) =>
+                clsx(
+                  'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xs px-2.5 py-1.5 text-xs/5 font-medium transition-colors focus:outline-hidden sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/6',
+                  selected
+                    ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-gray-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100',
+                )
+              }
+            >
+              Behaviours
+            </Tab>
+          )}
           <Tab
             className={({ selected }) =>
               clsx(
@@ -1518,6 +1533,11 @@ export function SuiteDetailPage() {
               </div>
             )}
           </TabPanel>
+          {suiteIsMempool && (
+            <TabPanel className="flex flex-col gap-4">
+              <MempoolBehaviours suiteHash={suiteHash} />
+            </TabPanel>
+          )}
           <TabPanel className="flex flex-col gap-4">
             {/* Global search for the Tests tab. Sticky to the viewport on
                 scroll so the user can refine the filter without scrolling

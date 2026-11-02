@@ -1,13 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ArrowDown, ArrowRight, ArrowUp, Check, Info, TriangleAlert, X } from 'lucide-react'
-import type { MempoolAssertion, MempoolCheckExplanation, MempoolMetric, MempoolObservation, MempoolScenarioResult, MempoolScenarioStatus } from '@/api/types'
+import { ArrowDown, ArrowRight, ArrowUp, Check, Clock, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import type { MempoolAssertion, MempoolMetric, MempoolObservation, MempoolScenarioResult, MempoolScenarioStatus } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Card } from '@/components/shared/Card'
 import { formatDurationMs } from '@/utils/format'
 import {
   checkState,
   countChecks,
+  explainText,
   formatMempoolValue,
   formatParam,
   groupMetrics,
@@ -16,9 +17,14 @@ import {
   splitValueUnit,
   type CheckCounts,
 } from './mempoolUtils'
+import { isInvariant } from './behaviours'
+import { OPEN_SCENARIO_EVENT, scenarioDomId, scenarioHeadlines } from './runOverview'
+import { buildIssueMarkdown, cellResultText } from './issueMarkdown'
 import { CheckIcon, SeverityTag } from './CheckIcon'
+import { CopyIssueButton } from './CopyIssueButton'
+import { ExplainButton, Explanation } from './Explain'
 import { LatencyTable } from './LatencyTable'
-import { PoolTimelineChart } from './PoolTimelineChart'
+import { PoolTimelineChart, type TimelineMark } from './PoolTimelineChart'
 
 const STATUS_VARIANT: Record<MempoolScenarioStatus, 'success' | 'error' | 'warning'> = {
   passed: 'success',
@@ -26,7 +32,6 @@ const STATUS_VARIANT: Record<MempoolScenarioStatus, 'success' | 'error' | 'warni
   error: 'warning',
 }
 
- 
 export function ScenarioStatusBadge({ status }: { status: MempoolScenarioStatus | undefined }) {
   if (!status) return <span className="text-gray-400 dark:text-gray-500">-</span>
   return <Badge variant={STATUS_VARIANT[status] ?? 'default'}>{status}</Badge>
@@ -34,6 +39,13 @@ export function ScenarioStatusBadge({ status }: { status: MempoolScenarioStatus 
 
 // Passed checks above this count hide behind a "Show N passed checks" button.
 const MAX_VISIBLE_PASSES = 6
+
+// IssueContext is the run a "Copy as issue" body names.
+export interface IssueContext {
+  client: string
+  runId: string
+  version?: string
+}
 
 function Section({ title, children, aside }: { title: string; children: React.ReactNode; aside?: React.ReactNode }) {
   return (
@@ -86,31 +98,26 @@ function ExpectedActual({ assertion, prominent }: { assertion: MempoolAssertion;
   )
 }
 
-// CheckExplanation shows what a check tests, why it matters and which
-// results are fine.
-function CheckExplanation({ explain, observation = false }: { explain: MempoolCheckExplanation; observation?: boolean }) {
-  const rows: [string, string][] = [
-    [observation ? 'What it records' : 'What it tests', explain.what],
-    ['Why it matters', explain.why],
-    [observation ? 'How to read it' : 'OK results', explain.ok],
-  ]
-  return (
-    <dl className="mt-1.5 grid max-w-4xl grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xs bg-gray-50 px-3 py-2 text-xs/5 dark:bg-gray-900/40">
-      {rows.map(([label, text]) => (
-        <div key={label} className="contents">
-          <dt className="font-medium text-gray-500 dark:text-gray-400">{label}</dt>
-          <dd className="text-gray-700 dark:text-gray-300">{text}</dd>
-        </div>
-      ))}
-    </dl>
-  )
+function formatT(ms: number): string {
+  return formatMempoolValue(ms, 'ms')
 }
 
-function CheckRow({ assertion }: { assertion: MempoolAssertion }) {
+interface CheckRowProps {
+  assertion: MempoolAssertion
+  marked: boolean
+  onMark?: (a: MempoolAssertion) => void
+  issue?: () => string
+}
+
+function CheckRow({ assertion, marked, onMark, issue }: CheckRowProps) {
   const state = checkState(assertion)
   const [open, setOpen] = useState(false)
+  const canMark = onMark !== undefined && assertion.t_ms !== undefined
   return (
-    <li className="flex gap-2.5 py-2">
+    <li
+      className={clsx('flex gap-2.5 py-2', canMark && 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30', marked && 'bg-blue-50/60 dark:bg-blue-900/15')}
+      onClick={canMark ? () => onMark(assertion) : undefined}
+    >
       <CheckIcon state={state} className="mt-1" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -118,56 +125,111 @@ function CheckRow({ assertion }: { assertion: MempoolAssertion }) {
             {assertion.name}
           </span>
           <SeverityTag severity={assertion.severity} />
-          {assertion.explain && (
-            <ExplainButton open={open} onClick={() => setOpen(!open)} title="What this checks, why, and which results are OK" />
-          )}
+          {assertion.explain && <ExplainButton open={open} onClick={() => setOpen(!open)} />}
+          {state !== 'passed' && issue && <CopyIssueButton markdown={issue} />}
         </div>
         <ExpectedActual assertion={assertion} prominent={state !== 'passed'} />
-        {open && assertion.explain && <CheckExplanation explain={assertion.explain} />}
+        {open && assertion.explain && <Explanation explain={assertion.explain} />}
       </div>
+      {canMark && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onMark(assertion)
+          }}
+          aria-pressed={marked}
+          title={marked ? 'Remove the mark from the pool timeline' : 'Mark this check on the pool timeline'}
+          className={clsx(
+            'inline-flex h-6 shrink-0 items-center gap-1 self-start rounded-xs px-1.5 text-xs/5 tabular-nums',
+            marked
+              ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'
+              : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-100',
+          )}
+        >
+          <Clock className="size-3.5" />
+          {formatT(assertion.t_ms!)}
+        </button>
+      )}
     </li>
   )
 }
 
-function ChecksList({ assertions }: { assertions: MempoolAssertion[] }) {
+function ToggleButton({ onClick, icon, children }: { onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-1 inline-flex items-center gap-1.5 self-start rounded-xs px-1 py-0.5 text-xs/5 font-medium text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
+    >
+      {icon}
+      {children}
+    </button>
+  )
+}
+
+interface ChecksListProps {
+  assertions: MempoolAssertion[]
+  markedName?: string
+  onMark?: (a: MempoolAssertion) => void
+  issueFor?: (a: MempoolAssertion) => (() => string) | undefined
+}
+
+// ChecksList shows failed checks first. Passed invariants hide behind a
+// toggle (the Invariants panel sums them up); a failed invariant stays in
+// the list.
+function ChecksList({ assertions, markedName, onMark, issueFor }: ChecksListProps) {
   const [showPasses, setShowPasses] = useState(false)
+  const [showInvariants, setShowInvariants] = useState(false)
   const ordered = orderChecks(assertions)
-  const failing = ordered.filter((a) => !a.passed)
-  const passing = ordered.filter((a) => a.passed)
+  const passedInvariants = ordered.filter((a) => isInvariant(a) && a.passed)
+  const main = ordered.filter((a) => !isInvariant(a) || !a.passed)
+  const failing = main.filter((a) => !a.passed)
+  const passing = main.filter((a) => a.passed)
   const collapsePasses = passing.length > MAX_VISIBLE_PASSES && !showPasses
+  const row = (a: MempoolAssertion) => <CheckRow key={a.name} assertion={a} marked={a.name === markedName} onMark={onMark} issue={issueFor?.(a)} />
 
   return (
     <div className="flex flex-col">
       <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
-        {failing.map((a) => (
-          <CheckRow key={a.name} assertion={a} />
-        ))}
-        {!collapsePasses && passing.map((a) => <CheckRow key={a.name} assertion={a} />)}
+        {failing.map(row)}
+        {!collapsePasses && passing.map(row)}
+        {showInvariants && passedInvariants.map(row)}
       </ul>
-      {passing.length > MAX_VISIBLE_PASSES && (
-        <button
-          type="button"
-          onClick={() => setShowPasses(!showPasses)}
-          className="mt-1 inline-flex items-center gap-1.5 self-start rounded-xs px-1 py-0.5 text-xs/5 font-medium text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
-        >
-          <Check className="size-3.5 text-green-600 dark:text-green-400" />
-          {showPasses ? `Hide ${passing.length} passed checks` : `Show ${passing.length} passed checks`}
-        </button>
-      )}
+      <div className="flex flex-wrap gap-x-3">
+        {passing.length > MAX_VISIBLE_PASSES && (
+          <ToggleButton onClick={() => setShowPasses(!showPasses)} icon={<Check className="size-3.5 text-green-600 dark:text-green-400" />}>
+            {showPasses ? `Hide ${passing.length} passed checks` : `Show ${passing.length} passed checks`}
+          </ToggleButton>
+        )}
+        {passedInvariants.length > 0 && (
+          <ToggleButton onClick={() => setShowInvariants(!showInvariants)} icon={<ShieldCheck className="size-3.5 text-green-600 dark:text-green-400" />}>
+            {showInvariants ? `Hide ${passedInvariants.length} invariant checks` : `Show ${passedInvariants.length} invariant checks`}
+          </ToggleButton>
+        )}
+      </div>
     </div>
   )
 }
 
-function MetricTile({ metric, label }: { metric: MempoolMetric; label: string }) {
+function MetricTile({ metric, label, open, onToggle }: { metric: MempoolMetric; label: string; open: boolean; onToggle: () => void }) {
   const { value, unit } = splitValueUnit(formatMempoolValue(metric.value, metric.unit))
   const Arrow = metric.better === 'lower' ? ArrowDown : metric.better === 'higher' ? ArrowUp : undefined
   return (
-    <div className="flex flex-col justify-between gap-1 rounded-sm bg-gray-50 px-3 py-2.5 dark:bg-gray-700/40">
+    <div
+      title={explainText(metric.explain, 'metric') ?? label}
+      className={clsx('flex flex-col justify-between gap-1 rounded-sm bg-gray-50 px-3 py-2.5 dark:bg-gray-700/40', open && 'ring-1 ring-blue-300 dark:ring-blue-700')}
+    >
       <div className="flex items-start gap-1 text-xs/5 text-gray-500 dark:text-gray-400">
-        <span className="line-clamp-2" title={label}>{label}</span>
+        <span className="line-clamp-2">{label}</span>
         {Arrow && (
           <span title={`${metric.better === 'lower' ? 'Lower' : 'Higher'} is better`} className="mt-1 shrink-0">
             <Arrow className="size-3 text-gray-400 dark:text-gray-500" />
+          </span>
+        )}
+        {metric.explain && (
+          <span className="ml-auto">
+            <ExplainButton open={open} onClick={onToggle} kind="metric" label={false} />
           </span>
         )}
       </div>
@@ -197,35 +259,30 @@ const LG_COLS: Record<number, string> = { 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-
 
 function MetricsGrid({ metrics }: { metrics: MempoolMetric[] }) {
   const groups = groupMetrics(metrics)
+  const [openKey, setOpenKey] = useState<string | null>(null)
   return (
     <div className="flex flex-col gap-3">
-      {groups.map((g) => (
-        <div key={g.key} className="flex flex-col gap-1.5">
-          {g.heading && <GroupHeading heading={g.heading} detail={g.detail} />}
-          <div className={clsx('grid grid-cols-2 gap-2', LG_COLS[g.items.length] ?? 'lg:grid-cols-4')}>
-            {g.items.map((item) => (
-              <MetricTile key={item.metric.key} metric={item.metric} label={item.label} />
-            ))}
+      {groups.map((g) => {
+        const open = g.items.find((item) => item.metric.key === openKey)
+        return (
+          <div key={g.key} className="flex flex-col gap-1.5">
+            {g.heading && <GroupHeading heading={g.heading} detail={g.detail} />}
+            <div className={clsx('grid grid-cols-2 gap-2', LG_COLS[g.items.length] ?? 'lg:grid-cols-4')}>
+              {g.items.map((item) => (
+                <MetricTile
+                  key={item.metric.key}
+                  metric={item.metric}
+                  label={item.label}
+                  open={item.metric.key === openKey}
+                  onToggle={() => setOpenKey(item.metric.key === openKey ? null : item.metric.key)}
+                />
+              ))}
+            </div>
+            {open?.metric.explain && <Explanation explain={open.metric.explain} kind="metric" title={open.metric.label} />}
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
-  )
-}
-
-// ExplainButton toggles an explanation.
-function ExplainButton({ open, onClick, title }: { open: boolean; onClick: () => void; title: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-expanded={open}
-      title={open ? 'Hide the explanation' : title}
-      className="inline-flex shrink-0 items-center gap-1 self-start rounded-xs px-1 text-xs/5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
-    >
-      <Info className="size-3.5" />
-      {open ? 'Hide' : 'Explain'}
-    </button>
   )
 }
 
@@ -235,14 +292,12 @@ function ObservationRow({ o }: { o: MempoolObservation }) {
     <div className="grid grid-cols-1 gap-x-4 py-1.5 sm:grid-cols-3">
       <dt className="flex items-start justify-between gap-2 text-gray-600 dark:text-gray-400" title={o.key}>
         <span>{o.label}</span>
-        {o.explain && (
-          <ExplainButton open={open} onClick={() => setOpen(!open)} title="What this records, why, and how to read it" />
-        )}
+        {o.explain && <ExplainButton open={open} onClick={() => setOpen(!open)} kind="observation" />}
       </dt>
       <dd className="font-mono text-xs/6 break-words text-gray-900 sm:col-span-2 dark:text-gray-100">{o.value}</dd>
       {open && o.explain && (
         <div className="sm:col-span-3">
-          <CheckExplanation explain={o.explain} observation />
+          <Explanation explain={o.explain} kind="observation" />
         </div>
       )}
     </div>
@@ -272,21 +327,99 @@ function ParamsLine({ params }: { params: Record<string, unknown> }) {
   )
 }
 
-export function ScenarioCard({ scenario }: { scenario: MempoolScenarioResult }) {
+// Headlines are the 1 or 2 key values of a scenario in its header. The
+// column has a fixed width so the headers line up.
+function Headlines({ scenario }: { scenario: MempoolScenarioResult }) {
+  const items = scenarioHeadlines(scenario)
+  return (
+    <span className="flex w-28 shrink-0 flex-col items-end text-xs/4 text-gray-700 tabular-nums dark:text-gray-300">
+      {items.map((h) => (
+        <span key={h.label} title={h.label} className="max-w-full cursor-help truncate">
+          {h.text}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+interface ScenarioCardProps {
+  scenario: MempoolScenarioResult
+  // The checks and observations to show; default all. The run page filter
+  // passes a subset.
+  assertions?: MempoolAssertion[]
+  observations?: MempoolObservation[]
+  // forceOpen opens the card when it turns true (e.g. a filter is on).
+  forceOpen?: boolean
+  issueContext?: IssueContext
+}
+
+export function ScenarioCard({ scenario, assertions: shownAssertions, observations: shownObservations, forceOpen = false, issueContext }: ScenarioCardProps) {
   const metrics = scenario.metrics ?? []
   const latencies = scenario.latencies ?? []
-  const assertions = scenario.assertions ?? []
-  const observations = scenario.observations ?? []
-  const counts = countChecks(assertions)
+  const allAssertions = scenario.assertions ?? []
+  const assertions = shownAssertions ?? allAssertions
+  const observations = shownObservations ?? scenario.observations ?? []
+  const counts = countChecks(allAssertions)
   const params = scenario.params && Object.keys(scenario.params).length > 0 ? scenario.params : undefined
+  const domId = scenarioDomId(scenario.name)
+
+  const [collapsed, setCollapsed] = useState(() => !forceOpen && scenario.status === 'passed' && window.location.hash !== `#${domId}`)
+  const [prevForce, setPrevForce] = useState(forceOpen)
+  if (forceOpen !== prevForce) {
+    setPrevForce(forceOpen)
+    if (forceOpen) setCollapsed(false)
+  }
+
+  // A link elsewhere on the page (e.g. the problems banner) opens the card
+  // and scrolls to it.
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      if ((e as CustomEvent<string>).detail !== scenario.name) return
+      setCollapsed(false)
+      window.requestAnimationFrame(() => document.getElementById(domId)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    }
+    window.addEventListener(OPEN_SCENARIO_EVENT, onOpen)
+    if (window.location.hash === `#${domId}`) document.getElementById(domId)?.scrollIntoView({ block: 'start' })
+    return () => window.removeEventListener(OPEN_SCENARIO_EVENT, onOpen)
+  }, [scenario.name, domId])
+
+  const [mark, setMark] = useState<(TimelineMark & { name: string }) | null>(null)
+  const timelineRef = useRef<HTMLDivElement>(null)
+  const onMark = (a: MempoolAssertion) => {
+    if (a.t_ms === undefined) return
+    if (mark?.name === a.name) {
+      setMark(null)
+      return
+    }
+    setMark({ name: a.name, t_ms: a.t_ms, label: a.name })
+    window.requestAnimationFrame(() => timelineRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+  }
+  const hasMarks = allAssertions.some((a) => a.t_ms !== undefined) && (scenario.timeline ?? []).length > 0
+
+  const issueFor = issueContext
+    ? (a: MempoolAssertion) => () =>
+        buildIssueMarkdown({
+          title: a.name,
+          scenario: scenario.name,
+          kind: 'check',
+          severity: a.severity,
+          explain: a.explain,
+          rows: [{ ...issueContext, result: cellResultText({ kind: 'check', state: checkState(a), expected: a.expected, actual: a.actual }) }],
+          params: scenario.params,
+        })
+    : undefined
 
   return (
     <Card
+      id={domId}
+      className="scroll-mt-4"
       collapsible
-      defaultCollapsed={scenario.status === 'passed'}
+      collapsed={collapsed}
+      onCollapsedChange={setCollapsed}
       title={<span className="font-mono">{scenario.name}</span>}
       headerExtra={
-        <span className="flex items-center gap-2 text-xs/5">
+        <span className="flex items-center gap-3 text-xs/5">
+          <Headlines scenario={scenario} />
           <span className={clsx(HEADER_COL, 'flex flex-col text-xs/4')}>
             <CheckCount label="Hard" count={counts.hard} failState="hard" />
             <CheckCount label="Soft" count={counts.soft} failState="soft" />
@@ -308,8 +441,11 @@ export function ScenarioCard({ scenario }: { scenario: MempoolScenarioResult }) 
           </div>
         )}
         {assertions.length > 0 && (
-          <Section title="Checks">
-            <ChecksList assertions={assertions} />
+          <Section
+            title="Checks"
+            aside={hasMarks && <span className="text-xs/5 text-gray-500 dark:text-gray-400">Click a check to mark its time on the pool timeline</span>}
+          >
+            <ChecksList assertions={assertions} markedName={mark?.name} onMark={hasMarks ? onMark : undefined} issueFor={issueFor} />
           </Section>
         )}
         {metrics.length > 0 && (
@@ -317,9 +453,24 @@ export function ScenarioCard({ scenario }: { scenario: MempoolScenarioResult }) 
             <MetricsGrid metrics={metrics} />
           </Section>
         )}
-        <Section title="Pool timeline">
-          <PoolTimelineChart timeline={scenario.timeline ?? []} events={scenario.events ?? []} />
-        </Section>
+        <div ref={timelineRef} className="scroll-mt-4">
+          <Section
+            title="Pool timeline"
+            aside={
+              mark && (
+                <button
+                  type="button"
+                  onClick={() => setMark(null)}
+                  className="rounded-xs px-1 text-xs/5 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                >
+                  Clear the mark
+                </button>
+              )
+            }
+          >
+            <PoolTimelineChart timeline={scenario.timeline ?? []} events={scenario.events ?? []} blocks={scenario.blocks} marks={mark ? [mark] : undefined} />
+          </Section>
+        </div>
         {latencies.length > 0 && (
           <Section title="Latencies">
             <LatencyTable latencies={latencies} />

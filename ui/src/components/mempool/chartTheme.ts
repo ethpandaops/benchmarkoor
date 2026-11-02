@@ -44,6 +44,11 @@ export const SERIES_COLORS = {
   memory: '#10b981',
   cpu: '#8b5cf6',
   histogram: '#9ca3af',
+  baseFee: '#0891b2',
+  blobFee: '#db2777',
+  // A check marked on the timeline. Neutral, so it does not read as a series.
+  mark: '#111827',
+  markDark: '#f3f4f6',
 }
 
 // Event kind colors (light, dark). Each kind has its own lane, so the color

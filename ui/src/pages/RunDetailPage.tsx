@@ -54,7 +54,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useCancelDeleteRuns, useDeleteRuns } from '@/api/hooks/useAdmin'
 import { parseHeatmapGroupMode } from '@/utils/gasGroup'
 import { MempoolSummary } from '@/components/mempool/MempoolSummary'
-import { MempoolRunDetail } from '@/components/mempool/MempoolRunDetail'
+import { MempoolPolicyProfile, MempoolProblems, MempoolRunDetail } from '@/components/mempool/MempoolRunDetail'
 import { MempoolBadge } from '@/components/mempool/MempoolBadge'
 import { isMempoolMode } from '@/components/mempool/mempoolUtils'
 
@@ -656,7 +656,11 @@ export function RunDetailPage() {
       />
 
       {isMempool ? (
-        <MempoolSummary runId={runId} config={config} />
+        <>
+          <MempoolProblems runId={runId} />
+          <MempoolSummary runId={runId} config={config} />
+          <MempoolPolicyProfile runId={runId} config={config} />
+        </>
       ) : (
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <ClientStat client={config.instance.client} runId={config.instance.id} rollbackStrategy={config.instance.rollback_strategy} />

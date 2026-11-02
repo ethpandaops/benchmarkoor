@@ -11,6 +11,11 @@ interface CardProps {
   // headerExtra renders a summary on the right side of the header (before the
   // collapse chevron), e.g. a size or status shown even while collapsed.
   headerExtra?: React.ReactNode
+  id?: string
+  // collapsed and onCollapsedChange make the collapse state controlled, so
+  // a parent can open the card (e.g. from a link).
+  collapsed?: boolean
+  onCollapsedChange?: (collapsed: boolean) => void
 }
 
 export function Card({
@@ -20,11 +25,19 @@ export function Card({
   defaultCollapsed = false,
   className,
   headerExtra,
+  id,
+  collapsed,
+  onCollapsedChange,
 }: CardProps) {
-  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
+  const [localCollapsed, setLocalCollapsed] = useState(defaultCollapsed)
+  const isCollapsed = collapsed ?? localCollapsed
+  const setIsCollapsed = (next: boolean) => {
+    setLocalCollapsed(next)
+    onCollapsedChange?.(next)
+  }
 
   return (
-    <div className={clsx('overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800', className)}>
+    <div id={id} className={clsx('overflow-hidden rounded-sm bg-white shadow-xs dark:bg-gray-800', className)}>
       <div
         className={clsx(
           'flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700',
