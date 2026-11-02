@@ -51,17 +51,17 @@ function Section({ title, children, aside }: { title: string; children: React.Re
 // so the columns line up across the cards like a table.
 const HEADER_COL = 'w-24 shrink-0'
 
-// CheckCount is a compact "Hard 5/5" summary for the card header. It keeps
-// its column when the scenario has no checks of that severity.
+// CheckCount is a compact "Hard 5/5" line for the card header. Hard and Soft
+// stack in one column; a missing count keeps its line, so headers keep one
+// height.
 function CheckCount({ label, count, failState }: { label: string; count: CheckCounts['hard']; failState: 'hard' | 'soft' }) {
-  if (count.total === 0) return <span className={HEADER_COL} aria-hidden />
+  if (count.total === 0) return <span className="h-4" aria-hidden />
   const failed = count.total - count.passed
   const Icon = failed === 0 ? Check : failState === 'hard' ? X : TriangleAlert
   return (
     <span
       title={`${count.passed} of ${count.total} ${label.toLowerCase()} checks passed.\n\n${SEVERITY_HELP[failState]}`}
       className={clsx(
-        HEADER_COL,
         'inline-flex cursor-help items-center gap-1 tabular-nums',
         failed === 0 && 'text-gray-500 dark:text-gray-400',
         failed > 0 && failState === 'hard' && 'font-medium text-red-700 dark:text-red-400',
@@ -231,13 +231,15 @@ export function ScenarioCard({ scenario }: { scenario: MempoolScenarioResult }) 
       title={<span className="font-mono">{scenario.name}</span>}
       headerExtra={
         <span className="flex items-center gap-2 text-xs/5">
-          <CheckCount label="Hard" count={counts.hard} failState="hard" />
-          <CheckCount label="Soft" count={counts.soft} failState="soft" />
-          <span className={clsx(HEADER_COL, 'flex')}>
-            <ScenarioStatusBadge status={scenario.status} />
+          <span className={clsx(HEADER_COL, 'flex flex-col text-xs/4')}>
+            <CheckCount label="Hard" count={counts.hard} failState="hard" />
+            <CheckCount label="Soft" count={counts.soft} failState="soft" />
           </span>
           <span className="w-16 shrink-0 text-right text-gray-500 tabular-nums dark:text-gray-400">
             {formatDurationMs(scenario.duration_ms)}
+          </span>
+          <span className="flex w-20 shrink-0 justify-end">
+            <ScenarioStatusBadge status={scenario.status} />
           </span>
         </span>
       }
