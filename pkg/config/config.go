@@ -634,21 +634,25 @@ var eestFillerSupportedClients = map[string]struct{}{
 
 // RunnerConfig contains all run-specific configuration settings.
 type RunnerConfig struct {
-	ContainerRuntime   string               `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
-	ClientLogsToStdout bool                 `yaml:"client_logs_to_stdout" mapstructure:"client_logs_to_stdout"`
-	ContainerNetwork   string               `yaml:"container_network" mapstructure:"container_network"`
-	CleanupOnStart     bool                 `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
-	RunTimeout         string               `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
-	Directories        DirectoriesConfig    `yaml:"directories,omitempty" mapstructure:"directories"`
-	DropCachesPath     string               `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
-	CPUSysfsPath       string               `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
-	CgroupPath         string               `yaml:"cgroup_path,omitempty" mapstructure:"cgroup_path"`
-	GitHubToken        string               `yaml:"github_token,omitempty" mapstructure:"github_token"`
-	LiveReporting      *LiveReportingConfig `yaml:"live_reporting,omitempty" mapstructure:"live_reporting"`
-	StorageProbe       *StorageProbeConfig  `yaml:"storage_probe,omitempty" mapstructure:"storage_probe"`
-	Benchmark          BenchmarkConfig      `yaml:"benchmark" mapstructure:"benchmark"`
-	Client             ClientConfig         `yaml:"client" mapstructure:"client"`
-	Instances          []ClientInstance     `yaml:"instances" mapstructure:"instances"`
+	ContainerRuntime   string `yaml:"container_runtime,omitempty" mapstructure:"container_runtime"`
+	ClientLogsToStdout bool   `yaml:"client_logs_to_stdout" mapstructure:"client_logs_to_stdout"`
+	ContainerNetwork   string `yaml:"container_network" mapstructure:"container_network"`
+	CleanupOnStart     bool   `yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
+	// LoopbackClientPorts publishes the client RPC, Engine and metrics ports
+	// on 127.0.0.1 (same port numbers) and reaches the client there instead of
+	// on its container network IP. Default: on for macOS, off elsewhere.
+	LoopbackClientPorts *bool                `yaml:"loopback_client_ports,omitempty" mapstructure:"loopback_client_ports"`
+	RunTimeout          string               `yaml:"run_timeout,omitempty" mapstructure:"run_timeout"`
+	Directories         DirectoriesConfig    `yaml:"directories,omitempty" mapstructure:"directories"`
+	DropCachesPath      string               `yaml:"drop_caches_path,omitempty" mapstructure:"drop_caches_path"`
+	CPUSysfsPath        string               `yaml:"cpu_sysfs_path,omitempty" mapstructure:"cpu_sysfs_path"`
+	CgroupPath          string               `yaml:"cgroup_path,omitempty" mapstructure:"cgroup_path"`
+	GitHubToken         string               `yaml:"github_token,omitempty" mapstructure:"github_token"`
+	LiveReporting       *LiveReportingConfig `yaml:"live_reporting,omitempty" mapstructure:"live_reporting"`
+	StorageProbe        *StorageProbeConfig  `yaml:"storage_probe,omitempty" mapstructure:"storage_probe"`
+	Benchmark           BenchmarkConfig      `yaml:"benchmark" mapstructure:"benchmark"`
+	Client              ClientConfig         `yaml:"client" mapstructure:"client"`
+	Instances           []ClientInstance     `yaml:"instances" mapstructure:"instances"`
 }
 
 // StorageProbeConfig configures the disk I/O probe. Before the first client
@@ -866,6 +870,10 @@ type BenchmarkConfig struct {
 	GenerateSuiteStatsMethod        string               `yaml:"generate_suite_stats_method,omitempty" mapstructure:"generate_suite_stats_method"`
 	ResultsUpload                   *ResultsUploadConfig `yaml:"results_upload,omitempty" mapstructure:"results_upload"`
 	Tests                           TestsConfig          `yaml:"tests,omitempty" mapstructure:"tests"`
+	// Mode selects the executor: "replay" (the default) or "mempool".
+	Mode string `yaml:"mode,omitempty" mapstructure:"mode"`
+	// Mempool configures the mempool executor mode.
+	Mempool *MempoolConfig `yaml:"mempool,omitempty" mapstructure:"mempool"`
 }
 
 // ResultsUploadConfig contains configuration for uploading results.
@@ -2644,6 +2652,11 @@ func (c *Config) Validate(opts ...ValidateOpts) error {
 		}
 	}
 
+	// Validate the executor mode and its settings.
+	if err := c.validateExecutorMode(); err != nil {
+		return err
+	}
+
 	// Validate test source configuration.
 	if err := c.Runner.Benchmark.Tests.Source.Validate(); err != nil {
 		return fmt.Errorf("tests config: %w", err)
@@ -3417,6 +3430,18 @@ func (c *Config) GetContainerRuntime() string {
 	return "docker"
 }
 
+// UseLoopbackClientPorts returns true when the client ports are published on
+// 127.0.0.1. When not set it is on for macOS with Docker: there the host often
+// cannot reach the container network (Docker Desktop never routes it, and
+// macOS Local Network privacy can block new binaries even with OrbStack).
+func (c *Config) UseLoopbackClientPorts() bool {
+	if c.Runner.LoopbackClientPorts != nil {
+		return *c.Runner.LoopbackClientPorts
+	}
+
+	return runtime.GOOS == "darwin" && c.GetContainerRuntime() == "docker"
+}
+
 // GetRollbackStrategy returns the rollback_strategy setting for an instance.
 // Instance-level setting takes precedence over global default.
 // Returns "rpc-debug-setHead" if neither is set.
@@ -3427,6 +3452,11 @@ func (c *Config) GetRollbackStrategy(instance *ClientInstance) string {
 
 	if c.Runner.Client.Config.RollbackStrategy != "" {
 		return c.Runner.Client.Config.RollbackStrategy
+	}
+
+	// A fresh container gives every mempool scenario a clean pool.
+	if c.IsMempoolMode() {
+		return RollbackStrategyContainerRecreate
 	}
 
 	return RollbackStrategyRPCDebugSetHead
@@ -4004,6 +4034,11 @@ func (c *Config) validateContainerRuntime() error {
 			"invalid container_runtime %q (must be \"docker\" or \"podman\")",
 			c.Runner.ContainerRuntime,
 		)
+	}
+
+	if c.Runner.LoopbackClientPorts != nil && *c.Runner.LoopbackClientPorts &&
+		c.GetContainerRuntime() == "podman" {
+		return fmt.Errorf("runner.loopback_client_ports is not supported with container_runtime \"podman\"")
 	}
 
 	return nil

@@ -97,10 +97,13 @@ type StartBlock struct {
 
 // RunConfig contains configuration for a single test run.
 type RunConfig struct {
-	BenchmarkoorVersion            string                 `json:"benchmarkoor_version,omitempty"`
-	Timestamp                      int64                  `json:"timestamp"`
-	TimestampEnd                   int64                  `json:"timestamp_end,omitempty"`
-	SuiteHash                      string                 `json:"suite_hash,omitempty"`
+	BenchmarkoorVersion string `json:"benchmarkoor_version,omitempty"`
+	Timestamp           int64  `json:"timestamp"`
+	TimestampEnd        int64  `json:"timestamp_end,omitempty"`
+	SuiteHash           string `json:"suite_hash,omitempty"`
+	// Mode is the executor mode. Empty means "replay", so the replay
+	// config.json stays as it was before the mode existed.
+	Mode                           string                 `json:"mode,omitempty"`
 	SystemResourceCollectionMethod string                 `json:"system_resource_collection_method,omitempty"`
 	System                         *SystemInfo            `json:"system"`
 	Instance                       *ResolvedInstance      `json:"instance"`
@@ -690,7 +693,7 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 
 	// Check for multi-genesis support (EEST pre_alloc).
 	if genesisSource == "" && r.executor != nil {
-		if ggp, ok := r.executor.GetSource().(executor.GenesisGroupProvider); ok {
+		if ggp, ok := executor.SourceOf(r.executor).(executor.GenesisGroupProvider); ok {
 			if groups := ggp.GetGenesisGroups(); len(groups) > 0 {
 				log.WithField("groups", len(groups)).Info(
 					"Running multi-genesis mode",
@@ -754,9 +757,10 @@ func (r *runner) RunInstance(ctx context.Context, instance *config.ClientInstanc
 		}
 	}
 
-	// If no genesis configured and executor provides one (e.g., EEST source), use that.
+	// If no genesis configured and the executor provides one (e.g., the EEST
+	// source, or the genesis the mempool mode generates), use that.
 	if genesisSource == "" && r.executor != nil {
-		if gp, ok := r.executor.GetSource().(executor.GenesisProvider); ok {
+		if gp := executor.GenesisProviderOf(r.executor); gp != nil {
 			if path := gp.GetGenesisPath(instance.Client); path != "" {
 				genesisSource = path
 				log.WithField("source", path).Info("Using genesis from test source")

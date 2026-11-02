@@ -19,7 +19,9 @@ import (
 
 // SuiteInfo contains information about a test suite.
 type SuiteInfo struct {
-	Hash        string                 `json:"hash"`
+	Hash string `json:"hash"`
+	// Mode is the executor mode; empty means "replay".
+	Mode        string                 `json:"mode,omitempty"`
 	Source      *SuiteSource           `json:"source"`
 	Filter      string                 `json:"filter,omitempty"`
 	Metadata    *config.MetadataConfig `json:"metadata,omitempty"`
@@ -37,6 +39,18 @@ type SuiteSource struct {
 	Local   *LocalSourceInfo   `json:"local,omitempty"`
 	Archive *ArchiveSourceInfo `json:"archive,omitempty"`
 	EEST    *EESTSourceInfo    `json:"eest,omitempty"`
+	Mempool *MempoolSourceInfo `json:"mempool,omitempty"`
+}
+
+// MempoolSourceInfo describes a mempool suite: the generated genesis and the
+// scenarios with their parameters.
+type MempoolSourceInfo struct {
+	Fork      string                         `json:"fork"`
+	ChainID   uint64                         `json:"chain_id"`
+	Seed      string                         `json:"seed"`
+	Accounts  int                            `json:"accounts"`
+	GasLimit  uint64                         `json:"gas_limit"`
+	Scenarios []config.MempoolScenarioConfig `json:"scenarios"`
 }
 
 // GitSourceInfo contains git repository source information.

@@ -31,28 +31,24 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Executor runs Engine API tests against a client.
+// Executor runs tests against a client. It is the seam between the runner,
+// which owns the client container lifecycle and the rollback strategies, and
+// one executor mode (replay or mempool).
+//
+// A test is a *TestWithSteps. The runner reads only its Name, so a mode that
+// has no step files (e.g. mempool) returns tests with only Name set.
 type Executor interface {
 	Start(ctx context.Context) error
 	Stop() error
 
-	// ExecuteTests runs all tests against the specified endpoint.
+	// ExecuteTests runs all tests (or opts.Tests) against the client.
 	ExecuteTests(ctx context.Context, opts *ExecuteOptions) (*ExecutionResult, error)
-
-	// RunPreRunSteps executes the suite's pre-run steps (if any) against the
-	// given endpoint. This is used by checkpoint-restore to run pre-run steps
-	// on the live container before checkpointing, so the checkpointed state
-	// includes the pre-run effects. Returns the number of steps executed.
-	RunPreRunSteps(ctx context.Context, opts *ExecuteOptions) (int, error)
 
 	// GetSuiteHash returns the hash of the test suite.
 	GetSuiteHash() string
 
 	// GetTests returns the prepared test list. Returns nil if not yet prepared.
 	GetTests() []*TestWithSteps
-
-	// GetSource returns the underlying source, which can be used for genesis resolution.
-	GetSource() Source
 
 	// GetProgress returns a snapshot of the current test execution counts.
 	// Safe to call concurrently from any goroutine while ExecuteTests runs.
@@ -70,6 +66,60 @@ type Executor interface {
 	// Entries with Passed=false carry zero gas data. The map is keyed by
 	// test name and includes one entry per completed test.
 	GetLiveTests() map[string]LiveTestStats
+}
+
+// PreRunStepRunner is an optional Executor capability: the replay mode runs
+// the suite's pre-run steps (e.g. funding blocks) before the tests.
+type PreRunStepRunner interface {
+	// RunPreRunSteps executes the suite's pre-run steps (if any) against the
+	// given endpoint. This is used by checkpoint-restore to run pre-run steps
+	// on the live container before checkpointing, so the checkpointed state
+	// includes the pre-run effects. Returns the number of steps executed.
+	RunPreRunSteps(ctx context.Context, opts *ExecuteOptions) (int, error)
+}
+
+// SourceProvider is an optional Executor capability: the replay mode reads
+// its tests from a Source, which can also provide the genesis and the
+// pre-run bundle location.
+type SourceProvider interface {
+	// GetSource returns the underlying source.
+	GetSource() Source
+}
+
+// RunPreRunSteps runs the pre-run steps of exec when it has any. It returns
+// zero for an executor without pre-run steps.
+func RunPreRunSteps(ctx context.Context, exec Executor, opts *ExecuteOptions) (int, error) {
+	runner, ok := exec.(PreRunStepRunner)
+	if !ok {
+		return 0, nil
+	}
+
+	return runner.RunPreRunSteps(ctx, opts)
+}
+
+// SourceOf returns the source of exec, or nil when exec has no source.
+func SourceOf(exec Executor) Source {
+	provider, ok := exec.(SourceProvider)
+	if !ok {
+		return nil
+	}
+
+	return provider.GetSource()
+}
+
+// GenesisProviderOf returns the genesis provider of exec: its source when the
+// source provides a genesis, else exec itself. It returns nil when neither
+// provides one.
+func GenesisProviderOf(exec Executor) GenesisProvider {
+	if gp, ok := SourceOf(exec).(GenesisProvider); ok {
+		return gp
+	}
+
+	if gp, ok := exec.(GenesisProvider); ok {
+		return gp
+	}
+
+	return nil
 }
 
 // ProgressSnapshot is a point-in-time view of the executor's test progress.
@@ -98,26 +148,35 @@ type BlockLogCollector interface {
 	RegisterBlockHash(testName, blockHash string)
 }
 
-// ExecuteOptions contains options for test execution.
+// ExecuteOptions contains options for test execution. The fields at the top
+// apply to every executor mode. ReplayOptions holds the fields that only the
+// replay mode reads.
 type ExecuteOptions struct {
-	EngineEndpoint                string
-	JWT                           string
-	ResultsDir                    string
-	Filter                        string
-	ContainerID                   string                                // Container ID for stats collection.
-	DockerClient                  *client.Client                        // Docker client for fallback stats reader.
-	DropMemoryCaches              string                                // "tests", "steps", or "" (disabled).
-	DropCachesPath                string                                // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
-	RollbackStrategy              string                                // "rpc-debug-setHead" or "" (disabled).
-	RPCEndpoint                   string                                // RPC endpoint for rollback calls (e.g. http://host:port).
-	ClientRPCRollbackSpec         *clientpkg.RPCRollbackSpec            // Client-specific rollback method and param format.
-	Tests                         []*TestWithSteps                      // Optional subset of tests to run (nil = run all).
+	EngineEndpoint        string
+	JWT                   string
+	ResultsDir            string
+	Filter                string
+	ContainerID           string                     // Container ID for stats collection.
+	DockerClient          *client.Client             // Docker client for fallback stats reader.
+	DropMemoryCaches      string                     // "tests", "steps", or "" (disabled).
+	DropCachesPath        string                     // Path to drop_caches file (default: /proc/sys/vm/drop_caches).
+	RollbackStrategy      string                     // "rpc-debug-setHead" or "" (disabled).
+	RPCEndpoint           string                     // RPC endpoint for rollback calls (e.g. http://host:port).
+	ClientRPCRollbackSpec *clientpkg.RPCRollbackSpec // Client-specific rollback method and param format.
+	Tests                 []*TestWithSteps           // Optional subset of tests to run (nil = run all).
+	PostTestSleepDuration time.Duration              // Sleep duration after each test (0 = disabled).
+
+	ReplayOptions
+}
+
+// ReplayOptions contains the ExecuteOptions fields that only the replay mode
+// reads.
+type ReplayOptions struct {
 	BlockLogCollector             BlockLogCollector                     // Optional collector for capturing block logs from client.
 	RetryNewPayloadsSyncingConfig *config.RetryNewPayloadsSyncingConfig // Retry config for SYNCING responses.
 	RetryNewPayloadsFailedConfig  *config.RetryNewPayloadsFailedConfig  // Retry config for any non-SYNCING newPayload failure (RPC error, validation error, INVALID status).
 	PostTestRPCCalls              []config.PostTestRPCCall              // Arbitrary RPC calls to execute after the test step.
 	OpcodeExtraction              *config.OpcodeExtractionConfig        // When enabled, run debug_traceBlockByNumber per newPayload after the test step and aggregate per-test opcode counts.
-	PostTestSleepDuration         time.Duration                         // Sleep duration after each test (0 = disabled).
 	FailFast                      bool                                  // If true, return an error from runStepLines on the first failed RPC call.
 	PreRunStepSleep               time.Duration                         // Sleep between each RPC call within pre-run step files (0 = disabled).
 	SkipUntilBlockNumber          uint64                                // Skip pre-run RPC lines until the first engine_newPayload with blockNumber > this. 0 = no skipping.
@@ -193,7 +252,11 @@ type executor struct {
 }
 
 // Ensure interface compliance.
-var _ Executor = (*executor)(nil)
+var (
+	_ Executor         = (*executor)(nil)
+	_ PreRunStepRunner = (*executor)(nil)
+	_ SourceProvider   = (*executor)(nil)
+)
 
 // Start initializes the executor and prepares test sources.
 func (e *executor) Start(ctx context.Context) error {

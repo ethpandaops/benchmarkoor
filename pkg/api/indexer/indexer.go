@@ -836,6 +836,7 @@ func (idx *indexer) indexRun(
 		Timestamp:         entry.Timestamp,
 		TimestampEnd:      entry.TimestampEnd,
 		SuiteHash:         entry.SuiteHash,
+		Mode:              entry.Mode,
 		Status:            entry.Status,
 		TerminationReason: entry.TerminationReason,
 		HasResult:         len(resultData) > 0,
@@ -875,6 +876,13 @@ func (idx *indexer) indexRun(
 	// WebSockets get a clean run_ended signal and the buffer is freed.
 	if idx.onLiveRunIndexed != nil {
 		idx.onLiveRunIndexed(runID)
+	}
+
+	// The per-test stats tables hold replay (MGas) results only. A mempool
+	// run keeps its results in mempool-result.json, which the UI reads
+	// directly.
+	if entry.Mode == config.ExecutorModeMempool {
+		return nil
 	}
 
 	// Index test stats if result.json is present and suite hash is set.

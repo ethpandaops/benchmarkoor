@@ -37,6 +37,7 @@ type indexEntry struct {
 	Timestamp         int64                   `json:"timestamp"`
 	TimestampEnd      int64                   `json:"timestamp_end,omitempty"`
 	SuiteHash         string                  `json:"suite_hash,omitempty"`
+	Mode              string                  `json:"mode,omitempty"`
 	Instance          *executor.IndexInstance `json:"instance"`
 	Tests             indexTestStats          `json:"tests"`
 	Status            string                  `json:"status,omitempty"`
@@ -151,6 +152,7 @@ func (s *server) buildIndex(
 			Timestamp:         run.Timestamp,
 			TimestampEnd:      run.TimestampEnd,
 			SuiteHash:         run.SuiteHash,
+			Mode:              run.Mode,
 			Status:            run.Status,
 			TerminationReason: run.TerminationReason,
 			Instance: &executor.IndexInstance{

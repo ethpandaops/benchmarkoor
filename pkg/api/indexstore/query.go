@@ -188,6 +188,7 @@ type RunResponse struct {
 	Timestamp         int64           `json:"timestamp"`
 	TimestampEnd      int64           `json:"timestamp_end"`
 	SuiteHash         string          `json:"suite_hash"`
+	Mode              string          `json:"mode,omitempty"`
 	Status            string          `json:"status"`
 	TerminationReason string          `json:"termination_reason"`
 	HasResult         bool            `json:"has_result"`
@@ -533,6 +534,7 @@ func toRunResponse(r *Run) RunResponse {
 		Timestamp:         r.Timestamp,
 		TimestampEnd:      r.TimestampEnd,
 		SuiteHash:         r.SuiteHash,
+		Mode:              r.Mode,
 		Status:            r.Status,
 		TerminationReason: r.TerminationReason,
 		HasResult:         r.HasResult,

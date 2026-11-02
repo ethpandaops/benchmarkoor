@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/nat"
 	"github.com/sirupsen/logrus"
 )
 
@@ -110,7 +112,15 @@ type ContainerSpec struct {
 	CapAdd         []string // Additional Linux capabilities (e.g., "SYS_PTRACE" for CRIU).
 	SecurityOpt    []string // Security options (e.g., "seccomp=unconfined").
 	User           string   // Container user (e.g., "1000:1000"); defaults to "root" when empty.
+	// PublishPorts are published on 127.0.0.1 with the same port numbers.
+	// GetContainerIP then returns 127.0.0.1, so the host reaches the
+	// container over loopback instead of the container network.
+	PublishPorts []int
 }
+
+// LoopbackHost is the address GetContainerIP returns for a container with
+// ports published on loopback.
+const LoopbackHost = "127.0.0.1"
 
 // Mount defines a volume mount.
 type Mount struct {
@@ -327,6 +337,19 @@ func (m *manager) CreateContainer(ctx context.Context, spec *ContainerSpec) (str
 		}
 	}
 
+	if len(spec.PublishPorts) > 0 {
+		containerCfg.ExposedPorts = make(nat.PortSet, len(spec.PublishPorts))
+		hostCfg.PortBindings = make(nat.PortMap, len(spec.PublishPorts))
+
+		for _, port := range spec.PublishPorts {
+			p := nat.Port(fmt.Sprintf("%d/tcp", port))
+			containerCfg.ExposedPorts[p] = struct{}{}
+			hostCfg.PortBindings[p] = []nat.PortBinding{
+				{HostIP: LoopbackHost, HostPort: strconv.Itoa(port)},
+			}
+		}
+	}
+
 	networkCfg := &network.NetworkingConfig{}
 
 	resp, err := m.client.ContainerCreate(ctx, containerCfg, hostCfg, networkCfg, nil, spec.Name)
@@ -529,6 +552,18 @@ func (m *manager) GetContainerIP(ctx context.Context, containerID, networkName s
 	inspect, err := m.client.ContainerInspect(ctx, containerID)
 	if err != nil {
 		return "", fmt.Errorf("inspecting container: %w", err)
+	}
+
+	// A container with ports on loopback is reached there: the host may not
+	// route to the container network (macOS blocks it for new binaries).
+	if inspect.HostConfig != nil {
+		for _, bindings := range inspect.HostConfig.PortBindings {
+			for _, b := range bindings {
+				if b.HostIP == LoopbackHost {
+					return LoopbackHost, nil
+				}
+			}
+		}
 	}
 
 	if inspect.NetworkSettings == nil || inspect.NetworkSettings.Networks == nil {

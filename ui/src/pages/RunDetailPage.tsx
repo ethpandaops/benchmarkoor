@@ -53,6 +53,10 @@ import { MAX_COMPARE_RUNS, MIN_COMPARE_RUNS } from '@/components/compare/constan
 import { useAuth } from '@/hooks/useAuth'
 import { useCancelDeleteRuns, useDeleteRuns } from '@/api/hooks/useAdmin'
 import { parseHeatmapGroupMode } from '@/utils/gasGroup'
+import { MempoolSummary } from '@/components/mempool/MempoolSummary'
+import { MempoolRunDetail } from '@/components/mempool/MempoolRunDetail'
+import { MempoolBadge } from '@/components/mempool/MempoolBadge'
+import { isMempoolMode } from '@/components/mempool/mempoolUtils'
 
 // Per-test opcode diff between this run and the suite. Only opcodes
 // where suite count != run count are listed.
@@ -456,9 +460,9 @@ export function RunDetailPage() {
 
   // Compute result-dependent stats only when result.json is available.
   const aggregatedStats = result
-    ? Object.values(result.tests).map((t) => getAggregatedStats(t, stepFilter)).filter((s): s is AggregatedStats => s !== undefined)
+    ? Object.values(result.tests ?? {}).map((t) => getAggregatedStats(t, stepFilter)).filter((s): s is AggregatedStats => s !== undefined)
     : []
-  const testCount = config.test_counts?.total ?? (result ? Object.keys(result.tests).length : 0)
+  const testCount = config.test_counts?.total ?? (result ? Object.keys(result.tests ?? {}).length : 0)
   const passedTests = config.test_counts?.passed ?? aggregatedStats.filter((s) => s.fail === 0).length
   const failedTests = config.test_counts ? (config.test_counts.total - config.test_counts.passed) : aggregatedStats.filter((s) => s.fail > 0).length
   const totalDuration = aggregatedStats.reduce((sum, s) => sum + s.time_total, 0)
@@ -474,6 +478,10 @@ export function RunDetailPage() {
     })
     return acc
   }, {})
+
+  // A mempool run has no MGas/s or per-test steps. It replaces the replay
+  // stat row and the replay sections; the generic sections stay.
+  const isMempool = isMempoolMode(config)
 
   return (
     <div className="flex flex-col gap-6">
@@ -525,6 +533,7 @@ export function RunDetailPage() {
             </>
           )}
           <span className="truncate text-gray-900 dark:text-gray-100">{runId}</span>
+          {isMempool && <MempoolBadge />}
           {isAdmin && (
             <button
               disabled={deleteRuns.isPending || pendingDeletion}
@@ -646,6 +655,9 @@ export function RunDetailPage() {
         containerOOMKilled={config.container_oom_killed}
       />
 
+      {isMempool ? (
+        <MempoolSummary runId={runId} config={config} />
+      ) : (
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <ClientStat client={config.instance.client} runId={config.instance.id} rollbackStrategy={config.instance.rollback_strategy} />
         {(config.test_counts || result) ? (
@@ -798,6 +810,7 @@ export function RunDetailPage() {
           </div>
         )}
       </div>
+      )}
 
       <MetadataLabels labels={config.metadata?.labels} />
 
@@ -817,7 +830,22 @@ export function RunDetailPage() {
         onDownloadFormatChange={handleDownloadFormatChange}
       />
 
-      {result && (
+      {isMempool && (
+        <>
+          {result && Object.keys(result.tests ?? {}).length > 0 && (
+            <ResourceUsageCharts
+              tests={result.tests}
+              resourceCollectionMethod={config.system_resource_collection_method}
+              cpuCores={config.instance.resource_limits?.cpuset_cpus
+                ? config.instance.resource_limits.cpuset_cpus.split(',').length
+                : config.system.cpu_cores}
+            />
+          )}
+          <MempoolRunDetail runId={runId} config={config} />
+        </>
+      )}
+
+      {result && !isMempool && (
         <>
           <div className="sticky top-0 z-30 -mx-4 flex flex-wrap items-center gap-3 border-b border-gray-200 bg-white/95 px-4 py-2 backdrop-blur-sm dark:border-gray-700 dark:bg-gray-900/95">
             <FilterInput

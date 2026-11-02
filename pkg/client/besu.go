@@ -1,5 +1,7 @@
 package client
 
+import "fmt"
+
 type besuSpec struct{}
 
 // NewBesuSpec creates a new Besu client specification.
@@ -131,4 +133,33 @@ func (s *besuSpec) SnapshotPrepareArgs() []string {
 // side, but Compact is what makes a client supported, so this stays nil.
 func (s *besuSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
 	return nil
+}
+
+// Ensure besu has a mempool profile.
+var _ MempoolProfile = (*besuSpec)(nil)
+
+// MempoolCommand returns the besu command for the mempool mode. Besu has a
+// layered pool with other limits than geth: max-future-by-sender is the
+// account queue, max-prioritized is the closest match to the global slots.
+// --tx-pool-no-local-priority makes RPC txs count as remote, like geth's
+// --txpool.nolocals.
+func (s *besuSpec) MempoolCommand(settings MempoolSettings) []string {
+	l := settings.Limits
+
+	return replaceFlags(s.DefaultCommand(), map[string]string{
+		"--p2p-enabled=":                  "--p2p-enabled=true",
+		"--max-peers=":                    "--max-peers=50",
+		"--p2p-port=":                     fmt.Sprintf("--p2p-port=%d", settings.P2PPort),
+		"--tx-pool=":                      "--tx-pool=layered",
+		"--tx-pool-price-bump=":           fmt.Sprintf("--tx-pool-price-bump=%d", l.PriceBump),
+		"--tx-pool-blob-price-bump=":      fmt.Sprintf("--tx-pool-blob-price-bump=%d", l.BlobPriceBump),
+		"--tx-pool-max-future-by-sender=": fmt.Sprintf("--tx-pool-max-future-by-sender=%d", l.AccountQueue),
+		"--tx-pool-max-prioritized=":      fmt.Sprintf("--tx-pool-max-prioritized=%d", l.GlobalSlots),
+		"--tx-pool-no-local-priority=":    "--tx-pool-no-local-priority=true",
+		"--tx-pool-min-gas-price=":        "--tx-pool-min-gas-price=1",
+		"--min-gas-price=":                "--min-gas-price=1",
+		"--min-priority-fee=":             "--min-priority-fee=0",
+		"--target-gas-limit=":             fmt.Sprintf("--target-gas-limit=%d", settings.GasLimit),
+		"--rpc-tx-feecap=":                "--rpc-tx-feecap=0",
+	})
 }

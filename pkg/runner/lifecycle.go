@@ -455,6 +455,15 @@ func (r *runner) runContainerLifecycle(
 
 	if len(cmd) == 0 {
 		cmd = spec.DefaultCommand()
+
+		if r.cfg.FullConfig != nil && r.cfg.FullConfig.IsMempoolMode() {
+			mempoolCmd, err := client.MempoolCommandFor(spec, mempoolSettings(r.cfg.FullConfig))
+			if err != nil {
+				return fmt.Errorf("building the mempool command: %w", err)
+			}
+
+			cmd = mempoolCmd
+		}
 	}
 
 	// Add genesis flag if genesis is configured and client uses a genesis flag.
@@ -718,6 +727,7 @@ func (r *runner) runContainerLifecycle(
 	runConfig := &RunConfig{
 		BenchmarkoorVersion: version.Version,
 		Timestamp:           params.RunTimestamp,
+		Mode:                executorMode(r.cfg.FullConfig),
 		System:              systemInfo,
 		Instance: &ResolvedInstance{
 			ID:     instance.ID,
@@ -852,6 +862,16 @@ func (r *runner) runContainerLifecycle(
 			"benchmarkoor.run-id":     runID,
 			"benchmarkoor.managed-by": "benchmarkoor",
 		},
+	}
+
+	// Reach the client over loopback where the host cannot route to the
+	// container network (macOS).
+	if r.cfg.FullConfig != nil && r.cfg.FullConfig.UseLoopbackClientPorts() {
+		for _, port := range []int{spec.RPCPort(), spec.EnginePort(), spec.MetricsPort()} {
+			if port > 0 {
+				containerSpec.PublishPorts = append(containerSpec.PublishPorts, port)
+			}
+		}
 	}
 
 	// Save container spec and datadir info for runner-level rollback strategies.
@@ -1271,16 +1291,18 @@ func (r *runner) runContainerLifecycle(
 				EngineEndpoint: fmt.Sprintf(
 					"http://%s:%d", containerIP, spec.EnginePort(),
 				),
-				JWT:                           r.cfg.JWT,
-				ResultsDir:                    runResultsDir,
-				FailFast:                      true,
-				PreRunStepSleep:               r.cfg.PreRunStepSleep,
-				SkipUntilBlockNumber:          blockNum,
-				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
-				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
+				JWT:        r.cfg.JWT,
+				ResultsDir: runResultsDir,
+				ReplayOptions: executor.ReplayOptions{
+					FailFast:                      true,
+					PreRunStepSleep:               r.cfg.PreRunStepSleep,
+					SkipUntilBlockNumber:          blockNum,
+					RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
+					RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
+				},
 			}
 
-			if n, err := r.executor.RunPreRunSteps(execCtx, preRunOpts); err != nil {
+			if n, err := executor.RunPreRunSteps(execCtx, r.executor, preRunOpts); err != nil {
 				return fmt.Errorf("running pre-run steps: %w", err)
 			} else if n > 0 {
 				log.WithField("steps", n).Info("Pre-run steps completed")
@@ -1459,16 +1481,18 @@ func (r *runner) runContainerLifecycle(
 				RPCEndpoint: fmt.Sprintf(
 					"http://%s:%d", containerIP, spec.RPCPort(),
 				),
-				Tests:                         params.Tests,
-				BlockLogCollector:             params.BlockLogCollector,
-				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
-				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
-				PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(instance),
-				OpcodeExtraction:              r.cfg.FullConfig.GetOpcodeExtraction(instance),
-				PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(instance),
-				PreRunStepSleep:               r.cfg.PreRunStepSleep,
-				SkipUntilBlockNumber:          blockNum,
-				SkipPreRunSteps:               skipPreRunSteps,
+				Tests:                 params.Tests,
+				PostTestSleepDuration: r.cfg.FullConfig.GetPostTestSleepDuration(instance),
+				ReplayOptions: executor.ReplayOptions{
+					BlockLogCollector:             params.BlockLogCollector,
+					RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
+					RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
+					PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(instance),
+					OpcodeExtraction:              r.cfg.FullConfig.GetOpcodeExtraction(instance),
+					PreRunStepSleep:               r.cfg.PreRunStepSleep,
+					SkipUntilBlockNumber:          blockNum,
+					SkipPreRunSteps:               skipPreRunSteps,
+				},
 			}
 
 			result, execErr = r.executor.ExecuteTests(execCtx, execOpts)
@@ -1815,7 +1839,7 @@ func copyStateActorFiles(
 // source.
 func (r *runner) preRunBundleDir(preRuns *config.EESTPreRunsSource) string {
 	if r.executor != nil {
-		if loc, ok := r.executor.GetSource().(executor.PreRunBundleLocator); ok {
+		if loc, ok := executor.SourceOf(r.executor).(executor.PreRunBundleLocator); ok {
 			if dir := loc.PreRunBundleDir(); dir != "" {
 				return dir
 			}
@@ -2016,16 +2040,18 @@ func (r *runner) prepareDatadirBeforeBenchmarks(
 			EngineEndpoint: fmt.Sprintf(
 				"http://%s:%d", p.ContainerIP, spec.EnginePort(),
 			),
-			JWT:                           r.cfg.JWT,
-			ResultsDir:                    p.ResultsDir,
-			FailFast:                      true,
-			PreRunStepSleep:               r.cfg.PreRunStepSleep,
-			SkipUntilBlockNumber:          p.HeadNumber,
-			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
-			RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
+			JWT:        r.cfg.JWT,
+			ResultsDir: p.ResultsDir,
+			ReplayOptions: executor.ReplayOptions{
+				FailFast:                      true,
+				PreRunStepSleep:               r.cfg.PreRunStepSleep,
+				SkipUntilBlockNumber:          p.HeadNumber,
+				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(instance),
+				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(instance),
+			},
 		}
 
-		n, runErr := r.executor.RunPreRunSteps(execCtx, preRunOpts)
+		n, runErr := executor.RunPreRunSteps(execCtx, r.executor, preRunOpts)
 		if runErr != nil {
 			return "", false, fmt.Errorf("running pre-run steps: %w", runErr)
 		}

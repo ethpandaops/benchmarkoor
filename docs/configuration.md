@@ -17,6 +17,7 @@ This document describes all configuration options for benchmarkoor. The [config.
   - [Benchmark Settings](#benchmark-settings)
     - [Suite Metadata Labels](#suite-metadata-labels)
     - [Results Upload](#results-upload)
+    - [Mempool Mode](#mempool-mode)
   - [Client Settings](#client-settings)
     - [Client Defaults](#client-defaults)
     - [Data Directories](#data-directories)
@@ -145,6 +146,7 @@ runner:
 | `client_logs_to_stdout` | bool | `false` | Stream client container logs to stdout |
 | `container_network` | string | `benchmarkoor` | Container network name |
 | `cleanup_on_start` | bool | `false` | Remove leftover containers/networks on startup |
+| `loopback_client_ports` | bool | `true` on macOS, else `false` | Publish the client RPC, Engine and metrics ports on `127.0.0.1` (same port numbers) and reach the client there, not on its container IP. On macOS a new binary often cannot reach container IPs. The ports must be free on the host. Not supported with Podman. |
 | `run_timeout` | string | - | Global timeout for the entire run covering all instances, setup, and teardown. Uses Go duration format (e.g., `4h`, `30m`). See [Runner Run Timeout](#runner-run-timeout) |
 | `directories.tmp_datadir` | string | system temp | Directory for temporary datadir copies. (The shared cache dir is `global.directories.cachedir`.) |
 | `drop_caches_path` | string | `/proc/sys/vm/drop_caches` | Path to Linux drop_caches file (for containerized environments) |
@@ -765,6 +767,45 @@ benchmarkoor generate-suite-stats-file --method=s3 --config config.yaml
 ```
 
 When using `--method=s3`, the command reads `config.json` and `result.json` from each run, groups them by suite hash, builds per-suite stats in memory, and uploads `stats.json` to `prefix/suites/{hash}/stats.json`.
+
+### Mempool Mode
+
+`runner.benchmark.mode` selects the executor. The default, `replay`, replays JSON-RPC request files. The `mempool` mode tests the transaction pool of a client. One run has one mode.
+
+In the mempool mode, benchmarkoor acts as the consensus client through the Engine API. It generates a genesis with pre-funded accounts, starts the client with a mempool flag profile, and runs scenarios. Every payload comes from the pool of the client (`forkchoiceUpdated` with attributes, then `getPayload`).
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `mode` | `replay` | `replay` or `mempool`. |
+| `mempool.fork` | `osaka` | The fork that is active from genesis. Only `osaka` for now. |
+| `mempool.chain_id` | `1337` | The chain id of the generated genesis. |
+| `mempool.seed` | `benchmarkoor-mempool` | Derives the pre-funded keys. The same seed gives the same genesis. |
+| `mempool.accounts` | `2048` | The number of pre-funded accounts. The scenarios must fit in it. |
+| `mempool.gas_limit` | `30000000` | The block gas limit of the genesis and of built blocks. |
+| `mempool.pool_limits.*` | geth defaults | `account_slots`, `global_slots`, `account_queue`, `global_queue`, `price_bump`, `blob_price_bump`. The client profile pins them, so a comparison compares implementations, not defaults. |
+| `mempool.scenarios` | all | The scenarios to run, in order, each with optional `params`. An unknown parameter is an error. |
+
+Scenarios:
+
+| Name | What it does |
+|------|--------------|
+| `admission` | Latency and throughput of `eth_sendRawTransaction` per tx type (legacy, access list, dynamic fee, set code, blob with cell proofs, 6-blob). Time until a tx is pending and until it is in a built payload. |
+| `admission-rejections` | Sends invalid txs and checks that the pool rejects each one. Records the error text of each client. |
+| `nonce-gap-promotion` | Queued versus pending, promotion when a nonce gap fills, reverse nonce order, balance checks over the pending txs of a sender. |
+| `replacement` | Price-bump rules: below and at the bump, fee cap only, tip only, cross-type, queued, blob bump. |
+| `payload-ordering` | Nonce order per sender, order by effective tip, filling to the gas limit, the blob limit per block. |
+| `import-full-pool` | `newPayload`, `forkchoiceUpdated` and the pool reset for the same block shape with an empty pool and with a full pool. |
+| `reorg-reinjection` | Sibling blocks A1 and B1 from the pool, head A1, then a reorg to B1. Checks and times reinjection and removal. |
+
+A hard assertion that does not hold fails the scenario. A soft assertion records a finding: most pool rules are not consensus rules, so a difference between clients is not automatically a failure.
+
+Limits of the current version:
+
+- Only `geth`, `besu` and `nethermind` have a mempool profile. The run refuses other clients.
+- The genesis is generated, so a `datadir` (for example a state-actor snapshot) is not supported yet.
+- `rollback_strategy` defaults to `container-recreate`, so every scenario starts with an empty pool. `rpc-debug-setHead` is refused: it can put txs back into the pool.
+
+Results: `runs/<run>/mempool-result.json` holds every scenario (metrics, latency distributions, a pool timeline, events, assertions and observations). The UI shows it on the run page and compares it with the runs of other clients on the same suite. See [`config.mempool.yaml`](../examples/configuration/config.mempool.yaml).
 
 ### Client Settings
 

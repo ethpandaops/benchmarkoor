@@ -15,12 +15,15 @@ const (
 
 // Run represents a single indexed benchmark run in the database.
 type Run struct {
-	ID                uint   `gorm:"primaryKey"`
-	DiscoveryPath     string `gorm:"not null;uniqueIndex:idx_runs_dp_run"`
-	RunID             string `gorm:"not null;uniqueIndex:idx_runs_dp_run"`
-	Timestamp         int64  `gorm:"index"`
-	TimestampEnd      int64
-	SuiteHash         string `gorm:"index"`
+	ID            uint   `gorm:"primaryKey"`
+	DiscoveryPath string `gorm:"not null;uniqueIndex:idx_runs_dp_run"`
+	RunID         string `gorm:"not null;uniqueIndex:idx_runs_dp_run"`
+	Timestamp     int64  `gorm:"index"`
+	TimestampEnd  int64
+	SuiteHash     string `gorm:"index"`
+	// Mode is the executor mode; empty means "replay". Mempool runs have no
+	// per-test gas stats, so the per-test tables never hold their rows.
+	Mode              string
 	Status            string
 	TerminationReason string
 	HasResult         bool

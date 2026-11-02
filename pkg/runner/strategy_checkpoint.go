@@ -196,17 +196,19 @@ func (r *runner) runTestsWithCheckpointRestore(
 	}
 
 	preRunOpts := &executor.ExecuteOptions{
-		EngineEndpoint:                engineEndpoint,
-		JWT:                           r.cfg.JWT,
-		ResultsDir:                    resultsDir,
-		SkipUntilBlockNumber:          headNumber,
-		RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
-		RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
-		PreRunStepSleep:               r.cfg.PreRunStepSleep,
-		SkipPreRunSteps:               preRunsApplied,
+		EngineEndpoint: engineEndpoint,
+		JWT:            r.cfg.JWT,
+		ResultsDir:     resultsDir,
+		ReplayOptions: executor.ReplayOptions{
+			SkipUntilBlockNumber:          headNumber,
+			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+			RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+			PreRunStepSleep:               r.cfg.PreRunStepSleep,
+			SkipPreRunSteps:               preRunsApplied,
+		},
 	}
 
-	preRunSteps, err := r.executor.RunPreRunSteps(ctx, preRunOpts)
+	preRunSteps, err := executor.RunPreRunSteps(ctx, r.executor, preRunOpts)
 	if err != nil {
 		return nil, fmt.Errorf("running pre-run steps before checkpoint: %w", err)
 	}
@@ -679,13 +681,15 @@ func (r *runner) runTestsWithCheckpointRestore(
 			RPCEndpoint: fmt.Sprintf(
 				"http://%s:%d", restoredIP, spec.RPCPort(),
 			),
-			Tests:                         []*executor.TestWithSteps{test},
-			BlockLogCollector:             params.BlockLogCollector,
-			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
-			RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
-			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
-			OpcodeExtraction:              r.cfg.FullConfig.GetOpcodeExtraction(params.Instance),
-			PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(params.Instance),
+			Tests:                 []*executor.TestWithSteps{test},
+			PostTestSleepDuration: r.cfg.FullConfig.GetPostTestSleepDuration(params.Instance),
+			ReplayOptions: executor.ReplayOptions{
+				BlockLogCollector:             params.BlockLogCollector,
+				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+				PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
+				OpcodeExtraction:              r.cfg.FullConfig.GetOpcodeExtraction(params.Instance),
+			},
 		}
 
 		result, execErr := r.executor.ExecuteTests(ctx, execOpts)

@@ -1,5 +1,7 @@
 package client
 
+import "fmt"
+
 type gethSpec struct{}
 
 // NewGethSpec creates a new Geth client specification.
@@ -125,4 +127,33 @@ func (s *gethSpec) DBMaintenanceCommands(dataDir string) *DBMaintenanceCommands 
 		Compact: []string{"db", "compact", "--datadir=" + dataDir},
 		Inspect: []string{"db", "inspect", "--datadir=" + dataDir},
 	}
+}
+
+// Ensure geth has a mempool profile.
+var _ MempoolProfile = (*gethSpec)(nil)
+
+// MempoolCommand returns the geth command for the mempool mode.
+//
+// --txpool.nolocals makes geth treat txs sent over RPC like txs from peers.
+// Without it, geth exempts "local" txs from pricing and eviction rules, so the
+// scenarios would test a path that network traffic never takes.
+func (s *gethSpec) MempoolCommand(settings MempoolSettings) []string {
+	l := settings.Limits
+
+	return replaceFlags(s.DefaultCommand(), map[string]string{
+		"--port=":                fmt.Sprintf("--port=%d", settings.P2PPort),
+		"--maxpeers=":            "--maxpeers=50",
+		"--http.api=":            "--http.api=admin,debug,web3,eth,net,txpool",
+		"--txpool.accountslots=": fmt.Sprintf("--txpool.accountslots=%d", l.AccountSlots),
+		"--txpool.globalslots=":  fmt.Sprintf("--txpool.globalslots=%d", l.GlobalSlots),
+		"--txpool.accountqueue=": fmt.Sprintf("--txpool.accountqueue=%d", l.AccountQueue),
+		"--txpool.globalqueue=":  fmt.Sprintf("--txpool.globalqueue=%d", l.GlobalQueue),
+		"--txpool.pricebump=":    fmt.Sprintf("--txpool.pricebump=%d", l.PriceBump),
+		"--blobpool.pricebump=":  fmt.Sprintf("--blobpool.pricebump=%d", l.BlobPriceBump),
+		"--txpool.nolocals":      "--txpool.nolocals",
+		"--miner.gaslimit=":      fmt.Sprintf("--miner.gaslimit=%d", settings.GasLimit),
+		"--miner.gasprice=":      "--miner.gasprice=1",
+		"--txpool.pricelimit=":   "--txpool.pricelimit=1",
+		"--rpc.txfeecap=":        "--rpc.txfeecap=0",
+	})
 }

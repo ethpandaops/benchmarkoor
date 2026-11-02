@@ -78,6 +78,8 @@ export interface IndexEntry {
   deletion_requested_at?: number
   // Last failed deletion attempt, if any. The run stays queued.
   deletion_error?: string
+  // Executor mode. Absent for replay runs; "mempool" for txpool runs.
+  mode?: string
 }
 
 // True when an admin queued the run for deletion and the worker has not
@@ -199,6 +201,8 @@ export interface RunConfig {
   metadata?: {
     labels?: Record<string, string>
   }
+  // Executor mode. Absent for replay runs; "mempool" for txpool runs.
+  mode?: string
 }
 
 // .state-actor/state-actor-manifest.json per run (present only when the run's
@@ -663,6 +667,8 @@ export interface SuiteInfo {
   // eest_metadata is true when the suite output carries an .eest-meta directory
   // (EEST fill provenance) copied from the fixtures' .meta.
   eest_metadata?: boolean
+  // Executor mode. Absent for replay suites; "mempool" for txpool suites.
+  mode?: string
 }
 
 export interface SuiteTestEEST {
@@ -804,6 +810,109 @@ export interface SourceInfo {
     local_fixtures_tarball?: string
     local_genesis_tarball?: string
   }
+  mempool?: MempoolSource
+}
+
+// Source of a mempool suite: the generated scenarios and their chain setup.
+export interface MempoolSource {
+  fork: string
+  chain_id: number
+  seed: string
+  accounts: number
+  gas_limit: number
+  scenarios: { name: string; params?: Record<string, unknown> }[]
+}
+
+// runs/<runId>/mempool-result.json, written by the mempool executor.
+export interface MempoolRunResult {
+  schema_version: number
+  mode: 'mempool'
+  client: string
+  instance_id: string
+  fork: string
+  chain_id: number
+  pool_limits: MempoolPoolLimits
+  scenarios: MempoolScenarioResult[]
+}
+
+export interface MempoolPoolLimits {
+  account_slots: number
+  global_slots: number
+  account_queue: number
+  global_queue: number
+  price_bump: number
+  blob_price_bump: number
+}
+
+export type MempoolScenarioStatus = 'passed' | 'failed' | 'error'
+
+export interface MempoolMetric {
+  key: string
+  label: string
+  unit: string
+  value: number
+  group?: string
+  better?: 'lower' | 'higher'
+}
+
+export interface MempoolLatency {
+  key: string
+  label: string
+  unit: 'ms'
+  group?: string
+  count: number
+  min: number
+  mean: number
+  p50: number
+  p90: number
+  p99: number
+  max: number
+  histogram: { le: number; count: number }[]
+}
+
+export interface MempoolTimelinePoint {
+  t_ms: number
+  pending: number
+  queued: number
+  memory_bytes?: number
+}
+
+export interface MempoolEvent {
+  t_ms: number
+  kind: string
+  detail?: string
+}
+
+export interface MempoolAssertion {
+  name: string
+  severity: 'hard' | 'soft'
+  passed: boolean
+  expected?: string
+  actual?: string
+}
+
+export interface MempoolObservation {
+  key: string
+  label: string
+  value: string
+}
+
+export interface MempoolScenarioResult {
+  name: string
+  description: string
+  params?: Record<string, unknown>
+  status: MempoolScenarioStatus
+  error?: string
+  // Unix milliseconds.
+  start_time: number
+  duration_ms: number
+  metrics: MempoolMetric[]
+  latencies: MempoolLatency[]
+  // t_ms counts from the scenario start.
+  timeline: MempoolTimelinePoint[]
+  events: MempoolEvent[]
+  assertions: MempoolAssertion[]
+  observations: MempoolObservation[]
 }
 
 export interface SuiteFile {

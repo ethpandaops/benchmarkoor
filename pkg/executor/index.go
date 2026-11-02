@@ -23,10 +23,12 @@ type Index struct {
 
 // IndexEntry contains summary information for a single benchmark run.
 type IndexEntry struct {
-	RunID             string            `json:"run_id"`
-	Timestamp         int64             `json:"timestamp"`
-	TimestampEnd      int64             `json:"timestamp_end,omitempty"`
-	SuiteHash         string            `json:"suite_hash,omitempty"`
+	RunID        string `json:"run_id"`
+	Timestamp    int64  `json:"timestamp"`
+	TimestampEnd int64  `json:"timestamp_end,omitempty"`
+	SuiteHash    string `json:"suite_hash,omitempty"`
+	// Mode is the executor mode; empty means "replay".
+	Mode              string            `json:"mode,omitempty"`
 	Instance          *IndexInstance    `json:"instance"`
 	Tests             *IndexTestStats   `json:"tests"`
 	Status            string            `json:"status,omitempty"`
@@ -72,6 +74,7 @@ type runConfigJSON struct {
 	Timestamp         int64  `json:"timestamp"`
 	TimestampEnd      int64  `json:"timestamp_end,omitempty"`
 	SuiteHash         string `json:"suite_hash,omitempty"`
+	Mode              string `json:"mode,omitempty"`
 	Status            string `json:"status,omitempty"`
 	TerminationReason string `json:"termination_reason,omitempty"`
 	Instance          struct {
@@ -377,6 +380,7 @@ func BuildIndexEntryFromData(
 		Timestamp:         runConfig.Timestamp,
 		TimestampEnd:      runConfig.TimestampEnd,
 		SuiteHash:         runConfig.SuiteHash,
+		Mode:              runConfig.Mode,
 		Status:            runConfig.Status,
 		TerminationReason: runConfig.TerminationReason,
 		Instance: &IndexInstance{

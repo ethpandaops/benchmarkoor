@@ -1,0 +1,86 @@
+# Mempool (txpool) testing mode.
+#
+# The harness acts as the CL through the Engine API. It generates a genesis
+# with pre-funded accounts, starts the client with a mempool flag profile, and
+# runs Go scenarios that test pool behaviour and measure pool performance.
+# Each scenario gets a fresh container (rollback_strategy: container-recreate),
+# so every scenario starts with an empty pool.
+#
+# Run:
+#   benchmarkoor run --config examples/configuration/config.mempool.yaml
+#   (add --limit-instance-client geth to run one client)
+#
+# Results: results/runs/<run>/mempool-result.json (the UI renders it).
+
+global:
+  log_level: ${LOG_LEVEL:-info}
+
+runner:
+  client_logs_to_stdout: false
+  container_network: benchmarkoor
+  cleanup_on_start: false
+
+  benchmark:
+    # "replay" (the default) replays JSON-RPC request files. "mempool" runs
+    # the mempool scenarios below. One run has one mode.
+    mode: mempool
+    results_dir: ./results
+    generate_results_index: true
+    system_resource_collection_enabled: true
+
+    mempool:
+      fork: osaka
+      chain_id: 1337
+      # The seed derives the pre-funded keys; the same seed gives the same
+      # genesis, so runs of different clients compare.
+      seed: benchmarkoor-mempool
+      accounts: 2048
+      gas_limit: 30000000
+      # Pinned pool limits: the client profile sets these, so a comparison
+      # between clients compares implementations, not defaults.
+      pool_limits:
+        account_slots: 16
+        global_slots: 5120
+        account_queue: 64
+        global_queue: 1024
+        price_bump: 10
+        blob_price_bump: 100
+      # Scenarios run in this order. Leave the list out to run all of them.
+      scenarios:
+        - name: admission
+          params:
+            senders: 16
+            txs_per_sender: 16
+            concurrency: 8
+        - name: admission-rejections
+        - name: nonce-gap-promotion
+        - name: replacement
+        - name: payload-ordering
+        - name: import-full-pool
+          params:
+            block_txs: 200
+            filler_senders: 200
+            filler_per_sender: 16
+            rounds: 5
+        - name: reorg-reinjection
+          params:
+            iterations: 3
+
+  client:
+    config:
+      # The default for mode: mempool. rpc-debug-setHead is refused: it puts
+      # txs back into the pool and leaves it dirty for the next scenario.
+      rollback_strategy: container-recreate
+
+  # Clients with a mempool profile: geth, besu, nethermind. They run one
+  # after the other on the same genesis, so the UI compares them.
+  instances:
+    - id: geth
+      client: geth
+      image: ethpandaops/geth:master
+    - id: besu
+      client: besu
+      image: ethpandaops/besu:main
+    - id: nethermind
+      client: nethermind
+      image: ethpandaops/nethermind:master

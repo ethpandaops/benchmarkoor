@@ -94,15 +94,17 @@ func (r *runner) runTestsWithContainerStrategy(
 		)
 
 		preRunOpts := &executor.ExecuteOptions{
-			EngineEndpoint:                engineEndpoint,
-			JWT:                           r.cfg.JWT,
-			ResultsDir:                    resultsDir,
-			PreRunStepSleep:               r.cfg.PreRunStepSleep,
-			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
-			RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+			EngineEndpoint: engineEndpoint,
+			JWT:            r.cfg.JWT,
+			ResultsDir:     resultsDir,
+			ReplayOptions: executor.ReplayOptions{
+				PreRunStepSleep:               r.cfg.PreRunStepSleep,
+				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+			},
 		}
 
-		if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {
+		if n, err := executor.RunPreRunSteps(ctx, r.executor, preRunOpts); err != nil {
 			return nil, fmt.Errorf("running pre-run steps before ZFS snapshot: %w", err)
 		} else if n > 0 {
 			log.WithField("steps", n).Info(
@@ -859,14 +861,16 @@ func (r *runner) runTestsWithContainerStrategy(
 				EngineEndpoint: fmt.Sprintf(
 					"http://%s:%d", currentContainerIP, spec.EnginePort(),
 				),
-				JWT:                           r.cfg.JWT,
-				ResultsDir:                    resultsDir,
-				PreRunStepSleep:               r.cfg.PreRunStepSleep,
-				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
-				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+				JWT:        r.cfg.JWT,
+				ResultsDir: resultsDir,
+				ReplayOptions: executor.ReplayOptions{
+					PreRunStepSleep:               r.cfg.PreRunStepSleep,
+					RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+					RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+				},
 			}
 
-			if n, err := r.executor.RunPreRunSteps(ctx, preRunOpts); err != nil {
+			if n, err := executor.RunPreRunSteps(ctx, r.executor, preRunOpts); err != nil {
 				combined.TotalDuration = time.Since(startTime)
 
 				failTest(i, test, fmt.Errorf(
@@ -898,13 +902,15 @@ func (r *runner) runTestsWithContainerStrategy(
 			RPCEndpoint: fmt.Sprintf(
 				"http://%s:%d", currentContainerIP, spec.RPCPort(),
 			),
-			Tests:                         []*executor.TestWithSteps{test},
-			BlockLogCollector:             params.BlockLogCollector,
-			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
-			RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
-			PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
-			OpcodeExtraction:              r.cfg.FullConfig.GetOpcodeExtraction(params.Instance),
-			PostTestSleepDuration:         r.cfg.FullConfig.GetPostTestSleepDuration(params.Instance),
+			Tests:                 []*executor.TestWithSteps{test},
+			PostTestSleepDuration: r.cfg.FullConfig.GetPostTestSleepDuration(params.Instance),
+			ReplayOptions: executor.ReplayOptions{
+				BlockLogCollector:             params.BlockLogCollector,
+				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+				PostTestRPCCalls:              r.cfg.FullConfig.GetPostTestRPCCalls(params.Instance),
+				OpcodeExtraction:              r.cfg.FullConfig.GetOpcodeExtraction(params.Instance),
+			},
 		}
 
 		result, err := r.executor.ExecuteTests(ctx, execOpts)
@@ -1274,16 +1280,18 @@ func (r *runner) promoteSchelkAfterPreRuns(
 			EngineEndpoint: fmt.Sprintf(
 				"http://%s:%d", containerIP, spec.EnginePort(),
 			),
-			JWT:                           r.cfg.JWT,
-			ResultsDir:                    resultsDir,
-			FailFast:                      true,
-			PreRunStepSleep:               r.cfg.PreRunStepSleep,
-			SkipUntilBlockNumber:          headNumber,
-			RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
-			RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+			JWT:        r.cfg.JWT,
+			ResultsDir: resultsDir,
+			ReplayOptions: executor.ReplayOptions{
+				FailFast:                      true,
+				PreRunStepSleep:               r.cfg.PreRunStepSleep,
+				SkipUntilBlockNumber:          headNumber,
+				RetryNewPayloadsSyncingConfig: r.cfg.FullConfig.GetRetryNewPayloadsSyncingState(params.Instance),
+				RetryNewPayloadsFailedConfig:  r.cfg.FullConfig.GetRetryNewPayloadsFailedState(params.Instance),
+			},
 		}
 
-		n, runErr := r.executor.RunPreRunSteps(ctx, preRunOpts)
+		n, runErr := executor.RunPreRunSteps(ctx, r.executor, preRunOpts)
 		if runErr != nil {
 			return "", false, fmt.Errorf("running pre-run steps before schelk promote: %w", runErr)
 		}

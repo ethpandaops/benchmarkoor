@@ -8,6 +8,8 @@ import { Badge } from '@/components/shared/Badge'
 import { Duration } from '@/components/shared/Duration'
 import { JDenticon } from '@/components/shared/JDenticon'
 import { StrategyIcon } from '@/components/shared/StrategyIcon'
+import { MempoolBadge } from '@/components/mempool/MempoolBadge'
+import { isMempoolMode } from '@/components/mempool/mempoolUtils'
 import { Tag, Trash2 } from 'lucide-react'
 import { formatTimestampDate, formatTimestampTime, formatRelativeTime } from '@/utils/date'
 import { formatDuration, formatNumber } from '@/utils/format'
@@ -364,6 +366,7 @@ export function RunsTable({
                     <ClientBadge client={entry.instance.client} />
                   </span>
                   <StrategyIcon strategy={entry.instance.rollback_strategy} />
+                  {isMempoolMode(entry) && <MempoolBadge />}
                 </div>
               </td>
               <td className="hidden max-w-xs truncate px-3 py-2 font-mono text-sm/6 text-gray-500 sm:table-cell sm:px-4 sm:py-2.5 dark:text-gray-400">
@@ -385,6 +388,7 @@ export function RunsTable({
                     <td
                       className="whitespace-nowrap px-3 py-2 text-right text-sm/6 text-gray-500 sm:px-4 sm:py-2.5 dark:text-gray-400"
                       title={(() => {
+                        if (isMempoolMode(entry)) return 'Mempool runs have no MGas/s'
                         const testStep = entry.tests.steps.test
                         if (!testStep) return undefined
                         const parts = []
@@ -394,6 +398,7 @@ export function RunsTable({
                       })()}
                     >
                       {(() => {
+                        if (isMempoolMode(entry)) return null
                         const mgas = calculateMGasPerSec(stats.gasUsed, stats.gasUsedDuration)
                         return mgas !== undefined ? mgas.toFixed(2) : '-'
                       })()}

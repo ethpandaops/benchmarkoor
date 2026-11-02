@@ -1,5 +1,7 @@
 package client
 
+import "fmt"
+
 type nethermindSpec struct{}
 
 // NewNethermindSpec creates a new Nethermind client specification.
@@ -110,4 +112,26 @@ func (s *nethermindSpec) SnapshotPrepareArgs() []string {
 // compaction command for Nethermind yet.
 func (s *nethermindSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
 	return nil
+}
+
+// Ensure nethermind has a mempool profile.
+var _ MempoolProfile = (*nethermindSpec)(nil)
+
+// MempoolCommand returns the nethermind command for the mempool mode.
+// Nethermind has no queue or price-bump settings: TxPool.Size is the global
+// limit, the per-sender limit stays unlimited (as geth's account slots are a
+// guarantee, not a cap), and the price bumps are fixed in the client.
+// AcceptTxWhenNotSynced lets the pool take txs before the first head update.
+func (s *nethermindSpec) MempoolCommand(settings MempoolSettings) []string {
+	l := settings.Limits
+
+	return replaceFlags(s.DefaultCommand(), map[string]string{
+		"--Network.MaxActivePeers=":       "--Network.MaxActivePeers=50",
+		"--Network.P2PPort=":              fmt.Sprintf("--Network.P2PPort=%d", settings.P2PPort),
+		"--TxPool.Size=":                  fmt.Sprintf("--TxPool.Size=%d", l.GlobalSlots),
+		"--TxPool.AcceptTxWhenNotSynced=": "--TxPool.AcceptTxWhenNotSynced=true",
+		"--TxPool.BlobsSupport=":          "--TxPool.BlobsSupport=InMemory",
+		"--Blocks.TargetBlockGasLimit=":   fmt.Sprintf("--Blocks.TargetBlockGasLimit=%d", settings.GasLimit),
+		"--Blocks.MinGasPrice=":           "--Blocks.MinGasPrice=1",
+	})
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/ethpandaops/benchmarkoor/pkg/executor"
 	"github.com/ethpandaops/benchmarkoor/pkg/fsutil"
 	"github.com/ethpandaops/benchmarkoor/pkg/iocost"
+	"github.com/ethpandaops/benchmarkoor/pkg/mempool"
 	"github.com/ethpandaops/benchmarkoor/pkg/podman"
 	"github.com/ethpandaops/benchmarkoor/pkg/runner"
 	"github.com/ethpandaops/benchmarkoor/pkg/upload"
@@ -240,7 +241,39 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		// Create executor if tests are configured.
 		var exec executor.Executor
 
-		if cfg.Runner.Benchmark.Tests.Source.IsConfigured() {
+		if cfg.IsMempoolMode() {
+			for _, instance := range cfg.Runner.Instances {
+				spec, err := registry.Get(client.ClientType(instance.Client))
+				if err != nil {
+					return fmt.Errorf("instance %q: %w", instance.ID, err)
+				}
+
+				if !client.SupportsMempool(spec) {
+					return fmt.Errorf("instance %q: client %q has no mempool profile yet",
+						instance.ID, instance.Client)
+				}
+			}
+
+			exec = mempool.NewExecutor(log, mempool.Config{
+				Mempool:                         cfg.Runner.Benchmark.GetMempool(),
+				ResultsDir:                      cfg.Runner.Benchmark.ResultsDir,
+				ResultsOwner:                    resultsOwner,
+				CacheDir:                        cacheDir,
+				Filter:                          cfg.Runner.Benchmark.Tests.Filter,
+				SystemResourceCollectionEnabled: *cfg.Runner.Benchmark.SystemResourceCollectionEnabled,
+			})
+			if err := exec.Start(ctx); err != nil {
+				return fmt.Errorf("starting the mempool executor: %w", err)
+			}
+
+			defer func() {
+				if err := exec.Stop(); err != nil {
+					log.WithError(err).Warn("Failed to stop executor")
+				}
+			}()
+
+			log.Info("Mempool executor initialized")
+		} else if cfg.Runner.Benchmark.Tests.Source.IsConfigured() {
 			// Pass suite metadata to executor only when labels are present.
 			var suiteMetadata *config.MetadataConfig
 			if len(cfg.Runner.Benchmark.Tests.Metadata.Labels) > 0 {

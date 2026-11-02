@@ -18,6 +18,9 @@ import { TestHeatmap } from '@/components/suite-detail/TestHeatmap'
 import { RejectionTimesTable } from '@/components/suite-detail/RejectionTimesTable'
 import { RegressionsPanel } from '@/components/suite-detail/RegressionsPanel'
 import { SuiteSource } from '@/components/suite-detail/SuiteSource'
+import { MempoolSuiteSource } from '@/components/mempool/MempoolSuiteSource'
+import { MempoolBadge } from '@/components/mempool/MempoolBadge'
+import { isMempoolMode } from '@/components/mempool/mempoolUtils'
 import { EESTMetadata } from '@/components/suite-detail/EESTMetadata'
 import { TestFilesList, type OpcodeSortMode } from '@/components/suite-detail/TestFilesList'
 import { isPayloadSortCol, type PayloadSort } from '@/components/suite-detail/payloadSort'
@@ -353,6 +356,8 @@ export function SuiteDetailPage() {
     : DEFAULT_CHANGE_WINDOW
   const labelFilters = parseLabelFilters(search.labels)
   const { data: suite, isLoading, error, refetch } = useSuite(suiteHash)
+  // A mempool suite has no MGas: hide the replay-only metric sections.
+  const suiteIsMempool = isMempoolMode(suite)
   // The full stats are large for a suite with many tests, and only the Tests
   // tab shows them. The regressions use the much smaller changes.
   const { data: suiteStats, isLoading: suiteStatsLoading } = useSuiteStats(suiteHash, tab === 'tests')
@@ -1026,6 +1031,7 @@ export function SuiteDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {isMempoolMode(suite) && <MempoolBadge />}
           {suite.filter && <Badge variant="info">Filter: {suite.filter}</Badge>}
           {suite.metadata?.labels &&
             Object.entries(suite.metadata.labels)
@@ -1121,293 +1127,299 @@ export function SuiteDetailPage() {
             ) : (
               <div className="flex flex-col gap-4">
                 {/* Step Filter & Group By Controls */}
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xs bg-white p-2 shadow-xs sm:p-3 dark:bg-gray-800">
-                  <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                    <span className="text-xs/5 font-medium text-gray-700 sm:text-sm/6 dark:text-gray-300">Metric steps:</span>
-                    <div className="flex items-center gap-1">
-                      {ALL_INDEX_STEP_TYPES.map((step) => (
-                        <button
-                          key={step}
-                          onClick={() => {
-                            const newFilter = stepFilter.includes(step)
-                              ? stepFilter.filter((s) => s !== step)
-                              : [...stepFilter, step]
-                            if (newFilter.length > 0) {
-                              handleStepFilterChange(newFilter)
-                            }
-                          }}
-                          className={`rounded-xs px-2 py-0.5 text-xs font-medium capitalize transition-colors sm:px-2.5 sm:py-1 ${
-                            stepFilter.includes(step)
-                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                              : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
-                          }`}
-                          title={`${stepFilter.includes(step) ? 'Exclude' : 'Include'} ${step} step in metric calculations`}
-                        >
-                          {step}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {groupByLabelKeys.length > 0 && (
+                {!suiteIsMempool && (
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xs bg-white p-2 shadow-xs sm:p-3 dark:bg-gray-800">
                     <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                      <span className="text-xs/5 font-medium text-gray-700 sm:text-sm/6 dark:text-gray-300">Group by:</span>
-                      <div className="flex flex-wrap items-center gap-1">
-                        <button
-                          onClick={() => setGroupBy('none')}
-                          className={`rounded-xs px-2 py-0.5 text-xs font-medium transition-colors sm:px-2.5 sm:py-1 ${
-                            effectiveGroupByKeys.length === 0
-                              ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
-                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
-                          }`}
-                          title="Disable grouping"
-                        >
-                          None
-                        </button>
-                        {[...groupByLabelKeys, 'instance_id'].map((key) => (
+                      <span className="text-xs/5 font-medium text-gray-700 sm:text-sm/6 dark:text-gray-300">Metric steps:</span>
+                      <div className="flex items-center gap-1">
+                        {ALL_INDEX_STEP_TYPES.map((step) => (
                           <button
-                            key={key}
-                            onClick={() => handleGroupByToggle(key)}
-                            className={`rounded-xs px-2 py-0.5 text-xs font-medium transition-colors sm:px-2.5 sm:py-1 ${
-                              effectiveGroupByKeys.includes(key)
-                                ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
-                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                            key={step}
+                            onClick={() => {
+                              const newFilter = stepFilter.includes(step)
+                                ? stepFilter.filter((s) => s !== step)
+                                : [...stepFilter, step]
+                              if (newFilter.length > 0) {
+                                handleStepFilterChange(newFilter)
+                              }
+                            }}
+                            className={`rounded-xs px-2 py-0.5 text-xs font-medium capitalize transition-colors sm:px-2.5 sm:py-1 ${
+                              stepFilter.includes(step)
+                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                                : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
                             }`}
-                            title={`${effectiveGroupByKeys.includes(key) ? 'Remove' : 'Add'} ${key === 'instance_id' ? 'instance id' : key} ${effectiveGroupByKeys.includes(key) ? 'from' : 'to'} grouping`}
+                            title={`${stepFilter.includes(step) ? 'Exclude' : 'Include'} ${step} step in metric calculations`}
                           >
-                            {key === 'instance_id' ? 'instance id' : key}
+                            {step}
                           </button>
                         ))}
                       </div>
                     </div>
-                  )}
-                </div>
-                <div className="overflow-hidden rounded-xs border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-3">
-                    <button
-                      onClick={() => setHeatmapExpanded(!heatmapExpanded)}
-                      className="flex items-center gap-2 text-left text-sm/6 font-medium text-gray-900 hover:text-gray-700 dark:text-gray-100 dark:hover:text-gray-300"
-                    >
-                      <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', heatmapExpanded && 'rotate-90')} />
-                      <LayoutGrid className="size-4 text-gray-400 dark:text-gray-500" />
-                      Recent Runs by Client
-                    </button>
-                    <CompareToolbar
-                      compareMode={compareMode}
-                      onToggleCompareMode={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
-                      latestCompareUrl={latestCompareUrl}
-                      groupCompareUrl={groupCompareUrl}
-                    />
+                    {groupByLabelKeys.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                        <span className="text-xs/5 font-medium text-gray-700 sm:text-sm/6 dark:text-gray-300">Group by:</span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <button
+                            onClick={() => setGroupBy('none')}
+                            className={`rounded-xs px-2 py-0.5 text-xs font-medium transition-colors sm:px-2.5 sm:py-1 ${
+                              effectiveGroupByKeys.length === 0
+                                ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                            }`}
+                            title="Disable grouping"
+                          >
+                            None
+                          </button>
+                          {[...groupByLabelKeys, 'instance_id'].map((key) => (
+                            <button
+                              key={key}
+                              onClick={() => handleGroupByToggle(key)}
+                              className={`rounded-xs px-2 py-0.5 text-xs font-medium transition-colors sm:px-2.5 sm:py-1 ${
+                                effectiveGroupByKeys.includes(key)
+                                  ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+                              }`}
+                              title={`${effectiveGroupByKeys.includes(key) ? 'Remove' : 'Add'} ${key === 'instance_id' ? 'instance id' : key} ${effectiveGroupByKeys.includes(key) ? 'from' : 'to'} grouping`}
+                            >
+                              {key === 'instance_id' ? 'instance id' : key}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  {heatmapExpanded && (
-                    <div className="border-t border-gray-200 p-3 sm:p-4 dark:border-gray-700">
-                      <RunsHeatmap
-                        runs={suiteRunsAll}
-                        groupBy={effectiveGroupByKeys}
-                        getCompareGroupHref={effectiveGroupByKeys.length > 0 ? (groupRuns) => {
-                          const sorted = [...groupRuns].sort((a, b) => b.timestamp - a.timestamp)
-                          const seen = new Set<string>()
-                          const ids: string[] = []
-                          for (const run of sorted) {
-                            if (seen.has(run.instance.client)) continue
-                            // Skip live runs — comparison needs finished
-                            // per-test results which don't exist yet.
-                            if (run.status === 'running') continue
-                            if (run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total) {
-                              seen.add(run.instance.client)
-                              ids.push(run.run_id)
-                            }
-                            if (ids.length >= MAX_COMPARE_RUNS) break
-                          }
-                          if (ids.length < MIN_COMPARE_RUNS) return undefined
-                          return `/compare?runs=${encodeURIComponent(ids.join(','))}`
-                        } : undefined}
-                        getCompareClientAcrossGroupsHref={effectiveGroupByKeys.length > 0 ? (client) => {
-                          // Find the latest successful run for this client in each composite group
-                          const sorted = [...suiteRunsAll]
-                            .filter((r) => r.instance.client === client)
-                            .sort((a, b) => b.timestamp - a.timestamp)
-                          const seenGroups = new Set<string>()
-                          const ids: string[] = []
-                          for (const run of sorted) {
-                            // Skip live runs — can't compare in-progress runs.
-                            if (run.status === 'running') continue
-                            const groupValue = effectiveGroupByKeys.map((k) => groupValueForRun(run, k)).join(', ')
-                            if (seenGroups.has(groupValue)) continue
-                            if (run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total) {
-                              seenGroups.add(groupValue)
-                              ids.push(run.run_id)
-                            }
-                            if (ids.length >= MAX_COMPARE_RUNS) break
-                          }
-                          if (ids.length < MIN_COMPARE_RUNS) return undefined
-                          // `labels` is a single-key run-label display mode on the compare page;
-                          // use the first label key (or instance-id when that's all there is).
-                          const labelKey = effectiveGroupByKeys.find((k) => k !== 'instance_id')
-                          const labels = labelKey ? `label:${labelKey}` : 'instance-id'
-                          return `/compare?runs=${encodeURIComponent(ids.join(','))}&labels=${encodeURIComponent(labels)}`
-                        } : undefined}
-                        getGroupCompareGroupHref={effectiveGroupByKeys.length > 0 ? (groupMetadata, groupClients) => {
-                          // groupMetadata is the group's key=value pairs (instance_id excluded);
-                          // empty (instance_id-only) yields a bare `client:` filter.
-                          const filter = Object.entries(groupMetadata).map(([k, v]) => `${k}=${v}`).join(',')
-                          const groups = groupClients.map((c) => `${c}:${filter}`).join(';')
-                          return `/compare/groups?suite=${encodeURIComponent(suiteHash)}&groups=${encodeURIComponent(groups)}`
-                        } : undefined}
-                        getGroupCompareClientAcrossGroupsHref={effectiveGroupByKeys.length > 0 ? (client) => {
-                          // Build one group per distinct label-value combination for this client
-                          // (instance_id can't be expressed as a metadata filter, so it's excluded).
-                          const metaKeys = effectiveGroupByKeys.filter((k) => k !== 'instance_id')
-                          const filters = new Set<string>()
-                          for (const run of suiteRunsAll) {
-                            if (run.instance.client !== client) continue
-                            filters.add(metaKeys.map((k) => `${k}=${run.metadata?.[k] ?? '(none)'}`).join(','))
-                          }
-                          const groups = [...filters].sort().map((filter) => `${client}:${filter}`).join(';')
-                          return `/compare/groups?suite=${encodeURIComponent(suiteHash)}&groups=${encodeURIComponent(groups)}`
-                        } : undefined}
-                        isDark={isDark}
-                        colorNormalization={heatmapColor}
-                        onColorNormalizationChange={handleHeatmapColorChange}
-                        stepFilter={stepFilter}
-                        selectable={compareMode}
-                        selectedRunIds={selectedRunIds}
-                        onSelectionChange={(runId, selected) => handleSelectionChange([runId], selected)}
+                )}
+                {!suiteIsMempool && (
+                  <div className="overflow-hidden rounded-xs border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-3">
+                      <button
+                        onClick={() => setHeatmapExpanded(!heatmapExpanded)}
+                        className="flex items-center gap-2 text-left text-sm/6 font-medium text-gray-900 hover:text-gray-700 dark:text-gray-100 dark:hover:text-gray-300"
+                      >
+                        <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', heatmapExpanded && 'rotate-90')} />
+                        <LayoutGrid className="size-4 text-gray-400 dark:text-gray-500" />
+                        Recent Runs by Client
+                      </button>
+                      <CompareToolbar
+                        compareMode={compareMode}
+                        onToggleCompareMode={() => compareMode ? handleExitCompareMode() : handleEnterCompareMode()}
+                        latestCompareUrl={latestCompareUrl}
+                        groupCompareUrl={groupCompareUrl}
                       />
                     </div>
-                  )}
-                </div>
-                <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                  <button
-                    onClick={() => setChartExpanded(!chartExpanded)}
-                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
-                  >
-                    <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', chartExpanded && 'rotate-90')} />
-                    <Clock className="size-4 text-gray-400 dark:text-gray-500" />
-                    Run Charts
-                  </button>
-                  {chartExpanded && (
-                    <div className="flex flex-col gap-4 border-t border-gray-200 p-4 dark:border-gray-700">
-                      <div className="flex items-center justify-end gap-4">
-                        <label className="flex cursor-pointer items-center gap-2">
-                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Passing runs only</span>
-                          <button
-                            role="switch"
-                            aria-checked={chartPassingOnly}
-                            onClick={() => handleChartPassingOnlyChange(!chartPassingOnly)}
-                            className={clsx(
-                              'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
-                              chartPassingOnly ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600',
-                            )}
-                          >
-                            <span
+                    {heatmapExpanded && (
+                      <div className="border-t border-gray-200 p-3 sm:p-4 dark:border-gray-700">
+                        <RunsHeatmap
+                          runs={suiteRunsAll}
+                          groupBy={effectiveGroupByKeys}
+                          getCompareGroupHref={effectiveGroupByKeys.length > 0 ? (groupRuns) => {
+                            const sorted = [...groupRuns].sort((a, b) => b.timestamp - a.timestamp)
+                            const seen = new Set<string>()
+                            const ids: string[] = []
+                            for (const run of sorted) {
+                              if (seen.has(run.instance.client)) continue
+                              // Skip live runs — comparison needs finished
+                              // per-test results which don't exist yet.
+                              if (run.status === 'running') continue
+                              if (run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total) {
+                                seen.add(run.instance.client)
+                                ids.push(run.run_id)
+                              }
+                              if (ids.length >= MAX_COMPARE_RUNS) break
+                            }
+                            if (ids.length < MIN_COMPARE_RUNS) return undefined
+                            return `/compare?runs=${encodeURIComponent(ids.join(','))}`
+                          } : undefined}
+                          getCompareClientAcrossGroupsHref={effectiveGroupByKeys.length > 0 ? (client) => {
+                            // Find the latest successful run for this client in each composite group
+                            const sorted = [...suiteRunsAll]
+                              .filter((r) => r.instance.client === client)
+                              .sort((a, b) => b.timestamp - a.timestamp)
+                            const seenGroups = new Set<string>()
+                            const ids: string[] = []
+                            for (const run of sorted) {
+                              // Skip live runs — can't compare in-progress runs.
+                              if (run.status === 'running') continue
+                              const groupValue = effectiveGroupByKeys.map((k) => groupValueForRun(run, k)).join(', ')
+                              if (seenGroups.has(groupValue)) continue
+                              if (run.tests.tests_total > 0 && run.tests.tests_passed === run.tests.tests_total) {
+                                seenGroups.add(groupValue)
+                                ids.push(run.run_id)
+                              }
+                              if (ids.length >= MAX_COMPARE_RUNS) break
+                            }
+                            if (ids.length < MIN_COMPARE_RUNS) return undefined
+                            // `labels` is a single-key run-label display mode on the compare page;
+                            // use the first label key (or instance-id when that's all there is).
+                            const labelKey = effectiveGroupByKeys.find((k) => k !== 'instance_id')
+                            const labels = labelKey ? `label:${labelKey}` : 'instance-id'
+                            return `/compare?runs=${encodeURIComponent(ids.join(','))}&labels=${encodeURIComponent(labels)}`
+                          } : undefined}
+                          getGroupCompareGroupHref={effectiveGroupByKeys.length > 0 ? (groupMetadata, groupClients) => {
+                            // groupMetadata is the group's key=value pairs (instance_id excluded);
+                            // empty (instance_id-only) yields a bare `client:` filter.
+                            const filter = Object.entries(groupMetadata).map(([k, v]) => `${k}=${v}`).join(',')
+                            const groups = groupClients.map((c) => `${c}:${filter}`).join(';')
+                            return `/compare/groups?suite=${encodeURIComponent(suiteHash)}&groups=${encodeURIComponent(groups)}`
+                          } : undefined}
+                          getGroupCompareClientAcrossGroupsHref={effectiveGroupByKeys.length > 0 ? (client) => {
+                            // Build one group per distinct label-value combination for this client
+                            // (instance_id can't be expressed as a metadata filter, so it's excluded).
+                            const metaKeys = effectiveGroupByKeys.filter((k) => k !== 'instance_id')
+                            const filters = new Set<string>()
+                            for (const run of suiteRunsAll) {
+                              if (run.instance.client !== client) continue
+                              filters.add(metaKeys.map((k) => `${k}=${run.metadata?.[k] ?? '(none)'}`).join(','))
+                            }
+                            const groups = [...filters].sort().map((filter) => `${client}:${filter}`).join(';')
+                            return `/compare/groups?suite=${encodeURIComponent(suiteHash)}&groups=${encodeURIComponent(groups)}`
+                          } : undefined}
+                          isDark={isDark}
+                          colorNormalization={heatmapColor}
+                          onColorNormalizationChange={handleHeatmapColorChange}
+                          stepFilter={stepFilter}
+                          selectable={compareMode}
+                          selectedRunIds={selectedRunIds}
+                          onSelectionChange={(runId, selected) => handleSelectionChange([runId], selected)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!suiteIsMempool && (
+                  <div className="overflow-hidden rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                    <button
+                      onClick={() => setChartExpanded(!chartExpanded)}
+                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm/6 font-medium text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700/50"
+                    >
+                      <ChevronRight className={clsx('size-4 text-gray-500 transition-transform', chartExpanded && 'rotate-90')} />
+                      <Clock className="size-4 text-gray-400 dark:text-gray-500" />
+                      Run Charts
+                    </button>
+                    {chartExpanded && (
+                      <div className="flex flex-col gap-4 border-t border-gray-200 p-4 dark:border-gray-700">
+                        <div className="flex items-center justify-end gap-4">
+                          <label className="flex cursor-pointer items-center gap-2">
+                            <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Passing runs only</span>
+                            <button
+                              role="switch"
+                              aria-checked={chartPassingOnly}
+                              onClick={() => handleChartPassingOnlyChange(!chartPassingOnly)}
                               className={clsx(
-                                'inline-block size-3.5 rounded-full bg-white transition-transform',
-                                chartPassingOnly ? 'translate-x-4.5' : 'translate-x-0.5',
+                                'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
+                                chartPassingOnly ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600',
                               )}
+                            >
+                              <span
+                                className={clsx(
+                                  'inline-block size-3.5 rounded-full bg-white transition-transform',
+                                  chartPassingOnly ? 'translate-x-4.5' : 'translate-x-0.5',
+                                )}
+                              />
+                            </button>
+                          </label>
+                          <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
+                            <button
+                              onClick={() => handleChartModeChange('runCount')}
+                              className={clsx(
+                                'px-3 py-1 text-xs/5 font-medium transition-colors',
+                                chartMode === 'runCount'
+                                  ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                                  : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+                              )}
+                            >
+                              Run #
+                            </button>
+                            <button
+                              onClick={() => handleChartModeChange('time')}
+                              className={clsx(
+                                'border-l border-gray-300 px-3 py-1 text-xs/5 font-medium transition-colors dark:border-gray-600',
+                                chartMode === 'time'
+                                  ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                                  : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+                              )}
+                            >
+                              Time
+                            </button>
+                          </div>
+                        </div>
+                        {/* Chart filters: client toggles + label chips */}
+                        {(chartClients.length > 1 || chartLabelKeys.length > 0) && (
+                          <ChartFilters
+                            clients={chartClients}
+                            clientFilter={chartClientFilter}
+                            onClientFilterChange={setChartClientFilter}
+                            labelKeys={chartLabelKeys}
+                            labelValues={chartLabelValues}
+                            labelFilters={chartLabelFilters}
+                            onLabelFiltersChange={setChartLabelFilters}
+                          />
+                        )}
+                        <div className="flex items-center gap-3">
+                          <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
+                          <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Performance</span>
+                          <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
+                        </div>
+                        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                          <div className="rounded-sm bg-gray-50 p-3 dark:bg-gray-700/50">
+                            <DurationChart
+                              runs={chartRuns}
+                              isDark={isDark}
+                              xAxisMode={chartMode}
+                              onXAxisModeChange={handleChartModeChange}
+                              onRunClick={handleRunClick}
+                              stepFilter={stepFilter}
+                              hideControls
+                              zoomRange={chartZoomRange}
+                              onZoomChange={handleChartZoomChange}
                             />
-                          </button>
-                        </label>
-                        <div className="inline-flex rounded-sm border border-gray-300 dark:border-gray-600">
-                          <button
-                            onClick={() => handleChartModeChange('runCount')}
-                            className={clsx(
-                              'px-3 py-1 text-xs/5 font-medium transition-colors',
-                              chartMode === 'runCount'
-                                ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
-                                : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
-                            )}
-                          >
-                            Run #
-                          </button>
-                          <button
-                            onClick={() => handleChartModeChange('time')}
-                            className={clsx(
-                              'border-l border-gray-300 px-3 py-1 text-xs/5 font-medium transition-colors dark:border-gray-600',
-                              chartMode === 'time'
-                                ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
-                                : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
-                            )}
-                          >
-                            Time
-                          </button>
+                          </div>
+                          <div className="rounded-sm bg-gray-50 p-3 dark:bg-gray-700/50">
+                            <MGasChart
+                              runs={chartRuns}
+                              isDark={isDark}
+                              xAxisMode={chartMode}
+                              onXAxisModeChange={handleChartModeChange}
+                              onRunClick={handleRunClick}
+                              stepFilter={stepFilter}
+                              hideControls
+                              zoomRange={chartZoomRange}
+                              onZoomChange={handleChartZoomChange}
+                            />
+                          </div>
                         </div>
-                      </div>
-                      {/* Chart filters: client toggles + label chips */}
-                      {(chartClients.length > 1 || chartLabelKeys.length > 0) && (
-                        <ChartFilters
-                          clients={chartClients}
-                          clientFilter={chartClientFilter}
-                          onClientFilterChange={setChartClientFilter}
-                          labelKeys={chartLabelKeys}
-                          labelValues={chartLabelValues}
-                          labelFilters={chartLabelFilters}
-                          onLabelFiltersChange={setChartLabelFilters}
-                        />
-                      )}
-                      <div className="flex items-center gap-3">
-                        <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
-                        <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Performance</span>
-                        <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
-                      </div>
-                      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                        <div className="rounded-sm bg-gray-50 p-3 dark:bg-gray-700/50">
-                          <DurationChart
-                            runs={chartRuns}
-                            isDark={isDark}
-                            xAxisMode={chartMode}
-                            onXAxisModeChange={handleChartModeChange}
-                            onRunClick={handleRunClick}
-                            stepFilter={stepFilter}
-                            hideControls
-                            zoomRange={chartZoomRange}
-                            onZoomChange={handleChartZoomChange}
+                        <div className="flex items-center gap-3">
+                          <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
+                          <span className="text-xs font-medium text-gray-400 dark:text-gray-500">System Resources</span>
+                          <SegmentedControl
+                            value={chartResStep}
+                            onChange={setChartResStep}
+                            options={RESOURCE_STEP_OPTIONS}
+                            ariaLabel="Resource usage step"
                           />
+                          <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
                         </div>
-                        <div className="rounded-sm bg-gray-50 p-3 dark:bg-gray-700/50">
-                          <MGasChart
-                            runs={chartRuns}
-                            isDark={isDark}
-                            xAxisMode={chartMode}
-                            onXAxisModeChange={handleChartModeChange}
-                            onRunClick={handleRunClick}
-                            stepFilter={stepFilter}
-                            hideControls
-                            zoomRange={chartZoomRange}
-                            onZoomChange={handleChartZoomChange}
-                          />
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
-                        <span className="text-xs font-medium text-gray-400 dark:text-gray-500">System Resources</span>
-                        <SegmentedControl
-                          value={chartResStep}
-                          onChange={setChartResStep}
-                          options={RESOURCE_STEP_OPTIONS}
-                          ariaLabel="Resource usage step"
+                        <ResourceCharts
+                          runs={chartRuns}
+                          isDark={isDark}
+                          xAxisMode={chartMode}
+                          onXAxisModeChange={handleChartModeChange}
+                          resStep={chartResStep}
+                          onResStepChange={setChartResStep}
+                          onRunClick={handleRunClick}
+                          hideControls
+                          zoomRange={chartZoomRange}
+                          onZoomChange={handleChartZoomChange}
                         />
-                        <div className="h-px grow bg-gray-200 dark:bg-gray-700" />
+                        {chartMode === 'runCount' && (
+                          <div className="flex justify-end text-xs/5 text-gray-500 dark:text-gray-400">
+                            <span>&larr; Older runs | More recent &rarr;</span>
+                          </div>
+                        )}
                       </div>
-                      <ResourceCharts
-                        runs={chartRuns}
-                        isDark={isDark}
-                        xAxisMode={chartMode}
-                        onXAxisModeChange={handleChartModeChange}
-                        resStep={chartResStep}
-                        onResStepChange={setChartResStep}
-                        onRunClick={handleRunClick}
-                        hideControls
-                        zoomRange={chartZoomRange}
-                        onZoomChange={handleChartZoomChange}
-                      />
-                      {chartMode === 'runCount' && (
-                        <div className="flex justify-end text-xs/5 text-gray-500 dark:text-gray-400">
-                          <span>&larr; Older runs | More recent &rarr;</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
                 <div className="flex flex-wrap items-end gap-4">
                   <RunFilters
                     clients={clients}
@@ -1631,7 +1643,11 @@ export function SuiteDetailPage() {
             </TabPanel>
           )}
           <TabPanel className="flex flex-col gap-4">
-            <SuiteSource title="Source" source={suite.source} />
+            {isMempoolMode(suite) ? (
+              <MempoolSuiteSource source={suite.source?.mempool} />
+            ) : (
+              <SuiteSource title="Source" source={suite.source} />
+            )}
             {hasEestMeta && <EESTMetadata suiteHash={suiteHash} />}
           </TabPanel>
         </TabPanels>

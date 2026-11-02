@@ -205,6 +205,10 @@ func (m *manager) CreateContainer(
 ) (string, error) {
 	log := m.log.WithField("container", spec.Name)
 
+	if len(spec.PublishPorts) > 0 {
+		return "", fmt.Errorf("publishing ports on loopback is not supported with podman")
+	}
+
 	s := &specgen.SpecGenerator{}
 	s.Name = spec.Name
 	s.Image = qualifyImageName(spec.Image)

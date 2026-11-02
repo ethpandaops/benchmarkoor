@@ -1,0 +1,2751 @@
+{
+  "schema_version": 1,
+  "mode": "mempool",
+  "client": "geth",
+  "instance_id": "geth",
+  "fork": "Osaka",
+  "chain_id": 1337,
+  "pool_limits": {
+    "account_slots": 16,
+    "global_slots": 5120,
+    "account_queue": 64,
+    "global_queue": 1024,
+    "price_bump": 10,
+    "blob_price_bump": 100
+  },
+  "scenarios": [
+    {
+      "name": "admission",
+      "description": "Send valid transactions from many accounts and measure how fast the pool admits them.",
+      "params": {
+        "accounts": 200,
+        "txs_per_account": 16
+      },
+      "status": "passed",
+      "start_time": 1793612400000,
+      "duration_ms": 4200,
+      "metrics": [
+        {
+          "key": "txs_sent",
+          "label": "Transactions sent",
+          "unit": "count",
+          "value": 3200,
+          "group": "throughput"
+        },
+        {
+          "key": "admitted",
+          "label": "Admitted",
+          "unit": "count",
+          "value": 3200,
+          "group": "throughput",
+          "better": "higher"
+        },
+        {
+          "key": "admit_rate",
+          "label": "Admission rate",
+          "unit": "tx/s",
+          "value": 1904.7,
+          "group": "throughput",
+          "better": "higher"
+        },
+        {
+          "key": "peak_memory",
+          "label": "Peak pool memory",
+          "unit": "bytes",
+          "value": 18874368,
+          "group": "resources",
+          "better": "lower"
+        }
+      ],
+      "latencies": [
+        {
+          "key": "send_raw",
+          "label": "eth_sendRawTransaction",
+          "unit": "ms",
+          "count": 3200,
+          "min": 0.36,
+          "mean": 2.52,
+          "p50": 1.8,
+          "p90": 3.78,
+          "p99": 7.74,
+          "max": 16.2,
+          "histogram": [
+            {
+              "le": 1,
+              "count": 160
+            },
+            {
+              "le": 2,
+              "count": 640
+            },
+            {
+              "le": 5,
+              "count": 1120
+            },
+            {
+              "le": 10,
+              "count": 640
+            },
+            {
+              "le": 25,
+              "count": 384
+            },
+            {
+              "le": 50,
+              "count": 160
+            },
+            {
+              "le": 100,
+              "count": 64
+            },
+            {
+              "le": 250,
+              "count": 32
+            }
+          ],
+          "group": "rpc"
+        },
+        {
+          "key": "visible",
+          "label": "Time to visible in txpool_content",
+          "unit": "ms",
+          "count": 3200,
+          "min": 1.24,
+          "mean": 8.68,
+          "p50": 6.2,
+          "p90": 13.02,
+          "p99": 26.66,
+          "max": 55.8,
+          "histogram": [
+            {
+              "le": 1,
+              "count": 160
+            },
+            {
+              "le": 2,
+              "count": 640
+            },
+            {
+              "le": 5,
+              "count": 1120
+            },
+            {
+              "le": 10,
+              "count": 640
+            },
+            {
+              "le": 25,
+              "count": 384
+            },
+            {
+              "le": 50,
+              "count": 160
+            },
+            {
+              "le": 100,
+              "count": 64
+            },
+            {
+              "le": 250,
+              "count": 32
+            }
+          ]
+        }
+      ],
+      "timeline": [
+        {
+          "t_ms": 0,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        },
+        {
+          "t_ms": 100,
+          "pending": 310,
+          "queued": 0,
+          "memory_bytes": 52986800
+        },
+        {
+          "t_ms": 200,
+          "pending": 618,
+          "queued": 0,
+          "memory_bytes": 53541200
+        },
+        {
+          "t_ms": 300,
+          "pending": 920,
+          "queued": 0,
+          "memory_bytes": 54084800
+        },
+        {
+          "t_ms": 400,
+          "pending": 1213,
+          "queued": 0,
+          "memory_bytes": 54612200
+        },
+        {
+          "t_ms": 500,
+          "pending": 1495,
+          "queued": 0,
+          "memory_bytes": 55119800
+        },
+        {
+          "t_ms": 600,
+          "pending": 1762,
+          "queued": 0,
+          "memory_bytes": 55600400
+        },
+        {
+          "t_ms": 700,
+          "pending": 2013,
+          "queued": 0,
+          "memory_bytes": 56052200
+        },
+        {
+          "t_ms": 800,
+          "pending": 2245,
+          "queued": 0,
+          "memory_bytes": 56469800
+        },
+        {
+          "t_ms": 900,
+          "pending": 2456,
+          "queued": 0,
+          "memory_bytes": 56849600
+        },
+        {
+          "t_ms": 1000,
+          "pending": 2643,
+          "queued": 0,
+          "memory_bytes": 57186200
+        },
+        {
+          "t_ms": 1100,
+          "pending": 2806,
+          "queued": 0,
+          "memory_bytes": 57479600
+        },
+        {
+          "t_ms": 1200,
+          "pending": 2942,
+          "queued": 0,
+          "memory_bytes": 57724400
+        },
+        {
+          "t_ms": 1300,
+          "pending": 3050,
+          "queued": 0,
+          "memory_bytes": 57918800
+        },
+        {
+          "t_ms": 1400,
+          "pending": 3130,
+          "queued": 0,
+          "memory_bytes": 58062800
+        },
+        {
+          "t_ms": 1500,
+          "pending": 3179,
+          "queued": 0,
+          "memory_bytes": 58151000
+        },
+        {
+          "t_ms": 1600,
+          "pending": 3199,
+          "queued": 0,
+          "memory_bytes": 58187000
+        },
+        {
+          "t_ms": 1700,
+          "pending": 3189,
+          "queued": 0,
+          "memory_bytes": 58169000
+        },
+        {
+          "t_ms": 1800,
+          "pending": 3148,
+          "queued": 0,
+          "memory_bytes": 58095200
+        },
+        {
+          "t_ms": 1900,
+          "pending": 3078,
+          "queued": 0,
+          "memory_bytes": 57969200
+        },
+        {
+          "t_ms": 2000,
+          "pending": 2978,
+          "queued": 0,
+          "memory_bytes": 57789200
+        },
+        {
+          "t_ms": 2100,
+          "pending": 2851,
+          "queued": 0,
+          "memory_bytes": 57560600
+        },
+        {
+          "t_ms": 2200,
+          "pending": 2696,
+          "queued": 0,
+          "memory_bytes": 57281600
+        },
+        {
+          "t_ms": 2300,
+          "pending": 2516,
+          "queued": 0,
+          "memory_bytes": 56957600
+        },
+        {
+          "t_ms": 2400,
+          "pending": 2312,
+          "queued": 0,
+          "memory_bytes": 56590400
+        },
+        {
+          "t_ms": 2500,
+          "pending": 2087,
+          "queued": 0,
+          "memory_bytes": 56185400
+        },
+        {
+          "t_ms": 2600,
+          "pending": 1841,
+          "queued": 0,
+          "memory_bytes": 55742600
+        },
+        {
+          "t_ms": 2700,
+          "pending": 1579,
+          "queued": 0,
+          "memory_bytes": 55271000
+        },
+        {
+          "t_ms": 2800,
+          "pending": 1301,
+          "queued": 0,
+          "memory_bytes": 54770600
+        },
+        {
+          "t_ms": 2900,
+          "pending": 1011,
+          "queued": 0,
+          "memory_bytes": 54248600
+        },
+        {
+          "t_ms": 3000,
+          "pending": 712,
+          "queued": 0,
+          "memory_bytes": 53710400
+        },
+        {
+          "t_ms": 3100,
+          "pending": 405,
+          "queued": 0,
+          "memory_bytes": 53157800
+        },
+        {
+          "t_ms": 3200,
+          "pending": 95,
+          "queued": 0,
+          "memory_bytes": 52599800
+        },
+        {
+          "t_ms": 3300,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        },
+        {
+          "t_ms": 3400,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        },
+        {
+          "t_ms": 3500,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        },
+        {
+          "t_ms": 3600,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        },
+        {
+          "t_ms": 3700,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        },
+        {
+          "t_ms": 3800,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        },
+        {
+          "t_ms": 3900,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        },
+        {
+          "t_ms": 4000,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        },
+        {
+          "t_ms": 4100,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        },
+        {
+          "t_ms": 4200,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 52428800
+        }
+      ],
+      "events": [
+        {
+          "t_ms": 5,
+          "kind": "send"
+        },
+        {
+          "t_ms": 9,
+          "kind": "send"
+        },
+        {
+          "t_ms": 13,
+          "kind": "send"
+        },
+        {
+          "t_ms": 17,
+          "kind": "send"
+        },
+        {
+          "t_ms": 21,
+          "kind": "send"
+        },
+        {
+          "t_ms": 25,
+          "kind": "send"
+        },
+        {
+          "t_ms": 29,
+          "kind": "send"
+        },
+        {
+          "t_ms": 33,
+          "kind": "send"
+        },
+        {
+          "t_ms": 37,
+          "kind": "send"
+        },
+        {
+          "t_ms": 41,
+          "kind": "send"
+        },
+        {
+          "t_ms": 45,
+          "kind": "send"
+        },
+        {
+          "t_ms": 49,
+          "kind": "send"
+        },
+        {
+          "t_ms": 53,
+          "kind": "send"
+        },
+        {
+          "t_ms": 57,
+          "kind": "send"
+        },
+        {
+          "t_ms": 61,
+          "kind": "send"
+        },
+        {
+          "t_ms": 65,
+          "kind": "send"
+        },
+        {
+          "t_ms": 69,
+          "kind": "send"
+        },
+        {
+          "t_ms": 73,
+          "kind": "send"
+        },
+        {
+          "t_ms": 77,
+          "kind": "send"
+        },
+        {
+          "t_ms": 81,
+          "kind": "send"
+        },
+        {
+          "t_ms": 85,
+          "kind": "send"
+        },
+        {
+          "t_ms": 89,
+          "kind": "send"
+        },
+        {
+          "t_ms": 93,
+          "kind": "send"
+        },
+        {
+          "t_ms": 97,
+          "kind": "send"
+        },
+        {
+          "t_ms": 101,
+          "kind": "send"
+        },
+        {
+          "t_ms": 105,
+          "kind": "send"
+        },
+        {
+          "t_ms": 109,
+          "kind": "send"
+        },
+        {
+          "t_ms": 113,
+          "kind": "send"
+        },
+        {
+          "t_ms": 117,
+          "kind": "send"
+        },
+        {
+          "t_ms": 121,
+          "kind": "send"
+        },
+        {
+          "t_ms": 125,
+          "kind": "send"
+        },
+        {
+          "t_ms": 129,
+          "kind": "send"
+        },
+        {
+          "t_ms": 133,
+          "kind": "send"
+        },
+        {
+          "t_ms": 137,
+          "kind": "send"
+        },
+        {
+          "t_ms": 141,
+          "kind": "send"
+        },
+        {
+          "t_ms": 145,
+          "kind": "send"
+        },
+        {
+          "t_ms": 149,
+          "kind": "send"
+        },
+        {
+          "t_ms": 153,
+          "kind": "send"
+        },
+        {
+          "t_ms": 157,
+          "kind": "send"
+        },
+        {
+          "t_ms": 161,
+          "kind": "send"
+        },
+        {
+          "t_ms": 165,
+          "kind": "send"
+        },
+        {
+          "t_ms": 169,
+          "kind": "send"
+        },
+        {
+          "t_ms": 173,
+          "kind": "send"
+        },
+        {
+          "t_ms": 177,
+          "kind": "send"
+        },
+        {
+          "t_ms": 181,
+          "kind": "send"
+        },
+        {
+          "t_ms": 185,
+          "kind": "send"
+        },
+        {
+          "t_ms": 189,
+          "kind": "send"
+        },
+        {
+          "t_ms": 193,
+          "kind": "send"
+        },
+        {
+          "t_ms": 197,
+          "kind": "send"
+        },
+        {
+          "t_ms": 201,
+          "kind": "send"
+        },
+        {
+          "t_ms": 205,
+          "kind": "send"
+        },
+        {
+          "t_ms": 209,
+          "kind": "send"
+        },
+        {
+          "t_ms": 213,
+          "kind": "send"
+        },
+        {
+          "t_ms": 217,
+          "kind": "send"
+        },
+        {
+          "t_ms": 221,
+          "kind": "send"
+        },
+        {
+          "t_ms": 225,
+          "kind": "send"
+        },
+        {
+          "t_ms": 229,
+          "kind": "send"
+        },
+        {
+          "t_ms": 233,
+          "kind": "send"
+        },
+        {
+          "t_ms": 237,
+          "kind": "send"
+        },
+        {
+          "t_ms": 241,
+          "kind": "send"
+        },
+        {
+          "t_ms": 245,
+          "kind": "send"
+        },
+        {
+          "t_ms": 249,
+          "kind": "send"
+        },
+        {
+          "t_ms": 253,
+          "kind": "send"
+        },
+        {
+          "t_ms": 257,
+          "kind": "send"
+        },
+        {
+          "t_ms": 261,
+          "kind": "send"
+        },
+        {
+          "t_ms": 265,
+          "kind": "send"
+        },
+        {
+          "t_ms": 269,
+          "kind": "send"
+        },
+        {
+          "t_ms": 273,
+          "kind": "send"
+        },
+        {
+          "t_ms": 277,
+          "kind": "send"
+        },
+        {
+          "t_ms": 281,
+          "kind": "send"
+        },
+        {
+          "t_ms": 285,
+          "kind": "send"
+        },
+        {
+          "t_ms": 289,
+          "kind": "send"
+        },
+        {
+          "t_ms": 293,
+          "kind": "send"
+        },
+        {
+          "t_ms": 297,
+          "kind": "send"
+        },
+        {
+          "t_ms": 301,
+          "kind": "send"
+        },
+        {
+          "t_ms": 305,
+          "kind": "send"
+        },
+        {
+          "t_ms": 309,
+          "kind": "send"
+        },
+        {
+          "t_ms": 313,
+          "kind": "send"
+        },
+        {
+          "t_ms": 317,
+          "kind": "send"
+        },
+        {
+          "t_ms": 321,
+          "kind": "send"
+        },
+        {
+          "t_ms": 325,
+          "kind": "send"
+        },
+        {
+          "t_ms": 329,
+          "kind": "send"
+        },
+        {
+          "t_ms": 333,
+          "kind": "send"
+        },
+        {
+          "t_ms": 337,
+          "kind": "send"
+        },
+        {
+          "t_ms": 341,
+          "kind": "send"
+        },
+        {
+          "t_ms": 345,
+          "kind": "send"
+        },
+        {
+          "t_ms": 349,
+          "kind": "send"
+        },
+        {
+          "t_ms": 353,
+          "kind": "send"
+        },
+        {
+          "t_ms": 357,
+          "kind": "send"
+        },
+        {
+          "t_ms": 361,
+          "kind": "send"
+        },
+        {
+          "t_ms": 365,
+          "kind": "send"
+        },
+        {
+          "t_ms": 369,
+          "kind": "send"
+        },
+        {
+          "t_ms": 373,
+          "kind": "send"
+        },
+        {
+          "t_ms": 377,
+          "kind": "send"
+        },
+        {
+          "t_ms": 381,
+          "kind": "send"
+        },
+        {
+          "t_ms": 385,
+          "kind": "send"
+        },
+        {
+          "t_ms": 389,
+          "kind": "send"
+        },
+        {
+          "t_ms": 393,
+          "kind": "send"
+        },
+        {
+          "t_ms": 397,
+          "kind": "send"
+        },
+        {
+          "t_ms": 401,
+          "kind": "send"
+        },
+        {
+          "t_ms": 405,
+          "kind": "send"
+        },
+        {
+          "t_ms": 409,
+          "kind": "send"
+        },
+        {
+          "t_ms": 413,
+          "kind": "send"
+        },
+        {
+          "t_ms": 417,
+          "kind": "send"
+        },
+        {
+          "t_ms": 421,
+          "kind": "send"
+        },
+        {
+          "t_ms": 425,
+          "kind": "send"
+        },
+        {
+          "t_ms": 429,
+          "kind": "send"
+        },
+        {
+          "t_ms": 433,
+          "kind": "send"
+        },
+        {
+          "t_ms": 437,
+          "kind": "send"
+        },
+        {
+          "t_ms": 441,
+          "kind": "send"
+        },
+        {
+          "t_ms": 445,
+          "kind": "send"
+        },
+        {
+          "t_ms": 449,
+          "kind": "send"
+        },
+        {
+          "t_ms": 453,
+          "kind": "send"
+        },
+        {
+          "t_ms": 457,
+          "kind": "send"
+        },
+        {
+          "t_ms": 461,
+          "kind": "send"
+        },
+        {
+          "t_ms": 465,
+          "kind": "send"
+        },
+        {
+          "t_ms": 469,
+          "kind": "send"
+        },
+        {
+          "t_ms": 473,
+          "kind": "send"
+        },
+        {
+          "t_ms": 477,
+          "kind": "send"
+        },
+        {
+          "t_ms": 481,
+          "kind": "send"
+        },
+        {
+          "t_ms": 485,
+          "kind": "send"
+        },
+        {
+          "t_ms": 489,
+          "kind": "send"
+        },
+        {
+          "t_ms": 493,
+          "kind": "send"
+        },
+        {
+          "t_ms": 497,
+          "kind": "send"
+        },
+        {
+          "t_ms": 501,
+          "kind": "send"
+        },
+        {
+          "t_ms": 505,
+          "kind": "send"
+        },
+        {
+          "t_ms": 509,
+          "kind": "send"
+        },
+        {
+          "t_ms": 513,
+          "kind": "send"
+        },
+        {
+          "t_ms": 517,
+          "kind": "send"
+        },
+        {
+          "t_ms": 521,
+          "kind": "send"
+        },
+        {
+          "t_ms": 525,
+          "kind": "send"
+        },
+        {
+          "t_ms": 529,
+          "kind": "send"
+        },
+        {
+          "t_ms": 533,
+          "kind": "send"
+        },
+        {
+          "t_ms": 537,
+          "kind": "send"
+        },
+        {
+          "t_ms": 541,
+          "kind": "send"
+        },
+        {
+          "t_ms": 545,
+          "kind": "send"
+        },
+        {
+          "t_ms": 549,
+          "kind": "send"
+        },
+        {
+          "t_ms": 553,
+          "kind": "send"
+        },
+        {
+          "t_ms": 557,
+          "kind": "send"
+        },
+        {
+          "t_ms": 561,
+          "kind": "send"
+        },
+        {
+          "t_ms": 565,
+          "kind": "send"
+        },
+        {
+          "t_ms": 569,
+          "kind": "send"
+        },
+        {
+          "t_ms": 573,
+          "kind": "send"
+        },
+        {
+          "t_ms": 577,
+          "kind": "send"
+        },
+        {
+          "t_ms": 581,
+          "kind": "send"
+        },
+        {
+          "t_ms": 585,
+          "kind": "send"
+        },
+        {
+          "t_ms": 589,
+          "kind": "send"
+        },
+        {
+          "t_ms": 593,
+          "kind": "send"
+        },
+        {
+          "t_ms": 597,
+          "kind": "send"
+        },
+        {
+          "t_ms": 601,
+          "kind": "send"
+        },
+        {
+          "t_ms": 605,
+          "kind": "send"
+        },
+        {
+          "t_ms": 609,
+          "kind": "send"
+        },
+        {
+          "t_ms": 613,
+          "kind": "send"
+        },
+        {
+          "t_ms": 617,
+          "kind": "send"
+        },
+        {
+          "t_ms": 621,
+          "kind": "send"
+        },
+        {
+          "t_ms": 625,
+          "kind": "send"
+        },
+        {
+          "t_ms": 629,
+          "kind": "send"
+        },
+        {
+          "t_ms": 633,
+          "kind": "send"
+        },
+        {
+          "t_ms": 637,
+          "kind": "send"
+        },
+        {
+          "t_ms": 641,
+          "kind": "send"
+        },
+        {
+          "t_ms": 645,
+          "kind": "send"
+        },
+        {
+          "t_ms": 649,
+          "kind": "send"
+        },
+        {
+          "t_ms": 653,
+          "kind": "send"
+        },
+        {
+          "t_ms": 657,
+          "kind": "send"
+        },
+        {
+          "t_ms": 661,
+          "kind": "send"
+        },
+        {
+          "t_ms": 665,
+          "kind": "send"
+        },
+        {
+          "t_ms": 669,
+          "kind": "send"
+        },
+        {
+          "t_ms": 673,
+          "kind": "send"
+        },
+        {
+          "t_ms": 677,
+          "kind": "send"
+        },
+        {
+          "t_ms": 681,
+          "kind": "send"
+        },
+        {
+          "t_ms": 685,
+          "kind": "send"
+        },
+        {
+          "t_ms": 689,
+          "kind": "send"
+        },
+        {
+          "t_ms": 693,
+          "kind": "send"
+        },
+        {
+          "t_ms": 697,
+          "kind": "send"
+        },
+        {
+          "t_ms": 701,
+          "kind": "send"
+        },
+        {
+          "t_ms": 705,
+          "kind": "send"
+        },
+        {
+          "t_ms": 709,
+          "kind": "send"
+        },
+        {
+          "t_ms": 713,
+          "kind": "send"
+        },
+        {
+          "t_ms": 717,
+          "kind": "send"
+        },
+        {
+          "t_ms": 721,
+          "kind": "send"
+        },
+        {
+          "t_ms": 725,
+          "kind": "send"
+        },
+        {
+          "t_ms": 729,
+          "kind": "send"
+        },
+        {
+          "t_ms": 733,
+          "kind": "send"
+        },
+        {
+          "t_ms": 737,
+          "kind": "send"
+        },
+        {
+          "t_ms": 741,
+          "kind": "send"
+        },
+        {
+          "t_ms": 745,
+          "kind": "send"
+        },
+        {
+          "t_ms": 749,
+          "kind": "send"
+        },
+        {
+          "t_ms": 753,
+          "kind": "send"
+        },
+        {
+          "t_ms": 757,
+          "kind": "send"
+        },
+        {
+          "t_ms": 761,
+          "kind": "send"
+        },
+        {
+          "t_ms": 765,
+          "kind": "send"
+        },
+        {
+          "t_ms": 769,
+          "kind": "send"
+        },
+        {
+          "t_ms": 773,
+          "kind": "send"
+        },
+        {
+          "t_ms": 777,
+          "kind": "send"
+        },
+        {
+          "t_ms": 781,
+          "kind": "send"
+        },
+        {
+          "t_ms": 785,
+          "kind": "send"
+        },
+        {
+          "t_ms": 789,
+          "kind": "send"
+        },
+        {
+          "t_ms": 793,
+          "kind": "send"
+        },
+        {
+          "t_ms": 797,
+          "kind": "send"
+        },
+        {
+          "t_ms": 801,
+          "kind": "send"
+        },
+        {
+          "t_ms": 4100,
+          "kind": "settled",
+          "detail": "pool stable for 500ms"
+        }
+      ],
+      "assertions": [
+        {
+          "name": "all_admitted",
+          "severity": "hard",
+          "passed": true,
+          "expected": "3200",
+          "actual": "3200"
+        },
+        {
+          "name": "no_queued",
+          "severity": "hard",
+          "passed": true,
+          "expected": "0",
+          "actual": "0"
+        },
+        {
+          "name": "admit_rate_floor",
+          "severity": "soft",
+          "passed": true,
+          "expected": ">= 1000 tx/s",
+          "actual": "1904.7 tx/s"
+        }
+      ],
+      "observations": []
+    },
+    {
+      "name": "admission-rejections",
+      "description": "Send invalid transaction variants and record how the client rejects each one.",
+      "params": {
+        "variants": [
+          "nonce_too_low",
+          "insufficient_funds",
+          "intrinsic_gas",
+          "fee_cap_below_base",
+          "oversized"
+        ]
+      },
+      "status": "passed",
+      "start_time": 1793612405000,
+      "duration_ms": 900,
+      "metrics": [
+        {
+          "key": "rejected",
+          "label": "Rejected",
+          "unit": "count",
+          "value": 5,
+          "better": "higher"
+        },
+        {
+          "key": "accepted_invalid",
+          "label": "Invalid accepted",
+          "unit": "count",
+          "value": 0,
+          "better": "lower"
+        }
+      ],
+      "latencies": [
+        {
+          "key": "reject",
+          "label": "Rejection latency",
+          "unit": "ms",
+          "count": 5,
+          "min": 0.18,
+          "mean": 1.26,
+          "p50": 0.9,
+          "p90": 1.89,
+          "p99": 3.87,
+          "max": 8.1,
+          "histogram": [
+            {
+              "le": 1,
+              "count": 0
+            },
+            {
+              "le": 2,
+              "count": 1
+            },
+            {
+              "le": 5,
+              "count": 3
+            },
+            {
+              "le": 10,
+              "count": 1
+            },
+            {
+              "le": 25,
+              "count": 0
+            },
+            {
+              "le": 50,
+              "count": 0
+            },
+            {
+              "le": 100,
+              "count": 0
+            },
+            {
+              "le": 250,
+              "count": 0
+            }
+          ],
+          "group": "rpc"
+        }
+      ],
+      "timeline": [
+        {
+          "t_ms": 0,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 100,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 200,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 300,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 400,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 500,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 600,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 700,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 800,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 900,
+          "pending": 0,
+          "queued": 0
+        }
+      ],
+      "events": [],
+      "assertions": [
+        {
+          "name": "all_rejected",
+          "severity": "hard",
+          "passed": true,
+          "expected": "5",
+          "actual": "5"
+        },
+        {
+          "name": "error_mentions_nonce",
+          "severity": "soft",
+          "passed": true
+        },
+        {
+          "name": "oversized_error_code",
+          "severity": "soft",
+          "passed": false,
+          "expected": "-32000",
+          "actual": "-32602"
+        }
+      ],
+      "observations": [
+        {
+          "key": "nonce_too_low",
+          "label": "Nonce too low",
+          "value": "nonce too low: next nonce 4, tx nonce 1"
+        },
+        {
+          "key": "insufficient_funds",
+          "label": "Insufficient funds",
+          "value": "insufficient funds for gas * price + value"
+        },
+        {
+          "key": "intrinsic_gas",
+          "label": "Intrinsic gas too low",
+          "value": "intrinsic gas too low"
+        },
+        {
+          "key": "fee_cap_below_base",
+          "label": "Fee cap below base fee",
+          "value": "max fee per gas less than block base fee"
+        },
+        {
+          "key": "oversized",
+          "label": "Oversized transaction",
+          "value": "oversized data"
+        }
+      ]
+    },
+    {
+      "name": "nonce-gap-promotion",
+      "description": "Send transactions with a nonce gap, then fill the gap and measure the promotion time.",
+      "params": {
+        "gap": 3,
+        "accounts": 50
+      },
+      "status": "passed",
+      "start_time": 1793612406500,
+      "duration_ms": 2600,
+      "metrics": [
+        {
+          "key": "queued_peak",
+          "label": "Queued peak",
+          "unit": "count",
+          "value": 150
+        },
+        {
+          "key": "promoted",
+          "label": "Promoted",
+          "unit": "count",
+          "value": 200,
+          "better": "higher"
+        }
+      ],
+      "latencies": [
+        {
+          "key": "promotion",
+          "label": "Gap fill to pending",
+          "unit": "ms",
+          "count": 50,
+          "min": 2.5,
+          "mean": 17.5,
+          "p50": 12.5,
+          "p90": 26.25,
+          "p99": 53.75,
+          "max": 112.5,
+          "histogram": [
+            {
+              "le": 1,
+              "count": 2
+            },
+            {
+              "le": 2,
+              "count": 10
+            },
+            {
+              "le": 5,
+              "count": 19
+            },
+            {
+              "le": 10,
+              "count": 10
+            },
+            {
+              "le": 25,
+              "count": 6
+            },
+            {
+              "le": 50,
+              "count": 2
+            },
+            {
+              "le": 100,
+              "count": 1
+            },
+            {
+              "le": 250,
+              "count": 0
+            }
+          ]
+        }
+      ],
+      "timeline": [
+        {
+          "t_ms": 0,
+          "pending": 0,
+          "queued": 150,
+          "memory_bytes": 50466648
+        },
+        {
+          "t_ms": 100,
+          "pending": 31,
+          "queued": 138,
+          "memory_bytes": 50511648
+        },
+        {
+          "t_ms": 200,
+          "pending": 61,
+          "queued": 126,
+          "memory_bytes": 50554848
+        },
+        {
+          "t_ms": 300,
+          "pending": 90,
+          "queued": 115,
+          "memory_bytes": 50597148
+        },
+        {
+          "t_ms": 400,
+          "pending": 117,
+          "queued": 103,
+          "memory_bytes": 50634948
+        },
+        {
+          "t_ms": 500,
+          "pending": 141,
+          "queued": 92,
+          "memory_bytes": 50668248
+        },
+        {
+          "t_ms": 600,
+          "pending": 161,
+          "queued": 80,
+          "memory_bytes": 50693448
+        },
+        {
+          "t_ms": 700,
+          "pending": 178,
+          "queued": 69,
+          "memory_bytes": 50714148
+        },
+        {
+          "t_ms": 800,
+          "pending": 190,
+          "queued": 57,
+          "memory_bytes": 50724948
+        },
+        {
+          "t_ms": 900,
+          "pending": 197,
+          "queued": 46,
+          "memory_bytes": 50727648
+        },
+        {
+          "t_ms": 1000,
+          "pending": 200,
+          "queued": 34,
+          "memory_bytes": 50722248
+        },
+        {
+          "t_ms": 1100,
+          "pending": 197,
+          "queued": 23,
+          "memory_bytes": 50706948
+        },
+        {
+          "t_ms": 1200,
+          "pending": 190,
+          "queued": 11,
+          "memory_bytes": 50683548
+        },
+        {
+          "t_ms": 1300,
+          "pending": 178,
+          "queued": 0,
+          "memory_bytes": 50652048
+        },
+        {
+          "t_ms": 1400,
+          "pending": 161,
+          "queued": 0,
+          "memory_bytes": 50621448
+        },
+        {
+          "t_ms": 1500,
+          "pending": 141,
+          "queued": 0,
+          "memory_bytes": 50585448
+        },
+        {
+          "t_ms": 1600,
+          "pending": 117,
+          "queued": 0,
+          "memory_bytes": 50542248
+        },
+        {
+          "t_ms": 1700,
+          "pending": 90,
+          "queued": 0,
+          "memory_bytes": 50493648
+        },
+        {
+          "t_ms": 1800,
+          "pending": 61,
+          "queued": 0,
+          "memory_bytes": 50441448
+        },
+        {
+          "t_ms": 1900,
+          "pending": 31,
+          "queued": 0,
+          "memory_bytes": 50387448
+        },
+        {
+          "t_ms": 2000,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 50331648
+        },
+        {
+          "t_ms": 2100,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 50331648
+        },
+        {
+          "t_ms": 2200,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 50331648
+        },
+        {
+          "t_ms": 2300,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 50331648
+        },
+        {
+          "t_ms": 2400,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 50331648
+        },
+        {
+          "t_ms": 2500,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 50331648
+        },
+        {
+          "t_ms": 2600,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 50331648
+        }
+      ],
+      "events": [
+        {
+          "t_ms": 1200,
+          "kind": "send",
+          "detail": "fill gap nonces"
+        },
+        {
+          "t_ms": 2400,
+          "kind": "settled"
+        }
+      ],
+      "assertions": [
+        {
+          "name": "queued_before_fill",
+          "severity": "hard",
+          "passed": true,
+          "expected": "150",
+          "actual": "150"
+        },
+        {
+          "name": "all_promoted",
+          "severity": "hard",
+          "passed": true,
+          "expected": "200",
+          "actual": "200"
+        }
+      ],
+      "observations": []
+    },
+    {
+      "name": "replacement",
+      "description": "Replace pending transactions with a higher fee and check the price bump rule.",
+      "params": {
+        "price_bump_pct": 10,
+        "attempts": 40
+      },
+      "status": "failed",
+      "start_time": 1793612409500,
+      "duration_ms": 1800,
+      "metrics": [
+        {
+          "key": "replaced",
+          "label": "Replaced",
+          "unit": "count",
+          "value": 37,
+          "better": "higher"
+        },
+        {
+          "key": "underpriced_rejected",
+          "label": "Underpriced rejected",
+          "unit": "count",
+          "value": 20
+        }
+      ],
+      "latencies": [
+        {
+          "key": "replace",
+          "label": "Replacement visible",
+          "unit": "ms",
+          "count": 40,
+          "min": 0.82,
+          "mean": 5.74,
+          "p50": 4.1,
+          "p90": 8.61,
+          "p99": 17.63,
+          "max": 36.9,
+          "histogram": [
+            {
+              "le": 1,
+              "count": 2
+            },
+            {
+              "le": 2,
+              "count": 8
+            },
+            {
+              "le": 5,
+              "count": 16
+            },
+            {
+              "le": 10,
+              "count": 8
+            },
+            {
+              "le": 25,
+              "count": 4
+            },
+            {
+              "le": 50,
+              "count": 2
+            },
+            {
+              "le": 100,
+              "count": 0
+            },
+            {
+              "le": 250,
+              "count": 0
+            }
+          ]
+        }
+      ],
+      "timeline": [
+        {
+          "t_ms": 0,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 100,
+          "pending": 8,
+          "queued": 0
+        },
+        {
+          "t_ms": 200,
+          "pending": 17,
+          "queued": 0
+        },
+        {
+          "t_ms": 300,
+          "pending": 25,
+          "queued": 0
+        },
+        {
+          "t_ms": 400,
+          "pending": 31,
+          "queued": 0
+        },
+        {
+          "t_ms": 500,
+          "pending": 36,
+          "queued": 0
+        },
+        {
+          "t_ms": 600,
+          "pending": 39,
+          "queued": 0
+        },
+        {
+          "t_ms": 700,
+          "pending": 39,
+          "queued": 0
+        },
+        {
+          "t_ms": 800,
+          "pending": 38,
+          "queued": 0
+        },
+        {
+          "t_ms": 900,
+          "pending": 35,
+          "queued": 0
+        },
+        {
+          "t_ms": 1000,
+          "pending": 30,
+          "queued": 0
+        },
+        {
+          "t_ms": 1100,
+          "pending": 24,
+          "queued": 0
+        },
+        {
+          "t_ms": 1200,
+          "pending": 16,
+          "queued": 0
+        },
+        {
+          "t_ms": 1300,
+          "pending": 7,
+          "queued": 0
+        },
+        {
+          "t_ms": 1400,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 1500,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 1600,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 1700,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 1800,
+          "pending": 0,
+          "queued": 0
+        }
+      ],
+      "events": [
+        {
+          "t_ms": 300,
+          "kind": "send",
+          "detail": "originals"
+        },
+        {
+          "t_ms": 900,
+          "kind": "send",
+          "detail": "replacements"
+        }
+      ],
+      "assertions": [
+        {
+          "name": "bump_at_threshold_accepted",
+          "severity": "hard",
+          "passed": false,
+          "expected": "40 replaced",
+          "actual": "37 replaced"
+        },
+        {
+          "name": "below_threshold_rejected",
+          "severity": "hard",
+          "passed": true,
+          "expected": "20",
+          "actual": "20"
+        },
+        {
+          "name": "replacement_error_text",
+          "severity": "soft",
+          "passed": true
+        }
+      ],
+      "observations": [
+        {
+          "key": "underpriced_error",
+          "label": "Underpriced error",
+          "value": "replacement transaction underpriced"
+        }
+      ]
+    },
+    {
+      "name": "payload-ordering",
+      "description": "Build a payload from the pool and check the fee ordering of the included transactions.",
+      "params": {
+        "txs": 500,
+        "fee_spread_gwei": [
+          1,
+          50
+        ]
+      },
+      "status": "passed",
+      "start_time": 1793612412000,
+      "duration_ms": 3100,
+      "metrics": [
+        {
+          "key": "included",
+          "label": "Included",
+          "unit": "count",
+          "value": 500,
+          "better": "higher"
+        },
+        {
+          "key": "ordering_violations",
+          "label": "Ordering violations",
+          "unit": "count",
+          "value": 0,
+          "better": "lower"
+        },
+        {
+          "key": "payload_gas",
+          "label": "Payload gas",
+          "unit": "gas",
+          "value": 10500000
+        }
+      ],
+      "latencies": [
+        {
+          "key": "get_payload",
+          "label": "engine_getPayload",
+          "unit": "ms",
+          "count": 1,
+          "min": 7.6,
+          "mean": 53.2,
+          "p50": 38.0,
+          "p90": 79.8,
+          "p99": 163.4,
+          "max": 342.0,
+          "histogram": [
+            {
+              "le": 1,
+              "count": 0
+            },
+            {
+              "le": 2,
+              "count": 0
+            },
+            {
+              "le": 5,
+              "count": 1
+            },
+            {
+              "le": 10,
+              "count": 0
+            },
+            {
+              "le": 25,
+              "count": 0
+            },
+            {
+              "le": 50,
+              "count": 0
+            },
+            {
+              "le": 100,
+              "count": 0
+            },
+            {
+              "le": 250,
+              "count": 0
+            }
+          ],
+          "group": "engine"
+        }
+      ],
+      "timeline": [
+        {
+          "t_ms": 0,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 41943040
+        },
+        {
+          "t_ms": 100,
+          "pending": 65,
+          "queued": 0,
+          "memory_bytes": 42060040
+        },
+        {
+          "t_ms": 200,
+          "pending": 130,
+          "queued": 0,
+          "memory_bytes": 42177040
+        },
+        {
+          "t_ms": 300,
+          "pending": 192,
+          "queued": 0,
+          "memory_bytes": 42288640
+        },
+        {
+          "t_ms": 400,
+          "pending": 251,
+          "queued": 0,
+          "memory_bytes": 42394840
+        },
+        {
+          "t_ms": 500,
+          "pending": 306,
+          "queued": 0,
+          "memory_bytes": 42493840
+        },
+        {
+          "t_ms": 600,
+          "pending": 355,
+          "queued": 0,
+          "memory_bytes": 42582040
+        },
+        {
+          "t_ms": 700,
+          "pending": 398,
+          "queued": 0,
+          "memory_bytes": 42659440
+        },
+        {
+          "t_ms": 800,
+          "pending": 434,
+          "queued": 0,
+          "memory_bytes": 42724240
+        },
+        {
+          "t_ms": 900,
+          "pending": 463,
+          "queued": 0,
+          "memory_bytes": 42776440
+        },
+        {
+          "t_ms": 1000,
+          "pending": 484,
+          "queued": 0,
+          "memory_bytes": 42814240
+        },
+        {
+          "t_ms": 1100,
+          "pending": 496,
+          "queued": 0,
+          "memory_bytes": 42835840
+        },
+        {
+          "t_ms": 1200,
+          "pending": 499,
+          "queued": 0,
+          "memory_bytes": 42841240
+        },
+        {
+          "t_ms": 1300,
+          "pending": 494,
+          "queued": 0,
+          "memory_bytes": 42832240
+        },
+        {
+          "t_ms": 1400,
+          "pending": 481,
+          "queued": 0,
+          "memory_bytes": 42808840
+        },
+        {
+          "t_ms": 1500,
+          "pending": 459,
+          "queued": 0,
+          "memory_bytes": 42769240
+        },
+        {
+          "t_ms": 1600,
+          "pending": 429,
+          "queued": 0,
+          "memory_bytes": 42715240
+        },
+        {
+          "t_ms": 1700,
+          "pending": 392,
+          "queued": 0,
+          "memory_bytes": 42648640
+        },
+        {
+          "t_ms": 1800,
+          "pending": 348,
+          "queued": 0,
+          "memory_bytes": 42569440
+        },
+        {
+          "t_ms": 1900,
+          "pending": 297,
+          "queued": 0,
+          "memory_bytes": 42477640
+        },
+        {
+          "t_ms": 2000,
+          "pending": 242,
+          "queued": 0,
+          "memory_bytes": 42378640
+        },
+        {
+          "t_ms": 2100,
+          "pending": 183,
+          "queued": 0,
+          "memory_bytes": 42272440
+        },
+        {
+          "t_ms": 2200,
+          "pending": 120,
+          "queued": 0,
+          "memory_bytes": 42159040
+        },
+        {
+          "t_ms": 2300,
+          "pending": 55,
+          "queued": 0,
+          "memory_bytes": 42042040
+        },
+        {
+          "t_ms": 2400,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 41943040
+        },
+        {
+          "t_ms": 2500,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 41943040
+        },
+        {
+          "t_ms": 2600,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 41943040
+        },
+        {
+          "t_ms": 2700,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 41943040
+        },
+        {
+          "t_ms": 2800,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 41943040
+        },
+        {
+          "t_ms": 2900,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 41943040
+        },
+        {
+          "t_ms": 3000,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 41943040
+        },
+        {
+          "t_ms": 3100,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 41943040
+        }
+      ],
+      "events": [
+        {
+          "t_ms": 1500,
+          "kind": "fcu"
+        },
+        {
+          "t_ms": 1700,
+          "kind": "getPayload"
+        },
+        {
+          "t_ms": 1900,
+          "kind": "newPayload"
+        },
+        {
+          "t_ms": 2100,
+          "kind": "settled"
+        }
+      ],
+      "assertions": [
+        {
+          "name": "fee_ordered",
+          "severity": "hard",
+          "passed": true
+        },
+        {
+          "name": "all_included",
+          "severity": "soft",
+          "passed": true,
+          "expected": "500",
+          "actual": "500"
+        }
+      ],
+      "observations": []
+    },
+    {
+      "name": "import-full-pool",
+      "description": "Import a block while the pool is full and measure the newPayload time and the pool cleanup.",
+      "params": {
+        "pool_fill": 5120
+      },
+      "status": "passed",
+      "start_time": 1793612416000,
+      "duration_ms": 5200,
+      "metrics": [
+        {
+          "key": "new_payload",
+          "label": "newPayload time",
+          "unit": "ms",
+          "value": 142.0,
+          "group": "engine",
+          "better": "lower"
+        },
+        {
+          "key": "evicted",
+          "label": "Evicted after import",
+          "unit": "count",
+          "value": 512
+        },
+        {
+          "key": "peak_memory",
+          "label": "Peak pool memory",
+          "unit": "bytes",
+          "value": 98566144,
+          "group": "resources",
+          "better": "lower"
+        }
+      ],
+      "latencies": [
+        {
+          "key": "new_payload",
+          "label": "engine_newPayload",
+          "unit": "ms",
+          "count": 1,
+          "min": 28.4,
+          "mean": 198.8,
+          "p50": 142.0,
+          "p90": 298.2,
+          "p99": 610.6,
+          "max": 1278.0,
+          "histogram": [
+            {
+              "le": 1,
+              "count": 0
+            },
+            {
+              "le": 2,
+              "count": 0
+            },
+            {
+              "le": 5,
+              "count": 1
+            },
+            {
+              "le": 10,
+              "count": 0
+            },
+            {
+              "le": 25,
+              "count": 0
+            },
+            {
+              "le": 50,
+              "count": 0
+            },
+            {
+              "le": 100,
+              "count": 0
+            },
+            {
+              "le": 250,
+              "count": 0
+            }
+          ],
+          "group": "engine"
+        }
+      ],
+      "timeline": [
+        {
+          "t_ms": 0,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 100,
+          "pending": 401,
+          "queued": 0,
+          "memory_bytes": 63636360
+        },
+        {
+          "t_ms": 200,
+          "pending": 800,
+          "queued": 0,
+          "memory_bytes": 64354560
+        },
+        {
+          "t_ms": 300,
+          "pending": 1195,
+          "queued": 0,
+          "memory_bytes": 65065560
+        },
+        {
+          "t_ms": 400,
+          "pending": 1582,
+          "queued": 0,
+          "memory_bytes": 65762160
+        },
+        {
+          "t_ms": 500,
+          "pending": 1959,
+          "queued": 0,
+          "memory_bytes": 66440760
+        },
+        {
+          "t_ms": 600,
+          "pending": 2324,
+          "queued": 0,
+          "memory_bytes": 67097760
+        },
+        {
+          "t_ms": 700,
+          "pending": 2675,
+          "queued": 0,
+          "memory_bytes": 67729560
+        },
+        {
+          "t_ms": 800,
+          "pending": 3009,
+          "queued": 0,
+          "memory_bytes": 68330760
+        },
+        {
+          "t_ms": 900,
+          "pending": 3325,
+          "queued": 0,
+          "memory_bytes": 68899560
+        },
+        {
+          "t_ms": 1000,
+          "pending": 3620,
+          "queued": 0,
+          "memory_bytes": 69430560
+        },
+        {
+          "t_ms": 1100,
+          "pending": 3893,
+          "queued": 0,
+          "memory_bytes": 69921960
+        },
+        {
+          "t_ms": 1200,
+          "pending": 4142,
+          "queued": 0,
+          "memory_bytes": 70370160
+        },
+        {
+          "t_ms": 1300,
+          "pending": 4365,
+          "queued": 0,
+          "memory_bytes": 70771560
+        },
+        {
+          "t_ms": 1400,
+          "pending": 4561,
+          "queued": 0,
+          "memory_bytes": 71124360
+        },
+        {
+          "t_ms": 1500,
+          "pending": 4730,
+          "queued": 0,
+          "memory_bytes": 71428560
+        },
+        {
+          "t_ms": 1600,
+          "pending": 4869,
+          "queued": 0,
+          "memory_bytes": 71678760
+        },
+        {
+          "t_ms": 1700,
+          "pending": 4978,
+          "queued": 0,
+          "memory_bytes": 71874960
+        },
+        {
+          "t_ms": 1800,
+          "pending": 5056,
+          "queued": 0,
+          "memory_bytes": 72015360
+        },
+        {
+          "t_ms": 1900,
+          "pending": 5104,
+          "queued": 0,
+          "memory_bytes": 72101760
+        },
+        {
+          "t_ms": 2000,
+          "pending": 5120,
+          "queued": 0,
+          "memory_bytes": 72130560
+        },
+        {
+          "t_ms": 2100,
+          "pending": 5104,
+          "queued": 0,
+          "memory_bytes": 72101760
+        },
+        {
+          "t_ms": 2200,
+          "pending": 5056,
+          "queued": 0,
+          "memory_bytes": 72015360
+        },
+        {
+          "t_ms": 2300,
+          "pending": 4978,
+          "queued": 0,
+          "memory_bytes": 71874960
+        },
+        {
+          "t_ms": 2400,
+          "pending": 4869,
+          "queued": 0,
+          "memory_bytes": 71678760
+        },
+        {
+          "t_ms": 2500,
+          "pending": 4730,
+          "queued": 0,
+          "memory_bytes": 71428560
+        },
+        {
+          "t_ms": 2600,
+          "pending": 4561,
+          "queued": 0,
+          "memory_bytes": 71124360
+        },
+        {
+          "t_ms": 2700,
+          "pending": 4365,
+          "queued": 0,
+          "memory_bytes": 70771560
+        },
+        {
+          "t_ms": 2800,
+          "pending": 4142,
+          "queued": 0,
+          "memory_bytes": 70370160
+        },
+        {
+          "t_ms": 2900,
+          "pending": 3893,
+          "queued": 0,
+          "memory_bytes": 69921960
+        },
+        {
+          "t_ms": 3000,
+          "pending": 3620,
+          "queued": 0,
+          "memory_bytes": 69430560
+        },
+        {
+          "t_ms": 3100,
+          "pending": 3325,
+          "queued": 0,
+          "memory_bytes": 68899560
+        },
+        {
+          "t_ms": 3200,
+          "pending": 3009,
+          "queued": 0,
+          "memory_bytes": 68330760
+        },
+        {
+          "t_ms": 3300,
+          "pending": 2675,
+          "queued": 0,
+          "memory_bytes": 67729560
+        },
+        {
+          "t_ms": 3400,
+          "pending": 2324,
+          "queued": 0,
+          "memory_bytes": 67097760
+        },
+        {
+          "t_ms": 3500,
+          "pending": 1959,
+          "queued": 0,
+          "memory_bytes": 66440760
+        },
+        {
+          "t_ms": 3600,
+          "pending": 1582,
+          "queued": 0,
+          "memory_bytes": 65762160
+        },
+        {
+          "t_ms": 3700,
+          "pending": 1195,
+          "queued": 0,
+          "memory_bytes": 65065560
+        },
+        {
+          "t_ms": 3800,
+          "pending": 800,
+          "queued": 0,
+          "memory_bytes": 64354560
+        },
+        {
+          "t_ms": 3900,
+          "pending": 401,
+          "queued": 0,
+          "memory_bytes": 63636360
+        },
+        {
+          "t_ms": 4000,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 4100,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 4200,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 4300,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 4400,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 4500,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 4600,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 4700,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 4800,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 4900,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 5000,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 5100,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        },
+        {
+          "t_ms": 5200,
+          "pending": 0,
+          "queued": 0,
+          "memory_bytes": 62914560
+        }
+      ],
+      "events": [
+        {
+          "t_ms": 3000,
+          "kind": "newPayload"
+        },
+        {
+          "t_ms": 3200,
+          "kind": "fcu"
+        },
+        {
+          "t_ms": 4800,
+          "kind": "settled"
+        }
+      ],
+      "assertions": [
+        {
+          "name": "pool_cleaned",
+          "severity": "hard",
+          "passed": true,
+          "expected": "4608",
+          "actual": "4608"
+        }
+      ],
+      "observations": []
+    },
+    {
+      "name": "reorg-reinjection",
+      "description": "Reorg out a block and check that the pool takes its transactions back.",
+      "params": {
+        "depth": 1,
+        "txs": 100
+      },
+      "status": "error",
+      "start_time": 1793612422000,
+      "duration_ms": 1500,
+      "metrics": [],
+      "latencies": [],
+      "timeline": [
+        {
+          "t_ms": 0,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 100,
+          "pending": 26,
+          "queued": 0
+        },
+        {
+          "t_ms": 200,
+          "pending": 51,
+          "queued": 0
+        },
+        {
+          "t_ms": 300,
+          "pending": 72,
+          "queued": 0
+        },
+        {
+          "t_ms": 400,
+          "pending": 88,
+          "queued": 0
+        },
+        {
+          "t_ms": 500,
+          "pending": 97,
+          "queued": 0
+        },
+        {
+          "t_ms": 600,
+          "pending": 99,
+          "queued": 0
+        },
+        {
+          "t_ms": 700,
+          "pending": 94,
+          "queued": 0
+        },
+        {
+          "t_ms": 800,
+          "pending": 82,
+          "queued": 0
+        },
+        {
+          "t_ms": 900,
+          "pending": 63,
+          "queued": 0
+        },
+        {
+          "t_ms": 1000,
+          "pending": 40,
+          "queued": 0
+        },
+        {
+          "t_ms": 1100,
+          "pending": 14,
+          "queued": 0
+        },
+        {
+          "t_ms": 1200,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 1300,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 1400,
+          "pending": 0,
+          "queued": 0
+        },
+        {
+          "t_ms": 1500,
+          "pending": 0,
+          "queued": 0
+        }
+      ],
+      "events": [
+        {
+          "t_ms": 800,
+          "kind": "reorg",
+          "detail": "depth 1"
+        }
+      ],
+      "assertions": [],
+      "observations": [],
+      "error": "forkchoiceUpdated: invalid forkchoice state (-38002)"
+    }
+  ]
+}

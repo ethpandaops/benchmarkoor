@@ -80,8 +80,10 @@ func TestRunStepLines_RejectedPayloadPassesOnInvalid(t *testing.T) {
 
 func TestRunStepLines_RejectedPayloadFailsOnValidWithoutRetry(t *testing.T) {
 	opts := &ExecuteOptions{
-		RetryNewPayloadsFailedConfig: &config.RetryNewPayloadsFailedConfig{
-			Enabled: true, MaxRetries: 3, Backoff: "1ms",
+		ReplayOptions: ReplayOptions{
+			RetryNewPayloadsFailedConfig: &config.RetryNewPayloadsFailedConfig{
+				Enabled: true, MaxRetries: 3, Backoff: "1ms",
+			},
 		},
 	}
 
