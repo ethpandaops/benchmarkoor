@@ -47,15 +47,21 @@ function Section({ title, children, aside }: { title: string; children: React.Re
   )
 }
 
-// CheckCount is a compact "Hard 5/5" summary for the card header.
+// HEADER_COL is the fixed width of each summary column in a scenario header,
+// so the columns line up across the cards like a table.
+const HEADER_COL = 'w-24 shrink-0'
+
+// CheckCount is a compact "Hard 5/5" summary for the card header. It keeps
+// its column when the scenario has no checks of that severity.
 function CheckCount({ label, count, failState }: { label: string; count: CheckCounts['hard']; failState: 'hard' | 'soft' }) {
-  if (count.total === 0) return null
+  if (count.total === 0) return <span className={HEADER_COL} aria-hidden />
   const failed = count.total - count.passed
   const Icon = failed === 0 ? Check : failState === 'hard' ? X : TriangleAlert
   return (
     <span
       title={`${count.passed} of ${count.total} ${label.toLowerCase()} checks passed.\n\n${SEVERITY_HELP[failState]}`}
       className={clsx(
+        HEADER_COL,
         'inline-flex cursor-help items-center gap-1 tabular-nums',
         failed === 0 && 'text-gray-500 dark:text-gray-400',
         failed > 0 && failState === 'hard' && 'font-medium text-red-700 dark:text-red-400',
@@ -222,17 +228,17 @@ export function ScenarioCard({ scenario }: { scenario: MempoolScenarioResult }) 
     <Card
       collapsible
       defaultCollapsed={scenario.status === 'passed'}
-      title={
-        <span className="flex items-center gap-2">
-          <span className="font-mono">{scenario.name}</span>
-          <ScenarioStatusBadge status={scenario.status} />
-        </span>
-      }
+      title={<span className="font-mono">{scenario.name}</span>}
       headerExtra={
-        <span className="flex items-center gap-4 text-xs/5">
+        <span className="flex items-center gap-2 text-xs/5">
           <CheckCount label="Hard" count={counts.hard} failState="hard" />
           <CheckCount label="Soft" count={counts.soft} failState="soft" />
-          <span className="w-16 text-right text-gray-500 tabular-nums dark:text-gray-400">{formatDurationMs(scenario.duration_ms)}</span>
+          <span className={clsx(HEADER_COL, 'flex')}>
+            <ScenarioStatusBadge status={scenario.status} />
+          </span>
+          <span className="w-16 shrink-0 text-right text-gray-500 tabular-nums dark:text-gray-400">
+            {formatDurationMs(scenario.duration_ms)}
+          </span>
         </span>
       }
     >
