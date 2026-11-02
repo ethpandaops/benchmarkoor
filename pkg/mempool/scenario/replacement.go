@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/ethpandaops/benchmarkoor/pkg/mempool/txfactory"
 )
@@ -87,16 +88,22 @@ func (s *replacement) cases(limits PoolLimits) []replacementCase {
 			bumped(txfactory.KindBlob, blobBump), true},
 		{"blob_to_dynamic", "Blob tx replaced by a dynamic-fee tx, fees +100%", txfactory.KindBlob, false,
 			bumped(dyn, 100), false},
+		{"blob_fee_only", fmt.Sprintf("Blob tx, only maxFeePerBlobGas +%d%%", blobBump), txfactory.KindBlob, false,
+			func(f txfactory.Fees) (txfactory.Kind, txfactory.Fees) {
+				b := f.Bump(blobBump)
+
+				return txfactory.KindBlob, txfactory.Fees{FeeCap: f.FeeCap, TipCap: f.TipCap, BlobFeeCap: b.BlobFeeCap}
+			}, false},
 	}
 }
 
-func (s *replacement) Accounts(Params) int { return 16 }
+func (s *replacement) Accounts(Params) int { return 18 }
 
 func (s *replacement) Run(ctx context.Context, env *Env) error {
 	timeout := env.Params.Duration("timeout_ms")
 	cases := s.cases(env.Limits)
 
-	accounts, err := env.Accounts(ctx, len(cases))
+	accounts, err := env.Accounts(ctx, len(cases)+1)
 	if err != nil {
 		return err
 	}
@@ -107,6 +114,14 @@ func (s *replacement) Run(ctx context.Context, env *Env) error {
 		if err := s.runCase(ctx, env, accounts[i], c, timeout); err != nil {
 			return fmt.Errorf("%s: %w", c.key, err)
 		}
+	}
+
+	if _, err := env.Drain(ctx, 8); err != nil {
+		return err
+	}
+
+	if err := s.midChain(ctx, env, accounts[len(cases)], timeout); err != nil {
+		return fmt.Errorf("mid-chain: %w", err)
 	}
 
 	_, err = env.Drain(ctx, 8)
@@ -205,4 +220,106 @@ func (s *replacement) runCase(ctx context.Context, env *Env, a *txfactory.Accoun
 	a.SetNonce(nonce + 1)
 
 	return nil
+}
+
+// midChain replaces nonce 1 of a 4-tx chain with a tx whose value leaves
+// exactly nothing for nonces 2 and 3. The fee cap equals base fee + tip, so a
+// tx pays its fee cap and the balance math is exact. If the pool accepts the
+// replacement, nonces 2 and 3 can no longer be paid: they must never be in a
+// payload, and the pool should drop them.
+func (s *replacement) midChain(ctx context.Context, env *Env, a *txfactory.Account, timeout time.Duration) error {
+	head, err := env.Head(ctx)
+	if err != nil {
+		return err
+	}
+
+	tip := txfactory.GweiN(1)
+	fees := txfactory.Fees{FeeCap: new(big.Int).Add(head.NextBaseFee(), tip), TipCap: tip}
+	cost := new(big.Int).Mul(big.NewInt(21_000), fees.FeeCap)
+
+	base := a.Nonce()
+	chain := make([]*types.Transaction, 0, 4)
+
+	for i := range 4 {
+		tx, err := env.Factory.Build(a, txfactory.Template{
+			Kind: txfactory.KindDynamicFee, Nonce: new(base + uint64(i)), Fees: fees, Gas: 21_000,
+		})
+		if err != nil {
+			return err
+		}
+
+		chain = append(chain, tx)
+	}
+
+	if err := env.MustSend(ctx, chain, "a 4-tx nonce chain"); err != nil {
+		return err
+	}
+
+	if _, err := env.WaitInPool(ctx, time.Now(), Hashes(chain), timeout); err != nil {
+		return err
+	}
+
+	bal, err := env.Balance(ctx, a.Address)
+	if err != nil {
+		return err
+	}
+
+	// After tx 0 (cost + 1 wei), the replacement needs newCost + value at its
+	// bumped fee cap. Leave exactly 0 for nonces 2 and 3.
+	bumped := fees.Bump(int64(env.Limits.PriceBump))
+	newCost := new(big.Int).Mul(big.NewInt(21_000), bumped.FeeCap)
+	value := new(big.Int).Sub(bal, new(big.Int).Add(new(big.Int).Add(cost, newCost), big.NewInt(1)))
+
+	repl, err := env.Factory.Build(a, txfactory.Template{
+		Kind: txfactory.KindDynamicFee, Nonce: new(base + 1), Fees: bumped, Gas: 21_000, Value: value,
+	})
+	if err != nil {
+		return err
+	}
+
+	_, sendErr := env.Send(ctx, repl)
+	env.Rec.Event("send", "replace nonce 1 with a tx that spends the rest of the balance")
+	env.Rec.Observe("replace.mid_chain", "Replace nonce 1 of 4 with a tx that leaves nothing for nonces 2 and 3",
+		SendText(sendErr))
+
+	if sendErr != nil {
+		a.SetNonce(base + 4)
+
+		return nil
+	}
+
+	start := time.Now()
+	later := Hashes(chain[2:])
+
+	gone, goneErr := env.WaitGone(ctx, start, later, 3*time.Second)
+	env.Rec.Check(SeveritySoft, goneErr == nil, "The pool drops later nonces the replacement made unpayable",
+		"2 dropped", ErrText(goneErr))
+
+	if goneErr == nil {
+		env.Rec.Metric(Metric{
+			Key: "mid_chain.dropped", Label: "Time until the pool drops the unpayable later nonces",
+			Unit: "ms", Value: Ms(gone), Group: "mid-chain", Better: "lower",
+		})
+	}
+
+	p, err := env.BuildWith(ctx, head, []common.Hash{chain[0].Hash(), repl.Hash()}, buildFull)
+	if err != nil {
+		return err
+	}
+
+	bad := 0
+	for _, h := range later {
+		if p.Contains(h) {
+			bad++
+		}
+	}
+
+	env.Rec.Check(SeverityHard, bad == 0, "Unpayable later nonces are never in a payload", "0", fmt.Sprintf("%d", bad))
+
+	_, err = env.Import(ctx, p)
+	env.Rec.Check(SeverityHard, err == nil, "The payload with the replacement is valid", "VALID", ErrText(err))
+
+	a.SetNonce(base + 2)
+
+	return err
 }

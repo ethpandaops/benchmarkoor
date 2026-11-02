@@ -35,13 +35,16 @@ func (s *eviction) Defaults() Params {
 		"per_sender":     16,
 		"hog_txs":        256, // txs from the one sender that hogs slots
 		"gapped_senders": 64,  // senders of a gapped flood (all nonces after a gap)
+		"queue_extra":    16,  // future txs past the account queue from one sender
+		"big_txs":        200, // large-calldata txs
+		"big_tx_kb":      120, // calldata size of each (below the 128 KiB tx limit)
 		"timeout_ms":     60000,
 	}
 }
 
 func (s *eviction) Accounts(p Params) int {
 	return p.Int("low_senders") + p.Int("high_senders") + p.Int("cheap_senders") + 1 +
-		p.Int("gapped_senders")
+		p.Int("gapped_senders") + 1 + (p.Int("big_txs")+15)/16
 }
 
 // tipFees returns fees with the given tip (in 0.01 gwei) and a fee cap well
@@ -284,7 +287,135 @@ func (s *eviction) Run(ctx context.Context, env *Env) error {
 		return fmt.Errorf("hog: %w", err)
 	}
 
-	return s.gapped(ctx, env, timeout)
+	if err := s.gapped(ctx, env, timeout); err != nil {
+		return fmt.Errorf("gapped: %w", err)
+	}
+
+	if err := s.queueLimit(ctx, env, timeout); err != nil {
+		return fmt.Errorf("queue limit: %w", err)
+	}
+
+	return s.bigTxs(ctx, env, timeout)
+}
+
+// queueLimit: one sender sends more future txs (after a nonce gap) than the
+// account queue allows.
+func (s *eviction) queueLimit(ctx context.Context, env *Env, timeout time.Duration) error {
+	accs, err := env.Accounts(ctx, 1)
+	if err != nil {
+		return err
+	}
+
+	n := env.Limits.AccountQueue + env.Params.Int("queue_extra")
+	lane := make([]*types.Transaction, 0, n)
+
+	for i := 1; i <= n; i++ {
+		tx, err := env.Factory.Build(accs[0], txfactory.Template{
+			Kind: txfactory.KindDynamicFee, Nonce: new(accs[0].Nonce() + uint64(i)),
+		})
+		if err != nil {
+			return err
+		}
+
+		lane = append(lane, tx)
+	}
+
+	_, rejected, qErr := env.SendConcurrent(ctx, [][]*types.Transaction{lane}, "", "", "",
+		"one sender, future nonces past the account queue")
+
+	if _, err := settle(ctx, env, 500*time.Millisecond, timeout); err != nil {
+		return err
+	}
+
+	kept, err := countIn(ctx, env, lane)
+	if err != nil {
+		return err
+	}
+
+	env.Rec.Metric(Metric{
+		Key: "queue.kept", Label: fmt.Sprintf("Future txs kept from one sender that sent %d", n),
+		Unit: "txs", Value: float64(kept), Group: "account queue",
+	})
+	env.Rec.Observe("queue.kept", fmt.Sprintf("One sender, %d future txs (account queue %d): kept",
+		n, env.Limits.AccountQueue), fmt.Sprintf("%d kept, %d rejected (%s)", kept, rejected, SendText(qErr)))
+	env.Rec.Check(SeveritySoft, kept <= env.Limits.AccountQueue,
+		"One sender's future txs stay within the account queue",
+		fmt.Sprintf("at most %d", env.Limits.AccountQueue), fmt.Sprintf("%d kept", kept))
+
+	return nil
+}
+
+// bigTxs: large-calldata txs take much more pool memory per tx. A pool that
+// limits by memory (besu) evicts; a pool that limits by slots (geth counts
+// 32 KiB per slot) keeps more.
+func (s *eviction) bigTxs(ctx context.Context, env *Env, timeout time.Duration) error {
+	if _, err := env.Drain(ctx, 16); err != nil {
+		return err
+	}
+
+	n := env.Params.Int("big_txs")
+	size := env.Params.Int("big_tx_kb") * 1024
+
+	accs, err := env.Accounts(ctx, (n+15)/16)
+	if err != nil {
+		return err
+	}
+
+	before, err := env.Pool.Status(ctx)
+	if err != nil {
+		return err
+	}
+
+	data := make([]byte, size)
+	// Zero bytes cost 10 gas each under the EIP-7623 floor.
+	gas := uint64(21_000 + 10*size + 1_000)
+
+	lanes := make([][]*types.Transaction, 0, len(accs))
+
+	for i, a := range accs {
+		count := min(16, n-i*16)
+		lane := make([]*types.Transaction, 0, count)
+
+		for range count {
+			// A recipient, or the data would be initcode of a creation.
+			tx, err := env.Factory.Build(a, txfactory.Template{
+				Kind: txfactory.KindDynamicFee, To: &delegationTarget, Data: data, Gas: gas,
+			})
+			if err != nil {
+				return err
+			}
+
+			lane = append(lane, tx)
+		}
+
+		lanes = append(lanes, lane)
+	}
+
+	all := flatten(lanes)
+
+	_, rejected, bigErr := env.SendConcurrent(ctx, regroup(lanes, 4), "send.big",
+		fmt.Sprintf("eth_sendRawTransaction of a %d KiB tx", size/1024), "big",
+		fmt.Sprintf("%d KiB calldata txs", size/1024))
+
+	after, err := settle(ctx, env, time.Second, timeout)
+	if err != nil {
+		return err
+	}
+
+	kept, err := countIn(ctx, env, all)
+	if err != nil {
+		return err
+	}
+
+	env.Rec.Metric(Metric{
+		Key: "big.kept", Label: fmt.Sprintf("%d KiB txs kept of %d (%.0f MiB sent)", size/1024, n,
+			float64(n*size)/(1<<20)), Unit: "txs", Value: float64(kept), Group: "large calldata", Better: "higher",
+	})
+	env.Rec.Observe("big.kept", fmt.Sprintf("%d txs of %d KiB: kept / rejected", n, size/1024),
+		fmt.Sprintf("%d kept, %d rejected (%s); pool %d -> %d pending", kept, rejected, SendText(bigErr),
+			before.Pending, after.Pending))
+
+	return nil
 }
 
 // hog: one sender sends many more txs than the account slots, then other

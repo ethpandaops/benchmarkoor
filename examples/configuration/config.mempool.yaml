@@ -77,6 +77,9 @@ runner:
             duration_ms: 60000
             rate: 200
             slot_ms: 2000
+        - name: setcode-delegation
+        - name: blob-pool
+        - name: balance-changes
 
   client:
     config:

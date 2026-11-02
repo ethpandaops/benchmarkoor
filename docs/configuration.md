@@ -800,6 +800,9 @@ Scenarios:
 | `base-fee-movement` | Full blocks raise the base fee above the fee cap of some txs (they must stay out of payloads), then empty blocks lower it. Are the txs kept and included in the first valid block? |
 | `payload-latency` | One build per window, txs arriving through it, one `getPayload` at the end (as a CL does). Which txs made it in, and how old is the newest one? |
 | `sustained-load` | A steady tx rate with a block every slot. Admission latency, inclusion delay, pool size and memory over time, and Engine API latencies under load. |
+| `setcode-delegation` | EIP-7702: pending txs a delegated account may have; an authorization in another sender's tx that uses an account's pending nonce; revoking a delegation; invalid authorizations (skipped, the tx stays valid). |
+| `blob-pool` | Blob txs of an orphaned block come back with their sidecars; a blob tx priced out by the blob base fee is never included; blob txs one sender may have pending. |
+| `balance-changes` | A withdrawal funds an empty account (its txs become payable); an account delegated to a sweeper is emptied by another sender (its pending txs become unpayable). |
 
 A hard assertion that does not hold fails the scenario. A soft assertion records a finding: most pool rules are not consensus rules, so a difference between clients is not automatically a failure.
 

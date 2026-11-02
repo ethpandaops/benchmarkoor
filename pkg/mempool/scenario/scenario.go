@@ -53,6 +53,15 @@ var BurnerAddress = common.HexToAddress("0x0000000000000000000000000000000000b0b
 // BurnerCode is JUMPDEST PUSH0 JUMP: an endless loop.
 var BurnerCode = []byte{0x5b, 0x5f, 0x56}
 
+// SweeperAddress holds code that sends the whole balance of the executing
+// account to the caller. An EOA that delegates to it (EIP-7702) can be
+// emptied by anyone, which is how the scenarios drain a balance without a
+// tx from its owner. The genesis predeploys it.
+var SweeperAddress = common.HexToAddress("0x00000000000000000000000000000000005e3e9e")
+
+// SweeperCode is CALL(gas, CALLER, SELFBALANCE, 0, 0, 0, 0); STOP.
+var SweeperCode = []byte{0x5f, 0x5f, 0x5f, 0x5f, 0x47, 0x33, 0x5a, 0xf1, 0x00}
+
 // Chain describes the generated chain.
 type Chain struct {
 	ChainID  uint64
@@ -133,6 +142,9 @@ func NewRegistry() *Registry {
 	r.Register(&baseFee{})
 	r.Register(&payloadLatency{})
 	r.Register(&sustainedLoad{})
+	r.Register(&setcode{})
+	r.Register(&blobPool{})
+	r.Register(&balanceChanges{})
 
 	return r
 }

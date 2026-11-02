@@ -126,6 +126,35 @@ func (s *rejections) cases() []rejectionCase {
 					Fees: txfactory.Fees{FeeCap: big.NewInt(0), TipCap: big.NewInt(0)},
 				})
 			}},
+		{"bad_signature", "Signature that recovers to no sender", SeverityHard,
+			func(env *Env, a *txfactory.Account) (*types.Transaction, error) {
+				tx, err := env.Factory.Build(a, dyn(txfactory.Template{}))
+				if err != nil {
+					return nil, err
+				}
+
+				return txfactory.WithBadSignature(tx, env.Factory.Signer())
+			}},
+		{"blob_too_many", "Blob tx with 7 blobs (Osaka allows 6 per tx)", SeverityHard,
+			func(env *Env, a *txfactory.Account) (*types.Transaction, error) {
+				return env.Factory.Build(a, txfactory.Template{Kind: txfactory.KindBlob, Blobs: 7})
+			}},
+		{"blob_bad_proofs", "Blob tx whose cell proofs do not match its commitments", SeverityHard,
+			func(env *Env, a *txfactory.Account) (*types.Transaction, error) {
+				return env.Factory.Build(a, txfactory.Template{Kind: txfactory.KindBlob, Blobs: 1, CorruptProofs: true})
+			}},
+		// The balance pays the gas but not the blob fee cap (131072 blob
+		// gas × 1e19 wei > 1M ETH). Like no_funds, keeping it is policy.
+		{"blob_fee_unpaid", "Blob tx whose blob fee the balance cannot pay", SeveritySoft,
+			func(env *Env, a *txfactory.Account) (*types.Transaction, error) {
+				return env.Factory.Build(a, txfactory.Template{
+					Kind: txfactory.KindBlob, Blobs: 1,
+					Fees: txfactory.Fees{
+						FeeCap: txfactory.GweiN(20), TipCap: txfactory.GweiN(1),
+						BlobFeeCap: new(big.Int).Exp(big.NewInt(10), big.NewInt(19), nil),
+					},
+				})
+			}},
 		// No correct answer: a pool may keep the tx until the base fee drops.
 		{"fee_cap_below_base_fee", "maxFeePerGas below the base fee", severityObserve,
 			func(env *Env, a *txfactory.Account) (*types.Transaction, error) {
@@ -189,6 +218,11 @@ func (s *rejections) Run(ctx context.Context, env *Env) error {
 	if !env.Rec.Check(SeverityHard, err == nil, "A valid control tx is accepted", "accepted", SendText(err)) {
 		return fmt.Errorf("the control tx was rejected: %w", err)
 	}
+
+	// The same tx again: "already known" is the usual answer; some clients
+	// return the hash as if accepted. Either way it must not be a second tx.
+	_, dupErr := env.Send(ctx, valid)
+	env.Rec.Observe("reject.duplicate", "The same tx sent twice", SendText(dupErr))
 
 	mustReject := make(map[common.Hash]string, len(s.cases()))
 

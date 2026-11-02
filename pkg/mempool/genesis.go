@@ -84,6 +84,7 @@ func buildGenesis(m config.MempoolConfig) *gethGenesis {
 		params.WithdrawalQueueAddress:    {Nonce: 1, Code: params.WithdrawalQueueCode, Balance: common.Big0},
 		params.ConsolidationQueueAddress: {Nonce: 1, Code: params.ConsolidationQueueCode, Balance: common.Big0},
 		scenario.BurnerAddress:           {Nonce: 1, Code: scenario.BurnerCode, Balance: common.Big0},
+		scenario.SweeperAddress:          {Nonce: 1, Code: scenario.SweeperCode, Balance: common.Big0},
 	}
 
 	for _, addr := range txfactory.Addresses(m.Seed, m.Accounts) {

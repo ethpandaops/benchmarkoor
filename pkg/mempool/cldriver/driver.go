@@ -134,6 +134,8 @@ type BuildOptions struct {
 	// Salt makes the prevRandao and the beacon root differ between two
 	// payloads built on the same parent (sibling chains).
 	Salt uint64
+	// Withdrawals are credited by the built block (amounts in gwei).
+	Withdrawals []*types.Withdrawal
 }
 
 // Driver acts as the consensus client of one execution client.
@@ -323,7 +325,7 @@ func (d *driver) Attributes(parent *Block, opts BuildOptions) *engine.PayloadAtt
 		Timestamp:             ts,
 		Random:                crypto.Keccak256Hash([]byte("randao"), seed[:]),
 		SuggestedFeeRecipient: d.cfg.FeeRecipient,
-		Withdrawals:           []*types.Withdrawal{},
+		Withdrawals:           withdrawalsOrEmpty(opts.Withdrawals),
 		BeaconRoot:            &beaconRoot,
 	}
 }
@@ -539,4 +541,12 @@ func jwtToken(secret []byte, now time.Time) string {
 	mac.Write([]byte(msg))
 
 	return msg + "." + enc.EncodeToString(mac.Sum(nil))
+}
+
+func withdrawalsOrEmpty(w []*types.Withdrawal) []*types.Withdrawal {
+	if w == nil {
+		return []*types.Withdrawal{}
+	}
+
+	return w
 }

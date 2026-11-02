@@ -108,6 +108,9 @@ type Factory interface {
 	Build(from *Account, t Template) (*types.Transaction, error)
 	// Sign signs a tx body with the key of from.
 	Sign(from *Account, inner types.TxData) (*types.Transaction, error)
+	// SignAuth signs an EIP-7702 authorization by signer.
+	SignAuth(signer *Account, chainID *big.Int, target common.Address, nonce uint64,
+	) (types.SetCodeAuthorization, error)
 }
 
 // Kind is a tx type.
@@ -173,6 +176,12 @@ type Template struct {
 	// (default 1). Zero with NoAuth set gives an empty list.
 	AuthCount int
 	NoAuth    bool
+	// AuthList, when not nil, is the exact authorization list of a set-code
+	// tx (see SignAuth). It overrides AuthCount and NoAuth.
+	AuthList []types.SetCodeAuthorization
+	// CorruptProofs gives a blob tx the cell proofs of other blobs, so the
+	// proofs do not match the commitments.
+	CorruptProofs bool
 }
 
 type factory struct {
@@ -324,6 +333,24 @@ func (f *factory) Build(from *Account, t Template) (*types.Transaction, error) {
 			return nil, err
 		}
 
+		if t.CorruptProofs {
+			other, err := f.sidecar(n, version, uint64(from.Index)<<32|nonce+1)
+			if err != nil {
+				return nil, err
+			}
+
+			if other.Proofs[0] == sidecar.Proofs[0] {
+				other, err = f.sidecar(n, version, uint64(from.Index)<<32|nonce+2)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			bad := sidecar.Copy()
+			bad.Proofs = other.Proofs
+			sidecar = bad
+		}
+
 		blobFee := fees.BlobFeeCap
 		if blobFee == nil {
 			blobFee = DefaultFees().BlobFeeCap
@@ -362,6 +389,10 @@ func (f *factory) Build(from *Account, t Template) (*types.Transaction, error) {
 // a pool may refuse a second pending tx for an authority (erigon does).
 func (f *factory) authorizations(from *Account, nonce uint64, t Template, chainID *big.Int,
 ) ([]types.SetCodeAuthorization, error) {
+	if t.AuthList != nil {
+		return t.AuthList, nil
+	}
+
 	if t.NoAuth {
 		return []types.SetCodeAuthorization{}, nil
 	}
@@ -470,6 +501,10 @@ func intrinsicGuess(t Template) uint64 {
 			n = 1
 		}
 
+		if t.AuthList != nil {
+			n = len(t.AuthList)
+		}
+
 		gas += uint64(n) * 25_000
 	}
 
@@ -500,4 +535,39 @@ func u256(v *big.Int) *uint256.Int {
 // example an account a scenario funds itself). Its nonce starts at 0.
 func NewAccount(key *ecdsa.PrivateKey) *Account {
 	return &Account{Index: -1, Key: key, Address: crypto.PubkeyToAddress(key.PublicKey)}
+}
+
+// SignAuth signs an EIP-7702 authorization by signer: delegate to target at
+// the given authority nonce. A nil chainID means the factory chain id; zero
+// means any chain.
+func (f *factory) SignAuth(signer *Account, chainID *big.Int, target common.Address, nonce uint64,
+) (types.SetCodeAuthorization, error) {
+	if chainID == nil {
+		chainID = f.chainID
+	}
+
+	auth, err := types.SignSetCode(signer.Key, types.SetCodeAuthorization{
+		ChainID: *u256(chainID), Address: target, Nonce: nonce,
+	})
+	if err != nil {
+		return auth, fmt.Errorf("signing an authorization: %w", err)
+	}
+
+	return auth, nil
+}
+
+// WithBadSignature returns tx with a signature that recovers to no sender
+// (r = 0). The tx body is unchanged.
+func WithBadSignature(tx *types.Transaction, signer types.Signer) (*types.Transaction, error) {
+	sig := make([]byte, 65)
+
+	_, _, s := tx.RawSignatureValues()
+	s.FillBytes(sig[32:64])
+
+	bad, err := tx.WithSignature(signer, sig)
+	if err != nil {
+		return nil, fmt.Errorf("setting a bad signature: %w", err)
+	}
+
+	return bad, nil
 }

@@ -392,3 +392,62 @@ func u256Of(v *big.Int) *uint256.Int {
 
 	return u
 }
+
+// Code returns the code of an account (eth_getCode at latest).
+func (e *Env) Code(ctx context.Context, addr common.Address) ([]byte, error) {
+	var code hexutil.Bytes
+	if err := e.Pool.RPC().CallContext(ctx, &code, "eth_getCode", addr, "latest"); err != nil {
+		return nil, fmt.Errorf("eth_getCode: %w", err)
+	}
+
+	return code, nil
+}
+
+// DelegatedTo returns the delegation target of an EIP-7702 delegated account,
+// or the zero address when the account has no delegation.
+func (e *Env) DelegatedTo(ctx context.Context, addr common.Address) (common.Address, error) {
+	code, err := e.Code(ctx, addr)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	if len(code) == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00 {
+		return common.BytesToAddress(code[3:]), nil
+	}
+
+	return common.Address{}, nil
+}
+
+// Balance returns the balance of an account at latest.
+func (e *Env) Balance(ctx context.Context, addr common.Address) (*big.Int, error) {
+	var b hexutil.Big
+	if err := e.Pool.RPC().CallContext(ctx, &b, "eth_getBalance", addr, "latest"); err != nil {
+		return nil, fmt.Errorf("eth_getBalance: %w", err)
+	}
+
+	return b.ToInt(), nil
+}
+
+// BlobBaseFee returns the blob base fee of the next block (eth_blobBaseFee).
+func (e *Env) BlobBaseFee(ctx context.Context) (*big.Int, error) {
+	var b hexutil.Big
+	if err := e.Pool.RPC().CallContext(ctx, &b, "eth_blobBaseFee"); err != nil {
+		return nil, fmt.Errorf("eth_blobBaseFee: %w", err)
+	}
+
+	return b.ToInt(), nil
+}
+
+// ImportNext builds a block on the head with opts, imports it, and returns it.
+func (e *Env) ImportNext(ctx context.Context, opts cldriver.BuildOptions) (*cldriver.Payload, error) {
+	p, err := e.Build(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := e.Import(ctx, p); err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}

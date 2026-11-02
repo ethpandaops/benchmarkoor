@@ -26,7 +26,7 @@ func TestParamsMerge(t *testing.T) {
 
 func TestRegistryDefaultsAreValid(t *testing.T) {
 	r := NewRegistry()
-	require.Len(t, r.Names(), 11)
+	require.Len(t, r.Names(), 14)
 
 	for _, name := range r.Names() {
 		s, err := r.Get(name)

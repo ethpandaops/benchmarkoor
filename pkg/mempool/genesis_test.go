@@ -35,8 +35,8 @@ func TestGenesis(t *testing.T) {
 	assert.Contains(t, string(g.Config.BlobSchedule), "osaka")
 	assert.Equal(t, "0x1c9c380", g.GasLimit)
 
-	// 64 accounts, 4 system contracts, the burner.
-	assert.Len(t, g.Alloc, 64+5)
+	// 64 accounts, 4 system contracts, the burner, the sweeper.
+	assert.Len(t, g.Alloc, 64+6)
 
 	lower := make(map[string]bool, len(g.Alloc))
 	for k := range g.Alloc {
