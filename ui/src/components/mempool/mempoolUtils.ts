@@ -568,3 +568,14 @@ export function formatParam(value: unknown): string {
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
 }
+
+// SEVERITY_HELP explains the two check severities. The UI shows it as a
+// tooltip wherever a severity appears.
+export const SEVERITY_HELP: Record<'hard' | 'soft', string> = {
+  hard:
+    'Hard check: a rule a client must never break (e.g. an invalid tx in a payload, an included tx ' +
+    'left in the pool). A failed hard check fails the scenario.',
+  soft:
+    'Soft check: pool policy that clients may choose differently (e.g. the price bump a replacement ' +
+    'needs). A failed soft check is a finding to look at, not a failure; the scenario still passes.',
+}

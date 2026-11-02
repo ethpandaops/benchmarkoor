@@ -12,6 +12,7 @@ import {
   formatParam,
   groupMetrics,
   orderChecks,
+  SEVERITY_HELP,
   splitValueUnit,
   type CheckCounts,
 } from './mempoolUtils'
@@ -53,9 +54,9 @@ function CheckCount({ label, count, failState }: { label: string; count: CheckCo
   const Icon = failed === 0 ? Check : failState === 'hard' ? X : TriangleAlert
   return (
     <span
-      title={`${count.passed} of ${count.total} ${label.toLowerCase()} checks passed`}
+      title={`${count.passed} of ${count.total} ${label.toLowerCase()} checks passed.\n\n${SEVERITY_HELP[failState]}`}
       className={clsx(
-        'inline-flex items-center gap-1 tabular-nums',
+        'inline-flex cursor-help items-center gap-1 tabular-nums',
         failed === 0 && 'text-gray-500 dark:text-gray-400',
         failed > 0 && failState === 'hard' && 'font-medium text-red-700 dark:text-red-400',
         failed > 0 && failState === 'soft' && 'font-medium text-amber-700 dark:text-amber-400',

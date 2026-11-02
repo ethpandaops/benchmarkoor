@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { Check, TriangleAlert, X } from 'lucide-react'
-import type { CheckState } from './mempoolUtils'
+import { SEVERITY_HELP, type CheckState } from './mempoolUtils'
 
 const ICON = { passed: Check, 'soft-fail': TriangleAlert, 'hard-fail': X }
 
@@ -40,6 +40,14 @@ export function CheckChip({ state }: { state: CheckState }) {
 }
 
 // SeverityTag is a small neutral "hard" / "soft" tag next to a check name.
+// Hovering it explains the severity.
 export function SeverityTag({ severity }: { severity: 'hard' | 'soft' }) {
-  return <span className="rounded-xs border border-gray-200 px-1 text-xs/4 text-gray-500 dark:border-gray-600 dark:text-gray-400">{severity}</span>
+  return (
+    <span
+      title={SEVERITY_HELP[severity]}
+      className="cursor-help rounded-xs border border-gray-200 px-1 text-xs/4 text-gray-500 dark:border-gray-600 dark:text-gray-400"
+    >
+      {severity}
+    </span>
+  )
 }
