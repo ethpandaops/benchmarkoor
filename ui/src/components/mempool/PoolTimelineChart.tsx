@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { MempoolEvent, MempoolTimelinePoint } from '@/api/types'
 import { formatBytes } from '@/utils/format'
@@ -24,6 +24,7 @@ const GRID_RIGHT = 16
 const LANE_ROW = 14
 const POOL_HEIGHT = 170
 const MEMORY_HEIGHT = 56
+const SLIDER_HEIGHT = 22
 // Events nearer than this share of the time range to the crosshair go in
 // the tooltip.
 const EVENT_SNAP = 0.012
@@ -51,7 +52,27 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
   const poolTop = lanes.length > 0 ? laneHeight + 18 : 12
   const memoryTitleTop = poolTop + POOL_HEIGHT + 18
   const memoryTop = memoryTitleTop + 22
-  const height = hasMemory ? memoryTop + MEMORY_HEIGHT + 26 : poolTop + POOL_HEIGHT + 26
+  // The zoom slider sits under the last plot.
+  const plotsBottom = hasMemory ? memoryTop + MEMORY_HEIGHT + 26 : poolTop + POOL_HEIGHT + 26
+  const height = plotsBottom + SLIDER_HEIGHT + 8
+
+  const chartRef = useRef<ReactECharts>(null)
+  const [zoomed, setZoomed] = useState(false)
+  const onEvents = useMemo(
+    () => ({
+      datazoom: () => {
+        const opt = chartRef.current?.getEchartsInstance().getOption() as
+          | { dataZoom?: Array<{ start?: number; end?: number }> }
+          | undefined
+        const z = opt?.dataZoom?.[0]
+        setZoomed(z !== undefined && ((z.start ?? 0) > 0 || (z.end ?? 100) < 100))
+      },
+    }),
+    [],
+  )
+  const resetZoom = () => {
+    chartRef.current?.getEchartsInstance().dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+  }
 
   const option = useMemo(() => {
     const t = chartTheme(isDark)
@@ -192,6 +213,44 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
         },
       },
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
+      // Zoom on the time axis of all plots together: the slider under the
+      // chart, or pinch / Ctrl+scroll in the plot (plain scroll still scrolls
+      // the page), and drag to pan once zoomed. filterMode 'none' keeps the
+      // lines whole at the zoom edges.
+      dataZoom: [
+        {
+          type: 'inside',
+          xAxisIndex: grids.map((_, i) => i),
+          filterMode: 'none',
+          zoomOnMouseWheel: 'ctrl',
+          moveOnMouseWheel: false,
+          moveOnMouseMove: true,
+        },
+        {
+          type: 'slider',
+          xAxisIndex: grids.map((_, i) => i),
+          filterMode: 'none',
+          left: GRID_LEFT,
+          right: GRID_RIGHT,
+          bottom: 6,
+          height: SLIDER_HEIGHT,
+          showDetail: false,
+          borderColor: t.axisLine,
+          backgroundColor: 'transparent',
+          fillerColor: isDark ? 'rgba(59, 130, 246, 0.18)' : 'rgba(59, 130, 246, 0.10)',
+          handleStyle: { color: isDark ? '#9ca3af' : '#6b7280', borderColor: t.axisLine },
+          moveHandleSize: 0,
+          dataBackground: {
+            lineStyle: { color: SERIES_COLORS.pending, opacity: 0.5, width: 1 },
+            areaStyle: { color: SERIES_COLORS.pending, opacity: 0.08 },
+          },
+          selectedDataBackground: {
+            lineStyle: { color: SERIES_COLORS.pending, opacity: 0.8, width: 1 },
+            areaStyle: { color: SERIES_COLORS.pending, opacity: 0.15 },
+          },
+          textStyle: { color: t.muted },
+        },
+      ],
       grid: grids.map((g) => ({ left: GRID_LEFT, right: GRID_RIGHT, top: g.top, height: g.height })),
       xAxis,
       yAxis,
@@ -213,8 +272,20 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
             Events: {lanes.map((l) => `${l.kind} ${l.events.length.toLocaleString()}`).join(', ')}
           </span>
         )}
+        <span className="ml-auto flex items-center gap-3 text-gray-500 dark:text-gray-400">
+          <span>Zoom: drag the slider, or pinch / Ctrl+scroll</span>
+          {zoomed && (
+            <button
+              type="button"
+              onClick={resetZoom}
+              className="rounded-xs border border-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+            >
+              Reset zoom
+            </button>
+          )}
+        </span>
       </div>
-      <ReactECharts option={option} notMerge style={{ height, width: '100%' }} />
+      <ReactECharts ref={chartRef} option={option} notMerge onEvents={onEvents} style={{ height, width: '100%' }} />
     </div>
   )
 }
