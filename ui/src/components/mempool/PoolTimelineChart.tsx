@@ -24,6 +24,7 @@ const GRID_RIGHT = 16
 const LANE_ROW = 14
 const POOL_HEIGHT = 170
 const MEMORY_HEIGHT = 56
+const CPU_HEIGHT = 56
 const SLIDER_HEIGHT = 22
 // Events nearer than this share of the time range to the crosshair go in
 // the tooltip.
@@ -41,11 +42,12 @@ function Swatch({ color, label }: { color: string; label: string }) {
 
 // PoolTimelineChart draws the pending and queued pool sizes over the
 // scenario time. Events sit as thin ticks in a lane per kind above the
-// plot. Client memory, when present, is a separate small plot below with its
-// own scale (no dual axis). One crosshair runs through all three.
+// plot. Client memory and CPU, when present, are separate small plots below
+// with their own scales (no dual axis). One crosshair runs through all.
 export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) {
   const isDark = useIsDark()
   const hasMemory = timeline.some((p) => p.memory_bytes !== undefined && p.memory_bytes !== null)
+  const hasCPU = timeline.some((p) => p.cpu_percent !== undefined && p.cpu_percent !== null)
   const lanes = useMemo(() => groupEventsByKind(events), [events])
 
   const laneHeight = lanes.length * LANE_ROW
@@ -53,7 +55,13 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
   const memoryTitleTop = poolTop + POOL_HEIGHT + 18
   const memoryTop = memoryTitleTop + 22
   // The zoom slider sits under the last plot.
-  const plotsBottom = hasMemory ? memoryTop + MEMORY_HEIGHT + 26 : poolTop + POOL_HEIGHT + 26
+  const cpuTitleTop = (hasMemory ? memoryTop + MEMORY_HEIGHT : poolTop + POOL_HEIGHT) + 18
+  const cpuTop = cpuTitleTop + 22
+  const plotsBottom = hasCPU
+    ? cpuTop + CPU_HEIGHT + 26
+    : hasMemory
+      ? memoryTop + MEMORY_HEIGHT + 26
+      : poolTop + POOL_HEIGHT + 26
   const height = plotsBottom + SLIDER_HEIGHT + 8
 
   const chartRef = useRef<ReactECharts>(null)
@@ -78,11 +86,12 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
     const t = chartTheme(isDark)
     const maxT = Math.max(timeline.length > 0 ? timeline[timeline.length - 1].t_ms : 0, ...(events ?? []).map((e) => e.t_ms))
 
-    type Grid = { name: 'lane' | 'pool' | 'memory'; top: number; height: number }
+    type Grid = { name: 'lane' | 'pool' | 'memory' | 'cpu'; top: number; height: number }
     const grids: Grid[] = []
     if (lanes.length > 0) grids.push({ name: 'lane', top: 8, height: laneHeight })
     grids.push({ name: 'pool', top: poolTop, height: POOL_HEIGHT })
     if (hasMemory) grids.push({ name: 'memory', top: memoryTop, height: MEMORY_HEIGHT })
+    if (hasCPU) grids.push({ name: 'cpu', top: cpuTop, height: CPU_HEIGHT })
     const gridIndex = (name: Grid['name']) => grids.findIndex((g) => g.name === name)
     const last = grids.length - 1
 
@@ -114,11 +123,16 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
       return {
         type: 'value' as const,
         gridIndex: i,
-        splitNumber: g.name === 'memory' ? 2 : 4,
+        splitNumber: g.name === 'memory' || g.name === 'cpu' ? 2 : 4,
         axisLabel: {
           color: t.muted,
           fontSize: 11,
-          formatter: g.name === 'memory' ? (v: number) => formatBytes(v) : (v: number) => formatSig(v),
+          formatter:
+            g.name === 'memory'
+              ? (v: number) => formatBytes(v)
+              : g.name === 'cpu'
+                ? (v: number) => `${formatSig(v)}%`
+                : (v: number) => formatSig(v),
         },
         splitLine: { lineStyle: { color: t.splitLine, opacity: 0.6 } },
         axisPointer: { show: false },
@@ -160,6 +174,19 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
         data: timeline.filter((p) => p.memory_bytes != null).map((p) => [p.t_ms, p.memory_bytes]),
       })
     }
+    if (hasCPU) {
+      series.push({
+        name: 'Client CPU',
+        type: 'line',
+        xAxisIndex: gridIndex('cpu'),
+        yAxisIndex: gridIndex('cpu'),
+        showSymbol: false,
+        lineStyle: { width: 2 },
+        itemStyle: { color: SERIES_COLORS.cpu },
+        areaStyle: { opacity: 0.08, color: SERIES_COLORS.cpu },
+        data: timeline.filter((p) => p.cpu_percent != null).map((p) => [p.t_ms, p.cpu_percent]),
+      })
+    }
     lanes.forEach((lane, i) => {
       series.push({
         name: `event:${lane.kind}`,
@@ -182,9 +209,10 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
       backgroundColor: 'transparent',
       textStyle: { color: t.text },
       animation: false,
-      title: hasMemory
-        ? { text: 'Client memory', left: GRID_LEFT - 4, top: memoryTitleTop, textStyle: { color: t.muted, fontSize: 11, fontWeight: 500 } }
-        : undefined,
+      title: [
+        ...(hasMemory ? [{ text: 'Client memory', top: memoryTitleTop }] : []),
+        ...(hasCPU ? [{ text: 'Client CPU (100% = one core)', top: cpuTitleTop }] : []),
+      ].map((x) => ({ ...x, left: GRID_LEFT - 4, textStyle: { color: t.muted, fontSize: 11, fontWeight: 500 } })),
       tooltip: {
         trigger: 'axis',
         backgroundColor: t.tooltipBg,
@@ -198,7 +226,12 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
           let html = `<strong>${formatSeconds(at)}</strong><br/>`
           for (const p of ps) {
             if (p.seriesName.startsWith('event:')) continue
-            const v = p.seriesName === 'Client memory' ? formatBytes(p.value[1]) : p.value[1].toLocaleString()
+            const v =
+              p.seriesName === 'Client memory'
+                ? formatBytes(p.value[1])
+                : p.seriesName === 'Client CPU'
+                  ? `${formatSig(p.value[1])}%`
+                  : p.value[1].toLocaleString()
             html += `${dot(p.color)}${p.seriesName}: <strong>${v}</strong><br/>`
           }
           const near = allEvents
@@ -256,7 +289,7 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
       yAxis,
       series,
     }
-  }, [isDark, timeline, events, lanes, hasMemory, laneHeight, poolTop, memoryTop, memoryTitleTop])
+  }, [isDark, timeline, events, lanes, hasMemory, hasCPU, laneHeight, poolTop, memoryTop, memoryTitleTop, cpuTop, cpuTitleTop])
 
   if (timeline.length === 0) {
     return <p className="text-sm/6 text-gray-500 dark:text-gray-400">No pool timeline recorded.</p>

@@ -26,12 +26,13 @@ func (s *admission) Description() string {
 
 func (s *admission) Defaults() Params {
 	return Params{
-		"senders":         16, // senders per tx type and phase
-		"txs_per_sender":  16, // nonces per sender (at most the account slots)
-		"blob_txs":        32, // single-blob txs per phase
-		"blob6_txs":       8,  // 6-blob txs per phase
-		"concurrency":     8,  // parallel senders in the throughput phase
-		"pending_samples": 32, // txs timed until pending, per type
+		"senders":         16,   // senders per tx type and phase
+		"txs_per_sender":  16,   // nonces per sender (at most the account slots)
+		"blob_txs":        32,   // single-blob txs per phase
+		"blob6_txs":       8,    // 6-blob txs per phase
+		"concurrency":     8,    // parallel senders in the throughput phase
+		"pending_samples": 32,   // txs timed until pending, per type
+		"warmup_txs":      1024, // untimed txs of every type first (JIT, connections)
 		"timeout_ms":      30000,
 	}
 }
@@ -56,7 +57,7 @@ var admissionKinds = []admissionKind{
 func (s *admission) Accounts(p Params) int {
 	perKind := 2*p.Int("senders") + p.Int("pending_samples")
 
-	return len(admissionKinds) * perKind
+	return len(admissionKinds)*perKind + s.warmupSenders(p)
 }
 
 // shape returns the senders and the txs per sender of one phase for a kind.
@@ -79,6 +80,10 @@ func (s *admission) shape(p Params, k admissionKind) (senders, perSender int) {
 func (s *admission) Run(ctx context.Context, env *Env) error {
 	p := env.Params
 	timeout := p.Duration("timeout_ms")
+
+	if err := s.warmup(ctx, env, timeout); err != nil {
+		return fmt.Errorf("warm-up: %w", err)
+	}
 
 	for _, k := range admissionKinds {
 		if err := s.runKind(ctx, env, k, timeout); err != nil {
@@ -347,4 +352,58 @@ func (s *admission) waitPending(ctx context.Context, env *Env, start time.Time,
 		case <-time.After(time.Millisecond):
 		}
 	}
+}
+
+// warmupSenders returns the senders of the warm-up: 16 txs each.
+func (s *admission) warmupSenders(p Params) int {
+	return (p.Int("warmup_txs") + 15) / 16
+}
+
+// warmup sends untimed txs of every non-blob type and drains them. The first
+// measured type would otherwise also measure JIT warm-up (besu), connection
+// setup and first-use caches.
+func (s *admission) warmup(ctx context.Context, env *Env, timeout time.Duration) error {
+	n := s.warmupSenders(env.Params)
+	if n == 0 {
+		return nil
+	}
+
+	accounts, err := env.Accounts(ctx, n)
+	if err != nil {
+		return err
+	}
+
+	kinds := []txfactory.Kind{
+		txfactory.KindLegacy, txfactory.KindAccessList, txfactory.KindDynamicFee, txfactory.KindSetCode,
+	}
+	lanes := make([][]*types.Transaction, 0, n)
+
+	for i, a := range accounts {
+		lane := make([]*types.Transaction, 0, 16)
+
+		for j := range 16 {
+			tx, err := env.Factory.Build(a, txfactory.Template{Kind: kinds[(i+j)%len(kinds)]})
+			if err != nil {
+				return err
+			}
+
+			lane = append(lane, tx)
+		}
+
+		lanes = append(lanes, lane)
+	}
+
+	env.Rec.Event("send", "warm-up: %d untimed txs", n*16)
+
+	if _, _, err := env.SendConcurrent(ctx, regroup(lanes, 4), "", "", ""); err != nil {
+		return err
+	}
+
+	if _, err := env.WaitInPool(ctx, time.Now(), Hashes(flatten(lanes)), timeout); err != nil {
+		return err
+	}
+
+	_, err = env.Drain(ctx, 8)
+
+	return err
 }

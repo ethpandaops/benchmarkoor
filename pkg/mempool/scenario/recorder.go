@@ -153,12 +153,19 @@ func (r *Recorder) Finish(err error, samples []observer.Sample) *Result {
 			continue
 		}
 
-		res.Timeline = append(res.Timeline, PoolSample{
+		p := PoolSample{
 			TMs:         r.sinceStart(s.At),
 			Pending:     s.Status.Pending,
 			Queued:      s.Status.Queued,
 			MemoryBytes: s.MemoryBytes,
-		})
+		}
+
+		if s.MemoryBytes > 0 {
+			cpu := round3(s.CPUPercent)
+			p.CPUPercent = &cpu
+		}
+
+		res.Timeline = append(res.Timeline, p)
 	}
 
 	for _, key := range r.order {

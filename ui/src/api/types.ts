@@ -875,6 +875,8 @@ export interface MempoolTimelinePoint {
   pending: number
   queued: number
   memory_bytes?: number
+  // Container CPU use; 100 is one full core.
+  cpu_percent?: number
 }
 
 export interface MempoolEvent {

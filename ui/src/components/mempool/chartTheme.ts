@@ -42,6 +42,7 @@ export const SERIES_COLORS = {
   pending: '#3b82f6',
   queued: '#d97706',
   memory: '#10b981',
+  cpu: '#8b5cf6',
   histogram: '#9ca3af',
 }
 

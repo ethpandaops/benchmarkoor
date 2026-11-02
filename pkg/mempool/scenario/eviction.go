@@ -246,8 +246,19 @@ func (s *eviction) Run(ctx context.Context, env *Env) error {
 
 	env.Rec.Observe("evict.cheap", "Txs cheaper than a full pool: rejected / kept",
 		fmt.Sprintf("%d rejected (%s) / %d kept", cheapRejected, SendText(cheapErr), cheapIn))
-	env.Rec.Check(SeveritySoft, cheapIn == 0, "A full pool does not keep txs cheaper than all it holds",
-		"0 kept", fmt.Sprintf("%d kept", cheapIn))
+
+	// The check needs a full pool. A pool that dropped or refused nothing
+	// (besu limits by memory, not by count) was never full, and may keep
+	// the cheap txs.
+	wasFull := lowRejected > 0 || lowBefore < len(lowTxs) || lowAfter < lowBefore || highRejected > 0
+	if wasFull {
+		env.Rec.Check(SeveritySoft, cheapIn == 0, "A full pool does not keep txs cheaper than all it holds",
+			"0 kept", fmt.Sprintf("%d kept", cheapIn))
+	} else {
+		env.Rec.Observe("evict.never_full", "Pool full during the test",
+			fmt.Sprintf("no: it took all %d txs and dropped none, so the cheap-tx check is skipped",
+				len(lowTxs)+len(highTxs)))
+	}
 
 	// The pool still builds a valid payload, with the best txs first.
 	payload, err := env.Build(ctx, buildFull)

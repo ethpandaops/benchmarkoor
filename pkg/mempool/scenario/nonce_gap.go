@@ -317,6 +317,8 @@ func (s *nonceGap) overdraft(ctx context.Context, env *Env, funder *txfactory.Ac
 	accepted := 0
 	sent := make([]*types.Transaction, 0, n+3)
 
+	var firstErr error
+
 	for range n + 3 {
 		tx, err := env.Factory.Build(poor, txfactory.Template{Kind: txfactory.KindDynamicFee, Fees: fees})
 		if err != nil {
@@ -327,9 +329,13 @@ func (s *nonceGap) overdraft(ctx context.Context, env *Env, funder *txfactory.Ac
 		if sendErr == nil {
 			accepted++
 			sent = append(sent, tx)
-		} else {
-			env.Rec.Observe("overdraft.error", "Error for a tx the balance cannot pay", SendText(sendErr))
+		} else if firstErr == nil {
+			firstErr = sendErr
 		}
+	}
+
+	if firstErr != nil {
+		env.Rec.Observe("overdraft.error", "Error for the first tx the balance cannot pay", SendText(firstErr))
 	}
 
 	env.Rec.Observe("overdraft.accepted", fmt.Sprintf("Txs accepted from a sender that can pay for %d of %d", n, n+3),

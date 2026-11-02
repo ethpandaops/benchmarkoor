@@ -61,9 +61,9 @@ runner:
         - name: import-full-pool
           params:
             block_txs: 200
-            filler_senders: 200
+            filler_senders: 300
             filler_per_sender: 16
-            rounds: 5
+            rounds: 10
         - name: reorg-reinjection
           params:
             iterations: 3

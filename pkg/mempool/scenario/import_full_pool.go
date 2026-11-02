@@ -3,6 +3,7 @@ package scenario
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
@@ -29,9 +30,9 @@ func (s *importFullPool) Description() string {
 func (s *importFullPool) Defaults() Params {
 	return Params{
 		"block_txs":         200,  // transfers in each measured block
-		"filler_senders":    200,  // senders of the filler txs
+		"filler_senders":    300,  // senders of the filler txs (300x16 + 200 is near the 5120 limit)
 		"filler_per_sender": 16,   // filler nonces per sender (at most the account slots)
-		"rounds":            5,    // baseline/full pairs; the order alternates
+		"rounds":            10,   // baseline/full pairs; the order alternates
 		"quiet_ms":          1000, // wait before each import, in both cases
 		"timeout_ms":        60000,
 	}
@@ -113,13 +114,25 @@ func (s *importFullPool) Run(ctx context.Context, env *Env) error {
 		}
 	}
 
-	mean := func(xs []importSample, f func(importSample) time.Duration) time.Duration {
-		var sum time.Duration
+	// Medians: one slow import (a GC pause, a JIT compile) must not decide
+	// the overhead.
+	median := func(xs []importSample, f func(importSample) time.Duration) time.Duration {
+		v := make([]time.Duration, 0, len(xs))
 		for _, x := range xs {
-			sum += f(x)
+			v = append(v, f(x))
 		}
 
-		return sum / time.Duration(max(1, len(xs)))
+		slices.Sort(v)
+
+		if len(v) == 0 {
+			return 0
+		}
+
+		if len(v)%2 == 1 {
+			return v[len(v)/2]
+		}
+
+		return (v[len(v)/2-1] + v[len(v)/2]) / 2
 	}
 
 	for _, m := range []struct {
@@ -131,14 +144,14 @@ func (s *importFullPool) Run(ctx context.Context, env *Env) error {
 		{"fcu", "forkchoiceUpdated", func(x importSample) time.Duration { return x.fcu }},
 		{"settle", "pool settle", func(x importSample) time.Duration { return x.settle }},
 	} {
-		b, f := mean(base, m.f), mean(full, m.f)
+		b, f := median(base, m.f), median(full, m.f)
 
 		env.Rec.Metric(Metric{
-			Key: m.key + ".empty", Label: m.label + ", empty pool (mean)", Unit: "ms",
+			Key: m.key + ".empty", Label: m.label + ", empty pool (median)", Unit: "ms",
 			Value: Ms(b), Group: m.key, Better: "lower",
 		})
 		env.Rec.Metric(Metric{
-			Key: m.key + ".full", Label: fmt.Sprintf("%s, %d txs in the pool (mean)", m.label, fillerTotal),
+			Key: m.key + ".full", Label: fmt.Sprintf("%s, %d txs in the pool (median)", m.label, fillerTotal),
 			Unit: "ms", Value: Ms(f), Group: m.key, Better: "lower",
 		})
 

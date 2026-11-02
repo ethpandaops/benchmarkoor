@@ -339,8 +339,8 @@ func (e *mempoolExecutor) ExecuteTests(ctx context.Context, opts *executor.Execu
 	m := e.cfg.Mempool
 	log := e.log.WithField("engine", opts.EngineEndpoint)
 
-	memory, stopMemory := e.memorySampler(ctx, log, opts)
-	defer stopMemory()
+	resources, stopResources := e.resourceSampler(ctx, log, opts)
+	defer stopResources()
 
 	driver := cldriver.New(log, cldriver.Config{
 		EngineURL:    opts.EngineEndpoint,
@@ -355,7 +355,7 @@ func (e *mempoolExecutor) ExecuteTests(ctx context.Context, opts *executor.Execu
 
 	defer func() { _ = driver.Stop() }()
 
-	obs := observer.New(log, observer.Config{RPCURL: opts.RPCEndpoint, Memory: memory})
+	obs := observer.New(log, observer.Config{RPCURL: opts.RPCEndpoint, Resources: resources})
 	if err := obs.Start(ctx); err != nil {
 		return result, fmt.Errorf("starting the pool observer: %w", err)
 	}
@@ -434,25 +434,28 @@ func (e *mempoolExecutor) ExecuteTests(ctx context.Context, opts *executor.Execu
 	return result, nil
 }
 
-// memorySampler reads the container memory in the background. Reading stats
-// can take a second (the Docker stats API), so the pool sampler only reads
-// the last value.
-func (e *mempoolExecutor) memorySampler(ctx context.Context, log logrus.FieldLogger,
+// resourceSampler reads the container memory and CPU in the background.
+// Reading stats can take a second (the Docker stats API), so the pool sampler
+// only reads the last value. CPU % comes from the change of the cumulative
+// CPU time between two reads; 100% is one full core.
+func (e *mempoolExecutor) resourceSampler(ctx context.Context, log logrus.FieldLogger,
 	opts *executor.ExecuteOptions,
-) (observer.MemoryFunc, func()) {
+) (observer.ResourceFunc, func()) {
 	if !e.cfg.SystemResourceCollectionEnabled || opts.ContainerID == "" {
 		return nil, func() {}
 	}
 
 	reader, err := stats.NewReader(log, opts.DockerClient, opts.ContainerID)
 	if err != nil {
-		log.WithError(err).Warn("No stats reader; the timeline has no memory")
+		log.WithError(err).Warn("No stats reader; the timeline has no memory or CPU")
 
 		return nil, func() {}
 	}
 
 	var (
-		last atomic.Uint64
+		mu   sync.Mutex
+		last observer.Resources
+		have bool
 		wg   sync.WaitGroup
 		done = make(chan struct{})
 	)
@@ -462,9 +465,38 @@ func (e *mempoolExecutor) memorySampler(ctx context.Context, log logrus.FieldLog
 	go func() {
 		defer wg.Done()
 
+		var (
+			prevCPU uint64
+			prevAt  time.Time
+		)
+
 		for {
 			if s, err := reader.ReadStats(); err == nil {
-				last.Store(s.Memory)
+				now := time.Now()
+
+				mu.Lock()
+				last.MemoryBytes = s.Memory
+
+				// CPUUsage is cumulative CPU time in microseconds. The Docker
+				// stats API refreshes it about once a second, so between two
+				// refreshes it does not change: keep the last rate then, and
+				// compute a new one only over a changed counter. A counter
+				// that does not move for 3s means an idle client.
+				switch {
+				case prevAt.IsZero():
+					prevCPU, prevAt = s.CPUUsage, now
+				case s.CPUUsage > prevCPU:
+					if wall := now.Sub(prevAt).Microseconds(); wall > 0 {
+						last.CPUPercent = 100 * float64(s.CPUUsage-prevCPU) / float64(wall)
+						have = true
+					}
+
+					prevCPU, prevAt = s.CPUUsage, now
+				case now.Sub(prevAt) > 3*time.Second:
+					last.CPUPercent = 0
+					prevCPU, prevAt = s.CPUUsage, now
+				}
+				mu.Unlock()
 			}
 
 			select {
@@ -477,7 +509,14 @@ func (e *mempoolExecutor) memorySampler(ctx context.Context, log logrus.FieldLog
 		}
 	}()
 
-	return last.Load, func() {
+	get := func() (observer.Resources, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return last, have
+	}
+
+	return get, func() {
 		close(done)
 		wg.Wait()
 

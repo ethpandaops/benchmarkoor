@@ -68,10 +68,19 @@ type Sample struct {
 	At          time.Time
 	Status      Status
 	MemoryBytes uint64
+	// CPUPercent is the container CPU use; 100 is one full core.
+	CPUPercent float64
 }
 
-// MemoryFunc returns the container memory use, or 0 when unknown.
-type MemoryFunc func() uint64
+// Resources is the container resource use at one moment.
+type Resources struct {
+	MemoryBytes uint64
+	CPUPercent  float64
+}
+
+// ResourceFunc returns the latest container resource use. ok is false when
+// it is not known.
+type ResourceFunc func() (r Resources, ok bool)
 
 // Observer polls one client.
 type Observer interface {
@@ -108,8 +117,9 @@ type Config struct {
 	RPCURL string
 	// Interval between two timeline samples.
 	Interval time.Duration
-	// Memory returns the container memory use for each sample. Optional.
-	Memory MemoryFunc
+	// Resources returns the container memory and CPU use for each sample.
+	// Optional.
+	Resources ResourceFunc
 }
 
 type observer struct {
@@ -228,8 +238,10 @@ func (o *observer) sample(ctx context.Context) {
 		}
 
 		s := Sample{At: time.Now(), Status: st}
-		if o.cfg.Memory != nil {
-			s.MemoryBytes = o.cfg.Memory()
+		if o.cfg.Resources != nil {
+			if r, ok := o.cfg.Resources(); ok {
+				s.MemoryBytes, s.CPUPercent = r.MemoryBytes, r.CPUPercent
+			}
 		}
 
 		o.mu.Lock()

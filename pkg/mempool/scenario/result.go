@@ -89,6 +89,9 @@ type PoolSample struct {
 	Queued  int     `json:"queued"`
 	// MemoryBytes is the container memory use. Zero when not available.
 	MemoryBytes uint64 `json:"memory_bytes,omitempty"`
+	// CPUPercent is the container CPU use (100 = one core). Absent when not
+	// available.
+	CPUPercent *float64 `json:"cpu_percent,omitempty"`
 }
 
 // Event marks one action of the driver on the timeline.

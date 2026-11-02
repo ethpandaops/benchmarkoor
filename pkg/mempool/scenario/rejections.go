@@ -204,7 +204,19 @@ func (s *rejections) Run(ctx context.Context, env *Env) error {
 		}
 
 		took, sendErr := env.Send(ctx, tx)
-		env.Rec.Latency("reject_latency", "Time to reject an invalid tx", "rejection", took)
+
+		// Only a rejection is timed as one. An accepted tx did other work
+		// (geth converts a v0 blob sidecar to cell proofs), which has its
+		// own metric.
+		switch {
+		case sendErr != nil:
+			env.Rec.Latency("reject_latency", "Time to reject an invalid tx", "rejection", took)
+		case c.key == "blob_v0_sidecar":
+			env.Rec.Metric(Metric{
+				Key: "v0_sidecar_accept", Label: "Time to accept (and convert) a v0 blob sidecar",
+				Unit: "ms", Value: Ms(took), Group: "rejection", Better: "lower",
+			})
+		}
 		env.Rec.Observe("reject."+c.key, c.label, SendText(sendErr))
 		if c.sev != severityObserve {
 			env.Rec.Check(c.sev, sendErr != nil, "Rejects: "+c.label, "rejected", SendText(sendErr))
