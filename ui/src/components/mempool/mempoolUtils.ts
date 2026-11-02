@@ -455,6 +455,7 @@ export interface ObservationDifference {
   label: string
   values: Record<string, string | undefined>
   outcomes: Record<string, ObservationOutcome | undefined>
+  explain?: MempoolCheckExplanation
 }
 
 export interface ScenarioDifferences {
@@ -499,7 +500,7 @@ export function computeDifferences(results: ClientMempoolResult[]): ScenarioDiff
       for (const o of s.observations ?? []) {
         let row = observations.get(o.key)
         if (!row) {
-          row = { key: o.key, label: o.label, values: {}, outcomes: {} }
+          row = { key: o.key, label: o.label, values: {}, outcomes: {}, explain: o.explain }
           observations.set(o.key, row)
         }
         row.values[r.client] = o.value
@@ -606,8 +607,10 @@ export function eventHelp(kind: string): string {
   return EVENT_HELP[kind] ?? `A "${kind}" action of the harness.`
 }
 
-// explainText is a check explanation as plain text, for a tooltip.
-export function explainText(e: MempoolCheckExplanation | undefined): string | undefined {
+// explainText is a check (or, with observation set, an observation)
+// explanation as plain text, for a tooltip.
+export function explainText(e: MempoolCheckExplanation | undefined, observation = false): string | undefined {
   if (!e) return undefined
-  return `What it tests: ${e.what}\n\nWhy it matters: ${e.why}\n\nOK results: ${e.ok}`
+  const [what, ok] = observation ? ['What it records', 'How to read it'] : ['What it tests', 'OK results']
+  return `${what}: ${e.what}\n\nWhy it matters: ${e.why}\n\n${ok}: ${e.ok}`
 }

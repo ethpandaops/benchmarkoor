@@ -88,11 +88,11 @@ function ExpectedActual({ assertion, prominent }: { assertion: MempoolAssertion;
 
 // CheckExplanation shows what a check tests, why it matters and which
 // results are fine.
-function CheckExplanation({ explain }: { explain: MempoolCheckExplanation }) {
+function CheckExplanation({ explain, observation = false }: { explain: MempoolCheckExplanation; observation?: boolean }) {
   const rows: [string, string][] = [
-    ['What it tests', explain.what],
+    [observation ? 'What it records' : 'What it tests', explain.what],
     ['Why it matters', explain.why],
-    ['OK results', explain.ok],
+    [observation ? 'How to read it' : 'OK results', explain.ok],
   ]
   return (
     <dl className="mt-1.5 grid max-w-4xl grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xs bg-gray-50 px-3 py-2 text-xs/5 dark:bg-gray-900/40">
@@ -119,16 +119,7 @@ function CheckRow({ assertion }: { assertion: MempoolAssertion }) {
           </span>
           <SeverityTag severity={assertion.severity} />
           {assertion.explain && (
-            <button
-              type="button"
-              onClick={() => setOpen(!open)}
-              aria-expanded={open}
-              title={open ? 'Hide the explanation' : 'What this checks, why, and which results are OK'}
-              className="inline-flex items-center gap-1 self-center rounded-xs px-1 text-xs/5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
-            >
-              <Info className="size-3.5" />
-              {open ? 'Hide' : 'Explain'}
-            </button>
+            <ExplainButton open={open} onClick={() => setOpen(!open)} title="What this checks, why, and which results are OK" />
           )}
         </div>
         <ExpectedActual assertion={assertion} prominent={state !== 'passed'} />
@@ -222,16 +213,47 @@ function MetricsGrid({ metrics }: { metrics: MempoolMetric[] }) {
   )
 }
 
+// ExplainButton toggles an explanation.
+function ExplainButton({ open, onClick, title }: { open: boolean; onClick: () => void; title: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={open}
+      title={open ? 'Hide the explanation' : title}
+      className="inline-flex shrink-0 items-center gap-1 self-start rounded-xs px-1 text-xs/5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
+    >
+      <Info className="size-3.5" />
+      {open ? 'Hide' : 'Explain'}
+    </button>
+  )
+}
+
+function ObservationRow({ o }: { o: MempoolObservation }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="grid grid-cols-1 gap-x-4 py-1.5 sm:grid-cols-3">
+      <dt className="flex items-start justify-between gap-2 text-gray-600 dark:text-gray-400" title={o.key}>
+        <span>{o.label}</span>
+        {o.explain && (
+          <ExplainButton open={open} onClick={() => setOpen(!open)} title="What this records, why, and how to read it" />
+        )}
+      </dt>
+      <dd className="font-mono text-xs/6 break-words text-gray-900 sm:col-span-2 dark:text-gray-100">{o.value}</dd>
+      {open && o.explain && (
+        <div className="sm:col-span-3">
+          <CheckExplanation explain={o.explain} observation />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ObservationsList({ observations }: { observations: MempoolObservation[] }) {
   return (
     <dl className="divide-y divide-gray-100 text-sm/6 dark:divide-gray-700/50">
       {observations.map((o) => (
-        <div key={o.key} className="grid grid-cols-1 gap-x-4 py-1.5 sm:grid-cols-3">
-          <dt className="text-gray-600 dark:text-gray-400" title={o.key}>
-            {o.label}
-          </dt>
-          <dd className="font-mono text-xs/6 break-words text-gray-900 sm:col-span-2 dark:text-gray-100">{o.value}</dd>
-        </div>
+        <ObservationRow key={o.key} o={o} />
       ))}
     </dl>
   )

@@ -906,6 +906,8 @@ export interface MempoolObservation {
   key: string
   label: string
   value: string
+  // For an observation, "ok" says how to read the value.
+  explain?: MempoolCheckExplanation
 }
 
 export interface MempoolScenarioResult {

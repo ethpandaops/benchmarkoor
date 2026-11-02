@@ -25,3 +25,18 @@ func TestEveryCheckIsExplained(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryObservationIsExplained does the same for observation keys.
+func TestEveryObservationIsExplained(t *testing.T) {
+	data, err := os.ReadFile("testdata/observation_keys.txt")
+	require.NoError(t, err)
+
+	for _, key := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		e := ExplainObservation(key)
+		if assert.NotNil(t, e, key) {
+			assert.NotEmpty(t, e.What, key)
+			assert.NotEmpty(t, e.Why, key)
+			assert.NotEmpty(t, e.OK, key)
+		}
+	}
+}

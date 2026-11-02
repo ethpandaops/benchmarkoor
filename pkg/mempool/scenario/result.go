@@ -118,4 +118,6 @@ type Observation struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
 	Value string `json:"value"`
+	// Explain says what is recorded, why, and how to read the value (OK).
+	Explain *Explanation `json:"explain,omitempty"`
 }

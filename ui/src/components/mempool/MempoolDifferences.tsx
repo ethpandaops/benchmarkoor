@@ -50,7 +50,7 @@ function ObservationCell({ value, outcome }: { value: string | undefined; outcom
 function ObservationRow({ o, results, currentRunId }: { o: ObservationDifference; results: ClientMempoolResult[]; currentRunId: string }) {
   return (
     <tr className="border-t border-gray-100 align-top dark:border-gray-700/50">
-      <td className="px-3 py-1.5 break-words text-gray-700 dark:text-gray-300" title={o.key}>
+      <td className="px-3 py-1.5 break-words text-gray-700 dark:text-gray-300" title={explainText(o.explain, true) ?? o.key}>
         {o.label}
       </td>
       {results.map((r) => (

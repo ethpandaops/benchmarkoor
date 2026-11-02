@@ -164,7 +164,7 @@ func (r *Recorder) Observe(key, label, value string) {
 	defer r.mu.Unlock()
 
 	r.result.Observations = append(r.result.Observations, Observation{
-		Key: key, Label: label, Value: value,
+		Key: key, Label: label, Value: value, Explain: ExplainObservation(key),
 	})
 }
 
