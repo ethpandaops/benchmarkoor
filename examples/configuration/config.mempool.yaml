@@ -16,7 +16,9 @@ global:
   log_level: ${LOG_LEVEL:-info}
 
 runner:
-  client_logs_to_stdout: false
+  # Also write the client logs to stdout and to the run benchmarkoor.log,
+  # with the instance id as a prefix.
+  client_logs_to_stdout: true
   container_network: benchmarkoor
   cleanup_on_start: false
 
