@@ -885,12 +885,21 @@ export interface MempoolEvent {
   detail?: string
 }
 
+// MempoolCheckExplanation says what a check tests, why it matters and which
+// results are fine. Runs before the harness added it have none.
+export interface MempoolCheckExplanation {
+  what: string
+  why: string
+  ok: string
+}
+
 export interface MempoolAssertion {
   name: string
   severity: 'hard' | 'soft'
   passed: boolean
   expected?: string
   actual?: string
+  explain?: MempoolCheckExplanation
 }
 
 export interface MempoolObservation {

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import clsx from 'clsx'
-import { ArrowDown, ArrowRight, ArrowUp, Check, TriangleAlert, X } from 'lucide-react'
-import type { MempoolAssertion, MempoolMetric, MempoolObservation, MempoolScenarioResult, MempoolScenarioStatus } from '@/api/types'
+import { ArrowDown, ArrowRight, ArrowUp, Check, Info, TriangleAlert, X } from 'lucide-react'
+import type { MempoolAssertion, MempoolCheckExplanation, MempoolMetric, MempoolObservation, MempoolScenarioResult, MempoolScenarioStatus } from '@/api/types'
 import { Badge } from '@/components/shared/Badge'
 import { Card } from '@/components/shared/Card'
 import { formatDurationMs } from '@/utils/format'
@@ -86,8 +86,29 @@ function ExpectedActual({ assertion, prominent }: { assertion: MempoolAssertion;
   )
 }
 
+// CheckExplanation shows what a check tests, why it matters and which
+// results are fine.
+function CheckExplanation({ explain }: { explain: MempoolCheckExplanation }) {
+  const rows: [string, string][] = [
+    ['What it tests', explain.what],
+    ['Why it matters', explain.why],
+    ['OK results', explain.ok],
+  ]
+  return (
+    <dl className="mt-1.5 grid max-w-4xl grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xs bg-gray-50 px-3 py-2 text-xs/5 dark:bg-gray-900/40">
+      {rows.map(([label, text]) => (
+        <div key={label} className="contents">
+          <dt className="font-medium text-gray-500 dark:text-gray-400">{label}</dt>
+          <dd className="text-gray-700 dark:text-gray-300">{text}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
 function CheckRow({ assertion }: { assertion: MempoolAssertion }) {
   const state = checkState(assertion)
+  const [open, setOpen] = useState(false)
   return (
     <li className="flex gap-2.5 py-2">
       <CheckIcon state={state} className="mt-1" />
@@ -97,8 +118,21 @@ function CheckRow({ assertion }: { assertion: MempoolAssertion }) {
             {assertion.name}
           </span>
           <SeverityTag severity={assertion.severity} />
+          {assertion.explain && (
+            <button
+              type="button"
+              onClick={() => setOpen(!open)}
+              aria-expanded={open}
+              title={open ? 'Hide the explanation' : 'What this checks, why, and which results are OK'}
+              className="inline-flex items-center gap-1 self-center rounded-xs px-1 text-xs/5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
+            >
+              <Info className="size-3.5" />
+              {open ? 'Hide' : 'Explain'}
+            </button>
+          )}
         </div>
         <ExpectedActual assertion={assertion} prominent={state !== 'passed'} />
+        {open && assertion.explain && <CheckExplanation explain={assertion.explain} />}
       </div>
     </li>
   )

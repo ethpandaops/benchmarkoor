@@ -108,6 +108,8 @@ type Assertion struct {
 	Passed   bool     `json:"passed"`
 	Expected string   `json:"expected,omitempty"`
 	Actual   string   `json:"actual,omitempty"`
+	// Explain says what the check tests, why, and which results are fine.
+	Explain *Explanation `json:"explain,omitempty"`
 }
 
 // Observation is a behaviour that has no correct value, for example the error

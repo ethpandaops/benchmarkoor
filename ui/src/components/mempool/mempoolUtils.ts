@@ -1,4 +1,5 @@
 import type {
+  MempoolCheckExplanation,
   IndexEntry,
   MempoolAssertion,
   MempoolEvent,
@@ -446,6 +447,7 @@ export interface AssertionDifference {
   name: string
   severity: 'hard' | 'soft'
   values: Record<string, boolean | undefined>
+  explain?: MempoolCheckExplanation
 }
 
 export interface ObservationDifference {
@@ -489,7 +491,7 @@ export function computeDifferences(results: ClientMempoolResult[]): ScenarioDiff
       for (const a of s.assertions ?? []) {
         let row = assertions.get(a.name)
         if (!row) {
-          row = { name: a.name, severity: a.severity, values: {} }
+          row = { name: a.name, severity: a.severity, values: {}, explain: a.explain }
           assertions.set(a.name, row)
         }
         row.values[r.client] = a.passed
@@ -602,4 +604,10 @@ export const EVENT_HELP: Record<string, string> = {
 // eventHelp returns the explanation of an event kind, or a generic one.
 export function eventHelp(kind: string): string {
   return EVENT_HELP[kind] ?? `A "${kind}" action of the harness.`
+}
+
+// explainText is a check explanation as plain text, for a tooltip.
+export function explainText(e: MempoolCheckExplanation | undefined): string | undefined {
+  if (!e) return undefined
+  return `What it tests: ${e.what}\n\nWhy it matters: ${e.why}\n\nOK results: ${e.ok}`
 }

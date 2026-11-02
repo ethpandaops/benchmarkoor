@@ -8,6 +8,7 @@ import {
   type ObservationDifference,
   type ObservationOutcome,
   type ScenarioDifferences,
+  explainText,
 } from './mempoolUtils'
 import { CheckChip, SeverityTag } from './CheckIcon'
 
@@ -90,7 +91,10 @@ function ScenarioDifferenceTable({ d, results, currentRunId }: { d: ScenarioDiff
             {d.assertions.map((a) => (
               <tr key={`a-${a.name}`} className="border-t border-gray-100 align-top dark:border-gray-700/50">
                 <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
-                  <span className="break-words">{a.name}</span> <SeverityTag severity={a.severity} />
+                  <span className="break-words" title={explainText(a.explain)}>
+                    {a.name}
+                  </span>{' '}
+                  <SeverityTag severity={a.severity} />
                 </td>
                 {results.map((r) => {
                   const v = a.values[r.client]

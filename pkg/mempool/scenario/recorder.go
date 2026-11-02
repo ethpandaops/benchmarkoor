@@ -100,7 +100,7 @@ func (r *Recorder) Check(sev Severity, ok bool, name, expected, actual string) b
 	defer r.mu.Unlock()
 
 	r.result.Assertions = append(r.result.Assertions, Assertion{
-		Name: name, Severity: sev, Passed: ok, Expected: expected, Actual: actual,
+		Name: name, Severity: sev, Passed: ok, Expected: expected, Actual: actual, Explain: Explain(name),
 	})
 
 	if !ok && sev == SeverityHard && r.result.Status == StatusPassed {

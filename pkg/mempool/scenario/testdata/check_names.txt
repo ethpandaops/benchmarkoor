@@ -1,0 +1,159 @@
+A blob tx priced out by the blob base fee is never in a payload
+A duplicate submission does not add a second pool entry
+A full pool accepts txs that pay more than it holds
+A full pool does not keep txs cheaper than all it holds
+A gapped flood stays within global_queue
+A payload from a full blob pool fills the blob limit
+A payload from a full pool fills the gas limit
+A payload from a full pool is valid
+A payload holds at most the blob limit
+A payload's blobs bundle matches its blob txs
+A priced-out tx is not in the payload
+A reverted tx uses its nonce
+A set-code tx with some invalid authorizations is accepted
+A tx from an account with no balance is rejected
+A tx invalidated by an authorization is never in a payload
+A tx that B1 made invalid (same nonce) is not in the pool
+A tx that reverts is included
+A tx the balance cannot pay after the first is never included
+A valid authorization moves the authority's nonce
+A valid control tx is accepted
+A withdrawal credits the account
+A-only txs come back to the pool after the reorg
+Accepted replacement is in the pool: Blob tx, all fees +100%
+Accepted replacement is in the pool: Fee cap and tip +10%
+Accepted replacement is in the pool: Fee cap and tip +100%
+Accepted replacement is in the pool: Legacy replaced by dynamic-fee, gas price +10% as fee cap and tip
+Accepted replacement is in the pool: Queued tx, fee cap and tip +10%
+Access list (2930): accepted txs are in the pool
+Access list (2930): valid txs are accepted
+Access list (2930): valid txs are accepted under load
+After mining, the latest nonce counts every mined tx
+After revoking, the account may have pending txs like a plain account
+After the reorg, the payload's blobs bundle matches its blob txs
+An included reverted tx leaves the pool
+Authorization with bad signature: not delegated
+Authorization with chain id 0 (any chain): delegated
+Authorization with stale nonce: not delegated
+Authorization with wrong chain id: not delegated
+Blob txs of an orphaned block come back to the pool
+Blob, 1 blob, cell proofs (4844/7594): accepted txs are in the pool
+Blob, 1 blob, cell proofs (4844/7594): valid txs are accepted
+Blob, 1 blob, cell proofs (4844/7594): valid txs are accepted under load
+Blob, 6 blobs, cell proofs (4844/7594): accepted txs are in the pool
+Blob, 6 blobs, cell proofs (4844/7594): valid txs are accepted
+Blob, 6 blobs, cell proofs (4844/7594): valid txs are accepted under load
+Delegating to the zero address clears the code
+Dynamic fee (1559): accepted txs are in the pool
+Dynamic fee (1559): valid txs are accepted
+Dynamic fee (1559): valid txs are accepted under load
+Every accepted tx ends up in a block
+Filling the gap promotes every queued tx
+Full block: txs of one sender are in nonce order, without gaps
+Gapped txs are never in a payload
+Gapped txs are not in a built payload
+Higher-tip txs stay in a full pool
+Included txs leave the pool
+Invariant: A built payload matches its build attributes
+Invariant: A payload stays within the gas, blob gas and per-tx gas limits
+Invariant: A payload's blobs bundle matches its blob txs and its cell proofs verify
+Invariant: A tx that must never be included is not in a payload
+Invariant: After newPayload and forkchoiceUpdated, the head is the new block
+Invariant: Each sender's pending txs are contiguous from its account nonce
+Invariant: Every built payload is valid (newPayload)
+Invariant: Included txs leave the pool
+Invariant: No tx appears twice in a payload
+Invariant: The pool holds no tx below its sender's nonce
+Invariant: engine_getBlobsV2 returns the blobs of pool txs (after a reorg reinjects them)
+Invariant: engine_getBlobsV2 returns the blobs of pool txs (after admission)
+Invariant: eth_getTransactionByHash returns the tx that was sent
+Invariant: getPayload's blockValue equals the priority fees paid
+Invariant: txpool_status agrees with txpool_content
+Legacy: accepted txs are in the pool
+Legacy: valid txs are accepted
+Legacy: valid txs are accepted under load
+No invalid tx is in the built payload
+One sender's future txs stay within the account queue
+Original stays after a rejected replacement: Blob tx replaced by a dynamic-fee tx, fees +100%
+Original stays after a rejected replacement: Blob tx, all fees +10% (below the 100% blob bump)
+Original stays after a rejected replacement: Blob tx, only maxFeePerBlobGas +100%
+Original stays after a rejected replacement: Fee cap and tip +5% (below the 10% bump)
+Original stays after a rejected replacement: Only the fee cap +10%
+Original stays after a rejected replacement: Only the tip +10%
+Original stays after a rejected replacement: Same fees, different content
+Pending txs from neither block stay in the pool
+Rejects: Blob tx whose blob fee the balance cannot pay
+Rejects: Blob tx whose cell proofs do not match its commitments
+Rejects: Blob tx with 7 blobs (Osaka allows 6 per tx)
+Rejects: Blob tx with a version 0 sidecar (no cell proofs) after Osaka
+Rejects: Blob tx with no blobs
+Rejects: Contract creation with initcode above 49152 bytes
+Rejects: Gas limit above the EIP-7825 cap
+Rejects: Gas limit above the block gas limit
+Rejects: Gas limit below the intrinsic gas
+Rejects: Gas price below the pool minimum (0 wei)
+Rejects: Nonce below the account nonce
+Rejects: Set-code tx with an empty authorization list
+Rejects: Signature that recovers to no sender
+Rejects: Truncated RLP encoding
+Rejects: Tx above 128 KiB
+Rejects: Unknown tx type 0x0f
+Rejects: Value above the sender balance
+Rejects: Wrong chain id
+Rejects: maxPriorityFeePerGas above maxFeePerGas
+Replaced tx leaves the pool: Blob tx, all fees +100%
+Replaced tx leaves the pool: Fee cap and tip +10%
+Replaced tx leaves the pool: Fee cap and tip +100%
+Replaced tx leaves the pool: Legacy replaced by dynamic-fee, gas price +10% as fee cap and tip
+Replaced tx leaves the pool: Queued tx, fee cap and tip +10%
+Replacement: Blob tx replaced by a dynamic-fee tx, fees +100%
+Replacement: Blob tx, all fees +10% (below the 100% blob bump)
+Replacement: Blob tx, all fees +100%
+Replacement: Blob tx, only maxFeePerBlobGas +100%
+Replacement: Fee cap and tip +10%
+Replacement: Fee cap and tip +100%
+Replacement: Fee cap and tip +5% (below the 10% bump)
+Replacement: Legacy replaced by dynamic-fee, gas price +10% as fee cap and tip
+Replacement: Only the fee cap +10%
+Replacement: Only the tip +10%
+Replacement: Queued tx, fee cap and tip +10%
+Replacement: Same fees, different content
+Set code (7702): accepted txs are in the pool
+Set code (7702): valid txs are accepted
+Set code (7702): valid txs are accepted under load
+The block with invalid authorizations is valid
+The first value tx (8 of 10 ETH) is accepted
+The invalidated tx is not in the next payload
+The measured block holds exactly the block txs
+The next block on B1 is valid
+The next nonce after a reverted tx is accepted
+The next payload includes the newly payable txs
+The next payload includes the reinjected blob txs (sidecars kept)
+The next payload includes the reinjected txs
+The payload with reinjected blob txs is valid
+The payload with the replacement is valid
+The pending nonce after mining: equal to the latest nonce
+The pending nonce after the gap fills: past the last pending tx
+The pending nonce with a nonce gap: the gap
+The pool admits only the txs the balance can pay for
+The pool counts value across a sender's txs (5 ETH after 8 ETH)
+The pool drops a tx whose nonce an authorization used
+The pool drops later nonces the replacement made unpayable
+The pool drops txs whose sender was emptied
+The pool keeps txs while the base fee prices them out
+The pool settles to the filler count after the import
+The pool stays within global_slots + global_queue
+The reverted tx has receipt status 0
+The sweeper empties the delegated account
+The valid control tx is in the built payload
+Txs after a nonce gap are not pending
+Txs after a nonce gap are queued
+Txs are included in the first block where they are valid
+Txs are ordered by effective tip (nonce order kept)
+Txs included in B1 leave the pool
+Txs of an emptied account are never in a payload
+Txs of one sender are in nonce order, without gaps
+Txs priced out by the base fee are never in a payload
+Txs sent in reverse nonce order all become pending
+Unpayable later nonces are never in a payload
+Valid txs are accepted under sustained load
