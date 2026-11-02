@@ -434,8 +434,9 @@ type rpcTx struct {
 	BlockHash *common.Hash `json:"blockHash"`
 }
 
-// batchSize keeps one batch request well below the default HTTP body limits.
-const batchSize = 200
+// BatchSize is the most calls in one JSON-RPC batch. Erigon refuses batches
+// above 100 by default (--rpc.batch.limit).
+const BatchSize = 100
 
 // InPool reads the pool itself (txpool_content), not the chain: after a head
 // change, a mined tx can stay in the pool until the client resets the pool in
@@ -478,8 +479,8 @@ func (o *observer) InPool(ctx context.Context, hashes []common.Hash) (map[common
 func (o *observer) knownUnmined(ctx context.Context, hashes []common.Hash) (map[common.Hash]bool, error) {
 	out := make(map[common.Hash]bool, len(hashes))
 
-	for start := 0; start < len(hashes); start += batchSize {
-		end := min(start+batchSize, len(hashes))
+	for start := 0; start < len(hashes); start += BatchSize {
+		end := min(start+BatchSize, len(hashes))
 		chunk := hashes[start:end]
 
 		results := make([]*rpcTx, len(chunk))

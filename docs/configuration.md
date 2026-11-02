@@ -801,7 +801,7 @@ A hard assertion that does not hold fails the scenario. A soft assertion records
 
 Limits of the current version:
 
-- Only `geth`, `besu` and `nethermind` have a mempool profile. The run refuses other clients.
+- `geth`, `besu`, `nethermind`, `reth` and `erigon` have a mempool profile. The run refuses the other clients.
 - The genesis is generated, so a `datadir` (for example a state-actor snapshot) is not supported yet.
 - `rollback_strategy` defaults to `container-recreate`, so every scenario starts with an empty pool. `rpc-debug-setHead` is refused: it can put txs back into the pool.
 

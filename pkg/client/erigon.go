@@ -1,5 +1,7 @@
 package client
 
+import "fmt"
+
 type erigonSpec struct{}
 
 // NewErigonSpec creates a new Erigon client specification.
@@ -169,4 +171,28 @@ func (s *erigonSpec) DBMaintenanceCommands(dataDir string) *DBMaintenanceCommand
 		Compact: []string{"db", "compact", "--datadir=" + dataDir},
 		Inspect: []string{"seg", "du", "--datadir=" + dataDir, "--verbose"},
 	}
+}
+
+// Ensure erigon has a mempool profile.
+var _ MempoolProfile = (*erigonSpec)(nil)
+
+// MempoolCommand returns the erigon command for the mempool mode. It turns
+// the pool on (the replay command has --txpool.disable).
+func (s *erigonSpec) MempoolCommand(settings MempoolSettings) []string {
+	l := settings.Limits
+
+	return replaceFlags(s.DefaultCommand(), map[string]string{
+		"--txpool.disable":        "",
+		"--maxpeers=":             "--maxpeers=50",
+		"--port=":                 fmt.Sprintf("--port=%d", settings.P2PPort),
+		"--http.api=":             "--http.api=web3,eth,net,engine,debug,txpool",
+		"--txpool.accountslots=":  fmt.Sprintf("--txpool.accountslots=%d", l.AccountSlots),
+		"--txpool.globalslots=":   fmt.Sprintf("--txpool.globalslots=%d", l.GlobalSlots),
+		"--txpool.globalqueue=":   fmt.Sprintf("--txpool.globalqueue=%d", l.GlobalQueue),
+		"--txpool.pricebump=":     fmt.Sprintf("--txpool.pricebump=%d", l.PriceBump),
+		"--txpool.blobpricebump=": fmt.Sprintf("--txpool.blobpricebump=%d", l.BlobPriceBump),
+		"--txpool.pricelimit=":    "--txpool.pricelimit=1",
+		"--miner.gaslimit=":       fmt.Sprintf("--miner.gaslimit=%d", settings.GasLimit),
+		"--rpc.txfeecap=":         "--rpc.txfeecap=0",
+	})
 }

@@ -72,8 +72,8 @@ runner:
       # txs back into the pool and leaves it dirty for the next scenario.
       rollback_strategy: container-recreate
 
-  # Clients with a mempool profile: geth, besu, nethermind. They run one
-  # after the other on the same genesis, so the UI compares them.
+  # Clients with a mempool profile: geth, besu, nethermind, reth, erigon.
+  # They run one after the other on the same genesis, so the UI compares them.
   instances:
     - id: geth
       client: geth
@@ -84,3 +84,9 @@ runner:
     - id: nethermind
       client: nethermind
       image: ethpandaops/nethermind:master
+    - id: reth
+      client: reth
+      image: ethpandaops/reth:main
+    - id: erigon
+      client: erigon
+      image: ethpandaops/erigon:main

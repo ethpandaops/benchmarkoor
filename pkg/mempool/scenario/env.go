@@ -25,27 +25,30 @@ const pollEvery = 5 * time.Millisecond
 
 // syncNonces sets the factory nonces of accounts from the chain head.
 func (e *Env) syncNonces(ctx context.Context, accounts []*txfactory.Account) error {
-	results := make([]hexutil.Uint64, len(accounts))
-	batch := make([]rpc.BatchElem, len(accounts))
+	for start := 0; start < len(accounts); start += observer.BatchSize {
+		chunk := accounts[start:min(start+observer.BatchSize, len(accounts))]
+		results := make([]hexutil.Uint64, len(chunk))
+		batch := make([]rpc.BatchElem, len(chunk))
 
-	for i, a := range accounts {
-		batch[i] = rpc.BatchElem{
-			Method: "eth_getTransactionCount",
-			Args:   []any{a.Address, "latest"},
-			Result: &results[i],
-		}
-	}
-
-	if err := e.Pool.RPC().BatchCallContext(ctx, batch); err != nil {
-		return fmt.Errorf("eth_getTransactionCount batch: %w", err)
-	}
-
-	for i, a := range accounts {
-		if batch[i].Error != nil {
-			return fmt.Errorf("eth_getTransactionCount %s: %w", a.Address, batch[i].Error)
+		for i, a := range chunk {
+			batch[i] = rpc.BatchElem{
+				Method: "eth_getTransactionCount",
+				Args:   []any{a.Address, "latest"},
+				Result: &results[i],
+			}
 		}
 
-		a.SetNonce(uint64(results[i]))
+		if err := e.Pool.RPC().BatchCallContext(ctx, batch); err != nil {
+			return fmt.Errorf("eth_getTransactionCount batch: %w", err)
+		}
+
+		for i, a := range chunk {
+			if batch[i].Error != nil {
+				return fmt.Errorf("eth_getTransactionCount %s: %w", a.Address, batch[i].Error)
+			}
+
+			a.SetNonce(uint64(results[i]))
+		}
 	}
 
 	return nil

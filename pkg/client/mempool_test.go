@@ -36,10 +36,17 @@ func TestGethMempoolCommand(t *testing.T) {
 }
 
 func TestMempoolProfileMissing(t *testing.T) {
-	assert.False(t, SupportsMempool(NewErigonSpec()))
+	assert.False(t, SupportsMempool(NewNimbusSpec()))
 
-	_, err := MempoolCommandFor(NewErigonSpec(), MempoolSettings{})
+	_, err := MempoolCommandFor(NewNimbusSpec(), MempoolSettings{})
 	require.Error(t, err)
+}
+
+func TestErigonMempoolTurnsThePoolOn(t *testing.T) {
+	cmd, err := MempoolCommandFor(NewErigonSpec(), MempoolSettings{GasLimit: 1, P2PPort: 30303})
+	require.NoError(t, err)
+	assert.NotContains(t, cmd, "--txpool.disable")
+	assert.Contains(t, cmd, "--http.api=web3,eth,net,engine,debug,txpool")
 }
 
 func TestReplaceFlags(t *testing.T) {
@@ -50,5 +57,7 @@ func TestReplaceFlags(t *testing.T) {
 	})
 
 	assert.Equal(t, []string{"--a=9", "--b", "--c=3", "--y=2", "--z=1"}, got)
+
+	assert.Equal(t, []string{"--a=1"}, replaceFlags([]string{"--a=1", "--off"}, map[string]string{"--off": "", "--gone=": ""}))
 	assert.True(t, slices.IsSorted(got[3:]))
 }

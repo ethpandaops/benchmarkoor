@@ -59,7 +59,7 @@ func SupportsMempool(spec Spec) bool {
 
 // replaceFlags returns cmd with every flag in replace swapped for its new
 // value. A key is a flag prefix such as "--maxpeers=". A key with no match in
-// cmd is appended.
+// cmd is appended. An empty value removes the flag.
 func replaceFlags(cmd []string, replace map[string]string) []string {
 	out := make([]string, 0, len(cmd)+len(replace))
 	used := make(map[string]bool, len(replace))
@@ -69,7 +69,10 @@ func replaceFlags(cmd []string, replace map[string]string) []string {
 
 		for prefix, value := range replace {
 			if strings.HasPrefix(arg, prefix) {
-				out = append(out, value)
+				if value != "" {
+					out = append(out, value)
+				}
+
 				used[prefix] = true
 				replaced = true
 
@@ -86,7 +89,7 @@ func replaceFlags(cmd []string, replace map[string]string) []string {
 	missing := make([]string, 0, len(replace))
 
 	for prefix := range replace {
-		if !used[prefix] {
+		if !used[prefix] && replace[prefix] != "" {
 			missing = append(missing, prefix)
 		}
 	}

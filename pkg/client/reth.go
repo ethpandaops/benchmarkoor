@@ -1,5 +1,7 @@
 package client
 
+import "fmt"
+
 type rethSpec struct{}
 
 // NewRethSpec creates a new Reth client specification.
@@ -110,4 +112,27 @@ func (s *rethSpec) SnapshotPrepareArgs() []string {
 // compaction command for Reth yet.
 func (s *rethSpec) DBMaintenanceCommands(_ string) *DBMaintenanceCommands {
 	return nil
+}
+
+// Ensure reth has a mempool profile.
+var _ MempoolProfile = (*rethSpec)(nil)
+
+// MempoolCommand returns the reth command for the mempool mode. Reth's pending
+// and queued sub-pool counts take geth's global slots and global queue.
+func (s *rethSpec) MempoolCommand(settings MempoolSettings) []string {
+	l := settings.Limits
+
+	return replaceFlags(s.DefaultCommand(), map[string]string{
+		"--disable-discovery":                  "--disable-discovery",
+		"--port=":                              fmt.Sprintf("--port=%d", settings.P2PPort),
+		"--txpool.max-account-slots=":          fmt.Sprintf("--txpool.max-account-slots=%d", l.AccountSlots),
+		"--txpool.pending-max-count=":          fmt.Sprintf("--txpool.pending-max-count=%d", l.GlobalSlots),
+		"--txpool.queued-max-count=":           fmt.Sprintf("--txpool.queued-max-count=%d", l.GlobalQueue),
+		"--txpool.pricebump=":                  fmt.Sprintf("--txpool.pricebump=%d", l.PriceBump),
+		"--blobpool.pricebump=":                fmt.Sprintf("--blobpool.pricebump=%d", l.BlobPriceBump),
+		"--txpool.nolocals":                    "--txpool.nolocals",
+		"--txpool.disable-transactions-backup": "--txpool.disable-transactions-backup",
+		"--builder.gaslimit=":                  fmt.Sprintf("--builder.gaslimit=%d", settings.GasLimit),
+		"--rpc.txfeecap=":                      "--rpc.txfeecap=0",
+	})
 }

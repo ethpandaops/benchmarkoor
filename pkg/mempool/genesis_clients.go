@@ -40,6 +40,8 @@ func clientGenesisFiles(m config.MempoolConfig) (map[string]genesisFile, error) 
 
 	return map[string]genesisFile{
 		"geth":       {name: "genesis.geth.json", data: gethJSON},
+		"reth":       {name: "genesis.geth.json", data: gethJSON},
+		"erigon":     {name: "genesis.geth.json", data: gethJSON},
 		"besu":       {name: "genesis.besu.json", data: besuJSON},
 		"nethermind": {name: "chainspec.nethermind.json", data: nmJSON},
 	}, nil

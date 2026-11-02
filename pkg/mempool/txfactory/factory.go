@@ -335,7 +335,7 @@ func (f *factory) Build(from *Account, t Template) (*types.Transaction, error) {
 			BlobFeeCap: u256(blobFee), BlobHashes: sidecar.BlobHashes(), Sidecar: sidecar,
 		}
 	case KindSetCode:
-		auths, err := f.authorizations(from, t, chainID)
+		auths, err := f.authorizations(from, nonce, t, chainID)
 		if err != nil {
 			return nil, err
 		}
@@ -357,9 +357,10 @@ func (f *factory) Build(from *Account, t Template) (*types.Transaction, error) {
 	return tx, nil
 }
 
-// authorizations signs AuthCount EIP-7702 authorizations by fresh keys (not
-// the sender), each delegating to the sink address.
-func (f *factory) authorizations(from *Account, t Template, chainID *big.Int,
+// authorizations signs AuthCount EIP-7702 authorizations, each delegating to
+// the sink address. Every tx gets its own authorities (by sender and nonce):
+// a pool may refuse a second pending tx for an authority (erigon does).
+func (f *factory) authorizations(from *Account, nonce uint64, t Template, chainID *big.Int,
 ) ([]types.SetCodeAuthorization, error) {
 	if t.NoAuth {
 		return []types.SetCodeAuthorization{}, nil
@@ -373,7 +374,7 @@ func (f *factory) authorizations(from *Account, t Template, chainID *big.Int,
 	out := make([]types.SetCodeAuthorization, 0, n)
 
 	for i := range n {
-		key := DeriveKey(f.seed+"/authority", from.Index*64+i)
+		key := DeriveKey(fmt.Sprintf("%s/authority/%d/%d", f.seed, from.Index, nonce), i)
 
 		auth, err := types.SignSetCode(key, types.SetCodeAuthorization{
 			ChainID: *u256(chainID), Address: sink, Nonce: 0,
