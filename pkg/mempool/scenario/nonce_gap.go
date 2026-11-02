@@ -30,21 +30,22 @@ func (s *nonceGap) Description() string {
 
 func (s *nonceGap) Defaults() Params {
 	return Params{
-		"gap_txs":    8, // queued txs behind the gap (at most the account queue)
-		"rounds":     5, // gap/fill rounds, one sender each
-		"affordable": 3, // txs the poor sender can pay for
+		"gap_txs":    8,    // queued txs behind the gap (at most the account queue)
+		"rounds":     5,    // gap/fill rounds, one sender each
+		"affordable": 3,    // txs the poor sender can pay for
+		"far_nonce":  1000, // a nonce this far ahead: queued or rejected
 		"timeout_ms": 10000,
 	}
 }
 
-func (s *nonceGap) Accounts(p Params) int { return p.Int("rounds") + 2 }
+func (s *nonceGap) Accounts(p Params) int { return p.Int("rounds") + 4 }
 
 func (s *nonceGap) Run(ctx context.Context, env *Env) error {
 	p := env.Params
 	timeout := p.Duration("timeout_ms")
 	gap := p.Int("gap_txs")
 
-	accounts, err := env.Accounts(ctx, p.Int("rounds")+2)
+	accounts, err := env.Accounts(ctx, p.Int("rounds")+4)
 	if err != nil {
 		return err
 	}
@@ -63,9 +64,21 @@ func (s *nonceGap) Run(ctx context.Context, env *Env) error {
 		return err
 	}
 
-	_, err = env.Drain(ctx, 16)
+	if _, err := env.Drain(ctx, 16); err != nil {
+		return err
+	}
 
-	return err
+	// The last two cases can leave txs that never become includable (a far
+	// nonce, an unpayable value tx), so they run after the drain.
+	if err := s.farNonce(ctx, env, accounts[p.Int("rounds")+2]); err != nil {
+		return fmt.Errorf("far nonce: %w", err)
+	}
+
+	if err := s.cumulativeValue(ctx, env, accounts[p.Int("rounds")+3]); err != nil {
+		return fmt.Errorf("cumulative value: %w", err)
+	}
+
+	return nil
 }
 
 // gapRound sends nonces 1..gap (queued), checks that none is pending or
@@ -93,6 +106,12 @@ func (s *nonceGap) gapRound(ctx context.Context, env *Env, a *txfactory.Account,
 
 	if _, err := env.WaitInPool(ctx, time.Now(), Hashes(gapped), timeout); err != nil {
 		return fmt.Errorf("waiting for the gapped txs: %w", err)
+	}
+
+	// Wallets ask for the "pending" nonce to pick the next one. With a gap,
+	// the next usable nonce is the gap itself.
+	if err := pendingNonceCheck(ctx, env, a, base, "with a nonce gap: the gap"); err != nil {
+		return err
 	}
 
 	pending, queued, err := env.ContentFrom(ctx, a.Address)
@@ -157,9 +176,37 @@ func (s *nonceGap) gapRound(ctx context.Context, env *Env, a *txfactory.Account,
 
 	a.SetNonce(base + uint64(gap) + 1)
 
-	_, err = env.Drain(ctx, 8)
+	if err := pendingNonceCheck(ctx, env, a, base+uint64(gap)+1, "after the gap fills: past the last pending tx"); err != nil {
+		return err
+	}
 
-	return err
+	if _, err := env.Drain(ctx, 8); err != nil {
+		return err
+	}
+
+	latest, err := env.NonceAt(ctx, a.Address, "latest")
+	if err != nil {
+		return err
+	}
+
+	env.Rec.CheckOnce(SeverityHard, latest == base+uint64(gap)+1, "After mining, the latest nonce counts every mined tx",
+		fmt.Sprintf("%d", base+uint64(gap)+1), fmt.Sprintf("%d", latest))
+
+	return pendingNonceCheck(ctx, env, a, latest, "after mining: equal to the latest nonce")
+}
+
+// pendingNonceCheck checks eth_getTransactionCount(addr, "pending"). The
+// "pending" tag is not specified exactly, so a different answer is a finding.
+func pendingNonceCheck(ctx context.Context, env *Env, a *txfactory.Account, want uint64, when string) error {
+	got, err := env.NonceAt(ctx, a.Address, "pending")
+	if err != nil {
+		return err
+	}
+
+	env.Rec.CheckOnce(SeveritySoft, got == want, "The pending nonce "+when,
+		fmt.Sprintf("%d", want), fmt.Sprintf("%d", got))
+
+	return nil
 }
 
 // waitAllPending waits until the txs (nonces base..base+len-1) are pending.
@@ -346,6 +393,89 @@ func (s *nonceGap) overdraft(ctx context.Context, env *Env, funder *txfactory.Ac
 	// No payload check here: a payload may validly hold more of these txs,
 	// since execution charges the effective gas price, not the fee cap.
 	_, err = env.WaitInPool(ctx, time.Now(), Hashes(sent), timeout)
+
+	return err
+}
+
+// farNonce sends a tx with a nonce far ahead of the account nonce: a pool
+// may queue it or refuse it.
+func (s *nonceGap) farNonce(ctx context.Context, env *Env, a *txfactory.Account) error {
+	far := a.Nonce() + uint64(env.Params.Int("far_nonce"))
+
+	tx, err := env.Factory.Build(a, txfactory.Template{Kind: txfactory.KindDynamicFee, Nonce: new(far)})
+	if err != nil {
+		return err
+	}
+
+	_, sendErr := env.Send(ctx, tx)
+	env.Rec.Event("send", "a tx %d nonces ahead", env.Params.Int("far_nonce"))
+	env.Rec.Observe("far_nonce", fmt.Sprintf("A tx %d nonces ahead of the account", env.Params.Int("far_nonce")),
+		SendText(sendErr))
+
+	return nil
+}
+
+// cumulativeValue: an account with 10 ETH sends 8 ETH, then 5 ETH. Each tx
+// alone is payable, both together are not. After the first is mined, the
+// second can never be valid.
+func (s *nonceGap) cumulativeValue(ctx context.Context, env *Env, funder *txfactory.Account) error {
+	eth := func(n int64) *big.Int { return new(big.Int).Mul(big.NewInt(n), big.NewInt(1_000_000_000_000_000_000)) }
+	rich := txfactory.NewAccount(txfactory.DeriveKey("cumulative-value", funder.Index))
+
+	fund, err := env.Factory.Build(funder, txfactory.Template{
+		Kind: txfactory.KindDynamicFee, To: &rich.Address, Value: eth(10),
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := env.MustSend(ctx, []*types.Transaction{fund}, "fund an account with 10 ETH"); err != nil {
+		return err
+	}
+
+	if _, err := env.Drain(ctx, 4); err != nil {
+		return err
+	}
+
+	sink := common.HexToAddress("0x000000000000000000000000000000000000dEaD")
+
+	first, err := env.Factory.Build(rich, txfactory.Template{Kind: txfactory.KindDynamicFee, To: &sink, Value: eth(8)})
+	if err != nil {
+		return err
+	}
+
+	second, err := env.Factory.Build(rich, txfactory.Template{Kind: txfactory.KindDynamicFee, To: &sink, Value: eth(5)})
+	if err != nil {
+		return err
+	}
+
+	_, err1 := env.Send(ctx, first)
+	_, err2 := env.Send(ctx, second)
+	env.Rec.Event("send", "10 ETH account: 8 ETH, then 5 ETH")
+	env.Rec.Observe("cumulative.second", "10 ETH account, second tx (5 ETH after 8 ETH)", SendText(err2))
+	env.Rec.Check(SeverityHard, err1 == nil, "The first value tx (8 of 10 ETH) is accepted", "accepted", SendText(err1))
+	env.Rec.Check(SeveritySoft, err2 != nil, "The pool counts value across a sender's txs (5 ETH after 8 ETH)",
+		"rejected", SendText(err2))
+
+	if err1 != nil {
+		return nil
+	}
+
+	head, err := env.Head(ctx)
+	if err != nil {
+		return err
+	}
+
+	p, err := env.BuildWith(ctx, head, []common.Hash{first.Hash()}, buildFull)
+	if err != nil {
+		return err
+	}
+
+	env.Rec.Check(SeverityHard, !p.Contains(second.Hash()), "A tx the balance cannot pay after the first is never included",
+		"not included", fmt.Sprintf("included: %v", p.Contains(second.Hash())))
+
+	_, err = env.Import(ctx, p)
+	env.Forbid("unpayable after the 8 ETH tx", second.Hash())
 
 	return err
 }

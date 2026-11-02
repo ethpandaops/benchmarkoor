@@ -38,7 +38,7 @@ func (s *baseFee) Defaults() Params {
 	}
 }
 
-func (s *baseFee) Accounts(p Params) int { return p.Int("capped_txs") + 1 }
+func (s *baseFee) Accounts(p Params) int { return p.Int("capped_txs") + 2 }
 
 // fullBlock builds and imports one block of two gas-burning txs, which keeps
 // the block nearly full, so the base fee rises by almost 12.5%.
@@ -83,12 +83,12 @@ func (s *baseFee) Run(ctx context.Context, env *Env) error {
 	p := env.Params
 	timeout := p.Duration("timeout_ms")
 
-	accs, err := env.Accounts(ctx, p.Int("capped_txs")+1)
+	accs, err := env.Accounts(ctx, p.Int("capped_txs")+2)
 	if err != nil {
 		return err
 	}
 
-	burner, capped := accs[0], accs[1:]
+	burner, zeroTipper, capped := accs[0], accs[1], accs[2:]
 
 	head, err := env.Head(ctx)
 	if err != nil {
@@ -197,7 +197,11 @@ func (s *baseFee) Run(ctx context.Context, env *Env) error {
 	}
 
 	// 4. Let the base fee fall with blocks that hold no burns.
-	return s.fall(ctx, env, accepted, feeCap)
+	if err := s.fall(ctx, env, accepted, feeCap); err != nil {
+		return err
+	}
+
+	return s.zeroTip(ctx, env, zeroTipper)
 }
 
 // fall imports blocks until the capped txs are in one. It records how many
@@ -279,6 +283,42 @@ func (s *baseFee) fall(ctx context.Context, env *Env, txs []*types.Transaction, 
 
 	env.Rec.Check(SeveritySoft, false, "Txs are included once the base fee falls below their cap",
 		"all included", fmt.Sprintf("%d of %d not included", len(pending), len(txs)))
+
+	return nil
+}
+
+// zeroTip sends a tx whose fee cap equals the next base fee: valid, but it
+// pays the builder nothing. Whether a pool keeps it and a builder includes it
+// is policy (geth's miner.gasprice sets a minimum tip).
+func (s *baseFee) zeroTip(ctx context.Context, env *Env, a *txfactory.Account) error {
+	head, err := env.Head(ctx)
+	if err != nil {
+		return err
+	}
+
+	feeCap := head.NextBaseFee()
+
+	tx, err := env.Factory.Build(a, txfactory.Template{
+		Kind: txfactory.KindDynamicFee, Fees: txfactory.Fees{FeeCap: feeCap, TipCap: txfactory.GweiN(1)},
+	})
+	if err != nil {
+		return err
+	}
+
+	_, sendErr := env.Send(ctx, tx)
+	env.Rec.Event("send", "a tx with fee cap = next base fee (%s wei): zero effective tip", feeCap)
+	env.Rec.Observe("zero_tip.admission", "Tx with a zero effective tip (fee cap = base fee)", SendText(sendErr))
+
+	if sendErr != nil {
+		return nil
+	}
+
+	p, err := env.BuildOn(ctx, head, buildFull)
+	if err != nil {
+		return err
+	}
+
+	env.Rec.Observe("zero_tip.included", "Zero-tip tx in the next payload", fmt.Sprintf("%v", p.Contains(tx.Hash())))
 
 	return nil
 }

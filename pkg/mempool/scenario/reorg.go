@@ -258,6 +258,8 @@ func (s *reorg) iteration(ctx context.Context, env *Env, iter int) error {
 	env.Rec.Latency("reorg_settled", "Time until the pool settles after the reorg", "reorg", settled)
 	env.Rec.Event("settled", "iteration %d: pool settled %.1fms after the reorg", iter, Ms(settled))
 
+	env.Forbid("nonce used by T' in B1", t.Hash())
+
 	in, err := env.Pool.InPool(ctx, append(append([]common.Hash{t.Hash()}, Hashes(bystanders)...), Hashes(common1)...))
 	if err != nil {
 		return err

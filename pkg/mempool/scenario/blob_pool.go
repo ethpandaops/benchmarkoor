@@ -111,6 +111,8 @@ func (s *blobPool) reorg(ctx context.Context, env *Env, senders []*txfactory.Acc
 		return err
 	}
 
+	env.CheckBlobsAvailable(ctx, txs, "after admission")
+
 	a1, err := env.BuildWith(ctx, parent, Hashes(txs), cldriver.BuildOptions{Salt: 2})
 	if err != nil {
 		return err
@@ -141,6 +143,10 @@ func (s *blobPool) reorg(ctx context.Context, env *Env, senders []*txfactory.Acc
 	env.Rec.Event("reorg", "head A1 -> B1 (A1 had %d blob txs) in %.2fms", len(txs), Ms(fcuTook))
 
 	back, err := env.WaitInPool(ctx, start, Hashes(txs), 10*time.Second)
+
+	if err == nil {
+		env.CheckBlobsAvailable(ctx, txs, "after a reorg reinjects them")
+	}
 	env.Rec.Check(SeveritySoft, err == nil, "Blob txs of an orphaned block come back to the pool",
 		fmt.Sprintf("%d txs", len(txs)), ErrText(err))
 

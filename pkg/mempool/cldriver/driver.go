@@ -106,6 +106,10 @@ type Payload struct {
 	// FcuDuration and GetPayloadDuration time the two build calls.
 	FcuDuration        time.Duration
 	GetPayloadDuration time.Duration
+	// Attrs are the attributes of the build, and Parent the block it was
+	// built on. Nil when the payload did not come from Build.
+	Attrs  *engine.PayloadAttributes
+	Parent common.Hash
 }
 
 // Contains returns true when the payload includes the tx.
@@ -163,6 +167,9 @@ type Driver interface {
 	Import(ctx context.Context, p *Payload) (ImportTiming, error)
 	// Attributes returns the payload attributes for a child of parent.
 	Attributes(parent *Block, opts BuildOptions) *engine.PayloadAttributes
+	// GetBlobsV2 asks for the blobs and cell proofs of blob txs in the pool
+	// (engine_getBlobsV2). The answer is nil when any blob is missing.
+	GetBlobsV2(ctx context.Context, hashes []common.Hash) ([]*engine.BlobAndProofV2, error)
 }
 
 type driver struct {
@@ -424,6 +431,8 @@ func (d *driver) Build(ctx context.Context, parent *Block, opts BuildOptions) (*
 
 	p.FcuDuration = fcuTook
 	p.GetPayloadDuration = getTook
+	p.Attrs = attrs
+	p.Parent = parent.Hash
 
 	return p, nil
 }
@@ -549,4 +558,14 @@ func withdrawalsOrEmpty(w []*types.Withdrawal) []*types.Withdrawal {
 	}
 
 	return w
+}
+
+// GetBlobsV2 calls engine_getBlobsV2.
+func (d *driver) GetBlobsV2(ctx context.Context, hashes []common.Hash) ([]*engine.BlobAndProofV2, error) {
+	var out []*engine.BlobAndProofV2
+	if err := d.client.CallContext(ctx, &out, "engine_getBlobsV2", hashes); err != nil {
+		return nil, fmt.Errorf("engine_getBlobsV2: %w", err)
+	}
+
+	return out, nil
 }

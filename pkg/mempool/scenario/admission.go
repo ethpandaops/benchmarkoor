@@ -194,6 +194,14 @@ func (s *admission) runKind(ctx context.Context, env *Env, k admissionKind, time
 		fmt.Sprintf("%d accepted", len(txs)), fmt.Sprintf("%d rejected", rejected))
 
 	allIn, err := env.WaitInPool(ctx, start, Hashes(txs), timeout)
+
+	if err == nil {
+		env.CheckRPCRoundTrip(ctx, txs[:min(3, len(txs))])
+
+		if k.kind == txfactory.KindBlob {
+			env.CheckBlobsAvailable(ctx, txs, "after admission")
+		}
+	}
 	env.Rec.Check(SeverityHard, err == nil, fmt.Sprintf("%s: accepted txs are in the pool", k.label),
 		"all in the pool", ErrText(err))
 	env.Rec.Metric(Metric{

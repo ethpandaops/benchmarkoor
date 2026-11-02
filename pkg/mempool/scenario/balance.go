@@ -226,6 +226,8 @@ func (s *balanceChanges) drain(ctx context.Context, env *Env, sponsor, z, draine
 	env.Rec.Check(SeverityHard, bal.Sign() == 0, "The sweeper empties the delegated account", "0 wei",
 		fmt.Sprintf("%s wei", bal))
 
+	env.Forbid("sender emptied by the sweeper", Hashes(pending)...)
+
 	gone, goneErr := env.WaitGone(ctx, start, Hashes(pending), 5*time.Second)
 	env.Rec.Check(SeveritySoft, goneErr == nil, "The pool drops txs whose sender was emptied",
 		fmt.Sprintf("%d dropped", len(pending)), ErrText(goneErr))

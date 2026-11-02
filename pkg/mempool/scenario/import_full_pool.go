@@ -49,6 +49,10 @@ type importSample struct {
 }
 
 func (s *importFullPool) Run(ctx context.Context, env *Env) error {
+	// This scenario times imports: a second newPayload of a build would be
+	// "already known" and distort them.
+	env.SkipBuildValidation()
+
 	p := env.Params
 	timeout := p.Duration("timeout_ms")
 	fillerTotal := p.Int("filler_senders") * p.Int("filler_per_sender")

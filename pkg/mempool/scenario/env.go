@@ -235,10 +235,15 @@ func (e *Env) Build(ctx context.Context, opts cldriver.BuildOptions) (*cldriver.
 // BuildOn builds a payload on parent and records the event.
 func (e *Env) BuildOn(ctx context.Context, parent *cldriver.Block, opts cldriver.BuildOptions,
 ) (*cldriver.Payload, error) {
+	// The txs of the last imports must have left the pool by now.
+	e.checkImported(ctx)
+
 	p, err := e.Driver.Build(ctx, parent, opts)
 	if err != nil {
 		return nil, fmt.Errorf("building on block %d: %w", parent.Number, err)
 	}
+
+	e.CheckBuilt(ctx, p)
 
 	e.Rec.Event("getPayload", "block %d: %d txs, %d gas", p.Block.Number, len(p.Txs),
 		p.Envelope.ExecutionPayload.GasUsed)
@@ -297,6 +302,8 @@ func (e *Env) Import(ctx context.Context, p *cldriver.Payload) (cldriver.ImportT
 		Ms(t.NewPayload))
 	e.Rec.Event("fcu", "head = block %d in %.2fms", p.Block.Number, Ms(t.Fcu))
 
+	e.afterImport(ctx, p)
+
 	return t, nil
 }
 
@@ -327,8 +334,12 @@ func (e *Env) Drain(ctx context.Context, maxBlocks int) (int, error) {
 				return i, nil
 			}
 
-			return i, fmt.Errorf("the pool has %d pending txs but the payload is empty",
-				st.Pending)
+			// Some pools keep txs a builder cannot include (unpayable, or
+			// priced out); scenarios record that as a finding. The drain is
+			// done when nothing else is left to include.
+			e.Rec.Event("drain", "stopped: %d pending txs the builder does not include", st.Pending)
+
+			return i, nil
 		}
 
 		if _, err := e.Import(ctx, p); err != nil {
@@ -450,4 +461,32 @@ func (e *Env) ImportNext(ctx context.Context, opts cldriver.BuildOptions) (*cldr
 	}
 
 	return p, nil
+}
+
+// NonceAt returns eth_getTransactionCount at a block tag ("latest" or
+// "pending").
+func (e *Env) NonceAt(ctx context.Context, addr common.Address, tag string) (uint64, error) {
+	var n hexutil.Uint64
+	if err := e.Pool.RPC().CallContext(ctx, &n, "eth_getTransactionCount", addr, tag); err != nil {
+		return 0, fmt.Errorf("eth_getTransactionCount %s: %w", tag, err)
+	}
+
+	return uint64(n), nil
+}
+
+// ReceiptStatus returns the status of a mined tx (1 success, 0 failure).
+func (e *Env) ReceiptStatus(ctx context.Context, hash common.Hash) (uint64, error) {
+	var r *struct {
+		Status hexutil.Uint64 `json:"status"`
+	}
+
+	if err := e.Pool.RPC().CallContext(ctx, &r, "eth_getTransactionReceipt", hash); err != nil {
+		return 0, fmt.Errorf("eth_getTransactionReceipt: %w", err)
+	}
+
+	if r == nil {
+		return 0, fmt.Errorf("no receipt for %s", hash)
+	}
+
+	return uint64(r.Status), nil
 }

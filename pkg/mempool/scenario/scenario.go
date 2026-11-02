@@ -62,6 +62,13 @@ var SweeperAddress = common.HexToAddress("0x00000000000000000000000000000000005e
 // SweeperCode is CALL(gas, CALLER, SELFBALANCE, 0, 0, 0, 0); STOP.
 var SweeperCode = []byte{0x5f, 0x5f, 0x5f, 0x5f, 0x47, 0x33, 0x5a, 0xf1, 0x00}
 
+// ReverterAddress holds code that always reverts. A call to it is a valid tx
+// that is included, uses its nonce and fails (receipt status 0).
+var ReverterAddress = common.HexToAddress("0x0000000000000000000000000000000000ae7e27")
+
+// ReverterCode is REVERT(0, 0).
+var ReverterCode = []byte{0x5f, 0x5f, 0xfd}
+
 // Chain describes the generated chain.
 type Chain struct {
 	ChainID  uint64
@@ -82,6 +89,8 @@ type Env struct {
 	Params  Params
 	Limits  PoolLimits
 	Chain   Chain
+
+	inv invariantState
 
 	// accountBase and accountCount are the account range of the scenario.
 	accountBase  int

@@ -594,6 +594,9 @@ export const EVENT_HELP: Record<string, string> = {
   settled:
     'After a head change, the pool reached its expected state (included txs gone, reinjected txs back).',
   basefee: 'The base fee crossed the fee cap of the test txs (up, then down again).',
+  withdrawal: 'A block credited a withdrawal to an account (a balance change without a tx).',
+  drain:
+    'The harness stopped clearing the pool: the txs still pending are ones the builder does not include (unpayable or priced out).',
 }
 
 // eventHelp returns the explanation of an event kind, or a generic one.

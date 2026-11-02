@@ -221,8 +221,30 @@ func (s *rejections) Run(ctx context.Context, env *Env) error {
 
 	// The same tx again: "already known" is the usual answer; some clients
 	// return the hash as if accepted. Either way it must not be a second tx.
+	before, err := env.Pool.Status(ctx)
+	if err != nil {
+		return err
+	}
+
 	_, dupErr := env.Send(ctx, valid)
 	env.Rec.Observe("reject.duplicate", "The same tx sent twice", SendText(dupErr))
+
+	if err := sleepCtx(ctx, 100*time.Millisecond); err != nil {
+		return err
+	}
+
+	after, err := env.Pool.Status(ctx)
+	if err != nil {
+		return err
+	}
+
+	env.Rec.Check(SeverityHard, after.Pending+after.Queued == before.Pending+before.Queued,
+		"A duplicate submission does not add a second pool entry",
+		fmt.Sprintf("%d txs", before.Pending+before.Queued), fmt.Sprintf("%d txs", after.Pending+after.Queued))
+
+	if err := s.rawCases(ctx, env, control); err != nil {
+		return err
+	}
 
 	mustReject := make(map[common.Hash]string, len(s.cases()))
 
@@ -260,6 +282,7 @@ func (s *rejections) Run(ctx context.Context, env *Env) error {
 
 		if c.sev == SeverityHard {
 			mustReject[tx.Hash()] = c.key
+			env.Forbid("invalid: "+c.key, tx.Hash())
 		}
 	}
 
@@ -286,4 +309,45 @@ func (s *rejections) Run(ctx context.Context, env *Env) error {
 	_, err = env.WaitInPool(ctx, time.Now(), Hashes([]*types.Transaction{valid}), timeout)
 
 	return err
+}
+
+// rawCases sends bytes that do not decode as a valid tx: they must be
+// rejected. There is no tx object, so they bypass the factory.
+func (s *rejections) rawCases(ctx context.Context, env *Env, a *txfactory.Account) error {
+	tx, err := env.Factory.Build(a, txfactory.Template{Kind: txfactory.KindDynamicFee, Nonce: new(a.Nonce())})
+	if err != nil {
+		return err
+	}
+
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	// Truncated: the RLP list says it is longer than the bytes sent.
+	truncated := raw[:len(raw)-10]
+
+	// Type 0x0f does not exist: the same payload under an unknown type byte.
+	unknown := append([]byte{0x0f}, raw[1:]...)
+
+	for _, c := range []struct {
+		key   string
+		label string
+		raw   []byte
+	}{
+		{"malformed_rlp", "Truncated RLP encoding", truncated},
+		{"unknown_type", "Unknown tx type 0x0f", unknown},
+	} {
+		took, sendErr := env.Pool.SendRaw(ctx, c.raw)
+		if sendErr != nil {
+			env.Rec.Latency("reject_latency", "Time to reject an invalid tx", "rejection", took)
+		}
+
+		env.Rec.Observe("reject."+c.key, c.label, SendText(sendErr))
+		env.Rec.Check(SeverityHard, sendErr != nil, "Rejects: "+c.label, "rejected", SendText(sendErr))
+	}
+
+	env.Rec.Event("send", "2 raw payloads that are not valid txs")
+
+	return nil
 }

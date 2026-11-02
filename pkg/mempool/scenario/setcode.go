@@ -247,6 +247,8 @@ func (s *setcode) nonceBump(ctx context.Context, env *Env, sponsor, y *txfactory
 	env.Rec.Check(SeverityHard, uint64(nonce) == n+1, "A valid authorization moves the authority's nonce",
 		fmt.Sprintf("nonce %d", n+1), fmt.Sprintf("nonce %d", nonce))
 
+	env.Forbid("nonce used by an authorization", yTx.Hash())
+
 	gone, goneErr := env.WaitGone(ctx, start, []common.Hash{yTx.Hash()}, 5*time.Second)
 	env.Rec.Check(SeveritySoft, goneErr == nil, "The pool drops a tx whose nonce an authorization used",
 		"dropped", ErrText(goneErr))

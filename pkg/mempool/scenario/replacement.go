@@ -177,6 +177,8 @@ func (s *replacement) runCase(ctx context.Context, env *Env, a *txfactory.Accoun
 
 	if accepted {
 		// The new tx must take the place of the old one, not sit next to it.
+		env.Forbid("replaced", original.Hash())
+
 		took, err := env.WaitGone(ctx, start, []common.Hash{original.Hash()}, timeout)
 		env.Rec.Check(SeverityHard, err == nil, "Replaced tx leaves the pool: "+c.label,
 			"gone", ErrText(err))
@@ -290,6 +292,9 @@ func (s *replacement) midChain(ctx context.Context, env *Env, a *txfactory.Accou
 
 	start := time.Now()
 	later := Hashes(chain[2:])
+
+	env.Forbid("replaced", chain[1].Hash())
+	env.Forbid("unpayable after the replacement", later...)
 
 	gone, goneErr := env.WaitGone(ctx, start, later, 3*time.Second)
 	env.Rec.Check(SeveritySoft, goneErr == nil, "The pool drops later nonces the replacement made unpayable",

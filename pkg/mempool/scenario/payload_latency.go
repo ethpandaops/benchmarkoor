@@ -38,6 +38,10 @@ func (s *payloadLatency) Defaults() Params {
 func (s *payloadLatency) Accounts(p Params) int { return p.Int("rounds") * p.Int("txs") }
 
 func (s *payloadLatency) Run(ctx context.Context, env *Env) error {
+	// This scenario times imports: a second newPayload of a build would be
+	// "already known" and distort them.
+	env.SkipBuildValidation()
+
 	p := env.Params
 	window := p.Duration("window_ms")
 	n := p.Int("txs")
@@ -139,6 +143,9 @@ func (s *payloadLatency) round(ctx context.Context, env *Env, round int, window 
 	if err != nil {
 		return 0, err
 	}
+
+	payload.Attrs, payload.Parent = attrs, head.Hash
+	env.CheckBuilt(ctx, payload)
 
 	env.Rec.Latency("get_payload", "getPayload at the end of the window", "payload", getTook)
 

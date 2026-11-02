@@ -40,7 +40,7 @@ func (s *ordering) Defaults() Params {
 func (s *ordering) Accounts(p Params) int {
 	fillSenders := (p.Int("fill_txs") + p.Int("fill_per_sender") - 1) / p.Int("fill_per_sender")
 
-	return p.Int("order_senders") + fillSenders + p.Int("blob_txs")
+	return p.Int("order_senders") + fillSenders + p.Int("blob_txs") + 1
 }
 
 func (s *ordering) Run(ctx context.Context, env *Env) error {
@@ -54,6 +54,10 @@ func (s *ordering) Run(ctx context.Context, env *Env) error {
 
 	if err := s.blobs(ctx, env); err != nil {
 		return fmt.Errorf("blobs: %w", err)
+	}
+
+	if err := s.reverted(ctx, env); err != nil {
+		return fmt.Errorf("reverted: %w", err)
 	}
 
 	return nil
@@ -390,6 +394,78 @@ func (s *ordering) blobs(ctx context.Context, env *Env) error {
 	})
 
 	_, err = env.Drain(ctx, 8)
+
+	return err
+}
+
+// reverted: a tx that reverts is still valid. It must be included, use its
+// nonce and leave the pool; the sender's next nonce must work.
+func (s *ordering) reverted(ctx context.Context, env *Env) error {
+	timeout := env.Params.Duration("timeout_ms")
+
+	accs, err := env.Accounts(ctx, 1)
+	if err != nil {
+		return err
+	}
+
+	a := accs[0]
+	nonce := a.Nonce()
+
+	tx, err := env.Factory.Build(a, txfactory.Template{
+		Kind: txfactory.KindDynamicFee, To: &ReverterAddress, Value: big.NewInt(0), Data: []byte{}, Gas: 50_000,
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := env.MustSend(ctx, []*types.Transaction{tx}, "a call that reverts"); err != nil {
+		return err
+	}
+
+	head, err := env.Head(ctx)
+	if err != nil {
+		return err
+	}
+
+	p, err := env.BuildWith(ctx, head, []common.Hash{tx.Hash()}, buildFull)
+	env.Rec.Check(SeverityHard, err == nil, "A tx that reverts is included", "included", ErrText(err))
+
+	if err != nil {
+		return nil
+	}
+
+	if _, err := env.Import(ctx, p); err != nil {
+		return err
+	}
+
+	status, err := env.ReceiptStatus(ctx, tx.Hash())
+	if err != nil {
+		return err
+	}
+
+	env.Rec.Check(SeverityHard, status == 0, "The reverted tx has receipt status 0", "0", fmt.Sprintf("%d", status))
+
+	latest, err := env.NonceAt(ctx, a.Address, "latest")
+	if err != nil {
+		return err
+	}
+
+	env.Rec.Check(SeverityHard, latest == nonce+1, "A reverted tx uses its nonce", fmt.Sprintf("%d", nonce+1),
+		fmt.Sprintf("%d", latest))
+
+	_, goneErr := env.WaitGone(ctx, time.Now(), []common.Hash{tx.Hash()}, timeout)
+	env.Rec.Check(SeverityHard, goneErr == nil, "An included reverted tx leaves the pool", "gone", ErrText(goneErr))
+
+	next, err := env.Factory.Transfer(a, txfactory.KindDynamicFee, txfactory.DefaultFees())
+	if err != nil {
+		return err
+	}
+
+	_, nextErr := env.Send(ctx, next)
+	env.Rec.Check(SeveritySoft, nextErr == nil, "The next nonce after a reverted tx is accepted", "accepted",
+		SendText(nextErr))
+
+	_, err = env.Drain(ctx, 4)
 
 	return err
 }

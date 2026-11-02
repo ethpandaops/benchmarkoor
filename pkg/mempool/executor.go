@@ -393,6 +393,10 @@ func (e *mempoolExecutor) ExecuteTests(ctx context.Context, opts *executor.Execu
 		scenarioCtx, cancel := context.WithTimeout(ctx, e.cfg.ScenarioTimeout)
 		runErr := p.scenario.Run(scenarioCtx, env)
 
+		if runErr == nil {
+			env.FinalInvariants(scenarioCtx)
+		}
+
 		cancel()
 
 		res := rec.Finish(runErr, obs.Samples())

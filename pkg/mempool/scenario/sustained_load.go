@@ -96,6 +96,10 @@ func (t *loadTracker) left() int {
 }
 
 func (s *sustainedLoad) Run(ctx context.Context, env *Env) error {
+	// This scenario times imports: a second newPayload of a build would be
+	// "already known" and distort them.
+	env.SkipBuildValidation()
+
 	p := env.Params
 	slot := p.Duration("slot_ms")
 	build := p.Duration("build_ms")
@@ -274,6 +278,9 @@ func (s *sustainedLoad) block(ctx context.Context, env *Env, slot, build time.Du
 		return 0, err
 	}
 
+	payload.Attrs, payload.Parent = attrs, head.Hash
+	env.CheckBuilt(ctx, payload)
+
 	timing, err := env.Driver.Import(ctx, payload)
 	if err != nil {
 		return 0, fmt.Errorf("importing block %d: %w", payload.Block.Number, err)
@@ -283,6 +290,7 @@ func (s *sustainedLoad) block(ctx context.Context, env *Env, slot, build time.Du
 
 	env.Rec.Latency("new_payload", "newPayload under load", "engine", timing.NewPayload)
 	env.Rec.Latency("fcu_head", "forkchoiceUpdated (head) under load", "engine", timing.Fcu)
+	env.afterImport(ctx, payload)
 
 	for _, h := range payload.TxHashes {
 		if at, ok := t.take(h); ok {

@@ -19,6 +19,7 @@ type Recorder struct {
 	latencies map[string]*latencySeries
 	order     []string
 	checked   map[string]bool
+	invFails  map[string]int
 }
 
 type latencySeries struct {
@@ -48,6 +49,7 @@ func NewRecorder(name, description string, params Params) *Recorder {
 		},
 		latencies: make(map[string]*latencySeries, 8),
 		checked:   make(map[string]bool, 16),
+		invFails:  make(map[string]int, 8),
 	}
 }
 
@@ -122,6 +124,38 @@ func (r *Recorder) CheckOnce(sev Severity, ok bool, name, expected, actual strin
 	}
 
 	return r.Check(sev, ok, name, expected, actual)
+}
+
+// maxInvariantFailures caps the failures recorded per invariant, so a broken
+// rule cannot flood the result.
+const maxInvariantFailures = 3
+
+// Invariant is a hard check that the harness runs on every build or import.
+// It records the first result and the first few failures. The name gets the
+// "Invariant: " prefix.
+func (r *Recorder) Invariant(ok bool, name, expected, actual string) bool {
+	name = "Invariant: " + name
+
+	r.mu.Lock()
+	seen := r.checked[name]
+	r.checked[name] = true
+
+	if !ok {
+		r.invFails[name]++
+	}
+
+	fails := r.invFails[name]
+	r.mu.Unlock()
+
+	if ok && seen {
+		return true
+	}
+
+	if !ok && fails > maxInvariantFailures {
+		return false
+	}
+
+	return r.Check(SeverityHard, ok, name, expected, actual)
 }
 
 // Observe records a behaviour that has no correct value.
