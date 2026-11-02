@@ -93,6 +93,36 @@ func TestRecorderStatus(t *testing.T) {
 	}
 }
 
+func TestRecorderCheckOnce(t *testing.T) {
+	tests := []struct {
+		name   string
+		rounds []bool
+		want   []bool
+	}{
+		{"passes once", []bool{true, true, true}, []bool{true}},
+		{"first failure only", []bool{false, false, false, false, false}, []bool{false}},
+		{"pass then first failure", []bool{true, true, false, true, false}, []bool{true, false}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := NewRecorder("s", "d", nil)
+			for _, ok := range tc.rounds {
+				r.CheckOnce(SeveritySoft, ok, "c", "", "")
+			}
+
+			res := r.Finish(nil, nil)
+
+			got := make([]bool, 0, len(res.Assertions))
+			for _, a := range res.Assertions {
+				got = append(got, a.Passed)
+			}
+
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestOrderingChecks(t *testing.T) {
 	f := txfactory.New(1337, "test", 4)
 	accs, err := f.Accounts(0, 2)

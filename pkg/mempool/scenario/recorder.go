@@ -19,7 +19,7 @@ type Recorder struct {
 	latencies map[string]*latencySeries
 	order     []string
 	checked   map[string]bool
-	invFails  map[string]int
+	fails     map[string]int
 }
 
 type latencySeries struct {
@@ -49,7 +49,7 @@ func NewRecorder(name, description string, params Params) *Recorder {
 		},
 		latencies: make(map[string]*latencySeries, 8),
 		checked:   make(map[string]bool, 16),
-		invFails:  make(map[string]int, 8),
+		fails:     make(map[string]int, 8),
 	}
 }
 
@@ -116,15 +116,21 @@ func (r *Recorder) Check(sev Severity, ok bool, name, expected, actual string) b
 }
 
 // CheckOnce is Check for a check that a scenario repeats (per round or per
-// iteration): it records the first result and every failure, so the table
-// lists each check once unless it fails.
+// iteration): it records the first result and the first failure, so the
+// table lists each check at most twice.
 func (r *Recorder) CheckOnce(sev Severity, ok bool, name, expected, actual string) bool {
 	r.mu.Lock()
 	seen := r.checked[name]
 	r.checked[name] = true
+
+	if !ok {
+		r.fails[name]++
+	}
+
+	fails := r.fails[name]
 	r.mu.Unlock()
 
-	if seen && ok {
+	if seen && (ok || fails > 1) {
 		return ok
 	}
 
@@ -146,10 +152,10 @@ func (r *Recorder) Invariant(ok bool, name, expected, actual string) bool {
 	r.checked[name] = true
 
 	if !ok {
-		r.invFails[name]++
+		r.fails[name]++
 	}
 
-	fails := r.invFails[name]
+	fails := r.fails[name]
 	r.mu.Unlock()
 
 	if ok && seen {
