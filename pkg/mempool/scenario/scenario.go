@@ -129,6 +129,10 @@ func NewRegistry() *Registry {
 	r.Register(&ordering{})
 	r.Register(&importFullPool{})
 	r.Register(&reorg{})
+	r.Register(&eviction{})
+	r.Register(&baseFee{})
+	r.Register(&payloadLatency{})
+	r.Register(&sustainedLoad{})
 
 	return r
 }

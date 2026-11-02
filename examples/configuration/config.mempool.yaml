@@ -34,7 +34,7 @@ runner:
       # The seed derives the pre-funded keys; the same seed gives the same
       # genesis, so runs of different clients compare.
       seed: benchmarkoor-mempool
-      accounts: 2048
+      accounts: 4096
       gas_limit: 30000000
       # Pinned pool limits: the client profile sets these, so a comparison
       # between clients compares implementations, not defaults.
@@ -65,6 +65,16 @@ runner:
         - name: reorg-reinjection
           params:
             iterations: 3
+        - name: eviction-limits
+        - name: base-fee-movement
+        - name: payload-latency
+          params:
+            window_ms: 4000
+        - name: sustained-load
+          params:
+            duration_ms: 60000
+            rate: 200
+            slot_ms: 2000
 
   client:
     config:

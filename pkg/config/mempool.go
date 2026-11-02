@@ -18,7 +18,7 @@ const (
 	DefaultMempoolFork          = "osaka"
 	DefaultMempoolChainID       = 1337
 	DefaultMempoolSeed          = "benchmarkoor-mempool"
-	DefaultMempoolAccounts      = 2048
+	DefaultMempoolAccounts      = 4096
 	DefaultMempoolGasLimit      = 30_000_000
 	DefaultMempoolAccountSlots  = 16
 	DefaultMempoolGlobalSlots   = 5120

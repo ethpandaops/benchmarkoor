@@ -780,7 +780,7 @@ In the mempool mode, benchmarkoor acts as the consensus client through the Engin
 | `mempool.fork` | `osaka` | The fork that is active from genesis. Only `osaka` for now. |
 | `mempool.chain_id` | `1337` | The chain id of the generated genesis. |
 | `mempool.seed` | `benchmarkoor-mempool` | Derives the pre-funded keys. The same seed gives the same genesis. |
-| `mempool.accounts` | `2048` | The number of pre-funded accounts. The scenarios must fit in it. |
+| `mempool.accounts` | `4096` | The number of pre-funded accounts. The scenarios must fit in it. |
 | `mempool.gas_limit` | `30000000` | The block gas limit of the genesis and of built blocks. |
 | `mempool.pool_limits.*` | geth defaults | `account_slots`, `global_slots`, `account_queue`, `global_queue`, `price_bump`, `blob_price_bump`. The client profile pins them, so a comparison compares implementations, not defaults. |
 | `mempool.scenarios` | all | The scenarios to run, in order, each with optional `params`. An unknown parameter is an error. |
@@ -796,6 +796,10 @@ Scenarios:
 | `payload-ordering` | Nonce order per sender, order by effective tip, filling to the gas limit, the blob limit per block. |
 | `import-full-pool` | `newPayload`, `forkchoiceUpdated` and the pool reset for the same block shape with an empty pool and with a full pool. |
 | `reorg-reinjection` | Sibling blocks A1 and B1 from the pool, head A1, then a reorg to B1. Checks and times reinjection and removal. |
+| `eviction-limits` | Fills the pool past its limits. Do higher-tip txs evict the cheapest? Are txs cheaper than everything kept? Also one sender that hogs slots and a gapped flood. |
+| `base-fee-movement` | Full blocks raise the base fee above the fee cap of some txs (they must stay out of payloads), then empty blocks lower it. Are the txs kept and included in the first valid block? |
+| `payload-latency` | One build per window, txs arriving through it, one `getPayload` at the end (as a CL does). Which txs made it in, and how old is the newest one? |
+| `sustained-load` | A steady tx rate with a block every slot. Admission latency, inclusion delay, pool size and memory over time, and Engine API latencies under load. |
 
 A hard assertion that does not hold fails the scenario. A soft assertion records a finding: most pool rules are not consensus rules, so a difference between clients is not automatically a failure.
 

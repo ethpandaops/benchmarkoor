@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/ethpandaops/benchmarkoor/pkg/mempool/cldriver"
 	"github.com/ethpandaops/benchmarkoor/pkg/mempool/txfactory"
 )
 
@@ -22,7 +21,7 @@ func (s *admission) Name() string { return "admission" }
 func (s *admission) Description() string {
 	return "Latency and throughput of eth_sendRawTransaction per tx type " +
 		"(legacy, access-list, dynamic-fee, blob with cell proofs, 6-blob, set-code), " +
-		"the time until a tx is pending, and the time until it is in a built payload."
+		"and the time until a tx is pending. (payload-latency times inclusion in payloads.)"
 }
 
 func (s *admission) Defaults() Params {
@@ -33,7 +32,6 @@ func (s *admission) Defaults() Params {
 		"blob6_txs":       8,  // 6-blob txs per phase
 		"concurrency":     8,  // parallel senders in the throughput phase
 		"pending_samples": 32, // txs timed until pending, per type
-		"payload_txs":     64, // txs timed until they are in a built payload
 		"timeout_ms":      30000,
 	}
 }
@@ -58,7 +56,7 @@ var admissionKinds = []admissionKind{
 func (s *admission) Accounts(p Params) int {
 	perKind := 2*p.Int("senders") + p.Int("pending_samples")
 
-	return len(admissionKinds)*perKind + p.Int("payload_txs")
+	return len(admissionKinds) * perKind
 }
 
 // shape returns the senders and the txs per sender of one phase for a kind.
@@ -88,7 +86,7 @@ func (s *admission) Run(ctx context.Context, env *Env) error {
 		}
 	}
 
-	return s.timeToPayload(ctx, env, timeout)
+	return nil
 }
 
 // lanes signs perSender txs for each sender: lane i holds the txs of sender i
@@ -349,85 +347,4 @@ func (s *admission) waitPending(ctx context.Context, env *Env, start time.Time,
 		case <-time.After(time.Millisecond):
 		}
 	}
-}
-
-// payloadPoll is the wait between a build start and its getPayload while the
-// scenario polls for a payload with the new txs. Shorter waits measure the
-// harness: some clients (besu) return an early payload for each new build.
-const payloadPoll = 25 * time.Millisecond
-
-// timeToPayload sends txs on an empty pool and starts a build right after the
-// last send. It measures how long until a built payload holds all of them.
-func (s *admission) timeToPayload(ctx context.Context, env *Env, timeout time.Duration) error {
-	n := env.Params.Int("payload_txs")
-
-	accounts, err := env.Accounts(ctx, n)
-	if err != nil {
-		return err
-	}
-
-	txs := make([]*types.Transaction, 0, n)
-
-	for _, a := range accounts {
-		tx, err := env.Factory.Transfer(a, txfactory.KindDynamicFee, txfactory.DefaultFees())
-		if err != nil {
-			return err
-		}
-
-		txs = append(txs, tx)
-	}
-
-	head, err := env.Head(ctx)
-	if err != nil {
-		return err
-	}
-
-	if err := env.MustSend(ctx, txs); err != nil {
-		return err
-	}
-
-	start := time.Now()
-	want := Hashes(txs)
-
-	env.Rec.Event("send", "%d dynamic-fee txs, then build at once", n)
-
-	for attempt := uint64(0); ; attempt++ {
-		payload, err := env.BuildOn(ctx, head, cldriver.BuildOptions{Delay: payloadPoll, Salt: 1000 + attempt})
-		if err != nil {
-			return err
-		}
-
-		missing := 0
-
-		for _, h := range want {
-			if !payload.Contains(h) {
-				missing++
-			}
-		}
-
-		if missing == 0 {
-			took := time.Since(start)
-			env.Rec.Metric(Metric{
-				Key: "time_to_payload", Label: fmt.Sprintf("Time until %d new txs are in a built payload", n),
-				Unit: "ms", Value: Ms(took), Group: "payload", Better: "lower",
-			})
-			env.Rec.Metric(Metric{
-				Key: "builds_to_payload", Label: "Builds until the payload holds every new tx",
-				Unit: "builds", Value: float64(attempt + 1), Group: "payload", Better: "lower",
-			})
-
-			break
-		}
-
-		if time.Since(start) > timeout {
-			env.Rec.Check(SeverityHard, false, "Pending txs reach a built payload",
-				fmt.Sprintf("%d txs", n), fmt.Sprintf("%d missing after %s", missing, timeout))
-
-			break
-		}
-	}
-
-	_, err = env.Drain(ctx, 16)
-
-	return err
 }

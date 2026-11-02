@@ -62,6 +62,36 @@ type Block struct {
 	Timestamp uint64
 	BaseFee   *big.Int
 	GasLimit  uint64
+	GasUsed   uint64
+}
+
+// NextBaseFee returns the EIP-1559 base fee of a child of b (elasticity 2,
+// change denominator 8).
+func (b *Block) NextBaseFee() *big.Int {
+	target := b.GasLimit / 2
+	base := new(big.Int).Set(b.BaseFee)
+
+	if target == 0 || b.GasUsed == target {
+		return base
+	}
+
+	if b.GasUsed > target {
+		delta := new(big.Int).Mul(base, new(big.Int).SetUint64(b.GasUsed-target))
+		delta.Div(delta, new(big.Int).SetUint64(target))
+		delta.Div(delta, big.NewInt(8))
+
+		if delta.Sign() == 0 {
+			delta.SetInt64(1)
+		}
+
+		return base.Add(base, delta)
+	}
+
+	delta := new(big.Int).Mul(base, new(big.Int).SetUint64(target-b.GasUsed))
+	delta.Div(delta, new(big.Int).SetUint64(target))
+	delta.Div(delta, big.NewInt(8))
+
+	return base.Sub(base, delta)
 }
 
 // Payload is a built payload that is not imported yet.
@@ -196,6 +226,7 @@ type rpcHeader struct {
 	Timestamp hexutil.Uint64 `json:"timestamp"`
 	BaseFee   *hexutil.Big   `json:"baseFeePerGas"`
 	GasLimit  hexutil.Uint64 `json:"gasLimit"`
+	GasUsed   hexutil.Uint64 `json:"gasUsed"`
 }
 
 func (h *rpcHeader) block() *Block {
@@ -204,6 +235,7 @@ func (h *rpcHeader) block() *Block {
 		Number:    uint64(h.Number),
 		Timestamp: uint64(h.Timestamp),
 		GasLimit:  uint64(h.GasLimit),
+		GasUsed:   uint64(h.GasUsed),
 		BaseFee:   new(big.Int),
 	}
 
@@ -415,6 +447,7 @@ func newPayload(env *engine.ExecutionPayloadEnvelope, beaconRoot common.Hash) (*
 			Timestamp: ed.Timestamp,
 			BaseFee:   ed.BaseFeePerGas,
 			GasLimit:  ed.GasLimit,
+			GasUsed:   ed.GasUsed,
 		},
 		TxHashes: make([]common.Hash, 0, len(ed.Transactions)),
 		Txs:      make([]*types.Transaction, 0, len(ed.Transactions)),
