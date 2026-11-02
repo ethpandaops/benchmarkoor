@@ -123,3 +123,10 @@ func TestOrderingChecks(t *testing.T) {
 	assert.Equal(t, -1, firstMismatch(got, got))
 	assert.Equal(t, 0, firstMismatch([]*types.Transaction{a0}, got))
 }
+
+func TestBlobBaseFee(t *testing.T) {
+	assert.Equal(t, int64(1), blobBaseFee(0, 5007716).Int64())
+	// e^(excess/fraction), rounded down: 3.48M excess is just past ln(2).
+	assert.Equal(t, int64(2), blobBaseFee(3_480_000, 5007716).Int64())
+	assert.Equal(t, int64(7), blobBaseFee(10_000_000, 5007716).Int64())
+}

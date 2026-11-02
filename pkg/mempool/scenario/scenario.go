@@ -77,6 +77,8 @@ type Chain struct {
 	MaxTxGas uint64
 	// MaxBlobsPerBlock is the blob limit of the active fork.
 	MaxBlobsPerBlock int
+	// BlobUpdateFraction is the blob base fee update fraction of the fork.
+	BlobUpdateFraction uint64
 }
 
 // Env is what a scenario runs against.

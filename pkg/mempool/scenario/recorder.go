@@ -75,6 +75,10 @@ func (r *Recorder) Metric(m Metric) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if m.Explain == nil {
+		m.Explain = ExplainMetric(m.Key)
+	}
+
 	r.result.Metrics = append(r.result.Metrics, m)
 }
 
@@ -100,7 +104,8 @@ func (r *Recorder) Check(sev Severity, ok bool, name, expected, actual string) b
 	defer r.mu.Unlock()
 
 	r.result.Assertions = append(r.result.Assertions, Assertion{
-		Name: name, Severity: sev, Passed: ok, Expected: expected, Actual: actual, Explain: Explain(name),
+		Name: name, Severity: sev, TMs: r.sinceStart(time.Now()), Passed: ok, Expected: expected, Actual: actual,
+		Explain: Explain(name),
 	})
 
 	if !ok && sev == SeverityHard && r.result.Status == StatusPassed {
@@ -158,6 +163,15 @@ func (r *Recorder) Invariant(ok bool, name, expected, actual string) bool {
 	return r.Check(SeverityHard, ok, name, expected, actual)
 }
 
+// Block records an imported block on the time axis.
+func (r *Recorder) Block(b BlockPoint) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	b.TMs = r.sinceStart(time.Now())
+	r.result.Blocks = append(r.result.Blocks, b)
+}
+
 // Observe records a behaviour that has no correct value.
 func (r *Recorder) Observe(key, label, value string) {
 	r.mu.Lock()
@@ -204,7 +218,9 @@ func (r *Recorder) Finish(err error, samples []observer.Sample) *Result {
 
 	for _, key := range r.order {
 		s := r.latencies[key]
-		res.Latencies = append(res.Latencies, summarize(key, s))
+		l := summarize(key, s)
+		l.Explain = ExplainLatency(key)
+		res.Latencies = append(res.Latencies, l)
 	}
 
 	return res

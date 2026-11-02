@@ -383,10 +383,11 @@ func (e *mempoolExecutor) ExecuteTests(ctx context.Context, opts *executor.Execu
 			Params:  p.params,
 			Limits:  limits,
 			Chain: scenario.Chain{
-				ChainID:          m.ChainID,
-				GasLimit:         m.GasLimit,
-				MaxTxGas:         params.MaxTxGas,
-				MaxBlobsPerBlock: blobCfg.Max,
+				ChainID:            m.ChainID,
+				GasLimit:           m.GasLimit,
+				MaxTxGas:           params.MaxTxGas,
+				MaxBlobsPerBlock:   blobCfg.Max,
+				BlobUpdateFraction: blobCfg.UpdateFraction,
 			},
 		}, p.accountBase, p.accountCount)
 

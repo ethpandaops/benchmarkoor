@@ -216,6 +216,48 @@ func (e *Env) afterImport(ctx context.Context, p *cldriver.Payload) {
 	}
 
 	e.inv.imported = append(e.inv.imported, p)
+
+	ed := p.Envelope.ExecutionPayload
+	b := BlockPoint{
+		Number: ed.Number, Txs: len(p.Txs), GasUsed: ed.GasUsed, GasLimit: ed.GasLimit,
+		BaseFee: bigFloat(ed.BaseFeePerGas),
+	}
+
+	if ed.BlobGasUsed != nil {
+		b.BlobGasUsed = *ed.BlobGasUsed
+	}
+
+	if ed.ExcessBlobGas != nil && e.Chain.BlobUpdateFraction > 0 {
+		b.BlobBaseFee = bigFloat(blobBaseFee(*ed.ExcessBlobGas, e.Chain.BlobUpdateFraction))
+	}
+
+	e.Rec.Block(b)
+}
+
+func bigFloat(v *big.Int) float64 {
+	if v == nil {
+		return 0
+	}
+
+	f, _ := new(big.Float).SetInt(v).Float64()
+
+	return f
+}
+
+// blobBaseFee is EIP-4844's fake_exponential(1, excess, fraction): the blob
+// base fee of a block from its excess blob gas.
+func blobBaseFee(excess, fraction uint64) *big.Int {
+	factor, num, den := big.NewInt(1), new(big.Int).SetUint64(excess), new(big.Int).SetUint64(fraction)
+	output := new(big.Int)
+	acc := new(big.Int).Mul(factor, den)
+
+	for i := int64(1); acc.Sign() > 0; i++ {
+		output.Add(output, acc)
+		acc.Mul(acc, num)
+		acc.Div(acc, new(big.Int).Mul(den, big.NewInt(i)))
+	}
+
+	return output.Div(output, den)
 }
 
 // priorityFees sums (effectiveGasPrice - baseFee) * gasUsed over the receipts

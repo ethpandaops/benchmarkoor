@@ -40,3 +40,23 @@ func TestEveryObservationIsExplained(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryMetricAndLatencyIsExplained does the same for metric and latency
+// keys.
+func TestEveryMetricAndLatencyIsExplained(t *testing.T) {
+	for file, fn := range map[string]func(string) *Explanation{
+		"testdata/metric_keys.txt":  ExplainMetric,
+		"testdata/latency_keys.txt": ExplainLatency,
+	} {
+		data, err := os.ReadFile(file)
+		require.NoError(t, err)
+
+		for _, key := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			e := fn(key)
+			if assert.NotNil(t, e, file+": "+key) {
+				assert.NotEmpty(t, e.What, key)
+				assert.NotEmpty(t, e.OK, key)
+			}
+		}
+	}
+}

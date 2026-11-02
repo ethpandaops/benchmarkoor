@@ -43,6 +43,20 @@ type Result struct {
 	Events       []Event       `json:"events"`
 	Assertions   []Assertion   `json:"assertions"`
 	Observations []Observation `json:"observations"`
+	// Blocks has one entry per imported block, for the fee lanes.
+	Blocks []BlockPoint `json:"blocks,omitempty"`
+}
+
+// BlockPoint is one imported block on the scenario time axis.
+type BlockPoint struct {
+	TMs         float64 `json:"t_ms"`
+	Number      uint64  `json:"number"`
+	Txs         int     `json:"txs"`
+	GasUsed     uint64  `json:"gas_used"`
+	GasLimit    uint64  `json:"gas_limit"`
+	BaseFee     float64 `json:"base_fee"` // wei
+	BlobGasUsed uint64  `json:"blob_gas_used"`
+	BlobBaseFee float64 `json:"blob_base_fee"` // wei
 }
 
 // Metric is one number that a scenario measured.
@@ -55,6 +69,8 @@ type Metric struct {
 	Group string `json:"group,omitempty"`
 	// Better is "lower" or "higher". The UI uses it to color comparisons.
 	Better string `json:"better,omitempty"`
+	// Explain says what is measured, why, and how to read it (OK).
+	Explain *Explanation `json:"explain,omitempty"`
 }
 
 // Latency is the distribution of one repeated measurement.
@@ -73,6 +89,8 @@ type Latency struct {
 	// Histogram has cumulative-free buckets: Count is the number of samples
 	// in (previous Le, Le].
 	Histogram []Bucket `json:"histogram"`
+	// Explain says what is measured, why, and how to read it (OK).
+	Explain *Explanation `json:"explain,omitempty"`
 }
 
 // Bucket is one histogram bucket.
@@ -105,9 +123,11 @@ type Event struct {
 type Assertion struct {
 	Name     string   `json:"name"`
 	Severity Severity `json:"severity"`
-	Passed   bool     `json:"passed"`
-	Expected string   `json:"expected,omitempty"`
-	Actual   string   `json:"actual,omitempty"`
+	// TMs is when the check was recorded, in ms since the scenario start.
+	TMs      float64 `json:"t_ms"`
+	Passed   bool    `json:"passed"`
+	Expected string  `json:"expected,omitempty"`
+	Actual   string  `json:"actual,omitempty"`
 	// Explain says what the check tests, why, and which results are fine.
 	Explain *Explanation `json:"explain,omitempty"`
 }
