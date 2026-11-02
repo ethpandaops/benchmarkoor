@@ -153,3 +153,35 @@ export function buildPolicyProfile(r: MempoolRunResult): ProfileField[] {
     },
   ]
 }
+
+// PolicyRow is one policy field across clients, for the client comparison.
+export interface PolicyRow {
+  key: string
+  label: string
+  hint: string
+  // values holds the value of each client, by client name.
+  values: Record<string, string | undefined>
+  // differs is true when two or more clients have different known values.
+  differs: boolean
+}
+
+// comparePolicies lays the policy profiles of several clients side by side.
+// The first row is the limit model; it is static, so it never differs.
+export function comparePolicies(results: { client: string; result: MempoolRunResult }[]): PolicyRow[] {
+  const profiles = results.map((r) => ({ client: r.client, fields: buildPolicyProfile(r.result) }))
+  const rows: PolicyRow[] = [
+    {
+      key: 'limit_model',
+      label: 'Limit model',
+      hint: 'How the client limits its pool (from the client code, not measured).',
+      values: Object.fromEntries(results.map((r) => [r.client, limitModel(r.client)])),
+      differs: false,
+    },
+  ]
+  for (const [i, field] of (profiles[0]?.fields ?? []).entries()) {
+    const values = Object.fromEntries(profiles.map((p) => [p.client, p.fields[i]?.value]))
+    const known = new Set(Object.values(values).filter((v) => v !== undefined))
+    rows.push({ key: field.key, label: field.label, hint: field.hint, values, differs: known.size > 1 })
+  }
+  return rows
+}

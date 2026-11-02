@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { MempoolRunResult } from '@/api/types'
 import v2Fixture from './__fixtures__/mempool-result.v2.json'
-import { buildPolicyProfile, limitModel, PROFILE_SOURCES } from './policyProfile'
+import { buildPolicyProfile, comparePolicies, limitModel, PROFILE_SOURCES } from './policyProfile'
 
 const base = v2Fixture as unknown as MempoolRunResult
 
@@ -64,5 +64,34 @@ describe('limitModel', () => {
     for (const c of ['geth', 'besu', 'nethermind', 'reth', 'erigon']) expect(limitModel(c)).toBeTruthy()
     expect(limitModel('Geth')).toBe(limitModel('geth'))
     expect(limitModel('unknown')).toBeUndefined()
+  })
+})
+
+describe('comparePolicies', () => {
+  it('marks only the fields where known values differ', () => {
+    const besu = structuredClone(base)
+    setCheck(besu, PROFILE_SOURCES.replacementAtBump, false)
+    const rows = comparePolicies([
+      { client: 'geth', result: base },
+      { client: 'besu', result: besu },
+    ])
+    const byKey = Object.fromEntries(rows.map((r) => [r.key, r]))
+    expect(rows[0].key).toBe('limit_model')
+    expect(rows[0].differs).toBe(false)
+    expect(byKey.replacement_bump.values).toEqual({ geth: '≥ 10%', besu: '> 10%' })
+    expect(byKey.replacement_bump.differs).toBe(true)
+    expect(rows.filter((r) => r.differs).map((r) => r.key)).toEqual(['replacement_bump'])
+  })
+
+  it('does not count a missing value as a difference', () => {
+    const old = structuredClone(base)
+    old.scenarios = old.scenarios.filter((s) => s.name !== 'blob-pool')
+    const rows = comparePolicies([
+      { client: 'geth', result: base },
+      { client: 'reth', result: old },
+    ])
+    const blob = rows.find((r) => r.key === 'blob_per_sender')!
+    expect(blob.values.reth).toBeUndefined()
+    expect(blob.differs).toBe(false)
   })
 })

@@ -21,6 +21,7 @@ import {
 } from './mempoolUtils'
 import { ScenarioStatusBadge } from './ScenarioCard'
 import { MempoolDifferences } from './MempoolDifferences'
+import { PolicyComparison } from './PolicyComparison'
 
 interface MempoolComparisonProps {
   runId: string
@@ -282,6 +283,7 @@ export function MempoolComparison({ runId, client, suiteHash }: MempoolCompariso
   return (
     <Card title={`Client comparison (${results.length} clients)`} collapsible>
       <div className="flex flex-col gap-8">
+        <PolicyComparison results={results} currentRunId={runId} />
         <div className="flex flex-col gap-3">
           <p className="text-xs/5 text-gray-500 dark:text-gray-400">
             Each column is the latest mempool run of a client on this suite. For a metric with a direction, the bar shows
