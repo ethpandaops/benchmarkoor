@@ -66,7 +66,7 @@ export function MempoolSummary({ runId, config }: MempoolSummaryProps) {
       ) : (
         <>
           <StatTile title="Scenarios">
-            <p className="mt-1 flex items-center gap-2 text-2xl/8 font-semibold">
+            <p className="mt-1 flex items-center gap-2 text-2xl/8 font-semibold tabular-nums">
               <span className="text-gray-900 dark:text-gray-100">{counts.total}</span>
               <span className="text-gray-400 dark:text-gray-500">/</span>
               <span className="text-green-600 dark:text-green-400" title="Passed">{counts.passed}</span>
@@ -89,18 +89,25 @@ export function MempoolSummary({ runId, config }: MempoolSummaryProps) {
             <Runtime config={config} />
           </StatTile>
           <StatTile title="Findings">
-            <p className="mt-1 text-2xl/8 font-semibold text-amber-600 dark:text-amber-400">{counts.findings}</p>
-            <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
-              Soft assertions that did not pass. Findings do not fail a scenario.
+            <p className="mt-1 flex items-baseline gap-3 text-2xl/8 font-semibold tabular-nums">
+              <span
+                className={counts.findings > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-gray-100'}
+                title="Soft checks that did not pass"
+              >
+                {counts.findings}
+              </span>
+              {counts.hardFailures > 0 && (
+                <span className="text-base/7 font-medium text-red-600 dark:text-red-400">
+                  {counts.hardFailures} hard failure{counts.hardFailures === 1 ? '' : 's'}
+                </span>
+              )}
             </p>
             <p className="text-xs/5 text-gray-500 dark:text-gray-400">
+              Soft checks that did not pass. Findings do not fail a scenario.
+            </p>
+            <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-400">
               {counts.observations} observation{counts.observations === 1 ? '' : 's'} to compare between clients
             </p>
-            {counts.hardFailures > 0 && (
-              <p className="mt-1 text-xs/5 text-red-600 dark:text-red-400">
-                {counts.hardFailures} hard assertion failure{counts.hardFailures === 1 ? '' : 's'}
-              </p>
-            )}
           </StatTile>
           <StatTile title="Chain">
             <dl className="mt-1 flex flex-col gap-1 text-xs/5">

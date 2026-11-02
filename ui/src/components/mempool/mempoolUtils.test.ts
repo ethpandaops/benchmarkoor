@@ -2,16 +2,29 @@ import { describe, it, expect } from 'vitest'
 import type { IndexEntry, MempoolRunResult } from '@/api/types'
 import gethFixture from './__fixtures__/mempool-result.geth.json'
 import {
+  barFraction,
   buildComparisonRows,
+  classifyObservation,
   computeDifferences,
+  countChecks,
+  currentFirst,
+  durationUnitFor,
+  formatDuration,
+  formatSig,
+  groupEventsByKind,
+  groupMetrics,
   histogramBuckets,
+  humanizeGroup,
   isMempoolMode,
+  orderChecks,
   rankValues,
+  relativeToBest,
   selectMempoolPeerRuns,
   sortScenarios,
-  splitEventMarkers,
+  splitValueUnit,
   summarizeMempoolResult,
   formatMempoolValue,
+  valueFormatter,
   type ClientMempoolResult,
 } from './mempoolUtils'
 
@@ -165,11 +178,43 @@ describe('computeDifferences', () => {
     expect(diffs[0].assertions.map((a) => [a.name, a.values])).toEqual([
       ['oversized_error_code', { geth: false, reth: true }],
     ])
-    expect(diffs[0].observations.map((o) => o.key)).toEqual(['nonce_too_low'])
+    // Both texts are rejections: only the wording differs.
+    expect(diffs[0].observations).toEqual([])
+    expect(diffs[0].wordingOnly.map((o) => o.key)).toEqual(['nonce_too_low'])
+  })
+
+  it('splits outcome differences from wording differences', () => {
+    const a = structuredClone(geth)
+    const b = structuredClone(geth)
+    b.client = 'besu'
+    const obsA = a.scenarios.find((s) => s.name === 'admission-rejections')!.observations
+    const obsB = b.scenarios.find((s) => s.name === 'admission-rejections')!.observations
+    obsA.push({ key: 'x.accept', label: 'accept', value: 'accepted' }, { key: 'x.count', label: 'count', value: '6' })
+    obsB.push({ key: 'x.accept', label: 'accept', value: 'INVALID: nope' }, { key: 'x.count', label: 'count', value: '7' })
+    obsB[0].value = 'some other error text'
+    const [d] = computeDifferences([
+      { client: 'geth', runId: 'g', result: a },
+      { client: 'besu', runId: 'b', result: b },
+    ])
+    expect(d.observations.map((o) => o.key)).toEqual(['x.accept', 'x.count'])
+    expect(d.observations[0].outcomes).toEqual({ geth: 'accepted', besu: 'rejected' })
+    expect(d.wordingOnly.map((o) => o.key)).toEqual([obsA[0].key])
   })
 
   it('returns nothing for a single client', () => {
     expect(computeDifferences([{ client: 'geth', runId: 'g', result: geth }])).toEqual([])
+  })
+})
+
+describe('classifyObservation', () => {
+  it('classifies accepted, rejected and numeric values', () => {
+    expect(classifyObservation('accepted')).toBe('accepted')
+    expect(classifyObservation('accepted (late)')).toBe('accepted')
+    expect(classifyObservation('INTERNAL_ERROR: could not replace existing tx')).toBe('rejected')
+    expect(classifyObservation('txn rlp too big: type=2')).toBe('rejected')
+    expect(classifyObservation('6')).toBe('value')
+    expect(classifyObservation('256 kept, 0 rejected (accepted)')).toBe('value')
+    expect(classifyObservation(undefined)).toBeUndefined()
   })
 })
 
@@ -185,12 +230,40 @@ describe('histogramBuckets', () => {
   })
 })
 
-describe('splitEventMarkers', () => {
-  it('collapses kinds with too many events', () => {
+describe('groupEventsByKind', () => {
+  it('keeps every event and orders the kinds', () => {
     const admission = geth.scenarios.find((s) => s.name === 'admission')!
-    const { markers, collapsed } = splitEventMarkers(admission.events)
-    expect(markers.map((e) => e.kind)).toEqual(['settled'])
-    expect(collapsed).toEqual([{ kind: 'send', count: 200 }])
+    const lanes = groupEventsByKind(admission.events)
+    expect(lanes.map((l) => l.kind)).toEqual(['send', 'settled'])
+    expect(lanes[0].events).toHaveLength(200)
+    expect(groupEventsByKind([{ t_ms: 1, kind: 'zzz' }, { t_ms: 2, kind: 'fcu' }]).map((l) => l.kind)).toEqual(['fcu', 'zzz'])
+  })
+})
+
+describe('formatSig', () => {
+  it('keeps 3 significant digits and the integer part', () => {
+    expect(formatSig(0)).toBe('0')
+    expect(formatSig(0.16349)).toBe('0.163')
+    expect(formatSig(5.685)).toBe('5.69')
+    expect(formatSig(50.732)).toBe('50.7')
+    expect(formatSig(571.7)).toBe('572')
+    expect(formatSig(13268.288)).toBe('13,268')
+    expect(formatSig(-6.386)).toBe('-6.39')
+    expect(formatSig(2.13, 2)).toBe('2.1')
+    expect(formatSig(2, 3, true)).toBe('2.00')
+  })
+})
+
+describe('durations', () => {
+  it('picks µs, ms or s per value', () => {
+    expect(durationUnitFor(0.163)).toBe('µs')
+    expect(durationUnitFor(0)).toBe('ms')
+    expect(durationUnitFor(12)).toBe('ms')
+    expect(durationUnitFor(1043)).toBe('s')
+    expect(formatDuration(0.163)).toBe('163 µs')
+    expect(formatDuration(25.793)).toBe('25.8 ms')
+    expect(formatDuration(1099.99)).toBe('1.10 s')
+    expect(formatDuration(2)).toBe('2.00 ms')
   })
 })
 
@@ -199,6 +272,88 @@ describe('formatMempoolValue', () => {
     expect(formatMempoolValue(undefined, 'ms')).toBe('-')
     expect(formatMempoolValue(1.234, 'ms')).toBe('1.23 ms')
     expect(formatMempoolValue(1500, 'ms')).toBe('1.50 s')
-    expect(formatMempoolValue(2048, 'bytes')).toBe('2.0 KB')
+    expect(formatMempoolValue(2048, 'bytes')).toBe('2 KB')
+    expect(formatMempoolValue(99.96, '%')).toBe('100%')
+    expect(formatMempoolValue(13268.288, 'tx/s')).toBe('13,268 tx/s')
+    expect(formatMempoolValue(5120, 'count')).toBe('5,120')
+  })
+
+  it('uses one unit per row', () => {
+    const f = valueFormatter('ms', [0.5, 12, 3])
+    expect([f(0.5), f(12), f(undefined)]).toEqual(['0.500 ms', '12.0 ms', '-'])
+  })
+
+  it('splits value and unit', () => {
+    expect(splitValueUnit('13,268 tx/s')).toEqual({ value: '13,268', unit: 'tx/s' })
+    expect(splitValueUnit('99.9%')).toEqual({ value: '99.9', unit: '%' })
+    expect(splitValueUnit('5,120')).toEqual({ value: '5,120', unit: '' })
+  })
+})
+
+describe('relativeToBest', () => {
+  it('describes the distance to the best value', () => {
+    expect(relativeToBest(10, 10, 'lower', 'ms')).toBeUndefined()
+    expect(relativeToBest(21, 10, 'lower', 'ms')).toBe('2.1× slower')
+    expect(relativeToBest(14.8, 10, 'lower', 'ms')).toBe('48% slower')
+    expect(relativeToBest(52, 100, 'higher', 'tx/s')).toBe('48% lower')
+    expect(relativeToBest(40, 100, 'higher', 'tx/s')).toBe('2.5× lower')
+    expect(relativeToBest(3, 1, 'lower', 'blocks')).toBe('3× higher')
+    expect(relativeToBest(25, -6.4, 'lower', '%')).toBe('31.4% higher')
+    expect(relativeToBest(5, 1, undefined, 'ms')).toBeUndefined()
+  })
+
+  it('sizes bars against the row maximum', () => {
+    expect(barFraction(5, [5, 10, undefined])).toBe(0.5)
+    expect(barFraction(undefined, [5])).toBe(0)
+    expect(barFraction(0, [0, 0])).toBe(0)
+  })
+})
+
+describe('checks', () => {
+  const checks = [
+    { name: 'a', severity: 'hard' as const, passed: true },
+    { name: 'b', severity: 'soft' as const, passed: false },
+    { name: 'c', severity: 'hard' as const, passed: false },
+    { name: 'd', severity: 'soft' as const, passed: true },
+  ]
+
+  it('orders hard failures, soft failures, then passes', () => {
+    expect(orderChecks(checks).map((c) => c.name)).toEqual(['c', 'b', 'a', 'd'])
+  })
+
+  it('counts by severity', () => {
+    expect(countChecks(checks)).toEqual({ hard: { passed: 1, total: 2 }, soft: { passed: 1, total: 2 } })
+  })
+})
+
+describe('groups', () => {
+  it('humanizes group keys', () => {
+    expect(humanizeGroup('engine')).toBe('Engine API')
+    expect(humanizeGroup('evict')).toBe('Eviction')
+    expect(humanizeGroup('blob6')).toBe('Blob ×6')
+    expect(humanizeGroup('new_payload')).toBe('newPayload')
+    expect(humanizeGroup('some-thing_else')).toBe('Some thing else')
+    expect(humanizeGroup(undefined)).toBe('')
+  })
+
+  it('groups metrics and moves a shared label suffix to the group', () => {
+    const m = (key: string, group: string, label: string) => ({ key, group, label, unit: 'ms', value: 1 })
+    const groups = groupMetrics([
+      m('a', 'legacy', 'Serial: Legacy'),
+      m('b', 'legacy', 'Concurrent: Legacy'),
+      m('c', 'blob6', 'Serial: Blob, 6 blobs'),
+    ])
+    expect(groups.map((g) => [g.heading, g.detail, g.items.map((i) => i.label)])).toEqual([
+      ['Legacy', 'Legacy', ['Serial', 'Concurrent']],
+      ['Blob ×6', 'Blob, 6 blobs', ['Serial']],
+    ])
+    expect(groupMetrics([m('a', 'load', 'Rate: x')]).map((g) => [g.heading, g.items[0].label])).toEqual([['', 'Rate: x']])
+  })
+})
+
+describe('currentFirst', () => {
+  it('puts the current run first', () => {
+    const items = [{ runId: 'a' }, { runId: 'b' }, { runId: 'c' }]
+    expect(currentFirst(items, 'b').map((i) => i.runId)).toEqual(['b', 'a', 'c'])
   })
 })
