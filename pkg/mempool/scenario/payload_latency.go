@@ -104,6 +104,8 @@ func (s *payloadLatency) round(ctx context.Context, env *Env, round int, window 
 	offsets := make([]time.Duration, n)
 	step := window / time.Duration(n)
 
+	env.Rec.Event("send", "round %d: %d txs spread over %s", round, n, window)
+
 	for i, tx := range txs {
 		at := time.Duration(i) * step
 

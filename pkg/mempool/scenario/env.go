@@ -65,8 +65,28 @@ func (e *Env) Send(ctx context.Context, tx *types.Transaction) (time.Duration, e
 	return e.Pool.SendRaw(ctx, raw)
 }
 
+// sendEvent records a "send" event for a batch. what describes the batch;
+// without it the event names only the size.
+func (e *Env) sendEvent(n int, what []string) {
+	count := fmt.Sprintf("%d txs", n)
+	if n == 1 {
+		count = "1 tx"
+	}
+
+	if len(what) > 0 && what[0] != "" {
+		e.Rec.Event("send", "%s: %s", what[0], count)
+
+		return
+	}
+
+	e.Rec.Event("send", "%s", count)
+}
+
 // MustSend sends txs one by one and returns an error on the first rejection.
-func (e *Env) MustSend(ctx context.Context, txs []*types.Transaction) error {
+// It records a "send" event; what (optional) describes the batch.
+func (e *Env) MustSend(ctx context.Context, txs []*types.Transaction, what ...string) error {
+	e.sendEvent(len(txs), what)
+
 	for _, tx := range txs {
 		if _, err := e.Send(ctx, tx); err != nil {
 			return fmt.Errorf("sending tx %s (nonce %d): %w", tx.Hash(), tx.Nonce(), err)
@@ -77,10 +97,18 @@ func (e *Env) MustSend(ctx context.Context, txs []*types.Transaction) error {
 }
 
 // SendConcurrent sends the txs of each lane in order, with one goroutine per
-// lane, and records each call time under key. It returns the wall time.
+// lane, and records each call time under key. It returns the wall time. It
+// records a "send" event; what (optional) describes the batch.
 func (e *Env) SendConcurrent(ctx context.Context, lanes [][]*types.Transaction,
-	key, label, group string,
+	key, label, group string, what ...string,
 ) (time.Duration, int, error) {
+	n := 0
+	for _, l := range lanes {
+		n += len(l)
+	}
+
+	e.sendEvent(n, what)
+
 	var (
 		wg       sync.WaitGroup
 		mu       sync.Mutex

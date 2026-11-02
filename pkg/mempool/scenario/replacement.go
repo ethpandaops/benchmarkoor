@@ -102,6 +102,8 @@ func (s *replacement) Run(ctx context.Context, env *Env) error {
 	}
 
 	for i, c := range cases {
+		env.Rec.Event("send", "%s: original, then replacement", c.key)
+
 		if err := s.runCase(ctx, env, accounts[i], c, timeout); err != nil {
 			return fmt.Errorf("%s: %w", c.key, err)
 		}

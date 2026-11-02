@@ -87,7 +87,7 @@ func (s *nonceGap) gapRound(ctx context.Context, env *Env, a *txfactory.Account,
 		gapped = append(gapped, tx)
 	}
 
-	if err := env.MustSend(ctx, gapped); err != nil {
+	if err := env.MustSend(ctx, gapped, fmt.Sprintf("round %d: txs after a nonce gap", round)); err != nil {
 		return err
 	}
 
@@ -261,7 +261,7 @@ func (s *nonceGap) reverse(ctx context.Context, env *Env, a *txfactory.Account, 
 	}
 
 	start := time.Now()
-	if err := env.MustSend(ctx, txs); err != nil {
+	if err := env.MustSend(ctx, txs, "nonces in reverse order"); err != nil {
 		return err
 	}
 
@@ -306,7 +306,7 @@ func (s *nonceGap) overdraft(ctx context.Context, env *Env, funder *txfactory.Ac
 		return err
 	}
 
-	if err := env.MustSend(ctx, []*types.Transaction{fund}); err != nil {
+	if err := env.MustSend(ctx, []*types.Transaction{fund}, "fund the overdraft sender"); err != nil {
 		return err
 	}
 

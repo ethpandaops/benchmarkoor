@@ -58,7 +58,7 @@ func (s *baseFee) fullBlock(ctx context.Context, env *Env, burner *txfactory.Acc
 		burns = append(burns, tx)
 	}
 
-	if err := env.MustSend(ctx, burns); err != nil {
+	if err := env.MustSend(ctx, burns, "gas burners for a full block"); err != nil {
 		return nil, err
 	}
 
@@ -138,6 +138,8 @@ func (s *baseFee) Run(ctx context.Context, env *Env) error {
 
 	accepted := make([]*types.Transaction, 0, len(txs))
 	var sendErr error
+
+	env.Rec.Event("send", "%d txs with a fee cap below the next base fee", len(txs))
 
 	for _, tx := range txs {
 		if _, err := env.Send(ctx, tx); err != nil {

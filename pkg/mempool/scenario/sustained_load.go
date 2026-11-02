@@ -81,6 +81,13 @@ func (t *loadTracker) take(h common.Hash) (time.Time, bool) {
 	return at, ok
 }
 
+func (t *loadTracker) acceptedCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.accepted
+}
+
 func (t *loadTracker) left() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -107,6 +114,8 @@ func (s *sustainedLoad) Run(ctx context.Context, env *Env) error {
 
 	wg.Add(1)
 
+	env.Rec.Event("send", "load starts: %d tx/s from %d senders", p.Int("rate"), len(accs))
+
 	go func() {
 		defer wg.Done()
 
@@ -117,8 +126,15 @@ func (s *sustainedLoad) Run(ctx context.Context, env *Env) error {
 	blocks, txsInBlocks := 0, 0
 
 	// Build blocks while the load runs, then until the pool is empty.
+	stopLogged := false
+
 	for {
 		loadDone := loadCtx.Err() != nil
+		if loadDone && !stopLogged {
+			env.Rec.Event("send", "load stops: %d txs accepted", tracker.acceptedCount())
+
+			stopLogged = true
+		}
 		if loadDone && tracker.left() == 0 {
 			break
 		}

@@ -171,7 +171,7 @@ func (s *rejections) Run(ctx context.Context, env *Env) error {
 		return err
 	}
 
-	if err := env.MustSend(ctx, []*types.Transaction{first}); err != nil {
+	if err := env.MustSend(ctx, []*types.Transaction{first}, "one tx to mine, for nonce too low"); err != nil {
 		return err
 	}
 
@@ -191,6 +191,8 @@ func (s *rejections) Run(ctx context.Context, env *Env) error {
 	}
 
 	mustReject := make(map[common.Hash]string, len(s.cases()))
+
+	env.Rec.Event("send", "%d invalid txs, one per case", len(s.cases()))
 
 	for i, c := range s.cases() {
 		sender := rest[i]

@@ -146,7 +146,7 @@ func (s *reorg) iteration(ctx context.Context, env *Env, iter int) error {
 	}
 
 	bTxs := append(append([]*types.Transaction{}, common1...), tPrime, y)
-	if err := env.MustSend(ctx, bTxs); err != nil {
+	if err := env.MustSend(ctx, bTxs, fmt.Sprintf("iteration %d: common, T', Y (for B1)", iter)); err != nil {
 		return err
 	}
 
@@ -178,7 +178,7 @@ func (s *reorg) iteration(ctx context.Context, env *Env, iter int) error {
 	}
 
 	aNew := append([]*types.Transaction{t, x}, aOnly...)
-	if err := env.MustSend(ctx, aNew); err != nil {
+	if err := env.MustSend(ctx, aNew, fmt.Sprintf("iteration %d: T, X, A-only (for A1)", iter)); err != nil {
 		return err
 	}
 
@@ -216,7 +216,7 @@ func (s *reorg) iteration(ctx context.Context, env *Env, iter int) error {
 		return err
 	}
 
-	if err := env.MustSend(ctx, bystanders); err != nil {
+	if err := env.MustSend(ctx, bystanders, fmt.Sprintf("iteration %d: bystanders", iter)); err != nil {
 		return err
 	}
 

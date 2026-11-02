@@ -223,10 +223,9 @@ func (s *admission) runKind(ctx context.Context, env *Env, k admissionKind, time
 	workers := regroup(lanes, p.Int("concurrency"))
 	all := flatten(lanes)
 
-	env.Rec.Event("send", "%s: %d txs, %d concurrent senders", k.key, len(all), len(workers))
-
 	wall, rejected, firstErr := env.SendConcurrent(ctx, workers, "send_concurrent."+k.key,
-		"eth_sendRawTransaction under load: "+k.label, k.key)
+		"eth_sendRawTransaction under load: "+k.label, k.key,
+		fmt.Sprintf("%s, %d concurrent senders", k.key, len(workers)))
 	env.Rec.Check(SeverityHard, rejected == 0,
 		fmt.Sprintf("%s: valid txs are accepted under load", k.label),
 		fmt.Sprintf("%d accepted", len(all)), fmt.Sprintf("%d rejected (%s)", rejected, ErrText(firstErr)))
@@ -393,9 +392,7 @@ func (s *admission) warmup(ctx context.Context, env *Env, timeout time.Duration)
 		lanes = append(lanes, lane)
 	}
 
-	env.Rec.Event("send", "warm-up: %d untimed txs", n*16)
-
-	if _, _, err := env.SendConcurrent(ctx, regroup(lanes, 4), "", "", ""); err != nil {
+	if _, _, err := env.SendConcurrent(ctx, regroup(lanes, 4), "", "", "", "warm-up, untimed"); err != nil {
 		return err
 	}
 

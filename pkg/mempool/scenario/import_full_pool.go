@@ -184,7 +184,7 @@ func (s *importFullPool) measure(ctx context.Context, env *Env, senders, fillers
 		blockTxs = append(blockTxs, tx)
 	}
 
-	if err := env.MustSend(ctx, blockTxs); err != nil {
+	if err := env.MustSend(ctx, blockTxs, label+", block txs"); err != nil {
 		return out, fmt.Errorf("sending the block txs: %w", err)
 	}
 
@@ -227,9 +227,7 @@ func (s *importFullPool) measure(ctx context.Context, env *Env, senders, fillers
 		}
 
 		fillerTxs = flatten(lanes)
-		env.Rec.Event("send", "%s: %d filler txs", label, len(fillerTxs))
-
-		if _, rejected, err := env.SendConcurrent(ctx, regroup(lanes, 8), "", "", ""); rejected > 0 {
+		if _, rejected, err := env.SendConcurrent(ctx, regroup(lanes, 8), "", "", "", label+", filler"); rejected > 0 {
 			return out, fmt.Errorf("%d filler txs rejected: %w", rejected, err)
 		}
 

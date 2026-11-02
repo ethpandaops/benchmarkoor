@@ -91,7 +91,7 @@ func (s *ordering) order(ctx context.Context, env *Env) error {
 		}
 	}
 
-	if err := env.MustSend(ctx, txs); err != nil {
+	if err := env.MustSend(ctx, txs, "mixed tips from 12 senders"); err != nil {
 		return err
 	}
 
@@ -300,7 +300,7 @@ func (s *ordering) fill(ctx context.Context, env *Env) error {
 
 	all := flatten(lanes)
 
-	if _, rejected, err := env.SendConcurrent(ctx, regroup(lanes, 8), "", "", ""); rejected > 0 {
+	if _, rejected, err := env.SendConcurrent(ctx, regroup(lanes, 8), "", "", "", "more txs than a block holds"); rejected > 0 {
 		return fmt.Errorf("%d fill txs rejected: %w", rejected, err)
 	}
 
@@ -360,7 +360,7 @@ func (s *ordering) blobs(ctx context.Context, env *Env) error {
 		txs = append(txs, tx)
 	}
 
-	if err := env.MustSend(ctx, txs); err != nil {
+	if err := env.MustSend(ctx, txs, "single-blob txs"); err != nil {
 		return err
 	}
 

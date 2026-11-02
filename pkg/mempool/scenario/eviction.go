@@ -163,10 +163,9 @@ func (s *eviction) Run(ctx context.Context, env *Env) error {
 	}
 
 	lowTxs := flatten(lowLanes)
-	env.Rec.Event("send", "fill: %d low-tip txs (capacity %d)", len(lowTxs), capacity)
-
 	_, lowRejected, _ := env.SendConcurrent(ctx, regroup(lowLanes, 8), "send.fill",
-		"eth_sendRawTransaction while the pool fills", "fill")
+		"eth_sendRawTransaction while the pool fills", "fill",
+		fmt.Sprintf("fill with low-tip txs (capacity %d)", capacity))
 
 	full, err := settle(ctx, env, time.Second, timeout)
 	if err != nil {
@@ -195,10 +194,8 @@ func (s *eviction) Run(ctx context.Context, env *Env) error {
 	}
 
 	highTxs := flatten(highLanes)
-	env.Rec.Event("send", "%d higher-tip txs into the full pool", len(highTxs))
-
 	_, highRejected, highErr := env.SendConcurrent(ctx, regroup(highLanes, 8), "send.full",
-		"eth_sendRawTransaction into a full pool", "full")
+		"eth_sendRawTransaction into a full pool", "full", "higher-tip txs into the full pool")
 
 	after, err := settle(ctx, env, time.Second, timeout)
 	if err != nil {
@@ -234,7 +231,7 @@ func (s *eviction) Run(ctx context.Context, env *Env) error {
 
 	cheapTxs := flatten(cheapLanes)
 
-	_, cheapRejected, cheapErr := env.SendConcurrent(ctx, cheapLanes, "", "", "")
+	_, cheapRejected, cheapErr := env.SendConcurrent(ctx, cheapLanes, "", "", "", "txs cheaper than everything")
 	if _, err := settle(ctx, env, time.Second, timeout); err != nil {
 		return err
 	}
@@ -309,7 +306,7 @@ func (s *eviction) hog(ctx context.Context, env *Env, timeout time.Duration) err
 
 	hogTxs := hogLanes[0]
 
-	_, rejected, hogErr := env.SendConcurrent(ctx, hogLanes, "", "", "")
+	_, rejected, hogErr := env.SendConcurrent(ctx, hogLanes, "", "", "", "one sender hogs slots")
 	if _, err := settle(ctx, env, 500*time.Millisecond, timeout); err != nil {
 		return err
 	}
@@ -357,7 +354,7 @@ func (s *eviction) gapped(ctx context.Context, env *Env, timeout time.Duration) 
 
 	all := flatten(lanes)
 
-	_, rejected, gapErr := env.SendConcurrent(ctx, regroup(lanes, 8), "", "", "")
+	_, rejected, gapErr := env.SendConcurrent(ctx, regroup(lanes, 8), "", "", "", "gapped flood")
 
 	st, err := settle(ctx, env, 500*time.Millisecond, timeout)
 	if err != nil {
