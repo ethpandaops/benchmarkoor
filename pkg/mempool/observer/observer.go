@@ -70,12 +70,15 @@ type Sample struct {
 	MemoryBytes uint64
 	// CPUPercent is the container CPU use; 100 is one full core.
 	CPUPercent float64
+	CPUKnown   bool
 }
 
 // Resources is the container resource use at one moment.
 type Resources struct {
 	MemoryBytes uint64
 	CPUPercent  float64
+	// CPUKnown is false until two stats reads gave a CPU rate.
+	CPUKnown bool
 }
 
 // ResourceFunc returns the latest container resource use. ok is false when
@@ -240,7 +243,7 @@ func (o *observer) sample(ctx context.Context) {
 		s := Sample{At: time.Now(), Status: st}
 		if o.cfg.Resources != nil {
 			if r, ok := o.cfg.Resources(); ok {
-				s.MemoryBytes, s.CPUPercent = r.MemoryBytes, r.CPUPercent
+				s.MemoryBytes, s.CPUPercent, s.CPUKnown = r.MemoryBytes, r.CPUPercent, r.CPUKnown
 			}
 		}
 

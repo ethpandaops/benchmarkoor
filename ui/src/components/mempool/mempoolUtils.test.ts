@@ -6,6 +6,7 @@ import {
   buildComparisonRows,
   classifyObservation,
   computeDifferences,
+  eventHelp,
   countChecks,
   currentFirst,
   durationUnitFor,
@@ -355,5 +356,12 @@ describe('currentFirst', () => {
   it('puts the current run first', () => {
     const items = [{ runId: 'a' }, { runId: 'b' }, { runId: 'c' }]
     expect(currentFirst(items, 'b').map((i) => i.runId)).toEqual(['b', 'a', 'c'])
+  })
+})
+
+describe('eventHelp', () => {
+  it('explains known kinds and falls back for others', () => {
+    expect(eventHelp('fcu')).toContain('forkchoiceUpdated')
+    expect(eventHelp('somethingNew')).toContain('somethingNew')
   })
 })

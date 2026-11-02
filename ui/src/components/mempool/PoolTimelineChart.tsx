@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { MempoolEvent, MempoolTimelinePoint } from '@/api/types'
 import { formatBytes } from '@/utils/format'
-import { formatSig, groupEventsByKind } from './mempoolUtils'
+import { eventHelp, formatSig, groupEventsByKind } from './mempoolUtils'
 import { chartTheme, eventKindColor, SERIES_COLORS, useIsDark } from './chartTheme'
 
 interface PoolTimelineChartProps {
@@ -301,8 +301,18 @@ export function PoolTimelineChart({ timeline, events }: PoolTimelineChartProps) 
         <Swatch color={SERIES_COLORS.pending} label="Pending" />
         <Swatch color={SERIES_COLORS.queued} label="Queued" />
         {lanes.length > 0 && (
-          <span className="text-gray-500 dark:text-gray-400">
-            Events: {lanes.map((l) => `${l.kind} ${l.events.length.toLocaleString()}`).join(', ')}
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400">
+            <span>Events:</span>
+            {lanes.map((l, i) => (
+              <span
+                key={l.kind}
+                title={eventHelp(l.kind)}
+                className="inline-flex cursor-help items-center gap-1 underline decoration-gray-300 decoration-dotted underline-offset-2 dark:decoration-gray-600"
+              >
+                <span className="h-2.5 w-0.5 rounded-xs" style={{ backgroundColor: eventKindColor(l.kind, i, isDark) }} />
+                {l.kind} {l.events.length.toLocaleString()}
+              </span>
+            ))}
           </span>
         )}
         <span className="ml-auto flex items-center gap-3 text-gray-500 dark:text-gray-400">

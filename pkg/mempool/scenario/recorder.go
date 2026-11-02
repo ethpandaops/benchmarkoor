@@ -160,7 +160,7 @@ func (r *Recorder) Finish(err error, samples []observer.Sample) *Result {
 			MemoryBytes: s.MemoryBytes,
 		}
 
-		if s.MemoryBytes > 0 {
+		if s.CPUKnown {
 			cpu := round3(s.CPUPercent)
 			p.CPUPercent = &cpu
 		}

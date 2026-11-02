@@ -476,6 +476,7 @@ func (e *mempoolExecutor) resourceSampler(ctx context.Context, log logrus.FieldL
 
 				mu.Lock()
 				last.MemoryBytes = s.Memory
+				have = true
 
 				// CPUUsage is cumulative CPU time in microseconds. The Docker
 				// stats API refreshes it about once a second, so between two
@@ -488,7 +489,7 @@ func (e *mempoolExecutor) resourceSampler(ctx context.Context, log logrus.FieldL
 				case s.CPUUsage > prevCPU:
 					if wall := now.Sub(prevAt).Microseconds(); wall > 0 {
 						last.CPUPercent = 100 * float64(s.CPUUsage-prevCPU) / float64(wall)
-						have = true
+						last.CPUKnown = true
 					}
 
 					prevCPU, prevAt = s.CPUUsage, now

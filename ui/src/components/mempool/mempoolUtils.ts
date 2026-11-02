@@ -579,3 +579,24 @@ export const SEVERITY_HELP: Record<'hard' | 'soft', string> = {
     'Soft check: pool policy that clients may choose differently (e.g. the price bump a replacement ' +
     'needs). A failed soft check is a finding to look at, not a failure; the scenario still passes.',
 }
+
+// EVENT_HELP explains each event kind of the pool timeline. The UI shows it
+// as a tooltip on the event legend.
+export const EVENT_HELP: Record<string, string> = {
+  send: 'The harness started to send a batch of txs (eth_sendRawTransaction). The detail says which batch.',
+  pending:
+    'A "time until pending" measurement ended: the txs were timed from the send until the pool listed them as pending.',
+  fcu:
+    'engine_forkchoiceUpdated: the harness set a new head. With build attributes it also starts a payload build.',
+  getPayload: 'engine_getPayload: the harness took a built payload from the client (block number, txs, gas).',
+  newPayload: 'engine_newPayload: the harness sent a block to the client to import.',
+  reorg: 'The head moved to a sibling block on a different branch (a reorg).',
+  settled:
+    'After a head change, the pool reached its expected state (included txs gone, reinjected txs back).',
+  basefee: 'The base fee crossed the fee cap of the test txs (up, then down again).',
+}
+
+// eventHelp returns the explanation of an event kind, or a generic one.
+export function eventHelp(kind: string): string {
+  return EVENT_HELP[kind] ?? `A "${kind}" action of the harness.`
+}
