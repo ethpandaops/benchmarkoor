@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -2115,9 +2117,19 @@ type rawGlobalEnv struct {
 // os.Expand substitutes.
 var envRef = regexp.MustCompile(`\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*`)
 
-// envRefToken matches the tokens that maskEnvRefs puts in place of the
-// references.
-var envRefToken = regexp.MustCompile(`__BENCHMARKOOR_ENV_REF_([0-9]+)__`)
+// envRefTokenPrefix starts each token that maskEnvRefs puts in place of a
+// reference.
+const envRefTokenPrefix = "__BENCHMARKOOR_ENV_REF_"
+
+// envRefToken matches one token of maskEnvRefs.
+var envRefToken = regexp.MustCompile(envRefTokenPrefix + `([0-9]+)__`)
+
+// globalKey and envKey find a global.env declaration in a raw config that is
+// not valid YAML, so that the parse error is reported only for such a file.
+var (
+	globalKey = regexp.MustCompile(`(?m)^global:`)
+	envKey    = regexp.MustCompile(`(?m)^[ \t]+env:`)
+)
 
 // maskEnvRefs replaces each env reference in content with a plain token, so
 // that the raw text parses as YAML even where a reference sits in a place that
@@ -2130,14 +2142,13 @@ func maskEnvRefs(content string) (string, func(string) string) {
 	masked := envRef.ReplaceAllStringFunc(content, func(ref string) string {
 		refs = append(refs, ref)
 
-		return fmt.Sprintf("__BENCHMARKOOR_ENV_REF_%d__", len(refs)-1)
+		return fmt.Sprintf("%s%d__", envRefTokenPrefix, len(refs)-1)
 	})
 
 	unmask := func(s string) string {
 		return envRefToken.ReplaceAllStringFunc(s, func(token string) string {
-			var i int
-			if _, err := fmt.Sscanf(envRefToken.FindStringSubmatch(token)[1], "%d", &i); err != nil ||
-				i >= len(refs) {
+			i, err := strconv.Atoi(envRefToken.FindStringSubmatch(token)[1])
+			if err != nil || i >= len(refs) {
 				return token
 			}
 
@@ -2148,29 +2159,77 @@ func maskEnvRefs(content string) (string, func(string) string) {
 	return masked, unmask
 }
 
+// readGlobalEnv reads global.env from one raw config, before the ${VAR}
+// expansion.
+//
+//  1. It parses the raw text. When that works, the values are exactly as
+//     written, with YAML quotes and escapes decoded.
+//  2. Only for a YAML syntax error, it parses again with the env references
+//     masked (see maskEnvRefs). A reference can make the raw text invalid
+//     YAML that is valid after the expansion, for example `[${VAR}]`.
+//  3. When that also fails, it returns an error if the file declares
+//     global.env. Before, the file was skipped, and every ${VAR} that its
+//     global.env defines silently expanded to an empty string. A file
+//     without global.env loses nothing, so it is skipped.
+//
+// A YAML type error (for example `global: ${G}`) skips the file, as before.
+func readGlobalEnv(path, content string) (map[string]string, error) {
+	var rg rawGlobalEnv
+
+	rawErr := yaml.Unmarshal([]byte(content), &rg)
+	if rawErr == nil {
+		return rg.Global.Env, nil
+	}
+
+	var typeErr *yaml.TypeError
+	if errors.As(rawErr, &typeErr) {
+		return nil, nil
+	}
+
+	if !strings.Contains(content, envRefTokenPrefix) {
+		masked, unmask := maskEnvRefs(content)
+
+		var mg rawGlobalEnv
+
+		err := yaml.Unmarshal([]byte(masked), &mg)
+		if err == nil {
+			env := make(map[string]string, len(mg.Global.Env))
+			for k, v := range mg.Global.Env {
+				env[k] = unmask(v)
+			}
+
+			return env, nil
+		}
+
+		if errors.As(err, &typeErr) {
+			return nil, nil
+		}
+	}
+
+	if globalKey.MatchString(content) && envKey.MatchString(content) {
+		return nil, fmt.Errorf(
+			"parsing config %q before the ${VAR} expansion, to read its global.env: %w",
+			path, rawErr)
+	}
+
+	return nil, nil
+}
+
 // collectGlobalEnv parses global.env from each raw config and merges them
 // (later files win). A value may itself reference the shell environment (e.g.
 // "${BASE:-/tmp}/state-actor"), which is expanded here; values do not see one
 // another.
-//
-// The env references are masked before the parse (see maskEnvRefs), because a
-// reference can make the raw text invalid YAML that is valid after the
-// expansion. A file that is still not valid YAML is an error: skipping it would
-// silently drop its global.env, and every ${VAR} that it defines would expand
-// to an empty string.
 func collectGlobalEnv(paths, contents []string) (map[string]string, error) {
 	env := make(map[string]string)
 
 	for i, content := range contents {
-		masked, unmask := maskEnvRefs(content)
-
-		var rg rawGlobalEnv
-		if err := yaml.Unmarshal([]byte(masked), &rg); err != nil {
-			return nil, fmt.Errorf("reading global.env from config %q: %w", paths[i], err)
+		fileEnv, err := readGlobalEnv(paths[i], content)
+		if err != nil {
+			return nil, err
 		}
 
-		for k, val := range rg.Global.Env {
-			env[k] = os.Expand(unmask(val), expandEnvWithDefaults)
+		for k, val := range fileEnv {
+			env[k] = os.Expand(val, expandEnvWithDefaults)
 		}
 	}
 

@@ -70,7 +70,7 @@ builder:
         output_dir: ${STATE_DIR}/geth   # → /tmp/benchmarkoor/state-actor/simple-amsterdam-compute/geth
 ```
 
-benchmarkoor reads `global.env` from the raw file, before the expansion. A reference can sit where YAML gives a character a meaning, for example `gas_benchmark_values: [${GAS}]`, where `{` would start a mapping. This is safe: benchmarkoor masks the references before it reads `global.env`. A file that is not valid YAML for another reason makes the load fail with an error that names the file.
+benchmarkoor reads `global.env` from the raw file, before the expansion. A reference can sit where YAML gives a character a meaning, for example `gas_benchmark_values: [${GAS}]`, where `{` would start a mapping. This is safe: when the raw text is not valid YAML, benchmarkoor masks the references and reads `global.env` again. If a file declares `global.env` and still is not valid YAML, the load fails with an error that names the file.
 
 Resolution order for any `${VAR}` is **shell environment → `global.env` → inline `:-default`**. A real environment variable of the same name therefore still wins, so `global.env` acts as a per-config default that CI or an ad-hoc `VAR=… benchmarkoor …` invocation can override. A `global.env` value may itself reference the shell environment (e.g. `${BASE:-/tmp}/state-actor`); values do not reference one another.
 

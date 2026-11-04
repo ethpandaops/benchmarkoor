@@ -435,8 +435,73 @@ runner: [unclosed
 
 	_, err := Load(configPath)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reading global.env from config")
+	assert.Contains(t, err.Error(), "before the ${VAR} expansion, to read its global.env")
 	assert.Contains(t, err.Error(), configPath)
+}
+
+// TestLoad_GlobalEnvUnchangedValues checks that a config whose raw text is
+// valid YAML keeps its exact global.env values: YAML decodes the quotes and
+// escapes before the ${VAR} expansion, as before the masking was added.
+func TestLoad_GlobalEnvUnchangedValues(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+global:
+  env:
+    ESCAPED: "${UNSET_X:-a\\b}"
+    QUOTED: "${UNSET_X:-a\"b}"
+    SINGLE: '${UNSET_X:-it''s}'
+runner:
+  container_network: ${ESCAPED}|${QUOTED}|${SINGLE}
+`), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, `a\b|a"b|it's`, cfg.Runner.ContainerNetwork)
+}
+
+func TestLoad_GlobalEnvFlowMapping(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+global:
+  env: {A: v, B: x${UNSET_X:-y}}
+runner:
+  container_network: ${A}-${B}
+`), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, "v-xy", cfg.Runner.ContainerNetwork)
+}
+
+// TestLoad_GlobalEnvTypeError checks that a YAML type error in the raw text
+// still skips the file, as before: the file can be valid after the expansion.
+func TestLoad_GlobalEnvTypeError(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+global: ${UNSET_G}
+runner:
+  container_network: net
+`), 0o644))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, "net", cfg.Runner.ContainerNetwork)
+}
+
+// TestLoad_GlobalEnvSecondFileInvalid checks that the error names the file
+// that is not valid YAML.
+func TestLoad_GlobalEnvSecondFileInvalid(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.yaml")
+	bad := filepath.Join(dir, "bad.yaml")
+	require.NoError(t, os.WriteFile(good, []byte("runner:\n  container_network: net\n"), 0o644))
+	require.NoError(t, os.WriteFile(bad, []byte("global:\n  env:\n    A: [unclosed\n"), 0o644))
+
+	_, err := Load(good, bad)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), bad)
+	assert.NotContains(t, err.Error(), good)
+	assert.NotContains(t, err.Error(), envRefTokenPrefix, "the error must not show the masking tokens")
 }
 
 func TestMaskEnvRefs(t *testing.T) {
@@ -446,6 +511,46 @@ func TestMaskEnvRefs(t *testing.T) {
 	assert.NotContains(t, masked, "$")
 	assert.Equal(t, content, unmask(masked))
 	assert.Equal(t, "no tokens", unmask("no tokens"))
+	// A token with no reference behind it stays as it is.
+	assert.Equal(t, envRefTokenPrefix+"99__", unmask(envRefTokenPrefix+"99__"))
+}
+
+// TestLoad_GlobalEnvLiteralToken checks that a config that already holds the
+// token text never gets a changed value. When the raw text is valid YAML, no
+// masking is needed. When it is not, masking is not safe, so the load fails.
+func TestLoad_GlobalEnvLiteralToken(t *testing.T) {
+	head := `
+global:
+  env:
+    A: ` + envRefTokenPrefix + `0__
+    B: ${UNSET_X:-b}
+runner:
+  container_network: ${A}
+`
+
+	t.Run("valid raw YAML keeps the literal value", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(head), 0o644))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.Equal(t, envRefTokenPrefix+"0__", cfg.Runner.ContainerNetwork)
+	})
+
+	t.Run("invalid raw YAML fails instead of a changed value", func(t *testing.T) {
+		t.Setenv("GAS_M", "30")
+
+		configPath := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(head+`builder:
+  eest_payloads:
+    config:
+      gas_benchmark_values: [${GAS_M}]
+`), 0o644))
+
+		_, err := Load(configPath)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), configPath)
+	})
 }
 
 func TestLoad_EnvVarOverrides(t *testing.T) {
