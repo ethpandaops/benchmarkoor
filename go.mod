@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.5
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.3
 	github.com/coder/websocket v1.8.14
-	github.com/containers/podman/v5 v5.8.6
+	github.com/containers/podman/v5 v5.8.9
 	github.com/docker/docker v28.5.1+incompatible
 	github.com/docker/go-units v0.5.0
 	github.com/ethereum/go-ethereum v1.17.0
@@ -25,7 +25,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1
-	go.podman.io/common v0.67.1
+	go.podman.io/common v0.67.2
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
@@ -64,7 +64,7 @@ require (
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v1.0.0-rc.1 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.18.2 // indirect
-	github.com/containers/buildah v1.43.2 // indirect
+	github.com/containers/buildah v1.43.5 // indirect
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
 	github.com/containers/ocicrypt v1.2.1 // indirect
 	github.com/containers/psgo v1.9.1-0.20250826150930-4ae76f200c86 // indirect
@@ -175,7 +175,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
-	github.com/vbatts/tar-split v0.12.2 // indirect
+	github.com/vbatts/tar-split v0.12.3 // indirect
 	github.com/vbauerster/mpb/v8 v8.10.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -186,8 +186,8 @@ require (
 	go.opentelemetry.io/otel/sdk v1.45.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.45.0 // indirect
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
-	go.podman.io/image/v5 v5.39.2 // indirect
-	go.podman.io/storage v1.62.0 // indirect
+	go.podman.io/image/v5 v5.39.3 // indirect
+	go.podman.io/storage v1.62.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	golang.org/x/net v0.60.0 // indirect
