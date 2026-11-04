@@ -210,10 +210,18 @@ func TestStateActorFingerprint_FieldSensitivity(t *testing.T) {
 func TestEESTFingerprint_FieldSensitivity(t *testing.T) {
 	genesis1, genesis2 := writeTempFile(t, "g1"), writeTempFile(t, "g2")
 	stubs1, stubs2 := writeTempFile(t, "s1"), writeTempFile(t, "s2")
+	localTest1, localTest2 := writeTempFile(t, "test-v1"), writeTempFile(t, "test-v2")
 	maxGas, foc := uint64(100), []float64{1, 2}
 
 	cfg := func() *config.EESTPayloadsConfig {
-		return &config.EESTPayloadsConfig{FillImage: "fill:1", EESTRepo: "https://example.com/a.git"}
+		return &config.EESTPayloadsConfig{
+			FillImage: "fill:1",
+			EESTRepo:  "https://example.com/a.git",
+			LocalTestFiles: []config.EESTLocalTestFile{{
+				Source: localTest1,
+				Target: "tests/benchmark/test_local.py",
+			}},
+		}
 	}
 	base := func() *config.EESTPayloadTarget {
 		return &config.EESTPayloadTarget{
@@ -289,6 +297,10 @@ func TestEESTFingerprint_FieldSensitivity(t *testing.T) {
 		{"fill_image", func(c *config.EESTPayloadsConfig) { c.FillImage = "fill:2" }},
 		{"eest_repo", func(c *config.EESTPayloadsConfig) { c.EESTRepo = "https://example.com/b.git" }},
 		{"fill_command", func(c *config.EESTPayloadsConfig) { c.FillCommand = []string{"custom", "cmd"} }},
+		{"local_test_file_content", func(c *config.EESTPayloadsConfig) { c.LocalTestFiles[0].Source = localTest2 }},
+		{"local_test_file_target", func(c *config.EESTPayloadsConfig) {
+			c.LocalTestFiles[0].Target = "tests/benchmark/test_other.py"
+		}},
 	}
 
 	for _, tc := range cfgCases {
