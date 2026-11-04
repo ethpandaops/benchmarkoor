@@ -391,6 +391,63 @@ runner:
 	})
 }
 
+// TestLoad_GlobalEnvRawYAML covers an env reference that makes the raw text
+// invalid YAML: in a flow list, "{" starts a mapping. global.env must still
+// apply to the rest of the file.
+func TestLoad_GlobalEnvRawYAML(t *testing.T) {
+	configContent := `
+global:
+  env:
+    STATE_DIR: /tmp/bench/state
+    NESTED: ${BASE_DIR:-/srv}/fixtures
+runner:
+  container_network: ${STATE_DIR}
+  benchmark:
+    results_dir: ${NESTED}
+builder:
+  eest_payloads:
+    config:
+      gas_benchmark_values: [${GAS_M}]
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
+
+	t.Setenv("GAS_M", "30")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/tmp/bench/state", cfg.Runner.ContainerNetwork,
+		"global.env must apply although the raw text is not valid YAML")
+	assert.Equal(t, "/srv/fixtures", cfg.Runner.Benchmark.ResultsDir,
+		"a reference inside a global.env value must survive the masking")
+	assert.Equal(t, []int{30}, cfg.Builder.EESTPayloads.Config.GasBenchmarkValues)
+}
+
+func TestLoad_GlobalEnvInvalidYAML(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+global:
+  env:
+    STATE_DIR: /tmp/bench/state
+runner: [unclosed
+`), 0o644))
+
+	_, err := Load(configPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading global.env from config")
+	assert.Contains(t, err.Error(), configPath)
+}
+
+func TestMaskEnvRefs(t *testing.T) {
+	content := "a: [${A}]\nb: ${B:-x}/y\nc: $C\nd: plain\n"
+
+	masked, unmask := maskEnvRefs(content)
+	assert.NotContains(t, masked, "$")
+	assert.Equal(t, content, unmask(masked))
+	assert.Equal(t, "no tokens", unmask("no tokens"))
+}
+
 func TestLoad_EnvVarOverrides(t *testing.T) {
 	// Create a minimal config file for testing.
 	configContent := `

@@ -2111,25 +2111,70 @@ type rawGlobalEnv struct {
 	} `yaml:"global"`
 }
 
+// envRef matches the ${VAR}, ${VAR:-default} and $VAR references that
+// os.Expand substitutes.
+var envRef = regexp.MustCompile(`\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*`)
+
+// envRefToken matches the tokens that maskEnvRefs puts in place of the
+// references.
+var envRefToken = regexp.MustCompile(`__BENCHMARKOOR_ENV_REF_([0-9]+)__`)
+
+// maskEnvRefs replaces each env reference in content with a plain token, so
+// that the raw text parses as YAML even where a reference sits in a place that
+// is significant to YAML. For example, in `[${VAR}]` the "{" would otherwise
+// start a flow mapping. The returned unmask function puts the references back
+// into a parsed value.
+func maskEnvRefs(content string) (string, func(string) string) {
+	refs := make([]string, 0, 8)
+
+	masked := envRef.ReplaceAllStringFunc(content, func(ref string) string {
+		refs = append(refs, ref)
+
+		return fmt.Sprintf("__BENCHMARKOOR_ENV_REF_%d__", len(refs)-1)
+	})
+
+	unmask := func(s string) string {
+		return envRefToken.ReplaceAllStringFunc(s, func(token string) string {
+			var i int
+			if _, err := fmt.Sscanf(envRefToken.FindStringSubmatch(token)[1], "%d", &i); err != nil ||
+				i >= len(refs) {
+				return token
+			}
+
+			return refs[i]
+		})
+	}
+
+	return masked, unmask
+}
+
 // collectGlobalEnv parses global.env from each raw config and merges them
 // (later files win). A value may itself reference the shell environment (e.g.
 // "${BASE:-/tmp}/state-actor"), which is expanded here; values do not see one
 // another.
-func collectGlobalEnv(contents []string) map[string]string {
+//
+// The env references are masked before the parse (see maskEnvRefs), because a
+// reference can make the raw text invalid YAML that is valid after the
+// expansion. A file that is still not valid YAML is an error: skipping it would
+// silently drop its global.env, and every ${VAR} that it defines would expand
+// to an empty string.
+func collectGlobalEnv(paths, contents []string) (map[string]string, error) {
 	env := make(map[string]string)
 
-	for _, content := range contents {
+	for i, content := range contents {
+		masked, unmask := maskEnvRefs(content)
+
 		var rg rawGlobalEnv
-		if err := yaml.Unmarshal([]byte(content), &rg); err != nil {
-			continue
+		if err := yaml.Unmarshal([]byte(masked), &rg); err != nil {
+			return nil, fmt.Errorf("reading global.env from config %q: %w", paths[i], err)
 		}
 
 		for k, val := range rg.Global.Env {
-			env[k] = os.Expand(val, expandEnvWithDefaults)
+			env[k] = os.Expand(unmask(val), expandEnvWithDefaults)
 		}
 	}
 
-	return env
+	return env, nil
 }
 
 // envExpander returns the os.Expand mapping used for ${VAR} / ${VAR:-default}
@@ -2137,8 +2182,11 @@ func collectGlobalEnv(contents []string) map[string]string {
 // then global.env from the config, then the inline default. Keeping the shell
 // first means global.env acts as a per-config default that an env var can still
 // override (e.g. in CI).
-func envExpander(contents []string) func(string) string {
-	globalEnv := collectGlobalEnv(contents)
+func envExpander(paths, contents []string) (func(string) string, error) {
+	globalEnv, err := collectGlobalEnv(paths, contents)
+	if err != nil {
+		return nil, err
+	}
 
 	return func(s string) string {
 		name, defaultVal, hasDefault := strings.Cut(s, ":-")
@@ -2156,7 +2204,7 @@ func envExpander(contents []string) func(string) string {
 		}
 
 		return ""
-	}
+	}, nil
 }
 
 // Load reads and parses configuration files from the given paths.
@@ -2192,7 +2240,10 @@ func Load(paths ...string) (*Config, error) {
 		contents = append(contents, string(content))
 	}
 
-	expand := envExpander(contents)
+	expand, err := envExpander(paths, contents)
+	if err != nil {
+		return nil, err
+	}
 
 	// Load and merge configs in order, collecting expanded YAML for
 	// post-processing (Viper lowercases map keys, so we re-parse to
