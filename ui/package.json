@@ -40,10 +40,13 @@
     "tailwindcss": "^4.1.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.54.0",
-    "vite": "^6.0.0",
-    "vitest": "^4.1.11"
+    "vite": "^6.4.5",
+    "vitest": "^4.1.12"
   },
   "overrides": {
-    "@ai-sdk/provider-utils": "^4.0.33"
+    "@ai-sdk/provider-utils": "^4.0.33",
+    "@scalar/json-magic": {
+      "undici": "^7.30.1"
+    }
   }
 }
