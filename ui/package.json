@@ -43,10 +43,15 @@
     "vite": "^6.4.5",
     "vitest": "^4.1.12"
   },
+  "//overrides": "Remove the @scalar/json-magic undici override when @scalar/json-magic moves to 0.17 or later (it pins undici 8). Remove the seroval pin when @tanstack/router-core needs seroval 1.7 or later. The undici floors keep the Dependabot fixes (GHSA alerts) in the lock file.",
   "overrides": {
-    "@ai-sdk/provider-utils": "^4.0.33",
+    "@ai-sdk/provider-utils": {
+      ".": "^4.0.33",
+      "undici": "^6.29.1"
+    },
     "@scalar/json-magic": {
       "undici": "^7.30.1"
-    }
+    },
+    "seroval": "~1.6.11"
   }
 }
