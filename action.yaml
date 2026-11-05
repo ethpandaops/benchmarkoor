@@ -198,11 +198,13 @@ runs:
           ARGS+=("${EXTRA_ARGS[@]}")
         fi
 
-        # `sudo -E` for the same reasons as the run step: keeps the built
+        # `sudo` for the same reasons as the run step: keeps the built
         # snapshots/fixtures root-owned (so the rootful run phase can read
         # them) and propagates caller env (e.g. STATE_DIR) into the build.
-        echo "Running: sudo -E $BIN ${ARGS[*]}"
-        sudo -E "$BIN" "${ARGS[@]}"
+        # The env is passed by name because sudo-rs (Ubuntu 26.04) ignores -E;
+        # PATH stays out so sudo still applies secure_path, as it did with -E.
+        echo "Running: sudo $BIN ${ARGS[*]}"
+        sudo --preserve-env="$(compgen -e | grep -vx PATH | paste -sd, -)" "$BIN" "${ARGS[@]}"
 
     - name: Generate build markdown summary
       # Runs even if the build failed so a partial summary (incl. ERR targets)
@@ -214,7 +216,7 @@ runs:
         BIN="${{ steps.extract-binary.outputs.binary }}"
         SUMMARY="${{ runner.temp }}/benchmarkoor-build-summary.json"
         if [ -f "$SUMMARY" ]; then
-          sudo -E "$BIN" generate-build-markdown-summary \
+          sudo --preserve-env="$(compgen -e | grep -vx PATH | paste -sd, -)" "$BIN" generate-build-markdown-summary \
             --input="$SUMMARY" \
             --output="${{ runner.temp }}/benchmarkoor-build-summary.md"
           if [ -f "${{ runner.temp }}/benchmarkoor-build-summary.md" ]; then
@@ -340,9 +342,11 @@ runs:
 
         # Export benchmarkoor's own config env vars. Anything the caller
         # set via `env:` on the action step is already in our process
-        # environment; `sudo -E` below propagates both sets to the
+        # environment; `sudo --preserve-env` below propagates both sets to the
         # benchmarkoor process (which it needs to be: root, for
         # drop_memory_caches, schelk dm_era ops, rootful podman, etc.).
+        # It names every exported variable but PATH because sudo-rs (Ubuntu
+        # 26.04) ignores -E.
         export BENCHMARKOOR_RUNNER_GITHUB_TOKEN="${{ inputs.github-token }}"
         export BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_DIR="${{ runner.temp }}/results"
         export BENCHMARKOOR_RUNNER_BENCHMARK_RESULTS_OWNER="$(id -u):$(id -g)"
@@ -381,10 +385,10 @@ runs:
           ARGS+=("${EXTRA_ARGS[@]}")
         fi
 
-        echo "Running: sudo -E $BIN ${ARGS[*]}"
+        echo "Running: sudo $BIN ${ARGS[*]}"
 
         set +e
-        sudo -E "$BIN" "${ARGS[@]}"
+        sudo --preserve-env="$(compgen -e | grep -vx PATH | paste -sd, -)" "$BIN" "${ARGS[@]}"
         EXIT_CODE=$?
         set -e
 
