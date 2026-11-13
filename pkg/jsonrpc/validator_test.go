@@ -267,6 +267,13 @@ func TestValidateRejectedNewPayload(t *testing.T) {
 			parentHash: "0xabc",
 		},
 		{
+			name: "INVALID with the zero hash as latestValidHash passes",
+			response: `{"jsonrpc":"2.0","id":1,"result":{"status":"INVALID",` +
+				`"latestValidHash":"0x0000000000000000000000000000000000000000000000000000000000000000",` +
+				`"validationError":"not enough cash for gas"}}`,
+			parentHash: "0xabc",
+		},
+		{
 			name: "INVALID because of an invalid ancestor fails",
 			response: `{"jsonrpc":"2.0","id":1,"result":{"status":"INVALID",` +
 				`"latestValidHash":"0x123","validationError":"part of an invalid chain"}}`,
