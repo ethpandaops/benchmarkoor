@@ -65,6 +65,10 @@ func (v *NewPayloadValidator) Validate(method string, resp *Response) error {
 // reject. It points at a client that skips a validity check.
 var ErrPayloadAccepted = errors.New("client accepted a payload that it must reject")
 
+// zeroHash is the latestValidHash a client returns when the most recent valid
+// ancestor is a PoW block.
+const zeroHash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
 // ValidateRejectedNewPayload checks the response to an engine_newPayload call
 // whose payload the client must reject. With errorCode nil the client must
 // answer status INVALID. With errorCode set it must answer that JSON-RPC
@@ -75,7 +79,10 @@ var ErrPayloadAccepted = errors.New("client accepted a payload that it must reje
 //   - INVALID_BLOCK_HASH: the client never executed the block.
 //   - a latestValidHash other than parentHash: an ancestor is invalid, so the
 //     client rejected the block without executing it. An empty
-//     latestValidHash or parentHash skips this check.
+//     latestValidHash or parentHash skips this check, and so does the zero
+//     hash: the Engine API returns it when the most recent valid ancestor is
+//     a PoW block, and nimbus counts genesis as one, so it answers zero for
+//     every invalid child of genesis.
 func ValidateRejectedNewPayload(resp *Response, errorCode *int, parentHash string) error {
 	if errorCode != nil {
 		if resp.Error == nil {
@@ -102,6 +109,7 @@ func ValidateRejectedNewPayload(resp *Response, errorCode *int, parentHash strin
 	switch result.Status {
 	case "INVALID":
 		if result.LatestValidHash != "" && parentHash != "" &&
+			!strings.EqualFold(result.LatestValidHash, zeroHash) &&
 			!strings.EqualFold(result.LatestValidHash, parentHash) {
 			return fmt.Errorf("newPayload status is INVALID with latestValidHash %s, "+
 				"not the parent %s: the client rejected an invalid ancestor, "+
