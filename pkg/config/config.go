@@ -440,7 +440,6 @@ type EESTPayloadDefaults struct {
 	AddressStubsFile   string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
 	AddressStubs       map[string]map[string]string `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
 	GasBenchmarkValues []int                        `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
-	FixedOpcodeCount   *[]float64                   `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
 	ExtractOpcodeCount *bool                        `yaml:"extract_opcode_count,omitempty" mapstructure:"extract_opcode_count"`
 	DataDirMethod      string                       `yaml:"datadir_method,omitempty" mapstructure:"datadir_method"`
 	MaxGasPerTest      *uint64                      `yaml:"max_gas_per_test,omitempty" mapstructure:"max_gas_per_test"`
@@ -494,7 +493,6 @@ type EESTPayloadTarget struct {
 	AddressStubsFile   string                       `yaml:"address_stubs_file,omitempty" mapstructure:"address_stubs_file"`
 	AddressStubs       map[string]map[string]string `yaml:"address_stubs,omitempty" mapstructure:"address_stubs"`
 	GasBenchmarkValues []int                        `yaml:"gas_benchmark_values,omitempty" mapstructure:"gas_benchmark_values"`
-	FixedOpcodeCount   *[]float64                   `yaml:"fixed_opcode_count,omitempty" mapstructure:"fixed_opcode_count"`
 	// ExtractOpcodeCount enables fill-stateful's --extract-opcode-count: after
 	// building each execution-phase block it is traced via debug_traceBlockByHash
 	// with a custom JS opcode-counting tracer, recording per-opcode execution
@@ -557,10 +555,6 @@ func (e *EESTPayloadsConfig) ResolveTarget(i int) EESTPayloadTarget {
 
 	if len(t.GasBenchmarkValues) == 0 {
 		t.GasBenchmarkValues = g.GasBenchmarkValues
-	}
-
-	if t.FixedOpcodeCount == nil {
-		t.FixedOpcodeCount = g.FixedOpcodeCount
 	}
 
 	if t.ExtractOpcodeCount == nil {
@@ -3166,17 +3160,6 @@ func (c *Config) validateEESTPayloads() error {
 			return err
 		}
 
-		if err := validateFixedOpcodeCount(t.FixedOpcodeCount, prefix); err != nil {
-			return err
-		}
-
-		if len(t.GasBenchmarkValues) > 0 && t.FixedOpcodeCount != nil {
-			return fmt.Errorf(
-				"%s: gas_benchmark_values and fixed_opcode_count are mutually exclusive "+
-					"(fill-stateful rejects both)", prefix,
-			)
-		}
-
 		if t.EOAStart != nil && *t.EOAStart == 0 {
 			return fmt.Errorf("%s.eoa_start must be > 0 when set (0 is not a valid key)", prefix)
 		}
@@ -3261,26 +3244,6 @@ func validateGasBenchmarkValues(values []int, prefix string) error {
 		if v < 1 {
 			return fmt.Errorf(
 				"%s.gas_benchmark_values: %d is not a positive integer (millions of gas)", prefix, v,
-			)
-		}
-	}
-
-	return nil
-}
-
-// validateFixedOpcodeCount checks a list of positive numbers (thousands of
-// opcodes), e.g. [0.5, 1, 2]. A nil pointer (unset) is allowed, as is a
-// non-nil empty list (passes the bare --fixed-opcode-count flag, which uses
-// the fill image's .fixed_opcode_counts.json default).
-func validateFixedOpcodeCount(values *[]float64, prefix string) error {
-	if values == nil {
-		return nil
-	}
-
-	for _, v := range *values {
-		if v <= 0 {
-			return fmt.Errorf(
-				"%s.fixed_opcode_count: %v is not a positive number (thousands of opcodes)", prefix, v,
 			)
 		}
 	}

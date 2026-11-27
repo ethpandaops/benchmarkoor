@@ -314,7 +314,6 @@ func (b *EESTPayloadsBuilder) eestFingerprintInputs(target *config.EESTPayloadTa
 		"filter":                 target.Filter,
 		"marker":                 target.Marker,
 		"gas_benchmark_values":   target.GasBenchmarkValues,
-		"fixed_opcode_count":     target.FixedOpcodeCount,
 		"max_gas_per_test":       target.MaxGasPerTest,
 		"rpc_seed_key":           target.RPCSeedKey,
 		"eoa_start":              target.ResolveEOAStart(),
@@ -1324,22 +1323,6 @@ func buildFillArgs(
 		// fill-stateful's --gas-benchmark-values takes one comma-separated
 		// argument, e.g. "10,30" for 10M and 30M gas.
 		args = append(args, "--gas-benchmark-values="+strings.Join(vals, ","))
-	}
-
-	// --fixed-opcode-count is mutually exclusive with --gas-benchmark-values
-	// (config validation enforces this). A non-nil but empty list passes the
-	// flag bare, which makes fill-stateful use its .fixed_opcode_counts.json.
-	if t.FixedOpcodeCount != nil {
-		if counts := *t.FixedOpcodeCount; len(counts) > 0 {
-			vals := make([]string, len(counts))
-			for i, v := range counts {
-				vals[i] = strconv.FormatFloat(v, 'g', -1, 64)
-			}
-
-			args = append(args, "--fixed-opcode-count="+strings.Join(vals, ","))
-		} else {
-			args = append(args, "--fixed-opcode-count")
-		}
 	}
 
 	// --extract-opcode-count traces each execution-phase block via

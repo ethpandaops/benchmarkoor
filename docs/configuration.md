@@ -2241,7 +2241,6 @@ builder:
       filler_image: ethpandaops/geth:master
       fork: Osaka
       gas_benchmark_values: [10, 30]     # millions of gas to parametrise against
-      # fixed_opcode_count: [0.5, 1, 2]  # thousands of opcodes; mutually exclusive with gas_benchmark_values
       # extract_opcode_count: true       # per-opcode counts in _info.metadata.opcode_count via debug_traceBlockByHash + a custom JS tracer (slow)
       datadir_method: copy               # copy | overlayfs | fuse-overlayfs | zfs | direct | schelk
     targets:
@@ -2285,8 +2284,7 @@ Every field below is also available per-target; a non-nil/non-empty value on a t
 | `marker` | string | – | pytest `-m` marker expression, orthogonal to `filter`'s `-k`, e.g. `repricing` / `not repricing`. |
 | `address_stubs` | map | – | Inline `--address-stubs` map: stub name → arbitrary string fields (e.g. `addr`, `pkey`). Materialised to a temp JSON file at build time. Mutually exclusive with `address_stubs_file`. |
 | `address_stubs_file` | string | – | **Absolute** host path to a `--address-stubs` JSON map. Mutually exclusive with `address_stubs`. |
-| `gas_benchmark_values` | int[] | – | Gas budgets in millions, e.g. `[10, 30]`; joined into `--gas-benchmark-values`. Mutually exclusive with `fixed_opcode_count`. |
-| `fixed_opcode_count` | float[] | – | Opcode counts in thousands, e.g. `[0.5, 1, 2]`; joined into `--fixed-opcode-count`. An empty list (`[]`) passes the flag bare, using the fill image's `.fixed_opcode_counts.json` default. Mutually exclusive with `gas_benchmark_values`. |
+| `gas_benchmark_values` | int[] | – | Gas budgets in millions, e.g. `[10, 30]`; joined into `--gas-benchmark-values`. |
 | `extract_opcode_count` | bool | `false` | Enable `fill-stateful --extract-opcode-count`: after building each execution-phase block, trace it via `debug_traceBlockByHash` with a **custom JS opcode-counting tracer** and record per-opcode execution counts in each fixture's `_info.metadata.opcode_count`. The per-block re-trace with the custom tracer is what makes it **slow**, so it is opt-in. Works with any filler exposing `debug_traceBlockByHash` + JS tracer support (geth is the validated/production-ready filler). Needs an `eest_repo`/`eest_ref` whose `fill-stateful` carries the flag ([execution-specs#3124](https://github.com/ethereum/execution-specs/pull/3124)). |
 | `datadir_method` | string | `copy` | How the filler's writable copy of `source_dir` is prepared: `copy`, `overlayfs`, `fuse-overlayfs`, `zfs`, `direct`, `schelk`. Use `zfs`/`overlayfs` to avoid a full copy of a large snapshot. |
 | `max_gas_per_test` | uint64 | – | Overrides the fork's transaction gas-limit cap (`--max-gas-per-test`). |
@@ -2316,7 +2314,7 @@ Identity/locator fields are target-only; the rest mirror `config` and are resolv
 | `genesis_eip_override` | object | – | Patch a parity/nethermind `genesis` at filler boot, setting `params.eip<N>TransitionTimestamp` for each listed EIP. Fields: `timestamp` (uint), `eips` ([]uint). For the nethermind filler. Requires `genesis`; mutually exclusive with `genesis_fork_override`. |
 | `output_dir` | string | – | **Absolute** host path for the generated fixtures. Skipped if already populated unless `--force` / `force: true`. Written under `<output_dir>/blockchain_tests_stateful_engine/`. |
 | `force` | bool | `false` | Per-target override of `--force`: wipe `output_dir` before filling. |
-| `filler_image`, `fork`, `tests`, `filter`, `marker`, `address_stubs`, `address_stubs_file`, `gas_benchmark_values`, `fixed_opcode_count`, `extract_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `eoa_start`, `filler_extra_args` | — | from `config` | Mirror `config` with per-target precedence — see the `config` table above. `tests`, `fork`, and `filler_image` are required after resolution (set on the target or in `config`). |
+| `filler_image`, `fork`, `tests`, `filter`, `marker`, `address_stubs`, `address_stubs_file`, `gas_benchmark_values`, `extract_opcode_count`, `datadir_method`, `max_gas_per_test`, `rpc_seed_key`, `eoa_start`, `filler_extra_args` | — | from `config` | Mirror `config` with per-target precedence — see the `config` table above. `tests`, `fork`, and `filler_image` are required after resolution (set on the target or in `config`). |
 
 ### Replaying generated fixtures
 

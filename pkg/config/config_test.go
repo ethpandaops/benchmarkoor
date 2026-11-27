@@ -5002,29 +5002,6 @@ func TestValidateEESTPayloads(t *testing.T) {
 			errSubstr: "gas_benchmark_values",
 		},
 		{
-			name: "invalid fixed_opcode_count",
-			ep: func() *EESTPayloadsConfig {
-				tgt := base(dirA)
-				tgt.FixedOpcodeCount = &[]float64{0.5, -1}
-
-				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
-			}(),
-			wantErr:   true,
-			errSubstr: "fixed_opcode_count",
-		},
-		{
-			name: "gas_benchmark_values and fixed_opcode_count are mutually exclusive",
-			ep: func() *EESTPayloadsConfig {
-				tgt := base(dirA)
-				tgt.GasBenchmarkValues = []int{10}
-				tgt.FixedOpcodeCount = &[]float64{0.5}
-
-				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
-			}(),
-			wantErr:   true,
-			errSubstr: "mutually exclusive",
-		},
-		{
 			name: "zero eoa_start rejected",
 			ep: func() *EESTPayloadsConfig {
 				tgt := base(dirA)
@@ -5034,16 +5011,6 @@ func TestValidateEESTPayloads(t *testing.T) {
 			}(),
 			wantErr:   true,
 			errSubstr: "eoa_start must be > 0",
-		},
-		{
-			name: "fixed_opcode_count bare (empty list) is valid",
-			ep: func() *EESTPayloadsConfig {
-				tgt := base(dirA)
-				tgt.FixedOpcodeCount = &[]float64{}
-
-				return &EESTPayloadsConfig{FillImage: "fill:latest", Targets: []EESTPayloadTarget{tgt}}
-			}(),
-			wantErr: false,
 		},
 		{
 			name: "inline address_stubs is valid",

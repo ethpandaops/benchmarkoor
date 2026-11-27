@@ -142,7 +142,7 @@ func TestBuildFillArgs(t *testing.T) {
 				"tests/benchmark/compute",
 			},
 			wantAbsent: []string{
-				"--clean", "--gas-benchmark-values", "--fixed-opcode-count", "--max-gas-per-test",
+				"--clean", "--gas-benchmark-values", "--max-gas-per-test",
 				"--rpc-seed-key", "--address-stubs", "-k", "--extract-opcode-count",
 			},
 		},
@@ -165,28 +165,6 @@ func TestBuildFillArgs(t *testing.T) {
 				Tests:              []string{"tests/benchmark/compute"},
 			},
 			wantAbsent: []string{"--extract-opcode-count"},
-		},
-		{
-			name: "fixed opcode count values",
-			target: &config.EESTPayloadTarget{
-				FillerClient:     "geth",
-				Fork:             "Osaka",
-				FixedOpcodeCount: &[]float64{0.5, 1, 2},
-				Tests:            []string{"tests/benchmark/compute"},
-			},
-			wantContain: []string{"--fixed-opcode-count=0.5,1,2"},
-			wantAbsent:  []string{"--gas-benchmark-values"},
-		},
-		{
-			name: "fixed opcode count bare (default json)",
-			target: &config.EESTPayloadTarget{
-				FillerClient:     "geth",
-				Fork:             "Osaka",
-				FixedOpcodeCount: &[]float64{},
-				Tests:            []string{"tests/benchmark/compute"},
-			},
-			wantContain: []string{"--fixed-opcode-count"},
-			wantAbsent:  []string{"--fixed-opcode-count=", "--gas-benchmark-values"},
 		},
 		{
 			name: "full",
