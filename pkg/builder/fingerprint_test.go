@@ -210,7 +210,7 @@ func TestStateActorFingerprint_FieldSensitivity(t *testing.T) {
 func TestEESTFingerprint_FieldSensitivity(t *testing.T) {
 	genesis1, genesis2 := writeTempFile(t, "g1"), writeTempFile(t, "g2")
 	stubs1, stubs2 := writeTempFile(t, "s1"), writeTempFile(t, "s2")
-	maxGas, foc := uint64(100), []float64{1, 2}
+	maxGas := uint64(100)
 
 	cfg := func() *config.EESTPayloadsConfig {
 		return &config.EESTPayloadsConfig{FillImage: "fill:1", EESTRepo: "https://example.com/a.git"}
@@ -219,7 +219,7 @@ func TestEESTFingerprint_FieldSensitivity(t *testing.T) {
 		return &config.EESTPayloadTarget{
 			FillerClient: "besu", FillerImage: "f:1", Fork: "osaka",
 			Tests: []string{"a"}, Filter: "bn128", Marker: "m",
-			GasBenchmarkValues: []int{10}, FixedOpcodeCount: &foc, MaxGasPerTest: &maxGas,
+			GasBenchmarkValues: []int{10}, MaxGasPerTest: &maxGas,
 			RPCSeedKey: "0x1", DataDirMethod: "copy", FillerExtraArgs: []string{"--x"},
 			GenesisForkOverride: map[string]uint64{"amsterdam": 1},
 			Genesis:             genesis1, AddressStubsFile: stubs1, SourceDir: "/src",
@@ -254,7 +254,6 @@ func TestEESTFingerprint_FieldSensitivity(t *testing.T) {
 		{"filter", func(t *config.EESTPayloadTarget) { t.Filter = "modexp" }},
 		{"marker", func(t *config.EESTPayloadTarget) { t.Marker = "n" }},
 		{"gas_benchmark_values", func(t *config.EESTPayloadTarget) { t.GasBenchmarkValues = []int{20} }},
-		{"fixed_opcode_count", func(t *config.EESTPayloadTarget) { f := []float64{3}; t.FixedOpcodeCount = &f }},
 		{"max_gas_per_test", func(t *config.EESTPayloadTarget) { g := uint64(200); t.MaxGasPerTest = &g }},
 		{"rpc_seed_key", func(t *config.EESTPayloadTarget) { t.RPCSeedKey = "0x2" }},
 		{"eoa_start", func(t *config.EESTPayloadTarget) { e := uint64(42); t.EOAStart = &e }},
